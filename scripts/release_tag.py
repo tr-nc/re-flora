@@ -24,7 +24,9 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def cargo_version(root: Path) -> str:
+def cargo_package_info(root: Path) -> tuple[str, str]:
+    package_name: str | None = None
+    package_version: str | None = None
     in_package = False
     for raw_line in (root / "Cargo.toml").read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
@@ -33,10 +35,96 @@ def cargo_version(root: Path) -> str:
             continue
         if in_package and line.startswith("["):
             break
+        if in_package and line.startswith("name"):
+            _key, value = line.split("=", 1)
+            package_name = value.strip().strip('"')
         if in_package and line.startswith("version"):
             _key, value = line.split("=", 1)
-            return value.strip().strip('"')
-    raise ReleaseTagError("package.version not found in Cargo.toml")
+            package_version = value.strip().strip('"')
+    if package_name is None:
+        raise ReleaseTagError("package.name not found in Cargo.toml")
+    if package_version is None:
+        raise ReleaseTagError("package.version not found in Cargo.toml")
+    return package_name, package_version
+
+
+def cargo_version(root: Path) -> str:
+    return cargo_package_info(root)[1]
+
+
+def bump_patch_version(version: str) -> str:
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+    if not match:
+        raise ReleaseTagError(
+            f"--bump-patch requires a plain X.Y.Z Cargo.toml version; got {version!r}"
+        )
+    major, minor, patch = (int(part) for part in match.groups())
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def update_cargo_toml_version(root: Path, *, old_version: str, new_version: str) -> None:
+    path = root / "Cargo.toml"
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    in_package = False
+    changed = False
+    for index, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if line == "[package]":
+            in_package = True
+            continue
+        if in_package and line.startswith("["):
+            break
+        if in_package and line.startswith("version"):
+            newline = "\n" if raw_line.endswith("\n") else ""
+            lines[index] = f'version = "{new_version}"{newline}'
+            changed = True
+            break
+    if not changed:
+        raise ReleaseTagError("package.version not found in Cargo.toml")
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+def update_cargo_lock_version(
+    root: Path, *, package_name: str, old_version: str, new_version: str
+) -> None:
+    path = root / "Cargo.lock"
+    text = path.read_text(encoding="utf-8")
+    blocks = text.split("[[package]]")
+    changed = False
+    for index in range(1, len(blocks)):
+        block = blocks[index]
+        if re.search(rf'^name = "{re.escape(package_name)}"$', block, re.MULTILINE):
+            updated = re.sub(
+                rf'^version = "{re.escape(old_version)}"$',
+                f'version = "{new_version}"',
+                block,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            if updated == block:
+                raise ReleaseTagError(
+                    f"found {package_name!r} in Cargo.lock but version was not {old_version!r}"
+                )
+            blocks[index] = updated
+            changed = True
+            break
+    if not changed:
+        raise ReleaseTagError(f"package {package_name!r} not found in Cargo.lock")
+    path.write_text("[[package]]".join(blocks), encoding="utf-8")
+
+
+def update_cargo_version_files(root: Path, *, new_version: str) -> str:
+    package_name, old_version = cargo_package_info(root)
+    if old_version == new_version:
+        raise ReleaseTagError(f"Cargo.toml is already at version {new_version}")
+    update_cargo_toml_version(root, old_version=old_version, new_version=new_version)
+    update_cargo_lock_version(
+        root,
+        package_name=package_name,
+        old_version=old_version,
+        new_version=new_version,
+    )
+    return old_version
 
 
 def run(command: list[str], root: Path, *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -140,6 +228,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--message", help="annotated tag message; defaults to 'Re: Flora <version>'")
     parser.add_argument("--no-push", action="store_true", help="create the tag locally but do not trigger CI")
     parser.add_argument("--dry-run", action="store_true", help="print the actions without creating or pushing a tag")
+    parser.add_argument(
+        "--bump-patch",
+        action="store_true",
+        help="increment Cargo.toml/Cargo.lock patch version, commit it, then tag that commit",
+    )
     parser.add_argument("-y", "--yes", action="store_true", help="skip the confirmation prompt")
     parser.add_argument("--allow-dirty", action="store_true", help="allow tagging with local changes present")
     parser.add_argument(
@@ -166,13 +259,19 @@ def main() -> int:
     root = repo_root()
 
     try:
-        cargo_ver = cargo_version(root)
-        tag, version = canonical_tag(args.version or cargo_ver)
+        if args.bump_patch and args.version:
+            raise ReleaseTagError("pass either --bump-patch or an explicit version, not both")
+        if args.bump_patch and args.allow_version_mismatch:
+            raise ReleaseTagError("--bump-patch cannot be combined with --allow-version-mismatch")
 
-        if version != cargo_ver and not args.allow_version_mismatch:
+        cargo_ver = cargo_version(root)
+        version_input = bump_patch_version(cargo_ver) if args.bump_patch else args.version or cargo_ver
+        tag, version = canonical_tag(version_input)
+
+        if version != cargo_ver and not args.bump_patch and not args.allow_version_mismatch:
             raise ReleaseTagError(
                 f"tag version {version!r} does not match Cargo.toml version {cargo_ver!r}; "
-                "update Cargo.toml/Cargo.lock first or use --allow-version-mismatch"
+                "update Cargo.toml/Cargo.lock first, use --bump-patch, or use --allow-version-mismatch"
             )
 
         ensure_clean_worktree(root, allow_dirty=args.allow_dirty)
@@ -198,28 +297,48 @@ def main() -> int:
         push = not args.no_push
         print_plan(tag=tag, version=version, branch=branch, remote=args.remote, commit=commit, push=push)
 
+        bump_commit_command = ["git", "commit", "-m", f"bump version to {version}"]
+        push_branch_command = ["git", "push", args.remote, branch]
         tag_message = args.message or f"Re: Flora {version}"
         tag_command = ["git", "tag", "-a", tag, "-m", tag_message]
-        push_command = ["git", "push", args.remote, tag]
+        push_tag_command = ["git", "push", args.remote, tag]
 
         if args.dry_run:
+            if args.bump_patch:
+                print(f"dry run: would update Cargo.toml/Cargo.lock from {cargo_ver} to {version}")
+                print("dry run: would run git add Cargo.toml Cargo.lock")
+                print(f"dry run: would run {shlex.join(bump_commit_command)}")
+                if push:
+                    print(f"dry run: would run {shlex.join(push_branch_command)}")
             print(f"dry run: would run {shlex.join(tag_command)}")
             if push:
-                print(f"dry run: would run {shlex.join(push_command)}")
+                print(f"dry run: would run {shlex.join(push_tag_command)}")
             return 0
 
         action = f"Create annotated tag {tag} at {commit}"
+        if args.bump_patch:
+            action = f"Bump version from {cargo_ver} to {version}, commit it, then {action}"
         if push:
             action += f" and push it to {args.remote}"
         if not args.yes and not confirm(action + "?"):
             print("aborted")
             return 1
 
+        if args.bump_patch:
+            update_cargo_version_files(root, new_version=version)
+            run(["git", "add", "Cargo.toml", "Cargo.lock"], root)
+            run(bump_commit_command, root)
+            commit = git(root, "rev-parse", "--short=12", "HEAD")
+            print(f"Committed version bump to {version} at {commit}")
+            if push:
+                run(push_branch_command, root)
+                print(f"Pushed {branch} to {args.remote}")
+
         run(tag_command, root)
         print(f"Created local tag {tag}")
 
         if push:
-            run(push_command, root)
+            run(push_tag_command, root)
             print("Pushed tag; GitHub Actions should start the release packages workflow.")
             print("Watch with: gh run list --workflow itch-builds.yml --limit 3")
         else:
