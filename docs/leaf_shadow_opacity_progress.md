@@ -43,7 +43,7 @@ Constraints and assumptions:
 
 Chosen design:
 
-- Use a separate 2D light-space opacity map at the existing shadow-map resolution.
+- Use a separate 2D light-space opacity map; keep it at 2048² for animated leaf high-frequency detail while the original terrain/stable-scene VSM shadow map can be reduced independently.
 - Render current animated leaf/apple caster geometry into an `R8G8B8A8_UNORM` color target and accumulate fragment alpha with standard over blending; alpha is interpreted as leaf opacity and red stores opacity-weighted light-space depth for receiver depth gating.
 - Do not feed animated leaf depth into the terrain VSM path. The main `shadow_map_tex` and VSM moments remain terrain/stable-scene only.
 - Build a small low-resolution light-space influence mask from the opacity map. Receivers sample this mask first and skip high-resolution leaf-opacity sampling when the mask is empty.
@@ -59,8 +59,8 @@ Chosen design:
 
 Implementation notes:
 
-- Added `leaf_shadow_opacity_tex` at shadow-map resolution.
-- Added `leaf_shadow_mask_tex` at 1/8 shadow-map resolution.
+- Added `leaf_shadow_opacity_tex` at independent 2048² resolution.
+- Added `leaf_shadow_mask_tex` at 1/8 leaf-opacity resolution.
 - Added descriptor bindings for flora/leaf receivers and a compute mask pass.
 
 ### Phase 3: Render animated leaves into the separate leaf shadow path
@@ -167,6 +167,7 @@ Validation notes:
 ## Progress Log
 
 - 2026-06-03: Chose a separate 2D light-space opacity map plus low-res influence mask; deferred layered/deep opacity because grass receivers are the target and the deep path is much more expensive.
+- 2026-06-03: Decoupled the original VSM shadow map from leaf opacity resolution; VSM now uses 1024² while leaf opacity remains 2048².
 - 2026-06-03: Added GUI controls for leaf opacity strength/filtering and integrated leaf opacity with tracer direct lighting so leaf shadow affects terrain/voxel rendering, not only flora receivers.
 - 2026-06-03: Added approximate light-space depth gating to leaf opacity sampling so tree-leaf/apple self-shadow direction follows the sun direction instead of behaving like a pure 2D projection.
 - 2026-06-03: Enabled leaf-shadow receiving for tree leaves and apples so canopy/fruit surfaces are shadowed by leaf/apple opacity.
@@ -181,7 +182,7 @@ Validation notes:
 ## Open Questions / Risks
 
 - The current implementation is a single-layer approximate opacity/depth map. If dense canopy self-shadow still looks wrong, move to layered/deep opacity.
-- Current resolution is full shadow-map opacity plus 1/8-resolution mask. If it is too sharp/expensive, tune opacity resolution or PCF taps.
+- Current resolution is 1024² for the original VSM shadow map and 2048² leaf opacity plus a 256² mask. If it is too sharp/expensive, tune opacity resolution or PCF taps.
 - Current accumulation uses raster alpha blending. If opacity ordering or saturation becomes a problem, consider storage-image atomics or a compute accumulation pass.
 - Current receiver skip mask is light-space only. World chunk metadata may be worth adding if receiver cost remains high.
 - Current filtering is a receiver-side conservative max filter with GUI-controlled radius. More blur may soften leaf shadows too much.

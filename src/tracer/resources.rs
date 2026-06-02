@@ -403,6 +403,7 @@ impl ShadowResources {
         allocator: Allocator,
         tracer_shadow_sm: &ShaderModule,
         shadow_map_extent: Extent2D,
+        leaf_shadow_opacity_extent: Extent2D,
     ) -> Self {
         let shadow_camera_info = Buffer::from_buffer_layout(
             device.clone(),
@@ -415,15 +416,21 @@ impl ShadowResources {
             MemoryLocation::CpuToGpu,
         );
         let shadow_map_extent: Extent3D = shadow_map_extent.into();
+        let leaf_shadow_opacity_extent: Extent3D = leaf_shadow_opacity_extent.into();
         let leaf_shadow_mask_extent = Extent3D::new(
-            (shadow_map_extent.width / 8).max(1),
-            (shadow_map_extent.height / 8).max(1),
+            (leaf_shadow_opacity_extent.width / 8).max(1),
+            (leaf_shadow_opacity_extent.height / 8).max(1),
             1,
         );
         log::info!(
-            "[LEAF_SHADOW] using 2D opacity map {}x{}, temporal history, and influence mask {}x{}",
+            "[SHADOW] using VSM shadow map {}x{}",
             shadow_map_extent.width,
             shadow_map_extent.height,
+        );
+        log::info!(
+            "[LEAF_SHADOW] using 2D opacity map {}x{}, temporal history, and influence mask {}x{}",
+            leaf_shadow_opacity_extent.width,
+            leaf_shadow_opacity_extent.height,
             leaf_shadow_mask_extent.width,
             leaf_shadow_mask_extent.height,
         );
@@ -465,21 +472,21 @@ impl ShadowResources {
                 TracerResources::create_leaf_shadow_opacity_tex(
                     device.clone(),
                     allocator.clone(),
-                    shadow_map_extent,
+                    leaf_shadow_opacity_extent,
                 ),
             ),
             leaf_shadow_opacity_prev_tex: Resource::new(
                 TracerResources::create_leaf_shadow_opacity_history_tex(
                     device.clone(),
                     allocator.clone(),
-                    shadow_map_extent,
+                    leaf_shadow_opacity_extent,
                 ),
             ),
             leaf_shadow_opacity_blended_tex: Resource::new(
                 TracerResources::create_leaf_shadow_opacity_blended_tex(
                     device.clone(),
                     allocator.clone(),
-                    shadow_map_extent,
+                    leaf_shadow_opacity_extent,
                 ),
             ),
             leaf_shadow_mask_tex: Resource::new(TracerResources::create_leaf_shadow_mask_tex(
@@ -663,6 +670,7 @@ impl TracerResources {
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
+        leaf_shadow_opacity_extent: Extent2D,
         max_terrain_queries: u32,
     ) -> Self {
         let device = vulkan_ctx.device();
@@ -682,6 +690,7 @@ impl TracerResources {
                 allocator.clone(),
                 tracer_shadow_sm,
                 shadow_map_extent,
+                leaf_shadow_opacity_extent,
             ),
             wind: WindResources::new(
                 device.clone(),

@@ -61,6 +61,8 @@ use re_flora_vkn::{
 use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
+const SHADOW_MAP_RESOLUTION: u32 = 1024;
+const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -246,7 +248,11 @@ impl Tracer {
             chunk_bound,
             render_extent,
             screen_extent,
-            Extent2D::new(2048, 2048),
+            Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
+            Extent2D::new(
+                LEAF_SHADOW_OPACITY_RESOLUTION,
+                LEAF_SHADOW_OPACITY_RESOLUTION,
+            ),
             MAX_TERRAIN_QUERIES as u32,
         );
         let particle_resources =
