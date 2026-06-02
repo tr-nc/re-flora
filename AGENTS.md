@@ -10,6 +10,15 @@
 - Validate Rust/rendering changes with hidden mode (`cargo run --release -- --hidden --auto-exit 0.5`) and inspect the run log for errors.
 - Do not edit generated files directly unless they are part of the generated output from a build/check.
 
+## Release Versioning
+
+Use the main worktree (`/home/terence/code/re-flora`) on a clean, up-to-date `main` branch for releases. Do not release from worker worktrees.
+
+- First check and update: `git status --short --branch` then `git pull --ff-only`.
+- Patch release: run `scripts/release_tag.py --bump-patch -y`. The helper bumps `Cargo.toml` and `Cargo.lock`, commits `bump version to X.Y.Z`, pushes `main`, creates annotated tag `vX.Y.Z`, and pushes the tag to trigger `.github/workflows/itch-builds.yml`.
+- Minor release: compute the next `X.(Y+1).0`, update only the root `re-flora` version in `Cargo.toml` and its matching `Cargo.lock` package block, commit `bump version to X.(Y+1).0`, push `main`, then run `scripts/release_tag.py X.(Y+1).0 -y` to create and push the release tag. Do not use `--allow-version-mismatch` for normal releases.
+- After triggering a release, confirm CI with `gh run list --workflow itch-builds.yml --limit 3`; use `gh run watch <run-id>` if the user asks to wait for packages.
+
 ## Parallel Agent Workflow
 
 Use git worktrees to keep parallel coding agents isolated. Do not run multiple agents that edit files in the same working directory.
