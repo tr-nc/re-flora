@@ -3,16 +3,17 @@
 
 // Separate moving-leaf shadow path.
 // Requires:
-//   uniform sampler2D leaf_shadow_opacity_blended_tex; // alpha = accumulated leaf opacity
+//   uniform sampler2D leaf_shadow_opacity_blended_tex; // R = light depth * alpha, A = accumulated leaf opacity
 //   uniform sampler2D leaf_shadow_mask_tex;            // alpha = conservative low-res influence mask
 //   U_ShadowCameraInfo shadow_camera_info;
 
 const float LEAF_SHADOW_MASK_SAMPLE_THRESHOLD = 0.01;
+const float LEAF_SHADOW_DEPTH_BIAS = 0.0015;
 
-float sample_leaf_shadow_opacity_pcf(vec2 uv) {
+float sample_leaf_shadow_opacity_pcf(vec2 uv, float receiver_depth, bool depth_gate) {
     vec2 texel = 1.0 / vec2(textureSize(leaf_shadow_opacity_blended_tex, 0));
     vec2 radius = texel * max(gui_input.leaf_shadow_filter_radius_texels, 0.0);
-    float opacity = texture(leaf_shadow_opacity_blended_tex, uv).a;
+    float opacity = 0.0;
 
     // The opacity map is intentionally high-res and leaf voxels are small, so an
     // averaging PCF can make single-leaf silhouettes disappear. Use a small
@@ -21,14 +22,25 @@ float sample_leaf_shadow_opacity_pcf(vec2 uv) {
     for (int y = -1; y <= 1; y++) {
         for (int x = -1; x <= 1; x++) {
             vec2 offset = vec2(float(x), float(y)) * radius;
-            opacity = max(opacity, texture(leaf_shadow_opacity_blended_tex, uv + offset).a);
+            vec4 sample_value = texture(leaf_shadow_opacity_blended_tex, uv + offset);
+            float sample_opacity = clamp(sample_value.a, 0.0, 1.0);
+
+            if (depth_gate && sample_opacity > 1e-4) {
+                float caster_depth = clamp(sample_value.r / sample_opacity, 0.0, 1.0);
+                if (receiver_depth <= caster_depth + LEAF_SHADOW_DEPTH_BIAS) {
+                    sample_opacity = 0.0;
+                }
+            }
+
+            opacity = max(opacity, sample_opacity);
         }
     }
 
     return clamp(opacity, 0.0, 1.0);
 }
 
-float get_leaf_shadow_transmittance(vec4 voxel_pos_ws, bool receiver_accepts_leaf_shadow) {
+float get_leaf_shadow_transmittance(vec4 voxel_pos_ws, bool receiver_accepts_leaf_shadow,
+                                    bool depth_gate) {
     if (!receiver_accepts_leaf_shadow) {
         return 1.0;
     }
@@ -46,7 +58,7 @@ float get_leaf_shadow_transmittance(vec4 voxel_pos_ws, bool receiver_accepts_lea
         return 1.0;
     }
 
-    float opacity = sample_leaf_shadow_opacity_pcf(uv) * mask;
+    float opacity = sample_leaf_shadow_opacity_pcf(uv, ndc.z, depth_gate) * mask;
     float strength = max(gui_input.leaf_shadow_strength, 0.0);
     float min_transmittance = clamp(gui_input.leaf_shadow_min_transmittance, 0.0, 1.0);
     float transmittance = 1.0 - opacity * strength;

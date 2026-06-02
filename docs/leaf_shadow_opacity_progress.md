@@ -44,11 +44,11 @@ Constraints and assumptions:
 Chosen design:
 
 - Use a separate 2D light-space opacity map at the existing shadow-map resolution.
-- Render current animated leaf/apple caster geometry into an `R8G8B8A8_UNORM` color target and accumulate fragment alpha with standard over blending; the alpha channel is interpreted as leaf opacity.
+- Render current animated leaf/apple caster geometry into an `R8G8B8A8_UNORM` color target and accumulate fragment alpha with standard over blending; alpha is interpreted as leaf opacity and red stores opacity-weighted light-space depth for receiver depth gating.
 - Do not feed animated leaf depth into the terrain VSM path. The main `shadow_map_tex` and VSM moments remain terrain/stable-scene only.
 - Build a small low-resolution light-space influence mask from the opacity map. Receivers sample this mask first and skip high-resolution leaf-opacity sampling when the mask is empty.
-- Receiver rule: terrain VSM visibility is multiplied by leaf transmittance `1 - opacity * strength` for flora receivers inside the mask, including tree leaves and apples.
-- Depth model: first implementation is intentionally 2D opacity, not layered/deep opacity. This can over-shadow receivers in front of the canopy, but is currently accepted for grass/low flora plus self-shadowed tree leaves/apples and avoids a much more expensive deep-opacity path.
+- Receiver rule: terrain VSM visibility is multiplied by leaf transmittance `1 - opacity * strength` for receivers inside the mask, including terrain, tree leaves, and apples.
+- Depth model: first implementation is still not layered/deep opacity, but the opacity map carries approximate light-space caster depth. Receivers ignore opacity samples that are not in front of them along the light ray, which keeps tree-leaf/apple self-shadow direction plausible while avoiding a full deep-opacity path.
 
 ### Phase 2: Add leaf shadow resources and descriptors
 
@@ -73,7 +73,7 @@ Implementation notes:
 Implementation notes:
 
 - Reused `shader/foliage/leaves_shadow.vert` so shadow casters use current wind/leaf/apple animation.
-- Changed `shader/foliage/leaves_shadow.frag` to write opacity alpha into the separate color target.
+- Changed `shader/foliage/leaves_shadow.frag` to write opacity alpha plus opacity-weighted light depth into the separate color target.
 - Retargeted the leaf shadow graphics pass to `leaf_shadow_opacity_tex` and disabled depth testing/writes for opacity accumulation.
 - Stopped feeding animated leaf depth into `shadow_map_depth_tex`; main VSM now starts from clear depth plus terrain traced by `tracer_shadow.comp`.
 
@@ -100,7 +100,7 @@ Implementation notes:
 
 - Added `shader/include/leaf_shadow.glsl`.
 - Flora/leaf vertex shaders bind the opacity and mask textures.
-- `flora_common.glsl` multiplies terrain VSM visibility by leaf transmittance for flora receivers, including tree leaves and apples.
+- `flora_common.glsl` multiplies terrain VSM visibility by depth-gated leaf transmittance for flora receivers, including tree leaves and apples.
 
 ### Phase 6: Tune and validate quality/performance
 
@@ -168,6 +168,7 @@ Validation notes:
 
 - 2026-06-03: Chose a separate 2D light-space opacity map plus low-res influence mask; deferred layered/deep opacity because grass receivers are the target and the deep path is much more expensive.
 - 2026-06-03: Added GUI controls for leaf opacity strength/filtering and integrated leaf opacity with tracer direct lighting so leaf shadow affects terrain/voxel rendering, not only flora receivers.
+- 2026-06-03: Added approximate light-space depth gating to leaf opacity sampling so tree-leaf/apple self-shadow direction follows the sun direction instead of behaving like a pure 2D projection.
 - 2026-06-03: Enabled leaf-shadow receiving for tree leaves and apples so canopy/fruit surfaces are shadowed by leaf/apple opacity.
 - 2026-06-03: Added light-space temporal blending for leaf opacity using current, previous, and blended opacity textures; mask and receivers sample the blended result.
 - 2026-06-03: Added leaf shadow opacity/mask resources, render pass, mask compute pass, and receiver shader sampling. Runtime smoke passed with no shader/Vulkan errors.
@@ -179,7 +180,7 @@ Validation notes:
 
 ## Open Questions / Risks
 
-- The first implementation is a simple 2D opacity map. It can over-shadow receivers in front of the canopy; if this is visible, move to layered/deep opacity.
+- The current implementation is a single-layer approximate opacity/depth map. If dense canopy self-shadow still looks wrong, move to layered/deep opacity.
 - Current resolution is full shadow-map opacity plus 1/8-resolution mask. If it is too sharp/expensive, tune opacity resolution or PCF taps.
 - Current accumulation uses raster alpha blending. If opacity ordering or saturation becomes a problem, consider storage-image atomics or a compute accumulation pass.
 - Current receiver skip mask is light-space only. World chunk metadata may be worth adding if receiver cost remains high.

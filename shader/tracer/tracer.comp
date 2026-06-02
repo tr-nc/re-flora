@@ -148,7 +148,7 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
     float sun_above_horizon = step(0.0, sun_info.sun_dir.y);
     float terrain_shadow = get_shadow_weight_pcss(ray.origin, seed);
-    float leaf_shadow = get_leaf_shadow_transmittance(vec4(ray.origin, 1.0), true);
+    float leaf_shadow = get_leaf_shadow_transmittance(vec4(ray.origin, 1.0), true, true);
     return terrain_shadow * leaf_shadow * sun_info.sun_color * sun_info.sun_luminance *
            sun_above_horizon;
 }

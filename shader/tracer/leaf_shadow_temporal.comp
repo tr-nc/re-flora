@@ -19,12 +19,15 @@ void main() {
         return;
     }
 
-    float current_opacity = texelFetch(leaf_shadow_opacity_tex, uvi, 0).a;
-    float previous_opacity = texelFetch(leaf_shadow_opacity_prev_tex, uvi, 0).a;
+    vec4 current_sample = texelFetch(leaf_shadow_opacity_tex, uvi, 0);
+    vec4 previous_sample = texelFetch(leaf_shadow_opacity_prev_tex, uvi, 0);
     float alpha = leaf_shadow_temporal_push.reset_history != 0u
                       ? 1.0
                       : clamp(leaf_shadow_temporal_push.temporal_alpha, 0.0, 1.0);
-    float blended_opacity = mix(previous_opacity, current_opacity, alpha);
 
-    imageStore(leaf_shadow_opacity_blended_tex, uvi, vec4(0.0, 0.0, 0.0, blended_opacity));
+    float blended_depth_times_opacity = mix(previous_sample.r, current_sample.r, alpha);
+    float blended_opacity = mix(previous_sample.a, current_sample.a, alpha);
+
+    imageStore(leaf_shadow_opacity_blended_tex, uvi,
+               vec4(blended_depth_times_opacity, 0.0, 0.0, blended_opacity));
 }
