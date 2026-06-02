@@ -9,9 +9,9 @@ Done means:
 - Players can use the existing in-game menu UI to save the current camera pose as a named snapshot.
 - Snapshot names are unique and normalized to `foo-bar` style.
 - Snapshots persist in one local, readable text file.
-- Hidden runs can load stored snapshots and optionally select one by name for screenshots.
-- If no snapshot is selected, the game keeps the current default player camera behavior.
-- Screenshot capture uses a fixed internal delay suitable for temporal accumulation, without requiring the model/user to specify a delay.
+- Hidden runs can load stored snapshots and select one by name for screenshots.
+- If no snapshot is selected outside screenshot mode, the game keeps the current default player camera behavior.
+- Screenshot capture requires an explicit preset name and explicit delay value.
 
 ## Current State
 
@@ -36,8 +36,8 @@ Known systems and files:
 Commands:
 
 - `cargo run --release -- --list-camera-snapshots`
-- `cargo run --release -- --hidden --screenshot screenshots/check.png --auto-exit 4`
-- `cargo run --release -- --hidden --camera-snapshot tree-closeup --screenshot screenshots/tree-closeup.png --auto-exit 4`
+- `cargo run --release -- --hidden --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4`
+- `cargo run --release -- --hidden --screenshot tree-closeup screenshots/tree-closeup.png --screenshot-delay 2 --auto-exit 4`
 - `cargo run --release -- --latest-log`
 - `cargo run --release -- --tail-latest-log 200`
 
@@ -50,8 +50,8 @@ Implemented decisions:
 - Snapshot names are normalized to lowercase kebab-case (`foo-bar`) and made unique automatically.
 - Hidden mode loads snapshots at startup.
 - `player-default` is always available as the virtual/default camera option.
-- Missing requested startup snapshots fail clearly and list available names.
-- Screenshots use a fixed 2-second internal render warmup; `--screenshot-delay` is no longer exposed in help and is ignored by current parsing.
+- Missing requested startup/screenshot snapshots fail clearly, list available names, and mention `--list-camera-snapshots`.
+- Screenshot mode uses `--screenshot <preset> <path>` and requires `--screenshot-delay <sec>`.
 
 ## Plan / Phases
 
@@ -89,19 +89,21 @@ Implemented decisions:
 
 - Objective: Let hidden/screenshot automation select a snapshot by name.
 - Expected output:
-  - `--camera-snapshot <name>`.
+  - `--screenshot <preset> <path>` for one-shot screenshot runs.
+  - `--camera-snapshot <name>` for non-screenshot startup camera selection.
   - `--list-camera-snapshots`.
   - Startup loads the snapshot file and applies the selected snapshot before screenshot timing begins.
-  - No selected snapshot preserves current default camera behavior.
+  - No selected snapshot outside screenshot mode preserves current default camera behavior.
 - Dependencies/blockers: none remaining.
 - Status: done
 
-### Phase 5: Screenshot delay simplification
+### Phase 5: Screenshot delay and syntax simplification
 
-- Objective: Make screenshot timing model-safe and temporal-friendly.
+- Objective: Make screenshot timing explicit and syntax errors useful for agents.
 - Expected output:
-  - `--screenshot` captures after a fixed internal 2-second warmup.
-  - Hidden screenshot examples no longer require model/user-provided delay.
+  - `--screenshot` requires exactly one preset and one output path.
+  - `--screenshot-delay <sec>` is required whenever `--screenshot` is used.
+  - Syntax and missing-preset errors mention `--list-camera-snapshots`.
 - Dependencies/blockers: none remaining.
 - Status: done
 
@@ -122,19 +124,25 @@ Completed checks:
 - `cargo check`
 - `cargo test`
 - `cargo run -- --list-camera-snapshots`
+- `cargo run -- --help`
 - Temporary snapshot file validation:
   - created `config/camera_snapshots.toml` with `test-overview`
   - ran `cargo run -- --list-camera-snapshots`
   - confirmed `player-default` and `test-overview` printed
   - removed the temporary snapshot file before final status
 - Hidden snapshot screenshot validation:
-  - `cargo run --release -- --hidden --camera-snapshot test-overview --screenshot target/camera-snapshot-check.png --auto-exit 3`
+  - `cargo run --release -- --hidden --screenshot test-overview target/camera-snapshot-check.png --screenshot-delay 2 --auto-exit 3`
   - confirmed log applied `test-overview`
   - confirmed screenshot saved after about 2 seconds
   - confirmed `target/camera-snapshot-check.png` exists and is a valid 1920x1200 PNG
 - Hidden default-camera regression:
   - `cargo run --release -- --hidden --auto-exit 0.5`
   - confirmed startup with no snapshot file and no requested snapshot uses default player camera and exits successfully
+- Revised screenshot CLI validation:
+  - `cargo run -- --screenshot initial target/foo.png` reports missing `--screenshot-delay` and suggests `--list-camera-snapshots`
+  - `cargo run -- --screenshot missing target/foo.png --screenshot-delay 1` reports the missing preset and suggests `--list-camera-snapshots`
+  - `cargo run --release -- --hidden --screenshot initial target/camera-snapshot-initial-new-cli.png --screenshot-delay 2 --auto-exit 3`
+  - confirmed screenshot saved as a valid 1920x1200 PNG
 
 Manual validation still recommended:
 
@@ -149,16 +157,17 @@ Manual validation still recommended:
 - 2026-06-03: Discussed and chose camera snapshots as the higher-ROI path over free-form LLM gameplay. Reason: reproducible named viewpoints are more reliable for visual QA and LLM image review.
 - 2026-06-03: Decided not to add new shortcuts. Snapshot management should be integrated into the existing menu UI.
 - 2026-06-03: Decided snapshot names should follow normalized kebab-case (`foo-bar`) and be made unique automatically.
-- 2026-06-03: Decided screenshots should use a fixed internal temporal-warmup delay, proposed as 2 seconds, instead of exposing delay selection to the model.
+- 2026-06-03: Initially decided screenshots should use a fixed internal temporal-warmup delay.
 - 2026-06-03: Created isolated worktree `/home/terence/code/re-flora-agent-camera-snapshots` on branch `agent/camera-snapshots` from `main`.
 - 2026-06-03: Created this progress document. No implementation changes made.
 - 2026-06-03: Implemented snapshot persistence at `config/camera_snapshots.toml` with readable TOML, normalized unique kebab-case names, and unit tests.
 - 2026-06-03: Added camera pose get/apply methods and reset camera movement/input/history when applying snapshots.
 - 2026-06-03: Added Camera Snapshots controls to the existing debug/config menu without new shortcuts.
 - 2026-06-03: Added `--camera-snapshot <name>` and `--list-camera-snapshots`; hidden runs keep the default camera when no snapshot is selected.
-- 2026-06-03: Changed screenshot capture to a fixed 2-second render warmup and removed delay from help/examples.
+- 2026-06-03: Revised screenshot CLI so `--screenshot` takes one preset and one path, requires `--screenshot-delay <sec>`, and reports `--list-camera-snapshots` on syntax/name errors.
 - 2026-06-03: Added `docs/camera_snapshots.md` and linked it from `README.md`.
 - 2026-06-03: Validated with formatting, check, tests, snapshot listing, hidden snapshot screenshot, and hidden default-camera runs.
+- 2026-06-03: Revalidated the revised screenshot CLI with help output, required delay error, missing preset error, and a hidden `initial` screenshot run.
 
 ## Open Questions / Risks
 

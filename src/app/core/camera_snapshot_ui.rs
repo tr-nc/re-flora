@@ -1,7 +1,8 @@
 use super::ui_style::GOLD_ACCENT;
 use super::App;
 use crate::app::camera_snapshots::{
-    CameraSnapshot, CameraSnapshotLibrary, PLAYER_DEFAULT_SNAPSHOT_NAME,
+    is_player_default_snapshot_name, CameraSnapshot, CameraSnapshotLibrary,
+    PLAYER_DEFAULT_SNAPSHOT_NAME,
 };
 use crate::gameplay::CameraPose;
 use anyhow::{anyhow, Result};
@@ -19,7 +20,7 @@ impl App {
             return Ok(());
         };
 
-        if is_player_default_request(requested_name) {
+        if is_player_default_snapshot_name(requested_name) {
             log::info!(
                 "[CAMERA_SNAPSHOT] Using default player camera requested as '{}'",
                 requested_name
@@ -33,7 +34,7 @@ impl App {
             .cloned()
             .ok_or_else(|| {
                 anyhow!(
-                    "camera snapshot '{}' not found. Available snapshots: {}",
+                    "camera snapshot '{}' not found. Available snapshots: {}. Run `re-flora --list-camera-snapshots` to list available camera snapshots.",
                     requested_name,
                     self.camera_snapshots.names_for_cli().join(", ")
                 )
@@ -188,8 +189,4 @@ pub(super) fn draw_camera_snapshots_ui(
         },
         None => None,
     }
-}
-
-fn is_player_default_request(name: &str) -> bool {
-    name == PLAYER_DEFAULT_SNAPSHOT_NAME || name == "default"
 }

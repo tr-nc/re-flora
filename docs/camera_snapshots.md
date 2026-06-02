@@ -33,16 +33,16 @@ List available snapshots:
 cargo run --release -- --list-camera-snapshots
 ```
 
-Use the default player camera:
+Use the virtual default player camera preset:
 
 ```bash
-cargo run --release -- --hidden --screenshot screenshots/default.png --auto-exit 4
+cargo run --release -- --hidden --screenshot player-default screenshots/default.png --screenshot-delay 2 --auto-exit 4
 ```
 
 Use a saved snapshot:
 
 ```bash
-cargo run --release -- --hidden --camera-snapshot tree-closeup --screenshot screenshots/tree-closeup.png --auto-exit 4
+cargo run --release -- --hidden --screenshot tree-closeup screenshots/tree-closeup.png --screenshot-delay 2 --auto-exit 4
 ```
 
-Screenshots use a fixed 2-second render warmup before capture.
+Screenshot runs must name exactly one preset and provide an explicit `--screenshot-delay <sec>`. If syntax is wrong or the preset does not exist, the CLI tells you to run `re-flora --list-camera-snapshots`.

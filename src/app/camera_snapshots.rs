@@ -134,6 +134,10 @@ impl CameraSnapshotLibrary {
             })
     }
 
+    pub fn is_cli_name_available(&self, requested_name: &str) -> bool {
+        is_player_default_snapshot_name(requested_name) || self.find(requested_name).is_some()
+    }
+
     pub fn add_from_pose(
         &mut self,
         requested_name: &str,
@@ -178,6 +182,10 @@ impl CameraSnapshotLibrary {
             self.snapshots.iter().map(|snapshot| snapshot.name.as_str()),
         )
     }
+}
+
+pub(crate) fn is_player_default_snapshot_name(name: &str) -> bool {
+    name == PLAYER_DEFAULT_SNAPSHOT_NAME || name == "default"
 }
 
 pub(crate) fn normalize_snapshot_name(input: &str) -> String {

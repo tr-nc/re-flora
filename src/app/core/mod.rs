@@ -187,7 +187,7 @@ pub struct App {
 
     render_start_time: Option<Instant>,
     screenshot_path: Option<String>,
-    screenshot_delay: f32,
+    screenshot_delay: Option<f32>,
     screenshot_taken: bool,
     auto_exit_delay: Option<f32>,
     tree_bench: Option<TreeBench>,
@@ -2222,11 +2222,13 @@ impl App {
                 let render_area = self.window_state.window_extent();
                 let mut screenshot_readback = None;
                 if !self.screenshot_taken {
-                    if let (Some(render_start_time), Some(path)) =
-                        (self.render_start_time, self.screenshot_path.clone())
-                    {
+                    if let (Some(render_start_time), Some(path), Some(delay)) = (
+                        self.render_start_time,
+                        self.screenshot_path.clone(),
+                        self.screenshot_delay,
+                    ) {
                         let elapsed = render_start_time.elapsed().as_secs_f32();
-                        if elapsed >= self.screenshot_delay {
+                        if elapsed >= delay {
                             self.screenshot_taken = true;
                             log::info!("[SCREENSHOT] Capturing after {:.2}s to {}", elapsed, path);
                             match self.prepare_screenshot_readback(path, render_area) {
