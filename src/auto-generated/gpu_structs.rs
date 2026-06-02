@@ -235,6 +235,15 @@ pub struct PushConstantFloraLod {
     pub _pad3: [u8; 4],
 }
 
+/// Auto-generated from `PushConstantLeafShadowTemporal` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantLeafShadowTemporal {
+    pub temporal_alpha: f32,
+    pub reset_history: u32,
+    pub _pad0: [u8; 8],
+}
+
 /// Auto-generated from `PushConstantLeavesShadow` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -440,6 +449,10 @@ pub struct GuiInput {
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,
+    pub leaf_shadow_fragment_opacity: f32,
+    pub leaf_shadow_strength: f32,
+    pub leaf_shadow_min_transmittance: f32,
+    pub leaf_shadow_filter_radius_texels: f32,
     pub _pad8: [u8; 12],
 }
 

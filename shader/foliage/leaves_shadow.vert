@@ -62,6 +62,8 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 layout(set = 1, binding = 0) readonly buffer B_TreeLeafInstances { TreeLeafInstance data[]; }
 manual_tree_leaf_instances;
 
+layout(location = 0) out float vert_leaf_shadow_opacity;
+
 const float scaling_factor = 1.0 / 256.0;
 
 void main() {
@@ -99,6 +101,7 @@ void main() {
                                                    vert_offset_in_vox, scaling_factor);
 
     gl_Position = shadow_camera_info.view_proj_mat * vec4(vert_pos, 1.0);
+    vert_leaf_shadow_opacity = clamp(gui_input.leaf_shadow_fragment_opacity, 0.0, 1.0);
 
     uint palette_seed = combine_color_seed(instance_seed);
     gl_Position.z += float(palette_seed & 1u) * 1e-8;
