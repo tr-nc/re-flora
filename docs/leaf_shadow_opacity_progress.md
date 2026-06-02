@@ -47,8 +47,8 @@ Chosen design:
 - Render current animated leaf/apple caster geometry into an `R8G8B8A8_UNORM` color target and accumulate fragment alpha with standard over blending; the alpha channel is interpreted as leaf opacity.
 - Do not feed animated leaf depth into the terrain VSM path. The main `shadow_map_tex` and VSM moments remain terrain/stable-scene only.
 - Build a small low-resolution light-space influence mask from the opacity map. Receivers sample this mask first and skip high-resolution leaf-opacity sampling when the mask is empty.
-- Receiver rule: terrain VSM visibility is multiplied by leaf transmittance `1 - opacity * strength` only for non-tree-leaf flora receivers inside the mask.
-- Depth model: first implementation is intentionally 2D opacity, not layered/deep opacity. This can over-shadow receivers in front of the canopy, but is acceptable for grass/low flora under trees and avoids a much more expensive deep-opacity path.
+- Receiver rule: terrain VSM visibility is multiplied by leaf transmittance `1 - opacity * strength` for flora receivers inside the mask, including tree leaves and apples.
+- Depth model: first implementation is intentionally 2D opacity, not layered/deep opacity. This can over-shadow receivers in front of the canopy, but is currently accepted for grass/low flora plus self-shadowed tree leaves/apples and avoids a much more expensive deep-opacity path.
 
 ### Phase 2: Add leaf shadow resources and descriptors
 
@@ -100,7 +100,7 @@ Implementation notes:
 
 - Added `shader/include/leaf_shadow.glsl`.
 - Flora/leaf vertex shaders bind the opacity and mask textures.
-- `flora_common.glsl` multiplies terrain VSM visibility by leaf transmittance for non-tree-leaf/non-apple flora receivers.
+- `flora_common.glsl` multiplies terrain VSM visibility by leaf transmittance for flora receivers, including tree leaves and apples.
 
 ### Phase 6: Tune and validate quality/performance
 
@@ -112,7 +112,7 @@ Implementation notes:
 Tuning notes:
 
 - Leaf shadow controls are exposed in GUI `Shadow` section.
-- Current defaults: fragment opacity `0.4`, receiver strength `1.15`, minimum transmittance `0.14`, temporal alpha `0.08`, filter radius `2` texels.
+- Current defaults: fragment opacity `0.4`, receiver strength `1.15`, minimum transmittance `0.14`, temporal alpha `0.4`, filter radius `2` texels.
 - Mask threshold: `0.003` generation, `0.01` receiver sampling.
 - GPU profiler hidden release run before temporal blending showed the extra non-temporal passes at roughly `leaf_shadow_opacity.pass=17-19us` and `leaf_shadow_mask.pass=39-40us` on the tested RTX 3060 Ti path.
 
@@ -135,6 +135,7 @@ Manual/visual acceptance:
 - Leaf shadows do not create VSM light bleeding/ghosting in unrelated areas.
 - Grass outside leaf-shadow influence areas skips the extra leaf-shadow path.
 - Grass under trees receives visible animated leaf shadow/transmittance.
+- Tree leaves and apples also receive the leaf/apple opacity shadow for canopy/fruit self-shadowing.
 - No new Vulkan validation/log errors in hidden release run logs.
 
 Performance acceptance:
@@ -167,6 +168,7 @@ Validation notes:
 
 - 2026-06-03: Chose a separate 2D light-space opacity map plus low-res influence mask; deferred layered/deep opacity because grass receivers are the target and the deep path is much more expensive.
 - 2026-06-03: Added GUI controls for leaf opacity strength/filtering and integrated leaf opacity with tracer direct lighting so leaf shadow affects terrain/voxel rendering, not only flora receivers.
+- 2026-06-03: Enabled leaf-shadow receiving for tree leaves and apples so canopy/fruit surfaces are shadowed by leaf/apple opacity.
 - 2026-06-03: Added light-space temporal blending for leaf opacity using current, previous, and blended opacity textures; mask and receivers sample the blended result.
 - 2026-06-03: Added leaf shadow opacity/mask resources, render pass, mask compute pass, and receiver shader sampling. Runtime smoke passed with no shader/Vulkan errors.
 - 2026-06-02: Confirmed current grass/flora VSM sampling is per voxel world position, not one shared blade position.
@@ -182,5 +184,5 @@ Validation notes:
 - Current accumulation uses raster alpha blending. If opacity ordering or saturation becomes a problem, consider storage-image atomics or a compute accumulation pass.
 - Current receiver skip mask is light-space only. World chunk metadata may be worth adding if receiver cost remains high.
 - Current filtering is a receiver-side conservative max filter with GUI-controlled radius. More blur may soften leaf shadows too much.
-- Very low temporal alpha can create visible leaf-shadow trails under strong wind, but `0.08` was visually preferred during live tuning over the flickerier `0.9` default.
+- Low temporal alpha can create visible leaf-shadow trails under strong wind; current tuned default is `0.4` after visual adjustment from the flickerier `0.9` default.
 - Need visual confirmation that removing leaves from main VSM does not regress non-flora receivers that previously depended on leaf depth in `shadow_map_tex`.
