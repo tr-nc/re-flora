@@ -112,7 +112,7 @@ Implementation notes:
 Tuning notes:
 
 - Leaf shadow controls are exposed in GUI `Shadow` section.
-- Current defaults: fragment opacity `0.4`, receiver strength `1.15`, minimum transmittance `0.14`, temporal alpha `0.9`, filter radius `2` texels.
+- Current defaults: fragment opacity `0.4`, receiver strength `1.15`, minimum transmittance `0.14`, temporal alpha `0.08`, filter radius `2` texels.
 - Mask threshold: `0.003` generation, `0.01` receiver sampling.
 - GPU profiler hidden release run before temporal blending showed the extra non-temporal passes at roughly `leaf_shadow_opacity.pass=17-19us` and `leaf_shadow_mask.pass=39-40us` on the tested RTX 3060 Ti path.
 
@@ -182,5 +182,5 @@ Validation notes:
 - Current accumulation uses raster alpha blending. If opacity ordering or saturation becomes a problem, consider storage-image atomics or a compute accumulation pass.
 - Current receiver skip mask is light-space only. World chunk metadata may be worth adding if receiver cost remains high.
 - Current filtering is a receiver-side conservative max filter with GUI-controlled radius. More blur may soften leaf shadows too much.
-- Temporal alpha lower than about `0.8` may create visible leaf-shadow trails under strong wind.
+- Very low temporal alpha can create visible leaf-shadow trails under strong wind, but `0.08` was visually preferred during live tuning over the flickerier `0.9` default.
 - Need visual confirmation that removing leaves from main VSM does not regress non-flora receivers that previously depended on leaf depth in `shadow_map_tex`.
