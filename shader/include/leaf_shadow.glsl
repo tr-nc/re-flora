@@ -3,16 +3,16 @@
 
 // Separate moving-leaf shadow path.
 // Requires:
-//   uniform sampler2D leaf_shadow_opacity_tex; // alpha = accumulated leaf opacity
-//   uniform sampler2D leaf_shadow_mask_tex;    // alpha = conservative low-res influence mask
+//   uniform sampler2D leaf_shadow_opacity_blended_tex; // alpha = accumulated leaf opacity
+//   uniform sampler2D leaf_shadow_mask_tex;            // alpha = conservative low-res influence mask
 //   U_ShadowCameraInfo shadow_camera_info;
 
 const float LEAF_SHADOW_MASK_SAMPLE_THRESHOLD = 0.01;
 
 float sample_leaf_shadow_opacity_pcf(vec2 uv) {
-    vec2 texel = 1.0 / vec2(textureSize(leaf_shadow_opacity_tex, 0));
+    vec2 texel = 1.0 / vec2(textureSize(leaf_shadow_opacity_blended_tex, 0));
     vec2 radius = texel * max(gui_input.leaf_shadow_filter_radius_texels, 0.0);
-    float opacity = texture(leaf_shadow_opacity_tex, uv).a;
+    float opacity = texture(leaf_shadow_opacity_blended_tex, uv).a;
 
     // The opacity map is intentionally high-res and leaf voxels are small, so an
     // averaging PCF can make single-leaf silhouettes disappear. Use a small
@@ -21,7 +21,7 @@ float sample_leaf_shadow_opacity_pcf(vec2 uv) {
     for (int y = -1; y <= 1; y++) {
         for (int x = -1; x <= 1; x++) {
             vec2 offset = vec2(float(x), float(y)) * radius;
-            opacity = max(opacity, texture(leaf_shadow_opacity_tex, uv + offset).a);
+            opacity = max(opacity, texture(leaf_shadow_opacity_blended_tex, uv + offset).a);
         }
     }
 

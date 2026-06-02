@@ -4,7 +4,7 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) uniform sampler2D leaf_shadow_opacity_tex;
+layout(set = 0, binding = 0) uniform sampler2D leaf_shadow_opacity_blended_tex;
 layout(set = 0, binding = 1, rgba8) writeonly uniform image2D leaf_shadow_mask_tex;
 
 const float LEAF_SHADOW_MASK_THRESHOLD = 0.003;
@@ -28,7 +28,7 @@ void main() {
                 for (int sx = 0; sx < 2; ++sx) {
                     vec2 subcell = vec2(0.25 + 0.5 * float(sx), 0.25 + 0.5 * float(sy));
                     vec2 uv = (vec2(cell) + subcell) / vec2(mask_size);
-                    max_opacity = max(max_opacity, textureLod(leaf_shadow_opacity_tex, uv, 0.0).a);
+                    max_opacity = max(max_opacity, textureLod(leaf_shadow_opacity_blended_tex, uv, 0.0).a);
                 }
             }
         }

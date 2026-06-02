@@ -464,6 +464,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Shadow",
+        id: "leaf_shadow_temporal_alpha",
+        kind: "float",
+        label: "Leaf Shadow Temporal Alpha",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
         id: "leaf_shadow_filter_radius_texels",
         kind: "float",
         label: "Leaf Shadow Filter Radius (texels)",
@@ -1091,6 +1097,7 @@ pub struct GuiAdjustables {
     pub leaf_shadow_fragment_opacity: crate::gui_adjustables::FloatParam,
     pub leaf_shadow_strength: crate::gui_adjustables::FloatParam,
     pub leaf_shadow_min_transmittance: crate::gui_adjustables::FloatParam,
+    pub leaf_shadow_temporal_alpha: crate::gui_adjustables::FloatParam,
     pub leaf_shadow_filter_radius_texels: crate::gui_adjustables::FloatParam,
     pub starlight_iterations: crate::gui_adjustables::IntParam,
     pub starlight_formuparam: crate::gui_adjustables::FloatParam,
@@ -1269,6 +1276,7 @@ impl GuiAdjustables {
         let mut leaf_shadow_fragment_opacity_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_shadow_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_shadow_min_transmittance_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_shadow_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_shadow_filter_radius_texels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_iterations_field: Option<crate::gui_adjustables::IntParam> = None;
         let mut starlight_formuparam_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1848,6 +1856,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             leaf_shadow_min_transmittance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_shadow_temporal_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_shadow_temporal_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "leaf_shadow_filter_radius_texels" => {
@@ -2535,6 +2550,7 @@ impl GuiAdjustables {
             leaf_shadow_fragment_opacity: leaf_shadow_fragment_opacity_field.expect("Missing parameter: leaf_shadow_fragment_opacity"),
             leaf_shadow_strength: leaf_shadow_strength_field.expect("Missing parameter: leaf_shadow_strength"),
             leaf_shadow_min_transmittance: leaf_shadow_min_transmittance_field.expect("Missing parameter: leaf_shadow_min_transmittance"),
+            leaf_shadow_temporal_alpha: leaf_shadow_temporal_alpha_field.expect("Missing parameter: leaf_shadow_temporal_alpha"),
             leaf_shadow_filter_radius_texels: leaf_shadow_filter_radius_texels_field.expect("Missing parameter: leaf_shadow_filter_radius_texels"),
             starlight_iterations: starlight_iterations_field.expect("Missing parameter: starlight_iterations"),
             starlight_formuparam: starlight_formuparam_field.expect("Missing parameter: starlight_formuparam"),
@@ -2686,6 +2702,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_shadow_fragment_opacity" => Some(&adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&adjustables.leaf_shadow_strength),
         "leaf_shadow_min_transmittance" => Some(&adjustables.leaf_shadow_min_transmittance),
+        "leaf_shadow_temporal_alpha" => Some(&adjustables.leaf_shadow_temporal_alpha),
         "leaf_shadow_filter_radius_texels" => Some(&adjustables.leaf_shadow_filter_radius_texels),
         "starlight_formuparam" => Some(&adjustables.starlight_formuparam),
         "starlight_stepsize" => Some(&adjustables.starlight_stepsize),
@@ -2898,6 +2915,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_shadow_fragment_opacity" => Some(&mut adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&mut adjustables.leaf_shadow_strength),
         "leaf_shadow_min_transmittance" => Some(&mut adjustables.leaf_shadow_min_transmittance),
+        "leaf_shadow_temporal_alpha" => Some(&mut adjustables.leaf_shadow_temporal_alpha),
         "leaf_shadow_filter_radius_texels" => Some(&mut adjustables.leaf_shadow_filter_radius_texels),
         "starlight_formuparam" => Some(&mut adjustables.starlight_formuparam),
         "starlight_stepsize" => Some(&mut adjustables.starlight_stepsize),

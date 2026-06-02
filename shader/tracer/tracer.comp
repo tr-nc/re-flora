@@ -56,7 +56,7 @@ layout(set = 0, binding = 8) readonly buffer B_ContreeLeafData { uint data[]; }
 contree_leaf_data;
 layout(set = 0, binding = 9, rg32ui) readonly uniform uimage3D scene_tex;
 layout(set = 0, binding = 10) uniform sampler2D shadow_map_tex;
-layout(set = 0, binding = 12) uniform sampler2D leaf_shadow_opacity_tex;
+layout(set = 0, binding = 12) uniform sampler2D leaf_shadow_opacity_blended_tex;
 layout(set = 0, binding = 13) uniform sampler2D leaf_shadow_mask_tex;
 layout(set = 0, binding = 11) uniform U_VoxelColors {
     vec3 dirt_color;

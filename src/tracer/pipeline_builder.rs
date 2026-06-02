@@ -40,6 +40,14 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let leaf_shadow_temporal_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/tracer/leaf_shadow_temporal.comp",
+            "main",
+        )
+        .unwrap();
+
         let leaf_shadow_mask_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -234,6 +242,7 @@ impl PipelineBuilder {
             tracer_sm,
             tracer_shadow_sm,
             shadow_depth_copy_sm,
+            leaf_shadow_temporal_sm,
             leaf_shadow_mask_sm,
             vsm_creation_sm,
             vsm_blur_h_sm,
@@ -288,6 +297,13 @@ impl PipelineBuilder {
         let shadow_depth_copy_ppl = ComputePipeline::new(
             device,
             &shader_modules.shadow_depth_copy_sm,
+            pool,
+            &[resources],
+        );
+
+        let leaf_shadow_temporal_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.leaf_shadow_temporal_sm,
             pool,
             &[resources],
         );
@@ -356,6 +372,7 @@ impl PipelineBuilder {
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
+            leaf_shadow_temporal_ppl,
             leaf_shadow_mask_ppl,
             vsm_creation_ppl,
             vsm_blur_h_ppl,
@@ -592,6 +609,7 @@ pub struct ShaderModules {
     pub tracer_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
     pub shadow_depth_copy_sm: ShaderModule,
+    pub leaf_shadow_temporal_sm: ShaderModule,
     pub leaf_shadow_mask_sm: ShaderModule,
     pub vsm_creation_sm: ShaderModule,
     pub vsm_blur_h_sm: ShaderModule,
@@ -622,6 +640,7 @@ pub struct ComputePipelines {
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,
+    pub leaf_shadow_temporal_ppl: ComputePipeline,
     pub leaf_shadow_mask_ppl: ComputePipeline,
     pub vsm_creation_ppl: ComputePipeline,
     pub vsm_blur_h_ppl: ComputePipeline,

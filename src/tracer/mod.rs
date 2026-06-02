@@ -44,7 +44,7 @@ use crate::builder::{
     TreeLeavesInstance,
 };
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc, CameraVectors};
-use crate::generated::gpu_structs::PushConstantFlora;
+use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTemporal};
 use crate::geom::UAabb3;
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
@@ -175,6 +175,7 @@ pub struct Tracer {
     current_view_proj_mat: Mat4,
     shadow_camera_initialized: bool,
     shadow_map_history_valid: bool,
+    leaf_shadow_history_valid: bool,
 
     compute_pipelines: ComputePipelines,
     graphics_pipelines: GraphicsPipelines,
@@ -320,6 +321,7 @@ impl Tracer {
             current_view_proj_mat: Mat4::IDENTITY,
             shadow_camera_initialized: false,
             shadow_map_history_valid: false,
+            leaf_shadow_history_valid: false,
             compute_pipelines,
             graphics_pipelines,
             render_target_color_and_depth,
@@ -916,6 +918,7 @@ impl Tracer {
         update_shadow_map: bool,
         vsm_blur_radius: u32,
         vsm_temporal_alpha: f32,
+        leaf_shadow_temporal_alpha: f32,
         reset_vsm_history: bool,
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
@@ -939,6 +942,14 @@ impl Tracer {
             [MemoryBarrier::new(
                 MemoryAccess::COLOR_ATTACHMENT_WRITE,
                 MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            )],
+        );
+        let compute_to_transfer_barrier = PipelineBarrier::new(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::TRANSFER,
+            [MemoryBarrier::new(
+                MemoryAccess::SHADER_WRITE,
+                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
             )],
         );
 
@@ -989,9 +1000,25 @@ impl Tracer {
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
                 cmdbuf,
+                "leaf_shadow_temporal.pass",
+                || {
+                    self.record_leaf_shadow_temporal_pass(
+                        cmdbuf,
+                        leaf_shadow_temporal_alpha,
+                        reset_vsm_history,
+                    )
+                },
+            );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
                 "leaf_shadow_mask.pass",
                 || self.record_leaf_shadow_mask_pass(cmdbuf),
             );
+            compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            self.record_store_leaf_shadow_history(cmdbuf);
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
         if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {
@@ -1903,6 +1930,32 @@ impl Tracer {
         );
     }
 
+    fn record_leaf_shadow_temporal_pass(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        temporal_alpha: f32,
+        reset_leaf_shadow_history: bool,
+    ) {
+        let reset_history = reset_leaf_shadow_history || !self.leaf_shadow_history_valid;
+        let push_constants = PushConstantLeafShadowTemporal {
+            temporal_alpha: temporal_alpha.clamp(0.0, 1.0),
+            reset_history: u32::from(reset_history),
+            ..bytemuck::Zeroable::zeroed()
+        };
+        let push_constants_bytes = bytemuck::bytes_of(&push_constants);
+        self.compute_pipelines.leaf_shadow_temporal_ppl.record(
+            cmdbuf,
+            self.resources
+                .shadow
+                .leaf_shadow_opacity_blended_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            Some(push_constants_bytes),
+        );
+        self.leaf_shadow_history_valid = true;
+    }
+
     fn record_leaf_shadow_mask_pass(&self, cmdbuf: &CommandBuffer) {
         self.compute_pipelines.leaf_shadow_mask_ppl.record(
             cmdbuf,
@@ -1914,6 +1967,22 @@ impl Tracer {
                 .extent,
             None,
         );
+    }
+
+    fn record_store_leaf_shadow_history(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .shadow
+            .leaf_shadow_opacity_blended_tex
+            .get_image()
+            .record_copy_to(
+                cmdbuf,
+                self.resources
+                    .shadow
+                    .leaf_shadow_opacity_prev_tex
+                    .get_image(),
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
+            );
     }
 
     fn wind_volume_bucket_step_seconds(&self) -> f32 {

@@ -245,6 +245,8 @@ pub struct ShadowResources {
     pub shadow_map_tex_for_vsm_pong: Resource<Texture>,
     pub shadow_map_tex_for_vsm_prev: Resource<Texture>,
     pub leaf_shadow_opacity_tex: Resource<Texture>,
+    pub leaf_shadow_opacity_prev_tex: Resource<Texture>,
+    pub leaf_shadow_opacity_blended_tex: Resource<Texture>,
     pub leaf_shadow_mask_tex: Resource<Texture>,
 }
 
@@ -419,7 +421,7 @@ impl ShadowResources {
             1,
         );
         log::info!(
-            "[LEAF_SHADOW] using 2D opacity map {}x{} and influence mask {}x{}",
+            "[LEAF_SHADOW] using 2D opacity map {}x{}, temporal history, and influence mask {}x{}",
             shadow_map_extent.width,
             shadow_map_extent.height,
             leaf_shadow_mask_extent.width,
@@ -461,6 +463,20 @@ impl ShadowResources {
             ),
             leaf_shadow_opacity_tex: Resource::new(
                 TracerResources::create_leaf_shadow_opacity_tex(
+                    device.clone(),
+                    allocator.clone(),
+                    shadow_map_extent,
+                ),
+            ),
+            leaf_shadow_opacity_prev_tex: Resource::new(
+                TracerResources::create_leaf_shadow_opacity_history_tex(
+                    device.clone(),
+                    allocator.clone(),
+                    shadow_map_extent,
+                ),
+            ),
+            leaf_shadow_opacity_blended_tex: Resource::new(
+                TracerResources::create_leaf_shadow_opacity_blended_tex(
                     device.clone(),
                     allocator.clone(),
                     shadow_map_extent,
@@ -1056,6 +1072,51 @@ impl TracerResources {
             format: vk::Format::R8G8B8A8_UNORM,
             usage: vk::ImageUsageFlags::COLOR_ATTACHMENT
                 | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
+    }
+
+    fn create_leaf_shadow_opacity_history_tex(
+        device: Device,
+        allocator: Allocator,
+        shadow_map_extent: Extent3D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: shadow_map_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
+    }
+
+    fn create_leaf_shadow_opacity_blended_tex(
+        device: Device,
+        allocator: Allocator,
+        shadow_map_extent: Extent3D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: shadow_map_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC
                 | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,

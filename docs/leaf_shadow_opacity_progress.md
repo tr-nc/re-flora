@@ -111,11 +111,10 @@ Implementation notes:
 
 Tuning notes:
 
-- Opacity alpha per caster fragment: `0.11`.
-- Receiver leaf shadow strength: `0.62`.
-- Minimum receiver transmittance: `0.42`.
+- Leaf shadow controls are exposed in GUI `Shadow` section.
+- Current defaults: fragment opacity `0.4`, receiver strength `1.15`, minimum transmittance `0.14`, temporal alpha `0.9`, filter radius `2` texels.
 - Mask threshold: `0.003` generation, `0.01` receiver sampling.
-- GPU profiler hidden release run showed the extra passes at roughly `leaf_shadow_opacity.pass=17-19us` and `leaf_shadow_mask.pass=39-40us` on the tested RTX 3060 Ti path.
+- GPU profiler hidden release run before temporal blending showed the extra non-temporal passes at roughly `leaf_shadow_opacity.pass=17-19us` and `leaf_shadow_mask.pass=39-40us` on the tested RTX 3060 Ti path.
 
 ## Verification Method
 
@@ -152,18 +151,23 @@ Latest verification:
 - `cargo run --release -- --hidden --auto-exit 5`
 - `cargo run --release -- --hidden --auto-exit 4 --perf`
 - `cargo run --release -- --hidden --screenshot target/leaf-shadow-check.png --screenshot-delay 2 --auto-exit 3`
+- `cargo run --release -- --hidden --auto-exit 0.5`
+- `cargo run --release -- --hidden --auto-exit 2 --perf`
 
 Validation notes:
 
-- Hidden 5s release smoke exited successfully.
-- Perf run included `leaf_shadow_opacity.pass` and `leaf_shadow_mask.pass` GPU scopes with no dropped scopes.
-- Screenshot was saved to `target/leaf-shadow-check.png`; tree/grass shadows were visibly present.
+- Hidden 5s release smoke exited successfully before temporal blending.
+- Hidden 0.5s release smoke exited successfully after temporal blending.
+- Perf run included `leaf_shadow_opacity.pass`, `leaf_shadow_temporal.pass`, and `leaf_shadow_mask.pass` GPU scopes with no dropped scopes.
+- After temporal blending, hidden perf showed `leaf_shadow_temporal.pass` around `89-91us` and `leaf_shadow_mask.pass` around `60-67us` on the tested RTX 3060 Ti path.
 - No shader, Vulkan, panic, fatal, or error log entries were observed.
 - Remaining warnings are pre-existing/non-blocking: multiple butterfly atlas files and short startup audio ring-buffer underruns.
 
 ## Progress Log
 
 - 2026-06-03: Chose a separate 2D light-space opacity map plus low-res influence mask; deferred layered/deep opacity because grass receivers are the target and the deep path is much more expensive.
+- 2026-06-03: Added GUI controls for leaf opacity strength/filtering and integrated leaf opacity with tracer direct lighting so leaf shadow affects terrain/voxel rendering, not only flora receivers.
+- 2026-06-03: Added light-space temporal blending for leaf opacity using current, previous, and blended opacity textures; mask and receivers sample the blended result.
 - 2026-06-03: Added leaf shadow opacity/mask resources, render pass, mask compute pass, and receiver shader sampling. Runtime smoke passed with no shader/Vulkan errors.
 - 2026-06-02: Confirmed current grass/flora VSM sampling is per voxel world position, not one shared blade position.
 - 2026-06-02: Discussed that exact moving leaves in the main VSM cause high-frequency instability, blur/light bleeding, and temporal ghosting.
@@ -177,5 +181,6 @@ Validation notes:
 - Current resolution is full shadow-map opacity plus 1/8-resolution mask. If it is too sharp/expensive, tune opacity resolution or PCF taps.
 - Current accumulation uses raster alpha blending. If opacity ordering or saturation becomes a problem, consider storage-image atomics or a compute accumulation pass.
 - Current receiver skip mask is light-space only. World chunk metadata may be worth adding if receiver cost remains high.
-- Current filtering is a small receiver-side 5-tap PCF. More blur may soften leaf shadows too much.
+- Current filtering is a receiver-side conservative max filter with GUI-controlled radius. More blur may soften leaf shadows too much.
+- Temporal alpha lower than about `0.8` may create visible leaf-shadow trails under strong wind.
 - Need visual confirmation that removing leaves from main VSM does not regress non-flora receivers that previously depended on leaf depth in `shadow_map_tex`.
