@@ -241,6 +241,10 @@ impl BufferUpdater {
         leaf_paddle_amplitude_voxels: f32,
         leaf_paddle_primary_speed: f32,
         leaf_paddle_secondary_speed: f32,
+        leaf_shadow_fragment_opacity: f32,
+        leaf_shadow_strength: f32,
+        leaf_shadow_min_transmittance: f32,
+        leaf_shadow_filter_radius_texels: f32,
         wind_gui_params: WindGuiParams,
     ) -> Result<()> {
         let wind_source_count = wind_gui_params.sources.len() as u32;
@@ -281,6 +285,10 @@ impl BufferUpdater {
             leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed,
+            leaf_shadow_fragment_opacity,
+            leaf_shadow_strength,
+            leaf_shadow_min_transmittance,
+            leaf_shadow_filter_radius_texels,
             ..GuiInput::zeroed()
         })
     }

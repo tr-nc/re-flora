@@ -1,0 +1,33 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PC {
+    float temporal_alpha;
+    uint reset_history;
+}
+leaf_shadow_temporal_push;
+
+layout(set = 0, binding = 0) uniform sampler2D leaf_shadow_opacity_tex;
+layout(set = 0, binding = 1) uniform sampler2D leaf_shadow_opacity_prev_tex;
+layout(set = 0, binding = 2, rgba8) writeonly uniform image2D leaf_shadow_opacity_blended_tex;
+
+void main() {
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(leaf_shadow_opacity_blended_tex);
+    if (uvi.x >= size.x || uvi.y >= size.y) {
+        return;
+    }
+
+    vec4 current_sample = texelFetch(leaf_shadow_opacity_tex, uvi, 0);
+    vec4 previous_sample = texelFetch(leaf_shadow_opacity_prev_tex, uvi, 0);
+    float alpha = leaf_shadow_temporal_push.reset_history != 0u
+                      ? 1.0
+                      : clamp(leaf_shadow_temporal_push.temporal_alpha, 0.0, 1.0);
+
+    float blended_depth_times_opacity = mix(previous_sample.r, current_sample.r, alpha);
+    float blended_opacity = mix(previous_sample.a, current_sample.a, alpha);
+
+    imageStore(leaf_shadow_opacity_blended_tex, uvi,
+               vec4(blended_depth_times_opacity, 0.0, 0.0, blended_opacity));
+}

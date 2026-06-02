@@ -35,6 +35,10 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float leaf_paddle_amplitude_voxels;
     float leaf_paddle_primary_speed;
     float leaf_paddle_secondary_speed;
+    float leaf_shadow_fragment_opacity;
+    float leaf_shadow_strength;
+    float leaf_shadow_min_transmittance;
+    float leaf_shadow_filter_radius_texels;
 }
 gui_input;
 

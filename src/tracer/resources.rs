@@ -244,6 +244,10 @@ pub struct ShadowResources {
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
     pub shadow_map_tex_for_vsm_pong: Resource<Texture>,
     pub shadow_map_tex_for_vsm_prev: Resource<Texture>,
+    pub leaf_shadow_opacity_tex: Resource<Texture>,
+    pub leaf_shadow_opacity_prev_tex: Resource<Texture>,
+    pub leaf_shadow_opacity_blended_tex: Resource<Texture>,
+    pub leaf_shadow_mask_tex: Resource<Texture>,
 }
 
 #[derive(ResourceContainer)]
@@ -399,6 +403,7 @@ impl ShadowResources {
         allocator: Allocator,
         tracer_shadow_sm: &ShaderModule,
         shadow_map_extent: Extent2D,
+        leaf_shadow_opacity_extent: Extent2D,
     ) -> Self {
         let shadow_camera_info = Buffer::from_buffer_layout(
             device.clone(),
@@ -410,7 +415,25 @@ impl ShadowResources {
             BufferUsage::empty(),
             MemoryLocation::CpuToGpu,
         );
-        let shadow_map_extent = shadow_map_extent.into();
+        let shadow_map_extent: Extent3D = shadow_map_extent.into();
+        let leaf_shadow_opacity_extent: Extent3D = leaf_shadow_opacity_extent.into();
+        let leaf_shadow_mask_extent = Extent3D::new(
+            (leaf_shadow_opacity_extent.width / 8).max(1),
+            (leaf_shadow_opacity_extent.height / 8).max(1),
+            1,
+        );
+        log::info!(
+            "[SHADOW] using VSM shadow map {}x{}",
+            shadow_map_extent.width,
+            shadow_map_extent.height,
+        );
+        log::info!(
+            "[LEAF_SHADOW] using 2D opacity map {}x{}, temporal history, and influence mask {}x{}",
+            leaf_shadow_opacity_extent.width,
+            leaf_shadow_opacity_extent.height,
+            leaf_shadow_mask_extent.width,
+            leaf_shadow_mask_extent.height,
+        );
 
         Self {
             shadow_camera_info: Resource::new(shadow_camera_info),
@@ -440,11 +463,37 @@ impl ShadowResources {
             ),
             shadow_map_tex_for_vsm_prev: Resource::new(
                 TracerResources::create_shadow_map_tex_for_vsm_pingpong(
-                    device,
-                    allocator,
+                    device.clone(),
+                    allocator.clone(),
                     shadow_map_extent,
                 ),
             ),
+            leaf_shadow_opacity_tex: Resource::new(
+                TracerResources::create_leaf_shadow_opacity_tex(
+                    device.clone(),
+                    allocator.clone(),
+                    leaf_shadow_opacity_extent,
+                ),
+            ),
+            leaf_shadow_opacity_prev_tex: Resource::new(
+                TracerResources::create_leaf_shadow_opacity_history_tex(
+                    device.clone(),
+                    allocator.clone(),
+                    leaf_shadow_opacity_extent,
+                ),
+            ),
+            leaf_shadow_opacity_blended_tex: Resource::new(
+                TracerResources::create_leaf_shadow_opacity_blended_tex(
+                    device.clone(),
+                    allocator.clone(),
+                    leaf_shadow_opacity_extent,
+                ),
+            ),
+            leaf_shadow_mask_tex: Resource::new(TracerResources::create_leaf_shadow_mask_tex(
+                device,
+                allocator,
+                leaf_shadow_mask_extent,
+            )),
         }
     }
 }
@@ -621,6 +670,7 @@ impl TracerResources {
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
         shadow_map_extent: Extent2D,
+        leaf_shadow_opacity_extent: Extent2D,
         max_terrain_queries: u32,
     ) -> Self {
         let device = vulkan_ctx.device();
@@ -640,6 +690,7 @@ impl TracerResources {
                 allocator.clone(),
                 tracer_shadow_sm,
                 shadow_map_extent,
+                leaf_shadow_opacity_extent,
             ),
             wind: WindResources::new(
                 device.clone(),
@@ -1012,6 +1063,97 @@ impl TracerResources {
         // Filtered VSM moments should be interpolated at lookup time; using
         // the default nearest sampler makes grass shadows snap by whole texels
         // even after the compute blur has softened the moments.
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
+    }
+
+    fn create_leaf_shadow_opacity_tex(
+        device: Device,
+        allocator: Allocator,
+        shadow_map_extent: Extent3D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: shadow_map_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::COLOR_ATTACHMENT
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
+    }
+
+    fn create_leaf_shadow_opacity_history_tex(
+        device: Device,
+        allocator: Allocator,
+        shadow_map_extent: Extent3D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: shadow_map_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
+    }
+
+    fn create_leaf_shadow_opacity_blended_tex(
+        device: Device,
+        allocator: Allocator,
+        shadow_map_extent: Extent3D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent: shadow_map_extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC
+                | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
+    }
+
+    fn create_leaf_shadow_mask_tex(
+        device: Device,
+        allocator: Allocator,
+        extent: Extent3D,
+    ) -> Texture {
+        let tex_desc = ImageDesc {
+            extent,
+            format: vk::Format::R8G8B8A8_UNORM,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
         let sam_desc = SamplerDesc {
             mag_filter: vk::Filter::LINEAR,
             min_filter: vk::Filter::LINEAR,

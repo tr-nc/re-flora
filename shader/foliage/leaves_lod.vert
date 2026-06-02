@@ -56,7 +56,8 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 shadow_camera_info;
 
 layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
-
+layout(set = 0, binding = 9) uniform sampler2D leaf_shadow_opacity_blended_tex;
+layout(set = 0, binding = 10) uniform sampler2D leaf_shadow_mask_tex;
 
 layout(set = 0, binding = 6) uniform U_FloraGrowthInfo {
     uint flora_tick;
@@ -78,6 +79,7 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "../include/tree_leaf_instance.glsl"
 #define ENABLE_TEMPORAL_VSM
 #include "../include/vsm.glsl"
+#include "../include/leaf_shadow.glsl"
 #include "../include/wind_volume.glsl"
 #include "./billboard.glsl"
 #include "./color_variation.glsl"

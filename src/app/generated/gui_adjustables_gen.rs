@@ -445,6 +445,36 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "VSM Temporal Alpha",
     },
     GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "leaf_shadow_fragment_opacity",
+        kind: "float",
+        label: "Leaf Shadow Fragment Opacity",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "leaf_shadow_strength",
+        kind: "float",
+        label: "Leaf Shadow Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "leaf_shadow_min_transmittance",
+        kind: "float",
+        label: "Leaf Shadow Min Transmittance",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "leaf_shadow_temporal_alpha",
+        kind: "float",
+        label: "Leaf Shadow Temporal Alpha",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "leaf_shadow_filter_radius_texels",
+        kind: "float",
+        label: "Leaf Shadow Filter Radius (texels)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Starlight",
         id: "starlight_iterations",
         kind: "int",
@@ -1064,6 +1094,11 @@ pub struct GuiAdjustables {
     pub day_cycle_minutes: crate::gui_adjustables::FloatParam,
     pub vsm_blur_radius: crate::gui_adjustables::UintParam,
     pub vsm_temporal_alpha: crate::gui_adjustables::FloatParam,
+    pub leaf_shadow_fragment_opacity: crate::gui_adjustables::FloatParam,
+    pub leaf_shadow_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_shadow_min_transmittance: crate::gui_adjustables::FloatParam,
+    pub leaf_shadow_temporal_alpha: crate::gui_adjustables::FloatParam,
+    pub leaf_shadow_filter_radius_texels: crate::gui_adjustables::FloatParam,
     pub starlight_iterations: crate::gui_adjustables::IntParam,
     pub starlight_formuparam: crate::gui_adjustables::FloatParam,
     pub starlight_volsteps: crate::gui_adjustables::IntParam,
@@ -1238,6 +1273,11 @@ impl GuiAdjustables {
         let mut day_cycle_minutes_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut vsm_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_shadow_fragment_opacity_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_shadow_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_shadow_min_transmittance_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_shadow_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_shadow_filter_radius_texels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_iterations_field: Option<crate::gui_adjustables::IntParam> = None;
         let mut starlight_formuparam_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_volsteps_field: Option<crate::gui_adjustables::IntParam> = None;
@@ -1795,6 +1835,41 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             vsm_temporal_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_shadow_fragment_opacity" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_shadow_fragment_opacity_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_shadow_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_shadow_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_shadow_min_transmittance" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_shadow_min_transmittance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_shadow_temporal_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_shadow_temporal_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_shadow_filter_radius_texels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_shadow_filter_radius_texels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "starlight_iterations" => {
@@ -2472,6 +2547,11 @@ impl GuiAdjustables {
             day_cycle_minutes: day_cycle_minutes_field.expect("Missing parameter: day_cycle_minutes"),
             vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
             vsm_temporal_alpha: vsm_temporal_alpha_field.expect("Missing parameter: vsm_temporal_alpha"),
+            leaf_shadow_fragment_opacity: leaf_shadow_fragment_opacity_field.expect("Missing parameter: leaf_shadow_fragment_opacity"),
+            leaf_shadow_strength: leaf_shadow_strength_field.expect("Missing parameter: leaf_shadow_strength"),
+            leaf_shadow_min_transmittance: leaf_shadow_min_transmittance_field.expect("Missing parameter: leaf_shadow_min_transmittance"),
+            leaf_shadow_temporal_alpha: leaf_shadow_temporal_alpha_field.expect("Missing parameter: leaf_shadow_temporal_alpha"),
+            leaf_shadow_filter_radius_texels: leaf_shadow_filter_radius_texels_field.expect("Missing parameter: leaf_shadow_filter_radius_texels"),
             starlight_iterations: starlight_iterations_field.expect("Missing parameter: starlight_iterations"),
             starlight_formuparam: starlight_formuparam_field.expect("Missing parameter: starlight_formuparam"),
             starlight_volsteps: starlight_volsteps_field.expect("Missing parameter: starlight_volsteps"),
@@ -2619,6 +2699,11 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "season" => Some(&adjustables.season),
         "day_cycle_minutes" => Some(&adjustables.day_cycle_minutes),
         "vsm_temporal_alpha" => Some(&adjustables.vsm_temporal_alpha),
+        "leaf_shadow_fragment_opacity" => Some(&adjustables.leaf_shadow_fragment_opacity),
+        "leaf_shadow_strength" => Some(&adjustables.leaf_shadow_strength),
+        "leaf_shadow_min_transmittance" => Some(&adjustables.leaf_shadow_min_transmittance),
+        "leaf_shadow_temporal_alpha" => Some(&adjustables.leaf_shadow_temporal_alpha),
+        "leaf_shadow_filter_radius_texels" => Some(&adjustables.leaf_shadow_filter_radius_texels),
         "starlight_formuparam" => Some(&adjustables.starlight_formuparam),
         "starlight_stepsize" => Some(&adjustables.starlight_stepsize),
         "starlight_zoom" => Some(&adjustables.starlight_zoom),
@@ -2827,6 +2912,11 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "season" => Some(&mut adjustables.season),
         "day_cycle_minutes" => Some(&mut adjustables.day_cycle_minutes),
         "vsm_temporal_alpha" => Some(&mut adjustables.vsm_temporal_alpha),
+        "leaf_shadow_fragment_opacity" => Some(&mut adjustables.leaf_shadow_fragment_opacity),
+        "leaf_shadow_strength" => Some(&mut adjustables.leaf_shadow_strength),
+        "leaf_shadow_min_transmittance" => Some(&mut adjustables.leaf_shadow_min_transmittance),
+        "leaf_shadow_temporal_alpha" => Some(&mut adjustables.leaf_shadow_temporal_alpha),
+        "leaf_shadow_filter_radius_texels" => Some(&mut adjustables.leaf_shadow_filter_radius_texels),
         "starlight_formuparam" => Some(&mut adjustables.starlight_formuparam),
         "starlight_stepsize" => Some(&mut adjustables.starlight_stepsize),
         "starlight_zoom" => Some(&mut adjustables.starlight_zoom),

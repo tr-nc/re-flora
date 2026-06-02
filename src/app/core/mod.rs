@@ -2068,6 +2068,10 @@ impl App {
                         self.gui_adjustables.leaf_paddle_amplitude_voxels.value,
                         self.gui_adjustables.leaf_paddle_primary_speed.value,
                         self.gui_adjustables.leaf_paddle_secondary_speed.value,
+                        self.gui_adjustables.leaf_shadow_fragment_opacity.value,
+                        self.gui_adjustables.leaf_shadow_strength.value,
+                        self.gui_adjustables.leaf_shadow_min_transmittance.value,
+                        self.gui_adjustables.leaf_shadow_filter_radius_texels.value,
                         wind_gui_params,
                         self.flora_tick,
                         FLORA_SPROUT_DELAY_TICKS,
@@ -2190,6 +2194,10 @@ impl App {
                     self.gui_adjustables.vsm_temporal_alpha.value,
                     frame_delta_time,
                 );
+                let leaf_shadow_temporal_alpha = Self::frame_rate_adjusted_vsm_temporal_alpha(
+                    self.gui_adjustables.leaf_shadow_temporal_alpha.value,
+                    frame_delta_time,
+                );
                 let tracer_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                     profiler.begin_scope(
                         frame_slot,
@@ -2214,6 +2222,7 @@ impl App {
                         update_shadow_map,
                         self.gui_adjustables.vsm_blur_radius.value,
                         vsm_temporal_alpha,
+                        leaf_shadow_temporal_alpha,
                         reset_vsm_history,
                         gpu_profiler_for_trace.as_mut(),
                         frame_slot,
