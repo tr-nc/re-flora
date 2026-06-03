@@ -1,71 +1,71 @@
 {
   "version": 1,
   "current": {
-    "wind": 0.58,
-    "leafDensity": 1.18,
-    "leafBody": 1.08,
-    "crackle": 0.16,
-    "brightness": 0.22,
-    "dryness": 0.2,
-    "air": 0.55,
+    "wind": 0.56,
+    "leafDensity": 1.15,
+    "leafBody": 1.24,
+    "crackle": 0.06,
+    "brightness": 0.16,
+    "dryness": 0.12,
+    "air": 0.52,
     "branch": 0.04,
-    "volume": 0.95
+    "volume": 1.0
   },
   "presets": {
     "soft": {
       "wind": 0.35,
       "leafDensity": 0.7,
-      "leafBody": 0.95,
-      "crackle": 0.18,
-      "brightness": 0.26,
-      "dryness": 0.22,
-      "air": 0.45,
+      "leafBody": 1.12,
+      "crackle": 0.06,
+      "brightness": 0.18,
+      "dryness": 0.14,
+      "air": 0.5,
       "branch": 0.02,
-      "volume": 0.95
+      "volume": 0.98
     },
     "dense": {
       "wind": 0.62,
       "leafDensity": 1.35,
-      "leafBody": 0.88,
-      "crackle": 0.34,
-      "brightness": 0.38,
-      "dryness": 0.36,
-      "air": 0.62,
-      "branch": 0.08,
-      "volume": 0.9
+      "leafBody": 1.18,
+      "crackle": 0.1,
+      "brightness": 0.22,
+      "dryness": 0.18,
+      "air": 0.58,
+      "branch": 0.06,
+      "volume": 0.95
     },
     "dry": {
       "wind": 0.55,
       "leafDensity": 1.05,
-      "leafBody": 0.42,
-      "crackle": 0.78,
-      "brightness": 0.72,
-      "dryness": 0.78,
-      "air": 0.35,
+      "leafBody": 0.72,
+      "crackle": 0.42,
+      "brightness": 0.46,
+      "dryness": 0.62,
+      "air": 0.38,
       "branch": 0.05,
-      "volume": 0.82
+      "volume": 0.88
     },
     "storm": {
       "wind": 0.88,
       "leafDensity": 1.85,
-      "leafBody": 0.78,
-      "crackle": 0.62,
-      "brightness": 0.58,
-      "dryness": 0.52,
-      "air": 1.0,
-      "branch": 0.22,
-      "volume": 0.78
+      "leafBody": 1.05,
+      "crackle": 0.3,
+      "brightness": 0.38,
+      "dryness": 0.34,
+      "air": 0.92,
+      "branch": 0.2,
+      "volume": 0.82
     },
     "less_plastic": {
-      "wind": 0.58,
-      "leafDensity": 1.18,
-      "leafBody": 1.08,
-      "crackle": 0.16,
-      "brightness": 0.22,
-      "dryness": 0.2,
-      "air": 0.55,
+      "wind": 0.56,
+      "leafDensity": 1.15,
+      "leafBody": 1.24,
+      "crackle": 0.06,
+      "brightness": 0.16,
+      "dryness": 0.12,
+      "air": 0.52,
       "branch": 0.04,
-      "volume": 0.95
+      "volume": 1.0
     }
   }
 }
