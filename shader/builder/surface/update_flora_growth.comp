@@ -22,14 +22,15 @@ layout(set = 0, binding = 1) buffer B_OccupancyToInstancesResult {
 occupancy_to_instances_result;
 
 layout(set = 1, binding = 0) buffer B_ManualFloraInstances { Instance data[]; }
-manual_flora_instances[MAX_FLORA_SPECIES];
+manual_flora_instances;
 
 void update_species_growth(uint species_idx, uint idx, uint instance_len) {
     if (idx >= instance_len) {
         return;
     }
 
-    Instance instance = manual_flora_instances[species_idx].data[idx];
+    uint instance_idx = flora_species_instance_offset(species_idx) + idx;
+    Instance instance = manual_flora_instances.data[instance_idx];
     uint progress     = unpack_instance_growth_progress(instance.packed_local_pos);
     if (progress >= INSTANCE_GROWTH_PROGRESS_MATURE) {
         return;
@@ -38,7 +39,7 @@ void update_species_growth(uint species_idx, uint idx, uint instance_len) {
     uint remaining = INSTANCE_GROWTH_PROGRESS_MATURE - progress;
     progress += min(instances_to_occupancy_info.tick_delta, remaining);
     instance.packed_local_pos = set_instance_growth_progress(instance.packed_local_pos, progress);
-    manual_flora_instances[species_idx].data[idx] = instance;
+    manual_flora_instances.data[instance_idx] = instance;
 
     if (progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
         atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);

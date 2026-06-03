@@ -12,14 +12,13 @@ use re_flora_vkn::{
 use resource_container_derive::ResourceContainer;
 use std::collections::HashMap;
 
-const MAX_FLORA_INSTANCES_PER_SPECIES: u64 = 40_000;
+pub const MAX_FLORA_INSTANCES_PER_SPECIES: u32 = 40_000;
 
 pub type Instance = crate::generated::gpu_structs::ManualFloraInstances;
 pub type TreeLeafInstance = crate::generated::gpu_structs::TreeLeafInstances;
 
 pub struct InstanceResource {
     pub instances_buf: Resource<Buffer>,
-    pub instances_len: u32,
 }
 
 pub struct TreeLeafInstanceResource {
@@ -44,7 +43,6 @@ impl InstanceResource {
 
         Self {
             instances_buf: Resource::new(instances_buf),
-            instances_len: 0,
         }
     }
 }
@@ -99,7 +97,8 @@ pub struct FloraInstanceResources {
     #[allow(dead_code)]
     pub chunk_id: UVec3,
     pub chunk_world_offset: UVec3,
-    pub resources: Vec<InstanceResource>,
+    pub resource: InstanceResource,
+    species_instance_len: [u32; species::MAX_FLORA_SPECIES],
 }
 
 impl FloraInstanceResources {
@@ -110,36 +109,38 @@ impl FloraInstanceResources {
         voxel_dim_per_chunk: UVec3,
     ) -> Self {
         let species_count = species::species_count();
-        let mut resources = Vec::with_capacity(species_count);
-        for _ in 0..species_count {
-            resources.push(InstanceResource::new(
-                device.clone(),
-                allocator.clone(),
-                MAX_FLORA_INSTANCES_PER_SPECIES,
-            ));
-        }
+        let max_instances = u64::from(MAX_FLORA_INSTANCES_PER_SPECIES) * species_count as u64;
+        let resource = InstanceResource::new(device, allocator, max_instances.max(1));
         Self {
             chunk_id,
             chunk_world_offset: chunk_id * voxel_dim_per_chunk,
-            resources,
+            resource,
+            species_instance_len: [0; species::MAX_FLORA_SPECIES],
         }
     }
 
-    pub fn get(&self, species_index: usize) -> &InstanceResource {
-        &self.resources[species_index]
+    pub fn species_offset(species_index: usize) -> u32 {
+        assert!(
+            species_index < species::MAX_FLORA_SPECIES,
+            "flora species index {} exceeds max {}",
+            species_index,
+            species::MAX_FLORA_SPECIES
+        );
+        species_index as u32 * MAX_FLORA_INSTANCES_PER_SPECIES
     }
 
-    pub fn get_mut(&mut self, species_index: usize) -> &mut InstanceResource {
-        &mut self.resources[species_index]
+    pub fn species_len(&self, species_index: usize) -> u32 {
+        self.species_instance_len[species_index]
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &InstanceResource> {
-        self.resources.iter()
+    pub fn set_species_len(&mut self, species_index: usize, len: u32) {
+        self.species_instance_len[species_index] = len;
     }
 
-    #[allow(dead_code)]
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut InstanceResource> {
-        self.resources.iter_mut()
+    pub fn total_instance_len(&self) -> u32 {
+        self.species_instance_len
+            .iter()
+            .fold(0_u32, |acc, len| acc.saturating_add(*len))
     }
 }
 
