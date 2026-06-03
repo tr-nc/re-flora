@@ -217,22 +217,12 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
         Object.assign(this.params, message.params || {});
       } else if (message.type === 'running') {
         this.running = Boolean(message.running);
-      } else if (message.type === 'seed') {
-        this.setSeed(message.seed || 1);
       }
     };
   }
 
   clamp(value, low, high) {
     return Math.min(high, Math.max(low, value));
-  }
-
-  setSeed(seed) {
-    const mixed = (Number(seed) >>> 0) || 1;
-    this.rngState = mixed ^ 0x9e3779b9;
-    this.windCurrent = this.params.wind;
-    this.grains.length = 0;
-    this.creaks.length = 0;
   }
 
   rand() {
@@ -541,12 +531,6 @@ HTML_TEMPLATE: Final = r"""
           <button id="start" class="primary">Start audio</button>
           <button id="stop" class="stop">Stop</button>
         </div>
-        <label for="seed">seed</label>
-        <div class="button-row">
-          <input id="seed" type="number" value="3" min="1" max="999999" step="1" />
-          <button id="apply-seed">Apply seed</button>
-          <button id="random-seed">Randomize</button>
-        </div>
         <div class="button-row" id="preset-buttons"></div>
         <div class="note subtle">
           Less plastic: lower <b>crackle</b>, <b>brightness</b>, and <b>dryness</b>; raise <b>leaf body</b>.
@@ -577,7 +561,6 @@ HTML_TEMPLATE: Final = r"""
     const statusEl = document.getElementById('status');
     const settingsEl = document.getElementById('settings');
     const meterFill = document.getElementById('meter-fill');
-    const seedInput = document.getElementById('seed');
 
     function setStatus(text) {
       statusEl.textContent = text;
@@ -679,7 +662,6 @@ HTML_TEMPLATE: Final = r"""
         node.connect(analyser);
         analyser.connect(context.destination);
         postParams();
-        node.port.postMessage({ type: 'seed', seed: Number(seedInput.value) || 1 });
       }
       if (context.state !== 'running') {
         await context.resume();
@@ -718,17 +700,6 @@ HTML_TEMPLATE: Final = r"""
     document.getElementById('stop').addEventListener('click', () => {
       if (node) node.port.postMessage({ type: 'running', running: false });
       setStatus('Stopped. The audio graph remains loaded for fast restart.');
-    });
-
-    document.getElementById('apply-seed').addEventListener('click', () => {
-      if (node) node.port.postMessage({ type: 'seed', seed: Number(seedInput.value) || 1 });
-      setStatus(`Applied seed ${seedInput.value}; stochastic state reset.`);
-    });
-
-    document.getElementById('random-seed').addEventListener('click', () => {
-      seedInput.value = String(1 + Math.floor(Math.random() * 999999));
-      if (node) node.port.postMessage({ type: 'seed', seed: Number(seedInput.value) || 1 });
-      setStatus(`Randomized seed to ${seedInput.value}.`);
     });
 
     buildSliders();
