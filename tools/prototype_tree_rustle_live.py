@@ -20,70 +20,14 @@ import textwrap
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from socketserver import BaseServer
-from typing import Final
+from typing import Any, Final
 from urllib.parse import urlparse
 
 DEFAULT_HOST: Final = "127.0.0.1"
 DEFAULT_PORT: Final = 8080
-
-PRESETS: Final = {
-    "soft": {
-        "wind": 0.35,
-        "leafDensity": 0.70,
-        "leafBody": 0.95,
-        "crackle": 0.18,
-        "brightness": 0.26,
-        "dryness": 0.22,
-        "air": 0.45,
-        "branch": 0.02,
-        "volume": 0.95,
-    },
-    "dense": {
-        "wind": 0.62,
-        "leafDensity": 1.35,
-        "leafBody": 0.88,
-        "crackle": 0.34,
-        "brightness": 0.38,
-        "dryness": 0.36,
-        "air": 0.62,
-        "branch": 0.08,
-        "volume": 0.90,
-    },
-    "dry": {
-        "wind": 0.55,
-        "leafDensity": 1.05,
-        "leafBody": 0.42,
-        "crackle": 0.78,
-        "brightness": 0.72,
-        "dryness": 0.78,
-        "air": 0.35,
-        "branch": 0.05,
-        "volume": 0.82,
-    },
-    "storm": {
-        "wind": 0.88,
-        "leafDensity": 1.85,
-        "leafBody": 0.78,
-        "crackle": 0.62,
-        "brightness": 0.58,
-        "dryness": 0.52,
-        "air": 1.00,
-        "branch": 0.22,
-        "volume": 0.78,
-    },
-    "less_plastic": {
-        "wind": 0.58,
-        "leafDensity": 1.18,
-        "leafBody": 1.08,
-        "crackle": 0.16,
-        "brightness": 0.22,
-        "dryness": 0.20,
-        "air": 0.55,
-        "branch": 0.04,
-        "volume": 0.95,
-    },
-}
+CONFIG_PATH: Final = Path(__file__).with_name("tree_rustle_live_config.json")
 
 SLIDERS: Final = [
     {
@@ -160,23 +104,78 @@ SLIDERS: Final = [
     },
 ]
 
+PARAM_KEYS: Final = tuple(str(spec["key"]) for spec in SLIDERS)
+SLIDER_LIMITS: Final = {
+    str(spec["key"]): (float(spec["min"]), float(spec["max"])) for spec in SLIDERS
+}
 
-WORKLET_JS: Final = r"""
+
+def validate_params(raw: Any) -> dict[str, float]:
+    if not isinstance(raw, dict):
+        raise ValueError("rustle config params must be an object")
+
+    params: dict[str, float] = {}
+    for key in PARAM_KEYS:
+        if key not in raw:
+            raise ValueError(f"rustle config is missing parameter: {key}")
+        value = raw[key]
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError(f"rustle config parameter {key} must be a number")
+        low, high = SLIDER_LIMITS[key]
+        params[key] = min(high, max(low, float(value)))
+    return params
+
+
+def validate_config(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("rustle config must be an object")
+
+    presets_raw = raw.get("presets")
+    if not isinstance(presets_raw, dict) or not presets_raw:
+        raise ValueError("rustle config must contain a non-empty presets object")
+
+    presets: dict[str, dict[str, float]] = {}
+    for name, preset_raw in presets_raw.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("rustle preset names must be non-empty strings")
+        presets[name] = validate_params(preset_raw)
+
+    return {
+        "version": int(raw.get("version", 1)),
+        "current": validate_params(raw.get("current")),
+        "presets": presets,
+    }
+
+
+def load_config() -> dict[str, Any]:
+    if not CONFIG_PATH.is_file():
+        raise FileNotFoundError(f"required rustle config file does not exist: {CONFIG_PATH}")
+    with CONFIG_PATH.open("r", encoding="utf-8") as reader:
+        return validate_config(json.load(reader))
+
+
+def write_config(config: dict[str, Any]) -> None:
+    validated = validate_config(config)
+    temp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+    with temp_path.open("w", encoding="utf-8") as writer:
+        json.dump(validated, writer, indent=2)
+        writer.write("\n")
+    temp_path.replace(CONFIG_PATH)
+
+
+def save_current_params(params: Any) -> dict[str, Any]:
+    config = load_config()
+    config["current"] = validate_params(params)
+    write_config(config)
+    return config
+
+
+WORKLET_JS_TEMPLATE: Final = r"""
 class TreeRustleProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.sr = sampleRate;
-    this.params = {
-      wind: 0.58,
-      leafDensity: 1.18,
-      leafBody: 1.08,
-      crackle: 0.16,
-      brightness: 0.22,
-      dryness: 0.20,
-      air: 0.55,
-      branch: 0.04,
-      volume: 0.95,
-    };
+    this.params = __INITIAL_PARAMS__;
     this.running = false;
     this.rngState = 0x12345678;
     this.controlRate = 100;
@@ -530,6 +529,7 @@ HTML_TEMPLATE: Final = r"""
         <div class="button-row">
           <button id="start" class="primary">Start audio</button>
           <button id="stop" class="stop">Stop</button>
+          <button id="save">Save config</button>
         </div>
         <div class="button-row" id="preset-buttons"></div>
         <div class="note subtle">
@@ -549,9 +549,10 @@ HTML_TEMPLATE: Final = r"""
   </main>
 
   <script>
-    const PRESETS = __PRESETS__;
+    const CONFIG = __CONFIG__;
+    const PRESETS = CONFIG.presets;
     const SLIDERS = __SLIDERS__;
-    const state = { ...PRESETS.less_plastic };
+    const state = { ...CONFIG.current };
     let context = null;
     let node = null;
     let analyser = null;
@@ -588,7 +589,7 @@ HTML_TEMPLATE: Final = r"""
         setSliderValue(key, value);
       }
       postParams();
-      setStatus(`Applied preset: ${name}\n${name === 'less_plastic' ? 'Warm body up, crackle/brightness down.' : 'Tweak while audio is running for instant feedback.'}`);
+      setStatus(`Applied preset: ${name}\nTweak while audio is running for instant feedback. Press Save config to make this the next startup state.`);
     }
 
     function buildSliders() {
@@ -702,6 +703,24 @@ HTML_TEMPLATE: Final = r"""
       setStatus('Stopped. The audio graph remains loaded for fast restart.');
     });
 
+    document.getElementById('save').addEventListener('click', async () => {
+      try {
+        const response = await fetch('/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current: state }),
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const result = await response.json();
+        setStatus(`Saved current sliders to disk.\n${result.path}\nReloading this page will load these values.`);
+      } catch (error) {
+        setStatus(`Save failed: ${error}`);
+        console.error(error);
+      }
+    });
+
     buildSliders();
     buildPresetButtons();
     postParams();
@@ -711,8 +730,12 @@ HTML_TEMPLATE: Final = r"""
 """
 
 
+def worklet_js() -> str:
+    return WORKLET_JS_TEMPLATE.replace("__INITIAL_PARAMS__", json.dumps(load_config()["current"]))
+
+
 def html() -> str:
-    return HTML_TEMPLATE.replace("__PRESETS__", json.dumps(PRESETS)).replace(
+    return HTML_TEMPLATE.replace("__CONFIG__", json.dumps(load_config())).replace(
         "__SLIDERS__", json.dumps(SLIDERS)
     )
 
@@ -729,13 +752,44 @@ class RustleRequestHandler(BaseHTTPRequestHandler):
             self.write_response("text/html; charset=utf-8", html())
             return
         if path == "/tree-rustle-worklet.js":
-            self.write_response("text/javascript; charset=utf-8", WORKLET_JS)
+            self.write_response("text/javascript; charset=utf-8", worklet_js())
+            return
+        if path == "/config":
+            payload = {**load_config(), "path": str(CONFIG_PATH)}
+            self.write_response("application/json; charset=utf-8", json.dumps(payload))
             return
         self.send_error(HTTPStatus.NOT_FOUND, "not found")
 
-    def write_response(self, content_type: str, body: str) -> None:
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        if path != "/config":
+            self.send_error(HTTPStatus.NOT_FOUND, "not found")
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(payload, dict) or "current" not in payload:
+                raise ValueError("expected JSON object with a current field")
+            config = save_current_params(payload["current"])
+            response = {"ok": True, "path": str(CONFIG_PATH), "current": config["current"]}
+            self.write_response("application/json; charset=utf-8", json.dumps(response))
+        except Exception as error:  # noqa: BLE001 - return prototype save errors to the browser
+            self.write_response(
+                "text/plain; charset=utf-8",
+                f"failed to save rustle config: {error}",
+                status=HTTPStatus.BAD_REQUEST,
+            )
+
+    def write_response(
+        self,
+        content_type: str,
+        body: str,
+        *,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
         encoded = body.encode("utf-8")
-        self.send_response(HTTPStatus.OK)
+        self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(encoded)))
         self.send_header("Cache-Control", "no-store")
