@@ -60,7 +60,7 @@ PRESETS = {
         air=0.50,
         leaf_body=1.12,
         crackle=0.06,
-        brightness=0.18,
+        brightness=0.24,
         description="gentle broadleaf canopy; warm, soft, and non-invasive",
     ),
     "dry": RustlePreset(
@@ -72,31 +72,31 @@ PRESETS = {
         air=0.38,
         leaf_body=0.72,
         crackle=0.42,
-        brightness=0.46,
+        brightness=0.52,
         description="drier papery leaves with restrained bright transient texture",
     ),
     "dense": RustlePreset(
         base_wind=0.62,
         gustiness=0.50,
         leaf_density=1.35,
-        dryness=0.18,
+        dryness=0.20,
         branch=0.06,
         air=0.58,
-        leaf_body=1.18,
-        crackle=0.10,
-        brightness=0.22,
-        description="wide dense canopy with warmer leaf body and softer flutter",
+        leaf_body=1.14,
+        crackle=0.12,
+        brightness=0.34,
+        description="wide dense canopy with warm body and 4 kHz leaf-contact sheen",
     ),
     "storm": RustlePreset(
         base_wind=0.88,
         gustiness=0.95,
         leaf_density=1.85,
-        dryness=0.34,
+        dryness=0.36,
         branch=0.20,
         air=0.92,
-        leaf_body=1.05,
-        crackle=0.30,
-        brightness=0.38,
+        leaf_body=1.02,
+        crackle=0.32,
+        brightness=0.46,
         description="heavy gusts, fast flutter, and occasional branch stress",
     ),
 }
@@ -317,10 +317,13 @@ def render_rustle(
     air_slow_l = air_slow_r = 0.0
     leaf_hp_l = leaf_hp_r = 0.0
     leaf_lp_l = leaf_lp_r = 0.0
+    sheen_hp_l = sheen_hp_r = 0.0
+    sheen_lp_l = sheen_lp_r = 0.0
     body_lp_l = body_lp_r = 0.0
     body_slow_l = body_slow_r = 0.0
     tone_lp_l = tone_lp_r = 0.0
     tone_lp2_l = tone_lp2_r = 0.0
+    leaf_flutter_phase = rng.uniform(0.0, TWO_PI)
 
     for index in range(sample_count):
         control_index = min(len(controls) - 1, int(index / samples_per_control))
@@ -392,6 +395,35 @@ def render_rustle(
         out_l += leaf_lp_l * leaf_amp
         out_r += leaf_lp_r * leaf_amp
 
+        # Leaf-contact sheen: Bolin/Fégeant describe leafed deciduous rustle as
+        # dominated by contact noise around 4 kHz, plus a pinker mechanical bed.
+        # This is deliberately band-limited/equalized rather than raw white noise:
+        # it restores natural high-frequency air without reintroducing plastic ticks.
+        leaf_flutter_phase += TWO_PI * (6.0 + 4.5 * wind) / sample_rate
+        flutter_mod = 0.78 + 0.22 * (0.5 + 0.5 * math.sin(leaf_flutter_phase))
+        sheen_hp_cutoff = 2100.0 + 520.0 * preset.dryness + 380.0 * preset.brightness + 420.0 * wind
+        sheen_lp_cutoff = 4800.0 + 1700.0 * preset.brightness + 850.0 * preset.dryness + 1050.0 * wind
+        sheen_hp_alpha = lowpass_alpha(sheen_hp_cutoff, sample_rate)
+        sheen_lp_alpha = lowpass_alpha(sheen_lp_cutoff, sample_rate)
+        raw_l = rng.uniform(-1.0, 1.0)
+        raw_r = rng.uniform(-1.0, 1.0)
+        sheen_hp_l += (raw_l - sheen_hp_l) * sheen_hp_alpha
+        sheen_hp_r += (raw_r - sheen_hp_r) * sheen_hp_alpha
+        sheen_high_l = raw_l - sheen_hp_l
+        sheen_high_r = raw_r - sheen_hp_r
+        sheen_lp_l += (sheen_high_l - sheen_lp_l) * sheen_lp_alpha
+        sheen_lp_r += (sheen_high_r - sheen_lp_r) * sheen_lp_alpha
+        sheen_amp = (
+            0.030
+            * preset.leaf_density
+            * (wind ** 1.35)
+            * (0.30 + 0.70 * preset.brightness)
+            * (0.55 + 0.35 * preset.dryness)
+            * flutter_mod
+        )
+        out_l += sheen_lp_l * sheen_amp
+        out_r += sheen_lp_r * sheen_amp
+
         # Leaf bursts: clustered short grains, with density tied to gust strength.
         burst_rate = (0.35 + 12.0 * (wind ** 2.15)) * preset.leaf_density * (0.28 + 0.78 * preset.crackle)
         if rng.random() < burst_rate / sample_rate:
@@ -461,16 +493,16 @@ def render_rustle(
         creaks = next_creaks
 
         # Final de-harshing rolloff: plastic-bag timbre is mostly brittle
-        # 6-10 kHz energy. Keep a little direct signal for life, but make the
-        # steady identity broadleaf/woody instead of synthetic crinkle.
-        tone_cutoff = 3200.0 + 1800.0 * preset.brightness + 800.0 * preset.dryness + 700.0 * wind
+        # 8-12 kHz energy. Preserve the physically plausible 3-6 kHz leaf-contact
+        # band while gently damping the synthetic top octave.
+        tone_cutoff = 5600.0 + 2100.0 * preset.brightness + 1000.0 * preset.dryness + 850.0 * wind
         tone_alpha = lowpass_alpha(tone_cutoff, sample_rate)
         tone_lp_l += (out_l - tone_lp_l) * tone_alpha
         tone_lp_r += (out_r - tone_lp_r) * tone_alpha
         tone_lp2_l += (tone_lp_l - tone_lp2_l) * tone_alpha
         tone_lp2_r += (tone_lp_r - tone_lp2_r) * tone_alpha
-        out_l = 0.84 * tone_lp2_l + 0.16 * out_l
-        out_r = 0.84 * tone_lp2_r + 0.16 * out_r
+        out_l = 0.66 * tone_lp2_l + 0.34 * out_l
+        out_r = 0.66 * tone_lp2_r + 0.34 * out_r
 
         left.append(out_l)
         right.append(out_r)
