@@ -561,10 +561,8 @@ impl SurfaceBuilder {
                 self.voxel_dim_per_chunk,
             )?;
             cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
-            let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx]
-                .1
-                .resources;
-            self.bind_manual_instance_buffers(&self.active_surface_to_flora_ppl, chunk_resources);
+            let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
+            self.bind_manual_instance_buffer(&self.active_surface_to_flora_ppl, chunk_resources);
             Some(chunk_idx)
         } else {
             None
@@ -766,7 +764,7 @@ impl SurfaceBuilder {
             let chunk_resources_mut =
                 &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
             for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
-                chunk_resources_mut.get_mut(species_idx).instances_len = *len;
+                chunk_resources_mut.set_species_len(species_idx, *len);
             }
         }
         let flora_elapsed = flora_start.elapsed();
@@ -879,8 +877,7 @@ impl SurfaceBuilder {
 
         let before_total = self.resources.instances.chunk_flora_instances[chunk_idx]
             .1
-            .iter()
-            .fold(0_u32, |acc, r| acc.saturating_add(r.instances_len));
+            .total_instance_len();
 
         let mut species_len = [0_u32; 4];
         let mut max_len = 0_u32;
@@ -891,8 +888,7 @@ impl SurfaceBuilder {
         {
             let len = self.resources.instances.chunk_flora_instances[chunk_idx]
                 .1
-                .get(species_idx)
-                .instances_len;
+                .species_len(species_idx);
             *species = len;
             max_len = max_len.max(len);
         }
@@ -925,11 +921,9 @@ impl SurfaceBuilder {
         )?;
         cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
 
-        let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx]
-            .1
-            .resources;
-        self.bind_manual_instance_buffers(&self.instances_to_occupancy_ppl, chunk_resources);
-        self.bind_manual_instance_buffers(&self.occupancy_to_instances_ppl, chunk_resources);
+        let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
+        self.bind_manual_instance_buffer(&self.instances_to_occupancy_ppl, chunk_resources);
+        self.bind_manual_instance_buffer(&self.occupancy_to_instances_ppl, chunk_resources);
 
         let flora_edit_timing_passes: &[SurfacePassTimingPass] = if max_len > 0 {
             &FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES
@@ -1033,7 +1027,7 @@ impl SurfaceBuilder {
         let chunk_resources_mut = &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
         let mut after_total = 0_u32;
         for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
-            chunk_resources_mut.get_mut(species_idx).instances_len = *len;
+            chunk_resources_mut.set_species_len(species_idx, *len);
             after_total = after_total.saturating_add(*len);
         }
 
@@ -1072,8 +1066,7 @@ impl SurfaceBuilder {
         {
             let len = self.resources.instances.chunk_flora_instances[chunk_idx]
                 .1
-                .get(species_idx)
-                .instances_len;
+                .species_len(species_idx);
             *species = len;
             max_len = max_len.max(len);
         }
@@ -1091,10 +1084,8 @@ impl SurfaceBuilder {
         )?;
         cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
 
-        let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx]
-            .1
-            .resources;
-        self.bind_manual_instance_buffers(&self.update_flora_growth_ppl, chunk_resources);
+        let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
+        self.bind_manual_instance_buffer(&self.update_flora_growth_ppl, chunk_resources);
 
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
@@ -1141,18 +1132,15 @@ impl SurfaceBuilder {
             .ok_or_else(|| anyhow::anyhow!("Chunk {:?} has no flora instance resources", chunk_id))
     }
 
-    fn bind_manual_instance_buffers(
+    fn bind_manual_instance_buffer(
         &self,
         pipeline: &ComputePipeline,
-        resources: &[InstanceResource],
+        resources: &FloraInstanceResources,
     ) {
-        for (species_index, instance_resource) in resources.iter().enumerate() {
-            pipeline.write_descriptor_set(
-                1,
-                WriteDescriptorSet::new_buffer_write(0, &instance_resource.instances_buf)
-                    .with_array_element(species_index as u32),
-            );
-        }
+        pipeline.write_descriptor_set(
+            1,
+            WriteDescriptorSet::new_buffer_write(0, &resources.resource.instances_buf),
+        );
     }
 
     pub fn get_resources(&self) -> &SurfaceResources {

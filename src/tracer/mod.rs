@@ -1544,10 +1544,11 @@ impl Tracer {
 
                     let flora_instances = &chunks_by_lod[&lod_state];
                     for instances in flora_instances.iter() {
-                        let instance_resource = instances.get(species_index);
-                        if instance_resource.instances_len == 0 {
+                        let instance_count = instances.species_len(species_index);
+                        if instance_count == 0 {
                             continue;
                         }
+                        let instance_offset = FloraInstanceResources::species_offset(species_index);
                         let push_constant = flora_push_constant(
                             time,
                             species_index as u32,
@@ -1561,12 +1562,12 @@ impl Tracer {
                             cmdbuf,
                             1,
                             0,
-                            &instance_resource.instances_buf,
+                            &instances.resource.instances_buf,
                             mesh.indices_len,
-                            instance_resource.instances_len,
+                            instance_count,
                             0,
                             0,
-                            0,
+                            instance_offset,
                             Some(&PushConstantInfo {
                                 shader_stage: vk::ShaderStageFlags::VERTEX,
                                 push_constants: bytemuck::bytes_of(&push_constant).to_vec(),

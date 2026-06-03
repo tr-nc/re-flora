@@ -18,7 +18,7 @@ layout(set = 0, binding = 1, r32ui) uniform uimage3D occupancy_data;
 #include "../../include/instance.glsl"
 
 layout(set = 1, binding = 0) readonly buffer B_ManualFloraInstances { Instance data[]; }
-manual_flora_instances[MAX_FLORA_SPECIES];
+manual_flora_instances;
 
 bool in_chunk_world_bound(uvec3 world_pos) {
     uvec3 min_bound = instances_to_occupancy_info.chunk_world_offset;
@@ -31,7 +31,7 @@ void mark_stem_occupied(uint species_idx, uint idx, uint instance_len) {
         return;
     }
 
-    Instance instance = manual_flora_instances[species_idx].data[idx];
+    Instance instance = manual_flora_instances.data[flora_species_instance_offset(species_idx) + idx];
     uvec3 stem_world  = get_instance_world_pos(instance, instances_to_occupancy_info.chunk_world_offset);
     if (!in_chunk_world_bound(stem_world)) {
         return;
