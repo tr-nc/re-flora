@@ -59,8 +59,8 @@ PRESETS = {
         branch=0.02,
         air=0.50,
         leaf_body=1.12,
-        crackle=0.06,
-        brightness=0.24,
+        crackle=0.08,
+        brightness=0.28,
         description="gentle broadleaf canopy; warm, soft, and non-invasive",
     ),
     "dry": RustlePreset(
@@ -71,8 +71,8 @@ PRESETS = {
         branch=0.05,
         air=0.38,
         leaf_body=0.72,
-        crackle=0.42,
-        brightness=0.52,
+        crackle=0.55,
+        brightness=0.58,
         description="drier papery leaves with restrained bright transient texture",
     ),
     "dense": RustlePreset(
@@ -83,8 +83,8 @@ PRESETS = {
         branch=0.06,
         air=0.58,
         leaf_body=1.14,
-        crackle=0.12,
-        brightness=0.34,
+        crackle=0.18,
+        brightness=0.42,
         description="wide dense canopy with warm body and 4 kHz leaf-contact sheen",
     ),
     "storm": RustlePreset(
@@ -95,8 +95,8 @@ PRESETS = {
         branch=0.20,
         air=0.92,
         leaf_body=1.02,
-        crackle=0.32,
-        brightness=0.46,
+        crackle=0.42,
+        brightness=0.54,
         description="heavy gusts, fast flutter, and occasional branch stress",
     ),
 }
@@ -225,29 +225,30 @@ def make_grain(
     brightness = clamp(brightness, 0.0, 1.0)
     crackle = clamp(crackle, 0.0, 1.0)
 
-    # The earlier prototype leaned on tiny high-passed white-noise ticks; even
-    # when quiet those read as plastic bag crinkles. These grains are longer,
-    # slower, and band-limited so they behave like overlapping leaf-friction puffs.
-    duration = rng.uniform(0.045, 0.180 - 0.040 * dryness)
-    duration *= 1.10 - 0.25 * crackle
-    duration = max(0.028, duration)
+    # Crackle controls the discrete leaf-contact events. At low values the sound
+    # is mostly continuous friction; at high values it adds shorter, brighter,
+    # more frequent contacts rather than merely changing volume.
+    duration = rng.uniform(0.038, 0.170 - 0.036 * dryness)
+    duration *= 1.12 - 0.40 * crackle
+    duration = max(0.018, duration)
     decay = math.exp(-1.0 / (duration * sample_rate))
-    attack_ms = rng.uniform(7.0, 26.0) * (1.10 - 0.25 * crackle)
+    attack_ms = rng.uniform(4.5, 22.0) * (1.12 - 0.52 * crackle)
+    attack_ms = max(1.2, attack_ms)
     attack_alpha = 1.0 - math.exp(-1.0 / (attack_ms * 0.001 * sample_rate))
 
     hp_cutoff = rng.uniform(
-        170.0 + 230.0 * dryness + 170.0 * brightness,
-        620.0 + 520.0 * dryness + 760.0 * brightness,
+        160.0 + 220.0 * dryness + 180.0 * brightness + 600.0 * crackle,
+        620.0 + 520.0 * dryness + 760.0 * brightness + 1800.0 * crackle,
     )
     lp_cutoff = rng.uniform(
-        1350.0 + 520.0 * dryness + 680.0 * brightness,
-        3000.0 + 850.0 * dryness + 1300.0 * brightness,
+        1400.0 + 520.0 * dryness + 700.0 * brightness + 1400.0 * crackle,
+        3200.0 + 850.0 * dryness + 1500.0 * brightness + 2800.0 * crackle,
     )
     amp = (
-        rng.uniform(0.006, 0.030)
-        * (0.35 + 0.80 * wind)
+        rng.uniform(0.007, 0.038)
+        * (0.32 + 0.90 * wind)
         * (0.82 + 0.18 * dryness)
-        * (0.35 + 0.62 * crackle)
+        * (0.22 + 1.20 * crackle)
     )
     pan_l, pan_r = equal_power_pan(rng.uniform(-0.92, 0.92))
 
@@ -321,8 +322,6 @@ def render_rustle(
     sheen_lp_l = sheen_lp_r = 0.0
     body_lp_l = body_lp_r = 0.0
     body_slow_l = body_slow_r = 0.0
-    tone_lp_l = tone_lp_r = 0.0
-    tone_lp2_l = tone_lp2_r = 0.0
     leaf_flutter_phase = rng.uniform(0.0, TWO_PI)
 
     for index in range(sample_count):
@@ -344,8 +343,8 @@ def render_rustle(
         out_l = (air_lp_l - 0.70 * air_slow_l) * air_amp
         out_r = (air_lp_r - 0.70 * air_slow_r) * air_amp
 
-        # Warm leaf body: lower/mid filtered broadband movement. This is the
-        # antidote to the "cheap plastic bag" impression from pure highs.
+        # Warm leaf body: lower/mid filtered broadband movement that supports the
+        # brighter leaf-contact layers.
         body_cutoff = 430.0 + 1050.0 * wind + 360.0 * preset.brightness
         body_slow_cutoff = 45.0 + 65.0 * wind
         body_alpha = lowpass_alpha(body_cutoff, sample_rate)
@@ -398,7 +397,7 @@ def render_rustle(
         # Leaf-contact sheen: Bolin/Fégeant describe leafed deciduous rustle as
         # dominated by contact noise around 4 kHz, plus a pinker mechanical bed.
         # This is deliberately band-limited/equalized rather than raw white noise:
-        # it restores natural high-frequency air without reintroducing plastic ticks.
+        # it restores natural high-frequency air while staying leaf-like.
         leaf_flutter_phase += TWO_PI * (6.0 + 4.5 * wind) / sample_rate
         flutter_mod = 0.78 + 0.22 * (0.5 + 0.5 * math.sin(leaf_flutter_phase))
         sheen_hp_cutoff = 2100.0 + 520.0 * preset.dryness + 380.0 * preset.brightness + 420.0 * wind
@@ -419,18 +418,23 @@ def render_rustle(
             * (wind ** 1.35)
             * (0.30 + 0.70 * preset.brightness)
             * (0.55 + 0.35 * preset.dryness)
+            * (0.70 + 0.85 * preset.crackle)
             * flutter_mod
         )
         out_l += sheen_lp_l * sheen_amp
         out_r += sheen_lp_r * sheen_amp
 
-        # Leaf bursts: clustered short grains, with density tied to gust strength.
-        burst_rate = (0.35 + 12.0 * (wind ** 2.15)) * preset.leaf_density * (0.28 + 0.78 * preset.crackle)
+        # Leaf bursts: clustered contact grains. Crackle is intentionally a strong
+        # control here: 0 disables most discrete ticks, 1 produces crisp leaf-edge
+        # contacts on top of the continuous 4 kHz sheen.
+        crackle_drive = preset.crackle ** 1.15
+        burst_rate = (0.20 + 28.0 * (wind ** 2.05)) * preset.leaf_density * crackle_drive
         if rng.random() < burst_rate / sample_rate:
-            cluster_count = 1 + rng.randrange(1 + int(1 + 3 * wind * (0.35 + preset.crackle)))
-            if rng.random() < (0.05 + 0.18 * wind) * (0.35 + preset.crackle):
-                cluster_count += rng.randrange(1, 3)
-            cluster_window = int(sample_rate * rng.uniform(0.030, 0.140 + 0.060 * wind))
+            cluster_count = 1 + rng.randrange(1 + int(1 + 5 * wind * (0.40 + preset.crackle)))
+            if rng.random() < (0.06 + 0.26 * wind) * preset.crackle:
+                cluster_count += rng.randrange(1, 4)
+            max_window = max(0.024, 0.125 + 0.055 * wind - 0.045 * preset.crackle)
+            cluster_window = int(sample_rate * rng.uniform(0.018, max_window))
             for _ in range(cluster_count):
                 delay = rng.randrange(max(1, cluster_window))
                 grains.append(
@@ -491,18 +495,6 @@ def render_rustle(
             if creak.env > 0.00003:
                 next_creaks.append(creak)
         creaks = next_creaks
-
-        # Final de-harshing rolloff: plastic-bag timbre is mostly brittle
-        # 8-12 kHz energy. Preserve the physically plausible 3-6 kHz leaf-contact
-        # band while gently damping the synthetic top octave.
-        tone_cutoff = 5600.0 + 2100.0 * preset.brightness + 1000.0 * preset.dryness + 850.0 * wind
-        tone_alpha = lowpass_alpha(tone_cutoff, sample_rate)
-        tone_lp_l += (out_l - tone_lp_l) * tone_alpha
-        tone_lp_r += (out_r - tone_lp_r) * tone_alpha
-        tone_lp2_l += (tone_lp_l - tone_lp2_l) * tone_alpha
-        tone_lp2_r += (tone_lp_r - tone_lp2_r) * tone_alpha
-        out_l = 0.66 * tone_lp2_l + 0.34 * out_l
-        out_r = 0.66 * tone_lp2_r + 0.34 * out_r
 
         left.append(out_l)
         right.append(out_r)

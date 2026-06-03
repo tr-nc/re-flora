@@ -52,7 +52,7 @@ SLIDERS: Final = [
         "min": 0.0,
         "max": 1.5,
         "step": 0.01,
-        "hint": "warm low/mid rustle body; raise this if it sounds plasticky",
+        "hint": "warm low/mid rustle body underneath the high leaf-contact layer",
     },
     {
         "key": "crackle",
@@ -60,7 +60,7 @@ SLIDERS: Final = [
         "min": 0.0,
         "max": 1.0,
         "step": 0.01,
-        "hint": "short high transients; lower this for less plastic bag",
+        "hint": "discrete leaf-contact transients; 0 mostly continuous, higher adds crisp ticks",
     },
     {
         "key": "brightness",
@@ -202,10 +202,6 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
     this.sheenLpL = 0.0;
     this.sheenLpR = 0.0;
     this.leafFlutterPhase = this.randRange(0.0, Math.PI * 2.0);
-    this.toneLpL = 0.0;
-    this.toneLpR = 0.0;
-    this.toneLp2L = 0.0;
-    this.toneLp2R = 0.0;
 
     this.airAlpha = 0.1;
     this.airSlowAlpha = 0.01;
@@ -219,7 +215,6 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
     this.sheenHpAlpha = 0.1;
     this.sheenLpAlpha = 0.1;
     this.sheenAmp = 0.0;
-    this.toneAlpha = 0.1;
     this.burstRate = 0.0;
     this.branchRate = 0.0;
 
@@ -307,10 +302,11 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
       leafDensity *
       Math.pow(w, 1.35) *
       (0.30 + 0.70 * brightness) *
-      (0.55 + 0.35 * dryness);
-    this.toneAlpha = this.alpha(5600.0 + 2100.0 * brightness + 1000.0 * dryness + 850.0 * w);
+      (0.55 + 0.35 * dryness) *
+      (0.70 + 0.85 * crackle);
 
-    this.burstRate = (0.35 + 12.0 * Math.pow(w, 2.15)) * leafDensity * (0.28 + 0.78 * crackle);
+    const crackleDrive = Math.pow(crackle, 1.15);
+    this.burstRate = (0.20 + 28.0 * Math.pow(w, 2.05)) * leafDensity * crackleDrive;
     this.branchRate = Math.max(0.0, p.branch) * Math.pow(Math.max(0.0, w - 0.42), 2.0) * 1.15;
   }
 
@@ -321,27 +317,29 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
     const crackle = this.clamp(p.crackle, 0.0, 1.0);
     const wind = this.clamp(this.windCurrent, 0.0, 1.0);
 
-    // Longer, slower, band-limited grains avoid the tiny high-passed
-    // white-noise ticks that read as plastic bag crinkles.
-    let duration = this.randRange(0.045, 0.180 - 0.040 * dryness);
-    duration *= 1.10 - 0.25 * crackle;
-    duration = Math.max(0.028, duration);
+    // Crackle controls the discrete leaf-contact events. At low values the
+    // sound is mostly continuous friction; at high values it adds shorter,
+    // brighter, more frequent contacts rather than merely changing volume.
+    let duration = this.randRange(0.038, 0.170 - 0.036 * dryness);
+    duration *= 1.12 - 0.40 * crackle;
+    duration = Math.max(0.018, duration);
     const decay = Math.exp(-1.0 / (duration * this.sr));
-    const attackMs = this.randRange(7.0, 26.0) * (1.10 - 0.25 * crackle);
+    let attackMs = this.randRange(4.5, 22.0) * (1.12 - 0.52 * crackle);
+    attackMs = Math.max(1.2, attackMs);
     const attackAlpha = 1.0 - Math.exp(-1.0 / (attackMs * 0.001 * this.sr));
     const hp = this.randRange(
-      170.0 + 230.0 * dryness + 170.0 * brightness,
-      620.0 + 520.0 * dryness + 760.0 * brightness,
+      160.0 + 220.0 * dryness + 180.0 * brightness + 600.0 * crackle,
+      620.0 + 520.0 * dryness + 760.0 * brightness + 1800.0 * crackle,
     );
     const lp = this.randRange(
-      1350.0 + 520.0 * dryness + 680.0 * brightness,
-      3000.0 + 850.0 * dryness + 1300.0 * brightness,
+      1400.0 + 520.0 * dryness + 700.0 * brightness + 1400.0 * crackle,
+      3200.0 + 850.0 * dryness + 1500.0 * brightness + 2800.0 * crackle,
     );
     const amp =
-      this.randRange(0.006, 0.030) *
-      (0.35 + 0.80 * wind) *
+      this.randRange(0.007, 0.038) *
+      (0.32 + 0.90 * wind) *
       (0.82 + 0.18 * dryness) *
-      (0.35 + 0.62 * crackle);
+      (0.22 + 1.20 * crackle);
     const pan = this.equalPowerPan(this.randRange(-0.92, 0.92));
 
     return {
@@ -436,7 +434,7 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
 
       // Leaf-contact sheen: leafed deciduous rustle is dominated by contact
       // noise near 4 kHz. This band-limited layer restores natural high air
-      // without reverting to raw white-noise/plastic crinkle.
+      // without reverting to raw white noise.
       this.leafFlutterPhase += (Math.PI * 2.0 * (6.0 + 4.5 * wind)) / this.sr;
       const flutterMod = 0.78 + 0.22 * (0.5 + 0.5 * Math.sin(this.leafFlutterPhase));
       rawL = this.randRange(-1.0, 1.0);
@@ -451,11 +449,12 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
       outR += this.sheenLpR * this.sheenAmp * flutterMod;
 
       if (this.rand() < this.burstRate / this.sr) {
-        let clusterCount = 1 + this.randInt(1 + Math.floor(1 + 3 * wind * (0.35 + crackle)));
-        if (this.rand() < (0.05 + 0.18 * wind) * (0.35 + crackle)) {
-          clusterCount += 1 + this.randInt(2);
+        let clusterCount = 1 + this.randInt(1 + Math.floor(1 + 5 * wind * (0.40 + crackle)));
+        if (this.rand() < (0.06 + 0.26 * wind) * crackle) {
+          clusterCount += 1 + this.randInt(3);
         }
-        const clusterWindow = Math.floor(this.sr * this.randRange(0.030, 0.140 + 0.060 * wind));
+        const maxWindow = Math.max(0.024, 0.125 + 0.055 * wind - 0.045 * crackle);
+        const clusterWindow = Math.floor(this.sr * this.randRange(0.018, maxWindow));
         for (let g = 0; g < clusterCount; g += 1) {
           this.grains.push(this.makeGrain(this.randInt(Math.max(1, clusterWindow))));
         }
@@ -503,15 +502,6 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
         }
       }
       this.creaks = nextCreaks;
-
-      // Gentle post rolloff: preserve the plausible 3-6 kHz leaf-contact band
-      // while damping the synthetic top octave that reads as plastic.
-      this.toneLpL += (outL - this.toneLpL) * this.toneAlpha;
-      this.toneLpR += (outR - this.toneLpR) * this.toneAlpha;
-      this.toneLp2L += (this.toneLpL - this.toneLp2L) * this.toneAlpha;
-      this.toneLp2R += (this.toneLpR - this.toneLp2R) * this.toneAlpha;
-      outL = 0.66 * this.toneLp2L + 0.34 * outL;
-      outR = 0.66 * this.toneLp2R + 0.34 * outR;
 
       const gain = Math.max(0.0, p.volume);
       left[i] = this.softLimit(outL * gain);
@@ -582,7 +572,7 @@ HTML_TEMPLATE: Final = r"""
         </div>
         <div class="button-row" id="preset-buttons"></div>
         <div class="note subtle">
-          Less plastic: lower <b>crackle</b>, <b>brightness</b>, and <b>dryness</b>; raise <b>leaf body</b>.
+          Natural rustle is mostly a low/mid friction bed plus a 3–6 kHz leaf-contact sheen; use <b>crackle</b> for discrete contacts and <b>brightness</b> for continuous air.
         </div>
         <h3>Level</h3>
         <div class="meter"><div id="meter-fill"></div></div>
