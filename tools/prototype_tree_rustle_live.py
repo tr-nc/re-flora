@@ -30,7 +30,6 @@ DEFAULT_PORT: Final = 8080
 PRESETS: Final = {
     "soft": {
         "wind": 0.35,
-        "gustiness": 0.35,
         "leafDensity": 0.70,
         "leafBody": 0.95,
         "crackle": 0.18,
@@ -42,7 +41,6 @@ PRESETS: Final = {
     },
     "dense": {
         "wind": 0.62,
-        "gustiness": 0.50,
         "leafDensity": 1.35,
         "leafBody": 0.88,
         "crackle": 0.34,
@@ -54,7 +52,6 @@ PRESETS: Final = {
     },
     "dry": {
         "wind": 0.55,
-        "gustiness": 0.55,
         "leafDensity": 1.05,
         "leafBody": 0.42,
         "crackle": 0.78,
@@ -66,7 +63,6 @@ PRESETS: Final = {
     },
     "storm": {
         "wind": 0.88,
-        "gustiness": 0.95,
         "leafDensity": 1.85,
         "leafBody": 0.78,
         "crackle": 0.62,
@@ -78,7 +74,6 @@ PRESETS: Final = {
     },
     "less_plastic": {
         "wind": 0.58,
-        "gustiness": 0.46,
         "leafDensity": 1.18,
         "leafBody": 1.08,
         "crackle": 0.16,
@@ -98,14 +93,6 @@ SLIDERS: Final = [
         "max": 1.0,
         "step": 0.01,
         "hint": "overall force; controls loudness, density, and brightness",
-    },
-    {
-        "key": "gustiness",
-        "label": "gustiness",
-        "min": 0.0,
-        "max": 1.0,
-        "step": 0.01,
-        "hint": "slow swell/release motion; high values feel stormy",
     },
     {
         "key": "leafDensity",
@@ -161,7 +148,7 @@ SLIDERS: Final = [
         "min": 0.0,
         "max": 1.0,
         "step": 0.01,
-        "hint": "rare low woody movement under stronger gusts",
+        "hint": "rare low woody movement at stronger wind strengths",
     },
     {
         "key": "volume",
@@ -181,7 +168,6 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
     this.sr = sampleRate;
     this.params = {
       wind: 0.58,
-      gustiness: 0.46,
       leafDensity: 1.18,
       leafBody: 1.08,
       crackle: 0.16,
@@ -196,10 +182,7 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
     this.controlRate = 100;
     this.controlSamples = Math.max(1, Math.round(this.sr / this.controlRate));
     this.controlCountdown = 0;
-    this.wanderTarget = this.params.wind;
-    this.wander = this.params.wind;
     this.windCurrent = this.params.wind;
-    this.gusts = [];
     this.grains = [];
     this.creaks = [];
 
@@ -247,10 +230,7 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
   setSeed(seed) {
     const mixed = (Number(seed) >>> 0) || 1;
     this.rngState = mixed ^ 0x9e3779b9;
-    this.wanderTarget = this.params.wind;
-    this.wander = this.params.wind;
     this.windCurrent = this.params.wind;
-    this.gusts.length = 0;
     this.grains.length = 0;
     this.creaks.length = 0;
   }
@@ -284,48 +264,15 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
 
   updateControl() {
     const p = this.params;
-    const wind = this.clamp(p.wind, 0.0, 1.0);
-    const gustiness = this.clamp(p.gustiness, 0.0, 1.0);
+    // Wind strength is now a direct control, not a hidden time-varying noise
+    // layer. If the slider is not moving, the macro sound level stays stable;
+    // only the stochastic leaf texture itself keeps changing.
+    const w = this.clamp(p.wind, 0.0, 1.0);
+    this.windCurrent = w;
     const dryness = this.clamp(p.dryness, 0.0, 1.0);
     const brightness = this.clamp(p.brightness, 0.0, 1.0);
     const leafDensity = Math.max(0.0, p.leafDensity);
     const crackle = this.clamp(p.crackle, 0.0, 1.0);
-
-    this.wanderTarget += this.randRange(-0.028, 0.028) * gustiness;
-    this.wanderTarget += (wind - this.wanderTarget) * 0.015;
-    this.wanderTarget = this.clamp(
-      this.wanderTarget,
-      wind * 0.45,
-      Math.min(1.0, wind + 0.22 + 0.25 * gustiness),
-    );
-    this.wander += (this.wanderTarget - this.wander) * 0.045;
-
-    if (this.rand() < (0.05 + 0.23 * gustiness) / this.controlRate) {
-      this.gusts.push({
-        age: 0.0,
-        duration: this.randRange(0.65, 2.8 + 1.4 * gustiness),
-        amp: this.randRange(0.12, 0.50) * gustiness,
-      });
-    }
-
-    let target = 0.72 * wind + 0.28 * this.wander;
-    const nextGusts = [];
-    for (const gust of this.gusts) {
-      gust.age += 1.0 / this.controlRate;
-      const t = gust.age / Math.max(0.001, gust.duration);
-      if (t < 1.0) {
-        const shape = Math.pow(Math.sin(Math.PI * t), 1.35);
-        const shoulder = Math.pow(Math.sin(Math.PI * Math.min(1.0, t * 1.8)), 2.0) * (1.0 - t) * 0.22;
-        target += gust.amp * (shape + shoulder);
-        nextGusts.push(gust);
-      }
-    }
-    this.gusts = nextGusts;
-
-    target = this.clamp(target, 0.0, 1.0);
-    const smoothAlpha = target >= this.windCurrent ? 0.12 : 0.042;
-    this.windCurrent += (target - this.windCurrent) * smoothAlpha;
-    const w = this.clamp(this.windCurrent, 0.0, 1.0);
     const windLift = Math.pow(w, 1.35);
 
     this.airAlpha = this.alpha(700.0 + 1450.0 * w);
@@ -580,7 +527,7 @@ HTML_TEMPLATE: Final = r"""
 <body>
   <main>
     <h1>Live Procedural Tree Rustle</h1>
-    <div class="subtle">No WAV rendering, no loop. Audio is calculated continuously in a browser AudioWorklet; sliders stream into the synth instantly.</div>
+    <div class="subtle">No WAV rendering, no loop. Audio is calculated continuously in a browser AudioWorklet; sliders stream into the synth instantly. Wind strength is direct and stable unless you move the slider.</div>
 
     <div class="grid" style="margin-top: 20px;">
       <section class="panel">
@@ -761,7 +708,7 @@ HTML_TEMPLATE: Final = r"""
         node.port.postMessage({ type: 'running', running: true });
         postParams();
         startMeter();
-        setStatus(`Running at ${Math.round(context.sampleRate)} Hz. Move sliders for live feedback.\nNo render buffer and no loop are used.`);
+        setStatus(`Running at ${Math.round(context.sampleRate)} Hz. Move sliders for live feedback.\nWind strength is fixed by the slider; no hidden wind modulation is running.`);
       } catch (error) {
         setStatus(`Audio start failed: ${error}`);
         console.error(error);
