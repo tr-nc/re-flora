@@ -25,7 +25,7 @@ from typing import Final
 from urllib.parse import urlparse
 
 DEFAULT_HOST: Final = "127.0.0.1"
-DEFAULT_PORT: Final = 8090
+DEFAULT_PORT: Final = 8080
 
 PRESETS: Final = {
     "soft": {
