@@ -44,6 +44,9 @@ class RustlePreset:
     dryness: float
     branch: float
     air: float
+    leaf_body: float
+    crackle: float
+    brightness: float
     description: str
 
 
@@ -52,36 +55,48 @@ PRESETS = {
         base_wind=0.35,
         gustiness=0.35,
         leaf_density=0.70,
-        dryness=0.30,
+        dryness=0.22,
         branch=0.02,
         air=0.45,
-        description="gentle broadleaf canopy; soft and non-invasive",
+        leaf_body=0.95,
+        crackle=0.18,
+        brightness=0.26,
+        description="gentle broadleaf canopy; warm, soft, and non-invasive",
     ),
     "dry": RustlePreset(
         base_wind=0.55,
         gustiness=0.55,
         leaf_density=1.05,
-        dryness=0.92,
+        dryness=0.78,
         branch=0.05,
         air=0.35,
+        leaf_body=0.42,
+        crackle=0.78,
+        brightness=0.72,
         description="papery dry leaves with bright crackly transients",
     ),
     "dense": RustlePreset(
         base_wind=0.62,
         gustiness=0.50,
         leaf_density=1.35,
-        dryness=0.55,
+        dryness=0.36,
         branch=0.08,
-        air=0.65,
-        description="wide dense canopy with many overlapping leaf clusters",
+        air=0.62,
+        leaf_body=0.88,
+        crackle=0.34,
+        brightness=0.38,
+        description="wide dense canopy with warmer leaf body and softer flutter",
     ),
     "storm": RustlePreset(
         base_wind=0.88,
         gustiness=0.95,
         leaf_density=1.85,
-        dryness=0.68,
+        dryness=0.52,
         branch=0.22,
         air=1.0,
+        leaf_body=0.78,
+        crackle=0.62,
+        brightness=0.58,
         description="heavy gusts, fast flutter, and occasional branch stress",
     ),
 }
@@ -202,17 +217,37 @@ def make_grain(
     sample_rate: int,
     wind: float,
     dryness: float,
+    brightness: float,
+    crackle: float,
     delay: int,
 ) -> Grain:
-    duration = rng.uniform(0.010, 0.075 - 0.020 * dryness)
-    duration = max(0.006, duration)
+    dryness = clamp(dryness, 0.0, 1.0)
+    brightness = clamp(brightness, 0.0, 1.0)
+    crackle = clamp(crackle, 0.0, 1.0)
+
+    # Longer envelopes and slower attacks move the sound away from instant
+    # plastic-bag ticks and toward many soft leaf-friction events.
+    duration = rng.uniform(0.022, 0.118 - 0.032 * dryness)
+    duration *= 1.20 - 0.45 * crackle
+    duration = max(0.010, duration)
     decay = math.exp(-1.0 / (duration * sample_rate))
-    attack_ms = rng.uniform(1.0, 5.0)
+    attack_ms = rng.uniform(2.5, 11.0) * (1.15 - 0.45 * crackle)
     attack_alpha = 1.0 - math.exp(-1.0 / (attack_ms * 0.001 * sample_rate))
 
-    hp_cutoff = rng.uniform(900.0 + 900.0 * dryness, 3200.0 + 2600.0 * dryness)
-    lp_cutoff = rng.uniform(5500.0 + 3500.0 * dryness, 10500.0 + 6500.0 * dryness)
-    amp = rng.uniform(0.015, 0.075) * (0.45 + wind) * (0.75 + 0.55 * dryness)
+    hp_cutoff = rng.uniform(
+        420.0 + 520.0 * dryness + 650.0 * brightness,
+        1450.0 + 1350.0 * dryness + 2200.0 * brightness,
+    )
+    lp_cutoff = rng.uniform(
+        3100.0 + 1700.0 * dryness + 2300.0 * brightness,
+        6100.0 + 2700.0 * dryness + 4300.0 * brightness,
+    )
+    amp = (
+        rng.uniform(0.010, 0.054)
+        * (0.45 + wind)
+        * (0.72 + 0.38 * dryness)
+        * (0.35 + 1.05 * crackle)
+    )
     pan_l, pan_r = equal_power_pan(rng.uniform(-0.92, 0.92))
 
     return Grain(
@@ -281,6 +316,8 @@ def render_rustle(
     air_slow_l = air_slow_r = 0.0
     leaf_hp_l = leaf_hp_r = 0.0
     leaf_lp_l = leaf_lp_r = 0.0
+    body_lp_l = body_lp_r = 0.0
+    body_slow_l = body_slow_r = 0.0
 
     for index in range(sample_count):
         control_index = min(len(controls) - 1, int(index / samples_per_control))
@@ -301,9 +338,37 @@ def render_rustle(
         out_l = (air_lp_l - 0.78 * air_slow_l) * air_amp
         out_r = (air_lp_r - 0.78 * air_slow_r) * air_amp
 
-        # Continuous leaf friction bed: high-passed noise that brightens with wind/dryness.
-        leaf_hp_cutoff = 850.0 + 1200.0 * preset.dryness + 900.0 * wind
-        leaf_lp_cutoff = 5200.0 + 7200.0 * preset.dryness + 4200.0 * wind
+        # Warm leaf body: lower/mid filtered broadband movement. This is the
+        # antidote to the "cheap plastic bag" impression from pure highs.
+        body_cutoff = 520.0 + 1350.0 * wind + 650.0 * preset.brightness
+        body_slow_cutoff = 70.0 + 80.0 * wind
+        body_alpha = lowpass_alpha(body_cutoff, sample_rate)
+        body_slow_alpha = lowpass_alpha(body_slow_cutoff, sample_rate)
+        raw_l = rng.uniform(-1.0, 1.0)
+        raw_r = rng.uniform(-1.0, 1.0)
+        body_lp_l += (raw_l - body_lp_l) * body_alpha
+        body_lp_r += (raw_r - body_lp_r) * body_alpha
+        body_slow_l += (body_lp_l - body_slow_l) * body_slow_alpha
+        body_slow_r += (body_lp_r - body_slow_r) * body_slow_alpha
+        body_amp = (
+            0.060
+            * preset.leaf_body
+            * preset.leaf_density
+            * (wind ** 1.55)
+            * (1.10 - 0.38 * preset.dryness)
+        )
+        out_l += (body_lp_l - 0.84 * body_slow_l) * body_amp
+        out_r += (body_lp_r - 0.84 * body_slow_r) * body_amp
+
+        # Continuous leaf friction bed: restrained high-passed noise that brightens
+        # with wind, dry leaves, and the explicit brightness control.
+        leaf_hp_cutoff = 430.0 + 680.0 * preset.dryness + 620.0 * preset.brightness + 480.0 * wind
+        leaf_lp_cutoff = (
+            2800.0
+            + 3400.0 * preset.brightness
+            + 2600.0 * preset.dryness
+            + 2300.0 * wind
+        )
         leaf_hp_alpha = lowpass_alpha(leaf_hp_cutoff, sample_rate)
         leaf_lp_alpha = lowpass_alpha(leaf_lp_cutoff, sample_rate)
         raw_l = rng.uniform(-1.0, 1.0)
@@ -314,17 +379,23 @@ def render_rustle(
         high_r = raw_r - leaf_hp_r
         leaf_lp_l += (high_l - leaf_lp_l) * leaf_lp_alpha
         leaf_lp_r += (high_r - leaf_lp_r) * leaf_lp_alpha
-        leaf_amp = 0.050 * preset.leaf_density * (wind ** 1.8) * (0.70 + 0.70 * preset.dryness)
+        leaf_amp = (
+            0.035
+            * preset.leaf_density
+            * (wind ** 1.85)
+            * (0.55 + 0.60 * preset.dryness)
+            * (0.45 + 0.80 * preset.brightness)
+        )
         out_l += leaf_lp_l * leaf_amp
         out_r += leaf_lp_r * leaf_amp
 
         # Leaf bursts: clustered short grains, with density tied to gust strength.
-        burst_rate = (0.8 + 30.0 * (wind ** 2.25)) * preset.leaf_density
+        burst_rate = (0.55 + 23.0 * (wind ** 2.25)) * preset.leaf_density * (0.35 + 1.10 * preset.crackle)
         if rng.random() < burst_rate / sample_rate:
-            cluster_count = 1 + rng.randrange(1 + int(2 + 6 * wind))
-            if rng.random() < 0.20 + 0.35 * wind:
-                cluster_count += rng.randrange(2, 7)
-            cluster_window = int(sample_rate * rng.uniform(0.006, 0.055 + 0.035 * wind))
+            cluster_count = 1 + rng.randrange(1 + int(1 + 5 * wind * (0.55 + preset.crackle)))
+            if rng.random() < (0.10 + 0.28 * wind) * (0.45 + preset.crackle):
+                cluster_count += rng.randrange(1, 5)
+            cluster_window = int(sample_rate * rng.uniform(0.010, 0.070 + 0.035 * wind))
             for _ in range(cluster_count):
                 delay = rng.randrange(max(1, cluster_window))
                 grains.append(
@@ -333,6 +404,8 @@ def render_rustle(
                         sample_rate=sample_rate,
                         wind=wind,
                         dryness=preset.dryness,
+                        brightness=preset.brightness,
+                        crackle=preset.crackle,
                         delay=delay,
                     )
                 )
@@ -474,7 +547,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dryness", type=float, help="override brightness/crackle amount, 0..1")
     parser.add_argument("--branch", type=float, help="override branch-creak amount, 0..1")
     parser.add_argument("--air", type=float, help="override airy wind-bed amount, 0..1")
-    parser.add_argument("--peak", type=float, default=0.92, help="normalized WAV peak when normalizing")
+    parser.add_argument("--leaf-body", type=float, help="override warm lower/mid leaf body, 0..1")
+    parser.add_argument("--crackle", type=float, help="override short transient amount, 0..1")
+    parser.add_argument("--brightness", type=float, help="override high-frequency brightness, 0..1")
+    parser.add_argument("--peak", type=float, default=0.82, help="normalized WAV peak when normalizing")
     parser.add_argument("--normalize", dest="normalize", action="store_true", default=True)
     parser.add_argument("--no-normalize", dest="normalize", action="store_false")
     parser.add_argument("--play", dest="play", action="store_true", default=True)
@@ -497,6 +573,12 @@ def apply_overrides(preset: RustlePreset, args: argparse.Namespace) -> RustlePre
         changes["branch"] = clamp(args.branch, 0.0, 1.0)
     if args.air is not None:
         changes["air"] = clamp(args.air, 0.0, 1.0)
+    if args.leaf_body is not None:
+        changes["leaf_body"] = clamp(args.leaf_body, 0.0, 1.0)
+    if args.crackle is not None:
+        changes["crackle"] = clamp(args.crackle, 0.0, 1.0)
+    if args.brightness is not None:
+        changes["brightness"] = clamp(args.brightness, 0.0, 1.0)
     return replace(preset, **changes)
 
 
@@ -522,7 +604,9 @@ def main() -> int:
         f"preset={args.preset} seed={args.seed} duration={args.duration:.2f}s "
         f"wind={preset.base_wind:.2f} gustiness={preset.gustiness:.2f} "
         f"leaf_density={preset.leaf_density:.2f} dryness={preset.dryness:.2f} "
-        f"branch={preset.branch:.2f} air={preset.air:.2f}"
+        f"branch={preset.branch:.2f} air={preset.air:.2f} "
+        f"leaf_body={preset.leaf_body:.2f} crackle={preset.crackle:.2f} "
+        f"brightness={preset.brightness:.2f}"
     )
 
     left, right, controls = render_rustle(
