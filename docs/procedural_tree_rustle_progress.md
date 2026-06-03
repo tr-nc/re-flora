@@ -25,7 +25,7 @@ Relevant files:
 - `tools/prototype_tree_rustle_live.py` - live browser/Web Audio tuner
 - `tools/tree_rustle_live_config.json` - live tuner defaults and presets
 - `tools/record_system_audio.py` - records computer playback from monitor source, not microphone
-- `target/audio-captures/wind_ref.wav` - current high-quality reference capture
+- `docs/audio/wind_ref.wav` - current high-quality reference capture
 - `target/audio-captures/analysis/wind_ref_spectrogram.png` - generated spectrogram for the reference
 - `target/audio-captures/analysis/wind_ref_clean_wind_2p4_8p8.wav` - trimmed clean wind section
 - `target/audio-captures/analysis/wind_ref_leaf_rise_8p8_16p6.wav` - trimmed leaf-rise/gust section
@@ -100,7 +100,7 @@ Reference-capture checks:
 ffprobe -v error \
   -show_entries stream=codec_name,channels,sample_rate,bits_per_sample,duration:format=duration,size \
   -of default=nw=1 \
-  target/audio-captures/wind_ref.wav
+  docs/audio/wind_ref.wav
 
 cd tools
 uv run python record_system_audio.py --list-devices
@@ -156,7 +156,7 @@ Acceptance criteria for the next tuning pass:
 - Synchronized the Python CLI renderer, live Web Audio version, and live config presets.
 - Fixed crackle so the slider controls discrete leaf-contact event rate, brightness, duration, and clustering.
 - Added `tools/record_system_audio.py` to capture system playback through the default monitor source, not microphone input.
-- Captured `target/audio-captures/wind_ref.wav` as a preferred reference.
+- Captured `target/audio-captures/wind_ref.wav` as a preferred reference, then moved it to `docs/audio/wind_ref.wav` so it is kept with the project documentation.
 - Verified the capture format and identified silence, clean wind, and leaf-rise regions.
 - Generated a spectrogram and trimmed analysis clips for the reference.
 - Decided that the reference's key behavior is not a large loudness rise; it is a stable low/mid wind bed with gradually increasing high-frequency leaf activity.
