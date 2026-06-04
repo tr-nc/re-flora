@@ -170,11 +170,7 @@ impl TreeRustleVoice {
     }
 
     fn render_sample(&mut self, coeffs: &BlockCoeffs) -> f32 {
-        let preset = self.preset;
-        let wind = self.wind;
-        let bed_wind = coeffs.bed_wind;
         let leaf_activity = self.leaf_activity;
-        let leaf_drive = 0.08 + 0.92 * leaf_activity;
 
         // Wide airy wind bed: low/mid filtered noise that stays stable while
         // leaf activity marks gust/contact rise.
@@ -182,20 +178,14 @@ impl TreeRustleVoice {
         self.air_lp += (raw - self.air_lp) * coeffs.air_alpha;
         self.air_lp2 += (self.air_lp - self.air_lp2) * coeffs.air_alpha;
         self.air_slow += (self.air_lp2 - self.air_slow) * coeffs.air_slow_alpha;
-        let air_amp = 0.120 * preset.air * (0.20 + coeffs.wind_lift);
-        let mut out = (self.air_lp2 - 0.74 * self.air_slow) * air_amp;
+        let mut out = (self.air_lp2 - 0.74 * self.air_slow) * coeffs.air_amp;
 
         // Warm leaf body.
         let raw = self.rng.bipolar();
         self.body_lp += (raw - self.body_lp) * coeffs.body_alpha;
         self.body_lp2 += (self.body_lp - self.body_lp2) * coeffs.body_alpha;
         self.body_slow += (self.body_lp2 - self.body_slow) * coeffs.body_slow_alpha;
-        let body_amp = 0.102
-            * preset.leaf_body
-            * preset.leaf_density
-            * (0.24 + 0.76 * bed_wind.powf(1.28))
-            * (1.15 - 0.28 * preset.dryness);
-        out += (self.body_lp2 - 0.72 * self.body_slow) * body_amp;
+        out += (self.body_lp2 - 0.72 * self.body_slow) * coeffs.body_amp;
 
         // Continuous leaf friction.
         let raw = self.rng.bipolar();
@@ -203,12 +193,7 @@ impl TreeRustleVoice {
         let high = raw - self.leaf_hp;
         self.leaf_lp += (high - self.leaf_lp) * coeffs.leaf_lp_alpha;
         self.leaf_lp2 += (self.leaf_lp - self.leaf_lp2) * coeffs.leaf_lp_alpha;
-        let leaf_amp = 0.050
-            * preset.leaf_density
-            * leaf_drive.powf(1.75)
-            * (0.42 + 0.40 * preset.dryness)
-            * (0.54 + 0.46 * preset.brightness);
-        out += self.leaf_lp2 * leaf_amp;
+        out += self.leaf_lp2 * coeffs.leaf_amp;
 
         // 3-6 kHz leaf-contact sheen.
         self.leaf_flutter_phase += TWO_PI * (5.0 + 4.0 * leaf_activity) / self.sample_rate;
@@ -221,14 +206,7 @@ impl TreeRustleVoice {
         let high = raw - self.sheen_hp;
         self.sheen_lp += (high - self.sheen_lp) * coeffs.sheen_lp_alpha;
         self.sheen_lp2 += (self.sheen_lp - self.sheen_lp2) * coeffs.sheen_lp_alpha;
-        let sheen_amp = 0.095
-            * preset.leaf_density
-            * leaf_drive.powf(1.60)
-            * (0.32 + 0.68 * preset.brightness)
-            * (0.54 + 0.34 * preset.dryness)
-            * (0.74 + 0.58 * coeffs.crackle)
-            * flutter_mod;
-        out += self.sheen_lp2 * sheen_amp;
+        out += self.sheen_lp2 * coeffs.sheen_amp_base * flutter_mod;
 
         // Restrained 8-12 kHz air.
         let raw = self.rng.bipolar();
@@ -236,15 +214,10 @@ impl TreeRustleVoice {
         let high = raw - self.air_hi_hp;
         self.air_hi_lp += (high - self.air_hi_lp) * coeffs.air_hi_lp_alpha;
         self.air_hi_lp2 += (self.air_hi_lp - self.air_hi_lp2) * coeffs.air_hi_lp_alpha;
-        let air_hi_amp = 0.0115
-            * preset.leaf_density
-            * leaf_activity.powf(2.00)
-            * (0.20 + 0.80 * preset.brightness)
-            * (0.62 + 0.30 * preset.dryness);
-        out += self.air_hi_lp2 * air_hi_amp;
+        out += self.air_hi_lp2 * coeffs.air_hi_amp;
 
         self.maybe_spawn_grains(coeffs);
-        self.maybe_spawn_creak(wind);
+        self.maybe_spawn_creak(coeffs);
         out += self.render_grains();
         out += self.render_creaks();
 
@@ -257,11 +230,7 @@ impl TreeRustleVoice {
             return;
         }
 
-        let crackle_drive = coeffs.crackle.powf(1.15);
-        let burst_rate = (0.14 + 30.0 * self.leaf_activity.powf(2.05))
-            * self.preset.leaf_density
-            * crackle_drive;
-        if self.rng.next_f32() >= burst_rate / self.sample_rate {
+        if self.rng.next_f32() >= coeffs.burst_rate / self.sample_rate {
             return;
         }
 
@@ -289,17 +258,16 @@ impl TreeRustleVoice {
         }
     }
 
-    fn maybe_spawn_creak(&mut self, wind: f32) {
+    fn maybe_spawn_creak(&mut self, coeffs: &BlockCoeffs) {
         if self.creaks.len() >= MAX_CREAKS {
             return;
         }
 
-        let branch_rate = self.preset.branch * (wind - 0.42).max(0.0).powi(2) * 1.15;
-        if self.rng.next_f32() < branch_rate / self.sample_rate {
+        if self.rng.next_f32() < coeffs.branch_rate / self.sample_rate {
             self.creaks.push(BranchCreak::new(
                 &mut self.rng,
                 self.sample_rate,
-                wind,
+                self.wind,
                 self.preset.branch,
             ));
         }
@@ -419,9 +387,14 @@ impl ProceduralAudioSource for TreeRustleVoice {
 
 #[derive(Clone, Copy)]
 struct BlockCoeffs {
-    bed_wind: f32,
-    wind_lift: f32,
     crackle: f32,
+    air_amp: f32,
+    body_amp: f32,
+    leaf_amp: f32,
+    sheen_amp_base: f32,
+    air_hi_amp: f32,
+    burst_rate: f32,
+    branch_rate: f32,
     air_alpha: f32,
     air_slow_alpha: f32,
     body_alpha: f32,
@@ -444,12 +417,38 @@ impl BlockCoeffs {
     ) -> Self {
         let bed_wind = clamp(0.08 + wind * 0.92, 0.0, 1.0);
         let wind_lift = bed_wind.powf(1.18);
+        let leaf_drive = 0.08 + 0.92 * leaf_activity;
         let crackle = clamp(crackle, 0.0, 1.0);
+        let crackle_drive = crackle.powf(1.15);
 
         Self {
-            bed_wind,
-            wind_lift,
             crackle,
+            air_amp: 0.120 * preset.air * (0.20 + wind_lift),
+            body_amp: 0.102
+                * preset.leaf_body
+                * preset.leaf_density
+                * (0.24 + 0.76 * bed_wind.powf(1.28))
+                * (1.15 - 0.28 * preset.dryness),
+            leaf_amp: 0.050
+                * preset.leaf_density
+                * leaf_drive.powf(1.75)
+                * (0.42 + 0.40 * preset.dryness)
+                * (0.54 + 0.46 * preset.brightness),
+            sheen_amp_base: 0.095
+                * preset.leaf_density
+                * leaf_drive.powf(1.60)
+                * (0.32 + 0.68 * preset.brightness)
+                * (0.54 + 0.34 * preset.dryness)
+                * (0.74 + 0.58 * crackle),
+            air_hi_amp: 0.0115
+                * preset.leaf_density
+                * leaf_activity.powf(2.00)
+                * (0.20 + 0.80 * preset.brightness)
+                * (0.62 + 0.30 * preset.dryness),
+            burst_rate: (0.14 + 30.0 * leaf_activity.powf(2.05))
+                * preset.leaf_density
+                * crackle_drive,
+            branch_rate: preset.branch * (wind - 0.42).max(0.0).powi(2) * 1.15,
             air_alpha: lowpass_alpha(460.0 + 720.0 * bed_wind, sample_rate),
             air_slow_alpha: lowpass_alpha(75.0 + 48.0 * bed_wind, sample_rate),
             body_alpha: lowpass_alpha(
