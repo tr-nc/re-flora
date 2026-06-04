@@ -82,7 +82,7 @@ Constraints and assumptions:
 - Objective: Keep runtime cost bounded as tree count and source count grow.
 - Expected output: active-source cap or distance/importance LOD, lower source count for far trees, silence/cull below threshold, and logs/timing for procedural generation cost.
 - Dependencies/blockers: No blocker for first pass; deeper distance/importance LOD and isolated procedural timing remain follow-ups.
-- Status: in progress.
+- Status: in progress; first-pass source cap and DSP microbenchmark are in place, deeper distance/importance LOD remains follow-up.
 
 ### Phase 6 - Validate quality and retire prototype maintenance
 
@@ -112,6 +112,9 @@ cargo run --release -- --tail-latest-log 200
 
 Runtime/audio checks:
 
+- DSP microbenchmark: `cargo test --release render_perf_eight_voices -- --ignored --nocapture`.
+  - Latest run on Apple M4 Pro: `8` voices, `4096` blocks, `1024` frames/block, `87.38s` of generated audio in `1394.210ms`.
+  - Cost: `340.383us` per 1024-frame block for all 8 voices, `42.548us` per voice per block, `1.596%` of one realtime core for the capped 8-source tree case.
 - Confirm no tree-rustle source path points at `assets/sfx/tree_sound_48k_pregain_40db.wav`.
 - Confirm tree rustle still spatializes and responds to listener movement/occlusion.
 - Change wind strength/GUI controls and verify timbre changes, not only volume.
@@ -129,7 +132,6 @@ Sound-quality checks:
 Verification gaps:
 
 - Final listening in a normal audible run is still needed.
-- No dedicated Rust DSP benchmark exists yet.
 - PetalSonic timing currently does not isolate procedural generation cost from other direct/spatial mixing work.
 
 ## Progress Log
@@ -149,6 +151,8 @@ Verification gaps:
 - Replaced tree rustle WAV spawning with procedural spatial source registration and per-source `TreeRustleControl` updates from sampled wind.
 - Changed tree audio volume handling so wind drives synthesis timbre/activity, while PetalSonic source volume acts as master/cluster gain with a silence gate.
 - Added a first-pass cap of `8` procedural audio clusters per tree to avoid one synth per fine leaf cluster.
+- Added an ignored release microbenchmark for the Rust DSP path: `cargo test --release render_perf_eight_voices -- --ignored --nocapture`.
+- Measured capped Rust DSP cost at about `340us` per 1024-frame block for all `8` voices (`43us` per voice/block, `1.60%` realtime CPU for 8 voices) on the Apple M4 Pro test machine.
 - Validated re-flora with `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo run --release -- --hidden --auto-exit 0.5`; latest hidden run exited successfully with no new audio errors or underruns in the inspected log.
 
 ## Open Questions / Risks

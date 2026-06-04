@@ -670,6 +670,60 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release-mode microbenchmark for procedural rustle DSP cost"]
+    fn render_perf_eight_voices() {
+        const SAMPLE_RATE: usize = 48_000;
+        const BLOCK_FRAMES: usize = 1024;
+        const BLOCKS: usize = 4096;
+        const VOICES: usize = 8;
+
+        let controls: Vec<_> = (0..VOICES)
+            .map(|_| Arc::new(TreeRustleControl::new()))
+            .collect();
+        for control in &controls {
+            control.set_crackle(0.40);
+        }
+        let mut voices: Vec<_> = controls
+            .iter()
+            .enumerate()
+            .map(|(index, control)| {
+                TreeRustleVoice::new(
+                    SAMPLE_RATE as u32,
+                    42 + index as u64 * 7919,
+                    TreeRustlePreset::dense(),
+                    control.clone(),
+                )
+            })
+            .collect();
+        let mut scratch = vec![0.0; BLOCK_FRAMES];
+        let mut checksum = 0.0f32;
+
+        let start = std::time::Instant::now();
+        for block in 0..BLOCKS {
+            let gust_phase = block as f32 * 0.017;
+            let wind = 0.35 + 0.60 * (0.5 + 0.5 * gust_phase.sin());
+            for (voice, control) in voices.iter_mut().zip(&controls) {
+                control.set_wind_response(wind);
+                voice.render_mono(&mut scratch);
+                checksum += scratch[block % BLOCK_FRAMES];
+            }
+        }
+        let elapsed = start.elapsed();
+        let audio_seconds = BLOCKS as f64 * BLOCK_FRAMES as f64 / SAMPLE_RATE as f64;
+        let elapsed_us = elapsed.as_secs_f64() * 1_000_000.0;
+        let us_per_block_all_voices = elapsed_us / BLOCKS as f64;
+        let us_per_block_per_voice = us_per_block_all_voices / VOICES as f64;
+        let realtime_cpu_percent = elapsed.as_secs_f64() / audio_seconds * 100.0;
+
+        println!(
+            "[TREE_RUSTLE_PERF] voices={VOICES} blocks={BLOCKS} block_frames={BLOCK_FRAMES} audio_seconds={audio_seconds:.2} elapsed_ms={:.3} us_per_block_all_voices={us_per_block_all_voices:.3} us_per_block_per_voice={us_per_block_per_voice:.3} realtime_cpu_percent={realtime_cpu_percent:.3} checksum={checksum:.6}",
+            elapsed.as_secs_f64() * 1000.0,
+        );
+
+        assert!(checksum.is_finite());
+    }
+
+    #[test]
     fn controls_are_clamped() {
         let control = TreeRustleControl::new();
         control.set_wind_response(2.0);
