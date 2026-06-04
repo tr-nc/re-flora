@@ -47,6 +47,41 @@ Constraints and assumptions:
 - Wind control should probably use shared lightweight source controls, such as atomics, rather than sending PetalSonic commands every frame.
 - Current first-pass source LOD caps tree audio clusters to the largest `8` clusters per tree.
 
+## Runtime Source Behavior Notes
+
+### Cost scaling
+
+The tree-rustle DSP cost grows approximately linearly with the number of active procedural tree audio sources. Each active source owns an independent `TreeRustleVoice` with its own RNG, filter state, grains, creaks, and mono render call for every audio block.
+
+Current release-mode DSP-only measurement for the capped case:
+
+- `8` voices render a `1024`-frame block in about `340us` total on the Apple M4 Pro test machine.
+- Per voice cost is about `43us` per `1024`-frame block.
+- The capped `8`-source case is about `1.6%` of one realtime CPU core for rustle DSP.
+
+Rough DSP extrapolation is therefore `active_source_count * 43us` per `1024`-frame block on that machine. Full end-to-end audio cost also includes PetalSonic spatialization, occlusion/direct path, resampling, and mixing; those costs also generally scale with active spatial source count, but are not isolated by this DSP benchmark.
+
+### Wind sampling and block control
+
+Each active tree audio source samples the current wind field at that source's world position during the game update path:
+
+- `TreeAudioManager::update()` iterates all active tree audio sources.
+- `TreeAudioSource::update()` calls `Wind::sample_sources(self.position, time_seconds, wind_sources).length()`.
+- The sampled wind strength is mapped linearly to `0..1` by dividing by `TREE_AUDIO_FULL_WIND_STRENGTH` (`8.0`).
+- Attack/release inertia smooths the value.
+- The smoothed response is written to that source's shared `TreeRustleControl` atomics.
+- `TreeRustleVoice::render_mono()` reads the latest control value at block render time and uses it for the block's low/mid bed, leaf activity, 3-6 kHz contact sheen, restrained 8-12 kHz air, crackle/grain rate, and branch creak rate.
+
+The wind field is not sampled inside the realtime audio callback. Procedural rendering runs on PetalSonic's render/pump path, and the audio callback only consumes the pre-rendered ring buffer. The wind sample is per active audio cluster/source, not per individual leaf; the first-pass LOD cap keeps each tree to at most `8` procedural audio cluster sources.
+
+### Phase and envelope decorrelation
+
+Procedural tree sources are not phase-aligned copies. Each source is seeded from its `tree_id`, cluster/source position, and `cluster_size`, so each `TreeRustleVoice` has independent RNG state, initial leaf-flutter phase, grain/crackle timing, branch-creak timing, and filter state.
+
+Nearby sources can still have correlated macro behavior because they sample the same wind field and may experience the same gust. This is intentional: the tree crown should rise and fall with a coherent wind envelope. Here, "envelope" means the slow time-varying contour of the sound, such as quiet-to-loud-to-quiet, dull-to-bright-to-dull, and sparse-to-dense-to-sparse during a gust. The microscopic texture remains decorrelated, so multiple sources do not sound like the same waveform or loop playing in phase.
+
+For static WAV loops, `shuffle_phase` avoids starting identical clips at the same sample offset. Procedural tree rustle does not need a fixed loop phase shuffle because there is no fixed loop; seeded independent generators provide the required phase and event decorrelation.
+
 ## Plan / Phases
 
 ### Phase 1 - Finalize runtime architecture
