@@ -181,9 +181,9 @@ min = 0
 max = 60
 
 [[section.param]]
-id = "leaf_paddle_amplitude_wind_min_strength"
+id = "leaf_paddle_amplitude_wind_start_strength"
 kind = "float"
-label = "Leaf Amp Curve Wind Min"
+label = "Leaf Amp Curve Start Wind"
 type = "Float"
 
 [section.param.data]
@@ -192,9 +192,9 @@ min = 0
 max = 4
 
 [[section.param]]
-id = "leaf_paddle_amplitude_wind_max_strength"
+id = "leaf_paddle_amplitude_wind_full_strength"
 kind = "float"
-label = "Leaf Amp Curve Wind Max"
+label = "Leaf Amp Curve Full Wind"
 type = "Float"
 
 [section.param.data]
@@ -203,20 +203,20 @@ min = 0
 max = 4
 
 [[section.param]]
-id = "leaf_paddle_amplitude_wind_curve_power"
+id = "leaf_paddle_amplitude_wind_knee_bias"
 kind = "float"
-label = "Leaf Amp Curve Power"
+label = "Leaf Amp Curve Knee Bias (- early, + late)"
 type = "Float"
 
 [section.param.data]
-value = 1.7
-min = 0.1
-max = 5
+value = 0.75
+min = -3
+max = 3
 
 [[section.param]]
-id = "leaf_paddle_frequency_wind_min_strength"
+id = "leaf_paddle_frequency_wind_start_strength"
 kind = "float"
-label = "Leaf Freq Curve Wind Min"
+label = "Leaf Freq Curve Start Wind"
 type = "Float"
 
 [section.param.data]
@@ -225,9 +225,9 @@ min = 0
 max = 4
 
 [[section.param]]
-id = "leaf_paddle_frequency_wind_max_strength"
+id = "leaf_paddle_frequency_wind_full_strength"
 kind = "float"
-label = "Leaf Freq Curve Wind Max"
+label = "Leaf Freq Curve Full Wind"
 type = "Float"
 
 [section.param.data]
@@ -236,15 +236,15 @@ min = 0
 max = 4
 
 [[section.param]]
-id = "leaf_paddle_frequency_wind_curve_power"
+id = "leaf_paddle_frequency_wind_knee_bias"
 kind = "float"
-label = "Leaf Freq Curve Power"
+label = "Leaf Freq Curve Knee Bias (- early, + late)"
 type = "Float"
 
 [section.param.data]
-value = 1.3
-min = 0.1
-max = 5
+value = 0.4
+min = -3
+max = 3
 
 [[section.param]]
 id = "leaf_paddle_frequency_min_multiplier"

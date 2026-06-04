@@ -113,27 +113,28 @@ pub fn generate_indexed_voxel_leaves(
     Ok((vertices, indices))
 }
 
-/// Generates a compact voxel apple mesh centered on the instance anchor.
+/// Generates a compact 4-voxel-diameter apple mesh centered on the instance anchor.
 ///
 /// The apple is intentionally render-only: tree placement creates instances for
 /// this mesh instead of stamping fruit into the terrain voxel field.
 pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
     const ORIGIN: IVec3 = IVec3::ZERO;
     const MAX_LENGTH: u32 = 2;
-    const BODY_RADIUS_XZ: f32 = 1.25;
-    const BODY_RADIUS_Y: f32 = 1.375;
-    const BOUND_RADIUS: i32 = 2;
+    const BODY_RADIUS_XZ: f32 = 2.0;
+    const BODY_RADIUS_Y: f32 = 2.0;
+    const MIN_VOXEL: i32 = -2;
+    const MAX_VOXEL: i32 = 1;
 
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
-    for x in -BOUND_RADIUS..=BOUND_RADIUS {
-        for y in -BOUND_RADIUS..=BOUND_RADIUS {
-            for z in -BOUND_RADIUS..=BOUND_RADIUS {
+    for x in MIN_VOXEL..=MAX_VOXEL {
+        for y in MIN_VOXEL..=MAX_VOXEL {
+            for z in MIN_VOXEL..=MAX_VOXEL {
                 let p = Vec3::new(
-                    x as f32 / BODY_RADIUS_XZ,
-                    y as f32 / BODY_RADIUS_Y,
-                    z as f32 / BODY_RADIUS_XZ,
+                    (x as f32 + 0.5) / BODY_RADIUS_XZ,
+                    (y as f32 + 0.5) / BODY_RADIUS_Y,
+                    (z as f32 + 0.5) / BODY_RADIUS_XZ,
                 );
                 let shape = p.length_squared();
 

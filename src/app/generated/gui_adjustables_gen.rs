@@ -122,39 +122,39 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
-        id: "leaf_paddle_amplitude_wind_min_strength",
+        id: "leaf_paddle_amplitude_wind_start_strength",
         kind: "float",
-        label: "Leaf Amp Curve Wind Min",
+        label: "Leaf Amp Curve Start Wind",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
-        id: "leaf_paddle_amplitude_wind_max_strength",
+        id: "leaf_paddle_amplitude_wind_full_strength",
         kind: "float",
-        label: "Leaf Amp Curve Wind Max",
+        label: "Leaf Amp Curve Full Wind",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
-        id: "leaf_paddle_amplitude_wind_curve_power",
+        id: "leaf_paddle_amplitude_wind_knee_bias",
         kind: "float",
-        label: "Leaf Amp Curve Power",
+        label: "Leaf Amp Curve Knee Bias (- early, + late)",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
-        id: "leaf_paddle_frequency_wind_min_strength",
+        id: "leaf_paddle_frequency_wind_start_strength",
         kind: "float",
-        label: "Leaf Freq Curve Wind Min",
+        label: "Leaf Freq Curve Start Wind",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
-        id: "leaf_paddle_frequency_wind_max_strength",
+        id: "leaf_paddle_frequency_wind_full_strength",
         kind: "float",
-        label: "Leaf Freq Curve Wind Max",
+        label: "Leaf Freq Curve Full Wind",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
-        id: "leaf_paddle_frequency_wind_curve_power",
+        id: "leaf_paddle_frequency_wind_knee_bias",
         kind: "float",
-        label: "Leaf Freq Curve Power",
+        label: "Leaf Freq Curve Knee Bias (- early, + late)",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
@@ -1142,12 +1142,12 @@ pub struct GuiAdjustables {
     pub leaf_paddle_amplitude_voxels: crate::gui_adjustables::FloatParam,
     pub leaf_paddle_primary_speed: crate::gui_adjustables::FloatParam,
     pub leaf_paddle_secondary_speed: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_amplitude_wind_min_strength: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_amplitude_wind_max_strength: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_amplitude_wind_curve_power: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_frequency_wind_min_strength: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_frequency_wind_max_strength: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_frequency_wind_curve_power: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_amplitude_wind_start_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_amplitude_wind_full_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_amplitude_wind_knee_bias: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_frequency_wind_start_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_frequency_wind_full_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_frequency_wind_knee_bias: crate::gui_adjustables::FloatParam,
     pub leaf_paddle_frequency_min_multiplier: crate::gui_adjustables::FloatParam,
     pub leaf_paddle_frequency_max_multiplier: crate::gui_adjustables::FloatParam,
     pub wind_source_0_name: crate::gui_adjustables::StringParam,
@@ -1338,12 +1338,12 @@ impl GuiAdjustables {
         let mut leaf_paddle_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_paddle_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_paddle_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_amplitude_wind_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_amplitude_wind_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_amplitude_wind_curve_power_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_frequency_wind_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_frequency_wind_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_frequency_wind_curve_power_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_amplitude_wind_start_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_amplitude_wind_full_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_amplitude_wind_knee_bias_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_frequency_wind_start_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_frequency_wind_full_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_frequency_wind_knee_bias_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_paddle_frequency_min_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_paddle_frequency_max_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_0_name_field: Option<crate::gui_adjustables::StringParam> = None;
@@ -1619,46 +1619,46 @@ impl GuiAdjustables {
                             leaf_paddle_secondary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "leaf_paddle_amplitude_wind_min_strength" => {
+                    "leaf_paddle_amplitude_wind_start_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            leaf_paddle_amplitude_wind_min_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            leaf_paddle_amplitude_wind_start_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "leaf_paddle_amplitude_wind_max_strength" => {
+                    "leaf_paddle_amplitude_wind_full_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            leaf_paddle_amplitude_wind_max_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            leaf_paddle_amplitude_wind_full_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "leaf_paddle_amplitude_wind_curve_power" => {
+                    "leaf_paddle_amplitude_wind_knee_bias" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            leaf_paddle_amplitude_wind_curve_power_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            leaf_paddle_amplitude_wind_knee_bias_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "leaf_paddle_frequency_wind_min_strength" => {
+                    "leaf_paddle_frequency_wind_start_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            leaf_paddle_frequency_wind_min_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            leaf_paddle_frequency_wind_start_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "leaf_paddle_frequency_wind_max_strength" => {
+                    "leaf_paddle_frequency_wind_full_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            leaf_paddle_frequency_wind_max_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            leaf_paddle_frequency_wind_full_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "leaf_paddle_frequency_wind_curve_power" => {
+                    "leaf_paddle_frequency_wind_knee_bias" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            leaf_paddle_frequency_wind_curve_power_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            leaf_paddle_frequency_wind_knee_bias_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "leaf_paddle_frequency_min_multiplier" => {
@@ -2748,12 +2748,12 @@ impl GuiAdjustables {
             leaf_paddle_amplitude_voxels: leaf_paddle_amplitude_voxels_field.expect("Missing parameter: leaf_paddle_amplitude_voxels"),
             leaf_paddle_primary_speed: leaf_paddle_primary_speed_field.expect("Missing parameter: leaf_paddle_primary_speed"),
             leaf_paddle_secondary_speed: leaf_paddle_secondary_speed_field.expect("Missing parameter: leaf_paddle_secondary_speed"),
-            leaf_paddle_amplitude_wind_min_strength: leaf_paddle_amplitude_wind_min_strength_field.expect("Missing parameter: leaf_paddle_amplitude_wind_min_strength"),
-            leaf_paddle_amplitude_wind_max_strength: leaf_paddle_amplitude_wind_max_strength_field.expect("Missing parameter: leaf_paddle_amplitude_wind_max_strength"),
-            leaf_paddle_amplitude_wind_curve_power: leaf_paddle_amplitude_wind_curve_power_field.expect("Missing parameter: leaf_paddle_amplitude_wind_curve_power"),
-            leaf_paddle_frequency_wind_min_strength: leaf_paddle_frequency_wind_min_strength_field.expect("Missing parameter: leaf_paddle_frequency_wind_min_strength"),
-            leaf_paddle_frequency_wind_max_strength: leaf_paddle_frequency_wind_max_strength_field.expect("Missing parameter: leaf_paddle_frequency_wind_max_strength"),
-            leaf_paddle_frequency_wind_curve_power: leaf_paddle_frequency_wind_curve_power_field.expect("Missing parameter: leaf_paddle_frequency_wind_curve_power"),
+            leaf_paddle_amplitude_wind_start_strength: leaf_paddle_amplitude_wind_start_strength_field.expect("Missing parameter: leaf_paddle_amplitude_wind_start_strength"),
+            leaf_paddle_amplitude_wind_full_strength: leaf_paddle_amplitude_wind_full_strength_field.expect("Missing parameter: leaf_paddle_amplitude_wind_full_strength"),
+            leaf_paddle_amplitude_wind_knee_bias: leaf_paddle_amplitude_wind_knee_bias_field.expect("Missing parameter: leaf_paddle_amplitude_wind_knee_bias"),
+            leaf_paddle_frequency_wind_start_strength: leaf_paddle_frequency_wind_start_strength_field.expect("Missing parameter: leaf_paddle_frequency_wind_start_strength"),
+            leaf_paddle_frequency_wind_full_strength: leaf_paddle_frequency_wind_full_strength_field.expect("Missing parameter: leaf_paddle_frequency_wind_full_strength"),
+            leaf_paddle_frequency_wind_knee_bias: leaf_paddle_frequency_wind_knee_bias_field.expect("Missing parameter: leaf_paddle_frequency_wind_knee_bias"),
             leaf_paddle_frequency_min_multiplier: leaf_paddle_frequency_min_multiplier_field.expect("Missing parameter: leaf_paddle_frequency_min_multiplier"),
             leaf_paddle_frequency_max_multiplier: leaf_paddle_frequency_max_multiplier_field.expect("Missing parameter: leaf_paddle_frequency_max_multiplier"),
             wind_source_0_name: wind_source_0_name_field.expect("Missing parameter: wind_source_0_name"),
@@ -2934,12 +2934,12 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_paddle_amplitude_voxels" => Some(&adjustables.leaf_paddle_amplitude_voxels),
         "leaf_paddle_primary_speed" => Some(&adjustables.leaf_paddle_primary_speed),
         "leaf_paddle_secondary_speed" => Some(&adjustables.leaf_paddle_secondary_speed),
-        "leaf_paddle_amplitude_wind_min_strength" => Some(&adjustables.leaf_paddle_amplitude_wind_min_strength),
-        "leaf_paddle_amplitude_wind_max_strength" => Some(&adjustables.leaf_paddle_amplitude_wind_max_strength),
-        "leaf_paddle_amplitude_wind_curve_power" => Some(&adjustables.leaf_paddle_amplitude_wind_curve_power),
-        "leaf_paddle_frequency_wind_min_strength" => Some(&adjustables.leaf_paddle_frequency_wind_min_strength),
-        "leaf_paddle_frequency_wind_max_strength" => Some(&adjustables.leaf_paddle_frequency_wind_max_strength),
-        "leaf_paddle_frequency_wind_curve_power" => Some(&adjustables.leaf_paddle_frequency_wind_curve_power),
+        "leaf_paddle_amplitude_wind_start_strength" => Some(&adjustables.leaf_paddle_amplitude_wind_start_strength),
+        "leaf_paddle_amplitude_wind_full_strength" => Some(&adjustables.leaf_paddle_amplitude_wind_full_strength),
+        "leaf_paddle_amplitude_wind_knee_bias" => Some(&adjustables.leaf_paddle_amplitude_wind_knee_bias),
+        "leaf_paddle_frequency_wind_start_strength" => Some(&adjustables.leaf_paddle_frequency_wind_start_strength),
+        "leaf_paddle_frequency_wind_full_strength" => Some(&adjustables.leaf_paddle_frequency_wind_full_strength),
+        "leaf_paddle_frequency_wind_knee_bias" => Some(&adjustables.leaf_paddle_frequency_wind_knee_bias),
         "leaf_paddle_frequency_min_multiplier" => Some(&adjustables.leaf_paddle_frequency_min_multiplier),
         "leaf_paddle_frequency_max_multiplier" => Some(&adjustables.leaf_paddle_frequency_max_multiplier),
         "wind_source_0_direction_deg" => Some(&adjustables.wind_source_0_direction_deg),
@@ -3164,12 +3164,12 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_paddle_amplitude_voxels" => Some(&mut adjustables.leaf_paddle_amplitude_voxels),
         "leaf_paddle_primary_speed" => Some(&mut adjustables.leaf_paddle_primary_speed),
         "leaf_paddle_secondary_speed" => Some(&mut adjustables.leaf_paddle_secondary_speed),
-        "leaf_paddle_amplitude_wind_min_strength" => Some(&mut adjustables.leaf_paddle_amplitude_wind_min_strength),
-        "leaf_paddle_amplitude_wind_max_strength" => Some(&mut adjustables.leaf_paddle_amplitude_wind_max_strength),
-        "leaf_paddle_amplitude_wind_curve_power" => Some(&mut adjustables.leaf_paddle_amplitude_wind_curve_power),
-        "leaf_paddle_frequency_wind_min_strength" => Some(&mut adjustables.leaf_paddle_frequency_wind_min_strength),
-        "leaf_paddle_frequency_wind_max_strength" => Some(&mut adjustables.leaf_paddle_frequency_wind_max_strength),
-        "leaf_paddle_frequency_wind_curve_power" => Some(&mut adjustables.leaf_paddle_frequency_wind_curve_power),
+        "leaf_paddle_amplitude_wind_start_strength" => Some(&mut adjustables.leaf_paddle_amplitude_wind_start_strength),
+        "leaf_paddle_amplitude_wind_full_strength" => Some(&mut adjustables.leaf_paddle_amplitude_wind_full_strength),
+        "leaf_paddle_amplitude_wind_knee_bias" => Some(&mut adjustables.leaf_paddle_amplitude_wind_knee_bias),
+        "leaf_paddle_frequency_wind_start_strength" => Some(&mut adjustables.leaf_paddle_frequency_wind_start_strength),
+        "leaf_paddle_frequency_wind_full_strength" => Some(&mut adjustables.leaf_paddle_frequency_wind_full_strength),
+        "leaf_paddle_frequency_wind_knee_bias" => Some(&mut adjustables.leaf_paddle_frequency_wind_knee_bias),
         "leaf_paddle_frequency_min_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_min_multiplier),
         "leaf_paddle_frequency_max_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_max_multiplier),
         "wind_source_0_direction_deg" => Some(&mut adjustables.wind_source_0_direction_deg),

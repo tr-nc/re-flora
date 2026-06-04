@@ -7,13 +7,20 @@ float flora_wind_planar_strength(vec3 wind_vec) {
     return smoothstep(0.03, 2.0, length(wind_vec.xz));
 }
 
-float flora_wind_curve_response(float wind_strength, float min_strength, float max_strength,
-                                float curve_power) {
-    float lo = min(min_strength, max_strength);
-    float hi = max(min_strength, max_strength);
-    float t = clamp((wind_strength - lo) / max(hi - lo, 1e-4), 0.0, 1.0);
-    t = t * t * (3.0 - 2.0 * t);
-    return pow(t, max(curve_power, 0.001));
+float flora_smootherstep(float t) {
+    t = clamp(t, 0.0, 1.0);
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+float flora_wind_curve_response(float wind_strength, float start_strength, float full_strength,
+                                float knee_bias) {
+    float lo = min(start_strength, full_strength);
+    float hi = max(start_strength, full_strength);
+    float range = hi - lo;
+    float t = range <= 1e-4 ? (wind_strength >= hi ? 1.0 : 0.0) :
+                               clamp((wind_strength - lo) / range, 0.0, 1.0);
+    float exponent = exp2(clamp(knee_bias, -6.0, 6.0));
+    return flora_smootherstep(pow(t, exponent));
 }
 
 vec2 flora_wind_planar_dir(vec3 wind_vec) {
@@ -72,17 +79,17 @@ vec3 leaf_wind_paddling(vec3 wind_vec, float wind_gradient, uint instance_seed,
                         ivec3 vox_local_pos, ivec3 gradient_origin, float time) {
     float wind_strength = length(wind_vec.xz);
     float amplitude_response = flora_wind_curve_response(
-        wind_strength, gui_input.leaf_paddle_amplitude_wind_min_strength,
-        gui_input.leaf_paddle_amplitude_wind_max_strength,
-        gui_input.leaf_paddle_amplitude_wind_curve_power);
+        wind_strength, gui_input.leaf_paddle_amplitude_wind_start_strength,
+        gui_input.leaf_paddle_amplitude_wind_full_strength,
+        gui_input.leaf_paddle_amplitude_wind_knee_bias);
     if (amplitude_response <= 0.0) {
         return vec3(0.0);
     }
 
     float frequency_response = flora_wind_curve_response(
-        wind_strength, gui_input.leaf_paddle_frequency_wind_min_strength,
-        gui_input.leaf_paddle_frequency_wind_max_strength,
-        gui_input.leaf_paddle_frequency_wind_curve_power);
+        wind_strength, gui_input.leaf_paddle_frequency_wind_start_strength,
+        gui_input.leaf_paddle_frequency_wind_full_strength,
+        gui_input.leaf_paddle_frequency_wind_knee_bias);
     float frequency_multiplier = max(
         0.0, mix(gui_input.leaf_paddle_frequency_min_multiplier,
                  gui_input.leaf_paddle_frequency_max_multiplier, frequency_response));

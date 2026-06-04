@@ -2,6 +2,9 @@
 ///
 /// This file loads GUI parameters from config/gui.toml.
 /// The config file is the single source of truth.
+use crate::app::curve_preview::{
+    draw_curve_preview, smoothstep_variant_response, CurvePreviewMarker,
+};
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::{GuiConfigFile, GuiParamKind, GuiParamValue};
 use crate::wind::WindSource;
@@ -465,6 +468,88 @@ fn delete_wind_source(wind_sources: &mut Vec<WindSourceGuiValues>, index: usize)
     }
 }
 
+fn enforce_leaf_curve_order(adjustables: &mut GuiAdjustables) {
+    if adjustables.leaf_paddle_amplitude_wind_full_strength.value
+        < adjustables.leaf_paddle_amplitude_wind_start_strength.value
+    {
+        adjustables.leaf_paddle_amplitude_wind_full_strength.value =
+            adjustables.leaf_paddle_amplitude_wind_start_strength.value;
+    }
+
+    if adjustables.leaf_paddle_frequency_wind_full_strength.value
+        < adjustables.leaf_paddle_frequency_wind_start_strength.value
+    {
+        adjustables.leaf_paddle_frequency_wind_full_strength.value =
+            adjustables.leaf_paddle_frequency_wind_start_strength.value;
+    }
+
+    if adjustables.leaf_paddle_frequency_max_multiplier.value
+        < adjustables.leaf_paddle_frequency_min_multiplier.value
+    {
+        adjustables.leaf_paddle_frequency_max_multiplier.value =
+            adjustables.leaf_paddle_frequency_min_multiplier.value;
+    }
+}
+
+fn draw_leaf_curve_previews(ui: &mut egui::Ui, adjustables: &GuiAdjustables) {
+    let marker_start_color = Color32::from_rgb(120, 180, 255);
+    let marker_full_color = Color32::from_rgb(255, 200, 90);
+
+    let amplitude_start = adjustables.leaf_paddle_amplitude_wind_start_strength.value;
+    let amplitude_full = adjustables.leaf_paddle_amplitude_wind_full_strength.value;
+    let amplitude_knee = adjustables.leaf_paddle_amplitude_wind_knee_bias.value;
+    let amplitude_markers = [
+        CurvePreviewMarker {
+            x: amplitude_start,
+            label: "start",
+            color: marker_start_color,
+        },
+        CurvePreviewMarker {
+            x: amplitude_full,
+            label: "full",
+            color: marker_full_color,
+        },
+    ];
+    draw_curve_preview(
+        ui,
+        "Amplitude response preview",
+        0.0..=4.0,
+        0.0..=1.0,
+        &amplitude_markers,
+        |wind| smoothstep_variant_response(wind, amplitude_start, amplitude_full, amplitude_knee),
+    );
+
+    let frequency_start = adjustables.leaf_paddle_frequency_wind_start_strength.value;
+    let frequency_full = adjustables.leaf_paddle_frequency_wind_full_strength.value;
+    let frequency_knee = adjustables.leaf_paddle_frequency_wind_knee_bias.value;
+    let frequency_min = adjustables.leaf_paddle_frequency_min_multiplier.value;
+    let frequency_max = adjustables.leaf_paddle_frequency_max_multiplier.value;
+    let frequency_markers = [
+        CurvePreviewMarker {
+            x: frequency_start,
+            label: "start",
+            color: marker_start_color,
+        },
+        CurvePreviewMarker {
+            x: frequency_full,
+            label: "full",
+            color: marker_full_color,
+        },
+    ];
+    draw_curve_preview(
+        ui,
+        "Frequency multiplier preview",
+        0.0..=4.0,
+        0.0..=3.0,
+        &frequency_markers,
+        |wind| {
+            let response =
+                smoothstep_variant_response(wind, frequency_start, frequency_full, frequency_knee);
+            frequency_min + (frequency_max - frequency_min) * response
+        },
+    );
+}
+
 fn render_wind_sources_gui(
     ui: &mut egui::Ui,
     adjustables: &mut GuiAdjustables,
@@ -542,65 +627,66 @@ fn render_wind_sources_gui(
     );
     ui.add_space(4.0);
     ui.label("Leaf Wind Response Curves");
+    ui.label("Knee Bias: negative responds earlier; positive delays response until stronger wind.");
     ui.add(
         egui::Slider::new(
-            &mut adjustables.leaf_paddle_amplitude_wind_min_strength.value,
+            &mut adjustables.leaf_paddle_amplitude_wind_start_strength.value,
             adjustables
-                .leaf_paddle_amplitude_wind_min_strength
+                .leaf_paddle_amplitude_wind_start_strength
                 .range
                 .clone(),
         )
-        .text("Amplitude Wind Min"),
+        .text("Amplitude Start Wind"),
     );
     ui.add(
         egui::Slider::new(
-            &mut adjustables.leaf_paddle_amplitude_wind_max_strength.value,
+            &mut adjustables.leaf_paddle_amplitude_wind_full_strength.value,
             adjustables
-                .leaf_paddle_amplitude_wind_max_strength
+                .leaf_paddle_amplitude_wind_full_strength
                 .range
                 .clone(),
         )
-        .text("Amplitude Wind Max"),
+        .text("Amplitude Full Wind"),
     );
     ui.add(
         egui::Slider::new(
-            &mut adjustables.leaf_paddle_amplitude_wind_curve_power.value,
+            &mut adjustables.leaf_paddle_amplitude_wind_knee_bias.value,
             adjustables
-                .leaf_paddle_amplitude_wind_curve_power
+                .leaf_paddle_amplitude_wind_knee_bias
                 .range
                 .clone(),
         )
-        .text("Amplitude Curve Power"),
+        .text("Amplitude Knee Bias"),
     );
     ui.add(
         egui::Slider::new(
-            &mut adjustables.leaf_paddle_frequency_wind_min_strength.value,
+            &mut adjustables.leaf_paddle_frequency_wind_start_strength.value,
             adjustables
-                .leaf_paddle_frequency_wind_min_strength
+                .leaf_paddle_frequency_wind_start_strength
                 .range
                 .clone(),
         )
-        .text("Frequency Wind Min"),
+        .text("Frequency Start Wind"),
     );
     ui.add(
         egui::Slider::new(
-            &mut adjustables.leaf_paddle_frequency_wind_max_strength.value,
+            &mut adjustables.leaf_paddle_frequency_wind_full_strength.value,
             adjustables
-                .leaf_paddle_frequency_wind_max_strength
+                .leaf_paddle_frequency_wind_full_strength
                 .range
                 .clone(),
         )
-        .text("Frequency Wind Max"),
+        .text("Frequency Full Wind"),
     );
     ui.add(
         egui::Slider::new(
-            &mut adjustables.leaf_paddle_frequency_wind_curve_power.value,
+            &mut adjustables.leaf_paddle_frequency_wind_knee_bias.value,
             adjustables
-                .leaf_paddle_frequency_wind_curve_power
+                .leaf_paddle_frequency_wind_knee_bias
                 .range
                 .clone(),
         )
-        .text("Frequency Curve Power"),
+        .text("Frequency Knee Bias"),
     );
     ui.add(
         egui::Slider::new(
@@ -622,6 +708,9 @@ fn render_wind_sources_gui(
         )
         .text("Frequency Max Multiplier"),
     );
+    enforce_leaf_curve_order(adjustables);
+    ui.add_space(4.0);
+    draw_leaf_curve_previews(ui, adjustables);
 
     if wind_sources.is_empty() {
         ui.label("No wind sources.");

@@ -2205,22 +2205,22 @@ impl App {
                         self.gui_adjustables.leaf_paddle_primary_speed.value,
                         self.gui_adjustables.leaf_paddle_secondary_speed.value,
                         self.gui_adjustables
-                            .leaf_paddle_amplitude_wind_min_strength
+                            .leaf_paddle_amplitude_wind_start_strength
                             .value,
                         self.gui_adjustables
-                            .leaf_paddle_amplitude_wind_max_strength
+                            .leaf_paddle_amplitude_wind_full_strength
                             .value,
                         self.gui_adjustables
-                            .leaf_paddle_amplitude_wind_curve_power
+                            .leaf_paddle_amplitude_wind_knee_bias
                             .value,
                         self.gui_adjustables
-                            .leaf_paddle_frequency_wind_min_strength
+                            .leaf_paddle_frequency_wind_start_strength
                             .value,
                         self.gui_adjustables
-                            .leaf_paddle_frequency_wind_max_strength
+                            .leaf_paddle_frequency_wind_full_strength
                             .value,
                         self.gui_adjustables
-                            .leaf_paddle_frequency_wind_curve_power
+                            .leaf_paddle_frequency_wind_knee_bias
                             .value,
                         self.gui_adjustables
                             .leaf_paddle_frequency_min_multiplier

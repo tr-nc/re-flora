@@ -35,12 +35,12 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float leaf_paddle_amplitude_voxels;
     float leaf_paddle_primary_speed;
     float leaf_paddle_secondary_speed;
-    float leaf_paddle_amplitude_wind_min_strength;
-    float leaf_paddle_amplitude_wind_max_strength;
-    float leaf_paddle_amplitude_wind_curve_power;
-    float leaf_paddle_frequency_wind_min_strength;
-    float leaf_paddle_frequency_wind_max_strength;
-    float leaf_paddle_frequency_wind_curve_power;
+    float leaf_paddle_amplitude_wind_start_strength;
+    float leaf_paddle_amplitude_wind_full_strength;
+    float leaf_paddle_amplitude_wind_knee_bias;
+    float leaf_paddle_frequency_wind_start_strength;
+    float leaf_paddle_frequency_wind_full_strength;
+    float leaf_paddle_frequency_wind_knee_bias;
     float leaf_paddle_frequency_min_multiplier;
     float leaf_paddle_frequency_max_multiplier;
     float leaf_shadow_fragment_opacity;
