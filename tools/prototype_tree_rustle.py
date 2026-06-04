@@ -112,6 +112,7 @@ class Grain:
     hp_state: float
     hp_alpha: float
     lp_state: float
+    lp2_state: float
     lp_alpha: float
     pan_l: float
     pan_r: float
@@ -133,6 +134,11 @@ class BranchCreak:
 
 def clamp(value: float, low: float, high: float) -> float:
     return min(high, max(low, value))
+
+
+def smoothstep(edge0: float, edge1: float, value: float) -> float:
+    t = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
 
 
 def lowpass_alpha(cutoff_hz: float, sample_rate: int) -> float:
@@ -261,6 +267,7 @@ def make_grain(
         hp_state=0.0,
         hp_alpha=lowpass_alpha(hp_cutoff, sample_rate),
         lp_state=0.0,
+        lp2_state=0.0,
         lp_alpha=lowpass_alpha(lp_cutoff, sample_rate),
         pan_l=pan_l,
         pan_r=pan_r,
@@ -315,64 +322,82 @@ def render_rustle(
     creaks: list[BranchCreak] = []
 
     air_lp_l = air_lp_r = 0.0
+    air_lp2_l = air_lp2_r = 0.0
     air_slow_l = air_slow_r = 0.0
     leaf_hp_l = leaf_hp_r = 0.0
     leaf_lp_l = leaf_lp_r = 0.0
+    leaf_lp2_l = leaf_lp2_r = 0.0
     sheen_hp_l = sheen_hp_r = 0.0
     sheen_lp_l = sheen_lp_r = 0.0
+    sheen_lp2_l = sheen_lp2_r = 0.0
+    air_hi_hp_l = air_hi_hp_r = 0.0
+    air_hi_lp_l = air_hi_lp_r = 0.0
+    air_hi_lp2_l = air_hi_lp2_r = 0.0
     body_lp_l = body_lp_r = 0.0
+    body_lp2_l = body_lp2_r = 0.0
     body_slow_l = body_slow_r = 0.0
     leaf_flutter_phase = rng.uniform(0.0, TWO_PI)
+    leaf_activity = smoothstep(0.28, 0.86, controls[0])
 
     for index in range(sample_count):
         control_index = min(len(controls) - 1, int(index / samples_per_control))
         wind = controls[control_index]
-        wind_lift = wind ** 1.35
+        bed_wind = clamp(preset.base_wind + (wind - preset.base_wind) * 0.10, 0.0, 1.0)
+        wind_lift = bed_wind ** 1.18
+        leaf_target = smoothstep(0.28, 0.86, wind)
+        leaf_alpha = lowpass_alpha(0.55 if leaf_target >= leaf_activity else 0.28, sample_rate)
+        leaf_activity += (leaf_target - leaf_activity) * leaf_alpha
+        leaf_drive = 0.12 + 0.88 * leaf_activity
 
-        # Wide airy wind bed: low/mid filtered noise, brighter under gusts.
-        air_cutoff = 520.0 + 980.0 * wind
+        # Wide airy wind bed: low/mid filtered noise that stays relatively stable
+        # through gusts; leaf activity, not raw volume, marks the gust rise.
+        air_cutoff = 460.0 + 720.0 * bed_wind
         air_alpha = lowpass_alpha(air_cutoff, sample_rate)
-        air_slow_alpha = lowpass_alpha(85.0 + 60.0 * wind, sample_rate)
+        air_slow_alpha = lowpass_alpha(75.0 + 48.0 * bed_wind, sample_rate)
         raw_l = rng.uniform(-1.0, 1.0)
         raw_r = rng.uniform(-1.0, 1.0)
         air_lp_l += (raw_l - air_lp_l) * air_alpha
         air_lp_r += (raw_r - air_lp_r) * air_alpha
-        air_slow_l += (air_lp_l - air_slow_l) * air_slow_alpha
-        air_slow_r += (air_lp_r - air_slow_r) * air_slow_alpha
-        air_amp = 0.095 * preset.air * (0.18 + wind_lift)
-        out_l = (air_lp_l - 0.70 * air_slow_l) * air_amp
-        out_r = (air_lp_r - 0.70 * air_slow_r) * air_amp
+        air_lp2_l += (air_lp_l - air_lp2_l) * air_alpha
+        air_lp2_r += (air_lp_r - air_lp2_r) * air_alpha
+        air_slow_l += (air_lp2_l - air_slow_l) * air_slow_alpha
+        air_slow_r += (air_lp2_r - air_slow_r) * air_slow_alpha
+        air_amp = 0.120 * preset.air * (0.30 + wind_lift)
+        out_l = (air_lp2_l - 0.74 * air_slow_l) * air_amp
+        out_r = (air_lp2_r - 0.74 * air_slow_r) * air_amp
 
         # Warm leaf body: lower/mid filtered broadband movement that supports the
         # brighter leaf-contact layers.
-        body_cutoff = 430.0 + 1050.0 * wind + 360.0 * preset.brightness
-        body_slow_cutoff = 45.0 + 65.0 * wind
+        body_cutoff = 390.0 + 760.0 * bed_wind + 260.0 * preset.brightness
+        body_slow_cutoff = 42.0 + 52.0 * bed_wind
         body_alpha = lowpass_alpha(body_cutoff, sample_rate)
         body_slow_alpha = lowpass_alpha(body_slow_cutoff, sample_rate)
         raw_l = rng.uniform(-1.0, 1.0)
         raw_r = rng.uniform(-1.0, 1.0)
         body_lp_l += (raw_l - body_lp_l) * body_alpha
         body_lp_r += (raw_r - body_lp_r) * body_alpha
-        body_slow_l += (body_lp_l - body_slow_l) * body_slow_alpha
-        body_slow_r += (body_lp_r - body_slow_r) * body_slow_alpha
+        body_lp2_l += (body_lp_l - body_lp2_l) * body_alpha
+        body_lp2_r += (body_lp_r - body_lp2_r) * body_alpha
+        body_slow_l += (body_lp2_l - body_slow_l) * body_slow_alpha
+        body_slow_r += (body_lp2_r - body_slow_r) * body_slow_alpha
         body_amp = (
-            0.085
+            0.102
             * preset.leaf_body
             * preset.leaf_density
-            * (wind ** 1.50)
+            * (0.30 + 0.70 * (bed_wind ** 1.28))
             * (1.15 - 0.28 * preset.dryness)
         )
-        out_l += (body_lp_l - 0.72 * body_slow_l) * body_amp
-        out_r += (body_lp_r - 0.72 * body_slow_r) * body_amp
+        out_l += (body_lp2_l - 0.72 * body_slow_l) * body_amp
+        out_r += (body_lp2_r - 0.72 * body_slow_r) * body_amp
 
         # Continuous leaf friction bed: restrained high-passed noise that brightens
         # with wind, dry leaves, and the explicit brightness control.
-        leaf_hp_cutoff = 240.0 + 380.0 * preset.dryness + 260.0 * preset.brightness + 260.0 * wind
+        leaf_hp_cutoff = 210.0 + 330.0 * preset.dryness + 220.0 * preset.brightness + 180.0 * bed_wind
         leaf_lp_cutoff = (
-            1700.0
-            + 1800.0 * preset.brightness
-            + 1200.0 * preset.dryness
-            + 1200.0 * wind
+            1450.0
+            + 1200.0 * preset.brightness
+            + 820.0 * preset.dryness
+            + 760.0 * leaf_activity
         )
         leaf_hp_alpha = lowpass_alpha(leaf_hp_cutoff, sample_rate)
         leaf_lp_alpha = lowpass_alpha(leaf_lp_cutoff, sample_rate)
@@ -384,24 +409,26 @@ def render_rustle(
         high_r = raw_r - leaf_hp_r
         leaf_lp_l += (high_l - leaf_lp_l) * leaf_lp_alpha
         leaf_lp_r += (high_r - leaf_lp_r) * leaf_lp_alpha
+        leaf_lp2_l += (leaf_lp_l - leaf_lp2_l) * leaf_lp_alpha
+        leaf_lp2_r += (leaf_lp_r - leaf_lp2_r) * leaf_lp_alpha
         leaf_amp = (
-            0.026
+            0.050
             * preset.leaf_density
-            * (wind ** 1.80)
-            * (0.45 + 0.42 * preset.dryness)
-            * (0.55 + 0.45 * preset.brightness)
+            * (leaf_drive ** 1.75)
+            * (0.42 + 0.40 * preset.dryness)
+            * (0.54 + 0.46 * preset.brightness)
         )
-        out_l += leaf_lp_l * leaf_amp
-        out_r += leaf_lp_r * leaf_amp
+        out_l += leaf_lp2_l * leaf_amp
+        out_r += leaf_lp2_r * leaf_amp
 
         # Leaf-contact sheen: Bolin/Fégeant describe leafed deciduous rustle as
         # dominated by contact noise around 4 kHz, plus a pinker mechanical bed.
         # This is deliberately band-limited/equalized rather than raw white noise:
         # it restores natural high-frequency air while staying leaf-like.
-        leaf_flutter_phase += TWO_PI * (6.0 + 4.5 * wind) / sample_rate
+        leaf_flutter_phase += TWO_PI * (5.0 + 4.0 * leaf_activity) / sample_rate
         flutter_mod = 0.78 + 0.22 * (0.5 + 0.5 * math.sin(leaf_flutter_phase))
-        sheen_hp_cutoff = 2100.0 + 520.0 * preset.dryness + 380.0 * preset.brightness + 420.0 * wind
-        sheen_lp_cutoff = 4800.0 + 1700.0 * preset.brightness + 850.0 * preset.dryness + 1050.0 * wind
+        sheen_hp_cutoff = 2200.0 + 460.0 * preset.dryness + 320.0 * preset.brightness + 300.0 * leaf_activity
+        sheen_lp_cutoff = 4300.0 + 1050.0 * preset.brightness + 540.0 * preset.dryness + 760.0 * leaf_activity
         sheen_hp_alpha = lowpass_alpha(sheen_hp_cutoff, sample_rate)
         sheen_lp_alpha = lowpass_alpha(sheen_lp_cutoff, sample_rate)
         raw_l = rng.uniform(-1.0, 1.0)
@@ -412,28 +439,57 @@ def render_rustle(
         sheen_high_r = raw_r - sheen_hp_r
         sheen_lp_l += (sheen_high_l - sheen_lp_l) * sheen_lp_alpha
         sheen_lp_r += (sheen_high_r - sheen_lp_r) * sheen_lp_alpha
+        sheen_lp2_l += (sheen_lp_l - sheen_lp2_l) * sheen_lp_alpha
+        sheen_lp2_r += (sheen_lp_r - sheen_lp2_r) * sheen_lp_alpha
         sheen_amp = (
-            0.030
+            0.095
             * preset.leaf_density
-            * (wind ** 1.35)
-            * (0.30 + 0.70 * preset.brightness)
-            * (0.55 + 0.35 * preset.dryness)
-            * (0.70 + 0.85 * preset.crackle)
+            * (leaf_drive ** 1.60)
+            * (0.32 + 0.68 * preset.brightness)
+            * (0.54 + 0.34 * preset.dryness)
+            * (0.74 + 0.58 * preset.crackle)
             * flutter_mod
         )
-        out_l += sheen_lp_l * sheen_amp
-        out_r += sheen_lp_r * sheen_amp
+        out_l += sheen_lp2_l * sheen_amp
+        out_r += sheen_lp2_r * sheen_amp
+
+        # Restrained 8-12 kHz air: present during leaf activation, but kept below
+        # the 3-6 kHz contact band so the result stays like wind in leaves rather
+        # than hiss.
+        air_hi_hp_cutoff = 7200.0 + 900.0 * preset.brightness + 500.0 * preset.dryness
+        air_hi_lp_cutoff = 10400.0 + 1200.0 * preset.brightness + 480.0 * leaf_activity
+        air_hi_hp_alpha = lowpass_alpha(air_hi_hp_cutoff, sample_rate)
+        air_hi_lp_alpha = lowpass_alpha(air_hi_lp_cutoff, sample_rate)
+        raw_l = rng.uniform(-1.0, 1.0)
+        raw_r = rng.uniform(-1.0, 1.0)
+        air_hi_hp_l += (raw_l - air_hi_hp_l) * air_hi_hp_alpha
+        air_hi_hp_r += (raw_r - air_hi_hp_r) * air_hi_hp_alpha
+        air_hi_high_l = raw_l - air_hi_hp_l
+        air_hi_high_r = raw_r - air_hi_hp_r
+        air_hi_lp_l += (air_hi_high_l - air_hi_lp_l) * air_hi_lp_alpha
+        air_hi_lp_r += (air_hi_high_r - air_hi_lp_r) * air_hi_lp_alpha
+        air_hi_lp2_l += (air_hi_lp_l - air_hi_lp2_l) * air_hi_lp_alpha
+        air_hi_lp2_r += (air_hi_lp_r - air_hi_lp2_r) * air_hi_lp_alpha
+        air_hi_amp = (
+            0.0115
+            * preset.leaf_density
+            * (leaf_activity ** 2.00)
+            * (0.20 + 0.80 * preset.brightness)
+            * (0.62 + 0.30 * preset.dryness)
+        )
+        out_l += air_hi_lp2_l * air_hi_amp
+        out_r += air_hi_lp2_r * air_hi_amp
 
         # Leaf bursts: clustered contact grains. Crackle is intentionally a strong
         # control here: 0 disables most discrete ticks, 1 produces crisp leaf-edge
         # contacts on top of the continuous 4 kHz sheen.
         crackle_drive = preset.crackle ** 1.15
-        burst_rate = (0.20 + 28.0 * (wind ** 2.05)) * preset.leaf_density * crackle_drive
+        burst_rate = (0.14 + 30.0 * (leaf_activity ** 2.05)) * preset.leaf_density * crackle_drive
         if rng.random() < burst_rate / sample_rate:
-            cluster_count = 1 + rng.randrange(1 + int(1 + 5 * wind * (0.40 + preset.crackle)))
-            if rng.random() < (0.06 + 0.26 * wind) * preset.crackle:
+            cluster_count = 1 + rng.randrange(1 + int(1 + 5 * leaf_activity * (0.40 + preset.crackle)))
+            if rng.random() < (0.06 + 0.26 * leaf_activity) * preset.crackle:
                 cluster_count += rng.randrange(1, 4)
-            max_window = max(0.024, 0.125 + 0.055 * wind - 0.045 * preset.crackle)
+            max_window = max(0.024, 0.125 + 0.055 * leaf_activity - 0.045 * preset.crackle)
             cluster_window = int(sample_rate * rng.uniform(0.018, max_window))
             for _ in range(cluster_count):
                 delay = rng.randrange(max(1, cluster_window))
@@ -441,7 +497,7 @@ def render_rustle(
                     make_grain(
                         rng=rng,
                         sample_rate=sample_rate,
-                        wind=wind,
+                        wind=leaf_activity,
                         dryness=preset.dryness,
                         brightness=preset.brightness,
                         crackle=preset.crackle,
@@ -474,7 +530,8 @@ def render_rustle(
             grain.hp_state += (raw - grain.hp_state) * grain.hp_alpha
             high = raw - grain.hp_state
             grain.lp_state += (high - grain.lp_state) * grain.lp_alpha
-            sample = grain.lp_state * grain.env
+            grain.lp2_state += (grain.lp_state - grain.lp2_state) * grain.lp_alpha
+            sample = grain.lp2_state * grain.env
             out_l += sample * grain.pan_l
             out_r += sample * grain.pan_r
             if grain.env > 0.00005 or grain.target > 0.00005:
@@ -585,8 +642,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--leaf-density", type=float, help="override leaf burst density multiplier")
     parser.add_argument("--dryness", type=float, help="override brightness/crackle amount, 0..1")
     parser.add_argument("--branch", type=float, help="override branch-creak amount, 0..1")
-    parser.add_argument("--air", type=float, help="override airy wind-bed amount, 0..1")
-    parser.add_argument("--leaf-body", type=float, help="override warm lower/mid leaf body, 0..1")
+    parser.add_argument("--air", type=float, help="override airy wind-bed amount, 0..1.5")
+    parser.add_argument("--leaf-body", type=float, help="override warm lower/mid leaf body, 0..1.5")
     parser.add_argument("--crackle", type=float, help="override short transient amount, 0..1")
     parser.add_argument("--brightness", type=float, help="override high-frequency brightness, 0..1")
     parser.add_argument("--peak", type=float, default=0.82, help="normalized WAV peak when normalizing")
@@ -611,9 +668,9 @@ def apply_overrides(preset: RustlePreset, args: argparse.Namespace) -> RustlePre
     if args.branch is not None:
         changes["branch"] = clamp(args.branch, 0.0, 1.0)
     if args.air is not None:
-        changes["air"] = clamp(args.air, 0.0, 1.0)
+        changes["air"] = clamp(args.air, 0.0, 1.5)
     if args.leaf_body is not None:
-        changes["leaf_body"] = clamp(args.leaf_body, 0.0, 1.0)
+        changes["leaf_body"] = clamp(args.leaf_body, 0.0, 1.5)
     if args.crackle is not None:
         changes["crackle"] = clamp(args.crackle, 0.0, 1.0)
     if args.brightness is not None:

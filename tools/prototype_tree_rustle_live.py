@@ -182,25 +182,41 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
     this.controlSamples = Math.max(1, Math.round(this.sr / this.controlRate));
     this.controlCountdown = 0;
     this.windCurrent = this.params.wind;
+    this.leafActivity = this.smoothstep(0.28, 0.86, this.params.wind);
+    this.leafDrive = 0.12 + 0.88 * this.leafActivity;
     this.grains = [];
     this.creaks = [];
 
     this.airLpL = 0.0;
     this.airLpR = 0.0;
+    this.airLp2L = 0.0;
+    this.airLp2R = 0.0;
     this.airSlowL = 0.0;
     this.airSlowR = 0.0;
     this.bodyLpL = 0.0;
     this.bodyLpR = 0.0;
+    this.bodyLp2L = 0.0;
+    this.bodyLp2R = 0.0;
     this.bodySlowL = 0.0;
     this.bodySlowR = 0.0;
     this.leafHpL = 0.0;
     this.leafHpR = 0.0;
     this.leafLpL = 0.0;
     this.leafLpR = 0.0;
+    this.leafLp2L = 0.0;
+    this.leafLp2R = 0.0;
     this.sheenHpL = 0.0;
     this.sheenHpR = 0.0;
     this.sheenLpL = 0.0;
     this.sheenLpR = 0.0;
+    this.sheenLp2L = 0.0;
+    this.sheenLp2R = 0.0;
+    this.airHiHpL = 0.0;
+    this.airHiHpR = 0.0;
+    this.airHiLpL = 0.0;
+    this.airHiLpR = 0.0;
+    this.airHiLp2L = 0.0;
+    this.airHiLp2R = 0.0;
     this.leafFlutterPhase = this.randRange(0.0, Math.PI * 2.0);
 
     this.airAlpha = 0.1;
@@ -215,6 +231,9 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
     this.sheenHpAlpha = 0.1;
     this.sheenLpAlpha = 0.1;
     this.sheenAmp = 0.0;
+    this.airHiHpAlpha = 0.1;
+    this.airHiLpAlpha = 0.1;
+    this.airHiAmp = 0.0;
     this.burstRate = 0.0;
     this.branchRate = 0.0;
 
@@ -230,6 +249,11 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
 
   clamp(value, low, high) {
     return Math.min(high, Math.max(low, value));
+  }
+
+  smoothstep(edge0, edge1, value) {
+    const t = this.clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
   }
 
   rand() {
@@ -254,6 +278,10 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
     return 1.0 - Math.exp(-Math.PI * 2.0 * cutoff / this.sr);
   }
 
+  controlAlpha(cutoffHz) {
+    return 1.0 - Math.exp((-Math.PI * 2.0 * cutoffHz) / this.controlRate);
+  }
+
   equalPowerPan(pan) {
     const angle = (this.clamp(pan, -1.0, 1.0) + 1.0) * Math.PI * 0.25;
     return [Math.cos(angle), Math.sin(angle)];
@@ -261,52 +289,68 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
 
   updateControl() {
     const p = this.params;
-    // Wind strength is now a direct control, not a hidden time-varying noise
-    // layer. If the slider is not moving, the macro sound level stays stable;
-    // only the stochastic leaf texture itself keeps changing.
+    // Wind strength is a direct control in live mode. The low/mid bed updates
+    // promptly, while leaf activity has inertia so gust-like slider changes
+    // brighten over seconds instead of becoming an instant volume jump.
     const w = this.clamp(p.wind, 0.0, 1.0);
     this.windCurrent = w;
     const dryness = this.clamp(p.dryness, 0.0, 1.0);
     const brightness = this.clamp(p.brightness, 0.0, 1.0);
     const leafDensity = Math.max(0.0, p.leafDensity);
     const crackle = this.clamp(p.crackle, 0.0, 1.0);
-    const windLift = Math.pow(w, 1.35);
+    const leafTarget = this.smoothstep(0.28, 0.86, w);
+    const leafAlpha = this.controlAlpha(leafTarget >= this.leafActivity ? 0.55 : 0.28);
+    this.leafActivity += (leafTarget - this.leafActivity) * leafAlpha;
+    this.leafDrive = 0.12 + 0.88 * this.leafActivity;
+    const windLift = Math.pow(w, 1.18);
 
-    this.airAlpha = this.alpha(520.0 + 980.0 * w);
-    this.airSlowAlpha = this.alpha(85.0 + 60.0 * w);
-    this.airAmp = 0.095 * Math.max(0.0, p.air) * (0.18 + windLift);
+    this.airAlpha = this.alpha(460.0 + 720.0 * w);
+    this.airSlowAlpha = this.alpha(75.0 + 48.0 * w);
+    this.airAmp = 0.120 * Math.max(0.0, p.air) * (0.30 + windLift);
 
-    this.bodyAlpha = this.alpha(430.0 + 1050.0 * w + 360.0 * brightness);
-    this.bodySlowAlpha = this.alpha(45.0 + 65.0 * w);
+    this.bodyAlpha = this.alpha(390.0 + 760.0 * w + 260.0 * brightness);
+    this.bodySlowAlpha = this.alpha(42.0 + 52.0 * w);
     this.bodyAmp =
-      0.085 *
+      0.102 *
       Math.max(0.0, p.leafBody) *
       leafDensity *
-      Math.pow(w, 1.50) *
+      (0.30 + 0.70 * Math.pow(w, 1.28)) *
       (1.15 - 0.28 * dryness);
 
-    this.leafHpAlpha = this.alpha(240.0 + 380.0 * dryness + 260.0 * brightness + 260.0 * w);
+    this.leafHpAlpha = this.alpha(210.0 + 330.0 * dryness + 220.0 * brightness + 180.0 * w);
     this.leafLpAlpha = this.alpha(
-      1700.0 + 1800.0 * brightness + 1200.0 * dryness + 1200.0 * w,
+      1450.0 + 1200.0 * brightness + 820.0 * dryness + 760.0 * this.leafActivity,
     );
     this.leafAmp =
-      0.026 *
+      0.050 *
       leafDensity *
-      Math.pow(w, 1.80) *
-      (0.45 + 0.42 * dryness) *
-      (0.55 + 0.45 * brightness);
-    this.sheenHpAlpha = this.alpha(2100.0 + 520.0 * dryness + 380.0 * brightness + 420.0 * w);
-    this.sheenLpAlpha = this.alpha(4800.0 + 1700.0 * brightness + 850.0 * dryness + 1050.0 * w);
+      Math.pow(this.leafDrive, 1.75) *
+      (0.42 + 0.40 * dryness) *
+      (0.54 + 0.46 * brightness);
+    this.sheenHpAlpha = this.alpha(
+      2200.0 + 460.0 * dryness + 320.0 * brightness + 300.0 * this.leafActivity,
+    );
+    this.sheenLpAlpha = this.alpha(
+      4300.0 + 1050.0 * brightness + 540.0 * dryness + 760.0 * this.leafActivity,
+    );
     this.sheenAmp =
-      0.030 *
+      0.095 *
       leafDensity *
-      Math.pow(w, 1.35) *
-      (0.30 + 0.70 * brightness) *
-      (0.55 + 0.35 * dryness) *
-      (0.70 + 0.85 * crackle);
+      Math.pow(this.leafDrive, 1.60) *
+      (0.32 + 0.68 * brightness) *
+      (0.54 + 0.34 * dryness) *
+      (0.74 + 0.58 * crackle);
+    this.airHiHpAlpha = this.alpha(7200.0 + 900.0 * brightness + 500.0 * dryness);
+    this.airHiLpAlpha = this.alpha(10400.0 + 1200.0 * brightness + 480.0 * this.leafActivity);
+    this.airHiAmp =
+      0.0115 *
+      leafDensity *
+      Math.pow(this.leafActivity, 2.00) *
+      (0.20 + 0.80 * brightness) *
+      (0.62 + 0.30 * dryness);
 
     const crackleDrive = Math.pow(crackle, 1.15);
-    this.burstRate = (0.20 + 28.0 * Math.pow(w, 2.05)) * leafDensity * crackleDrive;
+    this.burstRate = (0.14 + 30.0 * Math.pow(this.leafActivity, 2.05)) * leafDensity * crackleDrive;
     this.branchRate = Math.max(0.0, p.branch) * Math.pow(Math.max(0.0, w - 0.42), 2.0) * 1.15;
   }
 
@@ -315,7 +359,7 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
     const dryness = this.clamp(p.dryness, 0.0, 1.0);
     const brightness = this.clamp(p.brightness, 0.0, 1.0);
     const crackle = this.clamp(p.crackle, 0.0, 1.0);
-    const wind = this.clamp(this.windCurrent, 0.0, 1.0);
+    const wind = this.clamp(this.leafActivity, 0.0, 1.0);
 
     // Crackle controls the discrete leaf-contact events. At low values the
     // sound is mostly continuous friction; at high values it adds shorter,
@@ -351,6 +395,7 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
       hpState: 0.0,
       hpAlpha: this.alpha(hp),
       lpState: 0.0,
+      lp2State: 0.0,
       lpAlpha: this.alpha(lp),
       panL: pan[0],
       panR: pan[1],
@@ -398,7 +443,7 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
       this.controlCountdown -= 1;
 
       const p = this.params;
-      const wind = this.clamp(this.windCurrent, 0.0, 1.0);
+      const leafActivity = this.clamp(this.leafActivity, 0.0, 1.0);
       const crackle = this.clamp(p.crackle, 0.0, 1.0);
       let outL = 0.0;
       let outR = 0.0;
@@ -407,19 +452,23 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
       let rawR = this.randRange(-1.0, 1.0);
       this.airLpL += (rawL - this.airLpL) * this.airAlpha;
       this.airLpR += (rawR - this.airLpR) * this.airAlpha;
-      this.airSlowL += (this.airLpL - this.airSlowL) * this.airSlowAlpha;
-      this.airSlowR += (this.airLpR - this.airSlowR) * this.airSlowAlpha;
-      outL += (this.airLpL - 0.70 * this.airSlowL) * this.airAmp;
-      outR += (this.airLpR - 0.70 * this.airSlowR) * this.airAmp;
+      this.airLp2L += (this.airLpL - this.airLp2L) * this.airAlpha;
+      this.airLp2R += (this.airLpR - this.airLp2R) * this.airAlpha;
+      this.airSlowL += (this.airLp2L - this.airSlowL) * this.airSlowAlpha;
+      this.airSlowR += (this.airLp2R - this.airSlowR) * this.airSlowAlpha;
+      outL += (this.airLp2L - 0.74 * this.airSlowL) * this.airAmp;
+      outR += (this.airLp2R - 0.74 * this.airSlowR) * this.airAmp;
 
       rawL = this.randRange(-1.0, 1.0);
       rawR = this.randRange(-1.0, 1.0);
       this.bodyLpL += (rawL - this.bodyLpL) * this.bodyAlpha;
       this.bodyLpR += (rawR - this.bodyLpR) * this.bodyAlpha;
-      this.bodySlowL += (this.bodyLpL - this.bodySlowL) * this.bodySlowAlpha;
-      this.bodySlowR += (this.bodyLpR - this.bodySlowR) * this.bodySlowAlpha;
-      outL += (this.bodyLpL - 0.72 * this.bodySlowL) * this.bodyAmp;
-      outR += (this.bodyLpR - 0.72 * this.bodySlowR) * this.bodyAmp;
+      this.bodyLp2L += (this.bodyLpL - this.bodyLp2L) * this.bodyAlpha;
+      this.bodyLp2R += (this.bodyLpR - this.bodyLp2R) * this.bodyAlpha;
+      this.bodySlowL += (this.bodyLp2L - this.bodySlowL) * this.bodySlowAlpha;
+      this.bodySlowR += (this.bodyLp2R - this.bodySlowR) * this.bodySlowAlpha;
+      outL += (this.bodyLp2L - 0.72 * this.bodySlowL) * this.bodyAmp;
+      outR += (this.bodyLp2R - 0.72 * this.bodySlowR) * this.bodyAmp;
 
       rawL = this.randRange(-1.0, 1.0);
       rawR = this.randRange(-1.0, 1.0);
@@ -429,13 +478,15 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
       const highR = rawR - this.leafHpR;
       this.leafLpL += (highL - this.leafLpL) * this.leafLpAlpha;
       this.leafLpR += (highR - this.leafLpR) * this.leafLpAlpha;
-      outL += this.leafLpL * this.leafAmp;
-      outR += this.leafLpR * this.leafAmp;
+      this.leafLp2L += (this.leafLpL - this.leafLp2L) * this.leafLpAlpha;
+      this.leafLp2R += (this.leafLpR - this.leafLp2R) * this.leafLpAlpha;
+      outL += this.leafLp2L * this.leafAmp;
+      outR += this.leafLp2R * this.leafAmp;
 
       // Leaf-contact sheen: leafed deciduous rustle is dominated by contact
       // noise near 4 kHz. This band-limited layer restores natural high air
       // without reverting to raw white noise.
-      this.leafFlutterPhase += (Math.PI * 2.0 * (6.0 + 4.5 * wind)) / this.sr;
+      this.leafFlutterPhase += (Math.PI * 2.0 * (5.0 + 4.0 * leafActivity)) / this.sr;
       const flutterMod = 0.78 + 0.22 * (0.5 + 0.5 * Math.sin(this.leafFlutterPhase));
       rawL = this.randRange(-1.0, 1.0);
       rawR = this.randRange(-1.0, 1.0);
@@ -445,15 +496,32 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
       const sheenHighR = rawR - this.sheenHpR;
       this.sheenLpL += (sheenHighL - this.sheenLpL) * this.sheenLpAlpha;
       this.sheenLpR += (sheenHighR - this.sheenLpR) * this.sheenLpAlpha;
-      outL += this.sheenLpL * this.sheenAmp * flutterMod;
-      outR += this.sheenLpR * this.sheenAmp * flutterMod;
+      this.sheenLp2L += (this.sheenLpL - this.sheenLp2L) * this.sheenLpAlpha;
+      this.sheenLp2R += (this.sheenLpR - this.sheenLp2R) * this.sheenLpAlpha;
+      outL += this.sheenLp2L * this.sheenAmp * flutterMod;
+      outR += this.sheenLp2R * this.sheenAmp * flutterMod;
+
+      // Restrained 8-12 kHz air: audible in active leaves, but below the
+      // 3-6 kHz contact band so it reads as air instead of hiss.
+      rawL = this.randRange(-1.0, 1.0);
+      rawR = this.randRange(-1.0, 1.0);
+      this.airHiHpL += (rawL - this.airHiHpL) * this.airHiHpAlpha;
+      this.airHiHpR += (rawR - this.airHiHpR) * this.airHiHpAlpha;
+      const airHiHighL = rawL - this.airHiHpL;
+      const airHiHighR = rawR - this.airHiHpR;
+      this.airHiLpL += (airHiHighL - this.airHiLpL) * this.airHiLpAlpha;
+      this.airHiLpR += (airHiHighR - this.airHiLpR) * this.airHiLpAlpha;
+      this.airHiLp2L += (this.airHiLpL - this.airHiLp2L) * this.airHiLpAlpha;
+      this.airHiLp2R += (this.airHiLpR - this.airHiLp2R) * this.airHiLpAlpha;
+      outL += this.airHiLp2L * this.airHiAmp;
+      outR += this.airHiLp2R * this.airHiAmp;
 
       if (this.rand() < this.burstRate / this.sr) {
-        let clusterCount = 1 + this.randInt(1 + Math.floor(1 + 5 * wind * (0.40 + crackle)));
-        if (this.rand() < (0.06 + 0.26 * wind) * crackle) {
+        let clusterCount = 1 + this.randInt(1 + Math.floor(1 + 5 * leafActivity * (0.40 + crackle)));
+        if (this.rand() < (0.06 + 0.26 * leafActivity) * crackle) {
           clusterCount += 1 + this.randInt(3);
         }
-        const maxWindow = Math.max(0.024, 0.125 + 0.055 * wind - 0.045 * crackle);
+        const maxWindow = Math.max(0.024, 0.125 + 0.055 * leafActivity - 0.045 * crackle);
         const clusterWindow = Math.floor(this.sr * this.randRange(0.018, maxWindow));
         for (let g = 0; g < clusterCount; g += 1) {
           this.grains.push(this.makeGrain(this.randInt(Math.max(1, clusterWindow))));
@@ -477,7 +545,8 @@ class TreeRustleProcessor extends AudioWorkletProcessor {
         grain.hpState += (raw - grain.hpState) * grain.hpAlpha;
         const high = raw - grain.hpState;
         grain.lpState += (high - grain.lpState) * grain.lpAlpha;
-        const sample = grain.lpState * grain.env;
+        grain.lp2State += (grain.lpState - grain.lp2State) * grain.lpAlpha;
+        const sample = grain.lp2State * grain.env;
         outL += sample * grain.panL;
         outR += sample * grain.panR;
         if (grain.env > 0.00005 || grain.target > 0.00005) {
