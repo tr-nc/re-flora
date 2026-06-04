@@ -9,6 +9,11 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 const TREE_SILENT_VOLUME_DB: f32 = -80.0;
+// The old tree loop asset was baked with a large pregain
+// (`tree_sound_48k_pregain_40db.wav`). The procedural generator is tuned at
+// reference-like raw levels, so add runtime makeup gain before the normal tree
+// volume and cluster controls are applied.
+const PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB: f32 = 36.0;
 const MAX_TREE_AUDIO_CLUSTER_SOURCES: usize = 8;
 
 /// Keeps track of all looping tree ambience sources so we can later
@@ -324,6 +329,7 @@ impl TreeAudioManager {
     }
 
     fn clustered_volume_db(volume_db: f32, clustered_amount: u32) -> f32 {
+        let volume_db = volume_db + PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB;
         let n = clustered_amount.max(1) as f32;
         if n <= 1.0 {
             return volume_db;
@@ -331,5 +337,19 @@ impl TreeAudioManager {
 
         let gain_db = 10.0 * n.log10();
         volume_db + gain_db
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clustered_volume_applies_procedural_makeup_gain() {
+        assert_eq!(
+            TreeAudioManager::clustered_volume_db(-15.0, 1),
+            -15.0 + PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB
+        );
+        assert!((TreeAudioManager::clustered_volume_db(-15.0, 10) - 31.0).abs() < 0.001);
     }
 }
