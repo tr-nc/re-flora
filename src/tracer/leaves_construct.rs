@@ -119,16 +119,17 @@ pub fn generate_indexed_voxel_leaves(
 /// this mesh instead of stamping fruit into the terrain voxel field.
 pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
     const ORIGIN: IVec3 = IVec3::ZERO;
-    const MAX_LENGTH: u32 = 4;
-    const BODY_RADIUS_XZ: f32 = 2.5;
-    const BODY_RADIUS_Y: f32 = 2.75;
+    const MAX_LENGTH: u32 = 2;
+    const BODY_RADIUS_XZ: f32 = 1.25;
+    const BODY_RADIUS_Y: f32 = 1.375;
+    const BOUND_RADIUS: i32 = 2;
 
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
-    for x in -3..=3 {
-        for y in -3..=3 {
-            for z in -3..=3 {
+    for x in -BOUND_RADIUS..=BOUND_RADIUS {
+        for y in -BOUND_RADIUS..=BOUND_RADIUS {
+            for z in -BOUND_RADIUS..=BOUND_RADIUS {
                 let p = Vec3::new(
                     x as f32 / BODY_RADIUS_XZ,
                     y as f32 / BODY_RADIUS_Y,

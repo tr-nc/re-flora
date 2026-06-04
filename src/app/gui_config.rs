@@ -540,6 +540,88 @@ fn render_wind_sources_gui(
         )
         .text("Leaf Paddle Secondary Speed"),
     );
+    ui.add_space(4.0);
+    ui.label("Leaf Wind Response Curves");
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_amplitude_wind_min_strength.value,
+            adjustables
+                .leaf_paddle_amplitude_wind_min_strength
+                .range
+                .clone(),
+        )
+        .text("Amplitude Wind Min"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_amplitude_wind_max_strength.value,
+            adjustables
+                .leaf_paddle_amplitude_wind_max_strength
+                .range
+                .clone(),
+        )
+        .text("Amplitude Wind Max"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_amplitude_wind_curve_power.value,
+            adjustables
+                .leaf_paddle_amplitude_wind_curve_power
+                .range
+                .clone(),
+        )
+        .text("Amplitude Curve Power"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_frequency_wind_min_strength.value,
+            adjustables
+                .leaf_paddle_frequency_wind_min_strength
+                .range
+                .clone(),
+        )
+        .text("Frequency Wind Min"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_frequency_wind_max_strength.value,
+            adjustables
+                .leaf_paddle_frequency_wind_max_strength
+                .range
+                .clone(),
+        )
+        .text("Frequency Wind Max"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_frequency_wind_curve_power.value,
+            adjustables
+                .leaf_paddle_frequency_wind_curve_power
+                .range
+                .clone(),
+        )
+        .text("Frequency Curve Power"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_frequency_min_multiplier.value,
+            adjustables
+                .leaf_paddle_frequency_min_multiplier
+                .range
+                .clone(),
+        )
+        .text("Frequency Min Multiplier"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.leaf_paddle_frequency_max_multiplier.value,
+            adjustables
+                .leaf_paddle_frequency_max_multiplier
+                .range
+                .clone(),
+        )
+        .text("Frequency Max Multiplier"),
+    );
 
     if wind_sources.is_empty() {
         ui.label("No wind sources.");
