@@ -7,7 +7,7 @@ mod tree_audio_source;
 pub use tree_audio_source::TreeAudioSource;
 
 mod tree_rustle;
-pub use tree_rustle::{TreeRustleControl, TreeRustleFactory};
+pub use tree_rustle::{TreeRustleControl, TreeRustleFactory, TreeRustleParams};
 
 mod tree_audio_manager;
 pub use tree_audio_manager::TreeAudioManager;

@@ -1,4 +1,6 @@
-use crate::audio::{SpatialSoundManager, TreeAudioSource, TreeRustleControl, TreeRustleFactory};
+use crate::audio::{
+    SpatialSoundManager, TreeAudioSource, TreeRustleControl, TreeRustleFactory, TreeRustleParams,
+};
 use crate::util::{cluster_positions, ClusterResult};
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
@@ -22,6 +24,7 @@ pub struct TreeAudioManager {
     spatial_sound_manager: SpatialSoundManager,
     wind_volume_db: f32,
     wind_response_curve: WindResponseCurve,
+    rustle_params: TreeRustleParams,
     sources_by_tree: HashMap<u32, Vec<Uuid>>,
     sources: HashMap<Uuid, TreeAudioSource>,
     wind: Wind,
@@ -32,11 +35,13 @@ impl TreeAudioManager {
         spatial_sound_manager: SpatialSoundManager,
         wind_response_curve: WindResponseCurve,
         wind_volume_db: f32,
+        rustle_params: TreeRustleParams,
     ) -> Self {
         Self {
             spatial_sound_manager,
             wind_volume_db,
             wind_response_curve,
+            rustle_params,
             sources_by_tree: HashMap::new(),
             sources: HashMap::new(),
             wind: Wind::new(),
@@ -234,6 +239,17 @@ impl TreeAudioManager {
         }
     }
 
+    pub fn set_rustle_params(&mut self, rustle_params: TreeRustleParams) {
+        if rustle_params == self.rustle_params {
+            return;
+        }
+
+        self.rustle_params = rustle_params;
+        for source in self.sources.values() {
+            source.set_rustle_params(self.rustle_params);
+        }
+    }
+
     pub fn update(
         &mut self,
         time_seconds: f32,
@@ -273,8 +289,8 @@ impl TreeAudioManager {
         _shuffle_phase: bool,
     ) -> Result<Uuid> {
         let wind_volume_db = Self::clustered_volume_db(self.wind_volume_db, cluster_size);
-        let rustle_control = Arc::new(TreeRustleControl::new());
-        let rustle_factory = Arc::new(TreeRustleFactory::dense(
+        let rustle_control = Arc::new(TreeRustleControl::with_params(self.rustle_params));
+        let rustle_factory = Arc::new(TreeRustleFactory::new(
             Self::source_seed(tree_id, position, cluster_size),
             rustle_control.clone(),
         ));

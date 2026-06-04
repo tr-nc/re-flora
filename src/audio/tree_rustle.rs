@@ -6,10 +6,67 @@ const TWO_PI: f32 = std::f32::consts::TAU;
 const MAX_GRAINS: usize = 96;
 const MAX_CREAKS: usize = 8;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TreeRustleParams {
+    /// Runtime equivalent of the Python prototype's base wind slider. The app's
+    /// spatial wind remains the main driver; this adds a synthesis-side floor.
+    pub base_wind: f32,
+    /// Extra procedural wind wander on top of the app wind sources.
+    pub gustiness: f32,
+    pub leaf_density: f32,
+    pub dryness: f32,
+    pub branch: f32,
+    pub air: f32,
+    pub leaf_body: f32,
+    pub crackle: f32,
+    pub brightness: f32,
+}
+
+impl TreeRustleParams {
+    pub fn dense() -> Self {
+        Self {
+            // Keep the current in-game wind response unchanged by default. The
+            // Python prototype's dense preset used base_wind=0.62/gustiness=0.50
+            // because it rendered a standalone preview without app wind sources.
+            base_wind: 0.0,
+            gustiness: 0.0,
+            leaf_density: 1.35,
+            dryness: 0.20,
+            branch: 0.06,
+            air: 0.58,
+            leaf_body: 1.14,
+            crackle: 0.18,
+            brightness: 0.42,
+        }
+    }
+
+    fn clamped(self) -> Self {
+        Self {
+            base_wind: clamp(self.base_wind, 0.0, 1.0),
+            gustiness: clamp(self.gustiness, 0.0, 1.0),
+            leaf_density: clamp(self.leaf_density, 0.0, 3.0),
+            dryness: clamp(self.dryness, 0.0, 1.0),
+            branch: clamp(self.branch, 0.0, 1.0),
+            air: clamp(self.air, 0.0, 1.5),
+            leaf_body: clamp(self.leaf_body, 0.0, 1.5),
+            crackle: clamp(self.crackle, 0.0, 1.0),
+            brightness: clamp(self.brightness, 0.0, 1.0),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct TreeRustleControl {
     wind_response_bits: AtomicU32,
+    base_wind_bits: AtomicU32,
+    gustiness_bits: AtomicU32,
+    leaf_density_bits: AtomicU32,
+    dryness_bits: AtomicU32,
+    branch_bits: AtomicU32,
+    air_bits: AtomicU32,
+    leaf_body_bits: AtomicU32,
     crackle_bits: AtomicU32,
+    brightness_bits: AtomicU32,
 }
 
 impl Default for TreeRustleControl {
@@ -20,78 +77,85 @@ impl Default for TreeRustleControl {
 
 impl TreeRustleControl {
     pub fn new() -> Self {
+        Self::with_params(TreeRustleParams::dense())
+    }
+
+    pub fn with_params(params: TreeRustleParams) -> Self {
+        let params = params.clamped();
         Self {
             wind_response_bits: AtomicU32::new(0.0f32.to_bits()),
-            crackle_bits: AtomicU32::new(TreeRustlePreset::dense().crackle.to_bits()),
+            base_wind_bits: AtomicU32::new(params.base_wind.to_bits()),
+            gustiness_bits: AtomicU32::new(params.gustiness.to_bits()),
+            leaf_density_bits: AtomicU32::new(params.leaf_density.to_bits()),
+            dryness_bits: AtomicU32::new(params.dryness.to_bits()),
+            branch_bits: AtomicU32::new(params.branch.to_bits()),
+            air_bits: AtomicU32::new(params.air.to_bits()),
+            leaf_body_bits: AtomicU32::new(params.leaf_body.to_bits()),
+            crackle_bits: AtomicU32::new(params.crackle.to_bits()),
+            brightness_bits: AtomicU32::new(params.brightness.to_bits()),
         }
     }
 
     pub fn set_wind_response(&self, wind_response: f32) {
-        self.wind_response_bits
-            .store(clamp(wind_response, 0.0, 1.0).to_bits(), Ordering::Relaxed);
+        store_clamped(&self.wind_response_bits, wind_response, 0.0, 1.0);
     }
 
     pub fn wind_response(&self) -> f32 {
-        clamp(
-            f32::from_bits(self.wind_response_bits.load(Ordering::Relaxed)),
-            0.0,
-            1.0,
-        )
+        load_clamped(&self.wind_response_bits, 0.0, 1.0)
+    }
+
+    pub fn set_params(&self, params: TreeRustleParams) {
+        let params = params.clamped();
+        store_clamped(&self.base_wind_bits, params.base_wind, 0.0, 1.0);
+        store_clamped(&self.gustiness_bits, params.gustiness, 0.0, 1.0);
+        store_clamped(&self.leaf_density_bits, params.leaf_density, 0.0, 3.0);
+        store_clamped(&self.dryness_bits, params.dryness, 0.0, 1.0);
+        store_clamped(&self.branch_bits, params.branch, 0.0, 1.0);
+        store_clamped(&self.air_bits, params.air, 0.0, 1.5);
+        store_clamped(&self.leaf_body_bits, params.leaf_body, 0.0, 1.5);
+        store_clamped(&self.crackle_bits, params.crackle, 0.0, 1.0);
+        store_clamped(&self.brightness_bits, params.brightness, 0.0, 1.0);
+    }
+
+    pub fn params(&self) -> TreeRustleParams {
+        TreeRustleParams {
+            base_wind: load_clamped(&self.base_wind_bits, 0.0, 1.0),
+            gustiness: load_clamped(&self.gustiness_bits, 0.0, 1.0),
+            leaf_density: load_clamped(&self.leaf_density_bits, 0.0, 3.0),
+            dryness: load_clamped(&self.dryness_bits, 0.0, 1.0),
+            branch: load_clamped(&self.branch_bits, 0.0, 1.0),
+            air: load_clamped(&self.air_bits, 0.0, 1.5),
+            leaf_body: load_clamped(&self.leaf_body_bits, 0.0, 1.5),
+            crackle: load_clamped(&self.crackle_bits, 0.0, 1.0),
+            brightness: load_clamped(&self.brightness_bits, 0.0, 1.0),
+        }
     }
 
     #[allow(dead_code)]
     pub fn set_crackle(&self, crackle: f32) {
-        self.crackle_bits
-            .store(clamp(crackle, 0.0, 1.0).to_bits(), Ordering::Relaxed);
+        store_clamped(&self.crackle_bits, crackle, 0.0, 1.0);
     }
 
+    #[cfg(test)]
     fn crackle(&self) -> f32 {
-        clamp(
-            f32::from_bits(self.crackle_bits.load(Ordering::Relaxed)),
-            0.0,
-            1.0,
-        )
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct TreeRustlePreset {
-    pub leaf_density: f32,
-    pub dryness: f32,
-    pub branch: f32,
-    pub air: f32,
-    pub leaf_body: f32,
-    pub crackle: f32,
-    pub brightness: f32,
-}
-
-impl TreeRustlePreset {
-    pub fn dense() -> Self {
-        Self {
-            leaf_density: 1.35,
-            dryness: 0.20,
-            branch: 0.06,
-            air: 0.58,
-            leaf_body: 1.14,
-            crackle: 0.18,
-            brightness: 0.42,
-        }
+        load_clamped(&self.crackle_bits, 0.0, 1.0)
     }
 }
 
 pub struct TreeRustleFactory {
     seed: u64,
-    preset: TreeRustlePreset,
     control: Arc<TreeRustleControl>,
 }
 
 impl TreeRustleFactory {
+    pub fn new(seed: u64, control: Arc<TreeRustleControl>) -> Self {
+        Self { seed, control }
+    }
+
+    #[allow(dead_code)]
     pub fn dense(seed: u64, control: Arc<TreeRustleControl>) -> Self {
-        Self {
-            seed,
-            preset: TreeRustlePreset::dense(),
-            control,
-        }
+        control.set_params(TreeRustleParams::dense());
+        Self::new(seed, control)
     }
 }
 
@@ -100,7 +164,6 @@ impl ProceduralAudioFactory for TreeRustleFactory {
         Box::new(TreeRustleVoice::new(
             sample_rate,
             self.seed,
-            self.preset,
             self.control.clone(),
         ))
     }
@@ -109,10 +172,11 @@ impl ProceduralAudioFactory for TreeRustleFactory {
 struct TreeRustleVoice {
     sample_rate: f32,
     rng: FastRng,
-    preset: TreeRustlePreset,
     control: Arc<TreeRustleControl>,
     wind: f32,
     leaf_activity: f32,
+    gust_target: f32,
+    gust_wander: f32,
     air_lp: f32,
     air_lp2: f32,
     air_slow: f32,
@@ -134,20 +198,16 @@ struct TreeRustleVoice {
 }
 
 impl TreeRustleVoice {
-    fn new(
-        sample_rate: u32,
-        seed: u64,
-        preset: TreeRustlePreset,
-        control: Arc<TreeRustleControl>,
-    ) -> Self {
+    fn new(sample_rate: u32, seed: u64, control: Arc<TreeRustleControl>) -> Self {
         let mut rng = FastRng::new(seed ^ 0x6a09_e667_f3bc_c909);
         Self {
             sample_rate: sample_rate as f32,
             rng,
-            preset,
             control,
             wind: 0.0,
             leaf_activity: 0.0,
+            gust_target: 0.0,
+            gust_wander: 0.0,
             air_lp: 0.0,
             air_lp2: 0.0,
             air_slow: 0.0,
@@ -169,7 +229,7 @@ impl TreeRustleVoice {
         }
     }
 
-    fn render_sample(&mut self, coeffs: &BlockCoeffs) -> f32 {
+    fn render_sample(&mut self, coeffs: &BlockCoeffs, params: TreeRustleParams) -> f32 {
         let leaf_activity = self.leaf_activity;
 
         // Wide airy wind bed: low/mid filtered noise that stays stable while
@@ -216,8 +276,8 @@ impl TreeRustleVoice {
         self.air_hi_lp2 += (self.air_hi_lp - self.air_hi_lp2) * coeffs.air_hi_lp_alpha;
         out += self.air_hi_lp2 * coeffs.air_hi_amp;
 
-        self.maybe_spawn_grains(coeffs);
-        self.maybe_spawn_creak(coeffs);
+        self.maybe_spawn_grains(coeffs, params);
+        self.maybe_spawn_creak(coeffs, params);
         out += self.render_grains();
         out += self.render_creaks();
 
@@ -225,7 +285,7 @@ impl TreeRustleVoice {
         out * 0.72
     }
 
-    fn maybe_spawn_grains(&mut self, coeffs: &BlockCoeffs) {
+    fn maybe_spawn_grains(&mut self, coeffs: &BlockCoeffs, params: TreeRustleParams) {
         if self.grains.len() >= MAX_GRAINS || coeffs.crackle <= 0.0001 {
             return;
         }
@@ -250,15 +310,15 @@ impl TreeRustleVoice {
                 &mut self.rng,
                 self.sample_rate,
                 self.leaf_activity,
-                self.preset.dryness,
-                self.preset.brightness,
-                coeffs.crackle,
+                params.dryness,
+                params.brightness,
+                params.crackle,
                 delay,
             ));
         }
     }
 
-    fn maybe_spawn_creak(&mut self, coeffs: &BlockCoeffs) {
+    fn maybe_spawn_creak(&mut self, coeffs: &BlockCoeffs, params: TreeRustleParams) {
         if self.creaks.len() >= MAX_CREAKS {
             return;
         }
@@ -268,7 +328,7 @@ impl TreeRustleVoice {
                 &mut self.rng,
                 self.sample_rate,
                 self.wind,
-                self.preset.branch,
+                params.branch,
             ));
         }
     }
@@ -332,8 +392,34 @@ impl ProceduralAudioSource for TreeRustleVoice {
             return;
         }
 
-        let target_wind = self.control.wind_response();
+        let params = self.control.params();
+        let world_wind = self.control.wind_response();
         let block_seconds = out.len() as f32 / self.sample_rate;
+
+        // The Python prototype had base-wind and gustiness controls because it
+        // rendered standalone clips. In-game, spatial wind sources are still the
+        // main input; these sliders only bias/modulate the synthesis response.
+        let gustiness = params.gustiness;
+        if gustiness > 0.0 {
+            let target_alpha = 1.0 - (-TWO_PI * 0.35 * block_seconds).exp();
+            let smooth_alpha = 1.0 - (-TWO_PI * 0.75 * block_seconds).exp();
+            let gust_limit = 0.30 * gustiness;
+            let next_target = self.rng.bipolar() * gust_limit * (0.35 + 0.65 * world_wind);
+            self.gust_target += (next_target - self.gust_target) * target_alpha.clamp(0.0, 1.0);
+            self.gust_wander +=
+                (self.gust_target - self.gust_wander) * smooth_alpha.clamp(0.0, 1.0);
+            self.gust_wander = clamp(self.gust_wander, -gust_limit, gust_limit);
+        } else {
+            let release_alpha = 1.0 - (-TWO_PI * 1.0 * block_seconds).exp();
+            self.gust_target += (0.0 - self.gust_target) * release_alpha.clamp(0.0, 1.0);
+            self.gust_wander += (0.0 - self.gust_wander) * release_alpha.clamp(0.0, 1.0);
+        }
+
+        let target_wind = clamp(
+            world_wind + params.base_wind * (1.0 - world_wind) + self.gust_wander,
+            0.0,
+            1.0,
+        );
         let wind_cutoff = if target_wind >= self.wind { 3.2 } else { 1.8 };
         let wind_alpha = 1.0 - (-TWO_PI * wind_cutoff * block_seconds).exp();
         self.wind += (target_wind - self.wind) * wind_alpha.clamp(0.0, 1.0);
@@ -349,22 +435,18 @@ impl ProceduralAudioSource for TreeRustleVoice {
         self.leaf_activity += (leaf_target - self.leaf_activity) * leaf_alpha.clamp(0.0, 1.0);
         self.leaf_activity = clamp(self.leaf_activity, 0.0, 1.0);
 
-        let coeffs = BlockCoeffs::new(
-            self.sample_rate,
-            self.wind,
-            self.leaf_activity,
-            self.preset,
-            self.control.crackle(),
-        );
+        let coeffs = BlockCoeffs::new(self.sample_rate, self.wind, self.leaf_activity, params);
 
         for sample in out {
-            *sample = self.render_sample(&coeffs);
+            *sample = self.render_sample(&coeffs, params);
         }
     }
 
     fn reset(&mut self) {
         self.wind = self.control.wind_response();
         self.leaf_activity = smoothstep(0.12, 0.92, self.wind);
+        self.gust_target = 0.0;
+        self.gust_wander = 0.0;
         self.air_lp = 0.0;
         self.air_lp2 = 0.0;
         self.air_slow = 0.0;
@@ -408,82 +490,77 @@ struct BlockCoeffs {
 }
 
 impl BlockCoeffs {
-    fn new(
-        sample_rate: f32,
-        wind: f32,
-        leaf_activity: f32,
-        preset: TreeRustlePreset,
-        crackle: f32,
-    ) -> Self {
+    fn new(sample_rate: f32, wind: f32, leaf_activity: f32, params: TreeRustleParams) -> Self {
+        let params = params.clamped();
         let bed_wind = clamp(0.08 + wind * 0.92, 0.0, 1.0);
         let wind_lift = bed_wind.powf(1.18);
         let leaf_drive = 0.08 + 0.92 * leaf_activity;
-        let crackle = clamp(crackle, 0.0, 1.0);
+        let crackle = params.crackle;
         let crackle_drive = crackle.powf(1.15);
 
         Self {
             crackle,
-            air_amp: 0.120 * preset.air * (0.20 + wind_lift),
+            air_amp: 0.120 * params.air * (0.20 + wind_lift),
             body_amp: 0.102
-                * preset.leaf_body
-                * preset.leaf_density
+                * params.leaf_body
+                * params.leaf_density
                 * (0.24 + 0.76 * bed_wind.powf(1.28))
-                * (1.15 - 0.28 * preset.dryness),
+                * (1.15 - 0.28 * params.dryness),
             leaf_amp: 0.050
-                * preset.leaf_density
+                * params.leaf_density
                 * leaf_drive.powf(1.75)
-                * (0.42 + 0.40 * preset.dryness)
-                * (0.54 + 0.46 * preset.brightness),
+                * (0.42 + 0.40 * params.dryness)
+                * (0.54 + 0.46 * params.brightness),
             sheen_amp_base: 0.095
-                * preset.leaf_density
+                * params.leaf_density
                 * leaf_drive.powf(1.60)
-                * (0.32 + 0.68 * preset.brightness)
-                * (0.54 + 0.34 * preset.dryness)
+                * (0.32 + 0.68 * params.brightness)
+                * (0.54 + 0.34 * params.dryness)
                 * (0.74 + 0.58 * crackle),
             air_hi_amp: 0.0115
-                * preset.leaf_density
+                * params.leaf_density
                 * leaf_activity.powf(2.00)
-                * (0.20 + 0.80 * preset.brightness)
-                * (0.62 + 0.30 * preset.dryness),
+                * (0.20 + 0.80 * params.brightness)
+                * (0.62 + 0.30 * params.dryness),
             burst_rate: (0.14 + 30.0 * leaf_activity.powf(2.05))
-                * preset.leaf_density
+                * params.leaf_density
                 * crackle_drive,
-            branch_rate: preset.branch * (wind - 0.42).max(0.0).powi(2) * 1.15,
+            branch_rate: params.branch * (wind - 0.42).max(0.0).powi(2) * 1.15,
             air_alpha: lowpass_alpha(460.0 + 720.0 * bed_wind, sample_rate),
             air_slow_alpha: lowpass_alpha(75.0 + 48.0 * bed_wind, sample_rate),
             body_alpha: lowpass_alpha(
-                390.0 + 760.0 * bed_wind + 260.0 * preset.brightness,
+                390.0 + 760.0 * bed_wind + 260.0 * params.brightness,
                 sample_rate,
             ),
             body_slow_alpha: lowpass_alpha(42.0 + 52.0 * bed_wind, sample_rate),
             leaf_hp_alpha: lowpass_alpha(
-                210.0 + 330.0 * preset.dryness + 220.0 * preset.brightness + 180.0 * bed_wind,
+                210.0 + 330.0 * params.dryness + 220.0 * params.brightness + 180.0 * bed_wind,
                 sample_rate,
             ),
             leaf_lp_alpha: lowpass_alpha(
                 1450.0
-                    + 1200.0 * preset.brightness
-                    + 820.0 * preset.dryness
+                    + 1200.0 * params.brightness
+                    + 820.0 * params.dryness
                     + 760.0 * leaf_activity,
                 sample_rate,
             ),
             sheen_hp_alpha: lowpass_alpha(
-                2200.0 + 460.0 * preset.dryness + 320.0 * preset.brightness + 300.0 * leaf_activity,
+                2200.0 + 460.0 * params.dryness + 320.0 * params.brightness + 300.0 * leaf_activity,
                 sample_rate,
             ),
             sheen_lp_alpha: lowpass_alpha(
                 4300.0
-                    + 1050.0 * preset.brightness
-                    + 540.0 * preset.dryness
+                    + 1050.0 * params.brightness
+                    + 540.0 * params.dryness
                     + 760.0 * leaf_activity,
                 sample_rate,
             ),
             air_hi_hp_alpha: lowpass_alpha(
-                7200.0 + 900.0 * preset.brightness + 500.0 * preset.dryness,
+                7200.0 + 900.0 * params.brightness + 500.0 * params.dryness,
                 sample_rate,
             ),
             air_hi_lp_alpha: lowpass_alpha(
-                10400.0 + 1200.0 * preset.brightness + 480.0 * leaf_activity,
+                10400.0 + 1200.0 * params.brightness + 480.0 * leaf_activity,
                 sample_rate,
             ),
         }
@@ -614,6 +691,14 @@ impl FastRng {
     }
 }
 
+fn load_clamped(bits: &AtomicU32, low: f32, high: f32) -> f32 {
+    clamp(f32::from_bits(bits.load(Ordering::Relaxed)), low, high)
+}
+
+fn store_clamped(bits: &AtomicU32, value: f32, low: f32, high: f32) {
+    bits.store(clamp(value, low, high).to_bits(), Ordering::Relaxed);
+}
+
 fn clamp(value: f32, low: f32, high: f32) -> f32 {
     value.min(high).max(low)
 }
@@ -651,8 +736,7 @@ mod tests {
     #[test]
     fn wind_control_changes_rendered_energy_and_brightness() {
         let control = Arc::new(TreeRustleControl::new());
-        let mut voice =
-            TreeRustleVoice::new(48_000, 42, TreeRustlePreset::dense(), control.clone());
+        let mut voice = TreeRustleVoice::new(48_000, 42, control.clone());
 
         let mut quiet = vec![0.0; 48_000];
         control.set_wind_response(0.08);
@@ -690,7 +774,6 @@ mod tests {
                 TreeRustleVoice::new(
                     SAMPLE_RATE as u32,
                     42 + index as u64 * 7919,
-                    TreeRustlePreset::dense(),
                     control.clone(),
                 )
             })
@@ -732,5 +815,27 @@ mod tests {
         assert_eq!(control.wind_response(), 0.0);
         control.set_crackle(2.0);
         assert_eq!(control.crackle(), 1.0);
+
+        control.set_params(TreeRustleParams {
+            base_wind: 2.0,
+            gustiness: -1.0,
+            leaf_density: 4.0,
+            dryness: -1.0,
+            branch: 2.0,
+            air: 2.0,
+            leaf_body: 2.0,
+            crackle: -1.0,
+            brightness: 2.0,
+        });
+        let params = control.params();
+        assert_eq!(params.base_wind, 1.0);
+        assert_eq!(params.gustiness, 0.0);
+        assert_eq!(params.leaf_density, 3.0);
+        assert_eq!(params.dryness, 0.0);
+        assert_eq!(params.branch, 1.0);
+        assert_eq!(params.air, 1.5);
+        assert_eq!(params.leaf_body, 1.5);
+        assert_eq!(params.crackle, 0.0);
+        assert_eq!(params.brightness, 1.0);
     }
 }

@@ -1,4 +1,4 @@
-use crate::audio::{SpatialSoundManager, TreeRustleControl};
+use crate::audio::{SpatialSoundManager, TreeRustleControl, TreeRustleParams};
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
 use glam::Vec3;
@@ -56,6 +56,10 @@ impl TreeAudioSource {
     /// intentionally bypasses the response curve and uses linear sampled wind strength.
     pub fn set_wind_response_curve(&mut self, wind_response_curve: WindResponseCurve) {
         self.wind_response_curve = wind_response_curve;
+    }
+
+    pub fn set_rustle_params(&self, params: TreeRustleParams) {
+        self.rustle_control.set_params(params);
     }
 
     pub fn set_wind_volume_db(
@@ -134,7 +138,8 @@ impl TreeAudioSource {
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
         let response = response.clamp(0.0, 1.0);
-        let target_volume_db = if response <= f32::EPSILON {
+        let base_wind = self.rustle_control.params().base_wind;
+        let target_volume_db = if response <= f32::EPSILON && base_wind <= f32::EPSILON {
             TREE_SILENT_VOLUME_DB
         } else {
             // Runtime rustle now uses wind response inside the procedural model.
