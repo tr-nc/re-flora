@@ -9,7 +9,7 @@ use std::sync::Arc;
 ///
 /// This cache loads all audio files from the assets/sfx directory at initialization
 /// and provides O(1) lookup by full path. This is crucial for performance when the
-/// same audio clip (e.g., tree_sound_48k.wav) needs to be instantiated thousands of times.
+/// same audio clip (for example, UI or ambience one-shots) needs to be instantiated many times.
 pub struct AudioClipCache {
     clips: HashMap<String, Arc<PetalSonicAudioData>>,
 }
@@ -93,7 +93,7 @@ impl AudioClipCache {
     /// Gets a cached audio clip by its full path.
     ///
     /// # Arguments
-    /// * `path` - The full path to the audio file (e.g., "assets/sfx/tree_sound_48k.wav")
+    /// * `path` - The full path to the audio file (e.g., "assets/sfx/click.wav")
     ///
     /// # Returns
     /// Some(Arc<PetalSonicAudioData>) if the clip is cached, None otherwise
