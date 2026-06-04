@@ -187,7 +187,7 @@ label = "Leaf Amp Curve Start Wind"
 type = "Float"
 
 [section.param.data]
-value = 0.12
+value = 0
 min = 0
 max = 4
 
@@ -198,7 +198,7 @@ label = "Leaf Amp Curve Full Wind"
 type = "Float"
 
 [section.param.data]
-value = 1.55
+value = 3
 min = 0
 max = 4
 
@@ -209,7 +209,7 @@ label = "Leaf Amp Curve Knee Bias (- early, + late)"
 type = "Float"
 
 [section.param.data]
-value = 0.75
+value = 0
 min = -3
 max = 3
 
@@ -220,7 +220,7 @@ label = "Leaf Freq Curve Start Wind"
 type = "Float"
 
 [section.param.data]
-value = 0.2
+value = 0
 min = 0
 max = 4
 
@@ -231,7 +231,7 @@ label = "Leaf Freq Curve Full Wind"
 type = "Float"
 
 [section.param.data]
-value = 1.8
+value = 3
 min = 0
 max = 4
 
@@ -242,7 +242,7 @@ label = "Leaf Freq Curve Knee Bias (- early, + late)"
 type = "Float"
 
 [section.param.data]
-value = 0.4
+value = 1
 min = -3
 max = 3
 
@@ -253,7 +253,7 @@ label = "Leaf Freq Min Multiplier"
 type = "Float"
 
 [section.param.data]
-value = 0.55
+value = 0
 min = 0
 max = 3
 
@@ -264,7 +264,7 @@ label = "Leaf Freq Max Multiplier"
 type = "Float"
 
 [section.param.data]
-value = 1.45
+value = 1
 min = 0
 max = 3
 
