@@ -1,14 +1,22 @@
-use crate::audio::{SpatialSoundManager, TreeAudioSource};
+use crate::audio::{
+    SpatialSoundManager, TreeAudioSource, TreeRustleControl, TreeRustleFactory, TreeRustleParams,
+};
 use crate::util::{cluster_positions, ClusterResult};
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
 use glam::Vec3;
 use log::{debug, warn};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
-const TREE_LOOP_PATH: &str = "assets/sfx/tree_sound_48k_pregain_40db.wav";
 const TREE_SILENT_VOLUME_DB: f32 = -80.0;
+// The old tree loop asset was baked with a large pregain
+// (`tree_sound_48k_pregain_40db.wav`). The procedural generator is tuned at
+// reference-like raw levels, so add runtime makeup gain before the normal tree
+// volume and cluster controls are applied.
+const PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB: f32 = 36.0;
+const MAX_TREE_AUDIO_CLUSTER_SOURCES: usize = 8;
 
 /// Keeps track of all looping tree ambience sources so we can later
 /// drive them with wind simulations, recluster them, etc.
@@ -16,6 +24,7 @@ pub struct TreeAudioManager {
     spatial_sound_manager: SpatialSoundManager,
     wind_volume_db: f32,
     wind_response_curve: WindResponseCurve,
+    rustle_params: TreeRustleParams,
     sources_by_tree: HashMap<u32, Vec<Uuid>>,
     sources: HashMap<Uuid, TreeAudioSource>,
     wind: Wind,
@@ -26,11 +35,13 @@ impl TreeAudioManager {
         spatial_sound_manager: SpatialSoundManager,
         wind_response_curve: WindResponseCurve,
         wind_volume_db: f32,
+        rustle_params: TreeRustleParams,
     ) -> Self {
         Self {
             spatial_sound_manager,
             wind_volume_db,
             wind_response_curve,
+            rustle_params,
             sources_by_tree: HashMap::new(),
             sources: HashMap::new(),
             wind: Wind::new(),
@@ -84,8 +95,9 @@ impl TreeAudioManager {
             );
         }
 
-        let mut created = Vec::with_capacity(output_count.max(1));
-        if clusters.is_empty() {
+        let selected_clusters = Self::select_audio_clusters(&clusters);
+        let mut created = Vec::with_capacity(selected_clusters.len().max(1));
+        if selected_clusters.is_empty() {
             match self.spawn_looping_source(tree_id, tree_position, 1, shuffle_phase) {
                 Ok(uuid) => created.push(uuid),
                 Err(err) => {
@@ -98,7 +110,7 @@ impl TreeAudioManager {
             return Ok(created);
         }
 
-        for cluster in clusters {
+        for cluster in selected_clusters {
             match self.spawn_looping_source(
                 tree_id,
                 cluster.pos,
@@ -147,9 +159,10 @@ impl TreeAudioManager {
             return Ok(created);
         }
 
-        let mut created = Vec::with_capacity(clusters.len());
+        let selected_clusters = Self::select_audio_clusters(clusters);
+        let mut created = Vec::with_capacity(selected_clusters.len());
 
-        for cluster in clusters {
+        for cluster in selected_clusters {
             match self.spawn_looping_source(
                 tree_id,
                 cluster.pos,
@@ -226,6 +239,17 @@ impl TreeAudioManager {
         }
     }
 
+    pub fn set_rustle_params(&mut self, rustle_params: TreeRustleParams) {
+        if rustle_params == self.rustle_params {
+            return;
+        }
+
+        self.rustle_params = rustle_params;
+        for source in self.sources.values() {
+            source.set_rustle_params(self.rustle_params);
+        }
+    }
+
     pub fn update(
         &mut self,
         time_seconds: f32,
@@ -246,22 +270,46 @@ impl TreeAudioManager {
         Ok(())
     }
 
+    fn select_audio_clusters(clusters: &[ClusterResult]) -> Vec<ClusterResult> {
+        if clusters.len() <= MAX_TREE_AUDIO_CLUSTER_SOURCES {
+            return clusters.to_vec();
+        }
+
+        let mut selected = clusters.to_vec();
+        selected.sort_by(|a, b| b.items_count.cmp(&a.items_count));
+        selected.truncate(MAX_TREE_AUDIO_CLUSTER_SOURCES);
+        selected
+    }
+
     fn spawn_looping_source(
         &mut self,
         tree_id: u32,
         position: Vec3,
         cluster_size: u32,
-        shuffle_phase: bool,
+        _shuffle_phase: bool,
     ) -> Result<Uuid> {
         let wind_volume_db = Self::clustered_volume_db(self.wind_volume_db, cluster_size);
-        let uuid = self.spatial_sound_manager.add_looping_spatial_source(
-            TREE_LOOP_PATH,
-            TREE_SILENT_VOLUME_DB,
-            position,
-            shuffle_phase,
-        )?;
+        let rustle_control = Arc::new(TreeRustleControl::with_params(self.rustle_params));
+        let rustle_factory = Arc::new(TreeRustleFactory::new(
+            Self::source_seed(tree_id, position, cluster_size),
+            rustle_control.clone(),
+        ));
+        let uuid = self
+            .spatial_sound_manager
+            .add_procedural_looping_spatial_source(
+                rustle_factory,
+                TREE_SILENT_VOLUME_DB,
+                position,
+            )?;
 
-        self.register_source(tree_id, uuid, position, cluster_size, wind_volume_db);
+        self.register_source(
+            tree_id,
+            uuid,
+            position,
+            cluster_size,
+            wind_volume_db,
+            rustle_control,
+        );
         Ok(uuid)
     }
 
@@ -272,6 +320,7 @@ impl TreeAudioManager {
         position: Vec3,
         cluster_size: u32,
         wind_volume_db: f32,
+        rustle_control: Arc<TreeRustleControl>,
     ) {
         let entry = TreeAudioSource::new(
             uuid,
@@ -280,12 +329,23 @@ impl TreeAudioManager {
             cluster_size,
             wind_volume_db,
             self.wind_response_curve,
+            rustle_control,
         );
         self.sources_by_tree.entry(tree_id).or_default().push(uuid);
         self.sources.insert(uuid, entry);
     }
 
+    fn source_seed(tree_id: u32, position: Vec3, cluster_size: u32) -> u64 {
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64 ^ tree_id as u64;
+        for value in [position.x, position.y, position.z] {
+            seed ^= (value.to_bits() as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            seed = seed.rotate_left(27).wrapping_mul(0x94d0_49bb_1331_11eb);
+        }
+        seed ^ (cluster_size as u64).wrapping_mul(0x2545_f491_4f6c_dd1d)
+    }
+
     fn clustered_volume_db(volume_db: f32, clustered_amount: u32) -> f32 {
+        let volume_db = volume_db + PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB;
         let n = clustered_amount.max(1) as f32;
         if n <= 1.0 {
             return volume_db;
@@ -293,5 +353,19 @@ impl TreeAudioManager {
 
         let gain_db = 10.0 * n.log10();
         volume_db + gain_db
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clustered_volume_applies_procedural_makeup_gain() {
+        assert_eq!(
+            TreeAudioManager::clustered_volume_db(-15.0, 1),
+            -15.0 + PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB
+        );
+        assert!((TreeAudioManager::clustered_volume_db(-15.0, 10) - 31.0).abs() < 0.001);
     }
 }

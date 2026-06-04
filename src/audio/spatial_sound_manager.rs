@@ -9,7 +9,7 @@ use petalsonic::{
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
     world::PetalSonicWorld,
-    BatchedAnyHitRayTracer, SourceConfig, SourceId,
+    BatchedAnyHitRayTracer, ProceduralAudioFactory, SourceConfig, SourceId,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -198,6 +198,39 @@ impl SpatialSoundManager {
     #[allow(dead_code)]
     pub fn add_spatial_source(&self, path: &str, volume_db: f32, position: Vec3) -> Result<Uuid> {
         self.add_source(path, volume_db, position, LoopMode::Once)
+    }
+
+    /// Add a looping procedural spatial source at the given position.
+    pub fn add_procedural_looping_spatial_source(
+        &self,
+        factory: Arc<dyn ProceduralAudioFactory>,
+        volume_db: f32,
+        position: Vec3,
+    ) -> Result<Uuid> {
+        let petal_pose = Pose::new(
+            PetalVec3::new(position.x, position.y, position.z),
+            PetalQuat::IDENTITY,
+        );
+        let effective_volume_db = volume_db + self.global_gain_db();
+        let source_id = self.world.register_procedural(
+            factory,
+            SourceConfig::spatial_with_volume_db(petal_pose, effective_volume_db),
+        )?;
+
+        self.world.play(source_id, LoopMode::Infinite)?;
+
+        let uuid = Uuid::new_v4();
+        self.uuid_to_source.lock().unwrap().insert(
+            uuid,
+            SourceInfo {
+                source_id,
+                volume: volume_db,
+                position: Some(position),
+                loop_mode: LoopMode::Infinite,
+            },
+        );
+
+        Ok(uuid)
     }
 
     /// Compute a volume (in dB) for a clustered source.
@@ -498,7 +531,7 @@ impl SpatialSoundManager {
             if matches!(source_info.loop_mode, LoopMode::Infinite) {
                 let _ = self.world.stop(source_info.source_id);
             }
-            let _ = self.world.remove_audio_data(source_info.source_id);
+            let _ = self.world.remove_source(source_info.source_id);
         }
     }
 }

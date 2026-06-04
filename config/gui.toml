@@ -614,9 +614,108 @@ label = "Tree Wind Volume (dB)"
 type = "Float"
 
 [section.param.data]
-value = -15
+value = 0
 min = -40
 max = 20
+
+[[section.param]]
+id = "tree_rustle_base_wind"
+kind = "float"
+label = "Tree Rustle Base Wind"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
+id = "tree_rustle_gustiness"
+kind = "float"
+label = "Tree Rustle Gustiness"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1
+
+[[section.param]]
+id = "tree_rustle_leaf_density"
+kind = "float"
+label = "Tree Rustle Leaf Density"
+type = "Float"
+
+[section.param.data]
+value = 2.3
+min = 0
+max = 3
+
+[[section.param]]
+id = "tree_rustle_dryness"
+kind = "float"
+label = "Tree Rustle Dryness"
+type = "Float"
+
+[section.param.data]
+value = 0.4
+min = 0
+max = 1
+
+[[section.param]]
+id = "tree_rustle_branch"
+kind = "float"
+label = "Tree Rustle Branch Creak"
+type = "Float"
+
+[section.param.data]
+value = 0.2
+min = 0
+max = 1
+
+[[section.param]]
+id = "tree_rustle_air"
+kind = "float"
+label = "Tree Rustle Air"
+type = "Float"
+
+[section.param.data]
+value = 0.8
+min = 0
+max = 1.5
+
+[[section.param]]
+id = "tree_rustle_leaf_body"
+kind = "float"
+label = "Tree Rustle Leaf Body"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1.5
+
+[[section.param]]
+id = "tree_rustle_crackle"
+kind = "float"
+label = "Tree Rustle Crackle"
+type = "Float"
+
+[section.param.data]
+value = 0.37
+min = 0
+max = 1
+
+[[section.param]]
+id = "tree_rustle_brightness"
+kind = "float"
+label = "Tree Rustle Brightness"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1
 
 [[section.param]]
 id = "audio_ray_tracing_enabled"

@@ -36,7 +36,7 @@ use crate::app::world_edits::{
 };
 use crate::app::world_ops;
 use crate::app::{GuiAdjustables, WindSourceGuiValues};
-use crate::audio::{SpatialSoundManager, TreeAudioManager};
+use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
     SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK,
@@ -634,6 +634,20 @@ impl App {
         }
     }
 
+    fn tree_rustle_params(gui_adjustables: &GuiAdjustables) -> TreeRustleParams {
+        TreeRustleParams {
+            base_wind: gui_adjustables.tree_rustle_base_wind.value,
+            gustiness: gui_adjustables.tree_rustle_gustiness.value,
+            leaf_density: gui_adjustables.tree_rustle_leaf_density.value,
+            dryness: gui_adjustables.tree_rustle_dryness.value,
+            branch: gui_adjustables.tree_rustle_branch.value,
+            air: gui_adjustables.tree_rustle_air.value,
+            leaf_body: gui_adjustables.tree_rustle_leaf_body.value,
+            crackle: gui_adjustables.tree_rustle_crackle.value,
+            brightness: gui_adjustables.tree_rustle_brightness.value,
+        }
+    }
+
     fn wind_gui_params(wind_sources: &[WindSourceGuiValues]) -> WindGuiParams {
         WindGuiParams {
             sources: GuiAdjustables::active_wind_sources(wind_sources),
@@ -806,6 +820,7 @@ impl App {
             spatial_sound_manager.clone(),
             Self::tree_audio_wind_response_curve(&gui_adjustables),
             gui_adjustables.tree_wind_volume_db.value,
+            Self::tree_rustle_params(&gui_adjustables),
         );
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
@@ -1655,84 +1670,203 @@ impl App {
                                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                                 .default_size(settings_size)
                                 .show(ctx, |ui| {
-                                    ui.heading(
-                                        RichText::new("Audio").size(18.0).color(GOLD_ACCENT),
-                                    );
-                                    ui.add_space(8.0);
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self.gui_adjustables.master_volume.value,
-                                            self.gui_adjustables.master_volume.range.clone(),
-                                        )
-                                        .text("Master Volume (dB)"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self.gui_adjustables.footstep_volume_db.value,
-                                            self.gui_adjustables.footstep_volume_db.range.clone(),
-                                        )
-                                        .text("Footstep Volume (dB)"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
+                                    egui::ScrollArea::vertical().show(ui, |ui| {
+                                        ui.heading(
+                                            RichText::new("Audio").size(18.0).color(GOLD_ACCENT),
+                                        );
+                                        ui.add_space(8.0);
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self.gui_adjustables.master_volume.value,
+                                                self.gui_adjustables.master_volume.range.clone(),
+                                            )
+                                            .text("Master Volume (dB)"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self.gui_adjustables.footstep_volume_db.value,
+                                                self.gui_adjustables
+                                                    .footstep_volume_db
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Footstep Volume (dB)"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .tree_wind_response_min_strength
+                                                    .value,
+                                                self.gui_adjustables
+                                                    .tree_wind_response_min_strength
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Tree Wind Response Min"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .tree_wind_response_max_strength
+                                                    .value,
+                                                self.gui_adjustables
+                                                    .tree_wind_response_max_strength
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Tree Wind Response Max"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self.gui_adjustables.tree_wind_volume_db.value,
+                                                self.gui_adjustables
+                                                    .tree_wind_volume_db
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Tree Wind Volume (dB)"),
+                                        );
+                                        ui.separator();
+                                        ui.label(RichText::new("Tree Rustle").color(GOLD_ACCENT));
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .tree_rustle_base_wind
+                                                    .value,
+                                                self.gui_adjustables
+                                                    .tree_rustle_base_wind
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Base Wind"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .tree_rustle_gustiness
+                                                    .value,
+                                                self.gui_adjustables
+                                                    .tree_rustle_gustiness
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Gustiness"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .tree_rustle_leaf_density
+                                                    .value,
+                                                self.gui_adjustables
+                                                    .tree_rustle_leaf_density
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Leaf Density"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self.gui_adjustables.tree_rustle_dryness.value,
+                                                self.gui_adjustables
+                                                    .tree_rustle_dryness
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Dryness"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self.gui_adjustables.tree_rustle_branch.value,
+                                                self.gui_adjustables
+                                                    .tree_rustle_branch
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Branch Creak"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self.gui_adjustables.tree_rustle_air.value,
+                                                self.gui_adjustables.tree_rustle_air.range.clone(),
+                                            )
+                                            .text("Air"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .tree_rustle_leaf_body
+                                                    .value,
+                                                self.gui_adjustables
+                                                    .tree_rustle_leaf_body
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Leaf Body"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self.gui_adjustables.tree_rustle_crackle.value,
+                                                self.gui_adjustables
+                                                    .tree_rustle_crackle
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Crackle"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .tree_rustle_brightness
+                                                    .value,
+                                                self.gui_adjustables
+                                                    .tree_rustle_brightness
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Brightness"),
+                                        );
+                                        ui.separator();
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .wind_audio_attack_decay
+                                                    .value,
+                                                self.gui_adjustables
+                                                    .wind_audio_attack_decay
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Wind Audio Attack Decay (0 slow, 1 fast)"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut self
+                                                    .gui_adjustables
+                                                    .wind_audio_release_decay
+                                                    .value,
+                                                self.gui_adjustables
+                                                    .wind_audio_release_decay
+                                                    .range
+                                                    .clone(),
+                                            )
+                                            .text("Wind Audio Release Decay (0 slow, 1 fast)"),
+                                        );
+                                        ui.checkbox(
                                             &mut self
                                                 .gui_adjustables
-                                                .tree_wind_response_min_strength
+                                                .audio_ray_tracing_enabled
                                                 .value,
-                                            self.gui_adjustables
-                                                .tree_wind_response_min_strength
-                                                .range
-                                                .clone(),
-                                        )
-                                        .text("Tree Wind Response Min"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self
-                                                .gui_adjustables
-                                                .tree_wind_response_max_strength
-                                                .value,
-                                            self.gui_adjustables
-                                                .tree_wind_response_max_strength
-                                                .range
-                                                .clone(),
-                                        )
-                                        .text("Tree Wind Response Max"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self.gui_adjustables.tree_wind_volume_db.value,
-                                            self.gui_adjustables.tree_wind_volume_db.range.clone(),
-                                        )
-                                        .text("Tree Wind Volume (dB)"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self.gui_adjustables.wind_audio_attack_decay.value,
-                                            self.gui_adjustables
-                                                .wind_audio_attack_decay
-                                                .range
-                                                .clone(),
-                                        )
-                                        .text("Wind Audio Attack Decay (0 slow, 1 fast)"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(
-                                            &mut self
-                                                .gui_adjustables
-                                                .wind_audio_release_decay
-                                                .value,
-                                            self.gui_adjustables
-                                                .wind_audio_release_decay
-                                                .range
-                                                .clone(),
-                                        )
-                                        .text("Wind Audio Release Decay (0 slow, 1 fast)"),
-                                    );
-                                    ui.checkbox(
-                                        &mut self.gui_adjustables.audio_ray_tracing_enabled.value,
-                                        "Audio Ray Tracing",
-                                    );
+                                            "Audio Ray Tracing",
+                                        );
+                                    });
                                 });
                         }
 
@@ -1880,6 +2014,8 @@ impl App {
                 self.tree_audio_manager.set_wind_response_curve(
                     Self::tree_audio_wind_response_curve(&self.gui_adjustables),
                 );
+                self.tree_audio_manager
+                    .set_rustle_params(Self::tree_rustle_params(&self.gui_adjustables));
 
                 if tree_desc_changed {
                     if let Err(err) = self.replace_single_tree_deferred(
