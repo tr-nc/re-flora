@@ -2204,6 +2204,30 @@ impl App {
                         self.gui_adjustables.leaf_paddle_amplitude_voxels.value,
                         self.gui_adjustables.leaf_paddle_primary_speed.value,
                         self.gui_adjustables.leaf_paddle_secondary_speed.value,
+                        self.gui_adjustables
+                            .leaf_paddle_amplitude_wind_start_strength
+                            .value,
+                        self.gui_adjustables
+                            .leaf_paddle_amplitude_wind_full_strength
+                            .value,
+                        self.gui_adjustables
+                            .leaf_paddle_amplitude_wind_knee_bias
+                            .value,
+                        self.gui_adjustables
+                            .leaf_paddle_frequency_wind_start_strength
+                            .value,
+                        self.gui_adjustables
+                            .leaf_paddle_frequency_wind_full_strength
+                            .value,
+                        self.gui_adjustables
+                            .leaf_paddle_frequency_wind_knee_bias
+                            .value,
+                        self.gui_adjustables
+                            .leaf_paddle_frequency_min_multiplier
+                            .value,
+                        self.gui_adjustables
+                            .leaf_paddle_frequency_max_multiplier
+                            .value,
                         self.gui_adjustables.leaf_shadow_fragment_opacity.value,
                         self.gui_adjustables.leaf_shadow_strength.value,
                         self.gui_adjustables.leaf_shadow_min_transmittance.value,

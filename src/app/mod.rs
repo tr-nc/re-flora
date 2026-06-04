@@ -2,6 +2,7 @@ mod app_controller;
 pub(crate) mod camera_snapshots;
 mod core;
 mod cpu_solid_voxels;
+mod curve_preview;
 mod environment;
 mod gui_config;
 mod gui_config_loader;
