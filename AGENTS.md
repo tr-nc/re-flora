@@ -7,7 +7,7 @@
 - Prefer measuring before guessing on performance work.
 - For performance work, release-mode app benchmarks are authoritative; debug builds and unit tests are not performance evidence.
 - Run `cargo check` after shader or Rust changes. It also regenerates shader-derived Rust structs.
-- Validate Rust/rendering changes with hidden mode (`cargo run --release -- --hidden --auto-exit 0.5`) and inspect the run log for errors.
+- Validate Rust/rendering changes with hidden muted mode (`cargo run --release -- --hidden --mute --auto-exit 0.5`) and inspect the run log for errors.
 - Do not edit generated files directly unless they are part of the generated output from a build/check.
 
 ## Release Versioning
@@ -77,7 +77,7 @@ Use real app runs plus logs for end-to-end verification, especially for Vulkan, 
 cargo fmt --check
 cargo check
 cargo test
-cargo run --release -- --hidden --auto-exit 0.5
+cargo run --release -- --hidden --mute --auto-exit 0.5
 ```
 
 Inspect the generated per-worktree run log after hidden runs. Prefer checking concrete expected log lines, hashes, dimensions, timings, and absence of errors over relying on visual behavior when running headless. Use the built-in log helpers from the same worktree instead of guessing file names:
@@ -98,7 +98,7 @@ cargo run --release -- --help
 cargo run --release -- -h
 ```
 
-Prefer `--hidden` for background validation; it keeps the normal native window, Vulkan surface, and swapchain path, but leaves the window invisible. Do not pass `--present-mode` by default; let the app auto-select it.
+Prefer `--hidden --mute` for background validation; `--hidden` keeps the normal native window, Vulkan surface, and swapchain path, but leaves the window invisible, while `--mute` silences global audio output. Do not pass `--present-mode` by default; let the app auto-select it.
 
 ## Flora Instance Perf Note
 

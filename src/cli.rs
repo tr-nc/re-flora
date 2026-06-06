@@ -72,9 +72,14 @@ pub struct AppOptions {
     /// Run in windowed mode instead of borderless fullscreen.
     pub windowed: bool,
     /// Create the native window hidden while keeping the normal render/swapchain path.
-    /// Audio processing still runs, but master output volume is forced to 0.
     /// On Wayland, fall back to requesting minimization because hidden windows are unsupported.
     pub hidden: bool,
+    /// Start with global audio output muted while keeping audio processing active.
+    pub mute: bool,
+    /// Select an audio output device by case-insensitive substring match.
+    pub audio_output_device: Option<String>,
+    /// Print audio output devices visible to PetalSonic/CPAL and exit successfully.
+    pub list_audio_output_devices: bool,
     /// Disable shadow rendering pass.
     pub no_shadows: bool,
     /// Disable denoiser passes.
@@ -242,6 +247,12 @@ impl AppOptions {
         Ok(Self {
             windowed: args.iter().any(|a| a == "--windowed"),
             hidden: args.iter().any(|a| a == "--hidden"),
+            mute: args.iter().any(|a| a == "--mute"),
+            audio_output_device: parse_required_string_after(
+                "--audio-output-device",
+                "an output device name substring",
+            )?,
+            list_audio_output_devices: args.iter().any(|a| a == "--list-audio-output-devices"),
             no_shadows: args.iter().any(|a| a == "--no-shadows"),
             no_denoise: args.iter().any(|a| a == "--no-denoise"),
             no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
@@ -404,7 +415,11 @@ pub fn print_help() {
 
 Options:
   --windowed                  Run in windowed mode (default: borderless fullscreen)
-  --hidden                    Run hidden; mute audio output while preserving render/swapchain and audio processing paths
+  --hidden                    Run hidden while preserving render/swapchain path; audio output remains enabled unless --mute is set
+  --mute                      Start with global audio output muted while keeping audio processing active
+  --audio-output-device <text>
+                              Select output device by case-insensitive substring/alias match
+  --list-audio-output-devices Print output devices visible to PetalSonic/CPAL and exit
   --no-shadows                Disable shadow rendering passes
   --no-denoise                Disable denoiser passes
   --no-god-rays               Disable god ray pass
@@ -448,19 +463,21 @@ Options:
 
 Examples:
   re-flora --windowed
-  re-flora --hidden --auto-exit 20 --perf
-  re-flora --hidden --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4
+  re-flora --hidden --mute --auto-exit 20 --perf
+  re-flora --audio-output-device KA3
+  re-flora --list-audio-output-devices
+  re-flora --hidden --mute --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4
   re-flora --present-mode fifo
   re-flora --monitor-score lowest
   re-flora --swapchain-images 2
   re-flora --no-shadows --no-denoise
-  re-flora --hidden --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
+  re-flora --hidden --mute --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
   re-flora --list-camera-snapshots
   re-flora --auto-exit 10 --perf
-  re-flora --hidden --auto-exit 4 --perf --water-profile performance
-  re-flora --hidden --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
-  re-flora --hidden --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
-  re-flora --hidden --auto-exit 14 --perf --water-profile performance --water-edit-soak
+  re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance
+  re-flora --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
+  re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
+  re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
   re-flora --latest-log
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#
@@ -506,6 +523,9 @@ mod tests {
 
         assert!(!options.windowed);
         assert!(!options.hidden);
+        assert!(!options.mute);
+        assert!(options.audio_output_device.is_none());
+        assert!(!options.list_audio_output_devices);
         assert!(!options.perf);
         assert!(options.present_mode.is_none());
         assert!(matches!(
@@ -525,8 +545,11 @@ mod tests {
         let options = parse(&[
             "re-flora",
             "--hidden",
+            "--mute",
             "--auto-exit",
             "4",
+            "--audio-output-device",
+            "KA3",
             "--perf",
             "--water-profile",
             "performance",
@@ -554,6 +577,8 @@ mod tests {
         ]);
 
         assert!(options.hidden);
+        assert!(options.mute);
+        assert_eq!(options.audio_output_device.as_deref(), Some("KA3"));
         assert!(options.perf);
         assert_eq!(options.auto_exit_delay, Some(4.0));
         assert!(matches!(
@@ -618,6 +643,12 @@ mod tests {
         assert!(options.print_log_dir);
         assert!(options.latest_log);
         assert_eq!(options.tail_latest_log, Some(120));
+    }
+
+    #[test]
+    fn parses_audio_output_device_query_option() {
+        let options = parse(&["re-flora", "--list-audio-output-devices"]);
+        assert!(options.list_audio_output_devices);
     }
 
     #[test]
@@ -704,6 +735,13 @@ mod tests {
         let panic = std::panic::catch_unwind(|| parse(&["re-flora", "--water-profile"]))
             .expect_err("missing water profile should panic");
         assert!(panic_message(panic).contains("Missing value for --water-profile"));
+    }
+
+    #[test]
+    fn missing_audio_output_device_panics_with_helpful_message() {
+        let panic = std::panic::catch_unwind(|| parse(&["re-flora", "--audio-output-device"]))
+            .expect_err("missing audio output device should panic");
+        assert!(panic_message(panic).contains("Missing value for --audio-output-device"));
     }
 
     fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {

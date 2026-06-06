@@ -9,7 +9,10 @@ use crate::util::LatestChunkQueue;
 use crate::util::ShaderCompiler;
 use anyhow::Result;
 use glam::{UVec3, Vec2, Vec3};
-use petalsonic::{AcousticRay, BatchedAnyHitRayTracer};
+use petalsonic::{
+    math::Vec3 as PetalVec3, AcousticHit, AcousticMaterial, AcousticRay, BatchedAnyHitRayTracer,
+    BatchedClosestHitRayTracer,
+};
 use re_flora_vkn::vk;
 use re_flora_vkn::Allocator;
 use re_flora_vkn::Buffer;
@@ -504,7 +507,7 @@ impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
         }
 
         let trace_start = Instant::now();
-        let Ok(shared_state) = self.shared_state.read() else {
+        let Ok(shared_state) = self.shared_state.try_read() else {
             self.runtime_stats
                 .update_failures
                 .fetch_add(1, Ordering::Relaxed);
@@ -536,6 +539,58 @@ impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
         self.runtime_stats
             .occluded_sources
             .fetch_add(occluded_sources, Ordering::Relaxed);
+        self.runtime_stats
+            .total_update_time_us
+            .fetch_add(trace_start.elapsed().as_micros() as u64, Ordering::Relaxed);
+
+        results
+    }
+}
+
+impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
+    fn trace_closest_hit_batch(
+        &self,
+        rays: &[AcousticRay],
+        min_distances: &[f32],
+        max_distances: &[f32],
+    ) -> Vec<Option<AcousticHit>> {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return vec![None; rays.len()];
+        }
+
+        let trace_start = Instant::now();
+        let Ok(shared_state) = self.shared_state.try_read() else {
+            self.runtime_stats
+                .update_failures
+                .fetch_add(1, Ordering::Relaxed);
+            return vec![None; rays.len()];
+        };
+
+        let results = rays
+            .iter()
+            .zip(min_distances.iter().copied())
+            .zip(max_distances.iter().copied())
+            .map(|((ray, min_distance), max_distance)| {
+                query_terrain_closest_hit(
+                    &shared_state,
+                    Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
+                    Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
+                    min_distance,
+                    max_distance,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let hit_count = results.iter().filter(|hit| hit.is_some()).count();
+        self.runtime_stats
+            .update_count
+            .fetch_add(1, Ordering::Relaxed);
+        self.runtime_stats
+            .updated_sources
+            .fetch_add(results.len(), Ordering::Relaxed);
+        self.runtime_stats
+            .occluded_sources
+            .fetch_add(hit_count, Ordering::Relaxed);
         self.runtime_stats
             .total_update_time_us
             .fetch_add(trace_start.elapsed().as_micros() as u64, Ordering::Relaxed);
@@ -1735,6 +1790,76 @@ fn query_terrain_any_hit(
 
     query_terrain_ray_from_snapshot(state, segment_origin, normalized_dir)
         .is_some_and(|hit| hit.distance(segment_origin) <= segment_length)
+}
+
+fn query_terrain_closest_hit(
+    state: &ContreeRayQueryState,
+    origin: Vec3,
+    direction: Vec3,
+    min_distance: f32,
+    max_distance: f32,
+) -> Option<AcousticHit> {
+    if direction.length_squared() <= f32::EPSILON {
+        return None;
+    }
+
+    let start_distance = (min_distance + AUDIO_RAY_START_EPSILON).max(0.0);
+    let end_distance = (max_distance - AUDIO_RAY_ENDPOINT_EPSILON).max(start_distance);
+    if end_distance <= start_distance {
+        return None;
+    }
+
+    let normalized_dir = direction.normalize();
+    let segment_origin = origin + normalized_dir * start_distance;
+    let segment_length = end_distance - start_distance;
+    let hit = query_terrain_ray_from_snapshot(state, segment_origin, normalized_dir)?;
+    let hit_distance = hit.distance(segment_origin);
+    if hit_distance > segment_length {
+        return None;
+    }
+
+    let normal = estimate_terrain_hit_normal(state, hit, normalized_dir);
+    Some(AcousticHit {
+        distance: start_distance + hit_distance,
+        normal: PetalVec3::new(normal.x, normal.y, normal.z),
+        material: AcousticMaterial::default(),
+    })
+}
+
+fn estimate_terrain_hit_normal(
+    state: &ContreeRayQueryState,
+    hit: Vec3,
+    incoming_direction: Vec3,
+) -> Vec3 {
+    let sample_delta = 0.025;
+    let solid = |offset: Vec3| -> f32 {
+        if query_terrain_occupancy_against_state(
+            state.chunk_dim,
+            &state.cpu_scene_chunks,
+            &state.cpu_chunk_caches,
+            hit + offset,
+        ) {
+            1.0
+        } else {
+            0.0
+        }
+    };
+
+    let inward_gradient = Vec3::new(
+        solid(Vec3::X * sample_delta) - solid(-Vec3::X * sample_delta),
+        solid(Vec3::Y * sample_delta) - solid(-Vec3::Y * sample_delta),
+        solid(Vec3::Z * sample_delta) - solid(-Vec3::Z * sample_delta),
+    );
+    let mut normal = if inward_gradient.length_squared() > f32::EPSILON {
+        -inward_gradient.normalize()
+    } else {
+        -incoming_direction.normalize()
+    };
+
+    if normal.dot(-incoming_direction) < 0.0 {
+        normal = -normal;
+    }
+    normal
 }
 
 fn query_terrain_ray_from_snapshot(

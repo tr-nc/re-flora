@@ -59,6 +59,7 @@ use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePrefer
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
+use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
     SwapchainFrameError, SwapchainFrameManager,
@@ -86,9 +87,9 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
-// Hidden runs should exercise audio setup, source updates, ray tracing, and pump paths
+// Muted runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
-const HIDDEN_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
+const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct TerrainSdfColliderRebuildRequest;
@@ -608,7 +609,7 @@ impl App {
 
     fn master_volume_gain_db(master_volume_db: f32, mute_audio_output: bool) -> f32 {
         if mute_audio_output {
-            HIDDEN_AUDIO_OUTPUT_GAIN_DB
+            MUTED_AUDIO_OUTPUT_GAIN_DB
         } else {
             master_volume_db.clamp(-20.0, 20.0)
         }
@@ -621,9 +622,98 @@ impl App {
         )
     }
 
+    fn apply_effective_master_volume_gain(&self, error_context: &str) {
+        if let Err(err) = self
+            .spatial_sound_manager
+            .set_global_volume_gain_db(self.effective_master_volume_gain_db())
+        {
+            log::error!("{}: {}", error_context, err);
+        }
+    }
+
+    fn set_audio_output_muted(&mut self, muted: bool, reason: &str) {
+        if self.mute_audio_output == muted {
+            return;
+        }
+
+        self.mute_audio_output = muted;
+        self.apply_effective_master_volume_gain("Failed to apply audio mute state");
+        log::info!(
+            "[AUDIO] Global output {} ({})",
+            if muted { "muted" } else { "unmuted" },
+            reason
+        );
+    }
+
+    fn toggle_audio_output_mute(&mut self) {
+        self.set_audio_output_muted(!self.mute_audio_output, "M key");
+    }
+
     fn update_audio_ray_tracing(&mut self) {
         self.spatial_sound_manager
             .set_audio_ray_tracing_enabled(self.gui_adjustables.audio_ray_tracing_enabled.value);
+    }
+
+    fn update_spatial_audio_backends(&mut self) {
+        let use_ambisonics = self.gui_adjustables.audio_use_ambisonics.value;
+        let ambisonics_backend =
+            Self::selected_ambisonics_backend(self.gui_adjustables.audio_ambisonics_backend.value);
+        let hrtf_backend = Self::effective_hrtf_backend(
+            Self::selected_hrtf_backend(self.gui_adjustables.audio_hrtf_backend.value),
+            use_ambisonics,
+            ambisonics_backend,
+        );
+
+        if let Err(err) = self.spatial_sound_manager.set_spatial_audio_rendering(
+            hrtf_backend,
+            use_ambisonics,
+            ambisonics_backend,
+        ) {
+            log::error!("Failed to apply spatial audio rendering setting: {}", err);
+        }
+    }
+
+    fn selected_hrtf_backend(value: u32) -> HrtfBackend {
+        match value {
+            1 => HrtfBackend::SteamAudio,
+            _ => HrtfBackend::Native,
+        }
+    }
+
+    fn hrtf_backend_label(backend: HrtfBackend) -> &'static str {
+        match backend {
+            HrtfBackend::Native => "Native (.petalhrtf)",
+            HrtfBackend::SteamAudio => "Steam Audio (SOFA)",
+        }
+    }
+
+    fn selected_ambisonics_backend(value: u32) -> AmbisonicsBackend {
+        match value {
+            1 => AmbisonicsBackend::SteamAudio,
+            _ => AmbisonicsBackend::Native,
+        }
+    }
+
+    fn ambisonics_backend_label(backend: AmbisonicsBackend) -> &'static str {
+        match backend {
+            AmbisonicsBackend::Native => "Native Ambisonics (order 4)",
+            AmbisonicsBackend::SteamAudio => "Steam Audio Ambisonics (order 2)",
+        }
+    }
+
+    fn effective_hrtf_backend(
+        direct_hrtf_backend: HrtfBackend,
+        use_ambisonics: bool,
+        ambisonics_backend: AmbisonicsBackend,
+    ) -> HrtfBackend {
+        if !use_ambisonics {
+            return direct_hrtf_backend;
+        }
+
+        match ambisonics_backend {
+            AmbisonicsBackend::Native => HrtfBackend::Native,
+            AmbisonicsBackend::SteamAudio => HrtfBackend::SteamAudio,
+        }
     }
 
     fn tree_audio_wind_response_curve(gui_adjustables: &GuiAdjustables) -> WindResponseCurve {
@@ -753,8 +843,11 @@ impl App {
 
         // Shared spatial audio engine (PetalSonic) used by both the tracer (camera)
         // and the app-level tree ambience sources.
-        let spatial_sound_manager =
-            SpatialSoundManager::new(1024, contree_builder.audio_ray_tracer())?;
+        let spatial_sound_manager = SpatialSoundManager::new(
+            1024,
+            contree_builder.audio_ray_tracer(),
+            options.audio_output_device.clone(),
+        )?;
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -940,7 +1033,7 @@ impl App {
             accumulated_mouse_delta: Vec2::ZERO,
             smoothed_mouse_delta: Vec2::ZERO,
             perf_logging: options.perf,
-            mute_audio_output: options.hidden,
+            mute_audio_output: options.mute,
 
             swapchain,
             frame_manager,
@@ -1041,15 +1134,10 @@ impl App {
 
         if app.mute_audio_output {
             log::info!(
-                "--hidden: forcing master audio output volume to 0 while keeping audio engine processing active"
+                "--mute: forcing master audio output volume to 0 while keeping audio engine processing active"
             );
         }
-        if let Err(err) = app
-            .spatial_sound_manager
-            .set_global_volume_gain_db(app.effective_master_volume_gain_db())
-        {
-            log::error!("Failed to apply initial master volume: {}", err);
-        }
+        app.apply_effective_master_volume_gain("Failed to apply initial master volume");
 
         app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
 
@@ -1274,6 +1362,11 @@ impl App {
                 self.frame_timing_panel_visible = !self.frame_timing_panel_visible;
                 return;
             }
+
+            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyM {
+                self.toggle_audio_output_mute();
+                return;
+            }
         }
 
         match event {
@@ -1481,6 +1574,7 @@ impl App {
                     log::warn!("Failed to pump audio: {}", err);
                 }
                 self.update_audio_ray_tracing();
+                self.update_spatial_audio_backends();
 
                 if !self.window_state.is_cursor_visible() {
                     // grab the value and immediately reset the accumulator
@@ -1691,6 +1785,70 @@ impl App {
                                                     .clone(),
                                             )
                                             .text("Footstep Volume (dB)"),
+                                        );
+                                        let selected_hrtf_backend = Self::selected_hrtf_backend(
+                                            self.gui_adjustables.audio_hrtf_backend.value,
+                                        );
+                                        egui::ComboBox::from_label("Direct HRTF Backend")
+                                            .selected_text(Self::hrtf_backend_label(
+                                                selected_hrtf_backend,
+                                            ))
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_hrtf_backend
+                                                        .value,
+                                                    0,
+                                                    Self::hrtf_backend_label(HrtfBackend::Native),
+                                                );
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_hrtf_backend
+                                                        .value,
+                                                    1,
+                                                    Self::hrtf_backend_label(
+                                                        HrtfBackend::SteamAudio,
+                                                    ),
+                                                );
+                                            });
+                                        ui.checkbox(
+                                            &mut self.gui_adjustables.audio_use_ambisonics.value,
+                                            "Use Ambisonics",
+                                        );
+                                        let selected_ambisonics_backend =
+                                            Self::selected_ambisonics_backend(
+                                                self.gui_adjustables.audio_ambisonics_backend.value,
+                                            );
+                                        egui::ComboBox::from_label("Ambisonics Backend")
+                                            .selected_text(Self::ambisonics_backend_label(
+                                                selected_ambisonics_backend,
+                                            ))
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_ambisonics_backend
+                                                        .value,
+                                                    0,
+                                                    Self::ambisonics_backend_label(
+                                                        AmbisonicsBackend::Native,
+                                                    ),
+                                                );
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_ambisonics_backend
+                                                        .value,
+                                                    1,
+                                                    Self::ambisonics_backend_label(
+                                                        AmbisonicsBackend::SteamAudio,
+                                                    ),
+                                                );
+                                            });
+                                        ui.label(
+                                            "Ambisonics backend selects the full Ambisonics encode/decode path.",
                                         );
                                         ui.add(
                                             egui::Slider::new(
@@ -1999,12 +2157,7 @@ impl App {
                     self.apply_camera_snapshot(&snapshot);
                 }
 
-                if let Err(err) = self
-                    .spatial_sound_manager
-                    .set_global_volume_gain_db(self.effective_master_volume_gain_db())
-                {
-                    log::error!("Failed to apply master volume: {}", err);
-                }
+                self.apply_effective_master_volume_gain("Failed to apply master volume");
                 if let Err(err) = self
                     .tree_audio_manager
                     .set_wind_volume_db(self.gui_adjustables.tree_wind_volume_db.value)
@@ -2566,6 +2719,7 @@ impl App {
 mod tests {
     use super::App;
     use crate::app::world_edits::VoxelEdit;
+    use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 
     fn assert_approx_eq(actual: f32, expected: f32) {
         assert!(
@@ -2621,15 +2775,31 @@ mod tests {
     }
 
     #[test]
-    fn hidden_mode_forces_effective_master_volume_to_zero() {
-        let hidden_gain_db = App::master_volume_gain_db(0.0, true);
+    fn ambisonics_backend_selects_matching_decoder_backend() {
+        assert_eq!(
+            App::effective_hrtf_backend(HrtfBackend::Native, false, AmbisonicsBackend::SteamAudio),
+            HrtfBackend::Native
+        );
+        assert_eq!(
+            App::effective_hrtf_backend(HrtfBackend::Native, true, AmbisonicsBackend::SteamAudio),
+            HrtfBackend::SteamAudio
+        );
+        assert_eq!(
+            App::effective_hrtf_backend(HrtfBackend::SteamAudio, true, AmbisonicsBackend::Native),
+            HrtfBackend::Native
+        );
+    }
+
+    #[test]
+    fn mute_state_forces_effective_master_volume_to_silence() {
+        let muted_gain_db = App::master_volume_gain_db(0.0, true);
         let normal_min_gain_db = App::master_volume_gain_db(-20.0, false);
         let normal_default_gain_db = App::master_volume_gain_db(0.0, false);
         let normal_max_gain_db = App::master_volume_gain_db(20.0, false);
 
-        assert_eq!(hidden_gain_db, super::HIDDEN_AUDIO_OUTPUT_GAIN_DB);
+        assert_eq!(muted_gain_db, super::MUTED_AUDIO_OUTPUT_GAIN_DB);
         assert_eq!(normal_default_gain_db, 0.0);
-        assert!(hidden_gain_db <= normal_min_gain_db);
+        assert!(muted_gain_db <= normal_min_gain_db);
         assert!(normal_default_gain_db < normal_max_gain_db);
     }
 }

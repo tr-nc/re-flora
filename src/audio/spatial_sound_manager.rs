@@ -4,12 +4,12 @@ use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    config::PetalSonicWorldDesc,
+    config::{AmbisonicsBackend, DirectPathBackend, HrtfBackend, PetalSonicWorldDesc},
     engine::PetalSonicEngine,
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
     world::PetalSonicWorld,
-    BatchedAnyHitRayTracer, ProceduralAudioFactory, SourceConfig, SourceId,
+    ProceduralAudioFactory, SourceConfig, SourceId,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -70,28 +70,35 @@ impl SpatialSoundManager {
     pub fn new(
         frame_window_size: usize,
         audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
+        audio_output_device: Option<String>,
     ) -> Result<Self> {
         let sample_rate = 48000;
 
         // Initialize audio clip cache first
         let clip_cache = Arc::new(AudioClipCache::new()?);
 
-        // Get HRTF path - use the same path structure as before
-        let hrtf_path = format!(
-            "{}assets/hrtf/hrtf_b_nh172.sofa",
-            crate::util::get_project_root()
-        );
+        // Use the same NH172 HRTF dataset for native and Steam Audio HRTF comparisons.
+        let project_root = crate::util::get_project_root();
+        let native_hrtf_path = format!("{}assets/hrtf/hrtf_b_nh172.petalhrtf", project_root);
+        let steam_hrtf_path = format!("{}assets/hrtf/hrtf_b_nh172.sofa", project_root);
 
         // Create PetalSonic world configuration
         let world_desc = PetalSonicWorldDesc {
             sample_rate,
             block_size: frame_window_size,
-            hrtf_path: Some(hrtf_path),
+            output_device_name_contains: audio_output_device,
+            hrtf_path: Some(native_hrtf_path.clone()),
+            steam_hrtf_path: Some(steam_hrtf_path),
+            native_hrtf_path: Some(native_hrtf_path),
+            hrtf_backend: HrtfBackend::Native,
+            use_ambisonics: false,
+            ambisonics_backend: AmbisonicsBackend::Native,
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
-            batched_any_hit_ray_tracer: Some(
-                audio_ray_tracer.clone() as Arc<dyn BatchedAnyHitRayTracer>
-            ),
+            direct_path_backend: DirectPathBackend::Native,
+            // Keep direct occlusion disabled for now so native direct + HRTF matches
+            // the previous no-occlusion baseline while HRTF quality is validated.
+            batched_any_hit_ray_tracer: None,
             ..Default::default()
         };
 
@@ -378,7 +385,24 @@ impl SpatialSoundManager {
     }
 
     pub fn set_audio_ray_tracing_enabled(&self, enabled: bool) {
+        // The ray tracer is kept alive for future occlusion/reflection work, but it is
+        // intentionally not wired into PetalSonic while we validate the no-occlusion baseline.
         self.audio_ray_tracer.set_enabled(enabled);
+    }
+
+    pub fn set_spatial_audio_rendering(
+        &self,
+        hrtf_backend: HrtfBackend,
+        use_ambisonics: bool,
+        ambisonics_backend: AmbisonicsBackend,
+    ) -> Result<()> {
+        self.engine.lock().unwrap().set_spatial_rendering(
+            hrtf_backend,
+            DirectPathBackend::Native,
+            use_ambisonics,
+            ambisonics_backend,
+        )?;
+        Ok(())
     }
 
     pub fn pump_audio(&self) -> Result<()> {

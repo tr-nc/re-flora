@@ -2,6 +2,7 @@
 name = "re-flora"
 version = "0.2.12"
 edition = "2021"
+default-run = "re-flora"
 
 [dependencies]
 resource_container_derive = { path = "./resource_container_derive" }
@@ -30,7 +31,7 @@ image = "0.25.10"
 gltf = { version = "1", features = ["import"] }
 anyhow = "1.0.102"
 bytemuck = "1.25.0"
-petalsonic = { path = "../petalsonic/petalsonic" }
+petalsonic = "0.5.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.1.2"
 # or use a local development version
