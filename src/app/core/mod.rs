@@ -655,10 +655,19 @@ impl App {
     }
 
     fn update_spatial_audio_backends(&mut self) {
-        if let Err(err) = self.spatial_sound_manager.set_spatial_audio_rendering(
+        let use_ambisonics = self.gui_adjustables.audio_use_ambisonics.value;
+        let ambisonics_backend =
+            Self::selected_ambisonics_backend(self.gui_adjustables.audio_ambisonics_backend.value);
+        let hrtf_backend = Self::effective_hrtf_backend(
             Self::selected_hrtf_backend(self.gui_adjustables.audio_hrtf_backend.value),
-            self.gui_adjustables.audio_use_ambisonics.value,
-            Self::selected_ambisonics_backend(self.gui_adjustables.audio_ambisonics_backend.value),
+            use_ambisonics,
+            ambisonics_backend,
+        );
+
+        if let Err(err) = self.spatial_sound_manager.set_spatial_audio_rendering(
+            hrtf_backend,
+            use_ambisonics,
+            ambisonics_backend,
         ) {
             log::error!("Failed to apply spatial audio rendering setting: {}", err);
         }
@@ -689,6 +698,21 @@ impl App {
         match backend {
             AmbisonicsBackend::Native => "Native Ambisonics",
             AmbisonicsBackend::SteamAudio => "Steam Audio Ambisonics",
+        }
+    }
+
+    fn effective_hrtf_backend(
+        direct_hrtf_backend: HrtfBackend,
+        use_ambisonics: bool,
+        ambisonics_backend: AmbisonicsBackend,
+    ) -> HrtfBackend {
+        if !use_ambisonics {
+            return direct_hrtf_backend;
+        }
+
+        match ambisonics_backend {
+            AmbisonicsBackend::Native => HrtfBackend::Native,
+            AmbisonicsBackend::SteamAudio => HrtfBackend::SteamAudio,
         }
     }
 
@@ -1765,7 +1789,7 @@ impl App {
                                         let selected_hrtf_backend = Self::selected_hrtf_backend(
                                             self.gui_adjustables.audio_hrtf_backend.value,
                                         );
-                                        egui::ComboBox::from_label("HRTF Backend")
+                                        egui::ComboBox::from_label("Direct HRTF Backend")
                                             .selected_text(Self::hrtf_backend_label(
                                                 selected_hrtf_backend,
                                             ))
@@ -1823,6 +1847,9 @@ impl App {
                                                     ),
                                                 );
                                             });
+                                        ui.label(
+                                            "Ambisonics backend selects the full Ambisonics encode/decode path.",
+                                        );
                                         ui.add(
                                             egui::Slider::new(
                                                 &mut self
@@ -2692,6 +2719,7 @@ impl App {
 mod tests {
     use super::App;
     use crate::app::world_edits::VoxelEdit;
+    use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 
     fn assert_approx_eq(actual: f32, expected: f32) {
         assert!(
@@ -2744,6 +2772,22 @@ mod tests {
         assert_approx_eq(max.x - center_x, expected_half_width);
         assert_approx_eq(center_z - min.z, expected_half_width);
         assert_approx_eq(max.z - center_z, expected_half_width);
+    }
+
+    #[test]
+    fn ambisonics_backend_selects_matching_decoder_backend() {
+        assert_eq!(
+            App::effective_hrtf_backend(HrtfBackend::Native, false, AmbisonicsBackend::SteamAudio),
+            HrtfBackend::Native
+        );
+        assert_eq!(
+            App::effective_hrtf_backend(HrtfBackend::Native, true, AmbisonicsBackend::SteamAudio),
+            HrtfBackend::SteamAudio
+        );
+        assert_eq!(
+            App::effective_hrtf_backend(HrtfBackend::SteamAudio, true, AmbisonicsBackend::Native),
+            HrtfBackend::Native
+        );
     }
 
     #[test]
