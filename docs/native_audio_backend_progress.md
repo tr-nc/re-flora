@@ -78,7 +78,7 @@ Assumptions to confirm:
 - Objective: Replace Steam Audio HRTF/ambisonics binauralization for direct sources with native HRTF convolution/interpolation.
 - Expected output: Runtime-friendly HRTF asset format, loader, direction lookup/interpolation, per-source stereo render path, and tests for stability/gain/channel behavior.
 - Dependencies/blockers: Need choose offline SOFA conversion approach and confirm license/asset suitability for generated HRTF tables.
-- Status: in progress; first runtime renderer exists with synthetic tables, nearest-direction lookup, FIR convolution, per-source delay state, and unit tests.
+- Status: in progress; first runtime renderer exists with synthetic tables, nearest-direction lookup, FIR convolution, per-source delay state, `.petalhrtf` byte/file loader, encoder, and unit tests.
 
 ### Phase 3 - Native early reflections
 
@@ -168,6 +168,7 @@ Verification gaps:
 - 2026-06-06: Added PetalSonic startup log line confirming `direct_path_backend=Native`, `direct_occlusion_enabled=true`, and `reflections_enabled=false` in hidden app runs.
 - 2026-06-06: Validated with PetalSonic tests, re-flora `cargo check`, re-flora `cargo fmt --check`, re-flora `cargo test`, and hidden release run.
 - 2026-06-06: Started native HRTF Phase 2 by adding PetalSonic `NativeHrtfTable`, `NativeHrtfRenderer`, and per-source `NativeHrtfSourceState`; validated nearest-direction lookup, FIR convolution, delay-line persistence, and table validation with unit tests.
+- 2026-06-06: Added native `.petalhrtf` runtime binary format support in PetalSonic, including byte/file loader, encoder, round-trip tests, and malformed-file rejection tests.
 
 ## Open Questions / Risks
 
