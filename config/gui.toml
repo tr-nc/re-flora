@@ -694,6 +694,25 @@ value = 0
 options = ["Native", "Steam Audio"]
 
 [[section.param]]
+id = "audio_use_ambisonics"
+kind = "bool"
+label = "Use Ambisonics"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "audio_ambisonics_backend"
+kind = "choice"
+label = "Ambisonics Backend"
+type = "Choice"
+
+[section.param.data]
+value = 0
+options = ["Native", "Steam Audio"]
+
+[[section.param]]
 id = "tree_wind_response_min_strength"
 kind = "float"
 label = "Tree Wind Response Min"

@@ -2,6 +2,7 @@
 name = "re-flora"
 version = "0.2.12"
 edition = "2021"
+default-run = "re-flora"
 
 [dependencies]
 resource_container_derive = { path = "./resource_container_derive" }

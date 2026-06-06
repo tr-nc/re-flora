@@ -4,7 +4,7 @@ use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    config::{DirectPathBackend, HrtfBackend, PetalSonicWorldDesc},
+    config::{AmbisonicsBackend, DirectPathBackend, HrtfBackend, PetalSonicWorldDesc},
     engine::PetalSonicEngine,
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
@@ -76,18 +76,21 @@ impl SpatialSoundManager {
         // Initialize audio clip cache first
         let clip_cache = Arc::new(AudioClipCache::new()?);
 
-        // Get native PetalSonic HRTF path generated from the SOFA source asset.
-        let hrtf_path = format!(
-            "{}assets/hrtf/hrtf_b_nh172.petalhrtf",
-            crate::util::get_project_root()
-        );
+        // Use the same high-quality custom HRTF dataset for native and Steam Audio paths.
+        let project_root = crate::util::get_project_root();
+        let native_hrtf_path = format!("{}assets/hrtf/hrtf_b_nh172.petalhrtf", project_root);
+        let steam_hrtf_path = format!("{}assets/hrtf/hrtf_b_nh172.sofa", project_root);
 
         // Create PetalSonic world configuration
         let world_desc = PetalSonicWorldDesc {
             sample_rate,
             block_size: frame_window_size,
-            hrtf_path: Some(hrtf_path),
+            hrtf_path: Some(native_hrtf_path.clone()),
+            steam_hrtf_path: Some(steam_hrtf_path),
+            native_hrtf_path: Some(native_hrtf_path),
             hrtf_backend: HrtfBackend::Native,
+            use_ambisonics: false,
+            ambisonics_backend: AmbisonicsBackend::Native,
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
             direct_path_backend: DirectPathBackend::Native,
@@ -385,15 +388,19 @@ impl SpatialSoundManager {
         self.audio_ray_tracer.set_enabled(enabled);
     }
 
-    pub fn set_spatial_backends(
+    pub fn set_spatial_rendering(
         &self,
         hrtf_backend: HrtfBackend,
         direct_path_backend: DirectPathBackend,
+        use_ambisonics: bool,
+        ambisonics_backend: AmbisonicsBackend,
     ) -> Result<()> {
-        self.engine
-            .lock()
-            .unwrap()
-            .set_spatial_backends(hrtf_backend, direct_path_backend)?;
+        self.engine.lock().unwrap().set_spatial_rendering(
+            hrtf_backend,
+            direct_path_backend,
+            use_ambisonics,
+            ambisonics_backend,
+        )?;
         Ok(())
     }
 

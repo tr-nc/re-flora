@@ -59,7 +59,7 @@ use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePrefer
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
-use petalsonic::config::{DirectPathBackend, HrtfBackend};
+use petalsonic::config::{AmbisonicsBackend, DirectPathBackend, HrtfBackend};
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
     SwapchainFrameError, SwapchainFrameManager,
@@ -641,10 +641,19 @@ impl App {
         }
     }
 
+    fn selected_ambisonics_backend(gui_adjustables: &GuiAdjustables) -> AmbisonicsBackend {
+        match gui_adjustables.audio_ambisonics_backend.value {
+            1 => AmbisonicsBackend::SteamAudio,
+            _ => AmbisonicsBackend::Native,
+        }
+    }
+
     fn update_spatial_audio_backends(&mut self) {
-        if let Err(err) = self.spatial_sound_manager.set_spatial_backends(
+        if let Err(err) = self.spatial_sound_manager.set_spatial_rendering(
             Self::selected_hrtf_backend(&self.gui_adjustables),
             Self::selected_direct_path_backend(&self.gui_adjustables),
+            self.gui_adjustables.audio_use_ambisonics.value,
+            Self::selected_ambisonics_backend(&self.gui_adjustables),
         ) {
             log::error!("Failed to apply spatial audio backend selection: {}", err);
         }
@@ -1767,6 +1776,39 @@ impl App {
                                                     &mut self
                                                         .gui_adjustables
                                                         .audio_hrtf_backend
+                                                        .value,
+                                                    1,
+                                                    "Steam Audio",
+                                                );
+                                            });
+                                        ui.checkbox(
+                                            &mut self.gui_adjustables.audio_use_ambisonics.value,
+                                            "Use Ambisonics",
+                                        );
+                                        egui::ComboBox::from_label("Ambisonics Backend")
+                                            .selected_text(
+                                                match self
+                                                    .gui_adjustables
+                                                    .audio_ambisonics_backend
+                                                    .value
+                                                {
+                                                    1 => "Steam Audio",
+                                                    _ => "Native",
+                                                },
+                                            )
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_ambisonics_backend
+                                                        .value,
+                                                    0,
+                                                    "Native",
+                                                );
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_ambisonics_backend
                                                         .value,
                                                     1,
                                                     "Steam Audio",

@@ -410,6 +410,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
+        id: "audio_use_ambisonics",
+        kind: "bool",
+        label: "Use Ambisonics",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Audio",
+        id: "audio_ambisonics_backend",
+        kind: "choice",
+        label: "Ambisonics Backend",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Audio",
         id: "tree_wind_response_min_strength",
         kind: "float",
         label: "Tree Wind Response Min",
@@ -1202,6 +1214,8 @@ pub struct GuiAdjustables {
     pub footstep_volume_db: crate::gui_adjustables::FloatParam,
     pub audio_direct_path_backend: crate::gui_adjustables::ChoiceParam,
     pub audio_hrtf_backend: crate::gui_adjustables::ChoiceParam,
+    pub audio_use_ambisonics: crate::gui_adjustables::BoolParam,
+    pub audio_ambisonics_backend: crate::gui_adjustables::ChoiceParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
@@ -1400,6 +1414,8 @@ impl GuiAdjustables {
         let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut audio_direct_path_backend_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut audio_hrtf_backend_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut audio_use_ambisonics_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut audio_ambisonics_backend_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1949,6 +1965,16 @@ impl GuiAdjustables {
                     "audio_hrtf_backend" => {
                         if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
                             audio_hrtf_backend_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        }
+                    }
+                    "audio_use_ambisonics" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            audio_use_ambisonics_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "audio_ambisonics_backend" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            audio_ambisonics_backend_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
                         }
                     }
                     "tree_wind_response_min_strength" => {
@@ -2822,6 +2848,8 @@ impl GuiAdjustables {
             footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
             audio_direct_path_backend: audio_direct_path_backend_field.expect("Missing parameter: audio_direct_path_backend"),
             audio_hrtf_backend: audio_hrtf_backend_field.expect("Missing parameter: audio_hrtf_backend"),
+            audio_use_ambisonics: audio_use_ambisonics_field.expect("Missing parameter: audio_use_ambisonics"),
+            audio_ambisonics_backend: audio_ambisonics_backend_field.expect("Missing parameter: audio_ambisonics_backend"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
             tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
             tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
@@ -3124,6 +3152,7 @@ pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
     match id {
         "audio_direct_path_backend" => Some(&adjustables.audio_direct_path_backend),
         "audio_hrtf_backend" => Some(&adjustables.audio_hrtf_backend),
+        "audio_ambisonics_backend" => Some(&adjustables.audio_ambisonics_backend),
         _ => None,
     }
 }
@@ -3147,6 +3176,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_1_muted" => Some(&adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&adjustables.wind_source_2_muted),
         "wind_source_3_muted" => Some(&adjustables.wind_source_3_muted),
+        "audio_use_ambisonics" => Some(&adjustables.audio_use_ambisonics),
         "audio_ray_tracing_enabled" => Some(&adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "is_changing_lum_phi" => Some(&adjustables.is_changing_lum_phi),
@@ -3358,6 +3388,7 @@ pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
     match id {
         "audio_direct_path_backend" => Some(&mut adjustables.audio_direct_path_backend),
         "audio_hrtf_backend" => Some(&mut adjustables.audio_hrtf_backend),
+        "audio_ambisonics_backend" => Some(&mut adjustables.audio_ambisonics_backend),
         _ => None,
     }
 }
@@ -3381,6 +3412,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_1_muted" => Some(&mut adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&mut adjustables.wind_source_2_muted),
         "wind_source_3_muted" => Some(&mut adjustables.wind_source_3_muted),
+        "audio_use_ambisonics" => Some(&mut adjustables.audio_use_ambisonics),
         "audio_ray_tracing_enabled" => Some(&mut adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "is_changing_lum_phi" => Some(&mut adjustables.is_changing_lum_phi),
