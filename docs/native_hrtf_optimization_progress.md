@@ -121,7 +121,7 @@ cd /home/terence/code/re-flora
 cargo fmt --check
 cargo check
 cargo test
-cargo run --release -- --hidden --auto-exit 0.5
+cargo run --release -- --hidden --mute --auto-exit 0.5
 cargo run --release -- --tail-latest-log 200
 ```
 

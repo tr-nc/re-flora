@@ -86,9 +86,9 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
-// Hidden runs should exercise audio setup, source updates, ray tracing, and pump paths
+// Muted runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
-const HIDDEN_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
+const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct TerrainSdfColliderRebuildRequest;
@@ -608,7 +608,7 @@ impl App {
 
     fn master_volume_gain_db(master_volume_db: f32, mute_audio_output: bool) -> f32 {
         if mute_audio_output {
-            HIDDEN_AUDIO_OUTPUT_GAIN_DB
+            MUTED_AUDIO_OUTPUT_GAIN_DB
         } else {
             master_volume_db.clamp(-20.0, 20.0)
         }
@@ -619,6 +619,33 @@ impl App {
             self.gui_adjustables.master_volume.value,
             self.mute_audio_output,
         )
+    }
+
+    fn apply_effective_master_volume_gain(&self, error_context: &str) {
+        if let Err(err) = self
+            .spatial_sound_manager
+            .set_global_volume_gain_db(self.effective_master_volume_gain_db())
+        {
+            log::error!("{}: {}", error_context, err);
+        }
+    }
+
+    fn set_audio_output_muted(&mut self, muted: bool, reason: &str) {
+        if self.mute_audio_output == muted {
+            return;
+        }
+
+        self.mute_audio_output = muted;
+        self.apply_effective_master_volume_gain("Failed to apply audio mute state");
+        log::info!(
+            "[AUDIO] Global output {} ({})",
+            if muted { "muted" } else { "unmuted" },
+            reason
+        );
+    }
+
+    fn toggle_audio_output_mute(&mut self) {
+        self.set_audio_output_muted(!self.mute_audio_output, "M key");
     }
 
     fn update_audio_ray_tracing(&mut self) {
@@ -949,7 +976,7 @@ impl App {
             accumulated_mouse_delta: Vec2::ZERO,
             smoothed_mouse_delta: Vec2::ZERO,
             perf_logging: options.perf,
-            mute_audio_output: options.hidden,
+            mute_audio_output: options.mute,
 
             swapchain,
             frame_manager,
@@ -1050,15 +1077,10 @@ impl App {
 
         if app.mute_audio_output {
             log::info!(
-                "--hidden: forcing master audio output volume to 0 while keeping audio engine processing active"
+                "--mute: forcing master audio output volume to 0 while keeping audio engine processing active"
             );
         }
-        if let Err(err) = app
-            .spatial_sound_manager
-            .set_global_volume_gain_db(app.effective_master_volume_gain_db())
-        {
-            log::error!("Failed to apply initial master volume: {}", err);
-        }
+        app.apply_effective_master_volume_gain("Failed to apply initial master volume");
 
         app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
 
@@ -1281,6 +1303,11 @@ impl App {
 
             if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyP {
                 self.frame_timing_panel_visible = !self.frame_timing_panel_visible;
+                return;
+            }
+
+            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyM {
+                self.toggle_audio_output_mute();
                 return;
             }
         }
@@ -2013,12 +2040,7 @@ impl App {
                     self.apply_camera_snapshot(&snapshot);
                 }
 
-                if let Err(err) = self
-                    .spatial_sound_manager
-                    .set_global_volume_gain_db(self.effective_master_volume_gain_db())
-                {
-                    log::error!("Failed to apply master volume: {}", err);
-                }
+                self.apply_effective_master_volume_gain("Failed to apply master volume");
                 if let Err(err) = self
                     .tree_audio_manager
                     .set_wind_volume_db(self.gui_adjustables.tree_wind_volume_db.value)
@@ -2635,15 +2657,15 @@ mod tests {
     }
 
     #[test]
-    fn hidden_mode_forces_effective_master_volume_to_zero() {
-        let hidden_gain_db = App::master_volume_gain_db(0.0, true);
+    fn mute_state_forces_effective_master_volume_to_silence() {
+        let muted_gain_db = App::master_volume_gain_db(0.0, true);
         let normal_min_gain_db = App::master_volume_gain_db(-20.0, false);
         let normal_default_gain_db = App::master_volume_gain_db(0.0, false);
         let normal_max_gain_db = App::master_volume_gain_db(20.0, false);
 
-        assert_eq!(hidden_gain_db, super::HIDDEN_AUDIO_OUTPUT_GAIN_DB);
+        assert_eq!(muted_gain_db, super::MUTED_AUDIO_OUTPUT_GAIN_DB);
         assert_eq!(normal_default_gain_db, 0.0);
-        assert!(hidden_gain_db <= normal_min_gain_db);
+        assert!(muted_gain_db <= normal_min_gain_db);
         assert!(normal_default_gain_db < normal_max_gain_db);
     }
 }

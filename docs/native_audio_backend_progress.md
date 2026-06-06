@@ -52,7 +52,7 @@ Constraints:
 - Keep the audio callback realtime-safe: no blocking locks, allocations, command spam, GPU waits, file I/O, or expensive unpredictable work in the callback.
 - Use release-mode app runs and logs for performance evidence; debug builds and unit tests are not performance proof.
 - Run `cargo check` after Rust changes.
-- Validate app-level audio/rendering health with `cargo run --release -- --hidden --auto-exit 0.5` and inspect logs.
+- Validate app-level audio/rendering health with `cargo run --release -- --hidden --mute --auto-exit 0.5` and inspect logs.
 - Do not remove Steam Audio packaging until the default backend no longer needs it and release behavior is confirmed.
 
 Assumptions to confirm:
@@ -115,7 +115,7 @@ cargo metadata --format-version 1 | python3 -c 'import json,sys; m=json.load(sys
 cargo fmt --check
 cargo check
 cargo test
-cargo run --release -- --hidden --auto-exit 0.5
+cargo run --release -- --hidden --mute --auto-exit 0.5
 cargo run --release -- --tail-latest-log 200
 ```
 

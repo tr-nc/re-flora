@@ -72,9 +72,10 @@ pub struct AppOptions {
     /// Run in windowed mode instead of borderless fullscreen.
     pub windowed: bool,
     /// Create the native window hidden while keeping the normal render/swapchain path.
-    /// Audio processing still runs, but master output volume is forced to 0.
     /// On Wayland, fall back to requesting minimization because hidden windows are unsupported.
     pub hidden: bool,
+    /// Start with global audio output muted while keeping audio processing active.
+    pub mute: bool,
     /// Disable shadow rendering pass.
     pub no_shadows: bool,
     /// Disable denoiser passes.
@@ -242,6 +243,7 @@ impl AppOptions {
         Ok(Self {
             windowed: args.iter().any(|a| a == "--windowed"),
             hidden: args.iter().any(|a| a == "--hidden"),
+            mute: args.iter().any(|a| a == "--mute"),
             no_shadows: args.iter().any(|a| a == "--no-shadows"),
             no_denoise: args.iter().any(|a| a == "--no-denoise"),
             no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
@@ -404,7 +406,8 @@ pub fn print_help() {
 
 Options:
   --windowed                  Run in windowed mode (default: borderless fullscreen)
-  --hidden                    Run hidden; mute audio output while preserving render/swapchain and audio processing paths
+  --hidden                    Run hidden while preserving render/swapchain path; audio output remains enabled unless --mute is set
+  --mute                      Start with global audio output muted while keeping audio processing active
   --no-shadows                Disable shadow rendering passes
   --no-denoise                Disable denoiser passes
   --no-god-rays               Disable god ray pass
@@ -448,19 +451,19 @@ Options:
 
 Examples:
   re-flora --windowed
-  re-flora --hidden --auto-exit 20 --perf
-  re-flora --hidden --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4
+  re-flora --hidden --mute --auto-exit 20 --perf
+  re-flora --hidden --mute --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4
   re-flora --present-mode fifo
   re-flora --monitor-score lowest
   re-flora --swapchain-images 2
   re-flora --no-shadows --no-denoise
-  re-flora --hidden --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
+  re-flora --hidden --mute --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
   re-flora --list-camera-snapshots
   re-flora --auto-exit 10 --perf
-  re-flora --hidden --auto-exit 4 --perf --water-profile performance
-  re-flora --hidden --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
-  re-flora --hidden --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
-  re-flora --hidden --auto-exit 14 --perf --water-profile performance --water-edit-soak
+  re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance
+  re-flora --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
+  re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
+  re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
   re-flora --latest-log
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#
@@ -506,6 +509,7 @@ mod tests {
 
         assert!(!options.windowed);
         assert!(!options.hidden);
+        assert!(!options.mute);
         assert!(!options.perf);
         assert!(options.present_mode.is_none());
         assert!(matches!(
@@ -525,6 +529,7 @@ mod tests {
         let options = parse(&[
             "re-flora",
             "--hidden",
+            "--mute",
             "--auto-exit",
             "4",
             "--perf",
@@ -554,6 +559,7 @@ mod tests {
         ]);
 
         assert!(options.hidden);
+        assert!(options.mute);
         assert!(options.perf);
         assert_eq!(options.auto_exit_delay, Some(4.0));
         assert!(matches!(
