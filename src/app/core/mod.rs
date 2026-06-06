@@ -59,7 +59,7 @@ use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePrefer
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
-use petalsonic::config::HrtfBackend;
+use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
     SwapchainFrameError, SwapchainFrameManager,
@@ -658,6 +658,7 @@ impl App {
         if let Err(err) = self.spatial_sound_manager.set_spatial_audio_rendering(
             Self::selected_hrtf_backend(self.gui_adjustables.audio_hrtf_backend.value),
             self.gui_adjustables.audio_use_ambisonics.value,
+            Self::selected_ambisonics_backend(self.gui_adjustables.audio_ambisonics_backend.value),
         ) {
             log::error!("Failed to apply spatial audio rendering setting: {}", err);
         }
@@ -674,6 +675,20 @@ impl App {
         match backend {
             HrtfBackend::Native => "Native (.petalhrtf)",
             HrtfBackend::SteamAudio => "Steam Audio (SOFA)",
+        }
+    }
+
+    fn selected_ambisonics_backend(value: u32) -> AmbisonicsBackend {
+        match value {
+            1 => AmbisonicsBackend::SteamAudio,
+            _ => AmbisonicsBackend::Native,
+        }
+    }
+
+    fn ambisonics_backend_label(backend: AmbisonicsBackend) -> &'static str {
+        match backend {
+            AmbisonicsBackend::Native => "Native Ambisonics",
+            AmbisonicsBackend::SteamAudio => "Steam Audio Ambisonics",
         }
     }
 
@@ -1776,8 +1791,38 @@ impl App {
                                             });
                                         ui.checkbox(
                                             &mut self.gui_adjustables.audio_use_ambisonics.value,
-                                            "Use Native Ambisonics",
+                                            "Use Ambisonics",
                                         );
+                                        let selected_ambisonics_backend =
+                                            Self::selected_ambisonics_backend(
+                                                self.gui_adjustables.audio_ambisonics_backend.value,
+                                            );
+                                        egui::ComboBox::from_label("Ambisonics Backend")
+                                            .selected_text(Self::ambisonics_backend_label(
+                                                selected_ambisonics_backend,
+                                            ))
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_ambisonics_backend
+                                                        .value,
+                                                    0,
+                                                    Self::ambisonics_backend_label(
+                                                        AmbisonicsBackend::Native,
+                                                    ),
+                                                );
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_ambisonics_backend
+                                                        .value,
+                                                    1,
+                                                    Self::ambisonics_backend_label(
+                                                        AmbisonicsBackend::SteamAudio,
+                                                    ),
+                                                );
+                                            });
                                         ui.add(
                                             egui::Slider::new(
                                                 &mut self

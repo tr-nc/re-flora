@@ -394,12 +394,13 @@ impl SpatialSoundManager {
         &self,
         hrtf_backend: HrtfBackend,
         use_ambisonics: bool,
+        ambisonics_backend: AmbisonicsBackend,
     ) -> Result<()> {
         self.engine.lock().unwrap().set_spatial_rendering(
             hrtf_backend,
             DirectPathBackend::Native,
             use_ambisonics,
-            AmbisonicsBackend::Native,
+            ambisonics_backend,
         )?;
         Ok(())
     }

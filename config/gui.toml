@@ -694,6 +694,17 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "audio_ambisonics_backend"
+kind = "uint"
+label = "Ambisonics Backend (0 Native, 1 Steam Audio)"
+type = "Uint"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
 id = "tree_wind_response_min_strength"
 kind = "float"
 label = "Tree Wind Response Min"
