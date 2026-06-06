@@ -696,8 +696,8 @@ impl App {
 
     fn ambisonics_backend_label(backend: AmbisonicsBackend) -> &'static str {
         match backend {
-            AmbisonicsBackend::Native => "Native Ambisonics",
-            AmbisonicsBackend::SteamAudio => "Steam Audio Ambisonics",
+            AmbisonicsBackend::Native => "Native Ambisonics (order 4)",
+            AmbisonicsBackend::SteamAudio => "Steam Audio Ambisonics (order 2)",
         }
     }
 
