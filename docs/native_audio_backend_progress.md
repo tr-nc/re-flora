@@ -31,8 +31,8 @@ Known PetalSonic state:
 - Local crate is at `../petalsonic/petalsonic`.
 - `../petalsonic/petalsonic/Cargo.toml` depends on `audionimbus = "0.12.0"`; audionimbus pulls in Steam Audio / `libphonon`.
 - Relevant PetalSonic files include `src/spatial/processor.rs`, `src/spatial/hrtf.rs`, `src/spatial/effects.rs`, `src/acoustics.rs`, `src/engine.rs`, `src/world.rs`, and `src/config/world_desc.rs`.
-- PetalSonic now exposes `DirectPathBackend` with `SteamAudio` as the default and `Native` as the first native migration path.
-- re-flora now selects `DirectPathBackend::Native` and `HrtfBackend::Native` in `src/audio/spatial_sound_manager.rs` while still using the local PetalSonic crate.
+- PetalSonic now exposes `DirectPathBackend` and `HrtfBackend`, plus a runtime backend setter, so re-flora can A/B native and Steam Audio paths from the game thread.
+- re-flora defaults to `DirectPathBackend::Native` and `HrtfBackend::Native` in `src/audio/spatial_sound_manager.rs` while still using the local PetalSonic crate. The Audio GUI now has Direct Path Backend and HRTF Backend choices for runtime listening comparisons.
 - Native direct currently handles inverse-distance attenuation and conservative broadband air absorption. PetalSonic has support for any-hit terrain occlusion, direct-path override occlusion, and coarse transmission gain, but re-flora intentionally leaves the ray tracer disconnected so all direct sources remain unoccluded for now.
 - Native HRTF now loads `assets/hrtf/hrtf_b_nh172.petalhrtf`, generated from the SOFA source asset by `../petalsonic/tools/sofa_to_petalhrtf.py`.
 - Native early reflection code exists in PetalSonic but is intentionally not enabled in re-flora yet, to keep the current native backend aligned with the pre-reflection behavior.
@@ -179,6 +179,7 @@ Verification gaps:
 - 2026-06-06: Disabled re-flora closest-hit reflection wiring again so default native audio matches the previous no-reflection behavior; expected log is `native_early_reflections_enabled=false`.
 - 2026-06-06: Disabled re-flora direct any-hit occlusion wiring so every direct source remains unoccluded while native direct + HRTF quality is validated; expected log is `direct_occlusion_enabled=false`.
 - 2026-06-06: Skipped per-block Steam Audio simulation when selected HRTF/direct/reflection paths are native.
+- 2026-06-06: Added runtime PetalSonic spatial backend switching and re-flora Audio GUI choices for direct path backend and HRTF backend (`Native` / `Steam Audio`) so listening comparisons do not require rebuilding or restarting.
 
 ## Open Questions / Risks
 

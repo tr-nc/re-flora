@@ -385,6 +385,18 @@ impl SpatialSoundManager {
         self.audio_ray_tracer.set_enabled(enabled);
     }
 
+    pub fn set_spatial_backends(
+        &self,
+        hrtf_backend: HrtfBackend,
+        direct_path_backend: DirectPathBackend,
+    ) -> Result<()> {
+        self.engine
+            .lock()
+            .unwrap()
+            .set_spatial_backends(hrtf_backend, direct_path_backend)?;
+        Ok(())
+    }
+
     pub fn pump_audio(&self) -> Result<()> {
         if !self.engine_started.load(Ordering::Acquire) {
             return Ok(());

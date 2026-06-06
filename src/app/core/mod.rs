@@ -59,6 +59,7 @@ use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePrefer
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
+use petalsonic::config::{DirectPathBackend, HrtfBackend};
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
     SwapchainFrameError, SwapchainFrameManager,
@@ -624,6 +625,29 @@ impl App {
     fn update_audio_ray_tracing(&mut self) {
         self.spatial_sound_manager
             .set_audio_ray_tracing_enabled(self.gui_adjustables.audio_ray_tracing_enabled.value);
+    }
+
+    fn selected_direct_path_backend(gui_adjustables: &GuiAdjustables) -> DirectPathBackend {
+        match gui_adjustables.audio_direct_path_backend.value {
+            1 => DirectPathBackend::SteamAudio,
+            _ => DirectPathBackend::Native,
+        }
+    }
+
+    fn selected_hrtf_backend(gui_adjustables: &GuiAdjustables) -> HrtfBackend {
+        match gui_adjustables.audio_hrtf_backend.value {
+            1 => HrtfBackend::SteamAudio,
+            _ => HrtfBackend::Native,
+        }
+    }
+
+    fn update_spatial_audio_backends(&mut self) {
+        if let Err(err) = self.spatial_sound_manager.set_spatial_backends(
+            Self::selected_hrtf_backend(&self.gui_adjustables),
+            Self::selected_direct_path_backend(&self.gui_adjustables),
+        ) {
+            log::error!("Failed to apply spatial audio backend selection: {}", err);
+        }
     }
 
     fn tree_audio_wind_response_curve(gui_adjustables: &GuiAdjustables) -> WindResponseCurve {
@@ -1481,6 +1505,7 @@ impl App {
                     log::warn!("Failed to pump audio: {}", err);
                 }
                 self.update_audio_ray_tracing();
+                self.update_spatial_audio_backends();
 
                 if !self.window_state.is_cursor_visible() {
                     // grab the value and immediately reset the accumulator
@@ -1692,6 +1717,61 @@ impl App {
                                             )
                                             .text("Footstep Volume (dB)"),
                                         );
+                                        egui::ComboBox::from_label("Direct Path Backend")
+                                            .selected_text(
+                                                match self
+                                                    .gui_adjustables
+                                                    .audio_direct_path_backend
+                                                    .value
+                                                {
+                                                    1 => "Steam Audio",
+                                                    _ => "Native",
+                                                },
+                                            )
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_direct_path_backend
+                                                        .value,
+                                                    0,
+                                                    "Native",
+                                                );
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_direct_path_backend
+                                                        .value,
+                                                    1,
+                                                    "Steam Audio",
+                                                );
+                                            });
+                                        egui::ComboBox::from_label("HRTF Backend")
+                                            .selected_text(
+                                                match self.gui_adjustables.audio_hrtf_backend.value
+                                                {
+                                                    1 => "Steam Audio",
+                                                    _ => "Native",
+                                                },
+                                            )
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_hrtf_backend
+                                                        .value,
+                                                    0,
+                                                    "Native",
+                                                );
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_hrtf_backend
+                                                        .value,
+                                                    1,
+                                                    "Steam Audio",
+                                                );
+                                            });
                                         ui.add(
                                             egui::Slider::new(
                                                 &mut self
