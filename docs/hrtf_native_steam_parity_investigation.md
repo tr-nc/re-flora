@@ -36,6 +36,9 @@ Release benchmark command used for the first subsystem comparison:
 ```bash
 cargo run --release --bin petalsonic_spatial_bench -- --sources 1,8,36,64,128 --warmup 12 --blocks 80
 cargo run --release --bin petalsonic_spatial_bench -- --sources 256 --warmup 8 --blocks 50
+
+# Pure per-source HRTF comparison only, with Ambisonics excluded:
+cargo run --release --bin petalsonic_spatial_bench -- --pure-hrtf-only --sources 1,8,36,64,128 --warmup 12 --blocks 80
 ```
 
 Conditions:
@@ -59,7 +62,7 @@ Median end-to-end time per audio block:
 
 ## Current HRTF Quality Hypotheses
 
-### 1. Steam custom SOFA path may need an explicit Petal-local to Steam/SOFA direction mapping
+### 1. Steam custom SOFA path needs an explicit Petal-local to Steam/SOFA direction mapping
 
 PetalSonic native HRTF convention is:
 
@@ -73,7 +76,7 @@ Steam Audio's SOFA map converts a Steam direction vector with:
 return Vector3f(-v.z(), -v.x(), v.y());
 ```
 
-That suggests Petal-local `z=front` may need to be passed to Steam custom SOFA HRTF as `z=-front` for apples-to-apples custom-HRTF comparisons. A temporary impulse parity check showed front/back matching only after flipping the z component before the Steam HRTF lookup. This has not been committed as a fix yet; the GUI HRTF selector is restored first so the behavior can be listened to in-game.
+Petal-local `z=front` is now passed to Steam custom SOFA HRTF as `z=-front` in the per-source `BinauralEffect` path for apples-to-apples custom-HRTF comparisons. A temporary impulse parity check showed front/back matching only after flipping the z component before the Steam HRTF lookup; this fix should be validated by in-game listening with Ambisonics disabled.
 
 ### 2. Native per-source HRTF is currently nearest-direction time-domain FIR
 
@@ -90,9 +93,8 @@ Native Ambisonics decode currently projects measured `.petalhrtf` directions wit
 
 ## Next Debug Steps
 
-1. Use the restored in-game HRTF dropdown to listen to:
+1. Use the in-game HRTF dropdown with `Use Ambisonics` disabled to listen to:
    - native per-source HRTF
    - Steam Audio per-source HRTF using the same NH172 SOFA file
-   - native Ambisonics on/off for both HRTF backends
-2. If Steam still sounds front/back wrong, add a controlled parity test for the Steam direction mapping before changing gameplay code.
-3. If per-source parity is fixed but Ambisonics still differs strongly, focus next on matching Steam's Ambisonics binaural decode construction rather than the per-source HRTF FIR.
+2. Run the benchmark with `--pure-hrtf-only` when comparing per-source Native vs Steam HRTF performance.
+3. If Steam still sounds front/back wrong, add a controlled parity regression test around the Steam direction mapping.

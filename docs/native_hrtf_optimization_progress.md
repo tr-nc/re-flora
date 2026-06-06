@@ -174,6 +174,8 @@ Verification gaps:
 - 2026-06-06: Restored only the `HRTF Backend` dropdown for manual Native-vs-Steam listening validation while keeping Direct Path and Ambisonics encode fixed to native.
 - 2026-06-06: Added detailed timing fields for spatial source count, direct processing, Ambisonics encode/decode, HRTF rendering, native direction lookup, and native FIR convolution.
 - 2026-06-06: Added checked-in release benchmark `src/bin/petalsonic_spatial_bench.rs`.
+- 2026-06-06: Added `--pure-hrtf-only` to the benchmark for isolated Native-vs-Steam per-source HRTF comparisons with Ambisonics excluded.
+- 2026-06-06: Flipped the z axis passed to Steam Audio's per-source `BinauralEffect` so PetalSonic `z=front` maps to Steam Audio `-z=ahead` for same-SOFA HRTF comparisons.
 - 2026-06-06: Optimized native per-source FIR by caching stable direction indices and removing `% taps` from the inner convolution loop; release benchmark shows roughly 2x improvement versus previous ad hoc baseline.
 - 2026-06-06: Validated with PetalSonic `cargo fmt --check`/`cargo test`, re-flora `cargo fmt --check`/`cargo check`/`cargo test`, benchmark runs, and hidden release app run.
 

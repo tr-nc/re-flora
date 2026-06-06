@@ -58,8 +58,14 @@ fn main() -> Result<()> {
         "sources,mode,total_median_us,total_p95_us,total_max_us,direct_median_us,encode_median_us,decode_median_us,hrtf_median_us,native_lookup_median_us,native_fir_median_us"
     );
 
+    let modes = if args.pure_hrtf_only {
+        pure_hrtf_benchmark_modes()
+    } else {
+        benchmark_modes()
+    };
+
     for source_count in &args.source_counts {
-        for mode in benchmark_modes() {
+        for mode in modes {
             let stats = run_mode(
                 *source_count,
                 mode,
@@ -87,6 +93,25 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn pure_hrtf_benchmark_modes() -> &'static [BenchMode] {
+    &[
+        BenchMode {
+            name: "native_direct_native_per_source_hrtf",
+            direct_backend: DirectPathBackend::Native,
+            hrtf_backend: HrtfBackend::Native,
+            use_ambisonics: false,
+            ambisonics_backend: AmbisonicsBackend::Native,
+        },
+        BenchMode {
+            name: "native_direct_steam_per_source_hrtf_custom",
+            direct_backend: DirectPathBackend::Native,
+            hrtf_backend: HrtfBackend::SteamAudio,
+            use_ambisonics: false,
+            ambisonics_backend: AmbisonicsBackend::Native,
+        },
+    ]
 }
 
 fn benchmark_modes() -> &'static [BenchMode] {
@@ -256,6 +281,7 @@ struct Args {
     warmup_blocks: usize,
     measure_blocks: usize,
     clip: Option<PathBuf>,
+    pure_hrtf_only: bool,
 }
 
 impl Args {
@@ -265,6 +291,7 @@ impl Args {
         let mut warmup_blocks = 16;
         let mut measure_blocks = 120;
         let mut clip = None;
+        let mut pure_hrtf_only = false;
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -297,9 +324,12 @@ impl Args {
                         args.next().context("--clip requires a path")?,
                     ));
                 }
+                "--pure-hrtf-only" => {
+                    pure_hrtf_only = true;
+                }
                 "--help" | "-h" => {
                     println!(
-                        "usage: cargo run --release --bin petalsonic_spatial_bench -- [--sources 1,8,36] [--warmup 16] [--blocks 120] [--clip path]"
+                        "usage: cargo run --release --bin petalsonic_spatial_bench -- [--sources 1,8,36] [--warmup 16] [--blocks 120] [--clip path] [--pure-hrtf-only]"
                     );
                     std::process::exit(0);
                 }
@@ -319,6 +349,7 @@ impl Args {
             warmup_blocks,
             measure_blocks,
             clip,
+            pure_hrtf_only,
         })
     }
 }
