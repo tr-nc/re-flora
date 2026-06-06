@@ -53,6 +53,19 @@ Latest checked-in pure-HRTF benchmark result, `cargo run --release --bin petalso
 
 Previous scalar-FIR result for native per-source HRTF was about 11.2 ms at 64 sources, 22.2 ms at 128 sources, and 44.3 ms at 256 sources, so native overlap-add convolution removes nearly all of the earlier gap to Steam's per-source HRTF path.
 
+Latest order-2 Ambisonics stress result after native decode overlap-add optimization, `cargo run --release --bin petalsonic_spatial_bench -- --sources 64,128,256,512,1024,2048 --warmup 8 --blocks 50`, median total per 1024-frame block:
+
+| sources | Native O2 Ambisonics + Native HRTF | Steam O2 Ambisonics + Steam HRTF custom | Native per-source HRTF |
+|---:|---:|---:|---:|
+| 64 | 0.130 ms | 0.510 ms | 0.562 ms |
+| 128 | 0.233 ms | 0.899 ms | 1.078 ms |
+| 256 | 0.581 ms | 1.701 ms | 2.250 ms |
+| 512 | 0.832 ms | 3.229 ms | 4.902 ms |
+| 1024 | 1.638 ms | 6.453 ms | 9.945 ms |
+| 2048 | 3.300 ms | 12.949 ms | 20.003 ms |
+
+Native order-2 Ambisonics decode is now about 0.03 ms per block, down from roughly 1.5 ms with the scalar time-domain decoder. Remaining Native Ambisonics cost is mostly source-count-dependent encoding and playback/mixing overhead.
+
 Assumptions to confirm:
 
 - The native path sounds more correct mainly because it renders per-source HRIRs and/or uses the NH172 dataset; not necessarily because Steam Audio is wrong.
@@ -105,7 +118,7 @@ Assumptions to confirm:
   - checkbox: `Use Native Ambisonics`;
   - direct path and Ambisonics encode backend stay fixed to native in gameplay.
 - Dependencies/blockers: Higher-order Ambisonics and normalization/listening validation remain open.
-- Status: done for order-2 prototype and simplified GUI control. Native encode, native binaural decode filters derived from `.petalhrtf`, and the `Use Native Ambisonics` checkbox are implemented.
+- Status: done for order-2 prototype and simplified GUI control. Native encode, native binaural decode filters derived from `.petalhrtf`, fixed-block FFT overlap-add decode, and the `Use Native Ambisonics` checkbox are implemented.
 
 ### Phase 4 - Hybrid renderer
 
@@ -187,6 +200,7 @@ Verification gaps:
 - 2026-06-06: Flipped the z axis passed to Steam Audio's per-source `BinauralEffect` so PetalSonic `z=front` maps to Steam Audio `-z=ahead` for same-SOFA HRTF comparisons.
 - 2026-06-06: Optimized native per-source FIR by caching stable direction indices and removing `% taps` from the inner convolution loop; release benchmark showed roughly 2x improvement versus previous ad hoc baseline.
 - 2026-06-06: Implemented fixed-block native frequency-domain overlap-add HRTF convolution with precomputed HRIR spectra. Pure per-source HRTF benchmark now puts native and Steam in the same performance range: 128 sources ~1.09 ms native vs ~0.90 ms Steam, 256 sources ~2.31 ms native vs ~2.30 ms Steam.
+- 2026-06-06: Implemented fixed-block native Ambisonics binaural decode overlap-add. Order-2 native Ambisonics decode dropped from roughly 1.5 ms to roughly 0.03 ms per block; 1024-source Native O2 Ambisonics median total is now ~1.64 ms.
 - 2026-06-06: Validated with PetalSonic `cargo fmt --check`/`cargo test`, re-flora `cargo fmt --check`/`cargo check`/`cargo test`, benchmark runs, and hidden release app run.
 
 ## Open Questions / Risks
