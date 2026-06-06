@@ -78,7 +78,7 @@ Assumptions to confirm:
 - Objective: Replace Steam Audio HRTF/ambisonics binauralization for direct sources with native HRTF convolution/interpolation.
 - Expected output: Runtime-friendly HRTF asset format, loader, direction lookup/interpolation, per-source stereo render path, and tests for stability/gain/channel behavior.
 - Dependencies/blockers: Need choose offline SOFA conversion approach and confirm license/asset suitability for generated HRTF tables.
-- Status: not started.
+- Status: in progress; first runtime renderer exists with synthetic tables, nearest-direction lookup, FIR convolution, per-source delay state, and unit tests.
 
 ### Phase 3 - Native early reflections
 
@@ -147,8 +147,8 @@ Manual/audio quality checks:
 
 Verification gaps:
 
-- Native direct is implemented, but HRTF, early reflections, and late reverb are not native yet.
-- Native direct quality still needs manual listening with audible output; hidden runs only prove startup/render-loop health.
+- Native direct is implemented. Native HRTF has a standalone runtime renderer but is not yet wired into the live spatial processor.
+- Native direct/HRTF quality still needs manual listening with audible output; hidden runs only prove startup/render-loop health.
 - No current GPU acoustic ray job path exists for audio reflections.
 - No offline SOFA-to-native-HRTF conversion tool has been selected or implemented.
 
@@ -167,6 +167,7 @@ Verification gaps:
 - 2026-06-06: Updated re-flora to select `DirectPathBackend::Native` for its PetalSonic world.
 - 2026-06-06: Added PetalSonic startup log line confirming `direct_path_backend=Native`, `direct_occlusion_enabled=true`, and `reflections_enabled=false` in hidden app runs.
 - 2026-06-06: Validated with PetalSonic tests, re-flora `cargo check`, re-flora `cargo fmt --check`, re-flora `cargo test`, and hidden release run.
+- 2026-06-06: Started native HRTF Phase 2 by adding PetalSonic `NativeHrtfTable`, `NativeHrtfRenderer`, and per-source `NativeHrtfSourceState`; validated nearest-direction lookup, FIR convolution, delay-line persistence, and table validation with unit tests.
 
 ## Open Questions / Risks
 
