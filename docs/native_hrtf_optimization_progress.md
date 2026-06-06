@@ -8,7 +8,9 @@ Done means:
 
 - Native HRTF has detailed per-stage profiling for direction lookup, direct processing, HRIR/FIR work, Ambisonics encode/decode, and total per-block cost.
 - Native HRTF performance is acceptable under re-flora-like stress loads, or a hybrid fallback policy is explicit.
+- Listening comparisons use the same high-quality custom HRTF dataset as the primary comparison target; Steam Audio's default HRTF is only a separate baseline, not the main native-vs-Steam comparison.
 - Listening comparisons can separate three variables: direct backend, HRTF dataset, and rendering method.
+- re-flora has a clear GUI/control model for Ambisonics use: either separate controls for `use Ambisonics` and `Ambisonics backend`, or a combined spatial rendering mode if Ambisonics and HRTF cannot be cleanly decoupled.
 - The chosen default remains realtime-safe: no audio-callback locks, allocations, file I/O, GPU waits, or unpredictable work.
 
 ## Current State
@@ -22,7 +24,7 @@ Known facts:
   - `reflections_enabled=false`
   - `native_early_reflections_enabled=false`
 - Native HRTF uses `assets/hrtf/hrtf_b_nh172.petalhrtf`, converted from `assets/hrtf/hrtf_b_nh172.sofa` by `../petalsonic/tools/sofa_to_petalhrtf.py`.
-- Steam HRTF currently uses Steam Audio's default HRTF when selected from the GUI, so native-vs-Steam listening comparisons also include an HRTF dataset difference.
+- Steam HRTF currently uses Steam Audio's default HRTF when selected from the GUI, so native-vs-Steam listening comparisons currently include an HRTF dataset difference. Future quality/performance comparisons should instead use the same NH172/custom HRTF on both paths whenever possible.
 - Native HRTF currently renders every source independently with nearest-direction lookup plus 256-tap time-domain FIR convolution.
 - Steam HRTF path encodes each source into a low-order Ambisonics field, sums all sources, then performs one binaural decode. This is much cheaper but can blur localization.
 
@@ -47,7 +49,8 @@ Recent ad hoc release stress result, 1024-frame block, 48 kHz, no occlusion/refl
 Assumptions to confirm:
 
 - The native path sounds more correct mainly because it renders per-source HRIRs and/or uses the NH172 dataset; not necessarily because Steam Audio is wrong.
-- Steam's blur is likely from order-2 Ambisonics plus default HRTF dataset, but this needs controlled listening tests.
+- Steam's blur is likely from order-2 Ambisonics and/or the Steam default HRTF dataset, but this needs controlled listening tests using the same custom HRTF.
+- Steam Audio can likely load a SOFA file at initialization, but the current runtime GUI switch path uses the Steam default HRTF; this must be fixed or explicitly marked as an unfair comparison.
 - Steam Audio core source may not be available; if only SDK/docs/bindings are available, research must rely on docs, AudioNimbus bindings, and black-box benchmarks.
 
 ## Plan / Phases
@@ -62,8 +65,8 @@ Assumptions to confirm:
 ### Phase 1 - Controlled audio-quality comparison
 
 - Objective: Separate HRTF dataset differences from rendering-method differences.
-- Expected output: Listening matrix for native table vs Steam default/SOFA where possible, per-source HRIR vs Ambisonics bus, and order 2/3/4 if available.
-- Dependencies/blockers: Need determine whether Steam Audio can load the same SOFA in the current runtime switch path, or add a controlled startup mode.
+- Expected output: Listening matrix where the primary native-vs-Steam comparison uses the same NH172/custom HRTF dataset, plus a clearly labeled Steam-default-HRTF baseline. Include per-source HRIR vs Ambisonics bus, and order 2/3/4 if available.
+- Dependencies/blockers: Need determine whether Steam Audio can load `assets/hrtf/hrtf_b_nh172.sofa` in the current runtime switch path, or add a controlled startup mode that initializes Steam HRTF from the same SOFA.
 - Status: not started.
 
 ### Phase 2 - Low-risk native FIR optimizations
@@ -79,11 +82,18 @@ Assumptions to confirm:
 - Dependencies/blockers: Needs Phase 0 profiling to prove which optimization matters.
 - Status: not started.
 
-### Phase 3 - Native Ambisonics bus prototype
+### Phase 3 - Native Ambisonics bus prototype and GUI controls
 
-- Objective: Recreate the cheap Steam-style path natively: encode many sources into a spherical field, then do one binaural decode.
+- Objective: Recreate the cheap Steam-style path natively: encode many sources into a spherical field, then do one binaural decode consumed by the HRTF renderer.
 - Expected output: Native Ambisonics encode + native binaural decode path using the `.petalhrtf` table, with selectable order and performance/quality comparison.
-- Dependencies/blockers: Need derive/precompute binaural decoder filters from the native HRTF dataset and choose normalization/order conventions.
+- Expected GUI/control model, preferred if feasible:
+  - checkbox: `Use Ambisonics`;
+  - dropdown: `Ambisonics Backend` with `Native` and `Steam Audio`;
+  - HRTF backend/data remains separately selectable, with comparisons using the same custom HRTF where possible.
+- Acceptable fallback if Ambisonics and HRTF cannot be cleanly decoupled:
+  - merge controls into one rendering-mode dropdown, for example `Native per-source HRTF`, `Native Ambisonics + Native HRTF`, and `Steam Ambisonics + Steam HRTF`;
+  - keep Direct Path Backend separate.
+- Dependencies/blockers: Need derive/precompute binaural decoder filters from the native HRTF dataset and choose normalization/order conventions. Need inspect whether Steam Audio exposes Ambisonics independently from its HRTF decode path; if not, use the combined setting.
 - Status: not started.
 
 ### Phase 4 - Hybrid renderer
@@ -118,11 +128,14 @@ cargo run --release -- --tail-latest-log 200
 
 Performance acceptance checks:
 
-- Run all backend combinations in release mode:
-  - Native direct + Native HRTF
-  - Steam direct + Native HRTF
-  - Native direct + Steam HRTF
-  - Steam direct + Steam HRTF
+- Run all backend combinations in release mode, using the same custom HRTF dataset for native-vs-Steam comparisons when possible:
+  - Native direct + Native per-source HRTF
+  - Steam direct + Native per-source HRTF
+  - Native direct + Native Ambisonics + Native HRTF
+  - Steam direct + Native Ambisonics + Native HRTF
+  - Native direct + Steam Ambisonics/HRTF with the custom SOFA HRTF
+  - Steam direct + Steam Ambisonics/HRTF with the custom SOFA HRTF
+  - Steam default HRTF only as a separately labeled baseline
 - Stress source counts: at least 1, 8, 16, 36, 64, 128, 256.
 - Report median, p95, and max per 1024-frame block.
 - Keep the 1024-frame / 48 kHz budget in mind: one block is about 21.3 ms of audio.
@@ -132,14 +145,15 @@ Audio-quality checks:
 
 - Use identical source positions and movement for each backend.
 - Compare front/back, left/right, elevation, moving source, and many-source tree rustle scenarios.
-- If possible, compare Steam and native using the same SOFA/HRTF dataset before judging algorithm quality.
+- Primary native-vs-Steam judgments must use the same NH172/custom HRTF dataset. If a run uses Steam Audio default HRTF, label it as `Steam default HRTF baseline` and do not treat it as a fair renderer comparison.
 - Record subjective notes separately for clarity, externalization, front/back confusion, and blur.
 
 Verification gaps:
 
 - No checked-in benchmark harness yet.
 - No controlled same-HRTF-data comparison between Steam and native yet.
-- No native Ambisonics decoder exists yet.
+- No native Ambisonics encoder/decoder exists yet.
+- No GUI control exists yet for `Use Ambisonics` or `Ambisonics Backend` / combined spatial rendering mode.
 - No measured optimization result exists beyond the baseline stress test.
 
 ## Progress Log
@@ -150,11 +164,15 @@ Verification gaps:
 - 2026-06-06: Interpreted the performance gap as mostly algorithmic: per-source 256-tap HRIR convolution versus one summed Ambisonics binaural decode.
 - 2026-06-06: Noted listening discrepancy: native sounds clearer/more correct to the user, while Steam sounds blurrier; likely causes are Ambisonics order and/or different HRTF datasets.
 - 2026-06-06: Created this focused progress document for native HRTF optimization and verification.
+- 2026-06-06: Clarified that future native-vs-Steam comparisons should use the same NH172/custom HRTF dataset; Steam Audio default HRTF should only be a labeled baseline.
+- 2026-06-06: Added the planned Ambisonics control model: prefer separate `Use Ambisonics` checkbox plus `Ambisonics Backend` dropdown, but allow a combined rendering-mode dropdown if Ambisonics and HRTF cannot be decoupled.
 
 ## Open Questions / Risks
 
 - Is the preferred native sound due to per-source HRIR rendering, the NH172 HRTF dataset, coordinate mapping, gain, or some combination?
 - Can Steam Audio load the same HRTF dataset in the runtime-switch path for a fair comparison?
+- Can Ambisonics backend selection be decoupled from HRTF backend/data selection, or must Steam Ambisonics and Steam HRTF stay bundled?
+- What should the final GUI expose: separate `Use Ambisonics` + `Ambisonics Backend`, or a single combined rendering-mode dropdown?
 - What source count should native per-source HRTF support before falling back to bus/cluster rendering?
 - What Ambisonics order is the best quality/performance tradeoff for re-flora: 2, 3, 4, or hybrid only?
 - Will lower tap counts preserve enough localization and timbre quality?
