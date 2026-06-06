@@ -4,7 +4,7 @@ use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    config::PetalSonicWorldDesc,
+    config::{DirectPathBackend, PetalSonicWorldDesc},
     engine::PetalSonicEngine,
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
@@ -89,6 +89,7 @@ impl SpatialSoundManager {
             hrtf_path: Some(hrtf_path),
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
+            direct_path_backend: DirectPathBackend::Native,
             batched_any_hit_ray_tracer: Some(
                 audio_ray_tracer.clone() as Arc<dyn BatchedAnyHitRayTracer>
             ),
