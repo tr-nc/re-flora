@@ -2740,6 +2740,7 @@ dependencies = [
  "crossbeam-channel",
  "glam 0.30.10",
  "log",
+ "realfft",
  "ringbuf",
  "rubato",
  "symphonia",

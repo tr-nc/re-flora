@@ -30,7 +30,7 @@ struct BenchStats {
     decode_us: Vec<u64>,
     hrtf_us: Vec<u64>,
     native_lookup_us: Vec<u64>,
-    native_fir_us: Vec<u64>,
+    native_convolution_us: Vec<u64>,
 }
 
 fn main() -> Result<()> {
@@ -55,7 +55,7 @@ fn main() -> Result<()> {
         steam_hrtf_path.display()
     );
     println!(
-        "sources,mode,total_median_us,total_p95_us,total_max_us,direct_median_us,encode_median_us,decode_median_us,hrtf_median_us,native_lookup_median_us,native_fir_median_us"
+        "sources,mode,total_median_us,total_p95_us,total_max_us,direct_median_us,encode_median_us,decode_median_us,hrtf_median_us,native_lookup_median_us,native_convolution_median_us"
     );
 
     let modes = if args.pure_hrtf_only {
@@ -87,7 +87,7 @@ fn main() -> Result<()> {
                 percentile(&stats.decode_us, 0.50),
                 percentile(&stats.hrtf_us, 0.50),
                 percentile(&stats.native_lookup_us, 0.50),
-                percentile(&stats.native_fir_us, 0.50),
+                percentile(&stats.native_convolution_us, 0.50),
             );
         }
     }
@@ -260,7 +260,7 @@ fn push_metrics(stats: &mut BenchStats, metrics: SpatialProcessingMetrics) {
         .native_lookup_us
         .push(metrics.native_hrtf_direction_lookup_time_us);
     stats
-        .native_fir_us
+        .native_convolution_us
         .push(metrics.native_hrtf_convolution_time_us);
 }
 

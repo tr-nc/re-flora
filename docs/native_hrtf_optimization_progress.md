@@ -24,7 +24,7 @@ Known facts:
   - `reflections_enabled=false`
   - `native_early_reflections_enabled=false`
 - Native HRTF uses `assets/hrtf/hrtf_b_nh172.petalhrtf`, converted from `assets/hrtf/hrtf_b_nh172.sofa` by `../petalsonic/tools/sofa_to_petalhrtf.py`.
-- Native per-source HRTF renders every source independently with nearest-direction lookup plus 256-tap time-domain FIR convolution. The current scalar renderer caches stable direction indices and avoids `% taps` inside the FIR loop.
+- Native per-source HRTF renders every source independently with nearest-direction lookup plus fixed-block frequency-domain overlap-add convolution. The previous scalar time-domain FIR remains as a fallback/reference for unusual block sizes and tests.
 - Native Ambisonics order-2 encode/decode now exists. It sums sources into a 9-channel ACN/N3D-style field, then decodes once through binaural FIR filters derived from the `.petalhrtf` table.
 - Steam Audio HRTF comparisons are exposed through the re-flora GUI again for listening validation. Direct-path and Ambisonics-backend Steam selectors remain hidden; the benchmark harness can still run all backend combinations when needed.
 
@@ -40,16 +40,18 @@ Relevant files:
 - Native/Steam HRTF parity notes: `docs/hrtf_native_steam_parity_investigation.md`
 - Steam Audio source checkout: `/home/terence/code/steam-audio`
 
-Latest checked-in benchmark result, `cargo run --release --bin petalsonic_spatial_bench -- --sources 16,64,128,256 --warmup 4 --blocks 20`, 1024-frame block, 48 kHz, no occlusion/reflections:
+Latest checked-in pure-HRTF benchmark result, `cargo run --release --bin petalsonic_spatial_bench -- --pure-hrtf-only --sources 1,8,36,64,128 --warmup 12 --blocks 80` plus a 256-source run, 1024-frame block, 48 kHz, no occlusion/reflections:
 
-| sources | Native direct + native per-source HRTF | Native direct + native Ambisonics + native HRTF | Native direct + Steam Ambisonics + Steam HRTF custom |
-|---:|---:|---:|---:|
-| 16 | 2.75 ms | 1.54 ms | 0.21 ms |
-| 64 | 11.00 ms | 1.63 ms | 0.53 ms |
-| 128 | 22.18 ms | 1.75 ms | 0.96 ms |
-| 256 | 44.49 ms | 2.02 ms | 1.81 ms |
+| sources | Native direct + native per-source HRTF | Native direct + Steam per-source HRTF custom |
+|---:|---:|---:|
+| 1 | 0.009 ms | 0.006 ms |
+| 8 | 0.067 ms | 0.048 ms |
+| 36 | 0.302 ms | 0.238 ms |
+| 64 | 0.539 ms | 0.425 ms |
+| 128 | 1.089 ms | 0.904 ms |
+| 256 | 2.312 ms | 2.295 ms |
 
-Previous pre-optimization ad hoc result for native per-source HRTF was about 22.7 ms at 64 sources and 88.9 ms at 256 sources, so the scalar FIR cleanup roughly halved that cost. Native Ambisonics makes native HRTF cost mostly source-count-independent after encode.
+Previous scalar-FIR result for native per-source HRTF was about 11.2 ms at 64 sources, 22.2 ms at 128 sources, and 44.3 ms at 256 sources, so native overlap-add convolution removes nearly all of the earlier gap to Steam's per-source HRTF path.
 
 Assumptions to confirm:
 
@@ -63,9 +65,9 @@ Assumptions to confirm:
 ### Phase 0 - Profiling harness and metrics
 
 - Objective: Make current costs reproducible and visible.
-- Expected output: A checked-in release benchmark or hidden-app stress mode that reports source count, backend combination, HRTF taps, direction lookup time, FIR/render time, Ambisonics encode/decode time, simulation time, and total time.
+- Expected output: A checked-in release benchmark or hidden-app stress mode that reports source count, backend combination, HRTF taps, direction lookup time, HRIR convolution/render time, Ambisonics encode/decode time, simulation time, and total time.
 - Dependencies/blockers: Need decide whether the harness lives in PetalSonic, re-flora CLI, or `tools/`.
-- Status: done. `src/bin/petalsonic_spatial_bench.rs` is checked in and reports per-mode total/direct/encode/decode/HRTF/native-FIR timings.
+- Status: done. `src/bin/petalsonic_spatial_bench.rs` is checked in and reports per-mode total/direct/encode/decode/HRTF/native-convolution timings.
 
 ### Phase 1 - Controlled audio-quality comparison
 
@@ -85,7 +87,14 @@ Assumptions to confirm:
   - test tap-count variants such as 64/128/256 taps;
   - consider SIMD after scalar layout is clean.
 - Dependencies/blockers: Further SIMD/cache-layout work should use Phase 0 profiling to prove value.
-- Status: in progress. Direction-index caching and modulo-free scalar FIR are implemented and measured; SIMD, tap-count variants, and storage-layout work remain open.
+- Status: done as the scalar reference path. Direction-index caching and modulo-free scalar FIR are implemented; the gameplay path has moved to Phase 2b overlap-add convolution for Steam-like performance.
+
+### Phase 2b - Native frequency-domain overlap-add HRTF convolution
+
+- Objective: Match Steam Audio's per-source HRTF performance class while preserving the same nearest-direction HRIR output.
+- Expected output: Fixed-block native renderer that precomputes HRIR spectra, does one real FFT per source block, two inverse real FFTs for ears, and overlap-adds the tails.
+- Dependencies/blockers: Uses `realfft`; precomputes spectra at native renderer creation, so runtime audio rendering avoids locks/allocations.
+- Status: done for fixed-size gameplay blocks. Unit tests compare overlap-add output against the scalar FIR across blocks.
 
 ### Phase 3 - Native Ambisonics bus prototype and GUI controls
 
@@ -152,7 +161,7 @@ Audio-quality checks:
 
 Verification gaps:
 
-- Manual same-HRTF listening comparison between Steam and native is still pending.
+- Manual same-HRTF per-source listening comparison now sounds effectively indistinguishable after the Steam z-axis fix; broader movement/stress listening can still be repeated.
 - Native Ambisonics currently supports order 2 only.
 - No source-priority hybrid policy exists yet.
 - Native Ambisonics decoder filters use simple equal-weight spherical integration over the HRTF table; quality should be validated by listening.
@@ -172,11 +181,12 @@ Verification gaps:
 - 2026-06-06: Updated re-flora to provide both custom HRTF formats: `.petalhrtf` for native and SOFA for Steam Audio, avoiding Steam default HRTF in normal comparisons.
 - 2026-06-06: Simplified re-flora GUI to native-only gameplay controls: removed Direct Path Backend, HRTF Backend, and Ambisonics Backend dropdowns; kept only `Use Native Ambisonics`, default off.
 - 2026-06-06: Restored only the `HRTF Backend` dropdown for manual Native-vs-Steam listening validation while keeping Direct Path and Ambisonics encode fixed to native.
-- 2026-06-06: Added detailed timing fields for spatial source count, direct processing, Ambisonics encode/decode, HRTF rendering, native direction lookup, and native FIR convolution.
+- 2026-06-06: Added detailed timing fields for spatial source count, direct processing, Ambisonics encode/decode, HRTF rendering, native direction lookup, and native convolution.
 - 2026-06-06: Added checked-in release benchmark `src/bin/petalsonic_spatial_bench.rs`.
 - 2026-06-06: Added `--pure-hrtf-only` to the benchmark for isolated Native-vs-Steam per-source HRTF comparisons with Ambisonics excluded.
 - 2026-06-06: Flipped the z axis passed to Steam Audio's per-source `BinauralEffect` so PetalSonic `z=front` maps to Steam Audio `-z=ahead` for same-SOFA HRTF comparisons.
-- 2026-06-06: Optimized native per-source FIR by caching stable direction indices and removing `% taps` from the inner convolution loop; release benchmark shows roughly 2x improvement versus previous ad hoc baseline.
+- 2026-06-06: Optimized native per-source FIR by caching stable direction indices and removing `% taps` from the inner convolution loop; release benchmark showed roughly 2x improvement versus previous ad hoc baseline.
+- 2026-06-06: Implemented fixed-block native frequency-domain overlap-add HRTF convolution with precomputed HRIR spectra. Pure per-source HRTF benchmark now puts native and Steam in the same performance range: 128 sources ~1.09 ms native vs ~0.90 ms Steam, 256 sources ~2.31 ms native vs ~2.30 ms Steam.
 - 2026-06-06: Validated with PetalSonic `cargo fmt --check`/`cargo test`, re-flora `cargo fmt --check`/`cargo check`/`cargo test`, benchmark runs, and hidden release app run.
 
 ## Open Questions / Risks
