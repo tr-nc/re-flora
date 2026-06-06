@@ -17,7 +17,9 @@ Done means:
 Known re-flora audio path:
 
 - Current branch: `audio-optimization` in the main worktree. No worker worktree was created.
-- `Cargo.toml` depends on local PetalSonic: `petalsonic = { path = "../petalsonic/petalsonic" }`.
+- `Cargo.toml` depends on the local PetalSonic checkout: `petalsonic = { path = "../petalsonic/petalsonic" }`.
+- The PetalSonic repo root is the sibling directory `../petalsonic/`; the crate manifest used by re-flora is `../petalsonic/petalsonic/Cargo.toml`.
+- Keep this work pointed at the local path dependency. Do not switch PetalSonic to a crates.io or git dependency unless explicitly requested.
 - `src/audio/spatial_sound_manager.rs` creates `PetalSonicWorldDesc`, passes `hrtf_path`, `distance_scaler`, and `batched_any_hit_ray_tracer`, then registers static/procedural spatial sources.
 - `src/audio/tree_rustle.rs` is already native Rust procedural DSP and feeds PetalSonic as mono procedural source content.
 - `src/builder/contree/mod.rs` exposes `ContreeAnyHitRayTracer` and CPU terrain any-hit queries for direct occlusion.
@@ -101,12 +103,15 @@ Baseline checks before changing behavior:
 
 ```bash
 git status --short --branch
+cargo metadata --format-version 1 | python3 -c 'import json,sys; m=json.load(sys.stdin); [print(p["manifest_path"]) for p in m["packages"] if p["name"]=="petalsonic"]'
 cargo fmt --check
 cargo check
 cargo test
 cargo run --release -- --hidden --auto-exit 0.5
 cargo run --release -- --tail-latest-log 200
 ```
+
+The metadata command should print `/home/terence/code/petalsonic/petalsonic/Cargo.toml`, confirming the local sibling PetalSonic crate is active.
 
 PetalSonic checks when the local dependency changes:
 
@@ -150,6 +155,7 @@ Verification gaps:
 - 2026-06-06: Confirmed current re-flora integration passes any-hit direct occlusion but not closest-hit reflection data, so Steam Audio reflections are not meaningfully integrated for the game yet.
 - 2026-06-06: Decided the safest migration strategy is staged replacement: native direct path first, then native HRTF, then early reflections and late reverb, with Steam Audio retained as fallback until validation supports removal.
 - 2026-06-06: Created this progress document to track scope, phases, verification, and risks before implementation.
+- 2026-06-06: Confirmed with `Cargo.toml`/`cargo metadata` that re-flora resolves PetalSonic from the local sibling checkout at `../petalsonic/petalsonic`, not crates.io or git.
 
 ## Open Questions / Risks
 
