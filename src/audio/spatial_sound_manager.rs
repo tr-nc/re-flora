@@ -9,7 +9,8 @@ use petalsonic::{
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
     world::PetalSonicWorld,
-    BatchedAnyHitRayTracer, ProceduralAudioFactory, SourceConfig, SourceId,
+    BatchedAnyHitRayTracer, BatchedClosestHitRayTracer, ProceduralAudioFactory, SourceConfig,
+    SourceId,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -93,6 +94,9 @@ impl SpatialSoundManager {
             direct_path_backend: DirectPathBackend::Native,
             batched_any_hit_ray_tracer: Some(
                 audio_ray_tracer.clone() as Arc<dyn BatchedAnyHitRayTracer>
+            ),
+            batched_closest_hit_ray_tracer: Some(
+                audio_ray_tracer.clone() as Arc<dyn BatchedClosestHitRayTracer>
             ),
             ..Default::default()
         };
