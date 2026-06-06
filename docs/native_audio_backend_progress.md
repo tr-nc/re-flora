@@ -35,10 +35,10 @@ Known PetalSonic state:
 - re-flora now selects `DirectPathBackend::Native` and `HrtfBackend::Native` in `src/audio/spatial_sound_manager.rs` while still using the local PetalSonic crate.
 - Native direct currently handles inverse-distance attenuation, conservative broadband air absorption, any-hit terrain occlusion, direct-path override occlusion, and coarse transmission gain.
 - Native HRTF now loads `assets/hrtf/hrtf_b_nh172.petalhrtf`, generated from the SOFA source asset by `../petalsonic/tools/sofa_to_petalhrtf.py`.
-- Native early reflections now run for the native HRTF backend using re-flora closest-hit terrain probes, a bounded delay line, conservative gain, and native HRTF rendering for the reflection tap.
+- Native early reflection code exists in PetalSonic but is intentionally not enabled in re-flora yet, to keep the current native backend aligned with the pre-reflection behavior.
 - PetalSonic skips the per-block Steam Audio simulation step when all selected processing paths are native.
 - Steam Audio still remains initialized for the current mixed backend and fallback path. Steam Audio runtime packaging is still required until backend initialization and fallback policy are fully native/explicit.
-- re-flora now passes both `BatchedAnyHitRayTracer` and `BatchedClosestHitRayTracer` using the shared CPU terrain query state.
+- re-flora currently passes only `BatchedAnyHitRayTracer`; it does not pass `BatchedClosestHitRayTracer`, so native early reflections remain disabled by default.
 - PetalSonic Steam Audio reflection constants are currently minimal (`1` ray, `1` diffuse sample, `1` bounce, `1` thread, short duration), which is not enough for high-quality indirect simulation if the Steam Audio fallback path is used.
 
 Relevant packaging/build state:
@@ -88,7 +88,7 @@ Assumptions to confirm:
 - Objective: Build a game-specific early reflection system that can use batched scene ray queries and produce musically useful delay taps.
 - Expected output: Asynchronous acoustic ray job path, reflection tap cache per listener/source region, smoothing, and render-time delay/FIR application.
 - Dependencies/blockers: Need decide CPU vs GPU first implementation; GPU path must not stall audio. Need material model for terrain/vegetation/water or safe defaults.
-- Status: initial native implementation wired. Current version uses one closest-hit terrain probe per source/block, a source-visible check, fixed safe material defaults, bounded delay, and HRTF-rendered mono tap. Follow-up work should move probe results to an async/cache path, add smoothing, and improve material/geometry coverage.
+- Status: experimental native implementation exists in PetalSonic but is disabled in re-flora. Current dormant version uses one closest-hit terrain probe per source/block, a source-visible check, fixed safe material defaults, bounded delay, and HRTF-rendered mono tap. Follow-up work should move probe results to an async/cache path, add smoothing, improve material/geometry coverage, then explicitly opt re-flora into it.
 
 ### Phase 4 - Native late reverb / ambience field
 
@@ -150,8 +150,8 @@ Manual/audio quality checks:
 
 Verification gaps:
 
-- Native direct, native direct-source HRTF, and an initial native early-reflection tap are implemented and wired into re-flora. Late reverb is not native yet.
-- Native direct/HRTF/reflection quality still needs manual listening with audible output; hidden runs only prove startup/render-loop health.
+- Native direct and native direct-source HRTF are implemented and wired into re-flora. Native early-reflection code exists in PetalSonic but is intentionally disabled in re-flora; late reverb is not native yet.
+- Native direct/HRTF quality still needs manual listening with audible output; hidden runs only prove startup/render-loop health.
 - No current GPU acoustic ray job path or async reflection cache exists for audio reflections.
 - The offline SOFA-to-native-HRTF conversion tool exists, but asset licensing/quality review and direction/interpolation tuning are still pending.
 
@@ -175,7 +175,8 @@ Verification gaps:
 - 2026-06-06: Added `../petalsonic/tools/sofa_to_petalhrtf.py`, converted `assets/hrtf/hrtf_b_nh172.sofa` to `assets/hrtf/hrtf_b_nh172.petalhrtf`, and switched re-flora to load the native HRTF asset.
 - 2026-06-06: Added `HrtfBackend` to PetalSonic and wired `HrtfBackend::Native` into the spatial processor so native direct output renders through the native HRTF FIR path instead of Steam Audio ambisonics encode/decode.
 - 2026-06-06: Validated native direct + native HRTF with PetalSonic tests, re-flora `cargo check`, re-flora `cargo fmt --check`, re-flora `cargo test`, and hidden release run; log confirms `hrtf_backend=Native` and `direct_path_backend=Native`.
-- 2026-06-06: Added initial PetalSonic native early reflection tap for the native HRTF path and wired re-flora closest-hit terrain ray queries; hidden release log confirms `native_early_reflections_enabled=true`.
+- 2026-06-06: Added initial PetalSonic native early reflection tap for the native HRTF path and briefly wired re-flora closest-hit terrain ray queries for validation.
+- 2026-06-06: Disabled re-flora closest-hit reflection wiring again so default native audio matches the previous no-reflection behavior; expected log is `native_early_reflections_enabled=false`.
 - 2026-06-06: Skipped per-block Steam Audio simulation when selected HRTF/direct/reflection paths are native.
 
 ## Open Questions / Risks
@@ -187,7 +188,7 @@ Verification gaps:
 - How much reflection quality is actually needed for re-flora's outdoor scene style versus a cheaper ambience/reverb approximation?
 - Native direct uses scalar broadband air absorption/transmission for now; spectral filtering and subjective loudness need tuning.
 - Native HRTF currently uses nearest-direction FIR without interpolation or crossfade; moving sources may need smoothing to avoid zipper/click artifacts.
-- Native early reflections are intentionally minimal: one probe tap, fixed material defaults, no temporal smoothing/cache, and CPU terrain-only geometry.
+- Native early reflections are intentionally disabled in re-flora for now and minimal in PetalSonic: one probe tap, fixed material defaults, no temporal smoothing/cache, and CPU terrain-only geometry.
 - GPU acoustic ray tracing may add latency and synchronization complexity; design must avoid stalling graphics or audio.
 - Removing Steam Audio affects release packaging across Windows, macOS, and Linux and should happen only after native backend validation.
 - Keeping both backends too long may increase maintenance burden; removing the fallback too early may make quality regressions harder to compare.
