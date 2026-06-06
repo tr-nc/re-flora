@@ -10,7 +10,7 @@ Done means:
 - Native HRTF performance is acceptable under re-flora-like stress loads, or a hybrid fallback policy is explicit.
 - Listening comparisons use the same high-quality custom HRTF dataset as the primary comparison target; Steam Audio's default HRTF is only a separate baseline, not the main native-vs-Steam comparison.
 - Listening comparisons can separate three variables: direct backend, HRTF dataset, and rendering method.
-- re-flora has a clear GUI/control model for Ambisonics use: one `Use Native Ambisonics` checkbox. Backend selection stays native in gameplay.
+- re-flora has a clear GUI/control model for listening validation: an `HRTF Backend` dropdown plus one `Use Native Ambisonics` checkbox. Direct path and Ambisonics encode backend stay native in gameplay.
 - The chosen default remains realtime-safe: no audio-callback locks, allocations, file I/O, GPU waits, or unpredictable work.
 
 ## Current State
@@ -18,7 +18,7 @@ Done means:
 Known facts:
 
 - re-flora defaults to `DirectPathBackend::Native`, `HrtfBackend::Native`, `use_ambisonics=false`, and `AmbisonicsBackend::Native` in `src/audio/spatial_sound_manager.rs`.
-- re-flora's GUI exposes only `Use Native Ambisonics`; direct path, HRTF, and Ambisonics backend are fixed to native in gameplay.
+- re-flora's GUI exposes `HRTF Backend` (`Native` / `Steam Audio`) and `Use Native Ambisonics`; direct path and Ambisonics encode backend are fixed to native in gameplay.
 - Direct occlusion and reflections are intentionally disabled in re-flora now:
   - `direct_occlusion_enabled=false`
   - `reflections_enabled=false`
@@ -26,7 +26,7 @@ Known facts:
 - Native HRTF uses `assets/hrtf/hrtf_b_nh172.petalhrtf`, converted from `assets/hrtf/hrtf_b_nh172.sofa` by `../petalsonic/tools/sofa_to_petalhrtf.py`.
 - Native per-source HRTF renders every source independently with nearest-direction lookup plus 256-tap time-domain FIR convolution. The current scalar renderer caches stable direction indices and avoids `% taps` inside the FIR loop.
 - Native Ambisonics order-2 encode/decode now exists. It sums sources into a 9-channel ACN/N3D-style field, then decodes once through binaural FIR filters derived from the `.petalhrtf` table.
-- Steam Audio backend comparisons are no longer exposed through the re-flora GUI. The benchmark harness can still run same-dataset Steam comparisons when needed.
+- Steam Audio HRTF comparisons are exposed through the re-flora GUI again for listening validation. Direct-path and Ambisonics-backend Steam selectors remain hidden; the benchmark harness can still run all backend combinations when needed.
 
 Relevant files:
 
@@ -37,6 +37,8 @@ Relevant files:
 - PetalSonic runtime backend switch: `../petalsonic/petalsonic/src/engine.rs`
 - re-flora audio integration: `src/audio/spatial_sound_manager.rs`
 - re-flora GUI config: `config/gui.toml`
+- Native/Steam HRTF parity notes: `docs/hrtf_native_steam_parity_investigation.md`
+- Steam Audio source checkout: `/home/terence/code/steam-audio`
 
 Latest checked-in benchmark result, `cargo run --release --bin petalsonic_spatial_bench -- --sources 16,64,128,256 --warmup 4 --blocks 20`, 1024-frame block, 48 kHz, no occlusion/reflections:
 
@@ -53,8 +55,8 @@ Assumptions to confirm:
 
 - The native path sounds more correct mainly because it renders per-source HRIRs and/or uses the NH172 dataset; not necessarily because Steam Audio is wrong.
 - Steam's blur is likely from order-2 Ambisonics and/or the Steam default HRTF dataset, but this still needs controlled listening tests using the same custom HRTF.
-- Gameplay is now intentionally native-only; use the benchmark harness or a dedicated test mode for same-HRTF Steam comparisons.
-- Steam Audio core source may not be available; if only SDK/docs/bindings are available, research must rely on docs, AudioNimbus bindings, and black-box benchmarks.
+- Gameplay still defaults to native HRTF, but the HRTF backend dropdown is restored temporarily for same-HRTF listening validation.
+- Steam Audio core source is available locally at `/home/terence/code/steam-audio`; use it for implementation details before guessing.
 
 ## Plan / Phases
 
@@ -69,7 +71,7 @@ Assumptions to confirm:
 
 - Objective: Separate HRTF dataset differences from rendering-method differences.
 - Expected output: Listening matrix where the primary native-vs-Steam comparison uses the same NH172/custom HRTF dataset, plus a clearly labeled Steam-default-HRTF baseline. Include per-source HRIR vs Ambisonics bus, and order 2/3/4 if available.
-- Dependencies/blockers: Steam Audio now loads `assets/hrtf/hrtf_b_nh172.sofa` in the re-flora runtime switch path. Remaining blocker is manual listening validation.
+- Dependencies/blockers: Steam Audio now loads `assets/hrtf/hrtf_b_nh172.sofa` in the re-flora runtime switch path, and the re-flora Audio GUI exposes an HRTF backend dropdown for manual listening validation.
 - Status: in progress.
 
 ### Phase 2 - Low-risk native FIR optimizations
@@ -90,8 +92,9 @@ Assumptions to confirm:
 - Objective: Recreate the cheap Steam-style path natively: encode many sources into a spherical field, then do one binaural decode consumed by the HRTF renderer.
 - Expected output: Native Ambisonics encode + native binaural decode path using the `.petalhrtf` table, with selectable order and performance/quality comparison.
 - GUI/control model:
+  - dropdown: `HRTF Backend` (`Native` / `Steam Audio`) for listening validation;
   - checkbox: `Use Native Ambisonics`;
-  - direct path, HRTF, and Ambisonics backend stay fixed to native in gameplay.
+  - direct path and Ambisonics encode backend stay fixed to native in gameplay.
 - Dependencies/blockers: Higher-order Ambisonics and normalization/listening validation remain open.
 - Status: done for order-2 prototype and simplified GUI control. Native encode, native binaural decode filters derived from `.petalhrtf`, and the `Use Native Ambisonics` checkbox are implemented.
 
@@ -106,8 +109,8 @@ Assumptions to confirm:
 
 - Objective: Learn what Steam Audio is doing and decide which ideas to copy.
 - Expected output: Notes with links/citations to available Steam Audio SDK/docs/source or AudioNimbus binding code; clear statement of what is unavailable.
-- Dependencies/blockers: Steam Audio core may not be open-source.
-- Status: not started.
+- Dependencies/blockers: none currently; Steam Audio source is cloned locally.
+- Status: in progress. See `docs/hrtf_native_steam_parity_investigation.md` and `/home/terence/code/steam-audio` at commit `480dd64f513cc8a6437e7d5b9eb0d3f1d30c2fac`.
 
 ## Verification Method
 
@@ -168,6 +171,7 @@ Verification gaps:
 - 2026-06-06: Added runtime Ambisonics controls in re-flora: `Use Ambisonics` checkbox and `Ambisonics Backend` dropdown.
 - 2026-06-06: Updated re-flora to provide both custom HRTF formats: `.petalhrtf` for native and SOFA for Steam Audio, avoiding Steam default HRTF in normal comparisons.
 - 2026-06-06: Simplified re-flora GUI to native-only gameplay controls: removed Direct Path Backend, HRTF Backend, and Ambisonics Backend dropdowns; kept only `Use Native Ambisonics`, default off.
+- 2026-06-06: Restored only the `HRTF Backend` dropdown for manual Native-vs-Steam listening validation while keeping Direct Path and Ambisonics encode fixed to native.
 - 2026-06-06: Added detailed timing fields for spatial source count, direct processing, Ambisonics encode/decode, HRTF rendering, native direction lookup, and native FIR convolution.
 - 2026-06-06: Added checked-in release benchmark `src/bin/petalsonic_spatial_bench.rs`.
 - 2026-06-06: Optimized native per-source FIR by caching stable direction indices and removing `% taps` from the inner convolution loop; release benchmark shows roughly 2x improvement versus previous ad hoc baseline.

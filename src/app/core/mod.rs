@@ -59,6 +59,7 @@ use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePrefer
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
+use petalsonic::config::HrtfBackend;
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
     SwapchainFrameError, SwapchainFrameManager,
@@ -654,11 +655,25 @@ impl App {
     }
 
     fn update_spatial_audio_backends(&mut self) {
-        if let Err(err) = self
-            .spatial_sound_manager
-            .set_native_ambisonics_enabled(self.gui_adjustables.audio_use_ambisonics.value)
-        {
-            log::error!("Failed to apply native Ambisonics setting: {}", err);
+        if let Err(err) = self.spatial_sound_manager.set_spatial_audio_rendering(
+            Self::selected_hrtf_backend(self.gui_adjustables.audio_hrtf_backend.value),
+            self.gui_adjustables.audio_use_ambisonics.value,
+        ) {
+            log::error!("Failed to apply spatial audio rendering setting: {}", err);
+        }
+    }
+
+    fn selected_hrtf_backend(value: u32) -> HrtfBackend {
+        match value {
+            1 => HrtfBackend::SteamAudio,
+            _ => HrtfBackend::Native,
+        }
+    }
+
+    fn hrtf_backend_label(backend: HrtfBackend) -> &'static str {
+        match backend {
+            HrtfBackend::Native => "Native (.petalhrtf)",
+            HrtfBackend::SteamAudio => "Steam Audio (SOFA)",
         }
     }
 
@@ -789,8 +804,11 @@ impl App {
 
         // Shared spatial audio engine (PetalSonic) used by both the tracer (camera)
         // and the app-level tree ambience sources.
-        let spatial_sound_manager =
-            SpatialSoundManager::new(1024, contree_builder.audio_ray_tracer())?;
+        let spatial_sound_manager = SpatialSoundManager::new(
+            1024,
+            contree_builder.audio_ray_tracer(),
+            options.audio_output_device.clone(),
+        )?;
 
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
@@ -1729,6 +1747,33 @@ impl App {
                                             )
                                             .text("Footstep Volume (dB)"),
                                         );
+                                        let selected_hrtf_backend = Self::selected_hrtf_backend(
+                                            self.gui_adjustables.audio_hrtf_backend.value,
+                                        );
+                                        egui::ComboBox::from_label("HRTF Backend")
+                                            .selected_text(Self::hrtf_backend_label(
+                                                selected_hrtf_backend,
+                                            ))
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_hrtf_backend
+                                                        .value,
+                                                    0,
+                                                    Self::hrtf_backend_label(HrtfBackend::Native),
+                                                );
+                                                ui.selectable_value(
+                                                    &mut self
+                                                        .gui_adjustables
+                                                        .audio_hrtf_backend
+                                                        .value,
+                                                    1,
+                                                    Self::hrtf_backend_label(
+                                                        HrtfBackend::SteamAudio,
+                                                    ),
+                                                );
+                                            });
                                         ui.checkbox(
                                             &mut self.gui_adjustables.audio_use_ambisonics.value,
                                             "Use Native Ambisonics",

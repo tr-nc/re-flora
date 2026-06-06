@@ -398,6 +398,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
+        id: "audio_hrtf_backend",
+        kind: "uint",
+        label: "HRTF Backend (0 Native, 1 Steam Audio)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Audio",
         id: "audio_use_ambisonics",
         kind: "bool",
         label: "Use Ambisonics",
@@ -1194,6 +1200,7 @@ pub struct GuiAdjustables {
     pub wind_source_3_gain: crate::gui_adjustables::FloatParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
     pub footstep_volume_db: crate::gui_adjustables::FloatParam,
+    pub audio_hrtf_backend: crate::gui_adjustables::UintParam,
     pub audio_use_ambisonics: crate::gui_adjustables::BoolParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
@@ -1391,6 +1398,7 @@ impl GuiAdjustables {
         let mut wind_source_3_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut audio_hrtf_backend_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut audio_use_ambisonics_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1931,6 +1939,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             footstep_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "audio_hrtf_backend" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            audio_hrtf_backend_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "audio_use_ambisonics" => {
@@ -2807,6 +2822,7 @@ impl GuiAdjustables {
             wind_source_3_gain: wind_source_3_gain_field.expect("Missing parameter: wind_source_3_gain"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
             footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
+            audio_hrtf_backend: audio_hrtf_backend_field.expect("Missing parameter: audio_hrtf_backend"),
             audio_use_ambisonics: audio_use_ambisonics_field.expect("Missing parameter: audio_use_ambisonics"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
             tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
@@ -3098,6 +3114,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_1_octaves" => Some(&adjustables.wind_source_1_octaves),
         "wind_source_2_octaves" => Some(&adjustables.wind_source_2_octaves),
         "wind_source_3_octaves" => Some(&adjustables.wind_source_3_octaves),
+        "audio_hrtf_backend" => Some(&adjustables.audio_hrtf_backend),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
@@ -3329,6 +3346,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_1_octaves" => Some(&mut adjustables.wind_source_1_octaves),
         "wind_source_2_octaves" => Some(&mut adjustables.wind_source_2_octaves),
         "wind_source_3_octaves" => Some(&mut adjustables.wind_source_3_octaves),
+        "audio_hrtf_backend" => Some(&mut adjustables.audio_hrtf_backend),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),

@@ -674,6 +674,17 @@ min = -40
 max = 40
 
 [[section.param]]
+id = "audio_hrtf_backend"
+kind = "uint"
+label = "HRTF Backend (0 Native, 1 Steam Audio)"
+type = "Uint"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
 id = "audio_use_ambisonics"
 kind = "bool"
 label = "Use Ambisonics"

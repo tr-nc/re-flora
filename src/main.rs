@@ -132,6 +132,36 @@ fn validate_requested_camera_snapshot(options: &AppOptions) -> Result<(), String
     ))
 }
 
+fn handle_audio_output_device_query_options(options: &AppOptions) -> bool {
+    if !options.list_audio_output_devices {
+        return false;
+    }
+
+    match petalsonic::PetalSonicEngine::available_output_devices() {
+        Ok(devices) => {
+            for device in devices {
+                let default_marker = if device.is_default { " (default)" } else { "" };
+                if device.aliases.is_empty() {
+                    println!("{}{}", device.name, default_marker);
+                } else {
+                    println!(
+                        "{}{} [aliases: {}]",
+                        device.name,
+                        default_marker,
+                        device.aliases.join(", ")
+                    );
+                }
+            }
+        }
+        Err(err) => {
+            eprintln!("Failed to list audio output devices: {err}");
+            std::process::exit(1);
+        }
+    }
+
+    true
+}
+
 fn handle_log_query_options(options: &AppOptions) -> bool {
     if !options.print_log_dir && !options.latest_log && options.tail_latest_log.is_none() {
         return false;
@@ -205,6 +235,9 @@ pub fn main() {
         return;
     }
     if handle_log_query_options(&options) {
+        return;
+    }
+    if handle_audio_output_device_query_options(&options) {
         return;
     }
     if handle_camera_snapshot_query_options(&options) {

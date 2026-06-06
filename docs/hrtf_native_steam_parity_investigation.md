@@ -1,0 +1,98 @@
+# Native / Steam Audio HRTF Parity Investigation
+
+Date: 2026-06-06
+
+## Local Steam Audio Source Checkout
+
+Steam Audio source has been cloned locally for follow-up inspection:
+
+```text
+/home/terence/code/steam-audio
+commit 480dd64f513cc8a6437e7d5b9eb0d3f1d30c2fac
+```
+
+Useful files:
+
+- `/home/terence/code/steam-audio/core/src/core/sofa_hrtf_map.cpp`
+- `/home/terence/code/steam-audio/core/src/core/binaural_effect.cpp`
+- `/home/terence/code/steam-audio/core/src/core/hrtf_database.cpp`
+- `/home/terence/code/steam-audio/core/src/core/ambisonics_panning_effect.cpp`
+- `/home/terence/code/steam-audio/core/src/core/phonon.h`
+
+Permalinks for the same revision:
+
+- SOFA coordinate conversion: <https://github.com/ValveSoftware/steam-audio/blob/480dd64f513cc8a6437e7d5b9eb0d3f1d30c2fac/core/src/core/sofa_hrtf_map.cpp#L507-L510>
+- SOFA nearest lookup: <https://github.com/ValveSoftware/steam-audio/blob/480dd64f513cc8a6437e7d5b9eb0d3f1d30c2fac/core/src/core/sofa_hrtf_map.cpp#L93-L98>
+- Binaural nearest/bilinear switch: <https://github.com/ValveSoftware/steam-audio/blob/480dd64f513cc8a6437e7d5b9eb0d3f1d30c2fac/core/src/core/binaural_effect.cpp#L67-L79>
+- Overlap-add HRTF convolution setup: <https://github.com/ValveSoftware/steam-audio/blob/480dd64f513cc8a6437e7d5b9eb0d3f1d30c2fac/core/src/core/binaural_effect.cpp#L125-L140>
+- Ambisonics HRTF precompute path: <https://github.com/ValveSoftware/steam-audio/blob/480dd64f513cc8a6437e7d5b9eb0d3f1d30c2fac/core/src/core/hrtf_database.cpp#L488-L519>
+- Steam virtual speaker set for Ambisonics decode: <https://github.com/ValveSoftware/steam-audio/blob/480dd64f513cc8a6437e7d5b9eb0d3f1d30c2fac/core/src/core/ambisonics_panning_effect.cpp#L28-L55>
+- HRTF interpolation enum docs in public header: <https://github.com/ValveSoftware/steam-audio/blob/480dd64f513cc8a6437e7d5b9eb0d3f1d30c2fac/core/src/core/phonon.h#L1568-L1578>
+
+## Performance Benchmark Snapshot
+
+Release benchmark command used for the first subsystem comparison:
+
+```bash
+cargo run --release --bin petalsonic_spatial_bench -- --sources 1,8,36,64,128 --warmup 12 --blocks 80
+cargo run --release --bin petalsonic_spatial_bench -- --sources 256 --warmup 8 --blocks 50
+```
+
+Conditions:
+
+- block size: 1024 frames
+- sample rate: 48 kHz
+- block budget: 21.33 ms
+- Steam and native HRTF paths both use NH172 (`assets/hrtf/hrtf_b_nh172.sofa` / `.petalhrtf`)
+- direct occlusion/reflections were disabled; this measured direct gain + HRTF/Ambisonics DSP paths
+
+Median end-to-end time per audio block:
+
+| sources | native direct + native per-source HRTF | Steam direct + native HRTF | native direct + Steam per-source HRTF | native ambi + native HRTF | Steam ambi + native HRTF | native ambi + Steam HRTF | Steam ambi + Steam HRTF |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.169 ms | 0.173 ms | 0.006 ms | 1.492 ms | 1.484 ms | 0.093 ms | 0.103 ms |
+| 8 | 1.311 ms | 1.343 ms | 0.049 ms | 1.473 ms | 1.500 ms | 0.105 ms | 0.149 ms |
+| 36 | 5.881 ms | 5.980 ms | 0.245 ms | 1.520 ms | 1.656 ms | 0.149 ms | 0.324 ms |
+| 64 | 10.471 ms | 10.628 ms | 0.433 ms | 1.564 ms | 1.801 ms | 0.201 ms | 0.499 ms |
+| 128 | 21.088 ms | 21.306 ms | 0.962 ms | 1.709 ms | 2.330 ms | 0.314 ms | 0.924 ms |
+| 256 | 42.454 ms | 43.016 ms | 2.312 ms | 1.949 ms | 3.127 ms | 0.505 ms | 1.816 ms |
+
+## Current HRTF Quality Hypotheses
+
+### 1. Steam custom SOFA path may need an explicit Petal-local to Steam/SOFA direction mapping
+
+PetalSonic native HRTF convention is:
+
+```text
+x = right, y = up, z = front
+```
+
+Steam Audio's SOFA map converts a Steam direction vector with:
+
+```cpp
+return Vector3f(-v.z(), -v.x(), v.y());
+```
+
+That suggests Petal-local `z=front` may need to be passed to Steam custom SOFA HRTF as `z=-front` for apples-to-apples custom-HRTF comparisons. A temporary impulse parity check showed front/back matching only after flipping the z component before the Steam HRTF lookup. This has not been committed as a fix yet; the GUI HRTF selector is restored first so the behavior can be listened to in-game.
+
+### 2. Native per-source HRTF is currently nearest-direction time-domain FIR
+
+Native source path:
+
+- nearest direction lookup: `../petalsonic/petalsonic/src/spatial/native_hrtf.rs`
+- time-domain FIR render: `NativeHrtfRenderer::render_source_with_metrics`
+
+Steam per-source HRTF also supports nearest, and PetalSonic currently requests nearest on the Steam path. If both use the same NH172 dataset and the direction mapping is aligned, per-source native and Steam nearest-HRTF output should be very close aside from Steam's overlap-add latency.
+
+### 3. Native Ambisonics binaural decode is intentionally simpler than Steam Audio's
+
+Native Ambisonics decode currently projects measured `.petalhrtf` directions with uniform spherical weighting. Steam Audio instead builds Ambisonics HRTFs using a minimum-phase HRIR step, interpolation at 24 virtual speaker directions, and frequency-domain filters. So Ambisonics decode quality differences are more likely to be real algorithm differences than a simple bug.
+
+## Next Debug Steps
+
+1. Use the restored in-game HRTF dropdown to listen to:
+   - native per-source HRTF
+   - Steam Audio per-source HRTF using the same NH172 SOFA file
+   - native Ambisonics on/off for both HRTF backends
+2. If Steam still sounds front/back wrong, add a controlled parity test for the Steam direction mapping before changing gameplay code.
+3. If per-source parity is fixed but Ambisonics still differs strongly, focus next on matching Steam's Ambisonics binaural decode construction rather than the per-source HRTF FIR.
