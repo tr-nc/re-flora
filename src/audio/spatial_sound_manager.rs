@@ -9,7 +9,7 @@ use petalsonic::{
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
     world::PetalSonicWorld,
-    BatchedAnyHitRayTracer, ProceduralAudioFactory, SourceConfig, SourceId,
+    ProceduralAudioFactory, SourceConfig, SourceId,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -91,9 +91,9 @@ impl SpatialSoundManager {
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
             direct_path_backend: DirectPathBackend::Native,
-            batched_any_hit_ray_tracer: Some(
-                audio_ray_tracer.clone() as Arc<dyn BatchedAnyHitRayTracer>
-            ),
+            // Keep direct occlusion disabled for now so native direct + HRTF matches
+            // the previous no-occlusion baseline while HRTF quality is validated.
+            batched_any_hit_ray_tracer: None,
             ..Default::default()
         };
 
@@ -380,6 +380,8 @@ impl SpatialSoundManager {
     }
 
     pub fn set_audio_ray_tracing_enabled(&self, enabled: bool) {
+        // The ray tracer is kept alive for future occlusion/reflection work, but it is
+        // intentionally not wired into PetalSonic while we validate the no-occlusion baseline.
         self.audio_ray_tracer.set_enabled(enabled);
     }
 
