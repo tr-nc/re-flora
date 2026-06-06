@@ -4,7 +4,7 @@ use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    config::{DirectPathBackend, PetalSonicWorldDesc},
+    config::{DirectPathBackend, HrtfBackend, PetalSonicWorldDesc},
     engine::PetalSonicEngine,
     math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
     playback::LoopMode,
@@ -76,9 +76,9 @@ impl SpatialSoundManager {
         // Initialize audio clip cache first
         let clip_cache = Arc::new(AudioClipCache::new()?);
 
-        // Get HRTF path - use the same path structure as before
+        // Get native PetalSonic HRTF path generated from the SOFA source asset.
         let hrtf_path = format!(
-            "{}assets/hrtf/hrtf_b_nh172.sofa",
+            "{}assets/hrtf/hrtf_b_nh172.petalhrtf",
             crate::util::get_project_root()
         );
 
@@ -87,6 +87,7 @@ impl SpatialSoundManager {
             sample_rate,
             block_size: frame_window_size,
             hrtf_path: Some(hrtf_path),
+            hrtf_backend: HrtfBackend::Native,
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
             direct_path_backend: DirectPathBackend::Native,
