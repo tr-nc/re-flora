@@ -674,26 +674,6 @@ min = -40
 max = 40
 
 [[section.param]]
-id = "audio_direct_path_backend"
-kind = "choice"
-label = "Direct Path Backend"
-type = "Choice"
-
-[section.param.data]
-value = 0
-options = ["Native", "Steam Audio"]
-
-[[section.param]]
-id = "audio_hrtf_backend"
-kind = "choice"
-label = "HRTF Backend"
-type = "Choice"
-
-[section.param.data]
-value = 0
-options = ["Native", "Steam Audio"]
-
-[[section.param]]
 id = "audio_use_ambisonics"
 kind = "bool"
 label = "Use Ambisonics"
@@ -701,16 +681,6 @@ type = "Bool"
 
 [section.param.data]
 value = false
-
-[[section.param]]
-id = "audio_ambisonics_backend"
-kind = "choice"
-label = "Ambisonics Backend"
-type = "Choice"
-
-[section.param.data]
-value = 0
-options = ["Native", "Steam Audio"]
 
 [[section.param]]
 id = "tree_wind_response_min_strength"

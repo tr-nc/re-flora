@@ -76,17 +76,17 @@ impl SpatialSoundManager {
         // Initialize audio clip cache first
         let clip_cache = Arc::new(AudioClipCache::new()?);
 
-        // Use the same high-quality custom HRTF dataset for native and Steam Audio paths.
+        // Use re-flora's native HRTF dataset; GUI backend selectors were removed so the
+        // runtime path stays native, with only Ambisonics on/off exposed.
         let project_root = crate::util::get_project_root();
         let native_hrtf_path = format!("{}assets/hrtf/hrtf_b_nh172.petalhrtf", project_root);
-        let steam_hrtf_path = format!("{}assets/hrtf/hrtf_b_nh172.sofa", project_root);
 
         // Create PetalSonic world configuration
         let world_desc = PetalSonicWorldDesc {
             sample_rate,
             block_size: frame_window_size,
             hrtf_path: Some(native_hrtf_path.clone()),
-            steam_hrtf_path: Some(steam_hrtf_path),
+            steam_hrtf_path: None,
             native_hrtf_path: Some(native_hrtf_path),
             hrtf_backend: HrtfBackend::Native,
             use_ambisonics: false,
@@ -388,18 +388,12 @@ impl SpatialSoundManager {
         self.audio_ray_tracer.set_enabled(enabled);
     }
 
-    pub fn set_spatial_rendering(
-        &self,
-        hrtf_backend: HrtfBackend,
-        direct_path_backend: DirectPathBackend,
-        use_ambisonics: bool,
-        ambisonics_backend: AmbisonicsBackend,
-    ) -> Result<()> {
+    pub fn set_native_ambisonics_enabled(&self, use_ambisonics: bool) -> Result<()> {
         self.engine.lock().unwrap().set_spatial_rendering(
-            hrtf_backend,
-            direct_path_backend,
+            HrtfBackend::Native,
+            DirectPathBackend::Native,
             use_ambisonics,
-            ambisonics_backend,
+            AmbisonicsBackend::Native,
         )?;
         Ok(())
     }

@@ -59,7 +59,6 @@ use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePrefer
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
-use petalsonic::config::{AmbisonicsBackend, DirectPathBackend, HrtfBackend};
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
     SwapchainFrameError, SwapchainFrameManager,
@@ -627,35 +626,12 @@ impl App {
             .set_audio_ray_tracing_enabled(self.gui_adjustables.audio_ray_tracing_enabled.value);
     }
 
-    fn selected_direct_path_backend(gui_adjustables: &GuiAdjustables) -> DirectPathBackend {
-        match gui_adjustables.audio_direct_path_backend.value {
-            1 => DirectPathBackend::SteamAudio,
-            _ => DirectPathBackend::Native,
-        }
-    }
-
-    fn selected_hrtf_backend(gui_adjustables: &GuiAdjustables) -> HrtfBackend {
-        match gui_adjustables.audio_hrtf_backend.value {
-            1 => HrtfBackend::SteamAudio,
-            _ => HrtfBackend::Native,
-        }
-    }
-
-    fn selected_ambisonics_backend(gui_adjustables: &GuiAdjustables) -> AmbisonicsBackend {
-        match gui_adjustables.audio_ambisonics_backend.value {
-            1 => AmbisonicsBackend::SteamAudio,
-            _ => AmbisonicsBackend::Native,
-        }
-    }
-
     fn update_spatial_audio_backends(&mut self) {
-        if let Err(err) = self.spatial_sound_manager.set_spatial_rendering(
-            Self::selected_hrtf_backend(&self.gui_adjustables),
-            Self::selected_direct_path_backend(&self.gui_adjustables),
-            self.gui_adjustables.audio_use_ambisonics.value,
-            Self::selected_ambisonics_backend(&self.gui_adjustables),
-        ) {
-            log::error!("Failed to apply spatial audio backend selection: {}", err);
+        if let Err(err) = self
+            .spatial_sound_manager
+            .set_native_ambisonics_enabled(self.gui_adjustables.audio_use_ambisonics.value)
+        {
+            log::error!("Failed to apply native Ambisonics setting: {}", err);
         }
     }
 
@@ -1726,94 +1702,10 @@ impl App {
                                             )
                                             .text("Footstep Volume (dB)"),
                                         );
-                                        egui::ComboBox::from_label("Direct Path Backend")
-                                            .selected_text(
-                                                match self
-                                                    .gui_adjustables
-                                                    .audio_direct_path_backend
-                                                    .value
-                                                {
-                                                    1 => "Steam Audio",
-                                                    _ => "Native",
-                                                },
-                                            )
-                                            .show_ui(ui, |ui| {
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_direct_path_backend
-                                                        .value,
-                                                    0,
-                                                    "Native",
-                                                );
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_direct_path_backend
-                                                        .value,
-                                                    1,
-                                                    "Steam Audio",
-                                                );
-                                            });
-                                        egui::ComboBox::from_label("HRTF Backend")
-                                            .selected_text(
-                                                match self.gui_adjustables.audio_hrtf_backend.value
-                                                {
-                                                    1 => "Steam Audio",
-                                                    _ => "Native",
-                                                },
-                                            )
-                                            .show_ui(ui, |ui| {
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_hrtf_backend
-                                                        .value,
-                                                    0,
-                                                    "Native",
-                                                );
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_hrtf_backend
-                                                        .value,
-                                                    1,
-                                                    "Steam Audio",
-                                                );
-                                            });
                                         ui.checkbox(
                                             &mut self.gui_adjustables.audio_use_ambisonics.value,
-                                            "Use Ambisonics",
+                                            "Use Native Ambisonics",
                                         );
-                                        egui::ComboBox::from_label("Ambisonics Backend")
-                                            .selected_text(
-                                                match self
-                                                    .gui_adjustables
-                                                    .audio_ambisonics_backend
-                                                    .value
-                                                {
-                                                    1 => "Steam Audio",
-                                                    _ => "Native",
-                                                },
-                                            )
-                                            .show_ui(ui, |ui| {
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_ambisonics_backend
-                                                        .value,
-                                                    0,
-                                                    "Native",
-                                                );
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_ambisonics_backend
-                                                        .value,
-                                                    1,
-                                                    "Steam Audio",
-                                                );
-                                            });
                                         ui.add(
                                             egui::Slider::new(
                                                 &mut self

@@ -398,27 +398,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
-        id: "audio_direct_path_backend",
-        kind: "choice",
-        label: "Direct Path Backend",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "audio_hrtf_backend",
-        kind: "choice",
-        label: "HRTF Backend",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
         id: "audio_use_ambisonics",
         kind: "bool",
         label: "Use Ambisonics",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "audio_ambisonics_backend",
-        kind: "choice",
-        label: "Ambisonics Backend",
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
@@ -1212,10 +1194,7 @@ pub struct GuiAdjustables {
     pub wind_source_3_gain: crate::gui_adjustables::FloatParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
     pub footstep_volume_db: crate::gui_adjustables::FloatParam,
-    pub audio_direct_path_backend: crate::gui_adjustables::ChoiceParam,
-    pub audio_hrtf_backend: crate::gui_adjustables::ChoiceParam,
     pub audio_use_ambisonics: crate::gui_adjustables::BoolParam,
-    pub audio_ambisonics_backend: crate::gui_adjustables::ChoiceParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
@@ -1412,10 +1391,7 @@ impl GuiAdjustables {
         let mut wind_source_3_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut audio_direct_path_backend_field: Option<crate::gui_adjustables::ChoiceParam> = None;
-        let mut audio_hrtf_backend_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut audio_use_ambisonics_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut audio_ambisonics_backend_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1957,24 +1933,9 @@ impl GuiAdjustables {
                             footstep_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "audio_direct_path_backend" => {
-                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
-                            audio_direct_path_backend_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
-                        }
-                    }
-                    "audio_hrtf_backend" => {
-                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
-                            audio_hrtf_backend_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
-                        }
-                    }
                     "audio_use_ambisonics" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             audio_use_ambisonics_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "audio_ambisonics_backend" => {
-                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
-                            audio_ambisonics_backend_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
                         }
                     }
                     "tree_wind_response_min_strength" => {
@@ -2846,10 +2807,7 @@ impl GuiAdjustables {
             wind_source_3_gain: wind_source_3_gain_field.expect("Missing parameter: wind_source_3_gain"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
             footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
-            audio_direct_path_backend: audio_direct_path_backend_field.expect("Missing parameter: audio_direct_path_backend"),
-            audio_hrtf_backend: audio_hrtf_backend_field.expect("Missing parameter: audio_hrtf_backend"),
             audio_use_ambisonics: audio_use_ambisonics_field.expect("Missing parameter: audio_use_ambisonics"),
-            audio_ambisonics_backend: audio_ambisonics_backend_field.expect("Missing parameter: audio_ambisonics_backend"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
             tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
             tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
@@ -3149,12 +3107,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
-    match id {
-        "audio_direct_path_backend" => Some(&adjustables.audio_direct_path_backend),
-        "audio_hrtf_backend" => Some(&adjustables.audio_hrtf_backend),
-        "audio_ambisonics_backend" => Some(&adjustables.audio_ambisonics_backend),
-        _ => None,
-    }
+    None
 }
 
 #[allow(dead_code, unused_variables)]
@@ -3385,12 +3338,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
-    match id {
-        "audio_direct_path_backend" => Some(&mut adjustables.audio_direct_path_backend),
-        "audio_hrtf_backend" => Some(&mut adjustables.audio_hrtf_backend),
-        "audio_ambisonics_backend" => Some(&mut adjustables.audio_ambisonics_backend),
-        _ => None,
-    }
+    None
 }
 
 #[allow(dead_code, unused_variables)]
