@@ -247,7 +247,8 @@ vec3 cloud_sample_lighting(vec3 world_pos, vec3 view_dir, float density) {
     return ambient + sun_light;
 }
 
-CloudRaymarchResult compute_volumetric_clouds(vec3 view_dir, uint primary_step_override) {
+CloudRaymarchResult compute_volumetric_clouds_with_jitter(vec3 view_dir, uint primary_step_override,
+                                                        float jitter) {
     CloudRaymarchResult result;
     result.color = vec3(0.0);
     result.alpha = 0.0;
@@ -263,9 +264,7 @@ CloudRaymarchResult compute_volumetric_clouds(vec3 view_dir, uint primary_step_o
     float march_len = t1 - t0;
     float dt = march_len / float(steps);
 
-    float jitter = hash13(vec3(view_dir.xy * 173.31 + view_dir.zz * 41.7,
-                               float(env_info.frame_serial_idx & 63u)));
-    float t = t0 + dt * jitter;
+    float t = t0 + dt * fract(jitter);
     float transmittance = 1.0;
 
     for (uint i = 0u; i < steps; ++i) {
@@ -289,6 +288,12 @@ CloudRaymarchResult compute_volumetric_clouds(vec3 view_dir, uint primary_step_o
 
     result.alpha = clamp(1.0 - transmittance, 0.0, 1.0);
     return result;
+}
+
+CloudRaymarchResult compute_volumetric_clouds(vec3 view_dir, uint primary_step_override) {
+    float jitter = hash13(vec3(view_dir.xy * 173.31 + view_dir.zz * 41.7,
+                               float(env_info.frame_serial_idx & 63u)));
+    return compute_volumetric_clouds_with_jitter(view_dir, primary_step_override, jitter);
 }
 
 vec3 apply_cloud_result(vec3 base_sky_color, CloudRaymarchResult clouds) {
