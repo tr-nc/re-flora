@@ -1628,6 +1628,15 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "cloud_shadow_debug_overlay"
+kind = "bool"
+label = "Show Cloud Shadow Map"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "cloud_shadow_strength"
 kind = "float"
 label = "Cloud Shadow Strength"

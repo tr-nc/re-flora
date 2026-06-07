@@ -323,6 +323,7 @@ impl BufferUpdater {
             cloud_silver_intensity: cloud_gui_params.silver_intensity,
             cloud_max_distance: cloud_gui_params.max_distance,
             cloud_shadows_enabled: cloud_gui_params.shadows_enabled as u32,
+            cloud_shadow_debug_overlay: cloud_gui_params.shadow_debug_overlay as u32,
             cloud_shadow_strength: cloud_gui_params.shadow_strength,
             cloud_shadow_min_transmittance: cloud_gui_params.shadow_min_transmittance,
             cloud_shadow_steps: cloud_gui_params.shadow_steps,

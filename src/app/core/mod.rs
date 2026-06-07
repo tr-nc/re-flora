@@ -2318,6 +2318,7 @@ impl App {
                         && self.render_flags.enable_clouds
                         && self.gui_adjustables.clouds_enabled.value
                         && self.gui_adjustables.cloud_shadows_enabled.value,
+                    shadow_debug_overlay: self.gui_adjustables.cloud_shadow_debug_overlay.value,
                     shadow_strength: self.gui_adjustables.cloud_shadow_strength.value,
                     shadow_min_transmittance: self
                         .gui_adjustables
