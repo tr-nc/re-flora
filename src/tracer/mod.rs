@@ -141,6 +141,12 @@ struct CloudTemporalPushConstants {
     reset_history: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CloudShadowTemporalPushConstants {
+    reset_history: u32,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TerrainRayQuery {
     pub origin: Vec3,
@@ -213,6 +219,7 @@ pub struct Tracer {
     shadow_map_history_valid: bool,
     leaf_shadow_history_valid: bool,
     cloud_history_valid: bool,
+    cloud_shadow_history_valid: bool,
 
     compute_pipelines: ComputePipelines,
     graphics_pipelines: GraphicsPipelines,
@@ -365,6 +372,7 @@ impl Tracer {
             shadow_map_history_valid: false,
             leaf_shadow_history_valid: false,
             cloud_history_valid: false,
+            cloud_shadow_history_valid: false,
             compute_pipelines,
             graphics_pipelines,
             render_target_color_and_depth,
@@ -492,6 +500,7 @@ impl Tracer {
         );
 
         self.cloud_history_valid = false;
+        self.cloud_shadow_history_valid = false;
         self.update_sets(contree_builder_resources, scene_accel_resources);
     }
 
@@ -533,6 +542,10 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.spatial_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.cloud_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.cloud_shadow_ppl, &tracer_resources);
+        update_compute_fn(
+            &self.compute_pipelines.cloud_shadow_temporal_ppl,
+            &tracer_resources,
+        );
         update_compute_fn(
             &self.compute_pipelines.cloud_temporal_ppl,
             &tracer_resources,
@@ -1150,6 +1163,11 @@ impl Tracer {
                     "cloud_shadow.pass",
                     || self.record_cloud_shadow_pass(cmdbuf),
                 );
+                compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                self.record_store_cloud_shadow_history(cmdbuf);
+                transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            } else {
+                self.cloud_shadow_history_valid = false;
             }
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -1412,6 +1430,19 @@ impl Tracer {
             );
     }
 
+    fn record_store_cloud_shadow_history(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .shadow
+            .cloud_shadow_tex
+            .get_image()
+            .record_copy_to(
+                cmdbuf,
+                self.resources.shadow.cloud_shadow_history_tex.get_image(),
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
+            );
+    }
+
     fn record_clear_render_targets(
         &self,
         cmdbuf: &CommandBuffer,
@@ -1465,16 +1496,17 @@ impl Tracer {
                     ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
                 );
 
-            self.resources
-                .shadow
-                .cloud_shadow_tex
-                .get_image()
-                .record_clear(
+            for tex in [
+                &self.resources.shadow.cloud_shadow_raw_tex,
+                &self.resources.shadow.cloud_shadow_tex,
+            ] {
+                tex.get_image().record_clear(
                     cmdbuf,
                     Some(TextureLayout::GENERAL),
                     0,
                     ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
                 );
+            }
 
             self.resources
                 .shadow
@@ -2343,17 +2375,30 @@ impl Tracer {
         Ok(())
     }
 
-    fn record_cloud_shadow_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.cloud_shadow_ppl.record(
+    fn record_cloud_shadow_pass(&mut self, cmdbuf: &CommandBuffer) {
+        let extent = self
+            .resources
+            .shadow
+            .cloud_shadow_raw_tex
+            .get_image()
+            .get_desc()
+            .extent;
+
+        self.compute_pipelines
+            .cloud_shadow_ppl
+            .record(cmdbuf, extent, None);
+
+        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        let push_constants = CloudShadowTemporalPushConstants {
+            reset_history: u32::from(!self.cloud_shadow_history_valid),
+        };
+        self.compute_pipelines.cloud_shadow_temporal_ppl.record(
             cmdbuf,
-            self.resources
-                .shadow
-                .cloud_shadow_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            None,
+            extent,
+            Some(bytemuck::bytes_of(&push_constants)),
         );
+        self.cloud_shadow_history_valid = true;
     }
 
     fn record_cloud_pass(&mut self, cmdbuf: &CommandBuffer) {
@@ -2384,6 +2429,7 @@ impl Tracer {
 
     fn clear_cloud_output(&mut self, cmdbuf: &CommandBuffer) {
         self.cloud_history_valid = false;
+        self.cloud_shadow_history_valid = false;
         for tex in [
             &self.resources.extent_dependent_resources.cloud_raw_tex,
             &self.resources.extent_dependent_resources.cloud_output_tex,

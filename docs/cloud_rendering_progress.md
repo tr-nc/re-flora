@@ -147,7 +147,8 @@ If verification is not yet possible, the missing pieces are: actual cloud shader
 - 2026-06-08: Replaced the cloud lighting's fixed top-down sun assumption with a physically motivated real-time approximation: cloud-height horizon visibility, spectral low-sun atmospheric transmittance, and true sun-direction cloud-slab transmittance through the top or bottom of the layer.
 - 2026-06-08: Added a separate cheap Beer-style cloud shadow transmittance map (256x256 R16F) generated from the same procedural cloud density and sampled by terrain, foliage, leaves, and particles for direct-sun shadowing.
 - 2026-06-08: Fixed invisible cloud shadows by anchoring the cloud-shadow ray on the sun side of the high cloud layer instead of using the terrain-only shadow camera near plane. Validated screenshot shows large cloud-shaped shadows; pass cost is about 26-28us on RTX 3060 Ti.
-- 2026-06-08: Added a post-processing debug overlay toggle (`cloud_shadow_debug_overlay`) that draws the raw cloud shadow map in the upper-left corner using an inferno shadow-amount color scale.
+- 2026-06-08: Added a post-processing debug overlay toggle (`cloud_shadow_debug_overlay`) that draws the cloud shadow map in the upper-left corner using an inferno shadow-amount color scale.
+- 2026-06-08: Changed cloud-shadow jitter from frozen per-texel hash noise to frame-varying STBN jitter and added a 256x256 temporal resolve/history map so low-step cloud-shadow dithering can average over time instead of remaining fixed on screen.
 
 ## Open Questions / Risks
 

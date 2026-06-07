@@ -41,9 +41,8 @@ vec3 apply_cloud_shadow_debug_overlay(vec3 final_color, ivec2 uvi, ivec2 screen_
     float transmittance = clamp(texture(cloud_shadow_tex, shadow_uv).r, 0.0, 1.0);
     float shadow_amount = 1.0 - transmittance;
 
-    // Display raw map shadow amount, not the final strength/min-transmittance
-    // remap: black/purple means no cloud shadow, orange/yellow means lower
-    // Beer transmittance in the R16F cloud shadow map.
+    // Display the resolved R16F cloud-shadow map as shadow amount: black/purple
+    // means no cloud shadow, orange/yellow means lower Beer transmittance.
     vec3 debug_color = inferno_quintic(shadow_amount);
     return mix(final_color, debug_color, 0.92);
 }

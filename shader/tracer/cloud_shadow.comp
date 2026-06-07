@@ -37,7 +37,15 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 shadow_camera_info;
 layout(set = 0, binding = 5) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
-layout(set = 0, binding = 6, r16f) uniform writeonly image2D cloud_shadow_tex;
+layout(set = 0, binding = 6, r16f) uniform writeonly image2D cloud_shadow_raw_tex;
+
+layout(set = 1, binding = 0) uniform sampler2DArray scalar_bn;
+layout(set = 1, binding = 1) uniform sampler2DArray unit_vec2_bn;
+layout(set = 1, binding = 2) uniform sampler2DArray unit_vec3_bn;
+layout(set = 1, binding = 3) uniform sampler2DArray weighted_cosine_bn;
+layout(set = 1, binding = 4) uniform sampler2DArray fast_unit_vec3_bn;
+layout(set = 1, binding = 5) uniform sampler2DArray fast_weighted_cosine_bn;
+#include "../include/noise_tex.glsl"
 
 #include "../include/core/transform.glsl"
 #include "../include/ray.glsl"
@@ -118,9 +126,11 @@ float compute_cloud_shadow_transmittance(Ray ray) {
     float dt = path_len / float(steps);
     float optical_depth = 0.0;
 
-    // Deterministic per-texel jitter reduces banding without needing temporal
-    // history. Keep it frame-stable so cloud shadows do not sparkle.
-    float jitter = hash13(vec3(vec2(gl_GlobalInvocationID.xy) * 0.173, 0.37));
+    // Animated STBN jitter turns the 6-step integration error into temporal
+    // blue noise. cloud_shadow_temporal.comp resolves it into the sampled map;
+    // keeping this fixed per texel would freeze a visible dither pattern and make
+    // temporal accumulation ineffective.
+    float jitter = random_float_bn(get_seed(env_info.frame_serial_idx));
     float t = t0 + dt * (0.35 + 0.30 * jitter);
     for (uint i = 0u; i < steps; ++i) {
         vec3 world_pos = ray.origin + ray.direction * t;
@@ -139,12 +149,12 @@ float compute_cloud_shadow_transmittance(Ray ray) {
 
 void main() {
     ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = imageSize(cloud_shadow_tex);
+    ivec2 size = imageSize(cloud_shadow_raw_tex);
     if (any(greaterThanEqual(uvi, size))) {
         return;
     }
 
     vec2 uv = (vec2(uvi) + vec2(0.5)) / vec2(size);
     Ray ray = make_cloud_shadow_ray(uv);
-    imageStore(cloud_shadow_tex, uvi, vec4(compute_cloud_shadow_transmittance(ray), 0.0, 0.0, 1.0));
+    imageStore(cloud_shadow_raw_tex, uvi, vec4(compute_cloud_shadow_transmittance(ray), 0.0, 0.0, 1.0));
 }

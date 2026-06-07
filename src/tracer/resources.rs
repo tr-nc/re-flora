@@ -244,6 +244,8 @@ pub struct ShadowResources {
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
     pub shadow_map_tex_for_vsm_pong: Resource<Texture>,
     pub shadow_map_tex_for_vsm_prev: Resource<Texture>,
+    pub cloud_shadow_raw_tex: Resource<Texture>,
+    pub cloud_shadow_history_tex: Resource<Texture>,
     pub cloud_shadow_tex: Resource<Texture>,
     pub leaf_shadow_opacity_tex: Resource<Texture>,
     pub leaf_shadow_opacity_prev_tex: Resource<Texture>,
@@ -431,7 +433,7 @@ impl ShadowResources {
             shadow_map_extent.height,
         );
         log::info!(
-            "[CLOUD_SHADOW] using Beer transmittance map {}x{}",
+            "[CLOUD_SHADOW] using Beer transmittance map {}x{} with temporal resolve",
             cloud_shadow_extent.width,
             cloud_shadow_extent.height,
         );
@@ -476,6 +478,16 @@ impl ShadowResources {
                     shadow_map_extent,
                 ),
             ),
+            cloud_shadow_raw_tex: Resource::new(TracerResources::create_cloud_shadow_tex(
+                device.clone(),
+                allocator.clone(),
+                cloud_shadow_extent,
+            )),
+            cloud_shadow_history_tex: Resource::new(TracerResources::create_cloud_shadow_tex(
+                device.clone(),
+                allocator.clone(),
+                cloud_shadow_extent,
+            )),
             cloud_shadow_tex: Resource::new(TracerResources::create_cloud_shadow_tex(
                 device.clone(),
                 allocator.clone(),
@@ -1096,6 +1108,7 @@ impl TracerResources {
             format: vk::Format::R16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC
                 | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
