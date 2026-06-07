@@ -75,6 +75,24 @@ bool cloud_shadow_layer_interval(Ray ray, out float t0, out float t1) {
     return t1 > t0;
 }
 
+Ray make_cloud_shadow_ray(vec2 uv) {
+    Ray ray = ray_gen(uv, shadow_camera_info.view_proj_mat_inv);
+
+    // The normal terrain shadow camera only encloses the terrain volume.  Clouds
+    // live far above that volume, so ray_gen() starts near the ground and would
+    // miss the cloud slab when the sun is above the horizon.  Keep the same
+    // light-space line/UV, but move the start point up to the sun side of the
+    // cloud layer before marching back toward the receiver.
+    ray.direction = normalize(ray.direction);
+    if (ray.direction.y < -0.001) {
+        float start_y = cloud_layer_top() + max(2.0, (cloud_layer_top() - cloud_layer_bottom()) * 0.03);
+        float t = (start_y - ray.origin.y) / ray.direction.y;
+        ray.origin += ray.direction * t;
+    }
+    ray.inv_direction = 1.0 / ray.direction;
+    return ray;
+}
+
 float compute_cloud_shadow_transmittance(Ray ray) {
     if (gui_input.cloud_shadows_enabled == 0u || gui_input.clouds_enabled == 0u ||
         gui_input.cloud_coverage <= 0.001 || gui_input.cloud_density <= 0.001) {
@@ -110,9 +128,9 @@ float compute_cloud_shadow_transmittance(Ray ray) {
         t += dt;
     }
 
-    // Same density field as visible clouds, but with an intentionally lower
-    // extinction scale: terrain cloud shadows should be broad and soft, not opaque.
-    float raw_transmittance = exp(-optical_depth * gui_input.cloud_absorption * 0.0065);
+    // Same density field as visible clouds, with a modest extinction scale so
+    // dense lobes leave a readable but still soft Beer-style shadow.
+    float raw_transmittance = exp(-optical_depth * gui_input.cloud_absorption * 0.018);
     float strength = max(gui_input.cloud_shadow_strength, 0.0) * sun_fade;
     float transmittance = mix(1.0, raw_transmittance, strength);
     float min_transmittance = clamp(gui_input.cloud_shadow_min_transmittance, 0.0, 1.0);
@@ -127,6 +145,6 @@ void main() {
     }
 
     vec2 uv = (vec2(uvi) + vec2(0.5)) / vec2(size);
-    Ray ray = ray_gen(uv, shadow_camera_info.view_proj_mat_inv);
+    Ray ray = make_cloud_shadow_ray(uv);
     imageStore(cloud_shadow_tex, uvi, vec4(compute_cloud_shadow_transmittance(ray), 0.0, 0.0, 1.0));
 }

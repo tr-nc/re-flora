@@ -1634,7 +1634,7 @@ label = "Cloud Shadow Strength"
 type = "Float"
 
 [section.param.data]
-value = 0.55
+value = 0.9
 min = 0
 max = 2
 
@@ -1645,7 +1645,7 @@ label = "Cloud Shadow Min Transmittance"
 type = "Float"
 
 [section.param.data]
-value = 0.62
+value = 0.42
 min = 0
 max = 1
 
