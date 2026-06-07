@@ -947,6 +947,9 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
+        self.graphics_pipelines
+            .begin_manual_buffer_frame(gpu_profiler_frame_slot);
+
         let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
         // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
         // flora vertex shader samples it in the same command buffer. MoltenVK/Metal

@@ -1,10 +1,11 @@
 use super::descriptor_set_utils;
 use crate::{
-    Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
-    FormatOverride, MergeWithEq, PipelineLayout, RenderPass, ResourceContainer, ResourceState,
+    Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayout,
+    DescriptorSetLayoutBinding, Device, FormatOverride, MergeWithEq, PipelineLayout, RenderPass,
+    ResourceContainer, ResourceState,
     ResourceStatePolicy, ResourceStateTracker, ShaderModule, Texture, Viewport, WriteDescriptorSet,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ash::vk;
 use std::{
     collections::HashMap,
@@ -18,7 +19,7 @@ struct GraphicsPipelineInner {
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
     descriptor_sets: Mutex<Vec<DescriptorSet>>,
-    manual_buffer_descriptor_sets: Mutex<HashMap<vk::Buffer, DescriptorSet>>,
+    manual_buffer_descriptor_sets: Mutex<ManualBufferDescriptorSets>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     texture_bindings: Mutex<HashMap<String, GraphicsTextureBinding>>,
     resource_state_tracker: Mutex<ResourceStateTracker>,
@@ -26,6 +27,74 @@ struct GraphicsPipelineInner {
 }
 
 const MANUAL_TEXTURE_BINDING_PREFIX: &str = "manual:";
+
+#[derive(Default)]
+struct ManualBufferDescriptorSets {
+    active_frame_slot: Option<usize>,
+    next_slot: usize,
+    frame_slots: Vec<ManualBufferDescriptorFrame>,
+}
+
+#[derive(Default)]
+struct ManualBufferDescriptorFrame {
+    slots: Vec<ManualBufferDescriptorSlot>,
+}
+
+struct ManualBufferDescriptorSlot {
+    set_no: u32,
+    descriptor_set: DescriptorSet,
+}
+
+impl ManualBufferDescriptorSets {
+    fn begin_frame(&mut self, frame_slot: usize) {
+        if self.frame_slots.len() <= frame_slot {
+            self.frame_slots
+                .resize_with(frame_slot + 1, ManualBufferDescriptorFrame::default);
+        }
+        self.active_frame_slot = Some(frame_slot);
+        self.next_slot = 0;
+    }
+
+    fn next_descriptor_set(
+        &mut self,
+        set_no: u32,
+        descriptor_pool: &DescriptorPool,
+        layout: &DescriptorSetLayout,
+    ) -> Result<DescriptorSet> {
+        let frame_slot = self.active_frame_slot.expect(
+            "GraphicsPipeline::begin_manual_buffer_frame must be called before record_indexed_with_manual_buffer",
+        );
+        let draw_slot = self.next_slot;
+        self.next_slot += 1;
+
+        let frame = self
+            .frame_slots
+            .get_mut(frame_slot)
+            .expect("active manual descriptor frame slot was not initialized");
+        if let Some(slot) = frame.slots.get(draw_slot) {
+            if slot.set_no == set_no {
+                return Ok(slot.descriptor_set.clone());
+            }
+        }
+
+        let descriptor_set = descriptor_pool.allocate_set(layout).with_context(|| {
+            format!(
+                "failed to allocate manual buffer descriptor set for frame_slot={frame_slot} draw_slot={draw_slot} set={set_no}"
+            )
+        })?;
+        let slot = ManualBufferDescriptorSlot {
+            set_no,
+            descriptor_set: descriptor_set.clone(),
+        };
+        if draw_slot == frame.slots.len() {
+            frame.slots.push(slot);
+        } else {
+            frame.slots[draw_slot] = slot;
+        }
+
+        Ok(descriptor_set)
+    }
+}
 
 #[derive(Clone)]
 struct GraphicsTextureBinding {
@@ -196,7 +265,7 @@ impl GraphicsPipeline {
             pipeline,
             pipeline_layout,
             descriptor_sets: Mutex::new(Vec::new()),
-            manual_buffer_descriptor_sets: Mutex::new(HashMap::new()),
+            manual_buffer_descriptor_sets: Mutex::new(ManualBufferDescriptorSets::default()),
             descriptor_sets_bindings,
             texture_bindings: Mutex::new(HashMap::new()),
             resource_state_tracker: Mutex::new(ResourceStateTracker::automatic()),
@@ -252,6 +321,20 @@ impl GraphicsPipeline {
 
     pub fn get_layout(&self) -> &PipelineLayout {
         &self.0.pipeline_layout
+    }
+
+    /// Starts a new frame for manually-bound buffer descriptor sets.
+    ///
+    /// The graphics pipeline keeps one descriptor-set sequence per frame slot so
+    /// descriptors can be updated and reused after that slot's fence has been
+    /// waited. Call this once before recording any
+    /// `record_indexed_with_manual_buffer` draws for the frame.
+    pub fn begin_manual_buffer_frame(&self, frame_slot: usize) {
+        self.0
+            .manual_buffer_descriptor_sets
+            .lock()
+            .unwrap()
+            .begin_frame(frame_slot);
     }
 
     pub fn set_resource_state_tracker(&self, tracker: ResourceStateTracker) {
@@ -432,7 +515,7 @@ impl GraphicsPipeline {
         push_constants: Option<&PushConstantInfo>,
     ) {
         self.record_bind(cmdbuf);
-        let manual_set = self.get_or_create_manual_buffer_descriptor_set(
+        let manual_set = self.next_manual_buffer_descriptor_set(
             manual_set_no,
             manual_binding,
             manual_buffer,
@@ -461,26 +544,26 @@ impl GraphicsPipeline {
         );
     }
 
-    fn get_or_create_manual_buffer_descriptor_set(
+    fn next_manual_buffer_descriptor_set(
         &self,
         set_no: u32,
         binding: u32,
         buffer: &Buffer,
     ) -> DescriptorSet {
-        let mut descriptor_sets = self.0.manual_buffer_descriptor_sets.lock().unwrap();
-        if let Some(descriptor_set) = descriptor_sets.get(&buffer.as_raw()) {
-            return descriptor_set.clone();
-        }
-
         let layout = self
             .0
             .pipeline_layout
             .get_descriptor_set_layouts()
             .get(&set_no)
             .unwrap_or_else(|| panic!("Missing descriptor set layout {}", set_no));
-        let descriptor_set = self.0.descriptor_pool.allocate_set(layout).unwrap();
+        let descriptor_set = self
+            .0
+            .manual_buffer_descriptor_sets
+            .lock()
+            .unwrap()
+            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout)
+            .unwrap_or_else(|err| panic!("{err:#}"));
         descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(binding, buffer)]);
-        descriptor_sets.insert(buffer.as_raw(), descriptor_set.clone());
         descriptor_set
     }
 

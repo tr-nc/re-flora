@@ -672,3 +672,14 @@ pub struct GraphicsPipelines {
     pub leaves_shadow_lod_ppl: GraphicsPipeline,
     pub particle_ppl: GraphicsPipeline,
 }
+
+impl GraphicsPipelines {
+    pub fn begin_manual_buffer_frame(&self, frame_slot: usize) {
+        self.flora_ppl.begin_manual_buffer_frame(frame_slot);
+        self.flora_lod_ppl.begin_manual_buffer_frame(frame_slot);
+        self.leaves_ppl.begin_manual_buffer_frame(frame_slot);
+        self.leaves_lod_ppl.begin_manual_buffer_frame(frame_slot);
+        self.leaves_shadow_lod_ppl
+            .begin_manual_buffer_frame(frame_slot);
+    }
+}
