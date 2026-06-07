@@ -225,10 +225,10 @@ impl ExtentDependentResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
     ) -> Texture {
-        let cloud_extent = Extent2D::new(
-            (rendering_extent.width / 2).max(1),
-            (rendering_extent.height / 2).max(1),
-        );
+        // The whole tracer already renders at `TracerDesc::scaling_factor` (currently 0.5x
+        // screen resolution), so matching the main internal render extent keeps clouds cheap
+        // while avoiding a second half-resolution blur before the final upscaler.
+        let cloud_extent = rendering_extent;
         let tex_desc = ImageDesc {
             extent: cloud_extent.into(),
             format: vk::Format::R16G16B16A16_SFLOAT,

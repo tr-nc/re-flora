@@ -118,7 +118,7 @@ float cloud_density_low_quality(vec3 world_pos) {
                   world_pos.y * gui_input.cloud_shape_scale * 1.8);
     float shape = cloud_value_noise3(p);
     float threshold = mix(0.78, 0.24, coverage);
-    float density = smoothstep(threshold, threshold + 0.24, shape);
+    float density = smoothstep(threshold, threshold + 0.15, shape);
     return density * vertical * gui_input.cloud_density;
 }
 
@@ -141,17 +141,18 @@ float cloud_density(vec3 world_pos) {
     // Cheap Perlin-Worley-style shaping: a connected low-frequency volume with
     // higher-frequency erosion concentrated at the edges and lower wispy parts.
     float threshold = mix(0.76, 0.22, coverage);
-    float base_density = smoothstep(threshold, threshold + 0.25, shape);
+    float base_density = smoothstep(threshold, threshold + 0.14, shape);
 
     vec2 detail_wind = cloud_wind_offset(0.17);
     vec3 detail_p = vec3(world_pos.xz * gui_input.cloud_detail_scale + detail_wind,
                         world_pos.y * gui_input.cloud_detail_scale * 2.4 + 37.0);
     float detail = cloud_value_noise3(detail_p);
-    float edge_weight = 1.0 - smoothstep(0.28, 0.86, base_density);
+    float edge_weight = 1.0 - smoothstep(0.20, 0.72, base_density);
     float lower_wisp = 1.0 - smoothstep(0.24, 0.58, cloud_height_fraction(world_pos));
-    float erosion = detail * gui_input.cloud_detail_strength * (0.38 + 0.42 * lower_wisp) * edge_weight;
+    float erosion = detail * gui_input.cloud_detail_strength * (0.46 + 0.44 * lower_wisp) * edge_weight;
 
     float density = max(base_density - erosion, 0.0);
+    density = min(density * 1.10, 1.0);
     density *= vertical * gui_input.cloud_density;
     return max(density, 0.0);
 }
