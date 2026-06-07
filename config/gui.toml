@@ -1460,7 +1460,7 @@ label = "Coverage"
 type = "Float"
 
 [section.param.data]
-value = 0.63
+value = 0.605
 min = 0
 max = 1
 
@@ -1482,7 +1482,7 @@ label = "Bottom Height"
 type = "Float"
 
 [section.param.data]
-value = 41
+value = 44
 min = 4
 max = 180
 
@@ -1493,7 +1493,7 @@ label = "Top Height"
 type = "Float"
 
 [section.param.data]
-value = 135
+value = 173
 min = 8
 max = 240
 
@@ -1504,7 +1504,7 @@ label = "Shape Scale"
 type = "Float"
 
 [section.param.data]
-value = 0.02
+value = 0.021
 min = 0.002
 max = 0.08
 
@@ -1570,7 +1570,7 @@ label = "Temporal Alpha"
 type = "Float"
 
 [section.param.data]
-value = 0.08
+value = 0.03
 min = 0.01
 max = 1
 
@@ -1581,7 +1581,7 @@ label = "Absorption"
 type = "Float"
 
 [section.param.data]
-value = 0.35
+value = 0.68
 min = 0.02
 max = 1.5
 
@@ -1592,7 +1592,7 @@ label = "Phase Eccentricity"
 type = "Float"
 
 [section.param.data]
-value = 0.63
+value = 0.66
 min = 0
 max = 0.9
 
@@ -1603,7 +1603,7 @@ label = "Silver Lining"
 type = "Float"
 
 [section.param.data]
-value = 0.8
+value = 0
 min = 0
 max = 2
 
