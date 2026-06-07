@@ -18,6 +18,8 @@ layout(location = 0) out vec4 vert_color;
 layout(location = 1) out vec2 vert_uv;
 layout(location = 2) flat out uint vert_tex_index;
 
+#include "../include/gui_input.glsl"
+
 layout(set = 0, binding = 1) uniform U_SunInfo {
     vec3 sun_dir;
     float sun_size;
@@ -55,10 +57,11 @@ layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
 shadow_camera_info;
 
 layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
-
+layout(set = 0, binding = 7) uniform sampler2D cloud_shadow_tex;
 
 #define ENABLE_TEMPORAL_VSM
 #include "../include/vsm.glsl"
+#include "../include/cloud_shadow.glsl"
 
 const uint SPRITE_FLIP_BIT = 0x80000000u;
 
@@ -89,6 +92,7 @@ void main() {
         apply_depth_offset(vertex_pos, in_instance_pos, camera_info.view_mat, camera_info.proj_mat);
 
     float shadow_weight = get_shadow_weight_vsm_temporal(vec4(instance_pos, 1.0));
+    shadow_weight *= get_cloud_shadow_transmittance(vec4(instance_pos, 1.0));
     shadow_weight *= get_shadow_weight(vox_local_pos);
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);

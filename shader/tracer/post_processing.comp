@@ -9,8 +9,43 @@ layout(set = 0, binding = 1) uniform U_PostProcessingInfo { float scaling_factor
 post_processing_info;
 layout(set = 0, binding = 2, r11f_g11f_b10f) uniform readonly image2D composited_tex;
 layout(set = 0, binding = 3, rgba8) uniform writeonly image2D screen_output_tex;
+layout(set = 0, binding = 4) uniform sampler2D cloud_shadow_tex;
 
 #include "../include/core/dither.glsl"
+#include "../include/core/viridis.glsl"
+
+vec3 apply_cloud_shadow_debug_overlay(vec3 final_color, ivec2 uvi, ivec2 screen_size) {
+    if (gui_input.cloud_shadow_debug_overlay == 0u) {
+        return final_color;
+    }
+
+    float panel_size = floor(min(float(screen_size.x), float(screen_size.y)) * 0.42);
+    vec2 panel_origin = vec2(18.0);
+    vec2 panel_pos = vec2(uvi) - panel_origin;
+    float border = 3.0;
+
+    bool in_outer = all(greaterThanEqual(panel_pos, vec2(-border))) &&
+                    all(lessThanEqual(panel_pos, vec2(panel_size + border)));
+    bool in_inner = all(greaterThanEqual(panel_pos, vec2(0.0))) &&
+                    all(lessThan(panel_pos, vec2(panel_size)));
+
+    if (in_outer && !in_inner) {
+        return vec3(1.0, 0.63, 0.12);
+    }
+
+    if (!in_inner) {
+        return final_color;
+    }
+
+    vec2 shadow_uv = panel_pos / vec2(panel_size);
+    float transmittance = clamp(texture(cloud_shadow_tex, shadow_uv).r, 0.0, 1.0);
+    float shadow_amount = 1.0 - transmittance;
+
+    // Display the resolved R16F cloud-shadow map as shadow amount: black/purple
+    // means no cloud shadow, orange/yellow means lower Beer transmittance.
+    vec3 debug_color = inferno_quintic(shadow_amount);
+    return mix(final_color, debug_color, 0.92);
+}
 
 void main() {
     ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
@@ -21,6 +56,8 @@ void main() {
     vec2 scaling_factor = vec2(imageSize(composited_tex)) / vec2(imageSize(screen_output_tex));
     ivec2 mapped_uvi    = ivec2(vec2(uvi) * scaling_factor);
     vec3 final_color    = imageLoad(composited_tex, mapped_uvi).rgb;
+
+    final_color = apply_cloud_shadow_debug_overlay(final_color, uvi, imageSize(screen_output_tex));
 
     vec3 dither_mask = get_dither_mask(uvi);
     final_color += dither_mask * 3.0;

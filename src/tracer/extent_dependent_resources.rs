@@ -1,6 +1,6 @@
 use crate::resource::Resource;
 use re_flora_vkn::vk;
-use re_flora_vkn::{Allocator, Device, Extent2D, ImageDesc, Texture, TextureLayout};
+use re_flora_vkn::{Allocator, Device, Extent2D, ImageDesc, SamplerDesc, Texture, TextureLayout};
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]
@@ -14,6 +14,9 @@ pub struct ExtentDependentResources {
     pub lens_flare_visible_count_tex: Resource<Texture>,
     pub lens_flare_full_output_tex: Resource<Texture>,
     pub lens_flare_output_tex: Resource<Texture>,
+    pub cloud_raw_tex: Resource<Texture>,
+    pub cloud_history_tex: Resource<Texture>,
+    pub cloud_output_tex: Resource<Texture>,
     pub screen_output_tex: Resource<Texture>,
     pub composited_tex: Resource<Texture>,
 }
@@ -46,6 +49,12 @@ impl ExtentDependentResources {
         );
         let lens_flare_output_tex =
             Self::create_lens_flare_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        let cloud_raw_tex =
+            Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
+        let cloud_history_tex =
+            Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
+        let cloud_output_tex =
+            Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
         let screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
         let composited_tex = Self::create_composited_tex(device, allocator, rendering_extent);
@@ -60,6 +69,9 @@ impl ExtentDependentResources {
             lens_flare_visible_count_tex: Resource::new(lens_flare_visible_count_tex),
             lens_flare_full_output_tex: Resource::new(lens_flare_full_output_tex),
             lens_flare_output_tex: Resource::new(lens_flare_output_tex),
+            cloud_raw_tex: Resource::new(cloud_raw_tex),
+            cloud_history_tex: Resource::new(cloud_history_tex),
+            cloud_output_tex: Resource::new(cloud_output_tex),
             screen_output_tex: Resource::new(screen_output_tex),
             composited_tex: Resource::new(composited_tex),
         }
@@ -214,6 +226,34 @@ impl ExtentDependentResources {
             ..Default::default()
         };
         Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_cloud_tex(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Texture {
+        // The whole tracer already renders at `TracerDesc::scaling_factor` (currently 0.5x
+        // screen resolution), so matching the main internal render extent keeps clouds cheap
+        // while avoiding a second half-resolution blur before the final upscaler.
+        let cloud_extent = rendering_extent;
+        let tex_desc = ImageDesc {
+            extent: cloud_extent.into(),
+            format: vk::Format::R16G16B16A16_SFLOAT,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC
+                | vk::ImageUsageFlags::TRANSFER_DST,
+            initial_layout: TextureLayout::UNDEFINED,
+            aspect: vk::ImageAspectFlags::COLOR,
+            ..Default::default()
+        };
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
     }
 
     fn create_lens_flare_count_tex(device: Device, allocator: Allocator) -> Texture {

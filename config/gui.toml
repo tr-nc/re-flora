@@ -1442,6 +1442,234 @@ min = -2
 max = 2
 
 [[section]]
+name = "Clouds"
+
+[[section.param]]
+id = "clouds_enabled"
+kind = "bool"
+label = "Enable Clouds"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "cloud_coverage"
+kind = "float"
+label = "Coverage"
+type = "Float"
+
+[section.param.data]
+value = 0.605
+min = 0
+max = 1
+
+[[section.param]]
+id = "cloud_density"
+kind = "float"
+label = "Density"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 2
+
+[[section.param]]
+id = "cloud_bottom_height"
+kind = "float"
+label = "Bottom Height"
+type = "Float"
+
+[section.param.data]
+value = 44
+min = 4
+max = 180
+
+[[section.param]]
+id = "cloud_top_height"
+kind = "float"
+label = "Top Height"
+type = "Float"
+
+[section.param.data]
+value = 173
+min = 8
+max = 240
+
+[[section.param]]
+id = "cloud_shape_scale"
+kind = "float"
+label = "Shape Scale"
+type = "Float"
+
+[section.param.data]
+value = 0.021
+min = 0.002
+max = 0.08
+
+[[section.param]]
+id = "cloud_detail_scale"
+kind = "float"
+label = "Detail Scale"
+type = "Float"
+
+[section.param.data]
+value = 0.01
+min = 0.01
+max = 0.25
+
+[[section.param]]
+id = "cloud_detail_strength"
+kind = "float"
+label = "Detail Strength"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
+id = "cloud_wind_speed"
+kind = "float"
+label = "Wind Speed"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 8
+
+[[section.param]]
+id = "cloud_primary_steps"
+kind = "uint"
+label = "Primary Steps"
+type = "Uint"
+
+[section.param.data]
+value = 16
+min = 4
+max = 64
+
+[[section.param]]
+id = "cloud_light_steps"
+kind = "uint"
+label = "Light Steps"
+type = "Uint"
+
+[section.param.data]
+value = 2
+min = 1
+max = 8
+
+[[section.param]]
+id = "cloud_temporal_alpha"
+kind = "float"
+label = "Temporal Alpha"
+type = "Float"
+
+[section.param.data]
+value = 0.03
+min = 0.01
+max = 1
+
+[[section.param]]
+id = "cloud_absorption"
+kind = "float"
+label = "Absorption"
+type = "Float"
+
+[section.param.data]
+value = 0.68
+min = 0.02
+max = 1.5
+
+[[section.param]]
+id = "cloud_phase_eccentricity"
+kind = "float"
+label = "Phase Eccentricity"
+type = "Float"
+
+[section.param.data]
+value = 0.66
+min = 0
+max = 0.9
+
+[[section.param]]
+id = "cloud_silver_intensity"
+kind = "float"
+label = "Silver Lining"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 2
+
+[[section.param]]
+id = "cloud_max_distance"
+kind = "float"
+label = "Max Ray Distance"
+type = "Float"
+
+[section.param.data]
+value = 800
+min = 40
+max = 1000
+
+[[section.param]]
+id = "cloud_shadows_enabled"
+kind = "bool"
+label = "Enable Cloud Shadows"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "cloud_shadow_debug_overlay"
+kind = "bool"
+label = "Show Cloud Shadow Map"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "cloud_shadow_strength"
+kind = "float"
+label = "Cloud Shadow Strength"
+type = "Float"
+
+[section.param.data]
+value = 0.9
+min = 0
+max = 2
+
+[[section.param]]
+id = "cloud_shadow_min_transmittance"
+kind = "float"
+label = "Cloud Shadow Min Transmittance"
+type = "Float"
+
+[section.param.data]
+value = 0.42
+min = 0
+max = 1
+
+[[section.param]]
+id = "cloud_shadow_steps"
+kind = "uint"
+label = "Cloud Shadow Steps"
+type = "Uint"
+
+[section.param.data]
+value = 6
+min = 2
+max = 16
+
+[[section]]
 name = "WaterSimulation"
 
 [[section.param]]

@@ -64,6 +64,7 @@ use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
+const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
@@ -77,6 +78,31 @@ struct WindVolumePushConstants {
 #[derive(Debug, Clone)]
 pub struct WindGuiParams {
     pub sources: Vec<WindSource>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CloudGuiParams {
+    pub enabled: bool,
+    pub coverage: f32,
+    pub density: f32,
+    pub bottom_height: f32,
+    pub top_height: f32,
+    pub shape_scale: f32,
+    pub detail_scale: f32,
+    pub detail_strength: f32,
+    pub wind_speed: f32,
+    pub primary_steps: u32,
+    pub light_steps: u32,
+    pub temporal_alpha: f32,
+    pub absorption: f32,
+    pub phase_eccentricity: f32,
+    pub silver_intensity: f32,
+    pub max_distance: f32,
+    pub shadows_enabled: bool,
+    pub shadow_debug_overlay: bool,
+    pub shadow_strength: f32,
+    pub shadow_min_transmittance: f32,
+    pub shadow_steps: u32,
 }
 
 #[repr(C)]
@@ -107,6 +133,18 @@ struct VsmFilterPushConstants {
     temporal_alpha: f32,
     reset_history: u32,
     _pad0: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CloudTemporalPushConstants {
+    reset_history: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CloudShadowTemporalPushConstants {
+    reset_history: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -180,6 +218,8 @@ pub struct Tracer {
     shadow_camera_initialized: bool,
     shadow_map_history_valid: bool,
     leaf_shadow_history_valid: bool,
+    cloud_history_valid: bool,
+    cloud_shadow_history_valid: bool,
 
     compute_pipelines: ComputePipelines,
     graphics_pipelines: GraphicsPipelines,
@@ -251,6 +291,7 @@ impl Tracer {
             render_extent,
             screen_extent,
             Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
+            Extent2D::new(CLOUD_SHADOW_MAP_RESOLUTION, CLOUD_SHADOW_MAP_RESOLUTION),
             Extent2D::new(
                 LEAF_SHADOW_OPACITY_RESOLUTION,
                 LEAF_SHADOW_OPACITY_RESOLUTION,
@@ -330,6 +371,8 @@ impl Tracer {
             shadow_camera_initialized: false,
             shadow_map_history_valid: false,
             leaf_shadow_history_valid: false,
+            cloud_history_valid: false,
+            cloud_shadow_history_valid: false,
             compute_pipelines,
             graphics_pipelines,
             render_target_color_and_depth,
@@ -456,6 +499,8 @@ impl Tracer {
             vec![framebuffer_leaf_shadow_opacity],
         );
 
+        self.cloud_history_valid = false;
+        self.cloud_shadow_history_valid = false;
         self.update_sets(contree_builder_resources, scene_accel_resources);
     }
 
@@ -495,6 +540,16 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.god_ray_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.temporal_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.spatial_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.cloud_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.cloud_shadow_ppl, &tracer_resources);
+        update_compute_fn(
+            &self.compute_pipelines.cloud_shadow_temporal_ppl,
+            &tracer_resources,
+        );
+        update_compute_fn(
+            &self.compute_pipelines.cloud_temporal_ppl,
+            &tracer_resources,
+        );
         update_compute_fn(&self.compute_pipelines.lens_flare_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.lens_flare_sun_visible_ppl,
@@ -513,6 +568,8 @@ impl Tracer {
         // update graphics pipelines descriptor sets
         update_graphics_fn(&self.graphics_pipelines.flora_ppl, &tracer_resources);
         update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, &tracer_resources);
+        update_graphics_fn(&self.graphics_pipelines.leaves_ppl, &tracer_resources);
+        update_graphics_fn(&self.graphics_pipelines.leaves_lod_ppl, &tracer_resources);
         update_graphics_fn(
             &self.graphics_pipelines.leaves_shadow_lod_ppl,
             &tracer_resources,
@@ -611,6 +668,7 @@ impl Tracer {
         leaf_shadow_min_transmittance: f32,
         leaf_shadow_filter_radius_texels: f32,
         wind_gui_params: WindGuiParams,
+        cloud_gui_params: CloudGuiParams,
         flora_tick: u32,
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
@@ -756,6 +814,7 @@ impl Tracer {
             leaf_shadow_min_transmittance,
             leaf_shadow_filter_radius_texels,
             wind_gui_params,
+            cloud_gui_params,
         )?;
 
         BufferUpdater::update_flora_growth_info(
@@ -979,6 +1038,14 @@ impl Tracer {
                 MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
             )],
         );
+        let transfer_to_compute_barrier = PipelineBarrier::new(
+            PipelineStage::TRANSFER,
+            PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
+                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            )],
+        );
 
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
@@ -1087,6 +1154,21 @@ impl Tracer {
                     )
                 },
             );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            if render_flags.enable_clouds {
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "cloud_shadow.pass",
+                    || self.record_cloud_shadow_pass(cmdbuf),
+                );
+                compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                self.record_store_cloud_shadow_history(cmdbuf);
+                transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            } else {
+                self.cloud_shadow_history_valid = false;
+            }
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
@@ -1207,6 +1289,27 @@ impl Tracer {
         }
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        if render_flags.enable_clouds {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "cloud.pass",
+                || self.record_cloud_pass(cmdbuf),
+            );
+            compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            self.record_store_cloud_history(cmdbuf);
+            transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        } else {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "cloud_clear.pass",
+                || self.clear_cloud_output(cmdbuf),
+            );
+        }
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_lens_flare {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -1311,6 +1414,35 @@ impl Tracer {
             );
     }
 
+    fn record_store_cloud_history(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .extent_dependent_resources
+            .cloud_output_tex
+            .get_image()
+            .record_copy_to(
+                cmdbuf,
+                self.resources
+                    .extent_dependent_resources
+                    .cloud_history_tex
+                    .get_image(),
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
+            );
+    }
+
+    fn record_store_cloud_shadow_history(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .shadow
+            .cloud_shadow_tex
+            .get_image()
+            .record_copy_to(
+                cmdbuf,
+                self.resources.shadow.cloud_shadow_history_tex.get_image(),
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
+            );
+    }
+
     fn record_clear_render_targets(
         &self,
         cmdbuf: &CommandBuffer,
@@ -1363,6 +1495,18 @@ impl Tracer {
                     0,
                     ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
                 );
+
+            for tex in [
+                &self.resources.shadow.cloud_shadow_raw_tex,
+                &self.resources.shadow.cloud_shadow_tex,
+            ] {
+                tex.get_image().record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
+                );
+            }
 
             self.resources
                 .shadow
@@ -2231,6 +2375,74 @@ impl Tracer {
         Ok(())
     }
 
+    fn record_cloud_shadow_pass(&mut self, cmdbuf: &CommandBuffer) {
+        let extent = self
+            .resources
+            .shadow
+            .cloud_shadow_raw_tex
+            .get_image()
+            .get_desc()
+            .extent;
+
+        self.compute_pipelines
+            .cloud_shadow_ppl
+            .record(cmdbuf, extent, None);
+
+        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        let push_constants = CloudShadowTemporalPushConstants {
+            reset_history: u32::from(!self.cloud_shadow_history_valid),
+        };
+        self.compute_pipelines.cloud_shadow_temporal_ppl.record(
+            cmdbuf,
+            extent,
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+        self.cloud_shadow_history_valid = true;
+    }
+
+    fn record_cloud_pass(&mut self, cmdbuf: &CommandBuffer) {
+        let extent = self
+            .resources
+            .extent_dependent_resources
+            .cloud_raw_tex
+            .get_image()
+            .get_desc()
+            .extent;
+
+        self.compute_pipelines
+            .cloud_ppl
+            .record(cmdbuf, extent, None);
+
+        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        let push_constants = CloudTemporalPushConstants {
+            reset_history: u32::from(!self.cloud_history_valid),
+        };
+        self.compute_pipelines.cloud_temporal_ppl.record(
+            cmdbuf,
+            extent,
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+        self.cloud_history_valid = true;
+    }
+
+    fn clear_cloud_output(&mut self, cmdbuf: &CommandBuffer) {
+        self.cloud_history_valid = false;
+        self.cloud_shadow_history_valid = false;
+        for tex in [
+            &self.resources.extent_dependent_resources.cloud_raw_tex,
+            &self.resources.extent_dependent_resources.cloud_output_tex,
+        ] {
+            tex.get_image().record_clear(
+                cmdbuf,
+                Some(TextureLayout::GENERAL),
+                0,
+                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
+            );
+        }
+    }
+
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {
         self.compute_pipelines.composition_ppl.record(
             cmdbuf,
@@ -2339,6 +2551,7 @@ impl Tracer {
         self.camera_proj_mat_prev_frame = proj_mat;
         self.current_view_proj_mat = proj_mat * view_mat;
         self.shadow_map_history_valid = false;
+        self.cloud_history_valid = false;
         if let Err(err) = self
             .spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())

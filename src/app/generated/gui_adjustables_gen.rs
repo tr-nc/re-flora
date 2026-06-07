@@ -817,6 +817,132 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Sea Level Y Shift",
     },
     GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "clouds_enabled",
+        kind: "bool",
+        label: "Enable Clouds",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_coverage",
+        kind: "float",
+        label: "Coverage",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_density",
+        kind: "float",
+        label: "Density",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_bottom_height",
+        kind: "float",
+        label: "Bottom Height",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_top_height",
+        kind: "float",
+        label: "Top Height",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_shape_scale",
+        kind: "float",
+        label: "Shape Scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_detail_scale",
+        kind: "float",
+        label: "Detail Scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_detail_strength",
+        kind: "float",
+        label: "Detail Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_wind_speed",
+        kind: "float",
+        label: "Wind Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_primary_steps",
+        kind: "uint",
+        label: "Primary Steps",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_light_steps",
+        kind: "uint",
+        label: "Light Steps",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_temporal_alpha",
+        kind: "float",
+        label: "Temporal Alpha",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_absorption",
+        kind: "float",
+        label: "Absorption",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_phase_eccentricity",
+        kind: "float",
+        label: "Phase Eccentricity",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_silver_intensity",
+        kind: "float",
+        label: "Silver Lining",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_max_distance",
+        kind: "float",
+        label: "Max Ray Distance",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_shadows_enabled",
+        kind: "bool",
+        label: "Enable Cloud Shadows",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_shadow_debug_overlay",
+        kind: "bool",
+        label: "Show Cloud Shadow Map",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_shadow_strength",
+        kind: "float",
+        label: "Cloud Shadow Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_shadow_min_transmittance",
+        kind: "float",
+        label: "Cloud Shadow Min Transmittance",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
+        id: "cloud_shadow_steps",
+        kind: "uint",
+        label: "Cloud Shadow Steps",
+    },
+    GeneratedGuiParamDescriptor {
         section: "WaterSimulation",
         id: "water_substep_hz",
         kind: "float",
@@ -1276,6 +1402,27 @@ pub struct GuiAdjustables {
     pub ocean_noise_frequency: crate::gui_adjustables::FloatParam,
     pub ocean_time_multiplier: crate::gui_adjustables::FloatParam,
     pub ocean_sea_level_shift: crate::gui_adjustables::FloatParam,
+    pub clouds_enabled: crate::gui_adjustables::BoolParam,
+    pub cloud_coverage: crate::gui_adjustables::FloatParam,
+    pub cloud_density: crate::gui_adjustables::FloatParam,
+    pub cloud_bottom_height: crate::gui_adjustables::FloatParam,
+    pub cloud_top_height: crate::gui_adjustables::FloatParam,
+    pub cloud_shape_scale: crate::gui_adjustables::FloatParam,
+    pub cloud_detail_scale: crate::gui_adjustables::FloatParam,
+    pub cloud_detail_strength: crate::gui_adjustables::FloatParam,
+    pub cloud_wind_speed: crate::gui_adjustables::FloatParam,
+    pub cloud_primary_steps: crate::gui_adjustables::UintParam,
+    pub cloud_light_steps: crate::gui_adjustables::UintParam,
+    pub cloud_temporal_alpha: crate::gui_adjustables::FloatParam,
+    pub cloud_absorption: crate::gui_adjustables::FloatParam,
+    pub cloud_phase_eccentricity: crate::gui_adjustables::FloatParam,
+    pub cloud_silver_intensity: crate::gui_adjustables::FloatParam,
+    pub cloud_max_distance: crate::gui_adjustables::FloatParam,
+    pub cloud_shadows_enabled: crate::gui_adjustables::BoolParam,
+    pub cloud_shadow_debug_overlay: crate::gui_adjustables::BoolParam,
+    pub cloud_shadow_strength: crate::gui_adjustables::FloatParam,
+    pub cloud_shadow_min_transmittance: crate::gui_adjustables::FloatParam,
+    pub cloud_shadow_steps: crate::gui_adjustables::UintParam,
     pub water_substep_hz: crate::gui_adjustables::FloatParam,
     pub water_world_tick_multiplier: crate::gui_adjustables::FloatParam,
     pub water_particle_edge_len: crate::gui_adjustables::FloatParam,
@@ -1475,6 +1622,27 @@ impl GuiAdjustables {
         let mut ocean_noise_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ocean_time_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ocean_sea_level_shift_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut clouds_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut cloud_coverage_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_density_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_bottom_height_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_top_height_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_shape_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_detail_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_detail_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_wind_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_primary_steps_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut cloud_light_steps_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut cloud_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_absorption_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_phase_eccentricity_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_silver_intensity_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_max_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_shadows_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut cloud_shadow_debug_overlay_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut cloud_shadow_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_shadow_min_transmittance_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cloud_shadow_steps_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut water_substep_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_world_tick_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_particle_edge_len_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2413,6 +2581,147 @@ impl GuiAdjustables {
                             ocean_sea_level_shift_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "clouds_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            clouds_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "cloud_coverage" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_coverage_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_density" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_bottom_height" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_bottom_height_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_top_height" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_top_height_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_shape_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_shape_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_detail_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_detail_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_detail_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_detail_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_wind_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_wind_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_primary_steps" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            cloud_primary_steps_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_light_steps" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            cloud_light_steps_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_temporal_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_temporal_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_absorption" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_absorption_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_phase_eccentricity" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_phase_eccentricity_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_silver_intensity" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_silver_intensity_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_max_distance" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_max_distance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_shadows_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            cloud_shadows_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "cloud_shadow_debug_overlay" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            cloud_shadow_debug_overlay_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "cloud_shadow_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_shadow_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_shadow_min_transmittance" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_shadow_min_transmittance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cloud_shadow_steps" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            cloud_shadow_steps_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
                     "water_substep_hz" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -2907,6 +3216,27 @@ impl GuiAdjustables {
             ocean_noise_frequency: ocean_noise_frequency_field.expect("Missing parameter: ocean_noise_frequency"),
             ocean_time_multiplier: ocean_time_multiplier_field.expect("Missing parameter: ocean_time_multiplier"),
             ocean_sea_level_shift: ocean_sea_level_shift_field.expect("Missing parameter: ocean_sea_level_shift"),
+            clouds_enabled: clouds_enabled_field.expect("Missing parameter: clouds_enabled"),
+            cloud_coverage: cloud_coverage_field.expect("Missing parameter: cloud_coverage"),
+            cloud_density: cloud_density_field.expect("Missing parameter: cloud_density"),
+            cloud_bottom_height: cloud_bottom_height_field.expect("Missing parameter: cloud_bottom_height"),
+            cloud_top_height: cloud_top_height_field.expect("Missing parameter: cloud_top_height"),
+            cloud_shape_scale: cloud_shape_scale_field.expect("Missing parameter: cloud_shape_scale"),
+            cloud_detail_scale: cloud_detail_scale_field.expect("Missing parameter: cloud_detail_scale"),
+            cloud_detail_strength: cloud_detail_strength_field.expect("Missing parameter: cloud_detail_strength"),
+            cloud_wind_speed: cloud_wind_speed_field.expect("Missing parameter: cloud_wind_speed"),
+            cloud_primary_steps: cloud_primary_steps_field.expect("Missing parameter: cloud_primary_steps"),
+            cloud_light_steps: cloud_light_steps_field.expect("Missing parameter: cloud_light_steps"),
+            cloud_temporal_alpha: cloud_temporal_alpha_field.expect("Missing parameter: cloud_temporal_alpha"),
+            cloud_absorption: cloud_absorption_field.expect("Missing parameter: cloud_absorption"),
+            cloud_phase_eccentricity: cloud_phase_eccentricity_field.expect("Missing parameter: cloud_phase_eccentricity"),
+            cloud_silver_intensity: cloud_silver_intensity_field.expect("Missing parameter: cloud_silver_intensity"),
+            cloud_max_distance: cloud_max_distance_field.expect("Missing parameter: cloud_max_distance"),
+            cloud_shadows_enabled: cloud_shadows_enabled_field.expect("Missing parameter: cloud_shadows_enabled"),
+            cloud_shadow_debug_overlay: cloud_shadow_debug_overlay_field.expect("Missing parameter: cloud_shadow_debug_overlay"),
+            cloud_shadow_strength: cloud_shadow_strength_field.expect("Missing parameter: cloud_shadow_strength"),
+            cloud_shadow_min_transmittance: cloud_shadow_min_transmittance_field.expect("Missing parameter: cloud_shadow_min_transmittance"),
+            cloud_shadow_steps: cloud_shadow_steps_field.expect("Missing parameter: cloud_shadow_steps"),
             water_substep_hz: water_substep_hz_field.expect("Missing parameter: water_substep_hz"),
             water_world_tick_multiplier: water_world_tick_multiplier_field.expect("Missing parameter: water_world_tick_multiplier"),
             water_particle_edge_len: water_particle_edge_len_field.expect("Missing parameter: water_particle_edge_len"),
@@ -3064,6 +3394,21 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "ocean_noise_frequency" => Some(&adjustables.ocean_noise_frequency),
         "ocean_time_multiplier" => Some(&adjustables.ocean_time_multiplier),
         "ocean_sea_level_shift" => Some(&adjustables.ocean_sea_level_shift),
+        "cloud_coverage" => Some(&adjustables.cloud_coverage),
+        "cloud_density" => Some(&adjustables.cloud_density),
+        "cloud_bottom_height" => Some(&adjustables.cloud_bottom_height),
+        "cloud_top_height" => Some(&adjustables.cloud_top_height),
+        "cloud_shape_scale" => Some(&adjustables.cloud_shape_scale),
+        "cloud_detail_scale" => Some(&adjustables.cloud_detail_scale),
+        "cloud_detail_strength" => Some(&adjustables.cloud_detail_strength),
+        "cloud_wind_speed" => Some(&adjustables.cloud_wind_speed),
+        "cloud_temporal_alpha" => Some(&adjustables.cloud_temporal_alpha),
+        "cloud_absorption" => Some(&adjustables.cloud_absorption),
+        "cloud_phase_eccentricity" => Some(&adjustables.cloud_phase_eccentricity),
+        "cloud_silver_intensity" => Some(&adjustables.cloud_silver_intensity),
+        "cloud_max_distance" => Some(&adjustables.cloud_max_distance),
+        "cloud_shadow_strength" => Some(&adjustables.cloud_shadow_strength),
+        "cloud_shadow_min_transmittance" => Some(&adjustables.cloud_shadow_min_transmittance),
         "water_substep_hz" => Some(&adjustables.water_substep_hz),
         "water_world_tick_multiplier" => Some(&adjustables.water_world_tick_multiplier),
         "water_particle_edge_len" => Some(&adjustables.water_particle_edge_len),
@@ -3135,6 +3480,9 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
+        "cloud_primary_steps" => Some(&adjustables.cloud_primary_steps),
+        "cloud_light_steps" => Some(&adjustables.cloud_light_steps),
+        "cloud_shadow_steps" => Some(&adjustables.cloud_shadow_steps),
         _ => None,
     }
 }
@@ -3168,6 +3516,9 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "is_changing_lum_phi" => Some(&adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&adjustables.is_spatial_denoising_enabled),
+        "clouds_enabled" => Some(&adjustables.clouds_enabled),
+        "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
+        "cloud_shadow_debug_overlay" => Some(&adjustables.cloud_shadow_debug_overlay),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         _ => None,
@@ -3297,6 +3648,21 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "ocean_noise_frequency" => Some(&mut adjustables.ocean_noise_frequency),
         "ocean_time_multiplier" => Some(&mut adjustables.ocean_time_multiplier),
         "ocean_sea_level_shift" => Some(&mut adjustables.ocean_sea_level_shift),
+        "cloud_coverage" => Some(&mut adjustables.cloud_coverage),
+        "cloud_density" => Some(&mut adjustables.cloud_density),
+        "cloud_bottom_height" => Some(&mut adjustables.cloud_bottom_height),
+        "cloud_top_height" => Some(&mut adjustables.cloud_top_height),
+        "cloud_shape_scale" => Some(&mut adjustables.cloud_shape_scale),
+        "cloud_detail_scale" => Some(&mut adjustables.cloud_detail_scale),
+        "cloud_detail_strength" => Some(&mut adjustables.cloud_detail_strength),
+        "cloud_wind_speed" => Some(&mut adjustables.cloud_wind_speed),
+        "cloud_temporal_alpha" => Some(&mut adjustables.cloud_temporal_alpha),
+        "cloud_absorption" => Some(&mut adjustables.cloud_absorption),
+        "cloud_phase_eccentricity" => Some(&mut adjustables.cloud_phase_eccentricity),
+        "cloud_silver_intensity" => Some(&mut adjustables.cloud_silver_intensity),
+        "cloud_max_distance" => Some(&mut adjustables.cloud_max_distance),
+        "cloud_shadow_strength" => Some(&mut adjustables.cloud_shadow_strength),
+        "cloud_shadow_min_transmittance" => Some(&mut adjustables.cloud_shadow_min_transmittance),
         "water_substep_hz" => Some(&mut adjustables.water_substep_hz),
         "water_world_tick_multiplier" => Some(&mut adjustables.water_world_tick_multiplier),
         "water_particle_edge_len" => Some(&mut adjustables.water_particle_edge_len),
@@ -3368,6 +3734,9 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
+        "cloud_primary_steps" => Some(&mut adjustables.cloud_primary_steps),
+        "cloud_light_steps" => Some(&mut adjustables.cloud_light_steps),
+        "cloud_shadow_steps" => Some(&mut adjustables.cloud_shadow_steps),
         _ => None,
     }
 }
@@ -3401,6 +3770,9 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "is_changing_lum_phi" => Some(&mut adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&mut adjustables.is_spatial_denoising_enabled),
+        "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
+        "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
+        "cloud_shadow_debug_overlay" => Some(&mut adjustables.cloud_shadow_debug_overlay),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         _ => None,

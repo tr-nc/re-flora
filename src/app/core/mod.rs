@@ -48,7 +48,7 @@ use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
-use crate::tracer::{TerrainRayQuery, Tracer, TracerDesc, WindGuiParams};
+use crate::tracer::{CloudGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams};
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
@@ -2296,6 +2296,36 @@ impl App {
                 );
                 let update_shadow_map = self.render_flags.enable_shadows;
                 let wind_gui_params = Self::wind_gui_params(&self.wind_sources);
+                let cloud_gui_params = CloudGuiParams {
+                    enabled: self.render_flags.enable_clouds
+                        && self.gui_adjustables.clouds_enabled.value,
+                    coverage: self.gui_adjustables.cloud_coverage.value,
+                    density: self.gui_adjustables.cloud_density.value,
+                    bottom_height: self.gui_adjustables.cloud_bottom_height.value,
+                    top_height: self.gui_adjustables.cloud_top_height.value,
+                    shape_scale: self.gui_adjustables.cloud_shape_scale.value,
+                    detail_scale: self.gui_adjustables.cloud_detail_scale.value,
+                    detail_strength: self.gui_adjustables.cloud_detail_strength.value,
+                    wind_speed: self.gui_adjustables.cloud_wind_speed.value,
+                    primary_steps: self.gui_adjustables.cloud_primary_steps.value,
+                    light_steps: self.gui_adjustables.cloud_light_steps.value,
+                    temporal_alpha: self.gui_adjustables.cloud_temporal_alpha.value,
+                    absorption: self.gui_adjustables.cloud_absorption.value,
+                    phase_eccentricity: self.gui_adjustables.cloud_phase_eccentricity.value,
+                    silver_intensity: self.gui_adjustables.cloud_silver_intensity.value,
+                    max_distance: self.gui_adjustables.cloud_max_distance.value,
+                    shadows_enabled: self.render_flags.enable_shadows
+                        && self.render_flags.enable_clouds
+                        && self.gui_adjustables.clouds_enabled.value
+                        && self.gui_adjustables.cloud_shadows_enabled.value,
+                    shadow_debug_overlay: self.gui_adjustables.cloud_shadow_debug_overlay.value,
+                    shadow_strength: self.gui_adjustables.cloud_shadow_strength.value,
+                    shadow_min_transmittance: self
+                        .gui_adjustables
+                        .cloud_shadow_min_transmittance
+                        .value,
+                    shadow_steps: self.gui_adjustables.cloud_shadow_steps.value,
+                };
 
                 self.tracer
                     .update_buffers(
@@ -2386,6 +2416,7 @@ impl App {
                         self.gui_adjustables.leaf_shadow_min_transmittance.value,
                         self.gui_adjustables.leaf_shadow_filter_radius_texels.value,
                         wind_gui_params,
+                        cloud_gui_params,
                         self.flora_tick,
                         FLORA_SPROUT_DELAY_TICKS,
                         FLORA_FULL_GROWTH_TICKS,
