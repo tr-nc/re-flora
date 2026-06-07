@@ -514,6 +514,7 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.god_ray_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.temporal_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.spatial_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.cloud_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.lens_flare_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.lens_flare_sun_visible_ppl,
