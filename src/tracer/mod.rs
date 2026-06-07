@@ -79,6 +79,25 @@ pub struct WindGuiParams {
     pub sources: Vec<WindSource>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CloudGuiParams {
+    pub enabled: bool,
+    pub coverage: f32,
+    pub density: f32,
+    pub bottom_height: f32,
+    pub top_height: f32,
+    pub shape_scale: f32,
+    pub detail_scale: f32,
+    pub detail_strength: f32,
+    pub wind_speed: f32,
+    pub primary_steps: u32,
+    pub light_steps: u32,
+    pub absorption: f32,
+    pub phase_eccentricity: f32,
+    pub silver_intensity: f32,
+    pub max_distance: f32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct WindSourceGpu {
@@ -611,6 +630,7 @@ impl Tracer {
         leaf_shadow_min_transmittance: f32,
         leaf_shadow_filter_radius_texels: f32,
         wind_gui_params: WindGuiParams,
+        cloud_gui_params: CloudGuiParams,
         flora_tick: u32,
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
@@ -756,6 +776,7 @@ impl Tracer {
             leaf_shadow_min_transmittance,
             leaf_shadow_filter_radius_texels,
             wind_gui_params,
+            cloud_gui_params,
         )?;
 
         BufferUpdater::update_flora_growth_info(

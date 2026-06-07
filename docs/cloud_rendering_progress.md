@@ -69,7 +69,7 @@ Assumptions to confirm:
 - Objective: define exact cloud uniforms, shader interfaces, resolution strategy, and composition order before code changes.
 - Expected output: short implementation spec covering density model, lighting, render target choices, GUI controls, and fallback behavior.
 - Dependencies/blockers: confirm initial performance budget and whether MVP needs water reflection immediately.
-- Status: not started.
+- Status: done.
 
 ### Phase 2: Procedural density/noise foundation
 
@@ -141,6 +141,7 @@ If verification is not yet possible, the missing pieces are: actual cloud shader
 - 2026-06-07: Researched mature real-time procedural cloud approaches. Chose the Horizon/Nubis family because it is widely used, procedural, sun-responsive, and explicitly optimized for game budgets.
 - 2026-06-07: Clarified that Horizon 2015 and Nubis 2017 are related, not competing: Horizon provides the core rendering algorithm; Nubis is the later production/authoring system. Decision: implement a Horizon-style MVP first and borrow only the cheap Nubis improvements.
 - 2026-06-07: Added this progress document. No cloud implementation has been started.
+- 2026-06-07: Added cloud GUI/CLI/render-flag plumbing and uniform fields, with generated Rust structs refreshed by `cargo check`. This keeps the first implementation controllable and provides a cheap `--no-clouds` fallback.
 
 ## Open Questions / Risks
 

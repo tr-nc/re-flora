@@ -47,6 +47,21 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float leaf_shadow_strength;
     float leaf_shadow_min_transmittance;
     float leaf_shadow_filter_radius_texels;
+    uint clouds_enabled;
+    float cloud_coverage;
+    float cloud_density;
+    float cloud_bottom_height;
+    float cloud_top_height;
+    float cloud_shape_scale;
+    float cloud_detail_scale;
+    float cloud_detail_strength;
+    float cloud_wind_speed;
+    uint cloud_primary_steps;
+    uint cloud_light_steps;
+    float cloud_absorption;
+    float cloud_phase_eccentricity;
+    float cloud_silver_intensity;
+    float cloud_max_distance;
 }
 gui_input;
 

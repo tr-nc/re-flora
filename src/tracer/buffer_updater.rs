@@ -2,7 +2,7 @@ use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
     ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, VoxelColors,
 };
-use crate::tracer::{TracerResources, WindGuiParams, WindSourceGpu};
+use crate::tracer::{CloudGuiParams, TracerResources, WindGuiParams, WindSourceGpu};
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{Mat4, Vec3};
@@ -254,6 +254,7 @@ impl BufferUpdater {
         leaf_shadow_min_transmittance: f32,
         leaf_shadow_filter_radius_texels: f32,
         wind_gui_params: WindGuiParams,
+        cloud_gui_params: CloudGuiParams,
     ) -> Result<()> {
         let wind_source_count = wind_gui_params.sources.len() as u32;
         let mut wind_sources = wind_gui_params
@@ -305,6 +306,21 @@ impl BufferUpdater {
             leaf_shadow_strength,
             leaf_shadow_min_transmittance,
             leaf_shadow_filter_radius_texels,
+            clouds_enabled: cloud_gui_params.enabled as u32,
+            cloud_coverage: cloud_gui_params.coverage,
+            cloud_density: cloud_gui_params.density,
+            cloud_bottom_height: cloud_gui_params.bottom_height,
+            cloud_top_height: cloud_gui_params.top_height,
+            cloud_shape_scale: cloud_gui_params.shape_scale,
+            cloud_detail_scale: cloud_gui_params.detail_scale,
+            cloud_detail_strength: cloud_gui_params.detail_strength,
+            cloud_wind_speed: cloud_gui_params.wind_speed,
+            cloud_primary_steps: cloud_gui_params.primary_steps,
+            cloud_light_steps: cloud_gui_params.light_steps,
+            cloud_absorption: cloud_gui_params.absorption,
+            cloud_phase_eccentricity: cloud_gui_params.phase_eccentricity,
+            cloud_silver_intensity: cloud_gui_params.silver_intensity,
+            cloud_max_distance: cloud_gui_params.max_distance,
             ..GuiInput::zeroed()
         })
     }

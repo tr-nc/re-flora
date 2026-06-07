@@ -94,6 +94,8 @@ pub struct AppOptions {
     pub no_particles: bool,
     /// Disable flora/leaves graphics passes (grass, tree leaves).
     pub no_flora: bool,
+    /// Disable procedural cloud rendering.
+    pub no_clouds: bool,
     /// Preferred swapchain present mode override.
     pub present_mode: Option<PresentModePreference>,
     /// Select borderless fullscreen monitor by physical-pixel score.
@@ -260,6 +262,7 @@ impl AppOptions {
             no_tracer: args.iter().any(|a| a == "--no-tracer"),
             no_particles: args.iter().any(|a| a == "--no-particles"),
             no_flora: args.iter().any(|a| a == "--no-flora"),
+            no_clouds: args.iter().any(|a| a == "--no-clouds"),
             present_mode,
             monitor_score,
             swapchain_images: parse_f32_after("--swapchain-images").map(|v| v as u32),
@@ -427,6 +430,7 @@ Options:
   --no-tracer                 Disable main tracer pass
   --no-particles              Disable particle simulation and rendering
   --no-flora                  Disable flora and leaves rendering
+  --no-clouds                 Disable procedural cloud rendering
   --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
   --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: lowest)
   --swapchain-images <N>      Override swapchain image count (default: auto)
@@ -493,6 +497,7 @@ pub struct RenderFlags {
     pub enable_tracer: bool,
     pub enable_flora: bool,
     pub enable_particles: bool,
+    pub enable_clouds: bool,
 }
 
 impl From<&AppOptions> for RenderFlags {
@@ -505,6 +510,7 @@ impl From<&AppOptions> for RenderFlags {
             enable_tracer: !options.no_tracer,
             enable_flora: !options.no_flora,
             enable_particles: !options.no_particles,
+            enable_clouds: !options.no_clouds,
         }
     }
 }
