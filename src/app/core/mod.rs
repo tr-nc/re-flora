@@ -2314,6 +2314,16 @@ impl App {
                     phase_eccentricity: self.gui_adjustables.cloud_phase_eccentricity.value,
                     silver_intensity: self.gui_adjustables.cloud_silver_intensity.value,
                     max_distance: self.gui_adjustables.cloud_max_distance.value,
+                    shadows_enabled: self.render_flags.enable_shadows
+                        && self.render_flags.enable_clouds
+                        && self.gui_adjustables.clouds_enabled.value
+                        && self.gui_adjustables.cloud_shadows_enabled.value,
+                    shadow_strength: self.gui_adjustables.cloud_shadow_strength.value,
+                    shadow_min_transmittance: self
+                        .gui_adjustables
+                        .cloud_shadow_min_transmittance
+                        .value,
+                    shadow_steps: self.gui_adjustables.cloud_shadow_steps.value,
                 };
 
                 self.tracer

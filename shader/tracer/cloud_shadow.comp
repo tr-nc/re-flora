@@ -1,0 +1,132 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "../include/gui_input.glsl"
+layout(set = 0, binding = 1) uniform U_SunInfo {
+    vec3 sun_dir;
+    float sun_size;
+    vec3 sun_color;
+    float sun_luminance;
+    float sun_display_luminance;
+    float sun_altitude;
+    float sun_azimuth;
+}
+sun_info;
+layout(set = 0, binding = 3) uniform U_CameraInfo {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+camera_info;
+layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+shadow_camera_info;
+layout(set = 0, binding = 5) uniform U_EnvInfo { uint frame_serial_idx; }
+env_info;
+layout(set = 0, binding = 6, r16f) uniform writeonly image2D cloud_shadow_tex;
+
+#include "../include/core/transform.glsl"
+#include "../include/ray.glsl"
+#include "../include/skylight.glsl"
+#include "../include/sunlight.glsl"
+#include "../include/clouds.glsl"
+
+bool cloud_shadow_layer_interval(Ray ray, out float t0, out float t1) {
+    t0 = 0.0;
+    t1 = 0.0;
+
+    float bottom = cloud_layer_bottom();
+    float top = cloud_layer_top();
+
+    if (abs(ray.direction.y) < 0.012) {
+        return false;
+    }
+
+    float tb = (bottom - ray.origin.y) / ray.direction.y;
+    float tt = (top - ray.origin.y) / ray.direction.y;
+    t0 = max(min(tb, tt), 0.0);
+    t1 = max(tb, tt);
+
+    if (t1 <= t0) {
+        return false;
+    }
+
+    // Cloud lobes are finite even though the procedural slab is not. Capping the
+    // Beer path keeps low-sun shadows from degenerating into aliased black bands.
+    float thickness = max(top - bottom, 1.0);
+    float grazing = 1.0 - smoothstep(0.05, 0.32, abs(sun_info.sun_dir.y));
+    float path_cap = thickness * mix(3.2, 7.5, grazing);
+    t1 = min(t1, t0 + path_cap);
+
+    return t1 > t0;
+}
+
+float compute_cloud_shadow_transmittance(Ray ray) {
+    if (gui_input.cloud_shadows_enabled == 0u || gui_input.clouds_enabled == 0u ||
+        gui_input.cloud_coverage <= 0.001 || gui_input.cloud_density <= 0.001) {
+        return 1.0;
+    }
+
+    // Ground receivers only get direct sunlight while the sun is above the local
+    // horizon. Fade cloud shadows near the horizon; the projection becomes very
+    // elongated there and direct terrain lighting is already fading out.
+    float sun_fade = smoothstep(0.025, 0.13, sun_info.sun_dir.y);
+    if (sun_fade <= 0.001) {
+        return 1.0;
+    }
+
+    float t0;
+    float t1;
+    if (!cloud_shadow_layer_interval(ray, t0, t1)) {
+        return 1.0;
+    }
+
+    uint steps = clamp(gui_input.cloud_shadow_steps, 2u, 16u);
+    float path_len = t1 - t0;
+    float dt = path_len / float(steps);
+    float optical_depth = 0.0;
+
+    // Deterministic per-texel jitter reduces banding without needing temporal
+    // history. Keep it frame-stable so cloud shadows do not sparkle.
+    float jitter = hash13(vec3(vec2(gl_GlobalInvocationID.xy) * 0.173, 0.37));
+    float t = t0 + dt * (0.35 + 0.30 * jitter);
+    for (uint i = 0u; i < steps; ++i) {
+        vec3 world_pos = ray.origin + ray.direction * t;
+        optical_depth += cloud_density_low_quality(world_pos) * dt;
+        t += dt;
+    }
+
+    // Same density field as visible clouds, but with an intentionally lower
+    // extinction scale: terrain cloud shadows should be broad and soft, not opaque.
+    float raw_transmittance = exp(-optical_depth * gui_input.cloud_absorption * 0.0065);
+    float strength = max(gui_input.cloud_shadow_strength, 0.0) * sun_fade;
+    float transmittance = mix(1.0, raw_transmittance, strength);
+    float min_transmittance = clamp(gui_input.cloud_shadow_min_transmittance, 0.0, 1.0);
+    return clamp(transmittance, min_transmittance, 1.0);
+}
+
+void main() {
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(cloud_shadow_tex);
+    if (any(greaterThanEqual(uvi, size))) {
+        return;
+    }
+
+    vec2 uv = (vec2(uvi) + vec2(0.5)) / vec2(size);
+    Ray ray = ray_gen(uv, shadow_camera_info.view_proj_mat_inv);
+    imageStore(cloud_shadow_tex, uvi, vec4(compute_cloud_shadow_transmittance(ray), 0.0, 0.0, 1.0));
+}

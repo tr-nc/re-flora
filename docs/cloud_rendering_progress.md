@@ -145,6 +145,7 @@ If verification is not yet possible, the missing pieces are: actual cloud shader
 - 2026-06-07: Implemented the cloud MVP: a half-resolution compute cloud pass, procedural layer density, sun-responsive scattering/absorption, composition over sky pixels, and low-step cloud contribution in ocean reflections. Validated with `cargo check` and a hidden release run.
 - 2026-06-07: Added STBN blue-noise jitter and temporal cloud accumulation with reprojection/neighborhood clamping to reduce low-sample dithering.
 - 2026-06-08: Replaced the cloud lighting's fixed top-down sun assumption with a physically motivated real-time approximation: cloud-height horizon visibility, spectral low-sun atmospheric transmittance, and true sun-direction cloud-slab transmittance through the top or bottom of the layer.
+- 2026-06-08: Added a separate cheap Beer-style cloud shadow transmittance map (256x256 R16F) generated from the same procedural cloud density and sampled by terrain, foliage, leaves, and particles for direct-sun shadowing.
 
 ## Open Questions / Risks
 

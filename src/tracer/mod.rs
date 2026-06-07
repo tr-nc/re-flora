@@ -64,6 +64,7 @@ use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
+const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
@@ -97,6 +98,10 @@ pub struct CloudGuiParams {
     pub phase_eccentricity: f32,
     pub silver_intensity: f32,
     pub max_distance: f32,
+    pub shadows_enabled: bool,
+    pub shadow_strength: f32,
+    pub shadow_min_transmittance: f32,
+    pub shadow_steps: u32,
 }
 
 #[repr(C)]
@@ -278,6 +283,7 @@ impl Tracer {
             render_extent,
             screen_extent,
             Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
+            Extent2D::new(CLOUD_SHADOW_MAP_RESOLUTION, CLOUD_SHADOW_MAP_RESOLUTION),
             Extent2D::new(
                 LEAF_SHADOW_OPACITY_RESOLUTION,
                 LEAF_SHADOW_OPACITY_RESOLUTION,
@@ -525,6 +531,7 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.temporal_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.spatial_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.cloud_ppl, &tracer_resources);
+        update_compute_fn(&self.compute_pipelines.cloud_shadow_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.cloud_temporal_ppl,
             &tracer_resources,
@@ -547,6 +554,8 @@ impl Tracer {
         // update graphics pipelines descriptor sets
         update_graphics_fn(&self.graphics_pipelines.flora_ppl, &tracer_resources);
         update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, &tracer_resources);
+        update_graphics_fn(&self.graphics_pipelines.leaves_ppl, &tracer_resources);
+        update_graphics_fn(&self.graphics_pipelines.leaves_lod_ppl, &tracer_resources);
         update_graphics_fn(
             &self.graphics_pipelines.leaves_shadow_lod_ppl,
             &tracer_resources,
@@ -1131,6 +1140,16 @@ impl Tracer {
                     )
                 },
             );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            if render_flags.enable_clouds {
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "cloud_shadow.pass",
+                    || self.record_cloud_shadow_pass(cmdbuf),
+                );
+            }
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
@@ -1437,6 +1456,17 @@ impl Tracer {
             self.resources
                 .shadow
                 .shadow_map_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
+                );
+
+            self.resources
+                .shadow
+                .cloud_shadow_tex
                 .get_image()
                 .record_clear(
                     cmdbuf,
@@ -2310,6 +2340,19 @@ impl Tracer {
         }
 
         Ok(())
+    }
+
+    fn record_cloud_shadow_pass(&self, cmdbuf: &CommandBuffer) {
+        self.compute_pipelines.cloud_shadow_ppl.record(
+            cmdbuf,
+            self.resources
+                .shadow
+                .cloud_shadow_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
+        );
     }
 
     fn record_cloud_pass(&mut self, cmdbuf: &CommandBuffer) {

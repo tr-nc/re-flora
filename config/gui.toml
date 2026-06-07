@@ -1618,6 +1618,48 @@ value = 800
 min = 40
 max = 1000
 
+[[section.param]]
+id = "cloud_shadows_enabled"
+kind = "bool"
+label = "Enable Cloud Shadows"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "cloud_shadow_strength"
+kind = "float"
+label = "Cloud Shadow Strength"
+type = "Float"
+
+[section.param.data]
+value = 0.55
+min = 0
+max = 2
+
+[[section.param]]
+id = "cloud_shadow_min_transmittance"
+kind = "float"
+label = "Cloud Shadow Min Transmittance"
+type = "Float"
+
+[section.param.data]
+value = 0.62
+min = 0
+max = 1
+
+[[section.param]]
+id = "cloud_shadow_steps"
+kind = "uint"
+label = "Cloud Shadow Steps"
+type = "Uint"
+
+[section.param.data]
+value = 6
+min = 2
+max = 16
+
 [[section]]
 name = "WaterSimulation"
 

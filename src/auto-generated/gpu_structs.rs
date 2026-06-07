@@ -477,6 +477,10 @@ pub struct GuiInput {
     pub cloud_phase_eccentricity: f32,
     pub cloud_silver_intensity: f32,
     pub cloud_max_distance: f32,
+    pub cloud_shadows_enabled: u32,
+    pub cloud_shadow_strength: f32,
+    pub cloud_shadow_min_transmittance: f32,
+    pub cloud_shadow_steps: u32,
     pub _pad8: [u8; 12],
 }
 

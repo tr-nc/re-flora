@@ -120,6 +120,14 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let cloud_shadow_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/tracer/cloud_shadow.comp",
+            "main",
+        )
+        .unwrap();
+
         let cloud_temporal_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -268,6 +276,7 @@ impl PipelineBuilder {
             spatial_sm,
             composition_sm,
             cloud_sm,
+            cloud_shadow_sm,
             cloud_temporal_sm,
             lens_flare_sm,
             lens_flare_sun_visible_sm,
@@ -365,6 +374,8 @@ impl PipelineBuilder {
         let composition_ppl =
             ComputePipeline::new(device, &shader_modules.composition_sm, pool, &[resources]);
         let cloud_ppl = ComputePipeline::new(device, &shader_modules.cloud_sm, pool, &[resources]);
+        let cloud_shadow_ppl =
+            ComputePipeline::new(device, &shader_modules.cloud_shadow_sm, pool, &[resources]);
         let cloud_temporal_ppl = ComputePipeline::new(
             device,
             &shader_modules.cloud_temporal_sm,
@@ -406,6 +417,7 @@ impl PipelineBuilder {
             temporal_ppl,
             spatial_ppl,
             cloud_ppl,
+            cloud_shadow_ppl,
             cloud_temporal_ppl,
             lens_flare_ppl,
             lens_flare_sun_visible_ppl,
@@ -646,6 +658,7 @@ pub struct ShaderModules {
     pub spatial_sm: ShaderModule,
     pub composition_sm: ShaderModule,
     pub cloud_sm: ShaderModule,
+    pub cloud_shadow_sm: ShaderModule,
     pub cloud_temporal_sm: ShaderModule,
     pub lens_flare_sm: ShaderModule,
     pub lens_flare_sun_visible_sm: ShaderModule,
@@ -678,6 +691,7 @@ pub struct ComputePipelines {
     pub temporal_ppl: ComputePipeline,
     pub spatial_ppl: ComputePipeline,
     pub cloud_ppl: ComputePipeline,
+    pub cloud_shadow_ppl: ComputePipeline,
     pub cloud_temporal_ppl: ComputePipeline,
     pub lens_flare_ppl: ComputePipeline,
     pub lens_flare_sun_visible_ppl: ComputePipeline,
