@@ -14,6 +14,8 @@ pub struct ExtentDependentResources {
     pub lens_flare_visible_count_tex: Resource<Texture>,
     pub lens_flare_full_output_tex: Resource<Texture>,
     pub lens_flare_output_tex: Resource<Texture>,
+    pub cloud_raw_tex: Resource<Texture>,
+    pub cloud_history_tex: Resource<Texture>,
     pub cloud_output_tex: Resource<Texture>,
     pub screen_output_tex: Resource<Texture>,
     pub composited_tex: Resource<Texture>,
@@ -47,8 +49,12 @@ impl ExtentDependentResources {
         );
         let lens_flare_output_tex =
             Self::create_lens_flare_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        let cloud_raw_tex =
+            Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
+        let cloud_history_tex =
+            Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
         let cloud_output_tex =
-            Self::create_cloud_output_tex(device.clone(), allocator.clone(), rendering_extent);
+            Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
         let screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
         let composited_tex = Self::create_composited_tex(device, allocator, rendering_extent);
@@ -63,6 +69,8 @@ impl ExtentDependentResources {
             lens_flare_visible_count_tex: Resource::new(lens_flare_visible_count_tex),
             lens_flare_full_output_tex: Resource::new(lens_flare_full_output_tex),
             lens_flare_output_tex: Resource::new(lens_flare_output_tex),
+            cloud_raw_tex: Resource::new(cloud_raw_tex),
+            cloud_history_tex: Resource::new(cloud_history_tex),
             cloud_output_tex: Resource::new(cloud_output_tex),
             screen_output_tex: Resource::new(screen_output_tex),
             composited_tex: Resource::new(composited_tex),
@@ -220,7 +228,7 @@ impl ExtentDependentResources {
         Texture::new(device, allocator, &tex_desc, &Default::default())
     }
 
-    fn create_cloud_output_tex(
+    fn create_cloud_tex(
         device: Device,
         allocator: Allocator,
         rendering_extent: Extent2D,
@@ -234,6 +242,7 @@ impl ExtentDependentResources {
             format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC
                 | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,

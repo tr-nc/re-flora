@@ -1,0 +1,156 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PC {
+    uint reset_history;
+}
+cloud_temporal_push;
+
+#include "../include/gui_input.glsl"
+
+layout(set = 0, binding = 4) uniform U_CameraInfo {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+camera_info;
+layout(set = 0, binding = 5) uniform U_CameraInfoPrevFrame {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+camera_info_prev_frame;
+
+layout(set = 0, binding = 15) uniform sampler2D cloud_raw_tex;
+layout(set = 0, binding = 16) uniform sampler2D cloud_history_tex;
+layout(set = 0, binding = 17, rgba16f) uniform writeonly image2D cloud_output_tex;
+
+#include "../include/ray.glsl"
+
+float temporal_cloud_layer_bottom() {
+    return min(gui_input.cloud_bottom_height, gui_input.cloud_top_height - 1.0);
+}
+
+float temporal_cloud_layer_top() {
+    return max(gui_input.cloud_top_height, gui_input.cloud_bottom_height + 1.0);
+}
+
+bool temporal_cloud_history_uv(vec2 screen_uv, out vec2 history_uv) {
+    history_uv = screen_uv;
+
+    Ray ray = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
+    if (abs(ray.direction.y) < 0.018) {
+        return false;
+    }
+
+    float bottom = temporal_cloud_layer_bottom();
+    float top    = temporal_cloud_layer_top();
+    vec3 camera_pos = camera_info.pos.xyz;
+
+    float tb = (bottom - camera_pos.y) / ray.direction.y;
+    float tt = (top - camera_pos.y) / ray.direction.y;
+    float t0 = max(min(tb, tt), 0.0);
+    float t1 = max(tb, tt);
+    if (t1 <= t0) {
+        return false;
+    }
+
+    t1 = min(t1, max(gui_input.cloud_max_distance, 1.0));
+    if (t1 <= t0) {
+        return false;
+    }
+
+    // Use a representative point inside the cloud slab. This is intentionally cheap:
+    // it mostly handles camera rotation/translation without needing a per-pixel hit-depth output.
+    float t = mix(t0, t1, 0.42);
+    vec3 world_pos = camera_pos + ray.direction * t;
+
+    vec4 prev_clip = camera_info_prev_frame.view_proj_mat * vec4(world_pos, 1.0);
+    if (prev_clip.w <= 1.0e-5) {
+        return false;
+    }
+
+    vec3 prev_ndc = prev_clip.xyz / prev_clip.w;
+    history_uv = prev_ndc.xy * 0.5 + 0.5;
+    return all(greaterThanEqual(history_uv, vec2(0.0))) &&
+           all(lessThanEqual(history_uv, vec2(1.0)));
+}
+
+vec4 cloud_current_neighborhood_min(ivec2 uvi, ivec2 size) {
+    vec4 v = texelFetch(cloud_raw_tex, uvi, 0);
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            ivec2 p = clamp(uvi + ivec2(x, y), ivec2(0), size - ivec2(1));
+            v = min(v, texelFetch(cloud_raw_tex, p, 0));
+        }
+    }
+    return v;
+}
+
+vec4 cloud_current_neighborhood_max(ivec2 uvi, ivec2 size) {
+    vec4 v = texelFetch(cloud_raw_tex, uvi, 0);
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            ivec2 p = clamp(uvi + ivec2(x, y), ivec2(0), size - ivec2(1));
+            v = max(v, texelFetch(cloud_raw_tex, p, 0));
+        }
+    }
+    return v;
+}
+
+void main() {
+    ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(cloud_output_tex);
+    if (any(greaterThanEqual(uvi, size))) {
+        return;
+    }
+
+    vec4 current = texelFetch(cloud_raw_tex, uvi, 0);
+    if (cloud_temporal_push.reset_history != 0u) {
+        imageStore(cloud_output_tex, uvi, current);
+        return;
+    }
+
+    vec2 screen_uv = (vec2(uvi) + vec2(0.5)) / vec2(size);
+    vec2 history_uv;
+    if (!temporal_cloud_history_uv(screen_uv, history_uv)) {
+        imageStore(cloud_output_tex, uvi, current);
+        return;
+    }
+
+    vec4 history = texture(cloud_history_tex, history_uv);
+
+    // Clamp history to the current 3x3 envelope. This keeps accumulation from ghosting
+    // after disocclusion or fast camera/cloud changes, while retaining most flicker reduction.
+    vec4 neighborhood_min = cloud_current_neighborhood_min(uvi, size);
+    vec4 neighborhood_max = cloud_current_neighborhood_max(uvi, size);
+    vec4 neighborhood_range = neighborhood_max - neighborhood_min;
+    vec4 margin = max(neighborhood_range * 0.35, vec4(0.04, 0.04, 0.04, 0.025));
+    history = clamp(history, neighborhood_min - margin, neighborhood_max + margin);
+
+    float alpha_delta = abs(history.a - current.a);
+    float alpha_change = smoothstep(0.06, 0.32, alpha_delta);
+    float current_weight = mix(0.08, 0.32, alpha_change);
+
+    // If the current neighborhood is empty, converge quickly to transparent so old
+    // silhouettes do not linger at cloud edges.
+    if (neighborhood_max.a < 0.015) {
+        current_weight = 1.0;
+    }
+
+    vec4 resolved = mix(history, current, current_weight);
+    resolved.rgb = max(resolved.rgb, vec3(0.0));
+    resolved.a = clamp(resolved.a, 0.0, 1.0);
+    imageStore(cloud_output_tex, uvi, resolved);
+}

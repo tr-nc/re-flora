@@ -27,7 +27,7 @@ layout(set = 0, binding = 4) uniform U_CameraInfo {
 camera_info;
 layout(set = 0, binding = 5) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
-layout(set = 0, binding = 15, rgba16f) uniform writeonly image2D cloud_output_tex;
+layout(set = 0, binding = 15, rgba16f) uniform writeonly image2D cloud_raw_tex;
 
 layout(set = 1, binding = 0) uniform sampler2DArray scalar_bn;
 layout(set = 1, binding = 1) uniform sampler2DArray unit_vec2_bn;
@@ -45,7 +45,7 @@ layout(set = 1, binding = 5) uniform sampler2DArray fast_weighted_cosine_bn;
 
 void main() {
     ivec2 uvi = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = imageSize(cloud_output_tex);
+    ivec2 size = imageSize(cloud_raw_tex);
     if (any(greaterThanEqual(uvi, size))) {
         return;
     }
@@ -55,5 +55,5 @@ void main() {
 
     float jitter = random_float_bn(get_seed(env_info.frame_serial_idx));
     CloudRaymarchResult clouds = compute_volumetric_clouds_with_jitter(ray.direction, 0u, jitter);
-    imageStore(cloud_output_tex, uvi, vec4(clouds.color, clouds.alpha));
+    imageStore(cloud_raw_tex, uvi, vec4(clouds.color, clouds.alpha));
 }

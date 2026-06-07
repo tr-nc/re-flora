@@ -128,6 +128,12 @@ struct VsmFilterPushConstants {
     _pad0: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CloudTemporalPushConstants {
+    reset_history: u32,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TerrainRayQuery {
     pub origin: Vec3,
@@ -199,6 +205,7 @@ pub struct Tracer {
     shadow_camera_initialized: bool,
     shadow_map_history_valid: bool,
     leaf_shadow_history_valid: bool,
+    cloud_history_valid: bool,
 
     compute_pipelines: ComputePipelines,
     graphics_pipelines: GraphicsPipelines,
@@ -349,6 +356,7 @@ impl Tracer {
             shadow_camera_initialized: false,
             shadow_map_history_valid: false,
             leaf_shadow_history_valid: false,
+            cloud_history_valid: false,
             compute_pipelines,
             graphics_pipelines,
             render_target_color_and_depth,
@@ -475,6 +483,7 @@ impl Tracer {
             vec![framebuffer_leaf_shadow_opacity],
         );
 
+        self.cloud_history_valid = false;
         self.update_sets(contree_builder_resources, scene_accel_resources);
     }
 
@@ -515,6 +524,10 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.temporal_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.spatial_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.cloud_ppl, &tracer_resources);
+        update_compute_fn(
+            &self.compute_pipelines.cloud_temporal_ppl,
+            &tracer_resources,
+        );
         update_compute_fn(&self.compute_pipelines.lens_flare_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.lens_flare_sun_visible_ppl,
@@ -1001,6 +1014,14 @@ impl Tracer {
                 MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
             )],
         );
+        let transfer_to_compute_barrier = PipelineBarrier::new(
+            PipelineStage::TRANSFER,
+            PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
+                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            )],
+        );
 
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
@@ -1237,6 +1258,9 @@ impl Tracer {
                 "cloud.pass",
                 || self.record_cloud_pass(cmdbuf),
             );
+            compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            self.record_store_cloud_history(cmdbuf);
+            transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         } else {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -1345,6 +1369,22 @@ impl Tracer {
                 self.resources
                     .shadow
                     .shadow_map_tex_for_vsm_prev
+                    .get_image(),
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
+            );
+    }
+
+    fn record_store_cloud_history(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .extent_dependent_resources
+            .cloud_output_tex
+            .get_image()
+            .record_copy_to(
+                cmdbuf,
+                self.resources
+                    .extent_dependent_resources
+                    .cloud_history_tex
                     .get_image(),
                 TextureLayout::GENERAL,
                 TextureLayout::GENERAL,
@@ -2271,30 +2311,45 @@ impl Tracer {
         Ok(())
     }
 
-    fn record_cloud_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.cloud_ppl.record(
+    fn record_cloud_pass(&mut self, cmdbuf: &CommandBuffer) {
+        let extent = self
+            .resources
+            .extent_dependent_resources
+            .cloud_raw_tex
+            .get_image()
+            .get_desc()
+            .extent;
+
+        self.compute_pipelines
+            .cloud_ppl
+            .record(cmdbuf, extent, None);
+
+        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        let push_constants = CloudTemporalPushConstants {
+            reset_history: u32::from(!self.cloud_history_valid),
+        };
+        self.compute_pipelines.cloud_temporal_ppl.record(
             cmdbuf,
-            self.resources
-                .extent_dependent_resources
-                .cloud_output_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            None,
+            extent,
+            Some(bytemuck::bytes_of(&push_constants)),
         );
+        self.cloud_history_valid = true;
     }
 
-    fn clear_cloud_output(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .extent_dependent_resources
-            .cloud_output_tex
-            .get_image()
-            .record_clear(
+    fn clear_cloud_output(&mut self, cmdbuf: &CommandBuffer) {
+        self.cloud_history_valid = false;
+        for tex in [
+            &self.resources.extent_dependent_resources.cloud_raw_tex,
+            &self.resources.extent_dependent_resources.cloud_output_tex,
+        ] {
+            tex.get_image().record_clear(
                 cmdbuf,
                 Some(TextureLayout::GENERAL),
                 0,
                 ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
             );
+        }
     }
 
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {
@@ -2405,6 +2460,7 @@ impl Tracer {
         self.camera_proj_mat_prev_frame = proj_mat;
         self.current_view_proj_mat = proj_mat * view_mat;
         self.shadow_map_history_valid = false;
+        self.cloud_history_valid = false;
         if let Err(err) = self
             .spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
