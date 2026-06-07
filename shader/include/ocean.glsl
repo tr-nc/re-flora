@@ -122,7 +122,7 @@ vec3 ocean_get_sea_color_fast(vec3 p, vec3 n, vec3 light_dir, vec3 view_dir, flo
     vec3 R = normalize(reflect(view_dir, n));
     R.y    = abs(R.y);
 
-    vec3 reflection = compute_sky_with_sun_and_stars(R);
+    vec3 reflection = compute_sky_reflection_with_clouds(R);
 
     vec3 deep    = ocean_base_color();
     vec3 shallow = ocean_water_color();

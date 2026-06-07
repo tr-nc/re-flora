@@ -76,28 +76,28 @@ Assumptions to confirm:
 - Objective: provide cheap procedural cloud density suitable for raymarching.
 - Expected output: either generated tiling noise textures or a runtime generation path; density sampler with coverage, height gradient, wind offset, and detail erosion.
 - Dependencies/blockers: choose asset generation approach and texture formats.
-- Status: not started.
+- Status: done for the current MVP via shader-generated tiling value-noise/fBm density.
 
 ### Phase 3: Sky cloud MVP in composition path
 
 - Objective: render clouds into the sky/environment path with sun-responsive lighting.
 - Expected output: visible clouds in `composition.comp` using Beer-Lambert absorption, Henyey-Greenstein phase, and a cheap powder/multiple-scattering approximation.
 - Dependencies/blockers: Phase 2 density sampler.
-- Status: not started.
+- Status: done.
 
 ### Phase 4: Performance controls and temporal strategy
 
 - Objective: keep clouds cheap enough for normal gameplay.
 - Expected output: half/quarter-resolution or interleaved cloud rendering, temporal reprojection/accumulation, early exit, adaptive stepping, and depth/horizon culling where useful.
 - Dependencies/blockers: Phase 3 MVP and release-mode measurements.
-- Status: not started.
+- Status: in progress; current MVP uses a half-resolution cloud target, early exit, horizon/layer culling, and GUI step-count controls. Temporal reprojection remains a follow-up if measurements require it.
 
 ### Phase 5: Water/ocean reflection integration
 
 - Objective: let reflective water/ocean include cloud contribution without expensive duplicate raymarching.
 - Expected output: cheap reflected-cloud lookup, likely via cached low-resolution environment/hemi texture or low-cost reflection cloud sample.
 - Dependencies/blockers: Phase 3/4 cloud output, decision on reflection quality/perf tradeoff.
-- Status: not started.
+- Status: done for the current MVP with a low-step reflected sky cloud sample.
 
 ### Phase 6: Polish and optional world interaction
 
@@ -142,6 +142,7 @@ If verification is not yet possible, the missing pieces are: actual cloud shader
 - 2026-06-07: Clarified that Horizon 2015 and Nubis 2017 are related, not competing: Horizon provides the core rendering algorithm; Nubis is the later production/authoring system. Decision: implement a Horizon-style MVP first and borrow only the cheap Nubis improvements.
 - 2026-06-07: Added this progress document. No cloud implementation has been started.
 - 2026-06-07: Added cloud GUI/CLI/render-flag plumbing and uniform fields, with generated Rust structs refreshed by `cargo check`. This keeps the first implementation controllable and provides a cheap `--no-clouds` fallback.
+- 2026-06-07: Implemented the cloud MVP: a half-resolution compute cloud pass, procedural layer density, sun-responsive scattering/absorption, composition over sky pixels, and low-step cloud contribution in ocean reflections. Validated with `cargo check` and a hidden release run.
 
 ## Open Questions / Risks
 

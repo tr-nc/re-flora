@@ -58,6 +58,7 @@ layout(set = 0, binding = 11, r32f) uniform readonly image2D god_ray_output_tex;
 layout(set = 0, binding = 12, r11f_g11f_b10f) uniform writeonly image2D composited_tex;
 layout(set = 0, binding = 13, r11f_g11f_b10f) uniform readonly image2D lens_flare_output_tex;
 layout(set = 0, binding = 14) uniform sampler2D sun_sprite_tex;
+layout(set = 0, binding = 15) uniform sampler2D cloud_output_tex;
 
 #include "../include/core/color.glsl"
 #include "../include/core/dither.glsl"
@@ -66,6 +67,7 @@ layout(set = 0, binding = 14) uniform sampler2D sun_sprite_tex;
 #include "../include/skylight.glsl"
 #include "../include/starlight.glsl"
 #include "../include/sunlight.glsl"
+#include "../include/clouds.glsl"
 
 mat3 _make_tbn(vec3 normal, float sun_azimuth) {
     if (abs(normal.y) < 0.99999) {
@@ -148,6 +150,26 @@ vec3 compute_sky_with_sun_and_stars(vec3 view_dir) {
     return mix(sky_with_sun, star_color, star_visibility);
 }
 
+vec3 compute_sky_reflection_with_clouds(vec3 view_dir) {
+    vec3 sky_color = compute_sky_with_sun_and_stars(view_dir);
+    if (gui_input.clouds_enabled == 0u) {
+        return sky_color;
+    }
+
+    uint reflection_steps = max(3u, min(gui_input.cloud_primary_steps / 2u, 8u));
+    CloudRaymarchResult clouds = compute_volumetric_clouds(view_dir, reflection_steps);
+    return apply_cloud_result(sky_color, clouds);
+}
+
+vec3 apply_screen_clouds(vec3 sky_color, vec2 screen_uv) {
+    if (gui_input.clouds_enabled == 0u) {
+        return sky_color;
+    }
+
+    vec4 clouds = texture(cloud_output_tex, screen_uv);
+    return mix(sky_color, clouds.rgb, clamp(clouds.a, 0.0, 1.0));
+}
+
 // ocean & environment helpers
 #include "../include/ocean.glsl"
 
@@ -215,6 +237,9 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec4 gfx_rgba,
     bool has_ocean;
     float ocean_depth_01;
     vec3 environment_color = compute_environment_color(view_dir, has_ocean, ocean_depth_01);
+    if (!has_ocean) {
+        environment_color = apply_screen_clouds(environment_color, screen_uv);
+    }
 
     float ocean_depth = has_ocean ? ocean_depth_01 : 1.0;
 

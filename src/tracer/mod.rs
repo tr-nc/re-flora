@@ -1228,6 +1228,24 @@ impl Tracer {
         }
 
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        if render_flags.enable_clouds {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "cloud.pass",
+                || self.record_cloud_pass(cmdbuf),
+            );
+        } else {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "cloud_clear.pass",
+                || self.clear_cloud_output(cmdbuf),
+            );
+        }
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_lens_flare {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -2250,6 +2268,32 @@ impl Tracer {
         }
 
         Ok(())
+    }
+
+    fn record_cloud_pass(&self, cmdbuf: &CommandBuffer) {
+        self.compute_pipelines.cloud_ppl.record(
+            cmdbuf,
+            self.resources
+                .extent_dependent_resources
+                .cloud_output_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            None,
+        );
+    }
+
+    fn clear_cloud_output(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .extent_dependent_resources
+            .cloud_output_tex
+            .get_image()
+            .record_clear(
+                cmdbuf,
+                Some(TextureLayout::GENERAL),
+                0,
+                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
+            );
     }
 
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {
