@@ -2309,6 +2309,7 @@ impl App {
                     wind_speed: self.gui_adjustables.cloud_wind_speed.value,
                     primary_steps: self.gui_adjustables.cloud_primary_steps.value,
                     light_steps: self.gui_adjustables.cloud_light_steps.value,
+                    temporal_alpha: self.gui_adjustables.cloud_temporal_alpha.value,
                     absorption: self.gui_adjustables.cloud_absorption.value,
                     phase_eccentricity: self.gui_adjustables.cloud_phase_eccentricity.value,
                     silver_intensity: self.gui_adjustables.cloud_silver_intensity.value,

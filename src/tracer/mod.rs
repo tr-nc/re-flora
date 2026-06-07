@@ -92,6 +92,7 @@ pub struct CloudGuiParams {
     pub wind_speed: f32,
     pub primary_steps: u32,
     pub light_steps: u32,
+    pub temporal_alpha: f32,
     pub absorption: f32,
     pub phase_eccentricity: f32,
     pub silver_intensity: f32,

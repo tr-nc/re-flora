@@ -472,10 +472,12 @@ pub struct GuiInput {
     pub cloud_wind_speed: f32,
     pub cloud_primary_steps: u32,
     pub cloud_light_steps: u32,
+    pub cloud_temporal_alpha: f32,
     pub cloud_absorption: f32,
     pub cloud_phase_eccentricity: f32,
     pub cloud_silver_intensity: f32,
     pub cloud_max_distance: f32,
+    pub _pad8: [u8; 12],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).

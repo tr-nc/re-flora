@@ -58,6 +58,7 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float cloud_wind_speed;
     uint cloud_primary_steps;
     uint cloud_light_steps;
+    float cloud_temporal_alpha;
     float cloud_absorption;
     float cloud_phase_eccentricity;
     float cloud_silver_intensity;

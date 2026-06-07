@@ -884,6 +884,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Clouds",
+        id: "cloud_temporal_alpha",
+        kind: "float",
+        label: "Temporal Alpha",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Clouds",
         id: "cloud_absorption",
         kind: "float",
         label: "Absorption",
@@ -1377,6 +1383,7 @@ pub struct GuiAdjustables {
     pub cloud_wind_speed: crate::gui_adjustables::FloatParam,
     pub cloud_primary_steps: crate::gui_adjustables::UintParam,
     pub cloud_light_steps: crate::gui_adjustables::UintParam,
+    pub cloud_temporal_alpha: crate::gui_adjustables::FloatParam,
     pub cloud_absorption: crate::gui_adjustables::FloatParam,
     pub cloud_phase_eccentricity: crate::gui_adjustables::FloatParam,
     pub cloud_silver_intensity: crate::gui_adjustables::FloatParam,
@@ -1591,6 +1598,7 @@ impl GuiAdjustables {
         let mut cloud_wind_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_primary_steps_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut cloud_light_steps_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut cloud_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_absorption_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_phase_eccentricity_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_silver_intensity_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2608,6 +2616,13 @@ impl GuiAdjustables {
                             cloud_light_steps_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
+                    "cloud_temporal_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cloud_temporal_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "cloud_absorption" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3141,6 +3156,7 @@ impl GuiAdjustables {
             cloud_wind_speed: cloud_wind_speed_field.expect("Missing parameter: cloud_wind_speed"),
             cloud_primary_steps: cloud_primary_steps_field.expect("Missing parameter: cloud_primary_steps"),
             cloud_light_steps: cloud_light_steps_field.expect("Missing parameter: cloud_light_steps"),
+            cloud_temporal_alpha: cloud_temporal_alpha_field.expect("Missing parameter: cloud_temporal_alpha"),
             cloud_absorption: cloud_absorption_field.expect("Missing parameter: cloud_absorption"),
             cloud_phase_eccentricity: cloud_phase_eccentricity_field.expect("Missing parameter: cloud_phase_eccentricity"),
             cloud_silver_intensity: cloud_silver_intensity_field.expect("Missing parameter: cloud_silver_intensity"),
@@ -3310,6 +3326,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "cloud_detail_scale" => Some(&adjustables.cloud_detail_scale),
         "cloud_detail_strength" => Some(&adjustables.cloud_detail_strength),
         "cloud_wind_speed" => Some(&adjustables.cloud_wind_speed),
+        "cloud_temporal_alpha" => Some(&adjustables.cloud_temporal_alpha),
         "cloud_absorption" => Some(&adjustables.cloud_absorption),
         "cloud_phase_eccentricity" => Some(&adjustables.cloud_phase_eccentricity),
         "cloud_silver_intensity" => Some(&adjustables.cloud_silver_intensity),
@@ -3558,6 +3575,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "cloud_detail_scale" => Some(&mut adjustables.cloud_detail_scale),
         "cloud_detail_strength" => Some(&mut adjustables.cloud_detail_strength),
         "cloud_wind_speed" => Some(&mut adjustables.cloud_wind_speed),
+        "cloud_temporal_alpha" => Some(&mut adjustables.cloud_temporal_alpha),
         "cloud_absorption" => Some(&mut adjustables.cloud_absorption),
         "cloud_phase_eccentricity" => Some(&mut adjustables.cloud_phase_eccentricity),
         "cloud_silver_intensity" => Some(&mut adjustables.cloud_silver_intensity),

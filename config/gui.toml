@@ -1564,6 +1564,17 @@ min = 1
 max = 8
 
 [[section.param]]
+id = "cloud_temporal_alpha"
+kind = "float"
+label = "Temporal Alpha"
+type = "Float"
+
+[section.param.data]
+value = 0.08
+min = 0.01
+max = 1
+
+[[section.param]]
 id = "cloud_absorption"
 kind = "float"
 label = "Absorption"

@@ -317,6 +317,7 @@ impl BufferUpdater {
             cloud_wind_speed: cloud_gui_params.wind_speed,
             cloud_primary_steps: cloud_gui_params.primary_steps,
             cloud_light_steps: cloud_gui_params.light_steps,
+            cloud_temporal_alpha: cloud_gui_params.temporal_alpha,
             cloud_absorption: cloud_gui_params.absorption,
             cloud_phase_eccentricity: cloud_gui_params.phase_eccentricity,
             cloud_silver_intensity: cloud_gui_params.silver_intensity,

@@ -141,7 +141,8 @@ void main() {
 
     float alpha_delta = abs(history.a - current.a);
     float alpha_change = smoothstep(0.06, 0.32, alpha_delta);
-    float current_weight = mix(0.08, 0.32, alpha_change);
+    float temporal_alpha = clamp(gui_input.cloud_temporal_alpha, 0.01, 1.0);
+    float current_weight = mix(temporal_alpha, min(temporal_alpha * 4.0, 1.0), alpha_change);
 
     // If the current neighborhood is empty, converge quickly to transparent so old
     // silhouettes do not linger at cloud edges.
