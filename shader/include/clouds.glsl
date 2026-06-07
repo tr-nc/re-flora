@@ -188,29 +188,71 @@ bool cloud_layer_interval(vec3 view_dir, out float t0, out float t1) {
     return t1 > t0;
 }
 
-float cloud_sun_transmittance(vec3 world_pos, float local_density) {
-    float sun_day = sun_luminance_from_dir(sun_info.sun_dir, 1.0);
-    if (sun_day <= 0.0) {
+float cloud_horizon_dip(vec3 world_pos) {
+    // A cloud above the ground can still see the sun for a short interval after
+    // the ground observer sees it cross the horizon.  The real relation is
+    // sqrt(2h / earth_radius); this keeps the same shape in project world units.
+    float height = max(world_pos.y, 0.0);
+    return clamp(sqrt(height * 0.000035), 0.015, 0.11);
+}
+
+float cloud_direct_sun_visibility(vec3 world_pos) {
+    float dip = cloud_horizon_dip(world_pos);
+    return smoothstep(-dip - 0.03, -dip * 0.20 + 0.015, sun_info.sun_dir.y);
+}
+
+vec3 cloud_atmospheric_sun_transmittance(vec3 world_pos) {
+    float dip = cloud_horizon_dip(world_pos);
+    float effective_sin_altitude = clamp(sun_info.sun_dir.y + dip + 0.025, 0.025, 1.0);
+    float air_mass = clamp(1.0 / effective_sin_altitude, 1.0, 28.0);
+
+    // Cheap spectral extinction approximation.  Long low-sun paths remove much
+    // more blue/green light, so the physically-motivated incident sun color is
+    // red/orange without adding a separate artistic fire-cloud tint.
+    vec3 beta = vec3(0.030, 0.075, 0.200);
+    return exp(-beta * max(air_mass - 1.0, 0.0));
+}
+
+float cloud_light_exit_distance(vec3 world_pos, vec3 light_dir) {
+    float bottom = cloud_layer_bottom();
+    float top = cloud_layer_top();
+    float layer_thickness = max(top - bottom, 1.0);
+
+    float path_len;
+    if (abs(light_dir.y) < 0.012) {
+        path_len = layer_thickness * 8.0;
+    } else {
+        float exit_y = light_dir.y > 0.0 ? top : bottom;
+        path_len = max((exit_y - world_pos.y) / light_dir.y, 0.0);
+    }
+
+    // The layer is horizontally infinite, but individual cloud lobes are not.
+    // Cap grazing light paths to a few layer thicknesses to approximate finite
+    // cloud extent and keep sunset/sunrise lighting stable at very low angles.
+    float grazing = 1.0 - smoothstep(0.05, 0.32, abs(light_dir.y));
+    float path_cap = layer_thickness * mix(4.0, 9.0, grazing);
+    return min(path_len, path_cap);
+}
+
+float cloud_sun_transmittance(vec3 world_pos, float local_density, float direct_visibility) {
+    if (direct_visibility <= 0.001) {
         return 0.0;
     }
 
-    float top = cloud_layer_top();
-    float bottom = cloud_layer_bottom();
-    float layer_thickness = max(top - bottom, 1.0);
-    float sun_y = max(sun_info.sun_dir.y, 0.06);
-    float path_len = max(top - world_pos.y, 0.0) / sun_y;
+    float path_len = cloud_light_exit_distance(world_pos, sun_info.sun_dir);
 
     // Start with a cheap analytic path term so lighting remains stable even when
-    // optional light probes are set to one sample.
-    float optical_depth = local_density * path_len * 0.040;
+    // optional light probes are set to one sample.  Probes then march along the
+    // real sun direction and leave through the top or bottom of the slab.
+    float optical_depth = local_density * path_len * 0.012;
 
     uint light_steps = clamp(gui_input.cloud_light_steps, 1u, 8u);
-    if (light_steps > 1u) {
-        float probe_dt = min(layer_thickness * 0.18, path_len / float(light_steps));
+    if (light_steps > 1u && path_len > 0.001) {
+        float probe_dt = path_len / float(light_steps);
         vec3 probe_pos = world_pos;
         for (uint i = 1u; i < light_steps; ++i) {
             probe_pos += sun_info.sun_dir * probe_dt;
-            optical_depth += cloud_density_low_quality(probe_pos) * probe_dt * 0.028;
+            optical_depth += cloud_density_low_quality(probe_pos) * probe_dt * 0.016;
         }
     }
 
@@ -224,8 +266,9 @@ float cloud_hg_phase(float cos_theta, float g) {
 }
 
 vec3 cloud_sample_lighting(vec3 world_pos, vec3 view_dir, float density) {
-    float sun_day = sun_luminance_from_dir(sun_info.sun_dir, 1.0);
-    float sun_trans = cloud_sun_transmittance(world_pos, density);
+    float direct_visibility = cloud_direct_sun_visibility(world_pos);
+    vec3 atmosphere_trans = cloud_atmospheric_sun_transmittance(world_pos);
+    float sun_trans = cloud_sun_transmittance(world_pos, density, direct_visibility);
     float cos_theta = clamp(dot(view_dir, sun_info.sun_dir), -1.0, 1.0);
     float g = clamp(gui_input.cloud_phase_eccentricity, 0.0, 0.92);
     float phase_forward = cloud_hg_phase(cos_theta, g) / max(cloud_hg_phase(1.0, g), 1.0e-3);
@@ -238,11 +281,13 @@ vec3 cloud_sample_lighting(vec3 world_pos, vec3 view_dir, float density) {
     vec3 ambient_sky = get_sky_color(normalize(vec3(view_dir.x, abs(view_dir.y) + 0.25, view_dir.z)),
                                      sun_info.sun_dir);
     float twilight = smoothstep(-0.08, 0.22, sun_info.sun_dir.y);
-    vec3 ambient = ambient_sky * mix(0.38, 0.62, twilight) * (0.55 + 0.45 * sun_day);
+    vec3 ambient = ambient_sky * mix(0.38, 0.62, twilight) *
+                   mix(0.55, 1.0, clamp(direct_visibility, 0.0, 1.0));
 
-    vec3 sun_light = sun_info.sun_color * sun_info.sun_luminance * sun_day * sun_trans;
+    vec3 incident_sun = sun_info.sun_color * atmosphere_trans * direct_visibility;
+    vec3 sun_light = incident_sun * sun_info.sun_luminance * sun_trans;
     sun_light *= phase * (0.52 + 0.55 * powder);
-    sun_light += sun_info.sun_color * sun_info.sun_display_luminance * sun_day * sun_trans * silver;
+    sun_light += incident_sun * sun_info.sun_display_luminance * sun_trans * silver;
 
     return ambient + sun_light;
 }

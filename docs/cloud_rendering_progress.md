@@ -90,7 +90,7 @@ Assumptions to confirm:
 - Objective: keep clouds cheap enough for normal gameplay.
 - Expected output: half/quarter-resolution or interleaved cloud rendering, temporal reprojection/accumulation, early exit, adaptive stepping, and depth/horizon culling where useful.
 - Dependencies/blockers: Phase 3 MVP and release-mode measurements.
-- Status: in progress; current MVP uses a half-resolution cloud target, early exit, horizon/layer culling, and GUI step-count controls. Temporal reprojection remains a follow-up if measurements require it.
+- Status: done for the current MVP; cloud rendering uses a half-resolution target, early exit, horizon/layer culling, GUI step-count controls, STBN jitter, and temporal reprojection/accumulation.
 
 ### Phase 5: Water/ocean reflection integration
 
@@ -143,6 +143,8 @@ If verification is not yet possible, the missing pieces are: actual cloud shader
 - 2026-06-07: Added this progress document. No cloud implementation has been started.
 - 2026-06-07: Added cloud GUI/CLI/render-flag plumbing and uniform fields, with generated Rust structs refreshed by `cargo check`. This keeps the first implementation controllable and provides a cheap `--no-clouds` fallback.
 - 2026-06-07: Implemented the cloud MVP: a half-resolution compute cloud pass, procedural layer density, sun-responsive scattering/absorption, composition over sky pixels, and low-step cloud contribution in ocean reflections. Validated with `cargo check` and a hidden release run.
+- 2026-06-07: Added STBN blue-noise jitter and temporal cloud accumulation with reprojection/neighborhood clamping to reduce low-sample dithering.
+- 2026-06-08: Replaced the cloud lighting's fixed top-down sun assumption with a physically motivated real-time approximation: cloud-height horizon visibility, spectral low-sun atmospheric transmittance, and true sun-direction cloud-slab transmittance through the top or bottom of the layer.
 
 ## Open Questions / Risks
 
@@ -150,6 +152,6 @@ If verification is not yet possible, the missing pieces are: actual cloud shader
 - Should the MVP include water reflection immediately, or should reflection follow after sky clouds are stable?
 - Should cloud shadows affect terrain/foliage/water in the first usable version, or remain a later enhancement?
 - Do we want generated noise assets checked into the repo, generated at build time, or generated at runtime on GPU/CPU?
-- Temporal reprojection can ghost or flicker with fast camera motion; needs careful validation.
+- Temporal reprojection can ghost or flicker with fast camera motion; current implementation uses reset conditions and neighborhood clamping, but still needs visual validation under aggressive camera movement.
 - Extra 3D textures and cloud targets increase memory pressure; texture formats/resolution should be chosen conservatively.
 - The current sky model is stylized keyframes, not full physical atmosphere; cloud lighting should integrate artistically with it rather than assuming a physically complete atmosphere model.
