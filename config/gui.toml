@@ -143,7 +143,7 @@ label = "Grass Vibration Amplitude (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.41
+value = 0.5
 min = 0
 max = 2
 
@@ -165,7 +165,7 @@ label = "Grass Vibration Secondary Speed"
 type = "Float"
 
 [section.param.data]
-value = 60
+value = 80
 min = 0
 max = 120
 
@@ -264,7 +264,7 @@ label = "Leaf Freq Curve Knee Bias (- early, + late)"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 0
 min = -3
 max = 3
 
@@ -286,7 +286,7 @@ label = "Leaf Freq Max Multiplier"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 3
 min = 0
 max = 3
 
@@ -306,7 +306,7 @@ label = "Wind Source 1 Active"
 type = "Bool"
 
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "wind_source_0_direction_deg"
@@ -401,7 +401,7 @@ label = "Wind Source 2 Active"
 type = "Bool"
 
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "wind_source_1_direction_deg"
@@ -1380,7 +1380,7 @@ label = "Grass Natural Bend Max (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 2
+value = 4
 min = 0
 max = 4
 
