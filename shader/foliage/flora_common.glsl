@@ -10,8 +10,6 @@ const float tall_grass_height_mean_voxels   = 5.0;
 const float tall_grass_height_stddev_voxels = 1.0;
 const float short_grass_height_mean_voxels  = 3.0;
 const float short_grass_height_stddev_voxels = 0.6;
-const float PLAYER_PUSH_RADIUS              = 0.3;
-const float PLAYER_PUSH_STRENGTH            = 0.02;
 
 #include "./flora_wind_motion.glsl"
 
@@ -57,6 +55,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
                            out float color_gradient, out vec3 voxel_pos, out vec3 anchor_pos,
                            out float shadow_weight, out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
+    bool is_surface_flora = instance_ty < FLORA_SPECIES_COUNT;
     bool is_apple = instance_ty == FLORA_SPECIES_APPLE;
 
     bool is_short_grass = instance_ty == FLORA_SPECIES_SHORT_GRASS;
@@ -92,25 +91,39 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     uint wind_seed = (is_grass || is_apple) ? instance_seed :
                                              get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
     vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
-    vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_gradient * wind_gradient;
+    float grass_rooted_height_t =
+        float(vox_local_pos.y) / max(float(grass_height_voxels) - 1.0, 1.0);
+    float flora_bend_height_t = is_grass ? grass_rooted_height_t : wind_gradient;
+    float flora_bend_weight = flora_bend_height_factor(flora_bend_height_t);
+    float wind_bend_weight = is_surface_flora ? flora_bend_weight : wind_gradient * wind_gradient;
+    vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_bend_weight;
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
-    if (is_grass) {
-        wind_offset += grass_wind_vibration(wind_vec, wind_gradient, instance_seed, vox_local_pos,
-                                            wind_motion_time);
+    if (is_surface_flora) {
+        float natural_bend_height = is_grass ? float(grass_height_voxels) : max(float(max_length), 1.0);
+        float natural_bend_t = is_grass ? grass_rooted_height_t : wind_gradient;
+        wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height);
+        wind_offset += flora_wind_vibration(wind_vec, flora_bend_height_t, instance_seed,
+                                            vox_local_pos, wind_motion_time);
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
         wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
                                           gradient_origin, wind_motion_time);
     } else if (is_apple) {
         wind_offset += apple_wind_swing(wind_vec, instance_seed, wind_motion_time);
     }
-    vec2 player_delta = instance_pos.xz - camera_info.pos.xz;
+    float player_push_radius = max(gui_input.flora_player_push_radius, 0.0);
+    float player_push_strength = max(gui_input.flora_player_push_strength, 0.0);
+    vec3 player_delta = instance_pos - camera_info.pos.xyz;
     float player_dist = length(player_delta);
-    vec2 player_push_dir = player_dist > 1e-4 ? player_delta / player_dist : vec2(0.0);
-    float player_push_amount =
-        (1.0 - smoothstep(0.0, PLAYER_PUSH_RADIUS, player_dist)) * wind_gradient * wind_gradient;
-    vec3 player_push =
-        vec3(player_push_dir.x, 0.0, player_push_dir.y) * (PLAYER_PUSH_STRENGTH * player_push_amount);
+    vec2 player_push_delta = player_delta.xz;
+    float player_push_planar_dist = length(player_push_delta);
+    vec2 player_push_dir =
+        player_push_planar_dist > 1e-4 ? player_push_delta / player_push_planar_dist : vec2(0.0);
+    float player_push_falloff =
+        player_push_radius > 1e-4 ? 1.0 - smoothstep(0.0, player_push_radius, player_dist) : 0.0;
+    float player_push_amount = player_push_falloff * flora_bend_weight;
+    vec3 player_push = vec3(player_push_dir.x, 0.0, player_push_dir.y) *
+                       (player_push_strength * player_push_amount);
 
     anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos + player_push;
     voxel_pos         = anchor_pos + vec3(0.5) * scaling_factor;

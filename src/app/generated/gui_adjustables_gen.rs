@@ -74,6 +74,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
+        id: "wind_directional_bias_fraction",
+        kind: "float",
+        label: "Wind Directional Bias Fraction",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "wind_turbulence_fraction",
+        kind: "float",
+        label: "Wind Turbulence Fraction",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
         id: "wind_audio_attack_decay",
         kind: "float",
         label: "Wind Audio Attack Decay (0 slow, 1 fast)",
@@ -83,90 +95,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "wind_audio_release_decay",
         kind: "float",
         label: "Wind Audio Release Decay (0 slow, 1 fast)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "grass_vibration_amplitude_voxels",
-        kind: "float",
-        label: "Grass Vibration Amplitude (voxels)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "grass_vibration_primary_speed",
-        kind: "float",
-        label: "Grass Vibration Primary Speed",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "grass_vibration_secondary_speed",
-        kind: "float",
-        label: "Grass Vibration Secondary Speed",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_amplitude_voxels",
-        kind: "float",
-        label: "Leaf Paddle Amplitude (voxels)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_primary_speed",
-        kind: "float",
-        label: "Leaf Paddle Primary Speed",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_secondary_speed",
-        kind: "float",
-        label: "Leaf Paddle Secondary Speed",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_amplitude_wind_start_strength",
-        kind: "float",
-        label: "Leaf Amp Curve Start Wind",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_amplitude_wind_full_strength",
-        kind: "float",
-        label: "Leaf Amp Curve Full Wind",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_amplitude_wind_knee_bias",
-        kind: "float",
-        label: "Leaf Amp Curve Knee Bias (- early, + late)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_frequency_wind_start_strength",
-        kind: "float",
-        label: "Leaf Freq Curve Start Wind",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_frequency_wind_full_strength",
-        kind: "float",
-        label: "Leaf Freq Curve Full Wind",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_frequency_wind_knee_bias",
-        kind: "float",
-        label: "Leaf Freq Curve Knee Bias (- early, + late)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_frequency_min_multiplier",
-        kind: "float",
-        label: "Leaf Freq Min Multiplier",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "leaf_paddle_frequency_max_multiplier",
-        kind: "float",
-        label: "Leaf Freq Max Multiplier",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
@@ -757,25 +685,139 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "A-Trous Iterations",
     },
     GeneratedGuiParamDescriptor {
-        section: "Grass",
+        section: "Flora",
+        id: "grass_natural_bend_min_voxels",
+        kind: "float",
+        label: "Flora Natural Bend Min (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "grass_natural_bend_max_voxels",
+        kind: "float",
+        label: "Flora Natural Bend Max (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "flora_bend_height_power",
+        kind: "float",
+        label: "Flora Bend Height Power",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "flora_player_push_radius",
+        kind: "float",
+        label: "Flora Player Push Radius",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "flora_player_push_strength",
+        kind: "float",
+        label: "Flora Player Push Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "grass_vibration_amplitude_voxels",
+        kind: "float",
+        label: "Flora Vibration Amplitude (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "grass_vibration_primary_speed",
+        kind: "float",
+        label: "Flora Vibration Primary Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "grass_vibration_secondary_speed",
+        kind: "float",
+        label: "Flora Vibration Secondary Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_amplitude_voxels",
+        kind: "float",
+        label: "Leaf Paddle Amplitude (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_primary_speed",
+        kind: "float",
+        label: "Leaf Paddle Primary Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_secondary_speed",
+        kind: "float",
+        label: "Leaf Paddle Secondary Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_amplitude_wind_start_strength",
+        kind: "float",
+        label: "Leaf Amp Curve Start Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_amplitude_wind_full_strength",
+        kind: "float",
+        label: "Leaf Amp Curve Full Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_amplitude_wind_knee_bias",
+        kind: "float",
+        label: "Leaf Amp Curve Knee Bias (- early, + late)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_frequency_wind_start_strength",
+        kind: "float",
+        label: "Leaf Freq Curve Start Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_frequency_wind_full_strength",
+        kind: "float",
+        label: "Leaf Freq Curve Full Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_frequency_wind_knee_bias",
+        kind: "float",
+        label: "Leaf Freq Curve Knee Bias (- early, + late)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_frequency_min_multiplier",
+        kind: "float",
+        label: "Leaf Freq Min Multiplier",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "leaf_paddle_frequency_max_multiplier",
+        kind: "float",
+        label: "Leaf Freq Max Multiplier",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
         id: "grass_bottom_dark_color",
         kind: "color",
         label: "Bottom Dark",
     },
     GeneratedGuiParamDescriptor {
-        section: "Grass",
+        section: "Flora",
         id: "grass_bottom_light_color",
         kind: "color",
         label: "Bottom Light",
     },
     GeneratedGuiParamDescriptor {
-        section: "Grass",
+        section: "Flora",
         id: "grass_tip_dark_color",
         kind: "color",
         label: "Tip Dark",
     },
     GeneratedGuiParamDescriptor {
-        section: "Grass",
+        section: "Flora",
         id: "grass_tip_light_color",
         kind: "color",
         label: "Tip Light",
@@ -1278,22 +1320,10 @@ pub struct GuiAdjustables {
     pub debug_bool: crate::gui_adjustables::BoolParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
+    pub wind_directional_bias_fraction: crate::gui_adjustables::FloatParam,
+    pub wind_turbulence_fraction: crate::gui_adjustables::FloatParam,
     pub wind_audio_attack_decay: crate::gui_adjustables::FloatParam,
     pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
-    pub grass_vibration_amplitude_voxels: crate::gui_adjustables::FloatParam,
-    pub grass_vibration_primary_speed: crate::gui_adjustables::FloatParam,
-    pub grass_vibration_secondary_speed: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_amplitude_voxels: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_primary_speed: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_secondary_speed: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_amplitude_wind_start_strength: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_amplitude_wind_full_strength: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_amplitude_wind_knee_bias: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_frequency_wind_start_strength: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_frequency_wind_full_strength: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_frequency_wind_knee_bias: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_frequency_min_multiplier: crate::gui_adjustables::FloatParam,
-    pub leaf_paddle_frequency_max_multiplier: crate::gui_adjustables::FloatParam,
     pub wind_source_0_name: crate::gui_adjustables::StringParam,
     pub wind_source_0_muted: crate::gui_adjustables::BoolParam,
     pub wind_source_0_direction_deg: crate::gui_adjustables::FloatParam,
@@ -1392,6 +1422,25 @@ pub struct GuiAdjustables {
     pub is_changing_lum_phi: crate::gui_adjustables::BoolParam,
     pub is_spatial_denoising_enabled: crate::gui_adjustables::BoolParam,
     pub a_trous_iteration_count: crate::gui_adjustables::UintParam,
+    pub grass_natural_bend_min_voxels: crate::gui_adjustables::FloatParam,
+    pub grass_natural_bend_max_voxels: crate::gui_adjustables::FloatParam,
+    pub flora_bend_height_power: crate::gui_adjustables::FloatParam,
+    pub flora_player_push_radius: crate::gui_adjustables::FloatParam,
+    pub flora_player_push_strength: crate::gui_adjustables::FloatParam,
+    pub grass_vibration_amplitude_voxels: crate::gui_adjustables::FloatParam,
+    pub grass_vibration_primary_speed: crate::gui_adjustables::FloatParam,
+    pub grass_vibration_secondary_speed: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_amplitude_voxels: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_primary_speed: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_secondary_speed: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_amplitude_wind_start_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_amplitude_wind_full_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_amplitude_wind_knee_bias: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_frequency_wind_start_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_frequency_wind_full_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_frequency_wind_knee_bias: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_frequency_min_multiplier: crate::gui_adjustables::FloatParam,
+    pub leaf_paddle_frequency_max_multiplier: crate::gui_adjustables::FloatParam,
     pub grass_bottom_dark_color: crate::gui_adjustables::ColorParam,
     pub grass_bottom_light_color: crate::gui_adjustables::ColorParam,
     pub grass_tip_dark_color: crate::gui_adjustables::ColorParam,
@@ -1498,22 +1547,10 @@ impl GuiAdjustables {
         let mut debug_bool_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut wind_directional_bias_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut wind_turbulence_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_attack_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut grass_vibration_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut grass_vibration_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut grass_vibration_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_amplitude_wind_start_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_amplitude_wind_full_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_amplitude_wind_knee_bias_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_frequency_wind_start_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_frequency_wind_full_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_frequency_wind_knee_bias_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_frequency_min_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_paddle_frequency_max_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_0_name_field: Option<crate::gui_adjustables::StringParam> = None;
         let mut wind_source_0_muted_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut wind_source_0_direction_deg_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1612,6 +1649,25 @@ impl GuiAdjustables {
         let mut is_changing_lum_phi_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut is_spatial_denoising_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut a_trous_iteration_count_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut grass_natural_bend_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_natural_bend_max_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut flora_bend_height_power_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut flora_player_push_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut flora_player_push_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_vibration_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_vibration_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_vibration_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_amplitude_wind_start_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_amplitude_wind_full_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_amplitude_wind_knee_bias_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_frequency_wind_start_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_frequency_wind_full_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_frequency_wind_knee_bias_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_frequency_min_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_paddle_frequency_max_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_bottom_dark_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_bottom_light_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_tip_dark_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -1755,6 +1811,20 @@ impl GuiAdjustables {
                             wind_source_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
+                    "wind_directional_bias_fraction" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_directional_bias_fraction_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "wind_turbulence_fraction" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            wind_turbulence_fraction_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "wind_audio_attack_decay" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1767,104 +1837,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             wind_audio_release_decay_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "grass_vibration_amplitude_voxels" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            grass_vibration_amplitude_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "grass_vibration_primary_speed" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            grass_vibration_primary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "grass_vibration_secondary_speed" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            grass_vibration_secondary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_amplitude_voxels" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_amplitude_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_primary_speed" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_primary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_secondary_speed" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_secondary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_amplitude_wind_start_strength" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_amplitude_wind_start_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_amplitude_wind_full_strength" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_amplitude_wind_full_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_amplitude_wind_knee_bias" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_amplitude_wind_knee_bias_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_frequency_wind_start_strength" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_frequency_wind_start_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_frequency_wind_full_strength" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_frequency_wind_full_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_frequency_wind_knee_bias" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_frequency_wind_knee_bias_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_frequency_min_multiplier" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_frequency_min_multiplier_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaf_paddle_frequency_max_multiplier" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaf_paddle_frequency_max_multiplier_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "wind_source_0_name" => {
@@ -2523,6 +2495,139 @@ impl GuiAdjustables {
                             a_trous_iteration_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
+                    "grass_natural_bend_min_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_natural_bend_min_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_natural_bend_max_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_natural_bend_max_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "flora_bend_height_power" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_bend_height_power_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "flora_player_push_radius" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_player_push_radius_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "flora_player_push_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_player_push_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_vibration_amplitude_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_vibration_amplitude_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_vibration_primary_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_vibration_primary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_vibration_secondary_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_vibration_secondary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_amplitude_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_amplitude_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_primary_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_primary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_secondary_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_secondary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_amplitude_wind_start_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_amplitude_wind_start_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_amplitude_wind_full_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_amplitude_wind_full_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_amplitude_wind_knee_bias" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_amplitude_wind_knee_bias_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_frequency_wind_start_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_frequency_wind_start_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_frequency_wind_full_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_frequency_wind_full_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_frequency_wind_knee_bias" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_frequency_wind_knee_bias_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_frequency_min_multiplier" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_frequency_min_multiplier_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_paddle_frequency_max_multiplier" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_paddle_frequency_max_multiplier_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "grass_bottom_dark_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             grass_bottom_dark_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
@@ -3092,22 +3197,10 @@ impl GuiAdjustables {
             debug_bool: debug_bool_field.expect("Missing parameter: debug_bool"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
+            wind_directional_bias_fraction: wind_directional_bias_fraction_field.expect("Missing parameter: wind_directional_bias_fraction"),
+            wind_turbulence_fraction: wind_turbulence_fraction_field.expect("Missing parameter: wind_turbulence_fraction"),
             wind_audio_attack_decay: wind_audio_attack_decay_field.expect("Missing parameter: wind_audio_attack_decay"),
             wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
-            grass_vibration_amplitude_voxels: grass_vibration_amplitude_voxels_field.expect("Missing parameter: grass_vibration_amplitude_voxels"),
-            grass_vibration_primary_speed: grass_vibration_primary_speed_field.expect("Missing parameter: grass_vibration_primary_speed"),
-            grass_vibration_secondary_speed: grass_vibration_secondary_speed_field.expect("Missing parameter: grass_vibration_secondary_speed"),
-            leaf_paddle_amplitude_voxels: leaf_paddle_amplitude_voxels_field.expect("Missing parameter: leaf_paddle_amplitude_voxels"),
-            leaf_paddle_primary_speed: leaf_paddle_primary_speed_field.expect("Missing parameter: leaf_paddle_primary_speed"),
-            leaf_paddle_secondary_speed: leaf_paddle_secondary_speed_field.expect("Missing parameter: leaf_paddle_secondary_speed"),
-            leaf_paddle_amplitude_wind_start_strength: leaf_paddle_amplitude_wind_start_strength_field.expect("Missing parameter: leaf_paddle_amplitude_wind_start_strength"),
-            leaf_paddle_amplitude_wind_full_strength: leaf_paddle_amplitude_wind_full_strength_field.expect("Missing parameter: leaf_paddle_amplitude_wind_full_strength"),
-            leaf_paddle_amplitude_wind_knee_bias: leaf_paddle_amplitude_wind_knee_bias_field.expect("Missing parameter: leaf_paddle_amplitude_wind_knee_bias"),
-            leaf_paddle_frequency_wind_start_strength: leaf_paddle_frequency_wind_start_strength_field.expect("Missing parameter: leaf_paddle_frequency_wind_start_strength"),
-            leaf_paddle_frequency_wind_full_strength: leaf_paddle_frequency_wind_full_strength_field.expect("Missing parameter: leaf_paddle_frequency_wind_full_strength"),
-            leaf_paddle_frequency_wind_knee_bias: leaf_paddle_frequency_wind_knee_bias_field.expect("Missing parameter: leaf_paddle_frequency_wind_knee_bias"),
-            leaf_paddle_frequency_min_multiplier: leaf_paddle_frequency_min_multiplier_field.expect("Missing parameter: leaf_paddle_frequency_min_multiplier"),
-            leaf_paddle_frequency_max_multiplier: leaf_paddle_frequency_max_multiplier_field.expect("Missing parameter: leaf_paddle_frequency_max_multiplier"),
             wind_source_0_name: wind_source_0_name_field.expect("Missing parameter: wind_source_0_name"),
             wind_source_0_muted: wind_source_0_muted_field.expect("Missing parameter: wind_source_0_muted"),
             wind_source_0_direction_deg: wind_source_0_direction_deg_field.expect("Missing parameter: wind_source_0_direction_deg"),
@@ -3206,6 +3299,25 @@ impl GuiAdjustables {
             is_changing_lum_phi: is_changing_lum_phi_field.expect("Missing parameter: is_changing_lum_phi"),
             is_spatial_denoising_enabled: is_spatial_denoising_enabled_field.expect("Missing parameter: is_spatial_denoising_enabled"),
             a_trous_iteration_count: a_trous_iteration_count_field.expect("Missing parameter: a_trous_iteration_count"),
+            grass_natural_bend_min_voxels: grass_natural_bend_min_voxels_field.expect("Missing parameter: grass_natural_bend_min_voxels"),
+            grass_natural_bend_max_voxels: grass_natural_bend_max_voxels_field.expect("Missing parameter: grass_natural_bend_max_voxels"),
+            flora_bend_height_power: flora_bend_height_power_field.expect("Missing parameter: flora_bend_height_power"),
+            flora_player_push_radius: flora_player_push_radius_field.expect("Missing parameter: flora_player_push_radius"),
+            flora_player_push_strength: flora_player_push_strength_field.expect("Missing parameter: flora_player_push_strength"),
+            grass_vibration_amplitude_voxels: grass_vibration_amplitude_voxels_field.expect("Missing parameter: grass_vibration_amplitude_voxels"),
+            grass_vibration_primary_speed: grass_vibration_primary_speed_field.expect("Missing parameter: grass_vibration_primary_speed"),
+            grass_vibration_secondary_speed: grass_vibration_secondary_speed_field.expect("Missing parameter: grass_vibration_secondary_speed"),
+            leaf_paddle_amplitude_voxels: leaf_paddle_amplitude_voxels_field.expect("Missing parameter: leaf_paddle_amplitude_voxels"),
+            leaf_paddle_primary_speed: leaf_paddle_primary_speed_field.expect("Missing parameter: leaf_paddle_primary_speed"),
+            leaf_paddle_secondary_speed: leaf_paddle_secondary_speed_field.expect("Missing parameter: leaf_paddle_secondary_speed"),
+            leaf_paddle_amplitude_wind_start_strength: leaf_paddle_amplitude_wind_start_strength_field.expect("Missing parameter: leaf_paddle_amplitude_wind_start_strength"),
+            leaf_paddle_amplitude_wind_full_strength: leaf_paddle_amplitude_wind_full_strength_field.expect("Missing parameter: leaf_paddle_amplitude_wind_full_strength"),
+            leaf_paddle_amplitude_wind_knee_bias: leaf_paddle_amplitude_wind_knee_bias_field.expect("Missing parameter: leaf_paddle_amplitude_wind_knee_bias"),
+            leaf_paddle_frequency_wind_start_strength: leaf_paddle_frequency_wind_start_strength_field.expect("Missing parameter: leaf_paddle_frequency_wind_start_strength"),
+            leaf_paddle_frequency_wind_full_strength: leaf_paddle_frequency_wind_full_strength_field.expect("Missing parameter: leaf_paddle_frequency_wind_full_strength"),
+            leaf_paddle_frequency_wind_knee_bias: leaf_paddle_frequency_wind_knee_bias_field.expect("Missing parameter: leaf_paddle_frequency_wind_knee_bias"),
+            leaf_paddle_frequency_min_multiplier: leaf_paddle_frequency_min_multiplier_field.expect("Missing parameter: leaf_paddle_frequency_min_multiplier"),
+            leaf_paddle_frequency_max_multiplier: leaf_paddle_frequency_max_multiplier_field.expect("Missing parameter: leaf_paddle_frequency_max_multiplier"),
             grass_bottom_dark_color: grass_bottom_dark_color_field.expect("Missing parameter: grass_bottom_dark_color"),
             grass_bottom_light_color: grass_bottom_light_color_field.expect("Missing parameter: grass_bottom_light_color"),
             grass_tip_dark_color: grass_tip_dark_color_field.expect("Missing parameter: grass_tip_dark_color"),
@@ -3302,22 +3414,10 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "lod_distance" => Some(&adjustables.lod_distance),
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
+        "wind_directional_bias_fraction" => Some(&adjustables.wind_directional_bias_fraction),
+        "wind_turbulence_fraction" => Some(&adjustables.wind_turbulence_fraction),
         "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&adjustables.wind_audio_release_decay),
-        "grass_vibration_amplitude_voxels" => Some(&adjustables.grass_vibration_amplitude_voxels),
-        "grass_vibration_primary_speed" => Some(&adjustables.grass_vibration_primary_speed),
-        "grass_vibration_secondary_speed" => Some(&adjustables.grass_vibration_secondary_speed),
-        "leaf_paddle_amplitude_voxels" => Some(&adjustables.leaf_paddle_amplitude_voxels),
-        "leaf_paddle_primary_speed" => Some(&adjustables.leaf_paddle_primary_speed),
-        "leaf_paddle_secondary_speed" => Some(&adjustables.leaf_paddle_secondary_speed),
-        "leaf_paddle_amplitude_wind_start_strength" => Some(&adjustables.leaf_paddle_amplitude_wind_start_strength),
-        "leaf_paddle_amplitude_wind_full_strength" => Some(&adjustables.leaf_paddle_amplitude_wind_full_strength),
-        "leaf_paddle_amplitude_wind_knee_bias" => Some(&adjustables.leaf_paddle_amplitude_wind_knee_bias),
-        "leaf_paddle_frequency_wind_start_strength" => Some(&adjustables.leaf_paddle_frequency_wind_start_strength),
-        "leaf_paddle_frequency_wind_full_strength" => Some(&adjustables.leaf_paddle_frequency_wind_full_strength),
-        "leaf_paddle_frequency_wind_knee_bias" => Some(&adjustables.leaf_paddle_frequency_wind_knee_bias),
-        "leaf_paddle_frequency_min_multiplier" => Some(&adjustables.leaf_paddle_frequency_min_multiplier),
-        "leaf_paddle_frequency_max_multiplier" => Some(&adjustables.leaf_paddle_frequency_max_multiplier),
         "wind_source_0_direction_deg" => Some(&adjustables.wind_source_0_direction_deg),
         "wind_source_0_speed" => Some(&adjustables.wind_source_0_speed),
         "wind_source_0_pattern_scale" => Some(&adjustables.wind_source_0_pattern_scale),
@@ -3390,6 +3490,25 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "min_phi_z" => Some(&adjustables.min_phi_z),
         "max_phi_z" => Some(&adjustables.max_phi_z),
         "phi_z_stable_sample_count" => Some(&adjustables.phi_z_stable_sample_count),
+        "grass_natural_bend_min_voxels" => Some(&adjustables.grass_natural_bend_min_voxels),
+        "grass_natural_bend_max_voxels" => Some(&adjustables.grass_natural_bend_max_voxels),
+        "flora_bend_height_power" => Some(&adjustables.flora_bend_height_power),
+        "flora_player_push_radius" => Some(&adjustables.flora_player_push_radius),
+        "flora_player_push_strength" => Some(&adjustables.flora_player_push_strength),
+        "grass_vibration_amplitude_voxels" => Some(&adjustables.grass_vibration_amplitude_voxels),
+        "grass_vibration_primary_speed" => Some(&adjustables.grass_vibration_primary_speed),
+        "grass_vibration_secondary_speed" => Some(&adjustables.grass_vibration_secondary_speed),
+        "leaf_paddle_amplitude_voxels" => Some(&adjustables.leaf_paddle_amplitude_voxels),
+        "leaf_paddle_primary_speed" => Some(&adjustables.leaf_paddle_primary_speed),
+        "leaf_paddle_secondary_speed" => Some(&adjustables.leaf_paddle_secondary_speed),
+        "leaf_paddle_amplitude_wind_start_strength" => Some(&adjustables.leaf_paddle_amplitude_wind_start_strength),
+        "leaf_paddle_amplitude_wind_full_strength" => Some(&adjustables.leaf_paddle_amplitude_wind_full_strength),
+        "leaf_paddle_amplitude_wind_knee_bias" => Some(&adjustables.leaf_paddle_amplitude_wind_knee_bias),
+        "leaf_paddle_frequency_wind_start_strength" => Some(&adjustables.leaf_paddle_frequency_wind_start_strength),
+        "leaf_paddle_frequency_wind_full_strength" => Some(&adjustables.leaf_paddle_frequency_wind_full_strength),
+        "leaf_paddle_frequency_wind_knee_bias" => Some(&adjustables.leaf_paddle_frequency_wind_knee_bias),
+        "leaf_paddle_frequency_min_multiplier" => Some(&adjustables.leaf_paddle_frequency_min_multiplier),
+        "leaf_paddle_frequency_max_multiplier" => Some(&adjustables.leaf_paddle_frequency_max_multiplier),
         "ocean_normal_amplitude" => Some(&adjustables.ocean_normal_amplitude),
         "ocean_noise_frequency" => Some(&adjustables.ocean_noise_frequency),
         "ocean_time_multiplier" => Some(&adjustables.ocean_time_multiplier),
@@ -3556,22 +3675,10 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "lod_distance" => Some(&mut adjustables.lod_distance),
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
+        "wind_directional_bias_fraction" => Some(&mut adjustables.wind_directional_bias_fraction),
+        "wind_turbulence_fraction" => Some(&mut adjustables.wind_turbulence_fraction),
         "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&mut adjustables.wind_audio_release_decay),
-        "grass_vibration_amplitude_voxels" => Some(&mut adjustables.grass_vibration_amplitude_voxels),
-        "grass_vibration_primary_speed" => Some(&mut adjustables.grass_vibration_primary_speed),
-        "grass_vibration_secondary_speed" => Some(&mut adjustables.grass_vibration_secondary_speed),
-        "leaf_paddle_amplitude_voxels" => Some(&mut adjustables.leaf_paddle_amplitude_voxels),
-        "leaf_paddle_primary_speed" => Some(&mut adjustables.leaf_paddle_primary_speed),
-        "leaf_paddle_secondary_speed" => Some(&mut adjustables.leaf_paddle_secondary_speed),
-        "leaf_paddle_amplitude_wind_start_strength" => Some(&mut adjustables.leaf_paddle_amplitude_wind_start_strength),
-        "leaf_paddle_amplitude_wind_full_strength" => Some(&mut adjustables.leaf_paddle_amplitude_wind_full_strength),
-        "leaf_paddle_amplitude_wind_knee_bias" => Some(&mut adjustables.leaf_paddle_amplitude_wind_knee_bias),
-        "leaf_paddle_frequency_wind_start_strength" => Some(&mut adjustables.leaf_paddle_frequency_wind_start_strength),
-        "leaf_paddle_frequency_wind_full_strength" => Some(&mut adjustables.leaf_paddle_frequency_wind_full_strength),
-        "leaf_paddle_frequency_wind_knee_bias" => Some(&mut adjustables.leaf_paddle_frequency_wind_knee_bias),
-        "leaf_paddle_frequency_min_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_min_multiplier),
-        "leaf_paddle_frequency_max_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_max_multiplier),
         "wind_source_0_direction_deg" => Some(&mut adjustables.wind_source_0_direction_deg),
         "wind_source_0_speed" => Some(&mut adjustables.wind_source_0_speed),
         "wind_source_0_pattern_scale" => Some(&mut adjustables.wind_source_0_pattern_scale),
@@ -3644,6 +3751,25 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "min_phi_z" => Some(&mut adjustables.min_phi_z),
         "max_phi_z" => Some(&mut adjustables.max_phi_z),
         "phi_z_stable_sample_count" => Some(&mut adjustables.phi_z_stable_sample_count),
+        "grass_natural_bend_min_voxels" => Some(&mut adjustables.grass_natural_bend_min_voxels),
+        "grass_natural_bend_max_voxels" => Some(&mut adjustables.grass_natural_bend_max_voxels),
+        "flora_bend_height_power" => Some(&mut adjustables.flora_bend_height_power),
+        "flora_player_push_radius" => Some(&mut adjustables.flora_player_push_radius),
+        "flora_player_push_strength" => Some(&mut adjustables.flora_player_push_strength),
+        "grass_vibration_amplitude_voxels" => Some(&mut adjustables.grass_vibration_amplitude_voxels),
+        "grass_vibration_primary_speed" => Some(&mut adjustables.grass_vibration_primary_speed),
+        "grass_vibration_secondary_speed" => Some(&mut adjustables.grass_vibration_secondary_speed),
+        "leaf_paddle_amplitude_voxels" => Some(&mut adjustables.leaf_paddle_amplitude_voxels),
+        "leaf_paddle_primary_speed" => Some(&mut adjustables.leaf_paddle_primary_speed),
+        "leaf_paddle_secondary_speed" => Some(&mut adjustables.leaf_paddle_secondary_speed),
+        "leaf_paddle_amplitude_wind_start_strength" => Some(&mut adjustables.leaf_paddle_amplitude_wind_start_strength),
+        "leaf_paddle_amplitude_wind_full_strength" => Some(&mut adjustables.leaf_paddle_amplitude_wind_full_strength),
+        "leaf_paddle_amplitude_wind_knee_bias" => Some(&mut adjustables.leaf_paddle_amplitude_wind_knee_bias),
+        "leaf_paddle_frequency_wind_start_strength" => Some(&mut adjustables.leaf_paddle_frequency_wind_start_strength),
+        "leaf_paddle_frequency_wind_full_strength" => Some(&mut adjustables.leaf_paddle_frequency_wind_full_strength),
+        "leaf_paddle_frequency_wind_knee_bias" => Some(&mut adjustables.leaf_paddle_frequency_wind_knee_bias),
+        "leaf_paddle_frequency_min_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_min_multiplier),
+        "leaf_paddle_frequency_max_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_max_multiplier),
         "ocean_normal_amplitude" => Some(&mut adjustables.ocean_normal_amplitude),
         "ocean_noise_frequency" => Some(&mut adjustables.ocean_noise_frequency),
         "ocean_time_multiplier" => Some(&mut adjustables.ocean_time_multiplier),

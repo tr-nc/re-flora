@@ -2,6 +2,7 @@
 #define FLORA_WIND_MOTION_GLSL
 
 const float FLORA_TWO_PI = 6.28318530718;
+const float FLORA_NATURAL_BEND_MAX_ANGLE = 1.45;
 
 float flora_wind_planar_strength(vec3 wind_vec) {
     return smoothstep(0.03, 2.0, length(wind_vec.xz));
@@ -10,6 +11,11 @@ float flora_wind_planar_strength(vec3 wind_vec) {
 float flora_smootherstep(float t) {
     t = clamp(t, 0.0, 1.0);
     return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+float flora_bend_height_factor(float height_fraction) {
+    float power = max(gui_input.flora_bend_height_power, 0.05);
+    return pow(clamp(height_fraction, 0.0, 1.0), power);
 }
 
 float flora_wind_curve_response(float wind_strength, float start_strength, float full_strength,
@@ -37,7 +43,42 @@ float flora_wind_phase(uint instance_seed, ivec3 vox_local_pos, uint salt) {
     return construct_float_01(wellons_hash(seed)) * FLORA_TWO_PI;
 }
 
-vec3 grass_wind_vibration(vec3 wind_vec, float wind_gradient, uint instance_seed,
+vec3 flora_natural_rest_bend(uint instance_seed, float height_fraction, float flora_height_voxels) {
+    // Even in calm air, blades are not perfectly vertical: weight, growth curvature,
+    // and clump variation give each blade a stable rest lean in a random direction.
+    // Move AABB voxel centers onto a circular-arc centerline instead of applying a
+    // pure horizontal shear, so the perceived blade length stays much closer to the
+    // unbent blade length while each voxel remains axis-aligned.
+    float direction_angle =
+        construct_float_01(wellons_hash(instance_seed ^ 0xD1B54A32u)) * FLORA_TWO_PI;
+    vec3 bend_dir = vec3(cos(direction_angle), 0.0, sin(direction_angle));
+
+    float amount_jitter = construct_float_01(wellons_hash(instance_seed ^ 0x94D049BBu));
+    float bend_min = max(gui_input.grass_natural_bend_min_voxels, 0.0);
+    float bend_max = max(gui_input.grass_natural_bend_max_voxels, bend_min);
+    float tip_bend_voxels = mix(bend_min, bend_max, amount_jitter);
+
+    float blade_height = max(flora_height_voxels, 1.0);
+    float t = clamp(height_fraction, 0.0, 1.0);
+    float bend_t = flora_bend_height_factor(t);
+    float bend_center_y = bend_t * blade_height;
+
+    float bend_angle = clamp(2.0 * tip_bend_voxels / blade_height, 0.0,
+                             FLORA_NATURAL_BEND_MAX_ANGLE);
+    if (bend_angle <= 1e-4) {
+        return vec3(0.0);
+    }
+
+    float radius = blade_height / bend_angle;
+    float arc_angle = bend_angle * bend_t;
+    float horizontal_offset = radius * (1.0 - cos(arc_angle));
+    float bent_y = radius * sin(arc_angle);
+    float vertical_offset = bent_y - bend_center_y;
+
+    return bend_dir * horizontal_offset + vec3(0.0, vertical_offset, 0.0);
+}
+
+vec3 flora_wind_vibration(vec3 wind_vec, float wind_gradient, uint instance_seed,
                           ivec3 vox_local_pos, float time) {
     float strength = flora_wind_planar_strength(wind_vec);
     if (strength <= 0.0) {
@@ -46,7 +87,7 @@ vec3 grass_wind_vibration(vec3 wind_vec, float wind_gradient, uint instance_seed
 
     vec2 wind_dir = flora_wind_planar_dir(wind_vec);
     vec3 cross_wind_dir = vec3(-wind_dir.y, 0.0, wind_dir.x);
-    float tip_weight = pow(clamp(wind_gradient, 0.0, 1.0), 1.7);
+    float tip_weight = flora_bend_height_factor(wind_gradient);
     float phase = flora_wind_phase(instance_seed, vox_local_pos, 0xB5297A4Du);
     float height_phase = float(vox_local_pos.y) * 1.35;
     float vibration = sin(time * gui_input.grass_vibration_primary_speed + phase + height_phase);

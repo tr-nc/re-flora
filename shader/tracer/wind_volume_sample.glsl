@@ -73,12 +73,20 @@ vec3 sample_procedural_wind(vec3 world_pos, float time) {
 
         vec2 wind_direction = vec2(cos(direction_angle), sin(direction_angle));
         vec2 layer_time     = -wind_direction * scroll_time * source_speed;
-        float wind_factor   = sample_wind_source_fbm(
+        float turbulent_factor = sample_wind_source_fbm(
             sample_pos,
             layer_time,
             source_index,
             source_gain,
             noise_params);
+
+        // Grass reads this volume as both directional bend and vibration strength. Keep
+        // a persistent down-wind component, then let FBM gusts vibrate around it without
+        // flipping the apparent wind backwards on negative noise lobes.
+        float wind_factor = max(
+            0.0f,
+            source_gain * max(gui_input.wind_directional_bias_fraction, 0.0f) +
+                turbulent_factor * max(gui_input.wind_turbulence_fraction, 0.0f));
         wind_planar += wind_direction * wind_factor;
     }
 
