@@ -170,39 +170,6 @@ min = 0
 max = 120
 
 [[section.param]]
-id = "grass_natural_bend_min_voxels"
-kind = "float"
-label = "Grass Natural Bend Min (voxels)"
-type = "Float"
-
-[section.param.data]
-value = 0.24
-min = 0
-max = 2
-
-[[section.param]]
-id = "grass_natural_bend_max_voxels"
-kind = "float"
-label = "Grass Natural Bend Max (voxels)"
-type = "Float"
-
-[section.param.data]
-value = 1.05
-min = 0
-max = 2
-
-[[section.param]]
-id = "short_grass_natural_bend_scale"
-kind = "float"
-label = "Short Grass Natural Bend Scale"
-type = "Float"
-
-[section.param.data]
-value = 0.72
-min = 0
-max = 2
-
-[[section.param]]
 id = "leaf_paddle_amplitude_voxels"
 kind = "float"
 label = "Leaf Paddle Amplitude (voxels)"
@@ -339,7 +306,7 @@ label = "Wind Source 1 Active"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "wind_source_0_direction_deg"
@@ -434,7 +401,7 @@ label = "Wind Source 2 Active"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "wind_source_1_direction_deg"
@@ -1394,6 +1361,39 @@ max = 5
 
 [[section]]
 name = "Grass"
+
+[[section.param]]
+id = "grass_natural_bend_min_voxels"
+kind = "float"
+label = "Grass Natural Bend Min (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 2
+
+[[section.param]]
+id = "grass_natural_bend_max_voxels"
+kind = "float"
+label = "Grass Natural Bend Max (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 2
+
+[[section.param]]
+id = "short_grass_natural_bend_scale"
+kind = "float"
+label = "Short Grass Natural Bend Scale"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 2
 
 [[section.param]]
 id = "grass_bottom_dark_color"

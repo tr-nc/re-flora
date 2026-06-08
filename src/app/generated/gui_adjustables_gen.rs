@@ -116,24 +116,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
-        id: "grass_natural_bend_min_voxels",
-        kind: "float",
-        label: "Grass Natural Bend Min (voxels)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "grass_natural_bend_max_voxels",
-        kind: "float",
-        label: "Grass Natural Bend Max (voxels)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
-        id: "short_grass_natural_bend_scale",
-        kind: "float",
-        label: "Short Grass Natural Bend Scale",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Wind",
         id: "leaf_paddle_amplitude_voxels",
         kind: "float",
         label: "Leaf Paddle Amplitude (voxels)",
@@ -788,6 +770,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Grass",
+        id: "grass_natural_bend_min_voxels",
+        kind: "float",
+        label: "Grass Natural Bend Min (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass",
+        id: "grass_natural_bend_max_voxels",
+        kind: "float",
+        label: "Grass Natural Bend Max (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass",
+        id: "short_grass_natural_bend_scale",
+        kind: "float",
+        label: "Short Grass Natural Bend Scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass",
         id: "grass_bottom_dark_color",
         kind: "color",
         label: "Bottom Dark",
@@ -1315,9 +1315,6 @@ pub struct GuiAdjustables {
     pub grass_vibration_amplitude_voxels: crate::gui_adjustables::FloatParam,
     pub grass_vibration_primary_speed: crate::gui_adjustables::FloatParam,
     pub grass_vibration_secondary_speed: crate::gui_adjustables::FloatParam,
-    pub grass_natural_bend_min_voxels: crate::gui_adjustables::FloatParam,
-    pub grass_natural_bend_max_voxels: crate::gui_adjustables::FloatParam,
-    pub short_grass_natural_bend_scale: crate::gui_adjustables::FloatParam,
     pub leaf_paddle_amplitude_voxels: crate::gui_adjustables::FloatParam,
     pub leaf_paddle_primary_speed: crate::gui_adjustables::FloatParam,
     pub leaf_paddle_secondary_speed: crate::gui_adjustables::FloatParam,
@@ -1427,6 +1424,9 @@ pub struct GuiAdjustables {
     pub is_changing_lum_phi: crate::gui_adjustables::BoolParam,
     pub is_spatial_denoising_enabled: crate::gui_adjustables::BoolParam,
     pub a_trous_iteration_count: crate::gui_adjustables::UintParam,
+    pub grass_natural_bend_min_voxels: crate::gui_adjustables::FloatParam,
+    pub grass_natural_bend_max_voxels: crate::gui_adjustables::FloatParam,
+    pub short_grass_natural_bend_scale: crate::gui_adjustables::FloatParam,
     pub grass_bottom_dark_color: crate::gui_adjustables::ColorParam,
     pub grass_bottom_light_color: crate::gui_adjustables::ColorParam,
     pub grass_tip_dark_color: crate::gui_adjustables::ColorParam,
@@ -1540,9 +1540,6 @@ impl GuiAdjustables {
         let mut grass_vibration_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_vibration_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_vibration_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut grass_natural_bend_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut grass_natural_bend_max_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut short_grass_natural_bend_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_paddle_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_paddle_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_paddle_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1652,6 +1649,9 @@ impl GuiAdjustables {
         let mut is_changing_lum_phi_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut is_spatial_denoising_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut a_trous_iteration_count_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut grass_natural_bend_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_natural_bend_max_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut short_grass_natural_bend_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_bottom_dark_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_bottom_light_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_tip_dark_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -1842,27 +1842,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             grass_vibration_secondary_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "grass_natural_bend_min_voxels" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            grass_natural_bend_min_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "grass_natural_bend_max_voxels" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            grass_natural_bend_max_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "short_grass_natural_bend_scale" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            short_grass_natural_bend_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "leaf_paddle_amplitude_voxels" => {
@@ -2598,6 +2577,27 @@ impl GuiAdjustables {
                             a_trous_iteration_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
+                    "grass_natural_bend_min_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_natural_bend_min_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_natural_bend_max_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_natural_bend_max_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "short_grass_natural_bend_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            short_grass_natural_bend_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "grass_bottom_dark_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             grass_bottom_dark_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
@@ -3174,9 +3174,6 @@ impl GuiAdjustables {
             grass_vibration_amplitude_voxels: grass_vibration_amplitude_voxels_field.expect("Missing parameter: grass_vibration_amplitude_voxels"),
             grass_vibration_primary_speed: grass_vibration_primary_speed_field.expect("Missing parameter: grass_vibration_primary_speed"),
             grass_vibration_secondary_speed: grass_vibration_secondary_speed_field.expect("Missing parameter: grass_vibration_secondary_speed"),
-            grass_natural_bend_min_voxels: grass_natural_bend_min_voxels_field.expect("Missing parameter: grass_natural_bend_min_voxels"),
-            grass_natural_bend_max_voxels: grass_natural_bend_max_voxels_field.expect("Missing parameter: grass_natural_bend_max_voxels"),
-            short_grass_natural_bend_scale: short_grass_natural_bend_scale_field.expect("Missing parameter: short_grass_natural_bend_scale"),
             leaf_paddle_amplitude_voxels: leaf_paddle_amplitude_voxels_field.expect("Missing parameter: leaf_paddle_amplitude_voxels"),
             leaf_paddle_primary_speed: leaf_paddle_primary_speed_field.expect("Missing parameter: leaf_paddle_primary_speed"),
             leaf_paddle_secondary_speed: leaf_paddle_secondary_speed_field.expect("Missing parameter: leaf_paddle_secondary_speed"),
@@ -3286,6 +3283,9 @@ impl GuiAdjustables {
             is_changing_lum_phi: is_changing_lum_phi_field.expect("Missing parameter: is_changing_lum_phi"),
             is_spatial_denoising_enabled: is_spatial_denoising_enabled_field.expect("Missing parameter: is_spatial_denoising_enabled"),
             a_trous_iteration_count: a_trous_iteration_count_field.expect("Missing parameter: a_trous_iteration_count"),
+            grass_natural_bend_min_voxels: grass_natural_bend_min_voxels_field.expect("Missing parameter: grass_natural_bend_min_voxels"),
+            grass_natural_bend_max_voxels: grass_natural_bend_max_voxels_field.expect("Missing parameter: grass_natural_bend_max_voxels"),
+            short_grass_natural_bend_scale: short_grass_natural_bend_scale_field.expect("Missing parameter: short_grass_natural_bend_scale"),
             grass_bottom_dark_color: grass_bottom_dark_color_field.expect("Missing parameter: grass_bottom_dark_color"),
             grass_bottom_light_color: grass_bottom_light_color_field.expect("Missing parameter: grass_bottom_light_color"),
             grass_tip_dark_color: grass_tip_dark_color_field.expect("Missing parameter: grass_tip_dark_color"),
@@ -3389,9 +3389,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "grass_vibration_amplitude_voxels" => Some(&adjustables.grass_vibration_amplitude_voxels),
         "grass_vibration_primary_speed" => Some(&adjustables.grass_vibration_primary_speed),
         "grass_vibration_secondary_speed" => Some(&adjustables.grass_vibration_secondary_speed),
-        "grass_natural_bend_min_voxels" => Some(&adjustables.grass_natural_bend_min_voxels),
-        "grass_natural_bend_max_voxels" => Some(&adjustables.grass_natural_bend_max_voxels),
-        "short_grass_natural_bend_scale" => Some(&adjustables.short_grass_natural_bend_scale),
         "leaf_paddle_amplitude_voxels" => Some(&adjustables.leaf_paddle_amplitude_voxels),
         "leaf_paddle_primary_speed" => Some(&adjustables.leaf_paddle_primary_speed),
         "leaf_paddle_secondary_speed" => Some(&adjustables.leaf_paddle_secondary_speed),
@@ -3475,6 +3472,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "min_phi_z" => Some(&adjustables.min_phi_z),
         "max_phi_z" => Some(&adjustables.max_phi_z),
         "phi_z_stable_sample_count" => Some(&adjustables.phi_z_stable_sample_count),
+        "grass_natural_bend_min_voxels" => Some(&adjustables.grass_natural_bend_min_voxels),
+        "grass_natural_bend_max_voxels" => Some(&adjustables.grass_natural_bend_max_voxels),
+        "short_grass_natural_bend_scale" => Some(&adjustables.short_grass_natural_bend_scale),
         "ocean_normal_amplitude" => Some(&adjustables.ocean_normal_amplitude),
         "ocean_noise_frequency" => Some(&adjustables.ocean_noise_frequency),
         "ocean_time_multiplier" => Some(&adjustables.ocean_time_multiplier),
@@ -3648,9 +3648,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "grass_vibration_amplitude_voxels" => Some(&mut adjustables.grass_vibration_amplitude_voxels),
         "grass_vibration_primary_speed" => Some(&mut adjustables.grass_vibration_primary_speed),
         "grass_vibration_secondary_speed" => Some(&mut adjustables.grass_vibration_secondary_speed),
-        "grass_natural_bend_min_voxels" => Some(&mut adjustables.grass_natural_bend_min_voxels),
-        "grass_natural_bend_max_voxels" => Some(&mut adjustables.grass_natural_bend_max_voxels),
-        "short_grass_natural_bend_scale" => Some(&mut adjustables.short_grass_natural_bend_scale),
         "leaf_paddle_amplitude_voxels" => Some(&mut adjustables.leaf_paddle_amplitude_voxels),
         "leaf_paddle_primary_speed" => Some(&mut adjustables.leaf_paddle_primary_speed),
         "leaf_paddle_secondary_speed" => Some(&mut adjustables.leaf_paddle_secondary_speed),
@@ -3734,6 +3731,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "min_phi_z" => Some(&mut adjustables.min_phi_z),
         "max_phi_z" => Some(&mut adjustables.max_phi_z),
         "phi_z_stable_sample_count" => Some(&mut adjustables.phi_z_stable_sample_count),
+        "grass_natural_bend_min_voxels" => Some(&mut adjustables.grass_natural_bend_min_voxels),
+        "grass_natural_bend_max_voxels" => Some(&mut adjustables.grass_natural_bend_max_voxels),
+        "short_grass_natural_bend_scale" => Some(&mut adjustables.short_grass_natural_bend_scale),
         "ocean_normal_amplitude" => Some(&mut adjustables.ocean_normal_amplitude),
         "ocean_noise_frequency" => Some(&mut adjustables.ocean_noise_frequency),
         "ocean_time_multiplier" => Some(&mut adjustables.ocean_time_multiplier),

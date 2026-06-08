@@ -632,28 +632,6 @@ fn render_wind_sources_gui(
     );
     ui.add(
         egui::Slider::new(
-            &mut adjustables.grass_natural_bend_min_voxels.value,
-            adjustables.grass_natural_bend_min_voxels.range.clone(),
-        )
-        .text("Grass Natural Bend Min (voxels)"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.grass_natural_bend_max_voxels.value,
-            adjustables.grass_natural_bend_max_voxels.range.clone(),
-        )
-        .text("Grass Natural Bend Max (voxels)"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.short_grass_natural_bend_scale.value,
-            adjustables.short_grass_natural_bend_scale.range.clone(),
-        )
-        .text("Short Grass Natural Bend Scale"),
-    );
-    enforce_grass_natural_bend_order(adjustables);
-    ui.add(
-        egui::Slider::new(
             &mut adjustables.leaf_paddle_amplitude_voxels.value,
             adjustables.leaf_paddle_amplitude_voxels.range.clone(),
         )
@@ -924,6 +902,10 @@ pub fn render_gui_from_config(
                         section.name
                     ),
                 }
+            }
+
+            if section.name == "Grass" {
+                enforce_grass_natural_bend_order(adjustables);
             }
         });
     }
