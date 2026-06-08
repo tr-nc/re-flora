@@ -576,6 +576,13 @@ fn render_flora_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
         .text("Flora Natural Bend Max (voxels)"),
     );
     enforce_flora_natural_bend_order(adjustables);
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.flora_bend_height_power.value,
+            adjustables.flora_bend_height_power.range.clone(),
+        )
+        .text("Flora Bend Height Power"),
+    );
 
     ui.add_space(4.0);
     ui.label("Player Push");

@@ -698,6 +698,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
+        id: "flora_bend_height_power",
+        kind: "float",
+        label: "Flora Bend Height Power",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
         id: "flora_player_push_radius",
         kind: "float",
         label: "Flora Player Push Radius",
@@ -1418,6 +1424,7 @@ pub struct GuiAdjustables {
     pub a_trous_iteration_count: crate::gui_adjustables::UintParam,
     pub grass_natural_bend_min_voxels: crate::gui_adjustables::FloatParam,
     pub grass_natural_bend_max_voxels: crate::gui_adjustables::FloatParam,
+    pub flora_bend_height_power: crate::gui_adjustables::FloatParam,
     pub flora_player_push_radius: crate::gui_adjustables::FloatParam,
     pub flora_player_push_strength: crate::gui_adjustables::FloatParam,
     pub grass_vibration_amplitude_voxels: crate::gui_adjustables::FloatParam,
@@ -1644,6 +1651,7 @@ impl GuiAdjustables {
         let mut a_trous_iteration_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut grass_natural_bend_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_natural_bend_max_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut flora_bend_height_power_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_player_push_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_player_push_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_vibration_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2501,6 +2509,13 @@ impl GuiAdjustables {
                             grass_natural_bend_max_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "flora_bend_height_power" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_bend_height_power_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "flora_player_push_radius" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3286,6 +3301,7 @@ impl GuiAdjustables {
             a_trous_iteration_count: a_trous_iteration_count_field.expect("Missing parameter: a_trous_iteration_count"),
             grass_natural_bend_min_voxels: grass_natural_bend_min_voxels_field.expect("Missing parameter: grass_natural_bend_min_voxels"),
             grass_natural_bend_max_voxels: grass_natural_bend_max_voxels_field.expect("Missing parameter: grass_natural_bend_max_voxels"),
+            flora_bend_height_power: flora_bend_height_power_field.expect("Missing parameter: flora_bend_height_power"),
             flora_player_push_radius: flora_player_push_radius_field.expect("Missing parameter: flora_player_push_radius"),
             flora_player_push_strength: flora_player_push_strength_field.expect("Missing parameter: flora_player_push_strength"),
             grass_vibration_amplitude_voxels: grass_vibration_amplitude_voxels_field.expect("Missing parameter: grass_vibration_amplitude_voxels"),
@@ -3476,6 +3492,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "phi_z_stable_sample_count" => Some(&adjustables.phi_z_stable_sample_count),
         "grass_natural_bend_min_voxels" => Some(&adjustables.grass_natural_bend_min_voxels),
         "grass_natural_bend_max_voxels" => Some(&adjustables.grass_natural_bend_max_voxels),
+        "flora_bend_height_power" => Some(&adjustables.flora_bend_height_power),
         "flora_player_push_radius" => Some(&adjustables.flora_player_push_radius),
         "flora_player_push_strength" => Some(&adjustables.flora_player_push_strength),
         "grass_vibration_amplitude_voxels" => Some(&adjustables.grass_vibration_amplitude_voxels),
@@ -3736,6 +3753,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "phi_z_stable_sample_count" => Some(&mut adjustables.phi_z_stable_sample_count),
         "grass_natural_bend_min_voxels" => Some(&mut adjustables.grass_natural_bend_min_voxels),
         "grass_natural_bend_max_voxels" => Some(&mut adjustables.grass_natural_bend_max_voxels),
+        "flora_bend_height_power" => Some(&mut adjustables.flora_bend_height_power),
         "flora_player_push_radius" => Some(&mut adjustables.flora_player_push_radius),
         "flora_player_push_strength" => Some(&mut adjustables.flora_player_push_strength),
         "grass_vibration_amplitude_voxels" => Some(&mut adjustables.grass_vibration_amplitude_voxels),

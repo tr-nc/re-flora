@@ -91,7 +91,9 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     uint wind_seed = (is_grass || is_apple) ? instance_seed :
                                              get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
     vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
-    vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_gradient * wind_gradient;
+    float flora_bend_weight = flora_bend_height_factor(wind_gradient);
+    float wind_bend_weight = is_surface_flora ? flora_bend_weight : wind_gradient * wind_gradient;
+    vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_bend_weight;
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
     if (is_surface_flora) {
@@ -118,7 +120,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
         player_push_planar_dist > 1e-4 ? player_push_delta / player_push_planar_dist : vec2(0.0);
     float player_push_falloff =
         player_push_radius > 1e-4 ? 1.0 - smoothstep(0.0, player_push_radius, player_dist) : 0.0;
-    float player_push_amount = player_push_falloff * wind_gradient * wind_gradient;
+    float player_push_amount = player_push_falloff * flora_bend_weight;
     vec3 player_push = vec3(player_push_dir.x, 0.0, player_push_dir.y) *
                        (player_push_strength * player_push_amount);
 

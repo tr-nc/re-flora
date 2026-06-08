@@ -13,6 +13,11 @@ float flora_smootherstep(float t) {
     return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
 }
 
+float flora_bend_height_factor(float height_fraction) {
+    float power = max(gui_input.flora_bend_height_power, 0.05);
+    return pow(clamp(height_fraction, 0.0, 1.0), power);
+}
+
 float flora_wind_curve_response(float wind_strength, float start_strength, float full_strength,
                                 float knee_bias) {
     float lo = min(start_strength, full_strength);
@@ -55,7 +60,8 @@ vec3 flora_natural_rest_bend(uint instance_seed, float height_fraction, float fl
 
     float blade_height = max(flora_height_voxels, 1.0);
     float t = clamp(height_fraction, 0.0, 1.0);
-    float center_y = t * blade_height;
+    float bend_t = flora_bend_height_factor(t);
+    float bend_center_y = bend_t * blade_height;
 
     float bend_angle = clamp(2.0 * tip_bend_voxels / blade_height, 0.0,
                              FLORA_NATURAL_BEND_MAX_ANGLE);
@@ -64,10 +70,10 @@ vec3 flora_natural_rest_bend(uint instance_seed, float height_fraction, float fl
     }
 
     float radius = blade_height / bend_angle;
-    float arc_angle = bend_angle * t;
+    float arc_angle = bend_angle * bend_t;
     float horizontal_offset = radius * (1.0 - cos(arc_angle));
     float bent_y = radius * sin(arc_angle);
-    float vertical_offset = bent_y - center_y;
+    float vertical_offset = bent_y - bend_center_y;
 
     return bend_dir * horizontal_offset + vec3(0.0, vertical_offset, 0.0);
 }
@@ -81,7 +87,7 @@ vec3 flora_wind_vibration(vec3 wind_vec, float wind_gradient, uint instance_seed
 
     vec2 wind_dir = flora_wind_planar_dir(wind_vec);
     vec3 cross_wind_dir = vec3(-wind_dir.y, 0.0, wind_dir.x);
-    float tip_weight = pow(clamp(wind_gradient, 0.0, 1.0), 1.7);
+    float tip_weight = flora_bend_height_factor(wind_gradient);
     float phase = flora_wind_phase(instance_seed, vox_local_pos, 0xB5297A4Du);
     float height_phase = float(vox_local_pos.y) * 1.35;
     float vibration = sin(time * gui_input.grass_vibration_primary_speed + phase + height_phase);
