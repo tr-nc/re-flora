@@ -1237,7 +1237,7 @@ label = "Flora Bend Height Power"
 type = "Float"
 
 [section.param.data]
-value = 2
+value = 1.55
 min = 0.25
 max = 5
 
