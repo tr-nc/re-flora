@@ -2388,7 +2388,6 @@ impl App {
                         self.gui_adjustables.grass_vibration_secondary_speed.value,
                         self.gui_adjustables.grass_natural_bend_min_voxels.value,
                         self.gui_adjustables.grass_natural_bend_max_voxels.value,
-                        self.gui_adjustables.short_grass_natural_bend_scale.value,
                         self.gui_adjustables.leaf_paddle_amplitude_voxels.value,
                         self.gui_adjustables.leaf_paddle_primary_speed.value,
                         self.gui_adjustables.leaf_paddle_secondary_speed.value,

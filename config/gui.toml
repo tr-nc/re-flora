@@ -1371,7 +1371,7 @@ type = "Float"
 [section.param.data]
 value = 2
 min = 0
-max = 2
+max = 4
 
 [[section.param]]
 id = "grass_natural_bend_max_voxels"
@@ -1382,18 +1382,7 @@ type = "Float"
 [section.param.data]
 value = 2
 min = 0
-max = 2
-
-[[section.param]]
-id = "short_grass_natural_bend_scale"
-kind = "float"
-label = "Short Grass Natural Bend Scale"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0
-max = 2
+max = 4
 
 [[section.param]]
 id = "grass_bottom_dark_color"

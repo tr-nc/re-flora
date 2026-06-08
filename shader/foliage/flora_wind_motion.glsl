@@ -37,19 +37,16 @@ float flora_wind_phase(uint instance_seed, ivec3 vox_local_pos, uint salt) {
     return construct_float_01(wellons_hash(seed)) * FLORA_TWO_PI;
 }
 
-vec3 grass_natural_rest_bend(uint instance_ty, uint instance_seed, float wind_gradient) {
+vec3 grass_natural_rest_bend(uint instance_seed, float wind_gradient) {
     // Even in calm air, blades are not perfectly vertical: weight, growth curvature,
     // and clump variation give each blade a stable rest lean in a random direction.
     float direction_angle =
         construct_float_01(wellons_hash(instance_seed ^ 0xD1B54A32u)) * FLORA_TWO_PI;
     float amount_jitter = construct_float_01(wellons_hash(instance_seed ^ 0x94D049BBu));
-    float species_scale = instance_ty == FLORA_SPECIES_SHORT_GRASS ?
-                              max(gui_input.short_grass_natural_bend_scale, 0.0) :
-                              1.0;
     float tip_weight = pow(clamp(wind_gradient, 0.0, 1.0), 1.65);
     float bend_min = max(gui_input.grass_natural_bend_min_voxels, 0.0);
     float bend_max = max(gui_input.grass_natural_bend_max_voxels, bend_min);
-    float bend_voxels = mix(bend_min, bend_max, amount_jitter) * species_scale * tip_weight;
+    float bend_voxels = mix(bend_min, bend_max, amount_jitter) * tip_weight;
     return vec3(cos(direction_angle), 0.0, sin(direction_angle)) * bend_voxels;
 }
 

@@ -96,7 +96,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
     if (is_grass) {
-        wind_offset += grass_natural_rest_bend(instance_ty, instance_seed, wind_gradient);
+        wind_offset += grass_natural_rest_bend(instance_seed, wind_gradient);
         wind_offset += grass_wind_vibration(wind_vec, wind_gradient, instance_seed, vox_local_pos,
                                             wind_motion_time);
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {

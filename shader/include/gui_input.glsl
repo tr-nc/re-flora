@@ -36,7 +36,6 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float grass_vibration_secondary_speed;
     float grass_natural_bend_min_voxels;
     float grass_natural_bend_max_voxels;
-    float short_grass_natural_bend_scale;
     float leaf_paddle_amplitude_voxels;
     float leaf_paddle_primary_speed;
     float leaf_paddle_secondary_speed;
