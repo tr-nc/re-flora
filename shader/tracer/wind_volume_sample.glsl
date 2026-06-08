@@ -8,8 +8,6 @@ const uint WIND_FBM_SEED = 3181u;
 const float WIND_SAMPLE_SCALE = 256.0f;
 const float WIND_TIME_SCALE = 170.0f;
 const float WIND_FBM_FREQUENCY = 0.008f;
-const float WIND_DIRECTIONAL_BIAS_FRACTION = 0.50f;
-const float WIND_TURBULENCE_FRACTION = 0.50f;
 struct WindSourceGpu {
     vec4 params; // direction degrees, speed, gain, unused
     vec4 noise;  // pattern scale, octaves, lacunarity, persistence
@@ -87,8 +85,8 @@ vec3 sample_procedural_wind(vec3 world_pos, float time) {
         // flipping the apparent wind backwards on negative noise lobes.
         float wind_factor = max(
             0.0f,
-            source_gain * WIND_DIRECTIONAL_BIAS_FRACTION +
-                turbulent_factor * WIND_TURBULENCE_FRACTION);
+            source_gain * max(gui_input.wind_directional_bias_fraction, 0.0f) +
+                turbulent_factor * max(gui_input.wind_turbulence_fraction, 0.0f));
         wind_planar += wind_direction * wind_factor;
     }
 

@@ -2,9 +2,6 @@
 #define FLORA_WIND_MOTION_GLSL
 
 const float FLORA_TWO_PI = 6.28318530718;
-const float GRASS_NATURAL_BEND_MIN_VOXELS = 0.12;
-const float GRASS_NATURAL_BEND_MAX_VOXELS = 0.70;
-const float SHORT_GRASS_NATURAL_BEND_SCALE = 0.55;
 
 float flora_wind_planar_strength(vec3 wind_vec) {
     return smoothstep(0.03, 2.0, length(wind_vec.xz));
@@ -47,12 +44,12 @@ vec3 grass_natural_rest_bend(uint instance_ty, uint instance_seed, float wind_gr
         construct_float_01(wellons_hash(instance_seed ^ 0xD1B54A32u)) * FLORA_TWO_PI;
     float amount_jitter = construct_float_01(wellons_hash(instance_seed ^ 0x94D049BBu));
     float species_scale = instance_ty == FLORA_SPECIES_SHORT_GRASS ?
-                              SHORT_GRASS_NATURAL_BEND_SCALE :
+                              max(gui_input.short_grass_natural_bend_scale, 0.0) :
                               1.0;
     float tip_weight = pow(clamp(wind_gradient, 0.0, 1.0), 1.65);
-    float bend_voxels =
-        mix(GRASS_NATURAL_BEND_MIN_VOXELS, GRASS_NATURAL_BEND_MAX_VOXELS, amount_jitter) *
-        species_scale * tip_weight;
+    float bend_min = max(gui_input.grass_natural_bend_min_voxels, 0.0);
+    float bend_max = max(gui_input.grass_natural_bend_max_voxels, bend_min);
+    float bend_voxels = mix(bend_min, bend_max, amount_jitter) * species_scale * tip_weight;
     return vec3(cos(direction_angle), 0.0, sin(direction_angle)) * bend_voxels;
 }
 

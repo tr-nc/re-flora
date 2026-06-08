@@ -93,6 +93,28 @@ min = 0
 max = 4
 
 [[section.param]]
+id = "wind_directional_bias_fraction"
+kind = "float"
+label = "Wind Directional Bias Fraction"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 2
+
+[[section.param]]
+id = "wind_turbulence_fraction"
+kind = "float"
+label = "Wind Turbulence Fraction"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 2
+
+[[section.param]]
 id = "wind_audio_attack_decay"
 kind = "float"
 label = "Wind Audio Attack Decay (0 slow, 1 fast)"
@@ -146,6 +168,39 @@ type = "Float"
 value = 60
 min = 0
 max = 120
+
+[[section.param]]
+id = "grass_natural_bend_min_voxels"
+kind = "float"
+label = "Grass Natural Bend Min (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 0.12
+min = 0
+max = 2
+
+[[section.param]]
+id = "grass_natural_bend_max_voxels"
+kind = "float"
+label = "Grass Natural Bend Max (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 0.7
+min = 0
+max = 2
+
+[[section.param]]
+id = "short_grass_natural_bend_scale"
+kind = "float"
+label = "Short Grass Natural Bend Scale"
+type = "Float"
+
+[section.param.data]
+value = 0.55
+min = 0
+max = 2
 
 [[section.param]]
 id = "leaf_paddle_amplitude_voxels"

@@ -468,6 +468,15 @@ fn delete_wind_source(wind_sources: &mut Vec<WindSourceGuiValues>, index: usize)
     }
 }
 
+fn enforce_grass_natural_bend_order(adjustables: &mut GuiAdjustables) {
+    if adjustables.grass_natural_bend_max_voxels.value
+        < adjustables.grass_natural_bend_min_voxels.value
+    {
+        adjustables.grass_natural_bend_max_voxels.value =
+            adjustables.grass_natural_bend_min_voxels.value;
+    }
+}
+
 fn enforce_leaf_curve_order(adjustables: &mut GuiAdjustables) {
     if adjustables.leaf_paddle_amplitude_wind_full_strength.value
         < adjustables.leaf_paddle_amplitude_wind_start_strength.value
@@ -582,6 +591,23 @@ fn render_wind_sources_gui(
     );
 
     ui.add_space(4.0);
+    ui.label("Wind Shape");
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.wind_directional_bias_fraction.value,
+            adjustables.wind_directional_bias_fraction.range.clone(),
+        )
+        .text("Directional Bias Fraction"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.wind_turbulence_fraction.value,
+            adjustables.wind_turbulence_fraction.range.clone(),
+        )
+        .text("Turbulence Fraction"),
+    );
+
+    ui.add_space(4.0);
     ui.label("Flora Vibration");
     ui.add(
         egui::Slider::new(
@@ -604,6 +630,28 @@ fn render_wind_sources_gui(
         )
         .text("Grass Vibration Secondary Speed"),
     );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.grass_natural_bend_min_voxels.value,
+            adjustables.grass_natural_bend_min_voxels.range.clone(),
+        )
+        .text("Grass Natural Bend Min (voxels)"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.grass_natural_bend_max_voxels.value,
+            adjustables.grass_natural_bend_max_voxels.range.clone(),
+        )
+        .text("Grass Natural Bend Max (voxels)"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.short_grass_natural_bend_scale.value,
+            adjustables.short_grass_natural_bend_scale.range.clone(),
+        )
+        .text("Short Grass Natural Bend Scale"),
+    );
+    enforce_grass_natural_bend_order(adjustables);
     ui.add(
         egui::Slider::new(
             &mut adjustables.leaf_paddle_amplitude_voxels.value,
