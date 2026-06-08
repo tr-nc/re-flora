@@ -176,7 +176,7 @@ label = "Grass Natural Bend Min (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.12
+value = 0.24
 min = 0
 max = 2
 
@@ -187,7 +187,7 @@ label = "Grass Natural Bend Max (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.7
+value = 1.05
 min = 0
 max = 2
 
@@ -198,7 +198,7 @@ label = "Short Grass Natural Bend Scale"
 type = "Float"
 
 [section.param.data]
-value = 0.55
+value = 0.72
 min = 0
 max = 2
 
