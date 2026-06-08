@@ -10,8 +10,6 @@ const float tall_grass_height_mean_voxels   = 5.0;
 const float tall_grass_height_stddev_voxels = 1.0;
 const float short_grass_height_mean_voxels  = 3.0;
 const float short_grass_height_stddev_voxels = 0.6;
-const float PLAYER_PUSH_RADIUS              = 0.3;
-const float PLAYER_PUSH_STRENGTH            = 0.02;
 
 #include "./flora_wind_motion.glsl"
 
@@ -110,13 +108,19 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     } else if (is_apple) {
         wind_offset += apple_wind_swing(wind_vec, instance_seed, wind_motion_time);
     }
-    vec2 player_delta = instance_pos.xz - camera_info.pos.xz;
+    float player_push_radius = max(gui_input.flora_player_push_radius, 0.0);
+    float player_push_strength = max(gui_input.flora_player_push_strength, 0.0);
+    vec3 player_delta = instance_pos - camera_info.pos.xyz;
     float player_dist = length(player_delta);
-    vec2 player_push_dir = player_dist > 1e-4 ? player_delta / player_dist : vec2(0.0);
-    float player_push_amount =
-        (1.0 - smoothstep(0.0, PLAYER_PUSH_RADIUS, player_dist)) * wind_gradient * wind_gradient;
-    vec3 player_push =
-        vec3(player_push_dir.x, 0.0, player_push_dir.y) * (PLAYER_PUSH_STRENGTH * player_push_amount);
+    vec2 player_push_delta = player_delta.xz;
+    float player_push_planar_dist = length(player_push_delta);
+    vec2 player_push_dir =
+        player_push_planar_dist > 1e-4 ? player_push_delta / player_push_planar_dist : vec2(0.0);
+    float player_push_falloff =
+        player_push_radius > 1e-4 ? 1.0 - smoothstep(0.0, player_push_radius, player_dist) : 0.0;
+    float player_push_amount = player_push_falloff * wind_gradient * wind_gradient;
+    vec3 player_push = vec3(player_push_dir.x, 0.0, player_push_dir.y) *
+                       (player_push_strength * player_push_amount);
 
     anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos + player_push;
     voxel_pos         = anchor_pos + vec3(0.5) * scaling_factor;
