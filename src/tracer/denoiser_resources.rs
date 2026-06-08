@@ -3,12 +3,12 @@ use resource_container_derive::ResourceContainer;
 
 use crate::resource::Resource;
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, Device, Extent2D, ImageDesc, MemoryLocation, ShaderModule,
-    Texture, TextureLayout,
+    Allocator, Buffer, BufferUsage, CurrentPrevious, Device, Extent2D, ImageDesc, MemoryLocation,
+    PingPong, ShaderModule, Texture, TextureLayout,
 };
 
 #[derive(ResourceContainer)]
-pub struct DenoiserTextureSet {
+pub struct DenoiserTemporalTextureSet {
     pub denoiser_normal_tex: Resource<Texture>,
     pub denoiser_normal_tex_prev: Resource<Texture>,
     pub denoiser_position_tex: Resource<Texture>,
@@ -17,11 +17,40 @@ pub struct DenoiserTextureSet {
     pub denoiser_vox_id_tex_prev: Resource<Texture>,
     pub denoiser_accumed_tex: Resource<Texture>,
     pub denoiser_accumed_tex_prev: Resource<Texture>,
+}
+
+impl DenoiserTemporalTextureSet {
+    pub fn normal_history(&self) -> CurrentPrevious<&Resource<Texture>> {
+        CurrentPrevious::new(&self.denoiser_normal_tex, &self.denoiser_normal_tex_prev)
+    }
+
+    pub fn position_history(&self) -> CurrentPrevious<&Resource<Texture>> {
+        CurrentPrevious::new(&self.denoiser_position_tex, &self.denoiser_position_tex_prev)
+    }
+
+    pub fn vox_id_history(&self) -> CurrentPrevious<&Resource<Texture>> {
+        CurrentPrevious::new(&self.denoiser_vox_id_tex, &self.denoiser_vox_id_tex_prev)
+    }
+
+    pub fn accumed_history(&self) -> CurrentPrevious<&Resource<Texture>> {
+        CurrentPrevious::new(&self.denoiser_accumed_tex, &self.denoiser_accumed_tex_prev)
+    }
+}
+
+#[derive(ResourceContainer)]
+pub struct DenoiserTextureSet {
+    pub temporal: DenoiserTemporalTextureSet,
     pub denoiser_motion_tex: Resource<Texture>,
     pub denoiser_temporal_hist_len_tex: Resource<Texture>,
     pub denoiser_hit_tex: Resource<Texture>,
     pub denoiser_spatial_ping_tex: Resource<Texture>,
     pub denoiser_spatial_pong_tex: Resource<Texture>,
+}
+
+impl DenoiserTextureSet {
+    pub fn spatial_ping_pong(&self) -> PingPong<&Resource<Texture>> {
+        PingPong::new(&self.denoiser_spatial_ping_tex, &self.denoiser_spatial_pong_tex)
+    }
 }
 
 #[derive(ResourceContainer)]
@@ -99,38 +128,40 @@ impl DenoiserResources {
         };
 
         DenoiserTextureSet {
-            denoiser_normal_tex: Resource::new(create_texture(
-                vk::Format::R32_UINT,
-                vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            )),
-            denoiser_normal_tex_prev: Resource::new(create_texture(
-                vk::Format::R32_UINT,
-                vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            )),
-            denoiser_position_tex: Resource::new(create_texture(
-                vk::Format::R32G32B32A32_SFLOAT,
-                vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            )),
-            denoiser_position_tex_prev: Resource::new(create_texture(
-                vk::Format::R32G32B32A32_SFLOAT,
-                vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            )),
-            denoiser_vox_id_tex: Resource::new(create_texture(
-                vk::Format::R32_UINT,
-                vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            )),
-            denoiser_vox_id_tex_prev: Resource::new(create_texture(
-                vk::Format::R32_UINT,
-                vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            )),
-            denoiser_accumed_tex: Resource::new(create_texture(
-                vk::Format::R32_UINT,
-                vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
-            )),
-            denoiser_accumed_tex_prev: Resource::new(create_texture(
-                vk::Format::R32_UINT,
-                vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            )),
+            temporal: DenoiserTemporalTextureSet {
+                denoiser_normal_tex: Resource::new(create_texture(
+                    vk::Format::R32_UINT,
+                    vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+                )),
+                denoiser_normal_tex_prev: Resource::new(create_texture(
+                    vk::Format::R32_UINT,
+                    vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+                )),
+                denoiser_position_tex: Resource::new(create_texture(
+                    vk::Format::R32G32B32A32_SFLOAT,
+                    vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+                )),
+                denoiser_position_tex_prev: Resource::new(create_texture(
+                    vk::Format::R32G32B32A32_SFLOAT,
+                    vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+                )),
+                denoiser_vox_id_tex: Resource::new(create_texture(
+                    vk::Format::R32_UINT,
+                    vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+                )),
+                denoiser_vox_id_tex_prev: Resource::new(create_texture(
+                    vk::Format::R32_UINT,
+                    vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+                )),
+                denoiser_accumed_tex: Resource::new(create_texture(
+                    vk::Format::R32_UINT,
+                    vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC,
+                )),
+                denoiser_accumed_tex_prev: Resource::new(create_texture(
+                    vk::Format::R32_UINT,
+                    vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+                )),
+            },
             denoiser_motion_tex: Resource::new(create_texture(
                 vk::Format::R16G16_SFLOAT,
                 vk::ImageUsageFlags::STORAGE,

@@ -1379,39 +1379,26 @@ impl Tracer {
                     TextureLayout::GENERAL,
                 );
             };
-            copy_fn(
-                &resources.denoiser_resources.tex.denoiser_normal_tex,
-                &resources.denoiser_resources.tex.denoiser_normal_tex_prev,
-            );
-            copy_fn(
-                &resources.denoiser_resources.tex.denoiser_position_tex,
-                &resources.denoiser_resources.tex.denoiser_position_tex_prev,
-            );
-            copy_fn(
-                &resources.denoiser_resources.tex.denoiser_vox_id_tex,
-                &resources.denoiser_resources.tex.denoiser_vox_id_tex_prev,
-            );
-            copy_fn(
-                &resources.denoiser_resources.tex.denoiser_accumed_tex,
-                &resources.denoiser_resources.tex.denoiser_accumed_tex_prev,
-            );
+
+            for history in [
+                resources.denoiser_resources.tex.temporal.normal_history(),
+                resources.denoiser_resources.tex.temporal.position_history(),
+                resources.denoiser_resources.tex.temporal.vox_id_history(),
+                resources.denoiser_resources.tex.temporal.accumed_history(),
+            ] {
+                copy_fn(history.current(), history.previous());
+            }
         }
     }
 
     fn record_store_vsm_history(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .shadow
-            .shadow_map_tex_for_vsm_ping
-            .get_image()
-            .record_copy_to(
-                cmdbuf,
-                self.resources
-                    .shadow
-                    .shadow_map_tex_for_vsm_prev
-                    .get_image(),
-                TextureLayout::GENERAL,
-                TextureLayout::GENERAL,
-            );
+        let history = self.resources.shadow.vsm_history();
+        history.current().get_image().record_copy_to(
+            cmdbuf,
+            history.previous().get_image(),
+            TextureLayout::GENERAL,
+            TextureLayout::GENERAL,
+        );
     }
 
     fn record_store_cloud_history(&self, cmdbuf: &CommandBuffer) {
@@ -1431,16 +1418,13 @@ impl Tracer {
     }
 
     fn record_store_cloud_shadow_history(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .shadow
-            .cloud_shadow_tex
-            .get_image()
-            .record_copy_to(
-                cmdbuf,
-                self.resources.shadow.cloud_shadow_history_tex.get_image(),
-                TextureLayout::GENERAL,
-                TextureLayout::GENERAL,
-            );
+        let history = self.resources.shadow.cloud_shadow_history();
+        history.current().get_image().record_copy_to(
+            cmdbuf,
+            history.previous().get_image(),
+            TextureLayout::GENERAL,
+            TextureLayout::GENERAL,
+        );
     }
 
     fn record_clear_render_targets(
@@ -1545,7 +1529,8 @@ impl Tracer {
         self.resources
             .denoiser_resources
             .tex
-            .denoiser_spatial_pong_tex
+            .spatial_ping_pong()
+            .pong()
             .get_image()
             .record_clear(
                 cmdbuf,
@@ -2142,19 +2127,13 @@ impl Tracer {
     }
 
     fn record_store_leaf_shadow_history(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .shadow
-            .leaf_shadow_opacity_blended_tex
-            .get_image()
-            .record_copy_to(
-                cmdbuf,
-                self.resources
-                    .shadow
-                    .leaf_shadow_opacity_prev_tex
-                    .get_image(),
-                TextureLayout::GENERAL,
-                TextureLayout::GENERAL,
-            );
+        let history = self.resources.shadow.leaf_shadow_history();
+        history.current().get_image().record_copy_to(
+            cmdbuf,
+            history.previous().get_image(),
+            TextureLayout::GENERAL,
+            TextureLayout::GENERAL,
+        );
     }
 
     fn wind_volume_bucket_step_seconds(&self) -> f32 {
