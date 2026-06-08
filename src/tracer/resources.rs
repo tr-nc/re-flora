@@ -14,8 +14,9 @@ use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, Device, Extent2D, Extent3D, ImageDesc, MemoryLocation,
-    SamplerDesc, ShaderModule, Texture, TextureLayout, TextureRegion, VulkanContext,
+    Allocator, Buffer, BufferUsage, CurrentPrevious, Device, Extent2D, Extent3D, ImageDesc,
+    MemoryLocation, SamplerDesc, ShaderModule, Texture, TextureLayout, TextureRegion,
+    VulkanContext,
 };
 use resource_container_derive::ResourceContainer;
 use std::path::Path;
@@ -251,6 +252,23 @@ pub struct ShadowResources {
     pub leaf_shadow_opacity_prev_tex: Resource<Texture>,
     pub leaf_shadow_opacity_blended_tex: Resource<Texture>,
     pub leaf_shadow_mask_tex: Resource<Texture>,
+}
+
+impl ShadowResources {
+    pub fn vsm_history(&self) -> CurrentPrevious<&Resource<Texture>> {
+        CurrentPrevious::new(&self.shadow_map_tex_for_vsm_ping, &self.shadow_map_tex_for_vsm_prev)
+    }
+
+    pub fn cloud_shadow_history(&self) -> CurrentPrevious<&Resource<Texture>> {
+        CurrentPrevious::new(&self.cloud_shadow_tex, &self.cloud_shadow_history_tex)
+    }
+
+    pub fn leaf_shadow_history(&self) -> CurrentPrevious<&Resource<Texture>> {
+        CurrentPrevious::new(
+            &self.leaf_shadow_opacity_blended_tex,
+            &self.leaf_shadow_opacity_prev_tex,
+        )
+    }
 }
 
 #[derive(ResourceContainer)]
