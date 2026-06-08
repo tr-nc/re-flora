@@ -91,19 +91,20 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     uint wind_seed = (is_grass || is_apple) ? instance_seed :
                                              get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
     vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
-    float flora_bend_weight = flora_bend_height_factor(wind_gradient);
+    float grass_rooted_height_t =
+        float(vox_local_pos.y) / max(float(grass_height_voxels) - 1.0, 1.0);
+    float flora_bend_height_t = is_grass ? grass_rooted_height_t : wind_gradient;
+    float flora_bend_weight = flora_bend_height_factor(flora_bend_height_t);
     float wind_bend_weight = is_surface_flora ? flora_bend_weight : wind_gradient * wind_gradient;
     vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_bend_weight;
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
     if (is_surface_flora) {
         float natural_bend_height = is_grass ? float(grass_height_voxels) : max(float(max_length), 1.0);
-        float natural_bend_t = is_grass ?
-                                   (float(vox_local_pos.y) + 0.5) / natural_bend_height :
-                                   wind_gradient;
+        float natural_bend_t = is_grass ? grass_rooted_height_t : wind_gradient;
         wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height);
-        wind_offset += flora_wind_vibration(wind_vec, wind_gradient, instance_seed, vox_local_pos,
-                                            wind_motion_time);
+        wind_offset += flora_wind_vibration(wind_vec, flora_bend_height_t, instance_seed,
+                                            vox_local_pos, wind_motion_time);
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
         wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
                                           gradient_origin, wind_motion_time);
