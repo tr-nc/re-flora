@@ -8,6 +8,8 @@ const uint WIND_FBM_SEED = 3181u;
 const float WIND_SAMPLE_SCALE = 256.0f;
 const float WIND_TIME_SCALE = 170.0f;
 const float WIND_FBM_FREQUENCY = 0.008f;
+const float WIND_DIRECTIONAL_BIAS_FRACTION = 0.50f;
+const float WIND_TURBULENCE_FRACTION = 0.50f;
 struct WindSourceGpu {
     vec4 params; // direction degrees, speed, gain, unused
     vec4 noise;  // pattern scale, octaves, lacunarity, persistence
@@ -73,12 +75,20 @@ vec3 sample_procedural_wind(vec3 world_pos, float time) {
 
         vec2 wind_direction = vec2(cos(direction_angle), sin(direction_angle));
         vec2 layer_time     = -wind_direction * scroll_time * source_speed;
-        float wind_factor   = sample_wind_source_fbm(
+        float turbulent_factor = sample_wind_source_fbm(
             sample_pos,
             layer_time,
             source_index,
             source_gain,
             noise_params);
+
+        // Grass reads this volume as both directional bend and vibration strength. Keep
+        // a persistent down-wind component, then let FBM gusts vibrate around it without
+        // flipping the apparent wind backwards on negative noise lobes.
+        float wind_factor = max(
+            0.0f,
+            source_gain * WIND_DIRECTIONAL_BIAS_FRACTION +
+                turbulent_factor * WIND_TURBULENCE_FRACTION);
         wind_planar += wind_direction * wind_factor;
     }
 
