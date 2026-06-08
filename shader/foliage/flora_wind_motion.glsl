@@ -2,7 +2,7 @@
 #define FLORA_WIND_MOTION_GLSL
 
 const float FLORA_TWO_PI = 6.28318530718;
-const float GRASS_NATURAL_BEND_MAX_ANGLE = 1.45;
+const float FLORA_NATURAL_BEND_MAX_ANGLE = 1.45;
 
 float flora_wind_planar_strength(vec3 wind_vec) {
     return smoothstep(0.03, 2.0, length(wind_vec.xz));
@@ -38,8 +38,7 @@ float flora_wind_phase(uint instance_seed, ivec3 vox_local_pos, uint salt) {
     return construct_float_01(wellons_hash(seed)) * FLORA_TWO_PI;
 }
 
-vec3 grass_natural_rest_bend(uint instance_seed, ivec3 vox_local_pos,
-                             uint grass_height_voxels) {
+vec3 flora_natural_rest_bend(uint instance_seed, float height_fraction, float flora_height_voxels) {
     // Even in calm air, blades are not perfectly vertical: weight, growth curvature,
     // and clump variation give each blade a stable rest lean in a random direction.
     // Move AABB voxel centers onto a circular-arc centerline instead of applying a
@@ -54,12 +53,12 @@ vec3 grass_natural_rest_bend(uint instance_seed, ivec3 vox_local_pos,
     float bend_max = max(gui_input.grass_natural_bend_max_voxels, bend_min);
     float tip_bend_voxels = mix(bend_min, bend_max, amount_jitter);
 
-    float blade_height = max(float(grass_height_voxels), 1.0);
-    float center_y = clamp(float(vox_local_pos.y) + 0.5, 0.0, blade_height);
-    float t = center_y / blade_height;
+    float blade_height = max(flora_height_voxels, 1.0);
+    float t = clamp(height_fraction, 0.0, 1.0);
+    float center_y = t * blade_height;
 
     float bend_angle = clamp(2.0 * tip_bend_voxels / blade_height, 0.0,
-                             GRASS_NATURAL_BEND_MAX_ANGLE);
+                             FLORA_NATURAL_BEND_MAX_ANGLE);
     if (bend_angle <= 1e-4) {
         return vec3(0.0);
     }
@@ -73,7 +72,7 @@ vec3 grass_natural_rest_bend(uint instance_seed, ivec3 vox_local_pos,
     return bend_dir * horizontal_offset + vec3(0.0, vertical_offset, 0.0);
 }
 
-vec3 grass_wind_vibration(vec3 wind_vec, float wind_gradient, uint instance_seed,
+vec3 flora_wind_vibration(vec3 wind_vec, float wind_gradient, uint instance_seed,
                           ivec3 vox_local_pos, float time) {
     float strength = flora_wind_planar_strength(wind_vec);
     if (strength <= 0.0) {

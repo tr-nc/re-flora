@@ -137,160 +137,6 @@ min = 0
 max = 1
 
 [[section.param]]
-id = "grass_vibration_amplitude_voxels"
-kind = "float"
-label = "Grass Vibration Amplitude (voxels)"
-type = "Float"
-
-[section.param.data]
-value = 0.5
-min = 0
-max = 2
-
-[[section.param]]
-id = "grass_vibration_primary_speed"
-kind = "float"
-label = "Grass Vibration Primary Speed"
-type = "Float"
-
-[section.param.data]
-value = 40
-min = 0
-max = 80
-
-[[section.param]]
-id = "grass_vibration_secondary_speed"
-kind = "float"
-label = "Grass Vibration Secondary Speed"
-type = "Float"
-
-[section.param.data]
-value = 80
-min = 0
-max = 120
-
-[[section.param]]
-id = "leaf_paddle_amplitude_voxels"
-kind = "float"
-label = "Leaf Paddle Amplitude (voxels)"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0
-max = 3
-
-[[section.param]]
-id = "leaf_paddle_primary_speed"
-kind = "float"
-label = "Leaf Paddle Primary Speed"
-type = "Float"
-
-[section.param.data]
-value = 20
-min = 0
-max = 40
-
-[[section.param]]
-id = "leaf_paddle_secondary_speed"
-kind = "float"
-label = "Leaf Paddle Secondary Speed"
-type = "Float"
-
-[section.param.data]
-value = 20
-min = 0
-max = 60
-
-[[section.param]]
-id = "leaf_paddle_amplitude_wind_start_strength"
-kind = "float"
-label = "Leaf Amp Curve Start Wind"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 4
-
-[[section.param]]
-id = "leaf_paddle_amplitude_wind_full_strength"
-kind = "float"
-label = "Leaf Amp Curve Full Wind"
-type = "Float"
-
-[section.param.data]
-value = 3
-min = 0
-max = 4
-
-[[section.param]]
-id = "leaf_paddle_amplitude_wind_knee_bias"
-kind = "float"
-label = "Leaf Amp Curve Knee Bias (- early, + late)"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = -3
-max = 3
-
-[[section.param]]
-id = "leaf_paddle_frequency_wind_start_strength"
-kind = "float"
-label = "Leaf Freq Curve Start Wind"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 4
-
-[[section.param]]
-id = "leaf_paddle_frequency_wind_full_strength"
-kind = "float"
-label = "Leaf Freq Curve Full Wind"
-type = "Float"
-
-[section.param.data]
-value = 3
-min = 0
-max = 4
-
-[[section.param]]
-id = "leaf_paddle_frequency_wind_knee_bias"
-kind = "float"
-label = "Leaf Freq Curve Knee Bias (- early, + late)"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = -3
-max = 3
-
-[[section.param]]
-id = "leaf_paddle_frequency_min_multiplier"
-kind = "float"
-label = "Leaf Freq Min Multiplier"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 3
-
-[[section.param]]
-id = "leaf_paddle_frequency_max_multiplier"
-kind = "float"
-label = "Leaf Freq Max Multiplier"
-type = "Float"
-
-[section.param.data]
-value = 3
-min = 0
-max = 3
-
-[[section.param]]
 id = "wind_source_0_name"
 kind = "string"
 label = "Wind Source 1 Name"
@@ -1360,12 +1206,12 @@ min = 1
 max = 5
 
 [[section]]
-name = "Grass"
+name = "Flora"
 
 [[section.param]]
 id = "grass_natural_bend_min_voxels"
 kind = "float"
-label = "Grass Natural Bend Min (voxels)"
+label = "Flora Natural Bend Min (voxels)"
 type = "Float"
 
 [section.param.data]
@@ -1376,13 +1222,168 @@ max = 4
 [[section.param]]
 id = "grass_natural_bend_max_voxels"
 kind = "float"
-label = "Grass Natural Bend Max (voxels)"
+label = "Flora Natural Bend Max (voxels)"
 type = "Float"
 
 [section.param.data]
 value = 2
 min = 0
 max = 4
+
+
+[[section.param]]
+id = "grass_vibration_amplitude_voxels"
+kind = "float"
+label = "Flora Vibration Amplitude (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 2
+
+[[section.param]]
+id = "grass_vibration_primary_speed"
+kind = "float"
+label = "Flora Vibration Primary Speed"
+type = "Float"
+
+[section.param.data]
+value = 40
+min = 0
+max = 80
+
+[[section.param]]
+id = "grass_vibration_secondary_speed"
+kind = "float"
+label = "Flora Vibration Secondary Speed"
+type = "Float"
+
+[section.param.data]
+value = 80
+min = 0
+max = 120
+
+[[section.param]]
+id = "leaf_paddle_amplitude_voxels"
+kind = "float"
+label = "Leaf Paddle Amplitude (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
+id = "leaf_paddle_primary_speed"
+kind = "float"
+label = "Leaf Paddle Primary Speed"
+type = "Float"
+
+[section.param.data]
+value = 20
+min = 0
+max = 40
+
+[[section.param]]
+id = "leaf_paddle_secondary_speed"
+kind = "float"
+label = "Leaf Paddle Secondary Speed"
+type = "Float"
+
+[section.param.data]
+value = 20
+min = 0
+max = 60
+
+[[section.param]]
+id = "leaf_paddle_amplitude_wind_start_strength"
+kind = "float"
+label = "Leaf Amp Curve Start Wind"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_paddle_amplitude_wind_full_strength"
+kind = "float"
+label = "Leaf Amp Curve Full Wind"
+type = "Float"
+
+[section.param.data]
+value = 3
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_paddle_amplitude_wind_knee_bias"
+kind = "float"
+label = "Leaf Amp Curve Knee Bias (- early, + late)"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -3
+max = 3
+
+[[section.param]]
+id = "leaf_paddle_frequency_wind_start_strength"
+kind = "float"
+label = "Leaf Freq Curve Start Wind"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_paddle_frequency_wind_full_strength"
+kind = "float"
+label = "Leaf Freq Curve Full Wind"
+type = "Float"
+
+[section.param.data]
+value = 3
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_paddle_frequency_wind_knee_bias"
+kind = "float"
+label = "Leaf Freq Curve Knee Bias (- early, + late)"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -3
+max = 3
+
+[[section.param]]
+id = "leaf_paddle_frequency_min_multiplier"
+kind = "float"
+label = "Leaf Freq Min Multiplier"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 3
+
+[[section.param]]
+id = "leaf_paddle_frequency_max_multiplier"
+kind = "float"
+label = "Leaf Freq Max Multiplier"
+type = "Float"
+
+[section.param.data]
+value = 3
+min = 0
+max = 3
 
 [[section.param]]
 id = "grass_bottom_dark_color"

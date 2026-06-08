@@ -57,6 +57,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
                            out float color_gradient, out vec3 voxel_pos, out vec3 anchor_pos,
                            out float shadow_weight, out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
+    bool is_surface_flora = instance_ty < FLORA_SPECIES_COUNT;
     bool is_apple = instance_ty == FLORA_SPECIES_APPLE;
 
     bool is_short_grass = instance_ty == FLORA_SPECIES_SHORT_GRASS;
@@ -95,9 +96,13 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_gradient * wind_gradient;
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
-    if (is_grass) {
-        wind_offset += grass_natural_rest_bend(instance_seed, vox_local_pos, grass_height_voxels);
-        wind_offset += grass_wind_vibration(wind_vec, wind_gradient, instance_seed, vox_local_pos,
+    if (is_surface_flora) {
+        float natural_bend_height = is_grass ? float(grass_height_voxels) : max(float(max_length), 1.0);
+        float natural_bend_t = is_grass ?
+                                   (float(vox_local_pos.y) + 0.5) / natural_bend_height :
+                                   wind_gradient;
+        wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height);
+        wind_offset += flora_wind_vibration(wind_vec, wind_gradient, instance_seed, vox_local_pos,
                                             wind_motion_time);
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
         wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,

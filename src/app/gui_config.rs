@@ -468,7 +468,7 @@ fn delete_wind_source(wind_sources: &mut Vec<WindSourceGuiValues>, index: usize)
     }
 }
 
-fn enforce_grass_natural_bend_order(adjustables: &mut GuiAdjustables) {
+fn enforce_flora_natural_bend_order(adjustables: &mut GuiAdjustables) {
     if adjustables.grass_natural_bend_max_voxels.value
         < adjustables.grass_natural_bend_min_voxels.value
     {
@@ -559,53 +559,23 @@ fn draw_leaf_curve_previews(ui: &mut egui::Ui, adjustables: &GuiAdjustables) {
     );
 }
 
-fn render_wind_sources_gui(
-    ui: &mut egui::Ui,
-    adjustables: &mut GuiAdjustables,
-    wind_sources: &mut Vec<WindSourceGuiValues>,
-) {
-    adjustables.wind_source_count.value = wind_sources.len() as u32;
-
-    ui.horizontal(|ui| {
-        ui.label(format!("Wind Sources: {}", wind_sources.len()));
-        if ui.button("+ Wind Source").clicked() {
-            let mut source = WindSourceGuiValues::default();
-            source.name = format!("Wind Source {}", wind_sources.len() + 1);
-            wind_sources.push(source);
-        }
-    });
-
+fn render_flora_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
+    ui.label("Natural Bend");
     ui.add(
         egui::Slider::new(
-            &mut adjustables.wind_audio_attack_decay.value,
-            adjustables.wind_audio_attack_decay.range.clone(),
+            &mut adjustables.grass_natural_bend_min_voxels.value,
+            adjustables.grass_natural_bend_min_voxels.range.clone(),
         )
-        .text("Audio Attack Decay (0 slow, 1 fast)"),
+        .text("Flora Natural Bend Min (voxels)"),
     );
     ui.add(
         egui::Slider::new(
-            &mut adjustables.wind_audio_release_decay.value,
-            adjustables.wind_audio_release_decay.range.clone(),
+            &mut adjustables.grass_natural_bend_max_voxels.value,
+            adjustables.grass_natural_bend_max_voxels.range.clone(),
         )
-        .text("Audio Release Decay (0 slow, 1 fast)"),
+        .text("Flora Natural Bend Max (voxels)"),
     );
-
-    ui.add_space(4.0);
-    ui.label("Wind Shape");
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.wind_directional_bias_fraction.value,
-            adjustables.wind_directional_bias_fraction.range.clone(),
-        )
-        .text("Directional Bias Fraction"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.wind_turbulence_fraction.value,
-            adjustables.wind_turbulence_fraction.range.clone(),
-        )
-        .text("Turbulence Fraction"),
-    );
+    enforce_flora_natural_bend_order(adjustables);
 
     ui.add_space(4.0);
     ui.label("Flora Vibration");
@@ -614,21 +584,21 @@ fn render_wind_sources_gui(
             &mut adjustables.grass_vibration_amplitude_voxels.value,
             adjustables.grass_vibration_amplitude_voxels.range.clone(),
         )
-        .text("Grass Vibration Amplitude (voxels)"),
+        .text("Flora Vibration Amplitude (voxels)"),
     );
     ui.add(
         egui::Slider::new(
             &mut adjustables.grass_vibration_primary_speed.value,
             adjustables.grass_vibration_primary_speed.range.clone(),
         )
-        .text("Grass Vibration Primary Speed"),
+        .text("Flora Vibration Primary Speed"),
     );
     ui.add(
         egui::Slider::new(
             &mut adjustables.grass_vibration_secondary_speed.value,
             adjustables.grass_vibration_secondary_speed.range.clone(),
         )
-        .text("Grass Vibration Secondary Speed"),
+        .text("Flora Vibration Secondary Speed"),
     );
     ui.add(
         egui::Slider::new(
@@ -651,6 +621,7 @@ fn render_wind_sources_gui(
         )
         .text("Leaf Paddle Secondary Speed"),
     );
+
     ui.add_space(4.0);
     ui.label("Leaf Wind Response Curves");
     ui.label("Knee Bias: negative responds earlier; positive delays response until stronger wind.");
@@ -738,6 +709,74 @@ fn render_wind_sources_gui(
     ui.add_space(4.0);
     draw_leaf_curve_previews(ui, adjustables);
 
+    ui.add_space(4.0);
+    ui.label("Grass Colors");
+    ui.horizontal(|ui| {
+        ui.label("Bottom Dark");
+        ui.color_edit_button_srgba(&mut adjustables.grass_bottom_dark_color.value);
+    });
+    ui.horizontal(|ui| {
+        ui.label("Bottom Light");
+        ui.color_edit_button_srgba(&mut adjustables.grass_bottom_light_color.value);
+    });
+    ui.horizontal(|ui| {
+        ui.label("Tip Dark");
+        ui.color_edit_button_srgba(&mut adjustables.grass_tip_dark_color.value);
+    });
+    ui.horizontal(|ui| {
+        ui.label("Tip Light");
+        ui.color_edit_button_srgba(&mut adjustables.grass_tip_light_color.value);
+    });
+}
+
+fn render_wind_sources_gui(
+    ui: &mut egui::Ui,
+    adjustables: &mut GuiAdjustables,
+    wind_sources: &mut Vec<WindSourceGuiValues>,
+) {
+    adjustables.wind_source_count.value = wind_sources.len() as u32;
+
+    ui.horizontal(|ui| {
+        ui.label(format!("Wind Sources: {}", wind_sources.len()));
+        if ui.button("+ Wind Source").clicked() {
+            let mut source = WindSourceGuiValues::default();
+            source.name = format!("Wind Source {}", wind_sources.len() + 1);
+            wind_sources.push(source);
+        }
+    });
+
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.wind_audio_attack_decay.value,
+            adjustables.wind_audio_attack_decay.range.clone(),
+        )
+        .text("Audio Attack Decay (0 slow, 1 fast)"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.wind_audio_release_decay.value,
+            adjustables.wind_audio_release_decay.range.clone(),
+        )
+        .text("Audio Release Decay (0 slow, 1 fast)"),
+    );
+
+    ui.add_space(4.0);
+    ui.label("Wind Shape");
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.wind_directional_bias_fraction.value,
+            adjustables.wind_directional_bias_fraction.range.clone(),
+        )
+        .text("Directional Bias Fraction"),
+    );
+    ui.add(
+        egui::Slider::new(
+            &mut adjustables.wind_turbulence_fraction.value,
+            adjustables.wind_turbulence_fraction.range.clone(),
+        )
+        .text("Turbulence Fraction"),
+    );
+
     if wind_sources.is_empty() {
         ui.label("No wind sources.");
         return;
@@ -802,6 +841,10 @@ pub fn render_gui_from_config(
         ui.collapsing(&section.name, |ui| {
             if section.name == "Wind" {
                 render_wind_sources_gui(ui, adjustables, wind_sources);
+                return;
+            }
+            if section.name == "Flora" {
+                render_flora_gui(ui, adjustables);
                 return;
             }
 
@@ -904,9 +947,6 @@ pub fn render_gui_from_config(
                 }
             }
 
-            if section.name == "Grass" {
-                enforce_grass_natural_bend_order(adjustables);
-            }
         });
     }
 }
