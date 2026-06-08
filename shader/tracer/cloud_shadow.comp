@@ -91,7 +91,6 @@ Ray make_cloud_shadow_ray(vec2 uv) {
     // miss the cloud slab when the sun is above the horizon.  Keep the same
     // light-space line/UV, but move the start point up to the sun side of the
     // cloud layer before marching back toward the receiver.
-    ray.direction = normalize(ray.direction);
     if (ray.direction.y < -0.001) {
         float start_y = cloud_layer_top() + max(2.0, (cloud_layer_top() - cloud_layer_bottom()) * 0.03);
         float t = (start_y - ray.origin.y) / ray.direction.y;
