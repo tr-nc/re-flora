@@ -62,6 +62,7 @@ layout(set = 0, binding = 15) uniform sampler2D cloud_output_tex;
 
 #include "../include/core/color.glsl"
 #include "../include/core/dither.glsl"
+#include "../include/core/hash.glsl"
 #include "../include/core/transform.glsl"
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
@@ -368,9 +369,9 @@ vec3 shade_terrarium_panel_hit(TerrariumPanelHit hit) {
     vec3 base_color = mix(walnut, dark_trim, side_face * 0.38 + down_face * 0.30) * top_tint;
     base_color = mix(base_color, warm_edge * top_tint, rim * (0.36 + up_face * 0.18));
 
-    float grain = step(0.5, fract((hit.position.x * 31.0 + hit.position.z * 17.0 +
-                                   hit.position.y * 53.0) * 3.0));
-    base_color *= 0.88 + grain * 0.10;
+    vec3 grain_cell = floor(hit.position * (TERRARIUM_VOXELS_PER_CHUNK_AXIS / 4.0));
+    float grain = hash13(grain_cell + vec3(19.0, 47.0, hit.layer * 83.0));
+    base_color *= 0.96 + grain * 0.04;
     base_color *= 0.55 + sun * 0.32 + ndotv * 0.14 + up_face * 0.08 - down_face * 0.10;
     base_color += warm_edge * rim * side_face * (1.0 - step(0.18, y_edge)) * 0.10;
     return max(base_color, vec3(0.0));
