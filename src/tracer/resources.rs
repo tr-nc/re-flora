@@ -188,11 +188,15 @@ impl GlassMeshResources {
     const PART_EDGE_BAND: u32 = 1;
     const PART_RIM: u32 = 2;
     const PART_CORNER_BEVEL: u32 = 3;
+    const VOXELS_PER_CHUNK_AXIS: f32 = 256.0;
+    const GLASS_THICKNESS_VOXELS: f32 = 2.0;
+    const GLASS_TOP_PADDING_WORLD: f32 = 0.08;
 
     pub fn new(device: Device, allocator: Allocator, chunk_bound: UAabb3) -> Self {
         let extent = chunk_bound.get_extent();
-        let inset = 0.02;
-        let top_padding = 0.08;
+        let glass_thickness_world = Self::GLASS_THICKNESS_VOXELS / Self::VOXELS_PER_CHUNK_AXIS;
+        let inset = glass_thickness_world;
+        let top_padding = Self::GLASS_TOP_PADDING_WORLD;
         let box_min = Vec3::new(-inset, 0.0, -inset);
         let box_max = Vec3::new(
             extent.width as f32 + inset,
@@ -263,9 +267,9 @@ impl GlassMeshResources {
         }
 
         let edge_index_start = indices_data.len() as u32;
-        let edge_uv_width = 0.055;
-        let rim_width = 0.030;
-        let bevel_width = 0.026;
+        let edge_uv_width = glass_thickness_world / (box_max.x - box_min.x);
+        let rim_width = glass_thickness_world;
+        let bevel_width = glass_thickness_world;
         for (face_id, normal, corners) in faces {
             Self::append_face_edge_bands(
                 &mut vertices_data,

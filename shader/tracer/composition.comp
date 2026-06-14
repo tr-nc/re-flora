@@ -203,8 +203,19 @@ vec3 combine_colors(float gfx_depth_01, float compute_depth_01, vec4 gfx_rgba,
 }
 
 
-const vec3 TERRARIUM_GLASS_BOX_MIN = vec3(-0.02, 0.0, -0.02);
-const vec3 TERRARIUM_GLASS_BOX_MAX = vec3(1.02, 1.08, 1.02);
+const float TERRARIUM_VOXELS_PER_CHUNK_AXIS = 256.0;
+const float TERRARIUM_VOXEL_WORLD_SIZE = 1.0 / TERRARIUM_VOXELS_PER_CHUNK_AXIS;
+const float TERRARIUM_GLASS_THICKNESS_VOXELS = 2.0;
+const float TERRARIUM_GLASS_THICKNESS_WORLD =
+    TERRARIUM_GLASS_THICKNESS_VOXELS * TERRARIUM_VOXEL_WORLD_SIZE;
+const float TERRARIUM_GLASS_CORE_THICKNESS_WORLD = TERRARIUM_GLASS_THICKNESS_WORLD / 3.0;
+const float TERRARIUM_GLASS_TOP_PADDING_WORLD = 0.08;
+const vec3 TERRARIUM_GLASS_BOX_MIN =
+    vec3(-TERRARIUM_GLASS_THICKNESS_WORLD, 0.0, -TERRARIUM_GLASS_THICKNESS_WORLD);
+const vec3 TERRARIUM_GLASS_BOX_MAX =
+    vec3(1.0 + TERRARIUM_GLASS_THICKNESS_WORLD,
+         1.0 + TERRARIUM_GLASS_TOP_PADDING_WORLD,
+         1.0 + TERRARIUM_GLASS_THICKNESS_WORLD);
 
 struct TerrariumGlassHit {
     bool hit;
@@ -322,17 +333,26 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     }
 
     vec2 uv = hit.face_uv;
-    const float edge_width = 0.018; // roughly 30% of the previous border width.
-    const float core_width = 0.006;
-    float left_edge = 1.0 - step(edge_width, uv.x);
-    float right_edge = step(1.0 - edge_width, uv.x);
-    float bottom_edge = 1.0 - step(edge_width, uv.y);
-    float top_edge = step(1.0 - edge_width, uv.y);
+    vec2 face_world_extent = abs(hit.normal.x) > 0.5
+                                 ? vec2(TERRARIUM_GLASS_BOX_MAX.z - TERRARIUM_GLASS_BOX_MIN.z,
+                                        TERRARIUM_GLASS_BOX_MAX.y - TERRARIUM_GLASS_BOX_MIN.y)
+                                 : vec2(TERRARIUM_GLASS_BOX_MAX.x - TERRARIUM_GLASS_BOX_MIN.x,
+                                        TERRARIUM_GLASS_BOX_MAX.y - TERRARIUM_GLASS_BOX_MIN.y);
+    vec2 edge_width = TERRARIUM_GLASS_THICKNESS_WORLD / face_world_extent;
+    vec2 core_width = TERRARIUM_GLASS_CORE_THICKNESS_WORLD / face_world_extent;
+    float left_edge = 1.0 - step(edge_width.x, uv.x);
+    float right_edge = step(1.0 - edge_width.x, uv.x);
+    float bottom_edge = 1.0 - step(edge_width.y, uv.y);
+    float top_edge = step(1.0 - edge_width.y, uv.y);
     float edge = max(max(left_edge, right_edge), max(bottom_edge, top_edge));
     float pane = 1.0 - edge;
 
-    float edge_dist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-    float core_edge = 1.0 - step(core_width, edge_dist);
+    float core_left_edge = 1.0 - step(core_width.x, uv.x);
+    float core_right_edge = step(1.0 - core_width.x, uv.x);
+    float core_bottom_edge = 1.0 - step(core_width.y, uv.y);
+    float core_top_edge = step(1.0 - core_width.y, uv.y);
+    float core_edge = max(max(core_left_edge, core_right_edge),
+                          max(core_bottom_edge, core_top_edge));
     float corner = max(left_edge, right_edge) * max(top_edge, bottom_edge);
 
     float ndotv = clamp(dot(normal, view_dir), 0.0, 1.0);

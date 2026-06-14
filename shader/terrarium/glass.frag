@@ -22,6 +22,16 @@ layout(set = 0, binding = 1) uniform U_SunInfo {
 }
 sun_info;
 
+const float TERRARIUM_VOXELS_PER_CHUNK_AXIS = 256.0;
+const float TERRARIUM_VOXEL_WORLD_SIZE = 1.0 / TERRARIUM_VOXELS_PER_CHUNK_AXIS;
+const float TERRARIUM_GLASS_THICKNESS_VOXELS = 2.0;
+const float TERRARIUM_GLASS_THICKNESS_WORLD =
+    TERRARIUM_GLASS_THICKNESS_VOXELS * TERRARIUM_VOXEL_WORLD_SIZE;
+const float TERRARIUM_GLASS_CORE_THICKNESS_WORLD = TERRARIUM_GLASS_THICKNESS_WORLD / 3.0;
+const float TERRARIUM_GLASS_TOP_PADDING_WORLD = 0.08;
+const float TERRARIUM_GLASS_FACE_WORLD_WIDTH = 1.0 + TERRARIUM_GLASS_THICKNESS_WORLD * 2.0;
+const float TERRARIUM_GLASS_FACE_WORLD_HEIGHT = 1.0 + TERRARIUM_GLASS_TOP_PADDING_WORLD;
+
 vec3 sky_reflection_color(vec3 dir) {
     float up = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 low_sky = vec3(0.46, 0.68, 0.86);
@@ -33,12 +43,21 @@ vec3 sky_reflection_color(vec3 dir) {
 
 void main() {
     vec2 uv = clamp(vert_uv, vec2(0.0), vec2(1.0));
-    float edge_dist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-    float uv_edge = 1.0 - step(0.018, edge_dist);
-    float core_edge = 1.0 - step(0.006, edge_dist);
-    float side_edge = 1.0 - step(0.018, min(uv.x, 1.0 - uv.x));
-    float top_edge = 1.0 - step(0.018, 1.0 - uv.y);
-    float bottom_edge = 1.0 - step(0.018, uv.y);
+    vec2 edge_width = vec2(TERRARIUM_GLASS_THICKNESS_WORLD / TERRARIUM_GLASS_FACE_WORLD_WIDTH,
+                           TERRARIUM_GLASS_THICKNESS_WORLD / TERRARIUM_GLASS_FACE_WORLD_HEIGHT);
+    vec2 core_width = vec2(TERRARIUM_GLASS_CORE_THICKNESS_WORLD /
+                               TERRARIUM_GLASS_FACE_WORLD_WIDTH,
+                           TERRARIUM_GLASS_CORE_THICKNESS_WORLD /
+                               TERRARIUM_GLASS_FACE_WORLD_HEIGHT);
+    float side_edge = max(1.0 - step(edge_width.x, uv.x), step(1.0 - edge_width.x, uv.x));
+    float top_edge = step(1.0 - edge_width.y, uv.y);
+    float bottom_edge = 1.0 - step(edge_width.y, uv.y);
+    float uv_edge = max(side_edge, max(top_edge, bottom_edge));
+    float core_side_edge = max(1.0 - step(core_width.x, uv.x),
+                               step(1.0 - core_width.x, uv.x));
+    float core_top_edge = step(1.0 - core_width.y, uv.y);
+    float core_bottom_edge = 1.0 - step(core_width.y, uv.y);
+    float core_edge = max(core_side_edge, max(core_top_edge, core_bottom_edge));
     float corner = side_edge * max(top_edge, bottom_edge);
 
     vec3 view_dir = normalize(vert_view_dir_ws);
