@@ -37,20 +37,62 @@ pub(crate) const HOE_SLOT_INDEX: usize = 2;
 pub(crate) const WATER_SLOT_INDEX: usize = 3;
 pub(crate) const MAX_VOXEL_STORAGE_PER_TYPE: u32 = 200_000;
 
+pub(crate) struct ItemPanelSlot<'a> {
+    pub index: usize,
+    pub label: &'static str,
+    pub key_hint: &'static str,
+    pub icon: Option<&'a TextureHandle>,
+    pub accent: Color32,
+    pub enabled: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct ItemPanelResponse {
+    pub clicked_slot: Option<usize>,
+}
+
+#[derive(Clone, Copy)]
+struct ItemPanelTheme {
+    slot_size: egui::Vec2,
+    icon_size: egui::Vec2,
+    slot_gap: f32,
+    tray_padding: egui::Vec2,
+    keycap_size: egui::Vec2,
+}
+
+impl Default for ItemPanelTheme {
+    fn default() -> Self {
+        Self {
+            slot_size: egui::Vec2::new(66.0, 62.0),
+            icon_size: egui::Vec2::new(31.0, 31.0),
+            slot_gap: 7.0,
+            tray_padding: egui::Vec2::new(12.0, 10.0),
+            keycap_size: egui::Vec2::new(16.0, 14.0),
+        }
+    }
+}
+
 pub(crate) fn draw_item_panel(
     ctx: &egui::Context,
-    item_panel_shovel_icon: Option<&TextureHandle>,
-    item_panel_staff_icon: Option<&TextureHandle>,
-    item_panel_hoe_icon: Option<&TextureHandle>,
-    item_panel_water_icon: Option<&TextureHandle>,
+    slots: &[ItemPanelSlot<'_>],
     selected_slot_idx: usize,
-) {
+    interaction_enabled: bool,
+) -> ItemPanelResponse {
+    let theme = ItemPanelTheme::default();
+    let mut panel_response = ItemPanelResponse::default();
+
     egui::Area::new("item_panel".into())
+        .order(egui::Order::Foreground)
         .anchor(egui::Align2::CENTER_BOTTOM, egui::Vec2::new(0.0, -16.0))
         .show(ctx, |ui| {
             let panel_frame = egui::containers::Frame {
                 fill: PANEL_DARK,
-                inner_margin: egui::Margin::symmetric(10, 8),
+                inner_margin: egui::Margin {
+                    left: theme.tray_padding.x as i8,
+                    right: theme.tray_padding.x as i8,
+                    top: theme.tray_padding.y as i8,
+                    bottom: (theme.tray_padding.y + 3.0) as i8,
+                },
                 corner_radius: egui::CornerRadius::same(0),
                 shadow: egui::epaint::Shadow {
                     offset: [4, 4],
@@ -63,74 +105,131 @@ pub(crate) fn draw_item_panel(
             };
 
             panel_frame.show(ui, |ui| {
-                let slot_size = egui::Vec2::new(52.0, 52.0);
-                let icon_size = egui::Vec2::new(32.0, 32.0);
-
-                egui::Grid::new("item_panel_slots")
-                    .num_columns(ITEM_PANEL_SLOT_COUNT)
-                    .spacing(egui::Vec2::new(6.0, 0.0))
-                    .show(ui, |ui| {
-                        for slot_idx in 0..ITEM_PANEL_SLOT_COUNT {
-                            let is_selected = slot_idx == selected_slot_idx;
-                            let slot_frame = egui::containers::Frame {
-                                fill: PANEL_LIGHT,
-                                inner_margin: egui::Margin::same(6),
-                                corner_radius: egui::CornerRadius::same(0),
-                                stroke: if is_selected {
-                                    egui::Stroke::new(1.5, GOLD_ACCENT)
-                                } else {
-                                    egui::Stroke::new(1.5, SAGE_ACCENT)
-                                },
-                                ..Default::default()
-                            };
-
-                            slot_frame.show(ui, |ui| {
-                                ui.set_min_size(slot_size);
-                                ui.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |ui| {
-                                        if slot_idx == SHOVEL_SLOT_INDEX {
-                                            if let Some(icon) = item_panel_shovel_icon {
-                                                ui.add(
-                                                    egui::Image::new(icon)
-                                                        .fit_to_exact_size(icon_size),
-                                                );
-                                            }
-                                        }
-                                        if slot_idx == STAFF_SLOT_INDEX {
-                                            if let Some(icon) = item_panel_staff_icon {
-                                                ui.add(
-                                                    egui::Image::new(icon)
-                                                        .fit_to_exact_size(icon_size),
-                                                );
-                                            }
-                                        }
-                                        if slot_idx == HOE_SLOT_INDEX {
-                                            if let Some(icon) = item_panel_hoe_icon {
-                                                ui.add(
-                                                    egui::Image::new(icon)
-                                                        .fit_to_exact_size(icon_size),
-                                                );
-                                            }
-                                        }
-                                        if slot_idx == WATER_SLOT_INDEX {
-                                            if let Some(icon) = item_panel_water_icon {
-                                                ui.add(
-                                                    egui::Image::new(icon)
-                                                        .fit_to_exact_size(icon_size),
-                                                );
-                                            }
-                                        }
-                                    },
-                                );
-                            });
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = theme.slot_gap;
+                    for slot in slots {
+                        let clicked = draw_item_panel_slot(
+                            ui,
+                            slot,
+                            slot.index == selected_slot_idx,
+                            interaction_enabled && slot.enabled,
+                            theme,
+                        );
+                        if clicked {
+                            panel_response.clicked_slot = Some(slot.index);
                         }
-                        ui.end_row();
-                    });
+                    }
+                });
             });
         });
+
+    panel_response
+}
+
+fn draw_item_panel_slot(
+    ui: &mut egui::Ui,
+    slot: &ItemPanelSlot<'_>,
+    selected: bool,
+    interaction_enabled: bool,
+    theme: ItemPanelTheme,
+) -> bool {
+    let sense = if interaction_enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, response) = ui.allocate_exact_size(theme.slot_size, sense);
+    let response = response.on_hover_text(format!("{} [{}]", slot.label, slot.key_hint));
+    let hovered = interaction_enabled && response.hovered();
+    let clicked = interaction_enabled && response.clicked();
+    let painter = ui.painter_at(rect);
+
+    let fill = if selected {
+        Color32::from_rgb(58, 57, 49)
+    } else if hovered {
+        Color32::from_rgb(54, 63, 60)
+    } else {
+        PANEL_LIGHT
+    };
+    let accent = if slot.enabled {
+        slot.accent
+    } else {
+        SAGE_ACCENT.linear_multiply(0.45)
+    };
+    let border = if selected {
+        egui::Stroke::new(2.0, GOLD_ACCENT)
+    } else if hovered {
+        egui::Stroke::new(1.5, FLOWER_ACCENT)
+    } else {
+        egui::Stroke::new(1.0, SAGE_ACCENT)
+    };
+
+    painter.rect_filled(rect, egui::CornerRadius::same(0), fill);
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(0),
+        border,
+        egui::StrokeKind::Inside,
+    );
+
+    let accent_rect = egui::Rect::from_min_max(
+        rect.left_top(),
+        egui::pos2(rect.right(), rect.top() + if selected { 4.0 } else { 2.0 }),
+    );
+    painter.rect_filled(accent_rect, egui::CornerRadius::same(0), accent);
+
+    let keycap_rect = egui::Rect::from_min_size(rect.min + egui::vec2(5.0, 7.0), theme.keycap_size);
+    painter.rect_filled(keycap_rect, egui::CornerRadius::same(0), PANEL_DARK);
+    painter.rect_stroke(
+        keycap_rect,
+        egui::CornerRadius::same(0),
+        egui::Stroke::new(1.0, accent),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        keycap_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        slot.key_hint,
+        egui::TextStyle::Small.resolve(ui.style()),
+        TEXT_COLOR,
+    );
+
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.center().x, rect.center().y - 1.0),
+        theme.icon_size,
+    );
+    if let Some(icon) = slot.icon {
+        egui::Image::new(icon)
+            .fit_to_exact_size(theme.icon_size)
+            .paint_at(ui, icon_rect);
+    } else {
+        painter.line_segment(
+            [icon_rect.left_top(), icon_rect.right_bottom()],
+            egui::Stroke::new(1.0, accent),
+        );
+        painter.line_segment(
+            [icon_rect.right_top(), icon_rect.left_bottom()],
+            egui::Stroke::new(1.0, accent),
+        );
+    }
+
+    painter.text(
+        egui::pos2(rect.center().x, rect.bottom() - 6.0),
+        egui::Align2::CENTER_BOTTOM,
+        slot.label,
+        egui::TextStyle::Small.resolve(ui.style()),
+        if selected { GOLD_ACCENT } else { TEXT_COLOR },
+    );
+
+    if selected {
+        let notch = egui::Rect::from_center_size(
+            egui::pos2(rect.center().x, rect.bottom() + 2.0),
+            egui::vec2(24.0, 3.0),
+        );
+        painter.rect_filled(notch, egui::CornerRadius::same(0), GOLD_ACCENT);
+    }
+
+    clicked
 }
 
 pub(crate) fn draw_backpack_summary(

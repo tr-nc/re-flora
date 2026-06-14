@@ -1,6 +1,6 @@
 use super::ui_style::{
-    HOE_SLOT_INDEX, MAX_VOXEL_STORAGE_PER_TYPE, SHOVEL_SLOT_INDEX, STAFF_SLOT_INDEX,
-    WATER_SLOT_INDEX,
+    HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT, MAX_VOXEL_STORAGE_PER_TYPE, SHOVEL_SLOT_INDEX,
+    STAFF_SLOT_INDEX, WATER_SLOT_INDEX,
 };
 use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
@@ -18,6 +18,15 @@ impl App {
         if any_panel_open {
             self.player_tools.shovel_dig_held = false;
             self.stop_terrain_edit_loop_sound();
+        }
+    }
+
+    pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
+        if slot_idx < ITEM_PANEL_SLOT_COUNT
+            && slot_idx != self.player_tools.selected_item_panel_slot
+        {
+            self.player_tools.selected_item_panel_slot = slot_idx;
+            self.play_item_panel_scroll_sound();
         }
     }
 

@@ -62,12 +62,12 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_active_voxel_display, draw_backpack_summary, draw_item_panel,
-    CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT,
-    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
-    ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH, ITEM_PANEL_SLOT_COUNT,
+    ItemPanelSlot, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT,
+    HOE_SLOT_INDEX, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
+    ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
-    SAGE_ACCENT, SHADOW_COLOR,
+    SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, STAFF_SLOT_INDEX, WATER_SLOT_INDEX,
 };
 use verdarium_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -1334,12 +1334,7 @@ impl App {
                     };
 
                     if let Some(slot_idx) = target_slot {
-                        if slot_idx < ITEM_PANEL_SLOT_COUNT
-                            && slot_idx != self.player_tools.selected_item_panel_slot
-                        {
-                            self.player_tools.selected_item_panel_slot = slot_idx;
-                            self.play_item_panel_scroll_sound();
-                        }
+                        self.select_item_panel_slot(slot_idx);
                     }
                 }
 
@@ -1523,6 +1518,7 @@ impl App {
                 let active_voxel_label = self.player_tools.active_voxel_type.label();
                 let active_voxel_color = self.player_tools.active_voxel_type.color();
                 let mut camera_snapshot_to_apply = None;
+                let mut clicked_item_panel_slot = None;
                 let current_camera_pose = self.tracer.camera_pose();
                 let egui_start = Instant::now();
                 self.egui_renderer
@@ -1943,14 +1939,47 @@ impl App {
                                 });
                         }
 
-                        draw_item_panel(
+                        let item_panel_slots = [
+                            ItemPanelSlot {
+                                index: SHOVEL_SLOT_INDEX,
+                                label: "Dig",
+                                key_hint: "1",
+                                icon: item_panel_shovel_icon.as_ref(),
+                                accent: Color32::from_rgb(178, 124, 80),
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: STAFF_SLOT_INDEX,
+                                label: "Grow",
+                                key_hint: "2",
+                                icon: item_panel_staff_icon.as_ref(),
+                                accent: Color32::from_rgb(129, 189, 122),
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: HOE_SLOT_INDEX,
+                                label: "Trim",
+                                key_hint: "3",
+                                icon: item_panel_hoe_icon.as_ref(),
+                                accent: Color32::from_rgb(219, 128, 152),
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: WATER_SLOT_INDEX,
+                                label: "Water",
+                                key_hint: "4",
+                                icon: item_panel_water_icon.as_ref(),
+                                accent: Color32::from_rgb(96, 171, 218),
+                                enabled: true,
+                            },
+                        ];
+                        let item_panel_response = draw_item_panel(
                             ctx,
-                            item_panel_shovel_icon.as_ref(),
-                            item_panel_staff_icon.as_ref(),
-                            item_panel_hoe_icon.as_ref(),
-                            item_panel_water_icon.as_ref(),
+                            &item_panel_slots,
                             selected_item_panel_slot,
+                            self.window_state.is_cursor_visible(),
                         );
+                        clicked_item_panel_slot = item_panel_response.clicked_slot;
 
                         let backpack_summary_panel_center = draw_backpack_summary(
                             ctx,
@@ -2065,6 +2094,9 @@ impl App {
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
                 self.sync_cursor_with_panels();
+                if let Some(slot_idx) = clicked_item_panel_slot {
+                    self.select_item_panel_slot(slot_idx);
+                }
                 if self.gui_wants_keyboard_input() {
                     self.tracer.reset_camera_input();
                 }
