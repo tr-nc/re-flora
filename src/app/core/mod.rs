@@ -2671,12 +2671,11 @@ impl App {
                     Self::write_screenshot_readback(readback);
                 }
 
-                let player_collision = None;
                 self.tracer.set_footstep_volume_gain(
                     -40.0 + self.gui_adjustables.footstep_volume_db.value,
                 );
                 self.tracer
-                    .update_camera(frame_delta_time, self.is_fly_mode, player_collision);
+                    .update_camera(frame_delta_time, self.is_fly_mode);
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();

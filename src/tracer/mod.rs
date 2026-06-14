@@ -197,13 +197,6 @@ pub enum LodState {
     Lod1,
 }
 
-#[derive(Debug, Clone)]
-pub struct PlayerCollisionResult {
-    pub ground_distance: f32,
-    pub ceiling_distance: f32,
-    pub ring_distances: Vec<f32>,
-}
-
 pub struct Tracer {
     vulkan_ctx: VulkanContext,
 
@@ -251,13 +244,19 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
-    const SCENE_CENTER: Vec3 = Vec3::new(0.5, 0.5, 0.5);
     const SCENE_ROTATION_SPEED_RAD_PER_SEC: f32 = std::f32::consts::FRAC_PI_2;
 
+    fn scene_center(&self) -> Vec3 {
+        let min = self.chunk_bound.min().as_vec3();
+        let max = self.chunk_bound.max().as_vec3();
+        (min + max) * 0.5
+    }
+
     fn scene_model_mat(&self) -> Mat4 {
-        Mat4::from_translation(Self::SCENE_CENTER)
+        let center = self.scene_center();
+        Mat4::from_translation(center)
             * Mat4::from_rotation_y(self.scene_rotation_y)
-            * Mat4::from_translation(-Self::SCENE_CENTER)
+            * Mat4::from_translation(-center)
     }
 
     fn scene_view_mat(&self) -> Mat4 {
@@ -2560,18 +2559,11 @@ impl Tracer {
     pub fn reset_camera_input(&mut self) {
         self.scene_rotating_left = false;
         self.scene_rotating_right = false;
-        self.camera.reset_input();
     }
 
     pub fn handle_mouse(&mut self, _delta: Vec2) {}
 
-    pub fn reset_camera_velocity(&mut self) {
-        self.camera.reset_velocity();
-    }
-
-    pub fn set_head_bob_params(&mut self, v: f32, h: f32, r: f32, s: f32) {
-        self.camera.set_head_bob_params(v, h, r, s);
-    }
+    pub fn reset_camera_velocity(&mut self) {}
 
     pub fn camera_position(&self) -> Vec3 {
         self.camera.position()
@@ -2646,16 +2638,8 @@ impl Tracer {
         self.camera.set_footstep_volume_gain(volume_gain);
     }
 
-    pub fn update_camera(
-        &mut self,
-        frame_delta_time: f32,
-        is_fly_mode: bool,
-        collision_result: Option<PlayerCollisionResult>,
-    ) {
-        let _ = (is_fly_mode, collision_result);
+    pub fn update_camera(&mut self, frame_delta_time: f32, _is_fly_mode: bool) {
         self.update_scene_rotation(frame_delta_time);
-        self.camera.reset_velocity();
-        self.camera.reset_input();
 
         // update spatial sound manager with fixed camera (listener) position
         self.spatial_sound_manager
