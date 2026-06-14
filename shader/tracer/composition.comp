@@ -329,9 +329,7 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     float bottom_edge = 1.0 - step(edge_width, uv.y);
     float top_edge = step(1.0 - edge_width, uv.y);
     float edge = max(max(left_edge, right_edge), max(bottom_edge, top_edge));
-    if (edge <= 0.0) {
-        return scene_color;
-    }
+    float pane = 1.0 - edge;
 
     float edge_dist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
     float core_edge = 1.0 - step(core_width, edge_dist);
@@ -357,23 +355,35 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     vec2 uv_edge_push = vec2(left_edge - right_edge, bottom_edge - top_edge);
     vec2 refract_dir = normal_vs * 0.70 + uv_edge_push * 0.50;
     if (dot(refract_dir, refract_dir) < 1e-5) {
-        refract_dir = vec2(0.0, -1.0);
+        refract_dir = edge > 0.0 ? vec2(0.0, -1.0) : vec2(0.0);
+    } else {
+        refract_dir = normalize(refract_dir);
     }
-    refract_dir = normalize(refract_dir);
 
-    float distortion = edge * (0.0090 + core_edge * 0.0045 + corner * 0.0040 + fresnel_band * 0.0025);
-    vec2 refracted_uv = clamp(screen_uv + edge * physical_offset * 0.62 + refract_dir * distortion,
-                              vec2(0.0), vec2(1.0));
+    float pane_distortion = pane * (0.0012 + fresnel_band * 0.0008);
+    float edge_distortion = edge * (0.0090 + core_edge * 0.0045 + corner * 0.0040 +
+                                    fresnel_band * 0.0025);
+    float distortion = pane_distortion + edge_distortion;
+    vec2 refraction_offset = pane * physical_offset * 0.16 + edge * physical_offset * 0.62 +
+                             refract_dir * distortion;
+    vec2 refracted_uv = clamp(screen_uv + refraction_offset, vec2(0.0), vec2(1.0));
     vec3 refracted_color = sample_scene_color(refracted_uv);
 
-    float chroma = edge * (0.00080 + core_edge * 0.00120 + corner * 0.00100 + fresnel_band * 0.00070);
+    vec2 chroma_dir = refract_dir;
+    if (dot(chroma_dir, chroma_dir) < 1e-5 && dot(physical_offset, physical_offset) > 1e-7) {
+        chroma_dir = normalize(physical_offset);
+    }
+    float chroma = pane * (0.00010 + fresnel_band * 0.00008) +
+                   edge * (0.00080 + core_edge * 0.00120 + corner * 0.00100 +
+                           fresnel_band * 0.00070);
     vec3 chromatic_color;
-    chromatic_color.r = sample_scene_color(screen_uv + refract_dir * (distortion + chroma)).r;
+    chromatic_color.r = sample_scene_color(screen_uv + refraction_offset + chroma_dir * chroma).r;
     chromatic_color.g = refracted_color.g;
-    chromatic_color.b = sample_scene_color(screen_uv + refract_dir * (distortion - chroma)).b;
+    chromatic_color.b = sample_scene_color(screen_uv + refraction_offset - chroma_dir * chroma).b;
 
-    float refraction_mix = edge * clamp(0.58 + core_edge * 0.16 + corner * 0.12 + fresnel_band * 0.08,
-                                        0.0, 0.92);
+    float refraction_mix = pane * clamp(0.085 + fresnel_band * 0.045, 0.0, 0.16) +
+                           edge * clamp(0.58 + core_edge * 0.16 + corner * 0.12 +
+                                        fresnel_band * 0.08, 0.0, 0.92);
     vec3 glassed_color = mix(scene_color, chromatic_color, refraction_mix);
 
     vec3 reflected_dir = reflect(-view_dir, normal);
