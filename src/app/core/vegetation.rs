@@ -253,22 +253,31 @@ impl TerrainSurfaceRemovalService {
             min_f.y.max(0.0).floor() as u32,
             min_f.z.max(0.0).floor() as u32,
         )
-        .min(max_inclusive);
-        let max = UVec3::new(
+        .min(world_dim);
+        let max_exclusive = UVec3::new(
             max_f.x.max(0.0).ceil() as u32,
             max_f.y.max(0.0).ceil() as u32,
             max_f.z.max(0.0).ceil() as u32,
         )
-        .min(max_inclusive);
-        if min.cmpgt(max).any() {
+        .min(world_dim);
+        if min.cmpge(max_exclusive).any() {
             return None;
         }
 
-        let clipped_aabb = crate::geom::Aabb3::new(min.as_vec3(), max.as_vec3());
+        // The voxel modify dispatch treats the BVH AABB max as exclusive. Keep it clipped to
+        // `world_dim` rather than `world_dim - 1`; otherwise the positive atlas edge (voxel 255
+        // in the default 256³ chunk) is never dispatched and cannot be dug away.
+        let clipped_aabb = crate::geom::Aabb3::new(min.as_vec3(), max_exclusive.as_vec3());
         let bvh_nodes = build_bvh(&[clipped_aabb], &[0_u32]).ok()?;
+        let rebuild_max = UVec3::new(
+            max_exclusive.x.saturating_sub(1),
+            max_exclusive.y.saturating_sub(1),
+            max_exclusive.z.saturating_sub(1),
+        )
+        .min(max_inclusive);
         let rebuild_bound = UAabb3::new(
             bvh_nodes[0].aabb.min_uvec3().min(max_inclusive),
-            bvh_nodes[0].aabb.max_uvec3().min(max_inclusive),
+            rebuild_max,
         );
 
         Some(CompiledTerrainSurfaceRemoval {
@@ -1322,5 +1331,32 @@ impl App {
             trunk_count,
             benchmark_gui_tree,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terrain_surface_removal_bvh_reaches_positive_atlas_edge() {
+        let compiled = TerrainSurfaceRemovalService::compile(TerrainRemovalEdit {
+            center: Vec3::new(1.0, 0.5, 0.5),
+            radius: super::super::SHOVEL_REMOVE_RADIUS,
+        })
+        .expect("edge-overlapping edit should compile");
+
+        let VoxelEdit::StampSurfaceSpheres { bvh_nodes, .. } = &compiled.voxel_edit else {
+            panic!("expected surface sphere edit");
+        };
+
+        assert_eq!(
+            bvh_nodes[0].aabb.max().x,
+            super::super::VOXEL_DIM_PER_CHUNK.x as f32
+        );
+        assert_eq!(
+            compiled.rebuild_bound.max().x,
+            super::super::VOXEL_DIM_PER_CHUNK.x - 1
+        );
     }
 }
