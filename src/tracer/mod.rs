@@ -82,8 +82,8 @@ struct GlassPushConstants {
     box_max_far_alpha: [f32; 4],
 }
 
-const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.045;
-const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.12;
+const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
+const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
 
 #[derive(Debug, Clone)]
 pub struct WindGuiParams {
@@ -2017,15 +2017,30 @@ impl Tracer {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 });
 
-                // Draw the nearest glass faces first while depth writing is enabled. This keeps the
+                if glass.edge_indices_len > 0 {
+                    glass_ppl.record_indexed(
+                        cmdbuf,
+                        glass.edge_indices_len,
+                        1,
+                        glass.edge_index_start,
+                        0,
+                        0,
+                        Some(&PushConstantInfo {
+                            shader_stage: vk::ShaderStageFlags::VERTEX,
+                            push_constants: bytemuck::bytes_of(&push).to_vec(),
+                        }),
+                    );
+                }
+
+                // Draw the nearest glass panes first while depth writing is enabled. This keeps the
                 // front pane as the single composited transparent layer over ray-traced terrain,
-                // instead of accumulating all four walls and washing terrain out.
+                // while the separate bevel/rim geometry above provides the visible optical edges.
                 for face_id in face_order {
                     glass_ppl.record_indexed(
                         cmdbuf,
-                        6,
+                        glass.pane_index_count,
                         1,
-                        face_id as u32 * 6,
+                        glass.pane_index_starts[face_id],
                         0,
                         0,
                         Some(&PushConstantInfo {

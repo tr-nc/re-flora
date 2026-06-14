@@ -166,18 +166,29 @@ pub struct ParticleRendererResources {
 pub struct GlassVertex {
     pub position_ws: [f32; 3],
     pub uv: [f32; 2],
+    pub normal_ws: [f32; 3],
     pub face_id: u32,
+    pub part_kind: u32,
 }
 
 pub struct GlassMeshResources {
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
     pub indices_len: u32,
+    pub pane_index_starts: [u32; 4],
+    pub pane_index_count: u32,
+    pub edge_index_start: u32,
+    pub edge_indices_len: u32,
     pub box_min: Vec3,
     pub box_max: Vec3,
 }
 
 impl GlassMeshResources {
+    const PART_PANE: u32 = 0;
+    const PART_EDGE_BAND: u32 = 1;
+    const PART_RIM: u32 = 2;
+    const PART_CORNER_BEVEL: u32 = 3;
+
     pub fn new(device: Device, allocator: Allocator, chunk_bound: UAabb3) -> Self {
         let extent = chunk_bound.get_extent();
         let inset = 0.02;
@@ -189,60 +200,97 @@ impl GlassMeshResources {
             extent.depth as f32 + inset,
         );
 
-        let mut vertices_data = Vec::with_capacity(16);
-        let mut indices_data = Vec::with_capacity(24);
-        let mut push_face = |face_id: u32, corners: [[f32; 3]; 4]| {
-            let base = vertices_data.len() as u32;
-            let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
-            for (position_ws, uv) in corners.into_iter().zip(uvs) {
-                vertices_data.push(GlassVertex {
-                    position_ws,
-                    uv,
-                    face_id,
-                });
-            }
-            indices_data.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
-        };
+        let mut vertices_data = Vec::with_capacity(160);
+        let mut indices_data = Vec::with_capacity(240);
+        let mut pane_index_starts = [0u32; 4];
 
-        let min = box_min.to_array();
-        let max = box_max.to_array();
-        // 0: -X, 1: +X, 2: -Z, 3: +Z. Each face is double-sided by the pipeline.
-        push_face(
-            0,
-            [
-                [min[0], min[1], max[2]],
-                [min[0], min[1], min[2]],
-                [min[0], max[1], min[2]],
-                [min[0], max[1], max[2]],
-            ],
+        let min = box_min;
+        let max = box_max;
+        let faces = [
+            (
+                0u32,
+                Vec3::new(-1.0, 0.0, 0.0),
+                [
+                    Vec3::new(min.x, min.y, max.z),
+                    Vec3::new(min.x, min.y, min.z),
+                    Vec3::new(min.x, max.y, min.z),
+                    Vec3::new(min.x, max.y, max.z),
+                ],
+            ),
+            (
+                1u32,
+                Vec3::new(1.0, 0.0, 0.0),
+                [
+                    Vec3::new(max.x, min.y, min.z),
+                    Vec3::new(max.x, min.y, max.z),
+                    Vec3::new(max.x, max.y, max.z),
+                    Vec3::new(max.x, max.y, min.z),
+                ],
+            ),
+            (
+                2u32,
+                Vec3::new(0.0, 0.0, -1.0),
+                [
+                    Vec3::new(min.x, min.y, min.z),
+                    Vec3::new(max.x, min.y, min.z),
+                    Vec3::new(max.x, max.y, min.z),
+                    Vec3::new(min.x, max.y, min.z),
+                ],
+            ),
+            (
+                3u32,
+                Vec3::new(0.0, 0.0, 1.0),
+                [
+                    Vec3::new(max.x, min.y, max.z),
+                    Vec3::new(min.x, min.y, max.z),
+                    Vec3::new(min.x, max.y, max.z),
+                    Vec3::new(max.x, max.y, max.z),
+                ],
+            ),
+        ];
+
+        for (face_id, normal, corners) in faces {
+            pane_index_starts[face_id as usize] = indices_data.len() as u32;
+            Self::append_quad(
+                &mut vertices_data,
+                &mut indices_data,
+                face_id,
+                Self::PART_PANE,
+                normal,
+                corners,
+                Self::full_face_uvs(),
+            );
+        }
+
+        let edge_index_start = indices_data.len() as u32;
+        let edge_uv_width = 0.055;
+        let rim_width = 0.030;
+        let bevel_width = 0.026;
+        for (face_id, normal, corners) in faces {
+            Self::append_face_edge_bands(
+                &mut vertices_data,
+                &mut indices_data,
+                face_id,
+                normal,
+                corners,
+                edge_uv_width,
+            );
+        }
+        Self::append_horizontal_rims(
+            &mut vertices_data,
+            &mut indices_data,
+            box_min,
+            box_max,
+            rim_width,
         );
-        push_face(
-            1,
-            [
-                [max[0], min[1], min[2]],
-                [max[0], min[1], max[2]],
-                [max[0], max[1], max[2]],
-                [max[0], max[1], min[2]],
-            ],
+        Self::append_corner_bevels(
+            &mut vertices_data,
+            &mut indices_data,
+            box_min,
+            box_max,
+            bevel_width,
         );
-        push_face(
-            2,
-            [
-                [min[0], min[1], min[2]],
-                [max[0], min[1], min[2]],
-                [max[0], max[1], min[2]],
-                [min[0], max[1], min[2]],
-            ],
-        );
-        push_face(
-            3,
-            [
-                [max[0], min[1], max[2]],
-                [min[0], min[1], max[2]],
-                [min[0], max[1], max[2]],
-                [max[0], max[1], max[2]],
-            ],
-        );
+        let edge_indices_len = indices_data.len() as u32 - edge_index_start;
 
         let vertices = Buffer::new_sized(
             device.clone(),
@@ -266,8 +314,199 @@ impl GlassMeshResources {
             vertices: Resource::new(vertices),
             indices: Resource::new(indices),
             indices_len: indices_data.len() as u32,
+            pane_index_starts,
+            pane_index_count: 6,
+            edge_index_start,
+            edge_indices_len,
             box_min,
             box_max,
+        }
+    }
+
+    fn full_face_uvs() -> [[f32; 2]; 4] {
+        [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+    }
+
+    fn append_quad(
+        vertices_data: &mut Vec<GlassVertex>,
+        indices_data: &mut Vec<u32>,
+        face_id: u32,
+        part_kind: u32,
+        normal: Vec3,
+        corners: [Vec3; 4],
+        uvs: [[f32; 2]; 4],
+    ) {
+        let base = vertices_data.len() as u32;
+        let normal_ws = normal.normalize_or_zero().to_array();
+        for (position_ws, uv) in corners.into_iter().zip(uvs) {
+            vertices_data.push(GlassVertex {
+                position_ws: position_ws.to_array(),
+                uv,
+                normal_ws,
+                face_id,
+                part_kind,
+            });
+        }
+        indices_data.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+
+    fn face_point(corners: [Vec3; 4], u: f32, v: f32) -> Vec3 {
+        let bottom = corners[0].lerp(corners[1], u);
+        let top = corners[3].lerp(corners[2], u);
+        bottom.lerp(top, v)
+    }
+
+    fn append_face_edge_bands(
+        vertices_data: &mut Vec<GlassVertex>,
+        indices_data: &mut Vec<u32>,
+        face_id: u32,
+        normal: Vec3,
+        corners: [Vec3; 4],
+        edge_uv_width: f32,
+    ) {
+        let e = edge_uv_width.clamp(0.0, 0.25);
+        let bands = [
+            (0.0, 0.0, e, 1.0),
+            (1.0 - e, 0.0, 1.0, 1.0),
+            (0.0, 0.0, 1.0, e),
+            (0.0, 1.0 - e, 1.0, 1.0),
+        ];
+        for (u0, v0, u1, v1) in bands {
+            Self::append_quad(
+                vertices_data,
+                indices_data,
+                face_id,
+                Self::PART_EDGE_BAND,
+                normal,
+                [
+                    Self::face_point(corners, u0, v0),
+                    Self::face_point(corners, u1, v0),
+                    Self::face_point(corners, u1, v1),
+                    Self::face_point(corners, u0, v1),
+                ],
+                [[u0, v0], [u1, v0], [u1, v1], [u0, v1]],
+            );
+        }
+    }
+
+    fn append_horizontal_rims(
+        vertices_data: &mut Vec<GlassVertex>,
+        indices_data: &mut Vec<u32>,
+        box_min: Vec3,
+        box_max: Vec3,
+        rim_width: f32,
+    ) {
+        let w = rim_width
+            .min((box_max.x - box_min.x) * 0.25)
+            .min((box_max.z - box_min.z) * 0.25);
+        for (y, normal, face_id) in [
+            (box_max.y, Vec3::new(0.0, 1.0, 0.0), 4u32),
+            (box_min.y, Vec3::new(0.0, -1.0, 0.0), 5u32),
+        ] {
+            let strips = [
+                [
+                    Vec3::new(box_min.x, y, box_min.z),
+                    Vec3::new(box_max.x, y, box_min.z),
+                    Vec3::new(box_max.x, y, box_min.z + w),
+                    Vec3::new(box_min.x, y, box_min.z + w),
+                ],
+                [
+                    Vec3::new(box_max.x, y, box_max.z),
+                    Vec3::new(box_min.x, y, box_max.z),
+                    Vec3::new(box_min.x, y, box_max.z - w),
+                    Vec3::new(box_max.x, y, box_max.z - w),
+                ],
+                [
+                    Vec3::new(box_min.x, y, box_max.z),
+                    Vec3::new(box_min.x, y, box_min.z),
+                    Vec3::new(box_min.x + w, y, box_min.z),
+                    Vec3::new(box_min.x + w, y, box_max.z),
+                ],
+                [
+                    Vec3::new(box_max.x, y, box_min.z),
+                    Vec3::new(box_max.x, y, box_max.z),
+                    Vec3::new(box_max.x - w, y, box_max.z),
+                    Vec3::new(box_max.x - w, y, box_min.z),
+                ],
+            ];
+            for corners in strips {
+                Self::append_quad(
+                    vertices_data,
+                    indices_data,
+                    face_id,
+                    Self::PART_RIM,
+                    normal,
+                    corners,
+                    Self::full_face_uvs(),
+                );
+            }
+        }
+    }
+
+    fn append_corner_bevels(
+        vertices_data: &mut Vec<GlassVertex>,
+        indices_data: &mut Vec<u32>,
+        box_min: Vec3,
+        box_max: Vec3,
+        bevel_width: f32,
+    ) {
+        let b = bevel_width
+            .min((box_max.x - box_min.x) * 0.2)
+            .min((box_max.z - box_min.z) * 0.2);
+        let y0 = box_min.y;
+        let y1 = box_max.y;
+        let bevels = [
+            (
+                6u32,
+                Vec3::new(-1.0, 0.0, -1.0),
+                [
+                    Vec3::new(box_min.x, y0, box_min.z + b),
+                    Vec3::new(box_min.x + b, y0, box_min.z),
+                    Vec3::new(box_min.x + b, y1, box_min.z),
+                    Vec3::new(box_min.x, y1, box_min.z + b),
+                ],
+            ),
+            (
+                7u32,
+                Vec3::new(1.0, 0.0, -1.0),
+                [
+                    Vec3::new(box_max.x - b, y0, box_min.z),
+                    Vec3::new(box_max.x, y0, box_min.z + b),
+                    Vec3::new(box_max.x, y1, box_min.z + b),
+                    Vec3::new(box_max.x - b, y1, box_min.z),
+                ],
+            ),
+            (
+                8u32,
+                Vec3::new(1.0, 0.0, 1.0),
+                [
+                    Vec3::new(box_max.x, y0, box_max.z - b),
+                    Vec3::new(box_max.x - b, y0, box_max.z),
+                    Vec3::new(box_max.x - b, y1, box_max.z),
+                    Vec3::new(box_max.x, y1, box_max.z - b),
+                ],
+            ),
+            (
+                9u32,
+                Vec3::new(-1.0, 0.0, 1.0),
+                [
+                    Vec3::new(box_min.x + b, y0, box_max.z),
+                    Vec3::new(box_min.x, y0, box_max.z - b),
+                    Vec3::new(box_min.x, y1, box_max.z - b),
+                    Vec3::new(box_min.x + b, y1, box_max.z),
+                ],
+            ),
+        ];
+        for (face_id, normal, corners) in bevels {
+            Self::append_quad(
+                vertices_data,
+                indices_data,
+                face_id,
+                Self::PART_CORNER_BEVEL,
+                normal,
+                corners,
+                Self::full_face_uvs(),
+            );
         }
     }
 }
