@@ -510,7 +510,8 @@ impl From<&AppOptions> for RenderFlags {
             enable_tracer: !options.no_tracer,
             enable_flora: !options.no_flora,
             enable_particles: !options.no_particles,
-            enable_clouds: !options.no_clouds,
+            // Disabled for now; infrastructure kept for easy re-enable.
+            enable_clouds: false,
         }
     }
 }

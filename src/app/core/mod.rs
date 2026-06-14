@@ -2223,8 +2223,8 @@ impl App {
                 let update_shadow_map = self.render_flags.enable_shadows;
                 let wind_gui_params = Self::wind_gui_params(&self.wind_sources);
                 let cloud_gui_params = CloudGuiParams {
-                    enabled: self.render_flags.enable_clouds
-                        && self.gui_adjustables.clouds_enabled.value,
+                    // Disabled for now; infrastructure kept for easy re-enable.
+                    enabled: false,
                     coverage: self.gui_adjustables.cloud_coverage.value,
                     density: self.gui_adjustables.cloud_density.value,
                     bottom_height: self.gui_adjustables.cloud_bottom_height.value,
@@ -2240,10 +2240,8 @@ impl App {
                     phase_eccentricity: self.gui_adjustables.cloud_phase_eccentricity.value,
                     silver_intensity: self.gui_adjustables.cloud_silver_intensity.value,
                     max_distance: self.gui_adjustables.cloud_max_distance.value,
-                    shadows_enabled: self.render_flags.enable_shadows
-                        && self.render_flags.enable_clouds
-                        && self.gui_adjustables.clouds_enabled.value
-                        && self.gui_adjustables.cloud_shadows_enabled.value,
+                    // Disabled for now; restore original expression to re-enable.
+                    shadows_enabled: false,
                     shadow_debug_overlay: self.gui_adjustables.cloud_shadow_debug_overlay.value,
                     shadow_strength: self.gui_adjustables.cloud_shadow_strength.value,
                     shadow_min_transmittance: self
