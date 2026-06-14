@@ -75,6 +75,16 @@ struct WindVolumePushConstants {
     bucket_index: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct GlassPushConstants {
+    box_min_near_alpha: [f32; 4],
+    box_max_far_alpha: [f32; 4],
+}
+
+const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.11;
+const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.34;
+
 #[derive(Debug, Clone)]
 pub struct WindGuiParams {
     pub sources: Vec<WindSource>,
@@ -1067,7 +1077,9 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
-        let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
+        let enable_glass = render_flags.enable_tracer;
+        let has_graphics_pass =
+            render_flags.enable_flora || render_flags.enable_particles || enable_glass;
 
         if render_flags.enable_flora {
             Self::with_gpu_scope(
@@ -1221,6 +1233,7 @@ impl Tracer {
                     time,
                     render_flags.enable_flora,
                     render_flags.enable_particles,
+                    enable_glass,
                     Some(profiler),
                     gpu_profiler_frame_slot,
                 );
@@ -1245,6 +1258,7 @@ impl Tracer {
                     time,
                     render_flags.enable_flora,
                     render_flags.enable_particles,
+                    enable_glass,
                     None,
                     gpu_profiler_frame_slot,
                 );
@@ -1605,6 +1619,7 @@ impl Tracer {
         time: f32,
         enable_flora: bool,
         enable_particles: bool,
+        enable_glass: bool,
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) {
@@ -1637,6 +1652,11 @@ impl Tracer {
         if enable_particles {
             self.graphics_pipelines
                 .particle_ppl
+                .record_texture_transitions(cmdbuf);
+        }
+        if enable_glass {
+            self.graphics_pipelines
+                .glass_ppl
                 .record_texture_transitions(cmdbuf);
         }
 
@@ -1943,6 +1963,57 @@ impl Tracer {
                 );
             }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), particles_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        }
+
+        if enable_glass {
+            let glass_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.terrarium_glass",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            let glass = &self.resources.meshes.glass;
+            if glass.indices_len > 0 {
+                let glass_ppl = &self.graphics_pipelines.glass_ppl;
+                glass_ppl.record_bind(cmdbuf);
+                glass_ppl.record_viewport_scissor(cmdbuf, viewport, scissor);
+                cmdbuf.bind_index_buffer_u32(&glass.indices);
+                cmdbuf.bind_vertex_buffers(0, &[&glass.vertices]);
+
+                let box_min = glass.box_min;
+                let box_max = glass.box_max;
+                let push = GlassPushConstants {
+                    box_min_near_alpha: [
+                        box_min.x,
+                        box_min.y,
+                        box_min.z,
+                        TERRARIUM_GLASS_NEAR_ALPHA,
+                    ],
+                    box_max_far_alpha: [box_max.x, box_max.y, box_max.z, TERRARIUM_GLASS_FAR_ALPHA],
+                };
+                glass_ppl.record_indexed(
+                    cmdbuf,
+                    glass.indices_len,
+                    1,
+                    0,
+                    0,
+                    0,
+                    Some(&PushConstantInfo {
+                        shader_stage: vk::ShaderStageFlags::VERTEX,
+                        push_constants: bytemuck::bytes_of(&push).to_vec(),
+                    }),
+                );
+            }
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), glass_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
                     cmdbuf,

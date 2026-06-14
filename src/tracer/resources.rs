@@ -11,7 +11,7 @@ use crate::{
     util::get_project_root,
 };
 use bytemuck::{Pod, Zeroable};
-use glam::{IVec3, UVec3};
+use glam::{IVec3, UVec3, Vec3};
 use resource_container_derive::ResourceContainer;
 use std::path::Path;
 use verdarium_vkn::vk;
@@ -159,6 +159,117 @@ pub struct ParticleRendererResources {
     pub indices_len: u32,
     pub instance_buffer: Resource<Buffer>,
     pub instance_count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct GlassVertex {
+    pub position_ws: [f32; 3],
+    pub uv: [f32; 2],
+    pub face_id: u32,
+}
+
+pub struct GlassMeshResources {
+    pub vertices: Resource<Buffer>,
+    pub indices: Resource<Buffer>,
+    pub indices_len: u32,
+    pub box_min: Vec3,
+    pub box_max: Vec3,
+}
+
+impl GlassMeshResources {
+    pub fn new(device: Device, allocator: Allocator, chunk_bound: UAabb3) -> Self {
+        let extent = chunk_bound.get_extent();
+        let inset = 0.02;
+        let top_padding = 0.08;
+        let box_min = Vec3::new(-inset, 0.0, -inset);
+        let box_max = Vec3::new(
+            extent.width as f32 + inset,
+            extent.height as f32 + top_padding,
+            extent.depth as f32 + inset,
+        );
+
+        let mut vertices_data = Vec::with_capacity(16);
+        let mut indices_data = Vec::with_capacity(24);
+        let mut push_face = |face_id: u32, corners: [[f32; 3]; 4]| {
+            let base = vertices_data.len() as u32;
+            let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+            for (position_ws, uv) in corners.into_iter().zip(uvs) {
+                vertices_data.push(GlassVertex {
+                    position_ws,
+                    uv,
+                    face_id,
+                });
+            }
+            indices_data.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        };
+
+        let min = box_min.to_array();
+        let max = box_max.to_array();
+        // 0: -X, 1: +X, 2: -Z, 3: +Z. Each face is double-sided by the pipeline.
+        push_face(
+            0,
+            [
+                [min[0], min[1], max[2]],
+                [min[0], min[1], min[2]],
+                [min[0], max[1], min[2]],
+                [min[0], max[1], max[2]],
+            ],
+        );
+        push_face(
+            1,
+            [
+                [max[0], min[1], min[2]],
+                [max[0], min[1], max[2]],
+                [max[0], max[1], max[2]],
+                [max[0], max[1], min[2]],
+            ],
+        );
+        push_face(
+            2,
+            [
+                [min[0], min[1], min[2]],
+                [max[0], min[1], min[2]],
+                [max[0], max[1], min[2]],
+                [min[0], max[1], min[2]],
+            ],
+        );
+        push_face(
+            3,
+            [
+                [max[0], min[1], max[2]],
+                [min[0], min[1], max[2]],
+                [min[0], max[1], max[2]],
+                [max[0], max[1], max[2]],
+            ],
+        );
+
+        let vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<GlassVertex>() * vertices_data.len()) as u64,
+        );
+        vertices.fill(&vertices_data).unwrap();
+
+        let indices = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<u32>() * indices_data.len()) as u64,
+        );
+        indices.fill(&indices_data).unwrap();
+
+        Self {
+            vertices: Resource::new(vertices),
+            indices: Resource::new(indices),
+            indices_len: indices_data.len() as u32,
+            box_min,
+            box_max,
+        }
+    }
 }
 
 impl ParticleRendererResources {
@@ -309,6 +420,7 @@ pub struct TracerMeshResources {
     pub flora_meshes_lod: Vec<FloraMeshResources>,
     pub leaves_resources_lod: LeavesResources,
     pub apple_resources_lod: FloraMeshResources,
+    pub glass: GlassMeshResources,
 }
 
 impl verdarium_vkn::ResourceContainer for TracerMeshResources {
@@ -639,7 +751,7 @@ impl TracerTextureResources {
 }
 
 impl TracerMeshResources {
-    fn new(device: Device, allocator: Allocator) -> Self {
+    fn new(device: Device, allocator: Allocator, chunk_bound: UAabb3) -> Self {
         species::assert_species_limit();
         let flora_meshes = species::species()
             .iter()
@@ -671,8 +783,13 @@ impl TracerMeshResources {
             })
             .collect::<Vec<_>>();
         let leaves_resources_lod = LeavesResources::new(device.clone(), allocator.clone(), true);
-        let apple_resources_lod =
-            FloraMeshResources::new(device, allocator, true, generate_indexed_voxel_apple);
+        let apple_resources_lod = FloraMeshResources::new(
+            device.clone(),
+            allocator.clone(),
+            true,
+            generate_indexed_voxel_apple,
+        );
+        let glass = GlassMeshResources::new(device, allocator, chunk_bound);
 
         Self {
             flora_meshes,
@@ -681,6 +798,7 @@ impl TracerMeshResources {
             flora_meshes_lod,
             leaves_resources_lod,
             apple_resources_lod,
+            glass,
         }
     }
 }
@@ -754,7 +872,7 @@ impl TracerResources {
                 max_terrain_queries,
             ),
             textures: TracerTextureResources::new(vulkan_ctx, allocator.clone()),
-            meshes: TracerMeshResources::new(device.clone(), allocator.clone()),
+            meshes: TracerMeshResources::new(device.clone(), allocator.clone(), chunk_bound),
             extent_dependent_resources: ExtentDependentResources::new(
                 device.clone(),
                 allocator.clone(),
