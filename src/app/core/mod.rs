@@ -2671,18 +2671,7 @@ impl App {
                     Self::write_screenshot_readback(readback);
                 }
 
-                self.tracer.set_head_bob_params(
-                    self.gui_adjustables.headbob_vertical_amp.value,
-                    self.gui_adjustables.headbob_horizontal_amp.value,
-                    self.gui_adjustables.headbob_roll_amp.value,
-                    self.gui_adjustables.headbob_sprint_amp_mul.value,
-                );
-
-                let player_collision = if self.is_fly_mode {
-                    None
-                } else {
-                    Some(self.query_player_collision_cpu())
-                };
+                let player_collision = None;
                 self.tracer.set_footstep_volume_gain(
                     -40.0 + self.gui_adjustables.footstep_volume_db.value,
                 );

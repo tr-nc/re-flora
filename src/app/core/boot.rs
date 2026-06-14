@@ -80,8 +80,8 @@ impl App {
             title: using_mode.to_owned(),
             window_mode,
             fullscreen_monitor,
-            cursor_locked: !options.hidden,
-            cursor_visible: options.hidden,
+            cursor_locked: false,
+            cursor_visible: true,
             visible: !options.hidden,
             ..Default::default()
         };

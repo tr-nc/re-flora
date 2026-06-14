@@ -31,7 +31,10 @@ mod buffer_updater;
 use buffer_updater::*;
 
 use glam::{Mat4, UVec3, Vec2, Vec3};
-use winit::event::KeyEvent;
+use winit::{
+    event::{ElementState, KeyEvent},
+    keyboard::{KeyCode, PhysicalKey},
+};
 
 const LEAF_INSTANCE_TYPE: u32 = 4;
 const APPLE_INSTANCE_TYPE: u32 = 5;
@@ -215,6 +218,9 @@ pub struct Tracer {
     camera_view_mat_prev_frame: Mat4,
     camera_proj_mat_prev_frame: Mat4,
     current_view_proj_mat: Mat4,
+    scene_rotation_y: f32,
+    scene_rotating_left: bool,
+    scene_rotating_right: bool,
     shadow_camera_initialized: bool,
     shadow_map_history_valid: bool,
     leaf_shadow_history_valid: bool,
@@ -245,6 +251,34 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
+    const SCENE_CENTER: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+    const SCENE_ROTATION_SPEED_RAD_PER_SEC: f32 = std::f32::consts::FRAC_PI_2;
+
+    fn scene_model_mat(&self) -> Mat4 {
+        Mat4::from_translation(Self::SCENE_CENTER)
+            * Mat4::from_rotation_y(self.scene_rotation_y)
+            * Mat4::from_translation(-Self::SCENE_CENTER)
+    }
+
+    fn scene_view_mat(&self) -> Mat4 {
+        self.camera.get_view_mat() * self.scene_model_mat()
+    }
+
+    fn update_scene_rotation(&mut self, frame_delta_time: f32) {
+        let direction = match (self.scene_rotating_left, self.scene_rotating_right) {
+            (true, false) => -1.0,
+            (false, true) => 1.0,
+            _ => 0.0,
+        };
+        self.scene_rotation_y +=
+            direction * Self::SCENE_ROTATION_SPEED_RAD_PER_SEC * frame_delta_time;
+        if self.scene_rotation_y > std::f32::consts::PI {
+            self.scene_rotation_y -= std::f32::consts::TAU;
+        } else if self.scene_rotation_y < -std::f32::consts::PI {
+            self.scene_rotation_y += std::f32::consts::TAU;
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         vulkan_ctx: VulkanContext,
@@ -260,9 +294,9 @@ impl Tracer {
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
 
         let camera = Camera::new(
-            Vec3::new(0.5, 0.8, 0.5),
-            135.0,
-            -5.0,
+            Vec3::new(0.5, 0.78, 1.85),
+            0.0,
+            -14.0,
             CameraDesc {
                 aspect_ratio: render_extent.get_aspect_ratio(),
                 ..Default::default()
@@ -368,6 +402,9 @@ impl Tracer {
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
             current_view_proj_mat: Mat4::IDENTITY,
+            scene_rotation_y: 0.0,
+            scene_rotating_left: false,
+            scene_rotating_right: false,
             shadow_camera_initialized: false,
             shadow_map_history_valid: false,
             leaf_shadow_history_valid: false,
@@ -720,8 +757,9 @@ impl Tracer {
         voxel_rock_color: Vec3,
         voxel_color_variance: f32,
     ) -> Result<()> {
-        // camera info
-        let view_mat = self.camera.get_view_mat();
+        // camera info.  The camera itself stays fixed; scene rotation is folded into
+        // the view matrix so the terrain turns around the ecobox center on screen.
+        let view_mat = self.scene_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
         BufferUpdater::update_camera_info(
@@ -886,7 +924,7 @@ impl Tracer {
         // Update the a_trous_iteration_count field
         self.a_trous_iteration_count = a_trous_iteration_count;
 
-        self.camera_view_mat_prev_frame = self.camera.get_view_mat();
+        self.camera_view_mat_prev_frame = self.scene_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
 
         Ok(())
@@ -2509,16 +2547,23 @@ impl Tracer {
     }
 
     pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
-        self.camera.handle_keyboard(key_event);
+        if let PhysicalKey::Code(code) = key_event.physical_key {
+            let pressed = key_event.state == ElementState::Pressed;
+            match code {
+                KeyCode::KeyA => self.scene_rotating_left = pressed,
+                KeyCode::KeyD => self.scene_rotating_right = pressed,
+                _ => {}
+            }
+        }
     }
 
     pub fn reset_camera_input(&mut self) {
+        self.scene_rotating_left = false;
+        self.scene_rotating_right = false;
         self.camera.reset_input();
     }
 
-    pub fn handle_mouse(&mut self, delta: Vec2) {
-        self.camera.handle_mouse(delta);
-    }
+    pub fn handle_mouse(&mut self, _delta: Vec2) {}
 
     pub fn reset_camera_velocity(&mut self) {
         self.camera.reset_velocity();
@@ -2538,7 +2583,7 @@ impl Tracer {
 
     pub fn apply_camera_pose(&mut self, pose: CameraPose) {
         self.camera.apply_pose(pose);
-        let view_mat = self.camera.get_view_mat();
+        let view_mat = self.scene_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.camera_view_mat_prev_frame = view_mat;
         self.camera_proj_mat_prev_frame = proj_mat;
@@ -2582,7 +2627,7 @@ impl Tracer {
         }
         world /= world.w;
 
-        let camera_pos = self.camera.position();
+        let camera_pos = self.scene_view_mat().inverse().w_axis.truncate();
         let world_pos = Vec3::new(world.x, world.y, world.z);
         let direction = (world_pos - camera_pos).normalize_or_zero();
         if direction.length_squared() <= 1e-6 {
@@ -2607,20 +2652,12 @@ impl Tracer {
         is_fly_mode: bool,
         collision_result: Option<PlayerCollisionResult>,
     ) {
-        if is_fly_mode {
-            self.camera.update_transform_fly_mode(frame_delta_time);
-        } else {
-            self.camera.update_transform_walk_mode(
-                frame_delta_time,
-                collision_result.unwrap_or_else(|| PlayerCollisionResult {
-                    ground_distance: f32::INFINITY,
-                    ceiling_distance: f32::INFINITY,
-                    ring_distances: vec![],
-                }),
-            );
-        }
+        let _ = (is_fly_mode, collision_result);
+        self.update_scene_rotation(frame_delta_time);
+        self.camera.reset_velocity();
+        self.camera.reset_input();
 
-        // update spatial sound manager with camera (listener) position
+        // update spatial sound manager with fixed camera (listener) position
         self.spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
             .unwrap();
