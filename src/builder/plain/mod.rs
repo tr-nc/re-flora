@@ -4,7 +4,6 @@ use crate::generated::gpu_structs::{
     PushConstantChunkModifySample, RegionInfo, RoundCones, Spheres,
 };
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
-use crate::model::ModelTriangleGpu;
 use crate::util::ShaderCompiler;
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
@@ -45,6 +44,15 @@ pub const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 8;
 pub(crate) const EDIT_REMOVAL_CANDIDATE_CAPACITY: u64 = 65_536;
 pub(crate) const CHUNK_SOLID_SAMPLE_CAPACITY: u64 = 65_536;
 const EDIT_REMOVAL_SAMPLE_COUNT: usize = 50;
+
+/// GPU-friendly triangle vertex for model voxelization.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ModelTriangleGpu {
+    pub a: [f32; 4],
+    pub b: [f32; 4],
+    pub c: [f32; 4],
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ChunkModifyStats {
@@ -138,6 +146,7 @@ struct EditRemovalSampleReadback {
 pub struct PlainBuilder {
     vulkan_ctx: VulkanContext,
     resources: PlainBuilderResources,
+    #[allow(dead_code)]
     plain_atlas_dim: UVec3,
 
     #[allow(dead_code)]
@@ -148,6 +157,7 @@ pub struct PlainBuilder {
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
     chunk_solid_sample_ppl: ComputePipeline,
+    #[allow(dead_code)]
     model_voxelize_ppl: ComputePipeline,
 
     #[allow(dead_code)]
@@ -763,6 +773,7 @@ impl PlainBuilder {
         })
     }
 
+    #[allow(dead_code)]
     pub fn voxelize_model(
         &mut self,
         triangles: &[ModelTriangleGpu],
@@ -936,8 +947,10 @@ impl PlainBuilder {
     }
 }
 
+#[allow(dead_code)]
 const MODEL_VOXELIZE_SURFACE_THICKNESS_VOX: f32 = 0.75;
 
+#[allow(dead_code)]
 fn calculate_model_voxel_bounds(
     triangles: &[ModelTriangleGpu],
     position: Vec3,

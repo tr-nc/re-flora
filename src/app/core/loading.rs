@@ -324,25 +324,6 @@ impl App {
             log::error!("Failed to add debug tree: {}", err);
         }
 
-        match Self::debug_model_paths() {
-            Ok(paths) => {
-                for (index, path) in paths.iter().enumerate() {
-                    let position = self.debug_model_position(index);
-                    if let Err(err) = self.apply_model_placement(path, position) {
-                        log::error!(
-                            "Failed to place debug model '{}' at {:?}: {}",
-                            path.display(),
-                            position,
-                            err
-                        );
-                    }
-                }
-            }
-            Err(err) => {
-                log::error!("Failed to discover debug model GLBs: {err}");
-            }
-        }
-
         if let Err(err) = self.tracer.regenerate_leaves(
             self.gui_adjustables.leaves_inner_density.value,
             self.gui_adjustables.leaves_outer_density.value,

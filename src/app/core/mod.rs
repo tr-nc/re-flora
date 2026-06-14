@@ -39,11 +39,10 @@ use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
-    SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK,
+    SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
-use crate::model::load_model;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
@@ -61,8 +60,7 @@ use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText,
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+
 use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_active_voxel_display, draw_backpack_summary, draw_item_panel,
@@ -321,7 +319,7 @@ impl WorldBuildBackend for App {
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
-const CHUNK_DIM: UVec3 = UVec3::new(5, 2, 5);
+const CHUNK_DIM: UVec3 = UVec3::new(2, 2, 2);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const GPU_PROFILER_MAX_SCOPES_PER_FRAME: usize = 64;
@@ -344,10 +342,6 @@ const STARTUP_WATER_PARTICLE_MIN_Y: f32 = 1.0;
 const STARTUP_WATER_PARTICLE_MAX_Y: f32 = 1.2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
-const DEBUG_MODEL_MAX_LONGEST_EDGE: f32 = 5.0;
-const DEBUG_MODEL_ROOT: &str = "assets/models";
-const DEBUG_MODEL_LINE_START_XZ: Vec2 = Vec2::new(0.5, 0.5);
-const DEBUG_MODEL_LINE_STEP_XZ: Vec2 = Vec2::new(1.0, 0.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
 
@@ -523,88 +517,6 @@ impl App {
             self.request_vsm_history_reset();
         }
         result
-    }
-
-    fn apply_model_placement(&mut self, path: &Path, position: Vec3) -> Result<UAabb3> {
-        let load_start = Instant::now();
-        let model = load_model(path)
-            .with_context(|| format!("failed to load model for placement: {}", path.display()))?;
-        let load_elapsed = load_start.elapsed();
-        let longest_edge = model.longest_edge_span()?;
-        if longest_edge > DEBUG_MODEL_MAX_LONGEST_EDGE {
-            anyhow::bail!(
-                "model '{}' longest edge span {:.3} exceeds max {:.3}",
-                path.display(),
-                longest_edge,
-                DEBUG_MODEL_MAX_LONGEST_EDGE
-            );
-        }
-        log::info!(
-            "[MODEL_LOAD] path='{}' load={:.3}ms longest_edge={:.3} max_longest_edge={:.3}",
-            path.display(),
-            load_elapsed.as_secs_f64() * 1000.0,
-            longest_edge,
-            DEBUG_MODEL_MAX_LONGEST_EDGE
-        );
-        let triangles = model.triangles()?;
-        let rebuild_bound =
-            self.plain_builder
-                .voxelize_model(&triangles, position, VOXEL_TYPE_ROCK)?;
-
-        let rebuild_start = Instant::now();
-        world_ops::mesh_generate(
-            &mut self.surface_builder,
-            &mut self.contree_builder,
-            &mut self.scene_accel_builder,
-            VOXEL_DIM_PER_CHUNK,
-            rebuild_bound,
-        )?;
-        self.request_vsm_history_reset();
-        log::info!(
-            "[MODEL_REBUILD] path='{}' total={:.3}ms",
-            path.display(),
-            rebuild_start.elapsed().as_secs_f64() * 1000.0
-        );
-
-        Ok(rebuild_bound)
-    }
-
-    fn debug_model_position(&self, index: usize) -> Vec3 {
-        let position_xz = DEBUG_MODEL_LINE_START_XZ + DEBUG_MODEL_LINE_STEP_XZ * index as f32;
-        let y = self.query_terrain_height_cpu(position_xz);
-        Vec3::new(position_xz.x, y, position_xz.y)
-    }
-
-    fn debug_model_paths() -> Result<Vec<PathBuf>> {
-        let mut paths = Vec::new();
-        let mut dirs = vec![PathBuf::from(DEBUG_MODEL_ROOT)];
-
-        while let Some(dir) = dirs.pop() {
-            for entry in fs::read_dir(&dir)
-                .with_context(|| format!("failed to read model directory: {}", dir.display()))?
-            {
-                let entry = entry.with_context(|| {
-                    format!("failed to read model directory entry: {}", dir.display())
-                })?;
-                let file_type = entry.file_type().with_context(|| {
-                    format!("failed to read model file type: {}", entry.path().display())
-                })?;
-                let path = entry.path();
-
-                if file_type.is_dir() {
-                    dirs.push(path);
-                } else if file_type.is_file()
-                    && path
-                        .extension()
-                        .is_some_and(|extension| extension.eq_ignore_ascii_case("glb"))
-                {
-                    paths.push(path);
-                }
-            }
-        }
-
-        paths.sort();
-        Ok(paths)
     }
 
     fn master_volume_gain_db(master_volume_db: f32, mute_audio_output: bool) -> f32 {
