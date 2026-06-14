@@ -1077,9 +1077,11 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
-        let enable_glass = render_flags.enable_tracer;
-        let has_graphics_pass =
-            render_flags.enable_flora || render_flags.enable_particles || enable_glass;
+        // Terrarium glass is composited analytically in composition.comp so it can refract the
+        // already-combined scene and depth-test against ray-traced terrain. Keep it out of the
+        // raster graphics pass to avoid transparent-layer accumulation and coplanar edge shimmer.
+        let enable_glass = false;
+        let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
 
         if render_flags.enable_flora {
             Self::with_gpu_scope(

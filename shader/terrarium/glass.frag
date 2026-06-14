@@ -34,18 +34,18 @@ vec3 sky_reflection_color(vec3 dir) {
 void main() {
     vec2 uv = clamp(vert_uv, vec2(0.0), vec2(1.0));
     float edge_dist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-    float uv_edge = 1.0 - smoothstep(0.0, 0.060, edge_dist);
-    float core_edge = 1.0 - smoothstep(0.0, 0.018, edge_dist);
-    float side_edge = 1.0 - smoothstep(0.0, 0.060, min(uv.x, 1.0 - uv.x));
-    float top_edge = 1.0 - smoothstep(0.0, 0.065, 1.0 - uv.y);
-    float bottom_edge = 1.0 - smoothstep(0.0, 0.045, uv.y);
+    float uv_edge = 1.0 - step(0.018, edge_dist);
+    float core_edge = 1.0 - step(0.006, edge_dist);
+    float side_edge = 1.0 - step(0.018, min(uv.x, 1.0 - uv.x));
+    float top_edge = 1.0 - step(0.018, 1.0 - uv.y);
+    float bottom_edge = 1.0 - step(0.018, uv.y);
     float corner = side_edge * max(top_edge, bottom_edge);
 
     vec3 view_dir = normalize(vert_view_dir_ws);
     vec3 normal = normalize(vert_normal_ws);
     normal = dot(normal, view_dir) < 0.0 ? -normal : normal;
     float ndotv = clamp(dot(normal, view_dir), 0.0, 1.0);
-    float fresnel = pow(1.0 - ndotv, 4.0);
+    float fresnel = step(0.42, pow(1.0 - ndotv, 4.0));
     vec3 reflected_dir = reflect(-view_dir, normal);
     vec3 env_reflection = sky_reflection_color(reflected_dir);
 
@@ -85,7 +85,7 @@ void main() {
 
     float long_top_glint = 0.0;
     if (vert_part_kind == 2u && normal.y > 0.35) {
-        long_top_glint = smoothstep(0.08, 0.35, uv.x) * (1.0 - smoothstep(0.68, 0.96, uv.x));
+        long_top_glint = step(0.08, uv.x) * (1.0 - step(0.96, uv.x));
     }
 
     float optical_edge = max(edge_material, uv_edge * 0.35);
