@@ -197,7 +197,7 @@ impl GlassMeshResources {
         let glass_thickness_world = Self::GLASS_THICKNESS_VOXELS / Self::VOXELS_PER_CHUNK_AXIS;
         let inset = glass_thickness_world;
         let top_padding = Self::GLASS_TOP_PADDING_WORLD;
-        let box_min = Vec3::new(-inset, -inset, -inset);
+        let box_min = Vec3::new(-inset, 0.0, -inset);
         let box_max = Vec3::new(
             extent.width as f32 + inset,
             extent.height as f32 + top_padding,
@@ -268,7 +268,6 @@ impl GlassMeshResources {
 
         let edge_index_start = indices_data.len() as u32;
         let edge_uv_width = glass_thickness_world / (box_max.x - box_min.x);
-        let rim_width = glass_thickness_world;
         let bevel_width = glass_thickness_world;
         for (face_id, normal, corners) in faces {
             Self::append_face_edge_bands(
@@ -280,13 +279,6 @@ impl GlassMeshResources {
                 edge_uv_width,
             );
         }
-        Self::append_horizontal_rims(
-            &mut vertices_data,
-            &mut indices_data,
-            box_min,
-            box_max,
-            rim_width,
-        );
         Self::append_corner_bevels(
             &mut vertices_data,
             &mut indices_data,
@@ -393,6 +385,7 @@ impl GlassMeshResources {
         }
     }
 
+    #[allow(dead_code)]
     fn append_horizontal_rims(
         vertices_data: &mut Vec<GlassVertex>,
         indices_data: &mut Vec<u32>,
