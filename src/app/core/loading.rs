@@ -313,17 +313,6 @@ impl App {
 
         self.ensure_map_butterfly_emitter();
 
-        self.debug_tree_pos.y =
-            self.query_terrain_height_cpu(Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z));
-
-        if let Err(err) = self.add_tree(
-            self.debug_tree_desc.clone(),
-            TreePlacement::World(self.debug_tree_pos),
-            TreeAddOptions::default(),
-        ) {
-            log::error!("Failed to add debug tree: {}", err);
-        }
-
         if let Err(err) = self.tracer.regenerate_leaves(
             self.gui_adjustables.leaves_inner_density.value,
             self.gui_adjustables.leaves_outer_density.value,

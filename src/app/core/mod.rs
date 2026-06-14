@@ -31,9 +31,7 @@ use crate::app::cpu_solid_voxels::CpuSolidVoxelStore;
 use crate::app::environment;
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::GuiConfigFile;
-use crate::app::world_edits::{
-    BuildEdit, TreeAddOptions, TreePlacement, VoxelEdit, WorldBuildBackend, WorldEditPlan,
-};
+use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldBuildBackend, WorldEditPlan};
 use crate::app::world_ops;
 use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
@@ -146,14 +144,19 @@ pub struct App {
     sun_position_update_tick_accumulator: u32,
     vsm_history_reset_pending: bool,
 
+    #[allow(dead_code)]
     debug_tree_desc: TreeDesc,
+    #[allow(dead_code)]
     tree_variation_config: TreeVariationConfig,
+    #[allow(dead_code)]
     regenerate_trees_requested: bool,
     prev_bound: UAabb3,
     tree_records: HashMap<u32, TreeRecord>,
 
     // multi-tree management
+    #[allow(dead_code)]
     next_tree_id: u32,
+    #[allow(dead_code)]
     single_tree_id: u32, // ID for GUI single tree mode
 
     particle_system: ParticleSystem,
@@ -2082,15 +2085,6 @@ impl App {
                 self.tree_audio_manager
                     .set_rustle_params(Self::tree_rustle_params(&self.gui_adjustables));
 
-                if tree_desc_changed {
-                    if let Err(err) = self.replace_single_tree_deferred(
-                        self.debug_tree_desc.clone(),
-                        self.debug_tree_pos,
-                    ) {
-                        log::error!("Failed to replace debug tree: {err}");
-                    }
-                }
-
                 if TreeBench::run_next(self) {
                     self.on_terminate(event_loop);
                     return;
@@ -2111,18 +2105,6 @@ impl App {
                 cpu_timings.time(FrameCpuScope::WaterEditSoak, || {
                     self.process_water_edit_soak();
                 });
-
-                if self.regenerate_trees_requested {
-                    self.regenerate_trees_requested = false;
-                    match self.generate_procedural_trees() {
-                        Ok(_) => {
-                            log::info!("Procedural trees regenerated successfully");
-                        }
-                        Err(e) => {
-                            log::error!("Failed to regenerate procedural trees: {}", e);
-                        }
-                    }
-                }
 
                 let mut sun_update_ticks = 0;
                 if self.gui_adjustables.auto_daynight_cycle.value && world_tick_steps > 0 {

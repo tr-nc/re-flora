@@ -4,18 +4,21 @@ use anyhow::Result;
 use glam::{UVec3, Vec2, Vec3};
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub(crate) enum TreePlacement {
     /// Place the tree at an exact world position (height already resolved).
     World(Vec3),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
+#[allow(dead_code)]
 pub(crate) struct TreeAddOptions {
     pub(crate) clean_before_add: bool,
     pub(crate) assign_new_id: bool,
 }
 
 impl TreeAddOptions {
+    #[allow(dead_code)]
     pub(crate) fn with_new_id(mut self) -> Self {
         self.assign_new_id = true;
         self
@@ -23,6 +26,7 @@ impl TreeAddOptions {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct TreePlacementEdit {
     pub(crate) tree_desc: TreeDesc,
     pub(crate) placement: TreePlacement,
@@ -99,6 +103,7 @@ impl WorldEditPlan {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn with_build(edit: BuildEdit) -> Self {
         Self {
             voxel_edits: vec![],

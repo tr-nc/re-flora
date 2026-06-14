@@ -488,6 +488,7 @@ pub(super) struct TreeRecord {
 }
 
 impl App {
+    #[allow(dead_code)]
     pub(super) fn generate_procedural_trees(&mut self) -> Result<()> {
         self.clear_procedural_trees()?;
         self.remove_tree(self.single_tree_id)?;
@@ -538,6 +539,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) fn clear_procedural_trees(&mut self) -> Result<()> {
         let tree_ids_to_remove: Vec<u32> = self
             .tree_records
@@ -554,6 +556,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) fn remove_tree(&mut self, tree_id: u32) -> Result<()> {
         self.tracer
             .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
@@ -589,6 +592,7 @@ impl App {
         chunk_ids
     }
 
+    #[allow(dead_code)]
     pub(super) fn replace_single_tree_deferred(
         &mut self,
         tree_desc: TreeDesc,
@@ -597,6 +601,7 @@ impl App {
         self.replace_single_tree_with_rebuild_mode(tree_desc, tree_pos, true)
     }
 
+    #[allow(dead_code)]
     #[allow(dead_code)]
     pub(super) fn replace_single_tree(
         &mut self,
@@ -730,6 +735,7 @@ impl App {
         (tree_changed, regenerate_pressed)
     }
 
+    #[allow(dead_code)]
     pub(super) fn apply_tree_variations(&self, tree_desc: &mut TreeDesc, rng: &mut impl Rng) {
         let config = &self.tree_variation_config;
 
@@ -815,6 +821,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     pub(super) fn query_terrain_heights_for_positions(
         &mut self,
         positions_2d: &[Vec2],
@@ -842,6 +849,7 @@ impl App {
         Ok(positions_3d)
     }
 
+    #[allow(dead_code)]
     pub(super) fn clean_up_prev_tree(&mut self) -> Result<()> {
         self.tree_audio_manager.remove_all();
 
@@ -857,6 +865,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) fn add_tree(
         &mut self,
         tree_desc: TreeDesc,
@@ -1232,6 +1241,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) fn apply_tree_placement(&mut self, edit: TreePlacementEdit) -> Result<()> {
         let total_start = Instant::now();
         let TreePlacementEdit {
