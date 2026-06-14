@@ -239,8 +239,19 @@ float nearest_scene_depth(float gfx_depth_01, float compute_depth_01, vec4 gfx_r
     return nearest_depth;
 }
 
+TerrariumGlassHit make_empty_terrarium_glass_hit() {
+    TerrariumGlassHit hit;
+    hit.hit = false;
+    hit.t = 1e20;
+    hit.depth_01 = 1.0;
+    hit.position = vec3(0.0);
+    hit.normal = vec3(0.0, 0.0, 1.0);
+    hit.face_uv = vec2(0.0);
+    return hit;
+}
+
 void try_vertical_glass_face(inout TerrariumGlassHit best_hit, Ray ray, vec3 normal,
-                             float plane_coord, int axis) {
+                             float plane_coord, int axis, float min_t) {
     float denom = axis == 0 ? ray.direction.x : ray.direction.z;
     if (abs(denom) < 1e-5) {
         return;
@@ -248,7 +259,7 @@ void try_vertical_glass_face(inout TerrariumGlassHit best_hit, Ray ray, vec3 nor
 
     float origin_coord = axis == 0 ? ray.origin.x : ray.origin.z;
     float t = (plane_coord - origin_coord) / denom;
-    if (t <= 0.0 || t >= best_hit.t) {
+    if (t <= min_t || t >= best_hit.t) {
         return;
     }
 
@@ -291,36 +302,19 @@ void try_vertical_glass_face(inout TerrariumGlassHit best_hit, Ray ray, vec3 nor
     best_hit.face_uv = clamp(face_uv, vec2(0.0), vec2(1.0));
 }
 
-TerrariumGlassHit trace_terrarium_glass(Ray ray) {
-    TerrariumGlassHit hit;
-    hit.hit = false;
-    hit.t = 1e20;
-    hit.depth_01 = 1.0;
-    hit.position = vec3(0.0);
-    hit.normal = vec3(0.0, 0.0, 1.0);
-    hit.face_uv = vec2(0.0);
+TerrariumGlassHit trace_terrarium_glass_after(Ray ray, float min_t) {
+    TerrariumGlassHit hit = make_empty_terrarium_glass_hit();
 
-    try_vertical_glass_face(hit, ray, vec3(-1.0, 0.0, 0.0), TERRARIUM_GLASS_BOX_MIN.x, 0);
-    try_vertical_glass_face(hit, ray, vec3(1.0, 0.0, 0.0), TERRARIUM_GLASS_BOX_MAX.x, 0);
-    try_vertical_glass_face(hit, ray, vec3(0.0, 0.0, -1.0), TERRARIUM_GLASS_BOX_MIN.z, 1);
-    try_vertical_glass_face(hit, ray, vec3(0.0, 0.0, 1.0), TERRARIUM_GLASS_BOX_MAX.z, 1);
+    try_vertical_glass_face(hit, ray, vec3(-1.0, 0.0, 0.0), TERRARIUM_GLASS_BOX_MIN.x, 0, min_t);
+    try_vertical_glass_face(hit, ray, vec3(1.0, 0.0, 0.0), TERRARIUM_GLASS_BOX_MAX.x, 0, min_t);
+    try_vertical_glass_face(hit, ray, vec3(0.0, 0.0, -1.0), TERRARIUM_GLASS_BOX_MIN.z, 1, min_t);
+    try_vertical_glass_face(hit, ray, vec3(0.0, 0.0, 1.0), TERRARIUM_GLASS_BOX_MAX.z, 1, min_t);
 
     return hit;
 }
 
-vec3 apply_terrarium_glass(vec3 scene_color, vec2 screen_uv, float gfx_depth_01,
-                           float compute_depth_01, vec4 gfx_rgba) {
-    Ray ray = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
-    TerrariumGlassHit hit = trace_terrarium_glass(ray);
-    if (!hit.hit) {
-        return scene_color;
-    }
-
-    float scene_depth = nearest_scene_depth(gfx_depth_01, compute_depth_01, gfx_rgba);
-    if (scene_depth < hit.depth_01 - 0.00035) {
-        return scene_color;
-    }
-
+vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
+                                TerrariumGlassHit hit) {
     vec3 view_dir = normalize(-ray.direction);
     vec3 normal = hit.normal;
     if (dot(normal, view_dir) < 0.0) {
@@ -335,6 +329,10 @@ vec3 apply_terrarium_glass(vec3 scene_color, vec2 screen_uv, float gfx_depth_01,
     float bottom_edge = 1.0 - step(edge_width, uv.y);
     float top_edge = step(1.0 - edge_width, uv.y);
     float edge = max(max(left_edge, right_edge), max(bottom_edge, top_edge));
+    if (edge <= 0.0) {
+        return scene_color;
+    }
+
     float edge_dist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
     float core_edge = 1.0 - step(core_width, edge_dist);
     float corner = max(left_edge, right_edge) * max(top_edge, bottom_edge);
@@ -397,6 +395,35 @@ vec3 apply_terrarium_glass(vec3 scene_color, vec2 screen_uv, float gfx_depth_01,
     float alpha = edge * (0.145 + core_edge * 0.090 + corner * 0.070 + fresnel_band * 0.030);
     alpha = clamp(alpha, 0.0, 0.34);
     return mix(glassed_color, glass_color, alpha);
+}
+
+vec3 apply_terrarium_glass(vec3 scene_color, vec2 screen_uv, float gfx_depth_01,
+                           float compute_depth_01, vec4 gfx_rgba) {
+    Ray ray = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
+    float scene_depth = nearest_scene_depth(gfx_depth_01, compute_depth_01, gfx_rgba);
+
+    TerrariumGlassHit hits[4];
+    int hit_count = 0;
+    float min_t = 0.0;
+    for (int i = 0; i < 4; i++) {
+        TerrariumGlassHit hit = trace_terrarium_glass_after(ray, min_t);
+        if (!hit.hit) {
+            break;
+        }
+        hits[hit_count] = hit;
+        hit_count++;
+        min_t = hit.t + 0.0001;
+    }
+
+    vec3 result = scene_color;
+    for (int i = hit_count - 1; i >= 0; i--) {
+        TerrariumGlassHit hit = hits[i];
+        if (scene_depth < hit.depth_01 - 0.00035) {
+            continue;
+        }
+        result = shade_terrarium_glass_hit(result, screen_uv, ray, hit);
+    }
+    return result;
 }
 
 vec3 sample_lens_flare(vec2 screen_uv) {
