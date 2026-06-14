@@ -2000,18 +2000,40 @@ impl Tracer {
                     ],
                     box_max_far_alpha: [box_max.x, box_max.y, box_max.z, TERRARIUM_GLASS_FAR_ALPHA],
                 };
-                glass_ppl.record_indexed(
-                    cmdbuf,
-                    glass.indices_len,
-                    1,
-                    0,
-                    0,
-                    0,
-                    Some(&PushConstantInfo {
-                        shader_stage: vk::ShaderStageFlags::VERTEX,
-                        push_constants: bytemuck::bytes_of(&push).to_vec(),
-                    }),
-                );
+                let box_center = (box_min + box_max) * 0.5;
+                let face_centers = [
+                    Vec3::new(box_min.x, box_center.y, box_center.z),
+                    Vec3::new(box_max.x, box_center.y, box_center.z),
+                    Vec3::new(box_center.x, box_center.y, box_min.z),
+                    Vec3::new(box_center.x, box_center.y, box_max.z),
+                ];
+                let camera_position = self.camera.position();
+                let mut face_order = [0usize, 1, 2, 3];
+                face_order.sort_by(|left, right| {
+                    let left_dist = face_centers[*left].distance_squared(camera_position);
+                    let right_dist = face_centers[*right].distance_squared(camera_position);
+                    left_dist
+                        .partial_cmp(&right_dist)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                // Draw the nearest glass faces first while depth writing is enabled. This keeps the
+                // front pane as the single composited transparent layer over ray-traced terrain,
+                // instead of accumulating all four walls and washing terrain out.
+                for face_id in face_order {
+                    glass_ppl.record_indexed(
+                        cmdbuf,
+                        6,
+                        1,
+                        face_id as u32 * 6,
+                        0,
+                        0,
+                        Some(&PushConstantInfo {
+                            shader_stage: vk::ShaderStageFlags::VERTEX,
+                            push_constants: bytemuck::bytes_of(&push).to_vec(),
+                        }),
+                    );
+                }
             }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), glass_scope) {
                 profiler.end_scope(
