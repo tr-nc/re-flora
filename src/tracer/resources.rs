@@ -197,7 +197,7 @@ impl GlassMeshResources {
         let glass_thickness_world = Self::GLASS_THICKNESS_VOXELS / Self::VOXELS_PER_CHUNK_AXIS;
         let inset = glass_thickness_world;
         let top_padding = Self::GLASS_TOP_PADDING_WORLD;
-        let box_min = Vec3::new(-inset, 0.0, -inset);
+        let box_min = Vec3::new(-inset, -inset, -inset);
         let box_max = Vec3::new(
             extent.width as f32 + inset,
             extent.height as f32 + top_padding,
