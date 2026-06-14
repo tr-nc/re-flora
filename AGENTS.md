@@ -87,6 +87,10 @@ cargo run --release -- --latest-log
 cargo run --release -- --tail-latest-log 200
 ```
 
+## Session End Rule
+
+At the end of every conversation or agent session, before reporting completion, run **both** `cargo build` and `cargo build --release` in sequence. This ensures both debug and release profiles compile correctly. Do not skip this step — a change that compiles in debug may fail in release and vice versa.
+
 ## Basic Perf Test
 
 Benchmark in release mode is king. Use `cargo run --release` hidden app runs with logs for performance decisions.
