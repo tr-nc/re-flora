@@ -322,7 +322,7 @@ impl WorldBuildBackend for App {
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
-const CHUNK_DIM: UVec3 = UVec3::new(2, 2, 2);
+const CHUNK_DIM: UVec3 = UVec3::new(1, 1, 1);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const GPU_PROFILER_MAX_SCOPES_PER_FRAME: usize = 64;
