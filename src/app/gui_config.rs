@@ -585,23 +585,6 @@ fn render_flora_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
     );
 
     ui.add_space(4.0);
-    ui.label("Player Push");
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.flora_player_push_radius.value,
-            adjustables.flora_player_push_radius.range.clone(),
-        )
-        .text("Flora Player Push Radius"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.flora_player_push_strength.value,
-            adjustables.flora_player_push_strength.range.clone(),
-        )
-        .text("Flora Player Push Strength"),
-    );
-
-    ui.add_space(4.0);
     ui.label("Flora Vibration");
     ui.add(
         egui::Slider::new(

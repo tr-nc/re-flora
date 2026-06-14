@@ -443,8 +443,6 @@ pub struct GuiInput {
     pub grass_natural_bend_min_voxels: f32,
     pub grass_natural_bend_max_voxels: f32,
     pub flora_bend_height_power: f32,
-    pub flora_player_push_radius: f32,
-    pub flora_player_push_strength: f32,
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,
@@ -481,7 +479,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad6: [u8; 12],
+    pub _pad6: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).

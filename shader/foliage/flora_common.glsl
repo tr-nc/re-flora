@@ -111,21 +111,7 @@ void prepaverdarium_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_
     } else if (is_apple) {
         wind_offset += apple_wind_swing(wind_vec, instance_seed, wind_motion_time);
     }
-    float player_push_radius = max(gui_input.flora_player_push_radius, 0.0);
-    float player_push_strength = max(gui_input.flora_player_push_strength, 0.0);
-    vec3 player_delta = instance_pos - camera_info.pos.xyz;
-    float player_dist = length(player_delta);
-    vec2 player_push_delta = player_delta.xz;
-    float player_push_planar_dist = length(player_push_delta);
-    vec2 player_push_dir =
-        player_push_planar_dist > 1e-4 ? player_push_delta / player_push_planar_dist : vec2(0.0);
-    float player_push_falloff =
-        player_push_radius > 1e-4 ? 1.0 - smoothstep(0.0, player_push_radius, player_dist) : 0.0;
-    float player_push_amount = player_push_falloff * flora_bend_weight;
-    vec3 player_push = vec3(player_push_dir.x, 0.0, player_push_dir.y) *
-                       (player_push_strength * player_push_amount);
-
-    anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos + player_push;
+    anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos;
     voxel_pos         = anchor_pos + vec3(0.5) * scaling_factor;
 
     shadow_weight = get_shadow_weight_vsm_temporal(vec4(voxel_pos, 1.0));
