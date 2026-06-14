@@ -4,13 +4,13 @@ use crate::{
     resource::Resource,
 };
 use glam::{UVec3, Vec3};
-use re_flora_vkn::vk;
-use re_flora_vkn::{
+use resource_container_derive::ResourceContainer;
+use std::collections::HashMap;
+use verdarium_vkn::vk;
+use verdarium_vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ShaderModule,
     Texture, TextureLayout,
 };
-use resource_container_derive::ResourceContainer;
-use std::collections::HashMap;
 
 pub const MAX_FLORA_INSTANCES_PER_SPECIES: u32 = 40_000;
 

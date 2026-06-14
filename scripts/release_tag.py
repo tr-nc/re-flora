@@ -225,7 +225,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--remote", default=DEFAULT_REMOTE, help="git remote to push to")
     parser.add_argument("--branch", default=DEFAULT_BRANCH, help="release branch expected for tagging")
-    parser.add_argument("--message", help="annotated tag message; defaults to 'Re: Flora <version>'")
+    parser.add_argument("--message", help="annotated tag message; defaults to 'Verdarium <version>'")
     parser.add_argument("--no-push", action="store_true", help="create the tag locally but do not trigger CI")
     parser.add_argument("--dry-run", action="store_true", help="print the actions without creating or pushing a tag")
     parser.add_argument(
@@ -299,7 +299,7 @@ def main() -> int:
 
         bump_commit_command = ["git", "commit", "-m", f"bump version to {version}"]
         push_branch_command = ["git", "push", args.remote, branch]
-        tag_message = args.message or f"Re: Flora {version}"
+        tag_message = args.message or f"Verdarium {version}"
         tag_command = ["git", "tag", "-a", tag, "-m", tag_message]
         push_tag_command = ["git", "push", args.remote, tag]
 

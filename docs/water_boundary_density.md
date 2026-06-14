@@ -28,8 +28,8 @@ The cached grid replaced a more expensive per-particle ghost sample. On the 1000
 
 Key files:
 
-- `crates/re-flora-water/src/mls_mpm.rs`
-- `crates/re-flora-water/src/pond.rs`
+- `crates/verdarium-water/src/mls_mpm.rs`
+- `crates/verdarium-water/src/pond.rs`
 - `src/app/core/water/*`
 - `config/gui.toml`
 

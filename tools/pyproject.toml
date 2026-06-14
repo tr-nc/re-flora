@@ -1,7 +1,7 @@
 [project]
-name = "re-flora-tools"
+name = "verdarium-tools"
 version = "0.1.0"
-description = "Utility scripts for Re: Flora"
+description = "Utility scripts for Verdarium"
 requires-python = "==3.12.*"
 dependencies = [
     "nicegui>=2.0.0",

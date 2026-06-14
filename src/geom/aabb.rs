@@ -1,6 +1,6 @@
 use glam::{Mat4, UVec3, Vec3, Vec4, Vec4Swizzles};
 
-use re_flora_vkn::Extent3D;
+use verdarium_vkn::Extent3D;
 
 #[derive(Debug, Clone)]
 pub struct Aabb3 {

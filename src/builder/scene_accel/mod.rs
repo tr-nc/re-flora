@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::{generated::gpu_structs::SceneTexUpdateInfo, geom::UAabb3, util::ShaderCompiler};
 use bytemuck::Zeroable;
-use re_flora_vkn::{
+use verdarium_vkn::{
     execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DescriptorPool, Extent3D, GpuJobToken, ShaderModule, TextureLayout,
     VulkanContext,

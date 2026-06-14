@@ -160,7 +160,7 @@ impl App {
                             ui.add_space(ui.available_height() * 0.3);
 
                             ui.label(
-                                RichText::new("Re: Flora")
+                                RichText::new("Verdarium")
                                     .size(36.0)
                                     .color(Color32::from_rgb(200, 180, 140)),
                             );

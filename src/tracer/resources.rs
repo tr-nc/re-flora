@@ -12,14 +12,14 @@ use crate::{
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3};
-use re_flora_vkn::vk;
-use re_flora_vkn::{
+use resource_container_derive::ResourceContainer;
+use std::path::Path;
+use verdarium_vkn::vk;
+use verdarium_vkn::{
     Allocator, Buffer, BufferUsage, CurrentPrevious, Device, Extent2D, Extent3D, ImageDesc,
     MemoryLocation, SamplerDesc, ShaderModule, Texture, TextureLayout, TextureRegion,
     VulkanContext,
 };
-use resource_container_derive::ResourceContainer;
-use std::path::Path;
 
 type MeshGenerator = fn(bool) -> anyhow::Result<(Vec<Vertex>, Vec<u32>)>;
 
@@ -256,7 +256,10 @@ pub struct ShadowResources {
 
 impl ShadowResources {
     pub fn vsm_history(&self) -> CurrentPrevious<&Resource<Texture>> {
-        CurrentPrevious::new(&self.shadow_map_tex_for_vsm_ping, &self.shadow_map_tex_for_vsm_prev)
+        CurrentPrevious::new(
+            &self.shadow_map_tex_for_vsm_ping,
+            &self.shadow_map_tex_for_vsm_prev,
+        )
     }
 
     pub fn cloud_shadow_history(&self) -> CurrentPrevious<&Resource<Texture>> {
@@ -308,12 +311,12 @@ pub struct TracerMeshResources {
     pub apple_resources_lod: FloraMeshResources,
 }
 
-impl re_flora_vkn::ResourceContainer for TracerMeshResources {
-    fn get_buffer(&self, _name: &str) -> Option<&re_flora_vkn::Buffer> {
+impl verdarium_vkn::ResourceContainer for TracerMeshResources {
+    fn get_buffer(&self, _name: &str) -> Option<&verdarium_vkn::Buffer> {
         None
     }
 
-    fn get_texture(&self, _name: &str) -> Option<&re_flora_vkn::Texture> {
+    fn get_texture(&self, _name: &str) -> Option<&verdarium_vkn::Texture> {
         None
     }
 

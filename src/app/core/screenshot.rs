@@ -1,6 +1,6 @@
 use super::App;
 use anyhow::{Context, Result};
-use re_flora_vkn::{
+use verdarium_vkn::{
     Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, MemoryLocation,
 };
 

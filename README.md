@@ -1,10 +1,10 @@
-# Re: Flora
+# Verdarium
 
 > Cultivate your own island ecosystem — a meditative voxel gardening game.
 
-![Re: Flora](./demo/img/splash.png)
+![Verdarium](./demo/img/splash.png)
 
-Re: Flora is a cozy voxel game prototype about shaping terrain, planting flora, and building a calm island atmosphere. Built with Vulkan ray tracing in Rust.
+Verdarium is a cozy voxel game prototype about shaping terrain, planting flora, and building a calm island atmosphere. Built with Vulkan ray tracing in Rust.
 
 ## Getting Started
 

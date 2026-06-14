@@ -111,7 +111,7 @@ void main() {
         manual_tree_leaf_instances.data[gl_InstanceIndex].packed_local_pos;
     uvec3 instance_pos = get_tree_leaf_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
     uint instance_seed = get_instance_seed(instance_pos);
-    prepare_flora_vertex(vox_local_pos, gradient_origin, max_length, instance_pos,
+    prepaverdarium_vertex(vox_local_pos, gradient_origin, max_length, instance_pos,
                           pc.instance_ty, instance_seed, TREE_LEAF_GROWTH_PROGRESS, is_grass,
                           color_gradient, voxel_pos, anchor_pos, shadow_weight, should_trim_voxel);
     vec3 vert_pos = get_vert_pos_with_billboard(camera_info.view_mat, voxel_pos, vert_offset_in_vox,

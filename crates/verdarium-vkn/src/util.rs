@@ -50,7 +50,7 @@ fn replace_backslashes_with_slashes(path: &str) -> String {
 }
 
 pub fn project_root() -> PathBuf {
-    if let Ok(root) = env::var("RE_FLORA_ROOT") {
+    if let Ok(root) = env::var("VERDARIUM_ROOT") {
         let root = PathBuf::from(root);
         if is_project_root(&root) {
             return root;
@@ -78,7 +78,7 @@ fn compile_time_project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("re-flora-vkn must live under <project>/crates/re-flora-vkn")
+        .expect("verdarium-vkn must live under <project>/crates/verdarium-vkn")
         .to_path_buf()
 }
 

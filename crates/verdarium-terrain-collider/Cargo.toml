@@ -1,5 +1,5 @@
 [package]
-name = "re-flora-terrain-collider"
+name = "verdarium-terrain-collider"
 version = "0.1.0"
 edition = "2021"
 

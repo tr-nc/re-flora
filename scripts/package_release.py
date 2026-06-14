@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a self-contained Re: Flora binary package for itch.io."""
+"""Create a self-contained Verdarium binary package for itch.io."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_NAME = "re-flora"
+APP_NAME = "verdarium"
 PACKAGE_DIRS = ["assets", "config", "shader"]
 PACKAGE_FILES = ["README.md", "LICENSE", "LICENSE-ASSETS"]
 

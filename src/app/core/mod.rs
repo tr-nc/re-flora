@@ -60,12 +60,6 @@ use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
-use re_flora_vkn::{
-    Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
-    SwapchainFrameError, SwapchainFrameManager,
-};
-use re_flora_vkn::{Swapchain, VulkanContext};
-use re_flora_water::PondWaterConfig;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -79,6 +73,12 @@ use ui_style::{
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR,
 };
+use verdarium_vkn::{
+    Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
+    SwapchainFrameError, SwapchainFrameManager,
+};
+use verdarium_vkn::{Swapchain, VulkanContext};
+use verdarium_water::PondWaterConfig;
 use winit::{
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,

@@ -2,11 +2,11 @@
 
 ## Goal
 
-Reduce manual management of repeated GPU texture pairs/triples used for ping-pong blur passes and temporal history by introducing a small, practical wrapper at the `re-flora-vkn` boundary or a thin layer immediately above it.
+Reduce manual management of repeated GPU texture pairs/triples used for ping-pong blur passes and temporal history by introducing a small, practical wrapper at the `verdarium-vkn` boundary or a thin layer immediately above it.
 
 Done means:
 
-- We have a clear design decision for where the abstraction lives (`re-flora-vkn` vs tracer-side helper layer).
+- We have a clear design decision for where the abstraction lives (`verdarium-vkn` vs tracer-side helper layer).
 - The chosen wrapper shape is small and mechanical rather than algorithm-specific.
 - The design covers the main existing patterns in the codebase without forcing unrelated resources into one abstraction.
 - A first implementation target is identified, along with a validation plan.
@@ -38,25 +38,25 @@ Known from inspection and discussion:
     - `cloud_raw_tex`
     - `cloud_history_tex`
     - `cloud_output_tex`
-- `re-flora-vkn` already provides the low-level texture/image building blocks:
-  - `crates/re-flora-vkn/src/memory/texture/texture_impl.rs`
-  - `crates/re-flora-vkn/src/memory/texture/desc.rs`
-- `re-flora-vkn` also already owns image state/layout tracking machinery:
-  - `crates/re-flora-vkn/src/resource_state_tracker.rs`
-- `crates/re-flora-vkn/src/resource.rs` currently provides generic `Resource<T>` ownership wrappers but no pair/triple role wrapper.
+- `verdarium-vkn` already provides the low-level texture/image building blocks:
+  - `crates/verdarium-vkn/src/memory/texture/texture_impl.rs`
+  - `crates/verdarium-vkn/src/memory/texture/desc.rs`
+- `verdarium-vkn` also already owns image state/layout tracking machinery:
+  - `crates/verdarium-vkn/src/resource_state_tracker.rs`
+- `crates/verdarium-vkn/src/resource.rs` currently provides generic `Resource<T>` ownership wrappers but no pair/triple role wrapper.
 
 Constraints:
 
 - Keep changes small and focused.
 - Do not implement the wrapper yet; this document is planning/progress only.
-- Avoid pushing feature-specific render semantics into `re-flora-vkn`.
+- Avoid pushing feature-specific render semantics into `verdarium-vkn`.
 - Preserve explicit texture usage and existing validation workflow.
 - Run `cargo check` after Rust changes once implementation starts.
 - Final rendering validation should use a hidden release run and latest-log inspection.
 
 Assumptions to confirm:
 
-- A low-level generic wrapper such as `PingPong<T>` or `CurrentPrev<T>` is acceptable in `re-flora-vkn`.
+- A low-level generic wrapper such as `PingPong<T>` or `CurrentPrev<T>` is acceptable in `verdarium-vkn`.
 - Higher-level semantics such as temporal reset policy, blur iteration policy, and pass scheduling should stay in tracer/render code.
 - Not every repeated texture bundle should be forced into the same abstraction; triples may need a separate feature-level wrapper.
 
@@ -75,7 +75,7 @@ Current branch:
 
 ### Phase 2: Decide abstraction boundary
 
-- Objective: decide what belongs in `re-flora-vkn` versus tracer/render feature code.
+- Objective: decide what belongs in `verdarium-vkn` versus tracer/render feature code.
 - Expected output: short design decision covering allowed responsibilities for the wrapper.
 - Dependencies/blockers: Phase 1 inventory.
 - Status: done
@@ -109,7 +109,7 @@ Current branch:
 Design-phase verification:
 
 - Review that the proposed wrapper only manages ownership/role semantics.
-- Confirm it does not hide image layout/state transitions already handled by `re-flora-vkn`.
+- Confirm it does not hide image layout/state transitions already handled by `verdarium-vkn`.
 - Confirm call sites become clearer rather than more abstract.
 
 Implementation-phase verification once coding starts:
@@ -137,19 +137,19 @@ If verification is not yet possible:
 
 ## Progress Log
 
-- 2026-06-08: Discussed repeated ping-pong/history texture management in the renderer and whether a wrapper should exist in `re-flora-vkn`.
+- 2026-06-08: Discussed repeated ping-pong/history texture management in the renderer and whether a wrapper should exist in `verdarium-vkn`.
 - 2026-06-08: Decision direction: a wrapper likely makes sense, but it should stay small and mechanical rather than encode blur or temporal algorithms.
 - 2026-06-08: Identified three distinct patterns in current code: ping-pong scratch pairs, current/prev temporal pairs, and raw/history/output triples.
 - 2026-06-08: Preliminary conclusion: use a small family of wrappers or feature-specific bundles instead of one universal abstraction.
 - 2026-06-08: Created this progress document under `docs/` to match existing project planning/progress conventions.
-- 2026-06-08: Chose the abstraction boundary: add small generic role wrappers to `re-flora-vkn`, while keeping algorithm-specific grouping in tracer-side resource structs.
-- 2026-06-08: Implemented first low-level wrappers in `crates/re-flora-vkn/src/resource.rs`: `PingPong<T>` and `CurrentPrevious<T>`.
+- 2026-06-08: Chose the abstraction boundary: add small generic role wrappers to `verdarium-vkn`, while keeping algorithm-specific grouping in tracer-side resource structs.
+- 2026-06-08: Implemented first low-level wrappers in `crates/verdarium-vkn/src/resource.rs`: `PingPong<T>` and `CurrentPrevious<T>`.
 - 2026-06-08: Applied the first migration slice to denoiser temporal histories, denoiser spatial ping-pong access, and shadow/VSM/cloud-shadow/leaf-shadow history copy helpers without changing shader descriptor names.
 - 2026-06-08: Verified the implementation with `cargo check`, `cargo run --release -- --hidden --mute --auto-exit 0.5`, and `cargo run --release -- --tail-latest-log 80`; run completed successfully with only the pre-existing hidden-monitor and butterfly-atlas warnings.
 
 ## Open Questions / Risks
 
-- Should the generic wrapper live directly in `crates/re-flora-vkn` or in a thin tracer-side GPU utility layer?
+- Should the generic wrapper live directly in `crates/verdarium-vkn` or in a thin tracer-side GPU utility layer?
 - Should temporal pairs use distinct naming/types from ping-pong pairs even if the mechanics are similar?
 - Are triples better handled by a dedicated feature bundle instead of a generic container type?
 - Could a wrapper accidentally obscure descriptor-binding field names or existing resource-container expectations?

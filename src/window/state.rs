@@ -1,6 +1,6 @@
 use crate::MonitorScorePreference;
-use re_flora_vkn::Extent2D;
 use std::sync::Arc;
+use verdarium_vkn::Extent2D;
 use winit::{
     dpi::{LogicalPosition, LogicalSize, PhysicalSize},
     event_loop::ActiveEventLoop,

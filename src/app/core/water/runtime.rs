@@ -1,15 +1,15 @@
 use super::apply_water_gui_adjustables_to_config;
 use crate::app::GuiAdjustables;
 use glam::{IVec3, Vec3};
-use re_flora_water::{
-    DebugWaterSpawnResult, DebugWaterSpawnSkipReason, PondWaterConfig, PondWaterSim,
-    WaterTerrainCacheBuildRequest, WaterTerrainCachePatch, WaterTerrainColliderChunk,
-    WaterTerrainColliderSet,
-};
 use std::{
     sync::{mpsc, Arc, Mutex},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
+};
+use verdarium_water::{
+    DebugWaterSpawnResult, DebugWaterSpawnSkipReason, PondWaterConfig, PondWaterSim,
+    WaterTerrainCacheBuildRequest, WaterTerrainCachePatch, WaterTerrainColliderChunk,
+    WaterTerrainColliderSet,
 };
 
 pub(crate) const WATER_SIM_THREAD_DEFAULT_MAX_SUBSTEPS: usize = 4;

@@ -3131,77 +3131,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "re-flora"
-version = "0.2.13"
-dependencies = [
- "anyhow",
- "bytemuck",
- "chrono",
- "comfy-table",
- "core-graphics 0.25.0",
- "egui",
- "egui-winit",
- "env_logger",
- "fastnoise-lite",
- "glam 0.32.1",
- "gltf",
- "image",
- "indexmap",
- "log",
- "noise",
- "objc2-app-kit 0.3.2",
- "once_cell",
- "ordered-float",
- "petalsonic",
- "rand 0.10.1",
- "re-flora-terrain-collider",
- "re-flora-vkn",
- "re-flora-water",
- "resource_container_derive",
- "serde",
- "shaderc",
- "spirv-reflect",
- "thiserror 2.0.18",
- "time",
- "toml",
- "uuid",
- "winit",
-]
-
-[[package]]
-name = "re-flora-terrain-collider"
-version = "0.1.0"
-dependencies = [
- "glam 0.32.1",
-]
-
-[[package]]
-name = "re-flora-vkn"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ash",
- "ash-window",
- "bytemuck",
- "comfy-table",
- "glam 0.32.1",
- "gpu-allocator",
- "image",
- "log",
- "shaderc",
- "spirv-reflect",
- "winit",
-]
-
-[[package]]
-name = "re-flora-water"
-version = "0.1.0"
-dependencies = [
- "glam 0.32.1",
- "log",
-]
-
-[[package]]
 name = "read-fonts"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4130,6 +4059,77 @@ dependencies = [
  "bytemuck",
  "hashbrown 0.16.1",
  "vello_common",
+]
+
+[[package]]
+name = "verdarium"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "chrono",
+ "comfy-table",
+ "core-graphics 0.25.0",
+ "egui",
+ "egui-winit",
+ "env_logger",
+ "fastnoise-lite",
+ "glam 0.32.1",
+ "gltf",
+ "image",
+ "indexmap",
+ "log",
+ "noise",
+ "objc2-app-kit 0.3.2",
+ "once_cell",
+ "ordered-float",
+ "petalsonic",
+ "rand 0.10.1",
+ "resource_container_derive",
+ "serde",
+ "shaderc",
+ "spirv-reflect",
+ "thiserror 2.0.18",
+ "time",
+ "toml",
+ "uuid",
+ "verdarium-terrain-collider",
+ "verdarium-vkn",
+ "verdarium-water",
+ "winit",
+]
+
+[[package]]
+name = "verdarium-terrain-collider"
+version = "0.1.0"
+dependencies = [
+ "glam 0.32.1",
+]
+
+[[package]]
+name = "verdarium-vkn"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ash",
+ "ash-window",
+ "bytemuck",
+ "comfy-table",
+ "glam 0.32.1",
+ "gpu-allocator",
+ "image",
+ "log",
+ "shaderc",
+ "spirv-reflect",
+ "winit",
+]
+
+[[package]]
+name = "verdarium-water"
+version = "0.1.0"
+dependencies = [
+ "glam 0.32.1",
+ "log",
 ]
 
 [[package]]
