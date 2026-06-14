@@ -22,6 +22,7 @@ impl SceneAccelBuilderResources {
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
+            image_type_override: Some(vk::ImageType::TYPE_3D),
             ..Default::default()
         };
         let sam_desc = Default::default();

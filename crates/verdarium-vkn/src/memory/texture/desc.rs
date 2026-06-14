@@ -12,6 +12,7 @@ pub struct ImageDesc {
     pub aspect: vk::ImageAspectFlags,
     pub samples: vk::SampleCountFlags,
     pub tilting: vk::ImageTiling,
+    pub image_type_override: Option<vk::ImageType>,
 }
 
 impl Default for ImageDesc {
@@ -25,6 +26,7 @@ impl Default for ImageDesc {
             aspect: vk::ImageAspectFlags::COLOR,
             samples: vk::SampleCountFlags::TYPE_1,
             tilting: vk::ImageTiling::OPTIMAL,
+            image_type_override: None,
         }
     }
 }
@@ -99,6 +101,10 @@ impl ImageDesc {
     }
 
     pub fn get_image_type(&self) -> vk::ImageType {
+        if let Some(image_type) = self.image_type_override {
+            return image_type;
+        }
+
         if self.extent.depth == 1 {
             if self.extent.height == 1 {
                 vk::ImageType::TYPE_1D
