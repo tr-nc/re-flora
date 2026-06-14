@@ -246,10 +246,30 @@ impl Drop for Tracer {
 impl Tracer {
     const SCENE_ROTATION_SPEED_RAD_PER_SEC: f32 = std::f32::consts::FRAC_PI_2;
 
-    fn scene_center(&self) -> Vec3 {
-        let min = self.chunk_bound.min().as_vec3();
-        let max = self.chunk_bound.max().as_vec3();
+    fn scene_center_for_bound(chunk_bound: UAabb3) -> Vec3 {
+        let min = chunk_bound.min().as_vec3();
+        let max = chunk_bound.max().as_vec3();
         (min + max) * 0.5
+    }
+
+    fn scene_center(&self) -> Vec3 {
+        Self::scene_center_for_bound(self.chunk_bound)
+    }
+
+    fn default_camera_pose_for_bound(chunk_bound: UAabb3) -> (Vec3, f32, f32) {
+        let min = chunk_bound.min().as_vec3();
+        let max = chunk_bound.max().as_vec3();
+        let extent = max - min;
+        let center = (min + max) * 0.5;
+        let horizontal_extent = extent.x.max(extent.z).max(1.0);
+        let camera_distance = horizontal_extent * 0.7 + 0.65;
+        let camera_height = extent.y.max(1.0) * 0.28;
+        let camera_position = center + Vec3::new(0.0, camera_height, camera_distance);
+        let look_direction = (center - camera_position).normalize();
+        let yaw_deg = look_direction.x.atan2(-look_direction.z).to_degrees();
+        let horizontal_len = Vec2::new(look_direction.x, look_direction.z).length();
+        let pitch_deg = look_direction.y.atan2(horizontal_len).to_degrees();
+        (camera_position, yaw_deg, pitch_deg)
     }
 
     fn scene_model_mat(&self) -> Mat4 {
@@ -291,11 +311,13 @@ impl Tracer {
         spatial_sound_manager: SpatialSoundManager,
     ) -> Result<Self> {
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
+        let (camera_position, camera_yaw_deg, camera_pitch_deg) =
+            Self::default_camera_pose_for_bound(chunk_bound);
 
         let camera = Camera::new(
-            Vec3::new(0.5, 0.78, 1.85),
-            0.0,
-            -14.0,
+            camera_position,
+            camera_yaw_deg,
+            camera_pitch_deg,
             CameraDesc {
                 aspect_ratio: render_extent.get_aspect_ratio(),
                 ..Default::default()
