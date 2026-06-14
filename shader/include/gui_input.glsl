@@ -19,12 +19,6 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     vec3 grass_bottom_light;
     vec3 grass_tip_dark;
     vec3 grass_tip_light;
-    vec3 ocean_deep_color;
-    vec3 ocean_shallow_color;
-    float ocean_normal_amplitude;
-    float ocean_noise_frequency;
-    float ocean_time_multiplier;
-    float ocean_sea_level_shift;
     float lens_flare_intensity;
     float lens_flare_sun_pixel_scale;
     uint wind_source_count;

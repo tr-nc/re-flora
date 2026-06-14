@@ -431,14 +431,6 @@ pub struct GuiInput {
     pub grass_tip_dark: [f32; 3],
     pub _pad5: [u8; 4],
     pub grass_tip_light: [f32; 3],
-    pub _pad6: [u8; 4],
-    pub ocean_deep_color: [f32; 3],
-    pub _pad7: [u8; 4],
-    pub ocean_shallow_color: [f32; 3],
-    pub ocean_normal_amplitude: f32,
-    pub ocean_noise_frequency: f32,
-    pub ocean_time_multiplier: f32,
-    pub ocean_sea_level_shift: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
     pub wind_source_count: u32,
@@ -489,7 +481,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad8: [u8; 12],
+    pub _pad6: [u8; 12],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).

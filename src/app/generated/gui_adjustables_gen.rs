@@ -823,42 +823,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Tip Light",
     },
     GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_deep_color",
-        kind: "color",
-        label: "Deep Ocean Color",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_shallow_color",
-        kind: "color",
-        label: "Shallow Water Color",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_normal_amplitude",
-        kind: "float",
-        label: "Normal Amplitude",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_noise_frequency",
-        kind: "float",
-        label: "Noise Frequency",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_time_multiplier",
-        kind: "float",
-        label: "Time Multiplier",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_sea_level_shift",
-        kind: "float",
-        label: "Sea Level Y Shift",
-    },
-    GeneratedGuiParamDescriptor {
         section: "Clouds",
         id: "clouds_enabled",
         kind: "bool",
@@ -1445,12 +1409,6 @@ pub struct GuiAdjustables {
     pub grass_bottom_light_color: crate::gui_adjustables::ColorParam,
     pub grass_tip_dark_color: crate::gui_adjustables::ColorParam,
     pub grass_tip_light_color: crate::gui_adjustables::ColorParam,
-    pub ocean_deep_color: crate::gui_adjustables::ColorParam,
-    pub ocean_shallow_color: crate::gui_adjustables::ColorParam,
-    pub ocean_normal_amplitude: crate::gui_adjustables::FloatParam,
-    pub ocean_noise_frequency: crate::gui_adjustables::FloatParam,
-    pub ocean_time_multiplier: crate::gui_adjustables::FloatParam,
-    pub ocean_sea_level_shift: crate::gui_adjustables::FloatParam,
     pub clouds_enabled: crate::gui_adjustables::BoolParam,
     pub cloud_coverage: crate::gui_adjustables::FloatParam,
     pub cloud_density: crate::gui_adjustables::FloatParam,
@@ -1672,12 +1630,6 @@ impl GuiAdjustables {
         let mut grass_bottom_light_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_tip_dark_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_tip_light_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ocean_deep_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ocean_shallow_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ocean_normal_amplitude_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut ocean_noise_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut ocean_time_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut ocean_sea_level_shift_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut clouds_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut cloud_coverage_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_density_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2648,44 +2600,6 @@ impl GuiAdjustables {
                             grass_tip_light_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "ocean_deep_color" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ocean_deep_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
-                        }
-                    }
-                    "ocean_shallow_color" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ocean_shallow_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
-                        }
-                    }
-                    "ocean_normal_amplitude" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            ocean_normal_amplitude_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "ocean_noise_frequency" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            ocean_noise_frequency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "ocean_time_multiplier" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            ocean_time_multiplier_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "ocean_sea_level_shift" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            ocean_sea_level_shift_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "clouds_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             clouds_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3322,12 +3236,6 @@ impl GuiAdjustables {
             grass_bottom_light_color: grass_bottom_light_color_field.expect("Missing parameter: grass_bottom_light_color"),
             grass_tip_dark_color: grass_tip_dark_color_field.expect("Missing parameter: grass_tip_dark_color"),
             grass_tip_light_color: grass_tip_light_color_field.expect("Missing parameter: grass_tip_light_color"),
-            ocean_deep_color: ocean_deep_color_field.expect("Missing parameter: ocean_deep_color"),
-            ocean_shallow_color: ocean_shallow_color_field.expect("Missing parameter: ocean_shallow_color"),
-            ocean_normal_amplitude: ocean_normal_amplitude_field.expect("Missing parameter: ocean_normal_amplitude"),
-            ocean_noise_frequency: ocean_noise_frequency_field.expect("Missing parameter: ocean_noise_frequency"),
-            ocean_time_multiplier: ocean_time_multiplier_field.expect("Missing parameter: ocean_time_multiplier"),
-            ocean_sea_level_shift: ocean_sea_level_shift_field.expect("Missing parameter: ocean_sea_level_shift"),
             clouds_enabled: clouds_enabled_field.expect("Missing parameter: clouds_enabled"),
             cloud_coverage: cloud_coverage_field.expect("Missing parameter: cloud_coverage"),
             cloud_density: cloud_density_field.expect("Missing parameter: cloud_density"),
@@ -3509,10 +3417,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_paddle_frequency_wind_knee_bias" => Some(&adjustables.leaf_paddle_frequency_wind_knee_bias),
         "leaf_paddle_frequency_min_multiplier" => Some(&adjustables.leaf_paddle_frequency_min_multiplier),
         "leaf_paddle_frequency_max_multiplier" => Some(&adjustables.leaf_paddle_frequency_max_multiplier),
-        "ocean_normal_amplitude" => Some(&adjustables.ocean_normal_amplitude),
-        "ocean_noise_frequency" => Some(&adjustables.ocean_noise_frequency),
-        "ocean_time_multiplier" => Some(&adjustables.ocean_time_multiplier),
-        "ocean_sea_level_shift" => Some(&adjustables.ocean_sea_level_shift),
         "cloud_coverage" => Some(&adjustables.cloud_coverage),
         "cloud_density" => Some(&adjustables.cloud_density),
         "cloud_bottom_height" => Some(&adjustables.cloud_bottom_height),
@@ -3653,8 +3557,6 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "grass_bottom_light_color" => Some(&adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&adjustables.grass_tip_dark_color),
         "grass_tip_light_color" => Some(&adjustables.grass_tip_light_color),
-        "ocean_deep_color" => Some(&adjustables.ocean_deep_color),
-        "ocean_shallow_color" => Some(&adjustables.ocean_shallow_color),
         "ember_bloom_bottom_color" => Some(&adjustables.ember_bloom_bottom_color),
         "ember_bloom_tip_color" => Some(&adjustables.ember_bloom_tip_color),
         "leaves_bottom_color" => Some(&adjustables.leaves_bottom_color),
@@ -3770,10 +3672,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_paddle_frequency_wind_knee_bias" => Some(&mut adjustables.leaf_paddle_frequency_wind_knee_bias),
         "leaf_paddle_frequency_min_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_min_multiplier),
         "leaf_paddle_frequency_max_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_max_multiplier),
-        "ocean_normal_amplitude" => Some(&mut adjustables.ocean_normal_amplitude),
-        "ocean_noise_frequency" => Some(&mut adjustables.ocean_noise_frequency),
-        "ocean_time_multiplier" => Some(&mut adjustables.ocean_time_multiplier),
-        "ocean_sea_level_shift" => Some(&mut adjustables.ocean_sea_level_shift),
         "cloud_coverage" => Some(&mut adjustables.cloud_coverage),
         "cloud_density" => Some(&mut adjustables.cloud_density),
         "cloud_bottom_height" => Some(&mut adjustables.cloud_bottom_height),
@@ -3914,8 +3812,6 @@ pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "grass_bottom_light_color" => Some(&mut adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&mut adjustables.grass_tip_dark_color),
         "grass_tip_light_color" => Some(&mut adjustables.grass_tip_light_color),
-        "ocean_deep_color" => Some(&mut adjustables.ocean_deep_color),
-        "ocean_shallow_color" => Some(&mut adjustables.ocean_shallow_color),
         "ember_bloom_bottom_color" => Some(&mut adjustables.ember_bloom_bottom_color),
         "ember_bloom_tip_color" => Some(&mut adjustables.ember_bloom_tip_color),
         "leaves_bottom_color" => Some(&mut adjustables.leaves_bottom_color),
