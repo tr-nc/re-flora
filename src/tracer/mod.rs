@@ -82,8 +82,8 @@ struct GlassPushConstants {
     box_max_far_alpha: [f32; 4],
 }
 
-const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.11;
-const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.34;
+const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.045;
+const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.12;
 
 #[derive(Debug, Clone)]
 pub struct WindGuiParams {
