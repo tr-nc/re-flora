@@ -31,10 +31,7 @@ mod buffer_updater;
 use buffer_updater::*;
 
 use glam::{Mat4, UVec3, Vec2, Vec3};
-use winit::{
-    event::{ElementState, KeyEvent},
-    keyboard::{KeyCode, PhysicalKey},
-};
+use winit::event::KeyEvent;
 
 const LEAF_INSTANCE_TYPE: u32 = 4;
 const APPLE_INSTANCE_TYPE: u32 = 5;
@@ -211,9 +208,6 @@ pub struct Tracer {
     camera_view_mat_prev_frame: Mat4,
     camera_proj_mat_prev_frame: Mat4,
     current_view_proj_mat: Mat4,
-    scene_rotation_y: f32,
-    scene_rotating_left: bool,
-    scene_rotating_right: bool,
     shadow_camera_initialized: bool,
     shadow_map_history_valid: bool,
     leaf_shadow_history_valid: bool,
@@ -244,18 +238,6 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
-    const SCENE_ROTATION_SPEED_RAD_PER_SEC: f32 = std::f32::consts::FRAC_PI_2;
-
-    fn scene_center_for_bound(chunk_bound: UAabb3) -> Vec3 {
-        let min = chunk_bound.min().as_vec3();
-        let max = chunk_bound.max().as_vec3();
-        (min + max) * 0.5
-    }
-
-    fn scene_center(&self) -> Vec3 {
-        Self::scene_center_for_bound(self.chunk_bound)
-    }
-
     fn default_camera_pose_for_bound(chunk_bound: UAabb3) -> (Vec3, f32, f32) {
         let min = chunk_bound.min().as_vec3();
         let max = chunk_bound.max().as_vec3();
@@ -270,32 +252,6 @@ impl Tracer {
         let horizontal_len = Vec2::new(look_direction.x, look_direction.z).length();
         let pitch_deg = look_direction.y.atan2(horizontal_len).to_degrees();
         (camera_position, yaw_deg, pitch_deg)
-    }
-
-    fn scene_model_mat(&self) -> Mat4 {
-        let center = self.scene_center();
-        Mat4::from_translation(center)
-            * Mat4::from_rotation_y(self.scene_rotation_y)
-            * Mat4::from_translation(-center)
-    }
-
-    fn scene_view_mat(&self) -> Mat4 {
-        self.camera.get_view_mat() * self.scene_model_mat()
-    }
-
-    fn update_scene_rotation(&mut self, frame_delta_time: f32) {
-        let direction = match (self.scene_rotating_left, self.scene_rotating_right) {
-            (true, false) => -1.0,
-            (false, true) => 1.0,
-            _ => 0.0,
-        };
-        self.scene_rotation_y +=
-            direction * Self::SCENE_ROTATION_SPEED_RAD_PER_SEC * frame_delta_time;
-        if self.scene_rotation_y > std::f32::consts::PI {
-            self.scene_rotation_y -= std::f32::consts::TAU;
-        } else if self.scene_rotation_y < -std::f32::consts::PI {
-            self.scene_rotation_y += std::f32::consts::TAU;
-        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -423,9 +379,6 @@ impl Tracer {
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
             current_view_proj_mat: Mat4::IDENTITY,
-            scene_rotation_y: 0.0,
-            scene_rotating_left: false,
-            scene_rotating_right: false,
             shadow_camera_initialized: false,
             shadow_map_history_valid: false,
             leaf_shadow_history_valid: false,
@@ -772,9 +725,7 @@ impl Tracer {
         voxel_rock_color: Vec3,
         voxel_color_variance: f32,
     ) -> Result<()> {
-        // camera info.  The camera itself stays fixed; scene rotation is folded into
-        // the view matrix so the terrain turns around the ecobox center on screen.
-        let view_mat = self.scene_view_mat();
+        let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
         BufferUpdater::update_camera_info(
@@ -933,7 +884,7 @@ impl Tracer {
         // Update the a_trous_iteration_count field
         self.a_trous_iteration_count = a_trous_iteration_count;
 
-        self.camera_view_mat_prev_frame = self.scene_view_mat();
+        self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
 
         Ok(())
@@ -2556,24 +2507,20 @@ impl Tracer {
     }
 
     pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
-        if let PhysicalKey::Code(code) = key_event.physical_key {
-            let pressed = key_event.state == ElementState::Pressed;
-            match code {
-                KeyCode::KeyA => self.scene_rotating_left = pressed,
-                KeyCode::KeyD => self.scene_rotating_right = pressed,
-                _ => {}
-            }
-        }
+        self.camera.handle_keyboard(key_event);
     }
 
     pub fn reset_camera_input(&mut self) {
-        self.scene_rotating_left = false;
-        self.scene_rotating_right = false;
+        self.camera.reset_input();
     }
 
-    pub fn handle_mouse(&mut self, _delta: Vec2) {}
+    pub fn handle_mouse(&mut self, delta: Vec2) {
+        self.camera.handle_mouse(delta);
+    }
 
-    pub fn reset_camera_velocity(&mut self) {}
+    pub fn reset_camera_velocity(&mut self) {
+        self.camera.reset_velocity();
+    }
 
     pub fn camera_position(&self) -> Vec3 {
         self.camera.position()
@@ -2585,7 +2532,7 @@ impl Tracer {
 
     pub fn apply_camera_pose(&mut self, pose: CameraPose) {
         self.camera.apply_pose(pose);
-        let view_mat = self.scene_view_mat();
+        let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.camera_view_mat_prev_frame = view_mat;
         self.camera_proj_mat_prev_frame = proj_mat;
@@ -2629,7 +2576,7 @@ impl Tracer {
         }
         world /= world.w;
 
-        let camera_pos = self.scene_view_mat().inverse().w_axis.truncate();
+        let camera_pos = self.camera.position();
         let world_pos = Vec3::new(world.x, world.y, world.z);
         let direction = (world_pos - camera_pos).normalize_or_zero();
         if direction.length_squared() <= 1e-6 {
@@ -2649,9 +2596,8 @@ impl Tracer {
     }
 
     pub fn update_camera(&mut self, frame_delta_time: f32, _is_fly_mode: bool) {
-        self.update_scene_rotation(frame_delta_time);
+        self.camera.update_transform(frame_delta_time);
 
-        // update spatial sound manager with fixed camera (listener) position
         self.spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
             .unwrap();

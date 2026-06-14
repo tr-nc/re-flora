@@ -1,8 +1,85 @@
 use super::{vectors::CameraVectors, CameraDesc};
 use crate::audio::SpatialSoundManager;
 use anyhow::Result;
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use verdarium_vkn::Extent2D;
+use winit::{
+    event::{ElementState, KeyEvent},
+    keyboard::{KeyCode, PhysicalKey},
+};
+
+/// Tracks keyboard state for free-flight movement.
+#[derive(Debug, Clone)]
+struct FlyMovement {
+    forward: bool,
+    backward: bool,
+    left: bool,
+    right: bool,
+    up: bool,
+    down: bool,
+    boost: bool,
+}
+
+impl FlyMovement {
+    fn new() -> Self {
+        Self {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false,
+            up: false,
+            down: false,
+            boost: false,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.forward = false;
+        self.backward = false;
+        self.left = false;
+        self.right = false;
+        self.up = false;
+        self.down = false;
+        self.boost = false;
+    }
+
+    fn handle_key(&mut self, code: KeyCode, pressed: bool) {
+        match code {
+            KeyCode::KeyW => self.forward = pressed,
+            KeyCode::KeyS => self.backward = pressed,
+            KeyCode::KeyA => self.left = pressed,
+            KeyCode::KeyD => self.right = pressed,
+            KeyCode::Space => self.up = pressed,
+            KeyCode::ControlLeft => self.down = pressed,
+            KeyCode::ShiftLeft => self.boost = pressed,
+            _ => {}
+        }
+    }
+
+    fn velocity(&self, front: Vec3, right: Vec3, up: Vec3, speed: f32) -> Vec3 {
+        let mut vel = Vec3::ZERO;
+        if self.forward {
+            vel += front;
+        }
+        if self.backward {
+            vel -= front;
+        }
+        if self.left {
+            vel -= right;
+        }
+        if self.right {
+            vel += right;
+        }
+        if self.up {
+            vel += up;
+        }
+        if self.down {
+            vel -= up;
+        }
+        let speed = if self.boost { speed * 2.2 } else { speed };
+        vel.normalize_or_zero() * speed
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraPose {
@@ -18,6 +95,8 @@ pub struct Camera {
     pitch: f32,
     vectors: CameraVectors,
     desc: CameraDesc,
+    fly: FlyMovement,
+    normal_speed: f32,
 }
 
 impl Camera {
@@ -34,6 +113,8 @@ impl Camera {
             yaw: initial_yaw.to_radians(),
             pitch: initial_pitch.to_radians(),
             desc,
+            fly: FlyMovement::new(),
+            normal_speed: 0.25,
         };
 
         camera.vectors.update(camera.yaw, camera.pitch);
@@ -106,16 +187,49 @@ impl Camera {
         self.limit_yaw();
         self.clamp_pitch();
         self.vectors.update(self.yaw, self.pitch);
+        self.reset_velocity();
+        self.fly.reset();
+    }
+
+    // ---- free-flight input & update ----
+
+    pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
+        if let PhysicalKey::Code(code) = key_event.physical_key {
+            self.fly
+                .handle_key(code, key_event.state == ElementState::Pressed);
+        }
+    }
+
+    pub fn handle_mouse(&mut self, delta: Vec2) {
+        const SENSITIVITY_MULTIPLIER: f32 = 0.001;
+        self.yaw += delta.x * SENSITIVITY_MULTIPLIER;
+        self.pitch -= delta.y * SENSITIVITY_MULTIPLIER;
+        self.limit_yaw();
+        self.clamp_pitch();
+        self.vectors.update(self.yaw, self.pitch);
+    }
+
+    pub fn reset_input(&mut self) {
+        self.fly.reset();
+    }
+
+    pub fn reset_velocity(&mut self) {}
+
+    pub fn update_transform(&mut self, frame_delta_time: f32) {
+        self.position += self.fly.velocity(
+            self.vectors.front,
+            self.vectors.right,
+            self.vectors.up,
+            self.normal_speed,
+        ) * frame_delta_time;
     }
 
     /// Limits the yaw to prevent the camera from spinning indefinitely.
-    /// The yaw is clamped to the range (-π, π).
     fn limit_yaw(&mut self) {
         if self.yaw > std::f32::consts::PI {
-            self.yaw -= 2.0 * std::f32::consts::PI;
-        }
-        if self.yaw < -std::f32::consts::PI {
-            self.yaw += 2.0 * std::f32::consts::PI;
+            self.yaw -= std::f32::consts::TAU;
+        } else if self.yaw < -std::f32::consts::PI {
+            self.yaw += std::f32::consts::TAU;
         }
     }
 
