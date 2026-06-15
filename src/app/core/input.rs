@@ -1,6 +1,7 @@
 use super::ui_style::{
-    HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT, MAX_VOXEL_STORAGE_PER_TYPE, SHOVEL_SLOT_INDEX,
-    SMOOTH_SLOT_INDEX, STAFF_SLOT_INDEX, WATER_SLOT_INDEX,
+    HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_SLOT_COUNT, MAX_VOXEL_STORAGE_PER_TYPE,
+    SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX,
+    STAFF_TOOL_ACCENT, WATER_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
@@ -40,15 +41,39 @@ impl App {
     }
 
     pub(super) fn is_terrain_edit_radius_tool_selected(&self) -> bool {
-        self.is_shovel_selected() || self.is_smooth_selected()
+        self.is_shovel_selected()
+            || self.is_smooth_selected()
+            || self.is_staff_selected()
+            || self.is_hoe_selected()
+            || self.is_water_tool_selected()
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
-        if self.is_smooth_selected() {
+        if self.is_smooth_selected() || self.is_water_tool_selected() {
             TerrainEditPreviewShape::SurfaceCircle
         } else {
             TerrainEditPreviewShape::Sphere
         }
+    }
+
+    pub(super) fn terrain_edit_preview_color(&self) -> Vec3 {
+        let color = if self.is_smooth_selected() {
+            SMOOTH_TOOL_ACCENT
+        } else if self.is_staff_selected() {
+            STAFF_TOOL_ACCENT
+        } else if self.is_hoe_selected() {
+            HOE_TOOL_ACCENT
+        } else if self.is_water_tool_selected() {
+            WATER_TOOL_ACCENT
+        } else {
+            SHOVEL_TOOL_ACCENT
+        };
+
+        Vec3::new(
+            color.r() as f32 / 255.0,
+            color.g() as f32 / 255.0,
+            color.b() as f32 / 255.0,
+        )
     }
 
     pub(super) fn is_staff_selected(&self) -> bool {
@@ -458,7 +483,7 @@ impl App {
 
                 if let Err(err) = self.apply_surface_flora_regeneration(TerrainRemovalEdit {
                     center,
-                    radius: super::TERRAIN_EDIT_DEFAULT_RADIUS,
+                    radius: self.player_tools.terrain_edit_radius,
                 }) {
                     log::error!("Failed to apply flora regeneration: {}", err);
                     return;
@@ -585,7 +610,7 @@ impl App {
 
                 if let Err(err) = self.apply_flora_trim(TerrainRemovalEdit {
                     center,
-                    radius: super::TERRAIN_EDIT_DEFAULT_RADIUS,
+                    radius: self.player_tools.terrain_edit_radius,
                 }) {
                     log::error!("Failed to apply flora trim: {}", err);
                     return;
@@ -612,7 +637,7 @@ impl App {
                 self.water_sim.request_debug_particle_spawn(
                     center,
                     super::WATER_DEBUG_SPAWN_COUNT,
-                    super::WATER_DEBUG_SPAWN_RADIUS,
+                    self.player_tools.terrain_edit_radius,
                 );
             }
             Ok(None) => {}

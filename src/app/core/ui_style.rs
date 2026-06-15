@@ -43,6 +43,12 @@ pub(crate) const HOE_SLOT_INDEX: usize = 3;
 pub(crate) const WATER_SLOT_INDEX: usize = 4;
 pub(crate) const MAX_VOXEL_STORAGE_PER_TYPE: u32 = 200_000;
 
+pub(crate) const SHOVEL_TOOL_ACCENT: Color32 = Color32::from_rgb(178, 124, 80);
+pub(crate) const SMOOTH_TOOL_ACCENT: Color32 = Color32::from_rgb(190, 156, 106);
+pub(crate) const STAFF_TOOL_ACCENT: Color32 = Color32::from_rgb(129, 189, 122);
+pub(crate) const HOE_TOOL_ACCENT: Color32 = Color32::from_rgb(219, 128, 152);
+pub(crate) const WATER_TOOL_ACCENT: Color32 = Color32::from_rgb(96, 171, 218);
+
 pub(crate) struct ItemPanelSlot<'a> {
     pub index: usize,
     pub label: &'static str,

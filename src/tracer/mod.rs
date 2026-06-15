@@ -750,6 +750,7 @@ impl Tracer {
         terrain_edit_preview_center: Option<Vec3>,
         terrain_edit_preview_radius: f32,
         terrain_edit_preview_shape: TerrainEditPreviewShape,
+        terrain_edit_preview_color: Vec3,
     ) -> Result<()> {
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
@@ -813,6 +814,7 @@ impl Tracer {
             terrain_edit_preview_center,
             terrain_edit_preview_radius,
             terrain_edit_preview_shape,
+            terrain_edit_preview_color,
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);

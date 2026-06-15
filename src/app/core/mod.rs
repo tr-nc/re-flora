@@ -63,13 +63,13 @@ use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_item_panel, draw_voxel_palette, ItemPanelSlot, VoxelPaletteEntry,
     CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT, HOE_SLOT_INDEX,
-    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
+    HOE_TOOL_ACCENT, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
-    SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX, STAFF_SLOT_INDEX,
-    WATER_SLOT_INDEX,
+    SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
+    SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, WATER_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use verdarium_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -339,7 +339,6 @@ const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
 const TERRAIN_SMOOTH_MAX_DELTA: f32 = 0.025;
 const TERRAIN_SMOOTH_DEADBAND: f32 = 0.0035;
 const WATER_DEBUG_SPAWN_COUNT: usize = 48;
-const WATER_DEBUG_SPAWN_RADIUS: f32 = 0.12;
 const TERRAIN_EDIT_LOOP_PATH: &str =
     "assets/sfx/ROCKMisc_Designed Rock Movement Loop A_SARM_RkBrck_Stereo-Loop.wav";
 const TERRAIN_EDIT_LOOP_VOLUME_DB: f32 = 20.0;
@@ -1448,6 +1447,7 @@ impl App {
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_preview_center = self.terrain_edit_hover_center();
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
+                let terrain_edit_preview_color = self.terrain_edit_preview_color();
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -1873,7 +1873,7 @@ impl App {
                                 label: "Dig",
                                 key_hint: "1",
                                 icon: item_panel_shovel_icon.as_ref(),
-                                accent: Color32::from_rgb(178, 124, 80),
+                                accent: SHOVEL_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
@@ -1881,7 +1881,7 @@ impl App {
                                 label: "Smooth",
                                 key_hint: "2",
                                 icon: item_panel_smooth_icon.as_ref(),
-                                accent: Color32::from_rgb(190, 156, 106),
+                                accent: SMOOTH_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
@@ -1889,7 +1889,7 @@ impl App {
                                 label: "Grow",
                                 key_hint: "3",
                                 icon: item_panel_staff_icon.as_ref(),
-                                accent: Color32::from_rgb(129, 189, 122),
+                                accent: STAFF_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
@@ -1897,7 +1897,7 @@ impl App {
                                 label: "Trim",
                                 key_hint: "4",
                                 icon: item_panel_hoe_icon.as_ref(),
-                                accent: Color32::from_rgb(219, 128, 152),
+                                accent: HOE_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
@@ -1905,7 +1905,7 @@ impl App {
                                 label: "Water",
                                 key_hint: "5",
                                 icon: item_panel_water_icon.as_ref(),
-                                accent: Color32::from_rgb(96, 171, 218),
+                                accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
                         ];
@@ -2339,6 +2339,7 @@ impl App {
                         terrain_edit_preview_center,
                         self.player_tools.terrain_edit_radius,
                         terrain_edit_preview_shape,
+                        terrain_edit_preview_color,
                     )
                     .unwrap();
 
