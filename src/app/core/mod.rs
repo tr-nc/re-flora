@@ -1236,6 +1236,9 @@ impl App {
                 return;
             }
         }
+        if let WindowEvent::CursorMoved { position, .. } = &event {
+            self.cursor_position_physical = Some(Vec2::new(position.x as f32, position.y as f32));
+        }
 
         // Feed GUI-visible events to egui first. Keep keyboard movement available while panels are
         // merely open, but reserve keyboard input for egui while a text/numeric edit has focus.
@@ -1337,10 +1340,7 @@ impl App {
                     self.tracer.handle_keyboard(&event);
                 }
             }
-            WindowEvent::CursorMoved { position, .. } => {
-                self.cursor_position_physical =
-                    Some(Vec2::new(position.x as f32, position.y as f32));
-            }
+            WindowEvent::CursorMoved { .. } => {}
             WindowEvent::MouseInput { state, button, .. } => {
                 self.set_tool_mouse_button_state(button, state);
 
