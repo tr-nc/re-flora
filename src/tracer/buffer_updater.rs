@@ -3,7 +3,9 @@ use crate::generated::gpu_structs::{
     ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, TerrainEditPreview,
     VoxelColors,
 };
-use crate::tracer::{CloudGuiParams, TracerResources, WindGuiParams, WindSourceGpu};
+use crate::tracer::{
+    CloudGuiParams, TerrainEditPreviewShape, TracerResources, WindGuiParams, WindSourceGpu,
+};
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{Mat4, Vec3};
@@ -219,6 +221,7 @@ impl BufferUpdater {
         resources: &TracerResources,
         center: Option<Vec3>,
         radius: f32,
+        shape: TerrainEditPreviewShape,
     ) -> Result<()> {
         let enabled = center.is_some() && radius > 0.0;
         resources
@@ -230,6 +233,7 @@ impl BufferUpdater {
                 color: [1.0, 0.04, 0.02],
                 strength: 0.72,
                 enabled: enabled as u32,
+                shape: shape.as_u32(),
                 ..TerrainEditPreview::zeroed()
             })
     }

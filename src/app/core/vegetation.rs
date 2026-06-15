@@ -1371,7 +1371,7 @@ mod tests {
     fn terrain_surface_removal_bvh_reaches_positive_atlas_edge() {
         let compiled = TerrainSurfaceRemovalService::compile(TerrainRemovalEdit {
             center: Vec3::new(1.0, 0.5, 0.5),
-            radius: super::super::SHOVEL_REMOVE_RADIUS,
+            radius: super::super::TERRAIN_EDIT_DEFAULT_RADIUS,
         })
         .expect("edge-overlapping edit should compile");
 

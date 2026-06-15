@@ -329,14 +329,12 @@ const CHUNK_DIM: UVec3 = UVec3::new(1, 1, 1);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const GPU_PROFILER_MAX_SCOPES_PER_FRAME: usize = 64;
-const SHOVEL_DEFAULT_RADIUS: f32 = 0.08;
-const SHOVEL_REMOVE_RADIUS: f32 = SHOVEL_DEFAULT_RADIUS;
-const SHOVEL_RADIUS_MIN: f32 = 0.03;
-const SHOVEL_RADIUS_MAX: f32 = 0.18;
-const SHOVEL_RADIUS_SCROLL_STEP: f32 = 0.01;
+const TERRAIN_EDIT_DEFAULT_RADIUS: f32 = 0.08;
+const TERRAIN_EDIT_RADIUS_MIN: f32 = 0.03;
+const TERRAIN_EDIT_RADIUS_MAX: f32 = 0.18;
+const TERRAIN_EDIT_RADIUS_SCROLL_STEP: f32 = 0.01;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
-const TERRAIN_SMOOTH_RADIUS: f32 = SHOVEL_REMOVE_RADIUS;
 const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
 const TERRAIN_SMOOTH_MAX_DELTA: f32 = 0.025;
 const TERRAIN_SMOOTH_DEADBAND: f32 = 0.0035;
@@ -1315,12 +1313,14 @@ impl App {
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
-                if !self.window_state.is_cursor_visible() && self.is_shovel_selected() {
+                if !self.window_state.is_cursor_visible()
+                    && self.is_terrain_edit_radius_tool_selected()
+                {
                     let scroll_lines = match delta {
                         MouseScrollDelta::LineDelta(_, y) => y,
                         MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 120.0,
                     };
-                    self.adjust_shovel_radius(scroll_lines);
+                    self.adjust_terrain_edit_radius(scroll_lines);
                 }
             }
 
@@ -1446,7 +1446,8 @@ impl App {
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_voxel_type = None;
                 let current_camera_pose = self.tracer.camera_pose();
-                let shovel_edit_preview_center = self.shovel_hover_center();
+                let terrain_edit_preview_center = self.terrain_edit_hover_center();
+                let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -2335,8 +2336,9 @@ impl App {
                             self.gui_adjustables.voxel_rock_color.value.b() as f32 / 255.0,
                         ),
                         self.gui_adjustables.voxel_color_variance.value,
-                        shovel_edit_preview_center,
-                        self.player_tools.shovel_radius,
+                        terrain_edit_preview_center,
+                        self.player_tools.terrain_edit_radius,
+                        terrain_edit_preview_shape,
                     )
                     .unwrap();
 

@@ -651,7 +651,8 @@ pub struct TerrainEditPreview {
     pub color: [f32; 3],
     pub strength: f32,
     pub enabled: u32,
-    pub _pad0: [u8; 12],
+    pub shape: u32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_TerrainQueryCount` (GLSL source of truth).

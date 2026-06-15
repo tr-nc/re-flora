@@ -91,6 +91,21 @@ pub struct WindGuiParams {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub enum TerrainEditPreviewShape {
+    Sphere,
+    SurfaceCircle,
+}
+
+impl TerrainEditPreviewShape {
+    fn as_u32(self) -> u32 {
+        match self {
+            Self::Sphere => 0,
+            Self::SurfaceCircle => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct CloudGuiParams {
     pub enabled: bool,
     pub coverage: f32,
@@ -734,6 +749,7 @@ impl Tracer {
         voxel_color_variance: f32,
         terrain_edit_preview_center: Option<Vec3>,
         terrain_edit_preview_radius: f32,
+        terrain_edit_preview_shape: TerrainEditPreviewShape,
     ) -> Result<()> {
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
@@ -796,6 +812,7 @@ impl Tracer {
             &self.resources,
             terrain_edit_preview_center,
             terrain_edit_preview_radius,
+            terrain_edit_preview_shape,
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);

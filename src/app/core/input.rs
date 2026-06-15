@@ -5,6 +5,7 @@ use super::ui_style::{
 use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::builder::{ChunkModifyStats, EDIT_STATS_VOXEL_TYPE_COUNT};
+use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
 use std::time::Instant;
 use winit::event::DeviceEvent;
@@ -36,6 +37,18 @@ impl App {
 
     pub(super) fn is_smooth_selected(&self) -> bool {
         self.player_tools.selected_item_panel_slot == SMOOTH_SLOT_INDEX
+    }
+
+    pub(super) fn is_terrain_edit_radius_tool_selected(&self) -> bool {
+        self.is_shovel_selected() || self.is_smooth_selected()
+    }
+
+    pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
+        if self.is_smooth_selected() {
+            TerrainEditPreviewShape::SurfaceCircle
+        } else {
+            TerrainEditPreviewShape::Sphere
+        }
     }
 
     pub(super) fn is_staff_selected(&self) -> bool {
@@ -345,7 +358,7 @@ impl App {
                     .apply_surface_terrain_removal(
                         TerrainRemovalEdit {
                             center,
-                            radius: self.player_tools.shovel_radius,
+                            radius: self.player_tools.terrain_edit_radius,
                         },
                         self.active_voxel_type_id(),
                         Some(remaining_capacity),
@@ -404,7 +417,7 @@ impl App {
 
                 if let Err(err) = self.apply_surface_terrain_smooth(
                     center,
-                    super::TERRAIN_SMOOTH_RADIUS,
+                    self.player_tools.terrain_edit_radius,
                     super::TERRAIN_SMOOTH_STRENGTH,
                     super::TERRAIN_SMOOTH_MAX_DELTA,
                     super::TERRAIN_SMOOTH_DEADBAND,
@@ -445,7 +458,7 @@ impl App {
 
                 if let Err(err) = self.apply_surface_flora_regeneration(TerrainRemovalEdit {
                     center,
-                    radius: super::SHOVEL_REMOVE_RADIUS,
+                    radius: super::TERRAIN_EDIT_DEFAULT_RADIUS,
                 }) {
                     log::error!("Failed to apply flora regeneration: {}", err);
                     return;
@@ -465,30 +478,33 @@ impl App {
         }
     }
 
-    pub(super) fn adjust_shovel_radius(&mut self, scroll_lines: f32) {
+    pub(super) fn adjust_terrain_edit_radius(&mut self, scroll_lines: f32) {
         if scroll_lines.abs() <= f32::EPSILON {
             return;
         }
 
-        let previous_radius = self.player_tools.shovel_radius;
-        self.player_tools.shovel_radius = (self.player_tools.shovel_radius
-            + scroll_lines * super::SHOVEL_RADIUS_SCROLL_STEP)
-            .clamp(super::SHOVEL_RADIUS_MIN, super::SHOVEL_RADIUS_MAX);
+        let previous_radius = self.player_tools.terrain_edit_radius;
+        self.player_tools.terrain_edit_radius = (self.player_tools.terrain_edit_radius
+            + scroll_lines * super::TERRAIN_EDIT_RADIUS_SCROLL_STEP)
+            .clamp(
+                super::TERRAIN_EDIT_RADIUS_MIN,
+                super::TERRAIN_EDIT_RADIUS_MAX,
+            );
 
-        if (self.player_tools.shovel_radius - previous_radius).abs() > f32::EPSILON {
+        if (self.player_tools.terrain_edit_radius - previous_radius).abs() > f32::EPSILON {
             self.play_item_panel_scroll_sound();
         }
     }
 
-    pub(super) fn shovel_hover_center(&mut self) -> Option<Vec3> {
-        if self.window_state.is_cursor_visible() || !self.is_shovel_selected() {
+    pub(super) fn terrain_edit_hover_center(&mut self) -> Option<Vec3> {
+        if self.window_state.is_cursor_visible() || !self.is_terrain_edit_radius_tool_selected() {
             return None;
         }
 
         match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(hit) => hit,
             Err(err) => {
-                log::error!("Shovel preview terrain query failed: {}", err);
+                log::error!("Terrain edit preview query failed: {}", err);
                 None
             }
         }
@@ -524,7 +540,7 @@ impl App {
                     .apply_surface_terrain_placement(
                         TerrainRemovalEdit {
                             center,
-                            radius: self.player_tools.shovel_radius,
+                            radius: self.player_tools.terrain_edit_radius,
                         },
                         place_voxel_type_id,
                         place_voxel_count,
@@ -569,7 +585,7 @@ impl App {
 
                 if let Err(err) = self.apply_flora_trim(TerrainRemovalEdit {
                     center,
-                    radius: super::SHOVEL_REMOVE_RADIUS,
+                    radius: super::TERRAIN_EDIT_DEFAULT_RADIUS,
                 }) {
                     log::error!("Failed to apply flora trim: {}", err);
                     return;
