@@ -345,7 +345,7 @@ impl App {
                     .apply_surface_terrain_removal(
                         TerrainRemovalEdit {
                             center,
-                            radius: super::SHOVEL_REMOVE_RADIUS,
+                            radius: self.player_tools.shovel_radius,
                         },
                         self.active_voxel_type_id(),
                         Some(remaining_capacity),
@@ -465,24 +465,33 @@ impl App {
         }
     }
 
-    fn blueprint_terrain_particle_centers(&self, raycast_point: Vec3) -> Vec<Vec3> {
-        let spawn_base = raycast_point + Vec3::Y * super::BLUEPRINT_TERRAIN_SPAWN_HEIGHT_OFFSET;
-        let particle_count = super::BLUEPRINT_TERRAIN_SPAWN_PARTICLES.max(1);
-        let golden_angle = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
-        let mut centers = Vec::with_capacity(particle_count);
-
-        for i in 0..particle_count {
-            let t = (i as f32 + 0.5) / particle_count as f32;
-            let radius = super::BLUEPRINT_TERRAIN_SPAWN_RADIUS * t.sqrt();
-            let angle = i as f32 * golden_angle;
-            let spawn_pos = spawn_base + Vec3::new(radius * angle.cos(), 0.0, radius * angle.sin());
-
-            if let Some(hit) = self.query_terrain_ray_cpu(spawn_pos, Vec3::NEG_Y) {
-                centers.push(hit);
-            }
+    pub(super) fn adjust_shovel_radius(&mut self, scroll_lines: f32) {
+        if scroll_lines.abs() <= f32::EPSILON {
+            return;
         }
 
-        centers
+        let previous_radius = self.player_tools.shovel_radius;
+        self.player_tools.shovel_radius = (self.player_tools.shovel_radius
+            + scroll_lines * super::SHOVEL_RADIUS_SCROLL_STEP)
+            .clamp(super::SHOVEL_RADIUS_MIN, super::SHOVEL_RADIUS_MAX);
+
+        if (self.player_tools.shovel_radius - previous_radius).abs() > f32::EPSILON {
+            self.play_item_panel_scroll_sound();
+        }
+    }
+
+    pub(super) fn shovel_hover_center(&mut self) -> Option<Vec3> {
+        if self.window_state.is_cursor_visible() || !self.is_shovel_selected() {
+            return None;
+        }
+
+        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(hit) => hit,
+            Err(err) => {
+                log::error!("Shovel preview terrain query failed: {}", err);
+                None
+            }
+        }
     }
 
     pub(super) fn try_shovel_place(&mut self, now: Instant) {
@@ -502,10 +511,8 @@ impl App {
         let place_voxel_count = self.voxel_count(place_voxel_type);
 
         match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
-            Ok(Some(raycast_point)) => {
-                self.start_terrain_edit_loop_sound(
-                    raycast_point + Vec3::Y * super::BLUEPRINT_TERRAIN_SPAWN_HEIGHT_OFFSET,
-                );
+            Ok(Some(center)) => {
+                self.start_terrain_edit_loop_sound(center);
 
                 if let Some(last_place) = self.player_tools.last_shovel_place_time {
                     if now.duration_since(last_place) < super::SHOVEL_DIG_INTERVAL {
@@ -513,34 +520,25 @@ impl App {
                     }
                 }
 
-                let mut remaining_write_count = place_voxel_count;
-                let mut total_added = 0;
-                for center in self.blueprint_terrain_particle_centers(raycast_point) {
-                    if remaining_write_count == 0 {
-                        break;
-                    }
-
-                    let readback = match self.apply_surface_terrain_placement(
+                if let Err(err) = self
+                    .apply_surface_terrain_placement(
                         TerrainRemovalEdit {
                             center,
-                            radius: super::SHOVEL_REMOVE_RADIUS,
+                            radius: self.player_tools.shovel_radius,
                         },
                         place_voxel_type_id,
-                        remaining_write_count,
-                    ) {
-                        Ok(readback) => readback,
-                        Err(err) => {
-                            log::error!("Failed to apply terrain placement: {}", err);
-                            return;
-                        }
-                    };
-
-                    let added = readback.stats.count_added(place_voxel_type_id);
-                    total_added += added;
-                    remaining_write_count = remaining_write_count.saturating_sub(added);
+                        place_voxel_count,
+                    )
+                    .map(|readback| {
+                        self.remove_voxel_from_backpack(
+                            place_voxel_type,
+                            readback.stats.count_added(place_voxel_type_id),
+                        );
+                    })
+                {
+                    log::error!("Failed to apply terrain placement: {}", err);
+                    return;
                 }
-
-                self.remove_voxel_from_backpack(place_voxel_type, total_added);
                 self.player_tools.last_shovel_place_time = Some(now);
             }
             Ok(None) => {

@@ -2660,6 +2660,31 @@ impl Tracer {
         self.camera.front()
     }
 
+    pub fn project_world_point_to_screen(
+        &self,
+        world_pos: Vec3,
+        screen_extent: Vec2,
+    ) -> Option<Vec2> {
+        if screen_extent.x <= 0.0 || screen_extent.y <= 0.0 {
+            return None;
+        }
+
+        let clip = self.camera.get_proj_mat() * self.camera.get_view_mat() * world_pos.extend(1.0);
+        if clip.w.abs() <= 1e-6 {
+            return None;
+        }
+
+        let ndc = clip.truncate() / clip.w;
+        if !ndc.is_finite() || clip.w <= 0.0 {
+            return None;
+        }
+
+        Some(Vec2::new(
+            (ndc.x + 1.0) * 0.5 * screen_extent.x,
+            (ndc.y + 1.0) * 0.5 * screen_extent.y,
+        ))
+    }
+
     pub fn project_screen_point_to_world(
         &self,
         screen_pos: Vec2,

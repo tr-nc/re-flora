@@ -78,7 +78,7 @@ use verdarium_vkn::{
 use verdarium_vkn::{Swapchain, VulkanContext};
 use verdarium_water::PondWaterConfig;
 use winit::{
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, PhysicalKey},
     window::WindowId,
@@ -94,6 +94,15 @@ struct TerrainSdfColliderRebuildRequest;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct WaterTerrainCacheRebuildRequest;
+
+#[derive(Clone, Debug)]
+struct ShovelEditPreviewOverlay {
+    center: egui::Pos2,
+    outline: Vec<egui::Pos2>,
+    axis_x: [egui::Pos2; 2],
+    axis_z: [egui::Pos2; 2],
+    radius: f32,
+}
 
 pub struct App {
     egui_renderer: EguiRenderer,
@@ -329,16 +338,17 @@ const CHUNK_DIM: UVec3 = UVec3::new(1, 1, 1);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const GPU_PROFILER_MAX_SCOPES_PER_FRAME: usize = 64;
-const SHOVEL_REMOVE_RADIUS: f32 = 0.08;
+const SHOVEL_DEFAULT_RADIUS: f32 = 0.08;
+const SHOVEL_REMOVE_RADIUS: f32 = SHOVEL_DEFAULT_RADIUS;
+const SHOVEL_RADIUS_MIN: f32 = 0.03;
+const SHOVEL_RADIUS_MAX: f32 = 0.18;
+const SHOVEL_RADIUS_SCROLL_STEP: f32 = 0.01;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
 const TERRAIN_SMOOTH_RADIUS: f32 = SHOVEL_REMOVE_RADIUS;
 const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
 const TERRAIN_SMOOTH_MAX_DELTA: f32 = 0.025;
 const TERRAIN_SMOOTH_DEADBAND: f32 = 0.0035;
-const BLUEPRINT_TERRAIN_SPAWN_HEIGHT_OFFSET: f32 = 0.5;
-const BLUEPRINT_TERRAIN_SPAWN_RADIUS: f32 = SHOVEL_REMOVE_RADIUS;
-const BLUEPRINT_TERRAIN_SPAWN_PARTICLES: usize = 8;
 const WATER_DEBUG_SPAWN_COUNT: usize = 48;
 const WATER_DEBUG_SPAWN_RADIUS: f32 = 0.12;
 const TERRAIN_EDIT_LOOP_PATH: &str =
@@ -1142,6 +1152,78 @@ impl App {
         self.vsm_history_reset_pending = true;
     }
 
+    fn shovel_edit_preview_overlay(
+        &self,
+        center: Vec3,
+        radius: f32,
+    ) -> Option<ShovelEditPreviewOverlay> {
+        let screen_resolution = self.window_state.resolution();
+        let screen_extent = Vec2::new(screen_resolution[0], screen_resolution[1]);
+        let center = center + Vec3::Y * 0.01;
+        let center_screen = self
+            .tracer
+            .project_world_point_to_screen(center, screen_extent)?;
+        let center_screen = egui::pos2(center_screen.x, center_screen.y);
+
+        const PREVIEW_SEGMENTS: usize = 48;
+        let mut outline = Vec::with_capacity(PREVIEW_SEGMENTS);
+        for i in 0..PREVIEW_SEGMENTS {
+            let angle = i as f32 / PREVIEW_SEGMENTS as f32 * std::f32::consts::TAU;
+            let world = center + Vec3::new(radius * angle.cos(), 0.0, radius * angle.sin());
+            let screen = self
+                .tracer
+                .project_world_point_to_screen(world, screen_extent)?;
+            outline.push(egui::pos2(screen.x, screen.y));
+        }
+
+        let axis_point = |offset: Vec3| -> Option<egui::Pos2> {
+            self.tracer
+                .project_world_point_to_screen(center + offset, screen_extent)
+                .map(|screen| egui::pos2(screen.x, screen.y))
+        };
+
+        Some(ShovelEditPreviewOverlay {
+            center: center_screen,
+            outline,
+            axis_x: [
+                axis_point(Vec3::new(-radius, 0.0, 0.0))?,
+                axis_point(Vec3::new(radius, 0.0, 0.0))?,
+            ],
+            axis_z: [
+                axis_point(Vec3::new(0.0, 0.0, -radius))?,
+                axis_point(Vec3::new(0.0, 0.0, radius))?,
+            ],
+            radius,
+        })
+    }
+
+    fn draw_shovel_edit_preview_overlay(ctx: &egui::Context, preview: &ShovelEditPreviewOverlay) {
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("shovel_edit_preview"),
+        ));
+        let fill = Color32::from_rgba_premultiplied(255, 40, 32, 34);
+        let stroke = egui::Stroke::new(2.0, Color32::from_rgba_premultiplied(255, 68, 54, 220));
+        let axis_stroke =
+            egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 92, 78, 180));
+
+        painter.add(egui::Shape::convex_polygon(
+            preview.outline.clone(),
+            fill,
+            stroke,
+        ));
+        painter.line_segment(preview.axis_x, axis_stroke);
+        painter.line_segment(preview.axis_z, axis_stroke);
+        painter.circle_filled(preview.center, 3.0, Color32::from_rgb(255, 58, 48));
+        painter.text(
+            preview.center + egui::vec2(10.0, -10.0),
+            egui::Align2::LEFT_BOTTOM,
+            format!("radius {:.2}", preview.radius),
+            egui::FontId::monospace(12.0),
+            Color32::from_rgb(255, 120, 110),
+        );
+    }
+
     fn execute_edit_plan(&mut self, plan: WorldEditPlan) -> Result<()> {
         let affects_shadow_history = !plan.voxel_edits.is_empty() || !plan.build_edits.is_empty();
         world_ops::execute_edit_plan_on_backend(self, plan)?;
@@ -1313,7 +1395,15 @@ impl App {
                 }
             }
 
-            WindowEvent::MouseWheel { .. } => {}
+            WindowEvent::MouseWheel { delta, .. } => {
+                if !self.window_state.is_cursor_visible() && self.is_shovel_selected() {
+                    let scroll_lines = match delta {
+                        MouseScrollDelta::LineDelta(_, y) => y,
+                        MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 120.0,
+                    };
+                    self.adjust_shovel_radius(scroll_lines);
+                }
+            }
 
             // redraw the window
             WindowEvent::RedrawRequested => {
@@ -1437,6 +1527,9 @@ impl App {
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_voxel_type = None;
                 let current_camera_pose = self.tracer.camera_pose();
+                let shovel_edit_preview = self.shovel_hover_center().and_then(|center| {
+                    self.shovel_edit_preview_overlay(center, self.player_tools.shovel_radius)
+                });
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -1951,13 +2044,8 @@ impl App {
                                 });
                             });
 
-                        if self.player_tools.left_mouse_held {
-                            let center = ctx.content_rect().center();
-                            let painter = ctx.layer_painter(egui::LayerId::new(
-                                egui::Order::Foreground,
-                                egui::Id::new("debug_center_dot"),
-                            ));
-                            painter.circle_filled(center, 4.0, Color32::RED);
+                        if let Some(preview) = &shovel_edit_preview {
+                            Self::draw_shovel_edit_preview_overlay(ctx, preview);
                         }
 
                         if self.frame_timing_panel_visible {
