@@ -1,6 +1,6 @@
 use super::ui_style::{
     HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT, MAX_VOXEL_STORAGE_PER_TYPE, SHOVEL_SLOT_INDEX,
-    STAFF_SLOT_INDEX, WATER_SLOT_INDEX,
+    SMOOTH_SLOT_INDEX, STAFF_SLOT_INDEX, WATER_SLOT_INDEX,
 };
 use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
@@ -32,6 +32,10 @@ impl App {
 
     pub(super) fn is_shovel_selected(&self) -> bool {
         self.player_tools.selected_item_panel_slot == SHOVEL_SLOT_INDEX
+    }
+
+    pub(super) fn is_smooth_selected(&self) -> bool {
+        self.player_tools.selected_item_panel_slot == SMOOTH_SLOT_INDEX
     }
 
     pub(super) fn is_staff_selected(&self) -> bool {
@@ -378,6 +382,47 @@ impl App {
             }
             Err(err) => {
                 log::error!("Shovel carve attempt failed during terrain query: {}", err);
+            }
+        }
+    }
+
+    pub(super) fn try_terrain_smooth(&mut self, now: Instant) {
+        if self.window_state.is_cursor_visible() || !self.is_smooth_selected() {
+            self.stop_terrain_edit_loop_sound();
+            return;
+        }
+
+        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) => {
+                self.start_terrain_edit_loop_sound(center);
+
+                if let Some(last_smooth) = self.player_tools.last_smooth_time {
+                    if now.duration_since(last_smooth) < super::SHOVEL_DIG_INTERVAL {
+                        return;
+                    }
+                }
+
+                if let Err(err) = self.apply_surface_terrain_smooth(
+                    center,
+                    super::TERRAIN_SMOOTH_RADIUS,
+                    super::TERRAIN_SMOOTH_STRENGTH,
+                    super::TERRAIN_SMOOTH_MAX_DELTA,
+                    super::TERRAIN_SMOOTH_DEADBAND,
+                ) {
+                    log::error!("Failed to apply terrain smoothing: {}", err);
+                    return;
+                }
+                self.player_tools.last_smooth_time = Some(now);
+            }
+            Ok(None) => {
+                self.stop_terrain_edit_loop_sound();
+                self.player_tools.last_smooth_time = Some(now);
+            }
+            Err(err) => {
+                log::error!(
+                    "Terrain smoothing attempt failed during terrain query: {}",
+                    err
+                );
             }
         }
     }

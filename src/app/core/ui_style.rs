@@ -22,6 +22,10 @@ pub(crate) const ITEM_PANEL_STAFF_ICON_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/4_Wooden_Staff.PNG";
 pub(crate) const ITEM_PANEL_STAFF_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/4_Wooden_Staff.PNG";
+pub(crate) const ITEM_PANEL_SMOOTH_ICON_PATH: &str =
+    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG";
+pub(crate) const ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH: &str =
+    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/26_Copper_Hoe.PNG";
 pub(crate) const ITEM_PANEL_HOE_ICON_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG";
 pub(crate) const ITEM_PANEL_HOE_ICON_FALLBACK_PATH: &str =
@@ -30,11 +34,12 @@ pub(crate) const ITEM_PANEL_WATER_ICON_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/15_Wooden_Watering_Can.PNG";
 pub(crate) const ITEM_PANEL_WATER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/30_Copper_Watering_Can.PNG";
-pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 4;
+pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 5;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 0;
-pub(crate) const STAFF_SLOT_INDEX: usize = 1;
-pub(crate) const HOE_SLOT_INDEX: usize = 2;
-pub(crate) const WATER_SLOT_INDEX: usize = 3;
+pub(crate) const SMOOTH_SLOT_INDEX: usize = 1;
+pub(crate) const STAFF_SLOT_INDEX: usize = 2;
+pub(crate) const HOE_SLOT_INDEX: usize = 3;
+pub(crate) const WATER_SLOT_INDEX: usize = 4;
 pub(crate) const MAX_VOXEL_STORAGE_PER_TYPE: u32 = 200_000;
 
 pub(crate) struct ItemPanelSlot<'a> {

@@ -7,7 +7,7 @@ use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::util::ShaderCompiler;
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
-use glam::{IVec3, UVec3, Vec3};
+use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 pub use resources::*;
 use std::convert::TryInto;
 use std::time::{Duration, Instant};
@@ -143,6 +143,28 @@ struct EditRemovalSampleReadback {
     positions: [[f32; 4]; EDIT_REMOVAL_SAMPLE_COUNT],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct TerrainSmoothInfoGpu {
+    offset: [u32; 3],
+    _pad0: u32,
+    dim: [u32; 3],
+    _pad1: u32,
+    center_xz_vox: [f32; 2],
+    brush_radius_vox: f32,
+    kernel_radius_vox: f32,
+    strength: f32,
+    max_delta_vox: f32,
+    deadband_vox: f32,
+    _pad2: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+struct TerrainSmoothResultGpu {
+    changed_voxel_count: u32,
+}
+
 pub struct PlainBuilder {
     vulkan_ctx: VulkanContext,
     resources: PlainBuilderResources,
@@ -154,6 +176,9 @@ pub struct PlainBuilder {
     #[allow(dead_code)]
     chunk_init_ppl: ComputePipeline,
     heightmap_ppl: ComputePipeline,
+    terrain_smooth_heights_ppl: ComputePipeline,
+    terrain_smooth_target_ppl: ComputePipeline,
+    terrain_smooth_apply_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
     chunk_solid_sample_ppl: ComputePipeline,
@@ -228,6 +253,27 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let terrain_smooth_heights_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_smooth_heights.comp",
+            "main",
+        )
+        .unwrap();
+        let terrain_smooth_target_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_smooth_target.comp",
+            "main",
+        )
+        .unwrap();
+        let terrain_smooth_apply_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_smooth_apply.comp",
+            "main",
+        )
+        .unwrap();
 
         let resources = PlainBuilderResources::new(
             device,
@@ -240,6 +286,8 @@ impl PlainBuilder {
             &chunk_solid_sample_sm,
             &model_voxelize_sm,
             &heightmap_sm,
+            &terrain_smooth_heights_sm,
+            &terrain_smooth_apply_sm,
         );
 
         let pool = DescriptorPool::new(device).unwrap();
@@ -247,6 +295,12 @@ impl PlainBuilder {
         let buffer_setup_ppl = ComputePipeline::new(device, &buffer_setup_sm, &pool, &[&resources]);
         let chunk_init_ppl = ComputePipeline::new(device, &chunk_init_sm, &pool, &[&resources]);
         let heightmap_ppl = ComputePipeline::new(device, &heightmap_sm, &pool, &[&resources]);
+        let terrain_smooth_heights_ppl =
+            ComputePipeline::new(device, &terrain_smooth_heights_sm, &pool, &[&resources]);
+        let terrain_smooth_target_ppl =
+            ComputePipeline::new(device, &terrain_smooth_target_sm, &pool, &[&resources]);
+        let terrain_smooth_apply_ppl =
+            ComputePipeline::new(device, &terrain_smooth_apply_sm, &pool, &[&resources]);
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
         let chunk_modify_sample_ppl =
             ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
@@ -273,6 +327,9 @@ impl PlainBuilder {
             buffer_setup_ppl,
             chunk_init_ppl,
             heightmap_ppl,
+            terrain_smooth_heights_ppl,
+            terrain_smooth_target_ppl,
+            terrain_smooth_apply_ppl,
             chunk_modify_ppl,
             chunk_modify_sample_ppl,
             chunk_solid_sample_ppl,
@@ -648,6 +705,88 @@ impl PlainBuilder {
                 ..RegionInfo::zeroed()
             })
         }
+    }
+
+    pub fn smooth_terrain_dirt(
+        &mut self,
+        center: Vec3,
+        brush_radius_world: f32,
+        strength: f32,
+        max_delta_world: f32,
+        deadband_world: f32,
+    ) -> Result<Option<UAabb3>> {
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let center_xz_vox = Vec2::new(center.x, center.z) * 256.0;
+        let brush_radius_vox = (brush_radius_world * 256.0).max(0.0);
+        if brush_radius_vox <= 0.0 {
+            return Ok(None);
+        }
+
+        let kernel_radius_vox = (brush_radius_vox * 0.35).clamp(2.0, 12.0);
+        let sample_radius_vox = brush_radius_vox + kernel_radius_vox;
+        let Some((offset_xz, dim_xz)) =
+            clipped_column_rect(center_xz_vox, sample_radius_vox, atlas_dim)
+        else {
+            return Ok(None);
+        };
+
+        let dim = UVec3::new(dim_xz.x, atlas_dim.y, dim_xz.y);
+        let offset = UVec3::new(offset_xz.x, 0, offset_xz.y);
+        self.resources
+            .terrain_smooth_info
+            .fill_uniform(&TerrainSmoothInfoGpu {
+                offset: offset.to_array(),
+                _pad0: 0,
+                dim: dim.to_array(),
+                _pad1: 0,
+                center_xz_vox: center_xz_vox.to_array(),
+                brush_radius_vox,
+                kernel_radius_vox,
+                strength: strength.clamp(0.0, 1.0),
+                max_delta_vox: (max_delta_world * 256.0).max(0.0),
+                deadband_vox: (deadband_world * 256.0).max(0.0),
+                _pad2: 0.0,
+            })?;
+        clear_terrain_smooth_result(&self.resources)?;
+
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
+        execute_one_time_command(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.terrain_smooth_heights_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(dim.x, dim.z, 1),
+                    None,
+                );
+                shader_access_pipeline_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                self.terrain_smooth_target_ppl
+                    .record(cmdbuf, Extent3D::new(dim.x, dim.z, 1), None);
+                shader_access_pipeline_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                self.terrain_smooth_apply_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(dim.x, dim.y, dim.z),
+                    None,
+                );
+            },
+        );
+
+        if read_terrain_smooth_changed_voxel_count(&self.resources)? == 0 {
+            return Ok(None);
+        }
+
+        let Some((brush_offset_xz, brush_dim_xz)) =
+            clipped_column_rect(center_xz_vox, brush_radius_vox, atlas_dim)
+        else {
+            return Ok(None);
+        };
+        let max_x = brush_offset_xz.x + brush_dim_xz.x - 1;
+        let max_z = brush_offset_xz.y + brush_dim_xz.y - 1;
+        Ok(Some(UAabb3::new(
+            UVec3::new(brush_offset_xz.x, 0, brush_offset_xz.y),
+            UVec3::new(max_x, atlas_dim.y.saturating_sub(1), max_z),
+        )))
     }
 
     pub fn chunk_modify(&mut self, bvh_nodes: &[BvhNode], round_cones: &[RoundCone]) -> Result<()> {
@@ -1040,6 +1179,43 @@ fn calculate_clipped_offset_and_dim(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn clipped_column_rect(
+    center_xz_vox: Vec2,
+    radius_vox: f32,
+    atlas_dim: UVec3,
+) -> Option<(UVec2, UVec2)> {
+    let atlas_xz = UVec2::new(atlas_dim.x, atlas_dim.z).as_ivec2();
+    let min = (center_xz_vox - Vec2::splat(radius_vox)).floor().as_ivec2();
+    let max_exclusive = (center_xz_vox + Vec2::splat(radius_vox)).ceil().as_ivec2();
+    let clamped_min = min.clamp(glam::IVec2::ZERO, atlas_xz);
+    let clamped_max = max_exclusive.clamp(glam::IVec2::ZERO, atlas_xz);
+    if clamped_min.x >= clamped_max.x || clamped_min.y >= clamped_max.y {
+        return None;
+    }
+
+    let offset = clamped_min.as_uvec2();
+    let dim = (clamped_max - clamped_min).as_uvec2();
+    Some((offset, dim))
+}
+
+fn clear_terrain_smooth_result(resources: &PlainBuilderResources) -> Result<()> {
+    resources
+        .terrain_smooth_result
+        .fill_uniform(&TerrainSmoothResultGpu::default())
+}
+
+fn read_terrain_smooth_changed_voxel_count(resources: &PlainBuilderResources) -> Result<u32> {
+    let raw = resources.terrain_smooth_result.read_back()?;
+    if raw.len() < std::mem::size_of::<u32>() {
+        return Err(anyhow::anyhow!(
+            "terrain smooth result buffer too small: got {}, need {}",
+            raw.len(),
+            std::mem::size_of::<u32>()
+        ));
+    }
+    Ok(u32::from_ne_bytes(raw[..4].try_into().unwrap()))
+}
+
 fn update_chunk_modify_info(
     resources: &PlainBuilderResources,
     offset: UVec3,

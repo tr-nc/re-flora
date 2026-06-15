@@ -16,6 +16,9 @@ pub struct PlainBuilderResources {
     pub region_info: Resource<Buffer>,
     pub region_indirect: Resource<Buffer>,
     pub heightmap: Resource<Buffer>,
+    pub terrain_smooth_info: Resource<Buffer>,
+    pub terrain_smooth_columns: Resource<Buffer>,
+    pub terrain_smooth_result: Resource<Buffer>,
     pub chunk_modify_info: Resource<Buffer>,
     pub chunk_solid_sample_info: Resource<Buffer>,
     pub chunk_solid_samples: Resource<Buffer>,
@@ -43,6 +46,8 @@ impl PlainBuilderResources {
         chunk_solid_sample_sm: &ShaderModule,
         model_voxelize_sm: &ShaderModule,
         heightmap_sm: &ShaderModule,
+        terrain_smooth_heights_sm: &ShaderModule,
+        terrain_smooth_apply_sm: &ShaderModule,
     ) -> Self {
         let tex_desc = ImageDesc {
             extent: Extent3D::new(plain_atlas_dim.x, plain_atlas_dim.y, plain_atlas_dim.z),
@@ -232,10 +237,39 @@ impl PlainBuilderResources {
             heightmap_entry_count as u64,
         );
 
+        let _ = terrain_smooth_heights_sm;
+        let _ = terrain_smooth_apply_sm;
+        let terrain_smooth_info = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::UNIFORM_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of::<super::TerrainSmoothInfoGpu>() as u64,
+        );
+
+        let terrain_smooth_columns = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of::<[f32; 4]>() as u64 * heightmap_entry_count as u64,
+        );
+
+        let terrain_smooth_result = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of::<u32>() as u64,
+        );
+
         Self {
             chunk_atlas: Resource::new(chunk_atlas),
             free_atlas: Resource::new(free_atlas),
             solid_workgroup_flags: Resource::new(solid_workgroup_flags),
+            terrain_smooth_info: Resource::new(terrain_smooth_info),
+            terrain_smooth_columns: Resource::new(terrain_smooth_columns),
+            terrain_smooth_result: Resource::new(terrain_smooth_result),
             chunk_modify_info: Resource::new(chunk_modify_info),
             chunk_solid_sample_info: Resource::new(chunk_solid_sample_info),
             chunk_solid_samples: Resource::new(chunk_solid_samples),

@@ -1093,6 +1093,35 @@ impl App {
         Ok(ChunkModifyReadback::default())
     }
 
+    pub(super) fn apply_surface_terrain_smooth(
+        &mut self,
+        center: Vec3,
+        radius: f32,
+        strength: f32,
+        max_delta: f32,
+        deadband: f32,
+    ) -> Result<()> {
+        let Some(rebuild_bound) = self
+            .plain_builder
+            .smooth_terrain_dirt(center, radius, strength, max_delta, deadband)?
+        else {
+            return Ok(());
+        };
+
+        self.request_vsm_history_reset();
+        let rebuild_chunk_ids =
+            world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
+        self.enqueue_deferred_flora_preserving_chunk_rebuilds(
+            &rebuild_chunk_ids,
+            world_ops::FloraSphereEdit {
+                center,
+                radius,
+                tick: self.flora_tick,
+            },
+        );
+        Ok(())
+    }
+
     pub(super) fn apply_surface_flora_regeneration(
         &mut self,
         edit: TerrainRemovalEdit,
