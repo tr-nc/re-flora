@@ -75,7 +75,7 @@ impl App {
                 let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
                 loading.step_label = format!("Building {}/{}", current, total);
 
-                let active_voxel_len = match self.surface_builder.build_surface(chunk_id, true) {
+                let active_voxel_len = match self.surface_builder.build_surface(chunk_id, false) {
                     Ok(active_voxel_len) => active_voxel_len,
                     Err(err) => {
                         log::error!("build_surface failed for {chunk_id:?}: {err}");
