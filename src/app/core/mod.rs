@@ -108,6 +108,9 @@ pub struct App {
     render_flags: RenderFlags,
     accumulated_mouse_delta: Vec2,
     smoothed_mouse_delta: Vec2,
+    cursor_position_physical: Option<Vec2>,
+    camera_control_mode: CameraControlMode,
+    orbit_camera_input: OrbitCameraInput,
     perf_logging: bool,
     mute_audio_output: bool,
 
@@ -207,6 +210,60 @@ pub struct App {
     #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
     tree_audio_manager: TreeAudioManager,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CameraControlMode {
+    FreeLook,
+    OrbitEdit,
+}
+
+impl Default for CameraControlMode {
+    fn default() -> Self {
+        Self::FreeLook
+    }
+}
+
+impl CameraControlMode {
+    fn is_free_look(self) -> bool {
+        matches!(self, Self::FreeLook)
+    }
+
+    fn is_orbit_edit(self) -> bool {
+        matches!(self, Self::OrbitEdit)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct OrbitCameraInput {
+    forward: bool,
+    backward: bool,
+    left: bool,
+    right: bool,
+}
+
+impl OrbitCameraInput {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn handle_key(&mut self, code: KeyCode, pressed: bool) {
+        match code {
+            KeyCode::KeyW => self.forward = pressed,
+            KeyCode::KeyS => self.backward = pressed,
+            KeyCode::KeyA => self.left = pressed,
+            KeyCode::KeyD => self.right = pressed,
+            _ => {}
+        }
+    }
+
+    fn dolly_axis(self) -> f32 {
+        self.forward as i32 as f32 - self.backward as i32 as f32
+    }
+
+    fn orbit_axis(self) -> f32 {
+        self.right as i32 as f32 - self.left as i32 as f32
+    }
 }
 
 impl Drop for App {
@@ -333,6 +390,12 @@ const TERRAIN_EDIT_DEFAULT_RADIUS: f32 = 0.08;
 const TERRAIN_EDIT_RADIUS_MIN: f32 = 0.03;
 const TERRAIN_EDIT_RADIUS_MAX: f32 = 0.36;
 const TERRAIN_EDIT_RADIUS_SCROLL_STEP: f32 = 0.01;
+const ORBIT_CAMERA_FOCUS: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.12;
+const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
+const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
+const ORBIT_CAMERA_ANGULAR_SPEED: f32 = 1.6;
+const ORBIT_CAMERA_MAX_ELEVATION_RAD: f32 = std::f32::consts::FRAC_PI_2 - 0.04;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
 const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
@@ -841,6 +904,9 @@ impl App {
 
             accumulated_mouse_delta: Vec2::ZERO,
             smoothed_mouse_delta: Vec2::ZERO,
+            cursor_position_physical: None,
+            camera_control_mode: CameraControlMode::default(),
+            orbit_camera_input: OrbitCameraInput::default(),
             perf_logging: options.perf,
             mute_audio_output: options.mute,
 
@@ -1182,11 +1248,17 @@ impl App {
                 gui_wanted_keyboard_before_event || self.gui_wants_keyboard_input();
 
             if is_keyboard_event && gui_wants_keyboard {
-                self.tracer.reset_camera_input();
+                self.reset_camera_movement_input();
                 return;
             }
 
             if consumed && !is_keyboard_event {
+                if let WindowEvent::MouseInput { state, button, .. } = &event {
+                    if *state == ElementState::Released {
+                        self.set_tool_mouse_button_state(*button, *state);
+                        self.refresh_terrain_edit_hold_from_mouse_buttons();
+                    }
+                }
                 return;
             }
         }
@@ -1239,16 +1311,12 @@ impl App {
                 }
 
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyG {
-                    let was_fly_mode = self.is_fly_mode;
-                    self.is_fly_mode = !self.is_fly_mode;
-
-                    // reset velocity when switching from fly mode to walk mode
-                    if was_fly_mode && !self.is_fly_mode {
-                        self.tracer.reset_camera_velocity();
-                    }
+                    self.toggle_camera_control_mode();
+                    return;
                 }
 
-                if !self.window_state.is_cursor_visible() && event.state == ElementState::Pressed {
+                if self.keyboard_tool_shortcuts_available() && event.state == ElementState::Pressed
+                {
                     let target_slot = match event.physical_key {
                         PhysicalKey::Code(KeyCode::Digit1) => Some(0),
                         PhysicalKey::Code(KeyCode::Digit2) => Some(1),
@@ -1263,17 +1331,20 @@ impl App {
                     }
                 }
 
-                self.tracer.handle_keyboard(&event);
+                if self.is_orbit_edit_camera_mode() {
+                    self.handle_orbit_camera_keyboard(&event);
+                } else {
+                    self.tracer.handle_keyboard(&event);
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_position_physical =
+                    Some(Vec2::new(position.x as f32, position.y as f32));
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Left {
-                    self.player_tools.left_mouse_held = state == ElementState::Pressed;
-                }
-                if button == MouseButton::Right {
-                    self.player_tools.right_mouse_held = state == ElementState::Pressed;
-                }
+                self.set_tool_mouse_button_state(button, state);
 
-                if !self.window_state.is_cursor_visible()
+                if self.terrain_edit_pointer_available()
                     && (button == MouseButton::Left || button == MouseButton::Right)
                 {
                     match state {
@@ -1301,18 +1372,14 @@ impl App {
                             }
                         }
                         ElementState::Released => {
-                            self.player_tools.shovel_dig_held = self.player_tools.left_mouse_held
-                                || self.player_tools.right_mouse_held;
-                            if !self.player_tools.shovel_dig_held {
-                                self.stop_terrain_edit_loop_sound();
-                            }
+                            self.refresh_terrain_edit_hold_from_mouse_buttons();
                         }
                     }
                 }
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
-                if !self.window_state.is_cursor_visible()
+                if self.terrain_edit_pointer_available()
                     && self.is_terrain_edit_radius_tool_selected()
                 {
                     let scroll_lines = match delta {
@@ -1405,7 +1472,7 @@ impl App {
                 self.update_audio_ray_tracing();
                 self.update_spatial_audio_backends();
 
-                if !self.window_state.is_cursor_visible() {
+                if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
                     // grab the value and immediately reset the accumulator
                     let mouse_delta = self.accumulated_mouse_delta;
                     self.accumulated_mouse_delta = Vec2::ZERO;
@@ -2027,7 +2094,7 @@ impl App {
                     }
                 }
                 if self.gui_wants_keyboard_input() {
-                    self.tracer.reset_camera_input();
+                    self.reset_camera_movement_input();
                 }
                 if let Some(snapshot) = camera_snapshot_to_apply {
                     self.apply_camera_snapshot(&snapshot);
@@ -2515,8 +2582,7 @@ impl App {
                 self.tracer.set_footstep_volume_gain(
                     -40.0 + self.gui_adjustables.footstep_volume_db.value,
                 );
-                self.tracer
-                    .update_camera(frame_delta_time, self.is_fly_mode);
+                self.update_camera_for_current_mode(frame_delta_time);
 
                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                 let frame_count = self.time_info.total_frame_count();

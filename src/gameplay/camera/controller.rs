@@ -136,6 +136,45 @@ impl Camera {
         self.vectors.front
     }
 
+    pub fn ray_from_screen_position(
+        &self,
+        screen_pos_physical: Vec2,
+        screen_extent: Extent2D,
+    ) -> Option<(Vec3, Vec3)> {
+        let width = screen_extent.width as f32;
+        let height = screen_extent.height as f32;
+        if width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+
+        let ndc_x = (screen_pos_physical.x / width) * 2.0 - 1.0;
+        let ndc_y = 1.0 - (screen_pos_physical.y / height) * 2.0;
+        let half_fov_y = (self.desc.projection.v_fov.to_radians() * 0.5).tan();
+        let aspect = width / height;
+        let direction = (self.vectors.front
+            + self.vectors.right * (ndc_x * half_fov_y * aspect)
+            + self.vectors.up * (ndc_y * half_fov_y))
+            .normalize_or_zero();
+        (direction.length_squared() > f32::EPSILON).then_some((self.position, direction))
+    }
+
+    pub fn set_pose_looking_at(&mut self, position: Vec3, target: Vec3) -> bool {
+        let direction = (target - position).normalize_or_zero();
+        if direction.length_squared() <= f32::EPSILON {
+            return false;
+        }
+
+        self.position = position;
+        self.yaw = direction.x.atan2(-direction.z);
+        self.pitch = direction
+            .y
+            .atan2(Vec2::new(direction.x, direction.z).length());
+        self.limit_yaw();
+        self.clamp_pitch();
+        self.vectors.update(self.yaw, self.pitch);
+        true
+    }
+
     pub fn vectors(&self) -> &CameraVectors {
         &self.vectors
     }

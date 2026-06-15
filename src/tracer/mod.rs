@@ -2650,6 +2650,7 @@ impl Tracer {
         self.camera.handle_mouse(delta);
     }
 
+    #[allow(dead_code)]
     pub fn reset_camera_velocity(&mut self) {
         self.camera.reset_velocity();
     }
@@ -2684,6 +2685,31 @@ impl Tracer {
 
     pub fn camera_front(&self) -> Vec3 {
         self.camera.front()
+    }
+
+    pub fn camera_ray_from_screen_position(
+        &self,
+        screen_pos_physical: Vec2,
+        screen_extent: Extent2D,
+    ) -> Option<(Vec3, Vec3)> {
+        self.camera
+            .ray_from_screen_position(screen_pos_physical, screen_extent)
+    }
+
+    pub fn set_camera_pose_looking_at(&mut self, position: Vec3, target: Vec3) -> bool {
+        let changed = self.camera.set_pose_looking_at(position, target);
+        if changed {
+            if let Err(err) = self
+                .spatial_sound_manager
+                .update_player_pos(self.camera.position(), self.camera.vectors())
+            {
+                log::warn!(
+                    "Failed to update listener after applying look-at camera pose: {}",
+                    err
+                );
+            }
+        }
+        changed
     }
 
     pub fn project_screen_point_to_world(

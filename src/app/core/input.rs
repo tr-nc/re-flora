@@ -9,16 +9,149 @@ use crate::builder::{ChunkModifyStats, EDIT_STATS_VOXEL_TYPE_COUNT};
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
 use std::time::Instant;
-use winit::event::DeviceEvent;
+use winit::event::{DeviceEvent, ElementState, KeyEvent, MouseButton};
 use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
 
 impl App {
+    fn blocking_panel_open(&self) -> bool {
+        self.config_panel_visible || self.settings_panel_visible
+    }
+
+    pub(super) fn is_free_look_camera_mode(&self) -> bool {
+        self.camera_control_mode.is_free_look()
+    }
+
+    pub(super) fn is_orbit_edit_camera_mode(&self) -> bool {
+        self.camera_control_mode.is_orbit_edit()
+    }
+
+    pub(super) fn keyboard_tool_shortcuts_available(&self) -> bool {
+        !self.blocking_panel_open()
+    }
+
+    pub(super) fn terrain_edit_pointer_available(&self) -> bool {
+        !self.blocking_panel_open()
+            && (!self.window_state.is_cursor_visible() || self.is_orbit_edit_camera_mode())
+    }
+
+    pub(super) fn reset_camera_movement_input(&mut self) {
+        self.tracer.reset_camera_input();
+        self.orbit_camera_input.reset();
+    }
+
     pub(super) fn sync_cursor_with_panels(&mut self) {
-        let any_panel_open = self.config_panel_visible || self.settings_panel_visible;
-        self.window_state.set_cursor_visibility(any_panel_open);
-        self.window_state.set_cursor_grab(!any_panel_open);
-        if any_panel_open {
+        let cursor_visible = self.blocking_panel_open() || self.is_orbit_edit_camera_mode();
+        self.window_state.set_cursor_grab(!cursor_visible);
+        if self.blocking_panel_open() {
             self.player_tools.shovel_dig_held = false;
+            self.stop_terrain_edit_loop_sound();
+            self.reset_camera_movement_input();
+        }
+    }
+
+    pub(super) fn toggle_camera_control_mode(&mut self) {
+        self.camera_control_mode = if self.is_orbit_edit_camera_mode() {
+            super::CameraControlMode::FreeLook
+        } else {
+            super::CameraControlMode::OrbitEdit
+        };
+        self.player_tools.shovel_dig_held = false;
+        self.stop_terrain_edit_loop_sound();
+        self.reset_camera_movement_input();
+
+        if self.is_orbit_edit_camera_mode() {
+            self.look_at_orbit_focus_from_current_position();
+        }
+        self.sync_cursor_with_panels();
+    }
+
+    fn look_at_orbit_focus_from_current_position(&mut self) {
+        let mut position = self.tracer.camera_position();
+        let offset = position - super::ORBIT_CAMERA_FOCUS;
+        if offset.length_squared() <= super::ORBIT_CAMERA_MIN_DISTANCE.powi(2) {
+            let fallback = -self.tracer.camera_front().normalize_or_zero();
+            let fallback = if fallback.length_squared() > f32::EPSILON {
+                fallback
+            } else {
+                Vec3::Z
+            };
+            position = super::ORBIT_CAMERA_FOCUS + fallback * super::ORBIT_CAMERA_MIN_DISTANCE;
+        }
+        self.tracer
+            .set_camera_pose_looking_at(position, super::ORBIT_CAMERA_FOCUS);
+    }
+
+    pub(super) fn handle_orbit_camera_keyboard(&mut self, key_event: &KeyEvent) {
+        if let PhysicalKey::Code(code) = key_event.physical_key {
+            self.orbit_camera_input
+                .handle_key(code, key_event.state == ElementState::Pressed);
+        }
+    }
+
+    pub(super) fn update_camera_for_current_mode(&mut self, frame_delta_time: f32) {
+        if self.is_orbit_edit_camera_mode() {
+            self.update_orbit_camera(frame_delta_time);
+        } else {
+            self.tracer
+                .update_camera(frame_delta_time, self.is_fly_mode);
+        }
+    }
+
+    fn update_orbit_camera(&mut self, frame_delta_time: f32) {
+        let mut offset = self.tracer.camera_position() - super::ORBIT_CAMERA_FOCUS;
+        if offset.length_squared() <= super::ORBIT_CAMERA_MIN_DISTANCE.powi(2) {
+            offset = Vec3::Z * super::ORBIT_CAMERA_MIN_DISTANCE;
+        }
+
+        let mut distance = offset.length().clamp(
+            super::ORBIT_CAMERA_MIN_DISTANCE,
+            super::ORBIT_CAMERA_MAX_DISTANCE,
+        );
+        let mut elevation = (offset.y / distance).asin().clamp(
+            -super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
+            super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
+        );
+        if !elevation.is_finite() {
+            elevation = 0.0;
+        }
+
+        let mut azimuth = offset.x.atan2(offset.z);
+        azimuth += self.orbit_camera_input.orbit_axis()
+            * super::ORBIT_CAMERA_ANGULAR_SPEED
+            * frame_delta_time;
+        distance -= self.orbit_camera_input.dolly_axis()
+            * super::ORBIT_CAMERA_DOLLY_SPEED
+            * frame_delta_time;
+        distance = distance.clamp(
+            super::ORBIT_CAMERA_MIN_DISTANCE,
+            super::ORBIT_CAMERA_MAX_DISTANCE,
+        );
+
+        let horizontal_radius = distance * elevation.cos();
+        let position = super::ORBIT_CAMERA_FOCUS
+            + Vec3::new(
+                azimuth.sin() * horizontal_radius,
+                elevation.sin() * distance,
+                azimuth.cos() * horizontal_radius,
+            );
+        self.tracer
+            .set_camera_pose_looking_at(position, super::ORBIT_CAMERA_FOCUS);
+    }
+
+    pub(super) fn set_tool_mouse_button_state(&mut self, button: MouseButton, state: ElementState) {
+        if button == MouseButton::Left {
+            self.player_tools.left_mouse_held = state == ElementState::Pressed;
+        }
+        if button == MouseButton::Right {
+            self.player_tools.right_mouse_held = state == ElementState::Pressed;
+        }
+    }
+
+    pub(super) fn refresh_terrain_edit_hold_from_mouse_buttons(&mut self) {
+        self.player_tools.shovel_dig_held =
+            self.player_tools.left_mouse_held || self.player_tools.right_mouse_held;
+        if !self.player_tools.shovel_dig_held {
             self.stop_terrain_edit_loop_sound();
         }
     }
@@ -321,7 +454,20 @@ impl App {
         }
     }
 
-    fn query_camera_ray_terrain_intersection(
+    fn terrain_edit_ray(&self) -> Option<(Vec3, Vec3)> {
+        if self.is_orbit_edit_camera_mode() {
+            let extent = self.window_state.window_extent();
+            let cursor_pos = self.cursor_position_physical.unwrap_or_else(|| {
+                Vec2::new(extent.width as f32 * 0.5, extent.height as f32 * 0.5)
+            });
+            self.tracer
+                .camera_ray_from_screen_position(cursor_pos, extent)
+        } else {
+            Some((self.tracer.camera_position(), self.tracer.camera_front()))
+        }
+    }
+
+    fn query_terrain_edit_ray_intersection(
         &mut self,
         max_distance: f32,
     ) -> anyhow::Result<Option<Vec3>> {
@@ -329,8 +475,9 @@ impl App {
             return Ok(None);
         }
 
-        let origin = self.tracer.camera_position();
-        let direction = self.tracer.camera_front();
+        let Some((origin, direction)) = self.terrain_edit_ray() else {
+            return Ok(None);
+        };
         if direction.length_squared() <= f32::EPSILON {
             return Ok(None);
         }
@@ -352,7 +499,7 @@ impl App {
     }
 
     pub(super) fn try_shovel_dig(&mut self, now: Instant) {
-        if self.window_state.is_cursor_visible() || !self.is_shovel_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_shovel_selected() {
             self.stop_terrain_edit_loop_sound();
             return;
         }
@@ -369,7 +516,7 @@ impl App {
         }
         let removed_voxel_limits = self.active_removed_voxel_limits();
 
-        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
 
@@ -425,12 +572,12 @@ impl App {
     }
 
     pub(super) fn try_terrain_smooth(&mut self, now: Instant) {
-        if self.window_state.is_cursor_visible() || !self.is_smooth_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_smooth_selected() {
             self.stop_terrain_edit_loop_sound();
             return;
         }
 
-        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
 
@@ -466,12 +613,12 @@ impl App {
     }
 
     pub(super) fn try_staff_regenerate(&mut self, now: Instant) {
-        if self.window_state.is_cursor_visible() || !self.is_staff_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
             self.stop_terrain_edit_loop_sound();
             return;
         }
 
-        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
 
@@ -522,11 +669,11 @@ impl App {
     }
 
     pub(super) fn terrain_edit_hover_center(&mut self) -> Option<Vec3> {
-        if self.window_state.is_cursor_visible() || !self.is_terrain_edit_radius_tool_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_terrain_edit_radius_tool_selected() {
             return None;
         }
 
-        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(hit) => hit,
             Err(err) => {
                 log::error!("Terrain edit preview query failed: {}", err);
@@ -536,7 +683,7 @@ impl App {
     }
 
     pub(super) fn try_shovel_place(&mut self, now: Instant) {
-        if self.window_state.is_cursor_visible() || !self.is_shovel_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_shovel_selected() {
             self.stop_terrain_edit_loop_sound();
             return;
         }
@@ -551,7 +698,7 @@ impl App {
             .expect("placeable voxel type should be concrete");
         let place_voxel_count = self.voxel_count(place_voxel_type);
 
-        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
 
@@ -593,12 +740,12 @@ impl App {
     }
 
     pub(super) fn try_hoe_trim(&mut self, now: Instant) {
-        if self.window_state.is_cursor_visible() || !self.is_hoe_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_hoe_selected() {
             self.stop_terrain_edit_loop_sound();
             return;
         }
 
-        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
 
@@ -628,11 +775,11 @@ impl App {
     }
 
     pub(super) fn try_water_particle_spawn(&mut self) {
-        if self.window_state.is_cursor_visible() || !self.is_water_tool_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_water_tool_selected() {
             return;
         }
 
-        match self.query_camera_ray_terrain_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.water_sim.request_debug_particle_spawn(
                     center,
@@ -654,7 +801,7 @@ impl App {
         event: winit::event::DeviceEvent,
     ) {
         if let DeviceEvent::MouseMotion { delta } = event {
-            if !self.window_state.is_cursor_visible() {
+            if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
                 self.accumulated_mouse_delta += Vec2::new(delta.0 as f32, delta.1 as f32);
             }
         }
