@@ -642,6 +642,18 @@ pub struct TemporalInfo {
     pub _pad0: [u8; 8],
 }
 
+/// Auto-generated from `U_TerrainEditPreview` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TerrainEditPreview {
+    pub center: [f32; 3],
+    pub radius: f32,
+    pub color: [f32; 3],
+    pub strength: f32,
+    pub enabled: u32,
+    pub _pad0: [u8; 12],
+}
+
 /// Auto-generated from `U_TerrainQueryCount` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

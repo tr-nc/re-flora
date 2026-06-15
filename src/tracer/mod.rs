@@ -732,6 +732,8 @@ impl Tracer {
         voxel_oak_wood_color: Vec3,
         voxel_rock_color: Vec3,
         voxel_color_variance: f32,
+        terrain_edit_preview_center: Option<Vec3>,
+        terrain_edit_preview_radius: f32,
     ) -> Result<()> {
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
@@ -789,6 +791,11 @@ impl Tracer {
             voxel_oak_wood_color,
             voxel_rock_color,
             voxel_color_variance,
+        )?;
+        BufferUpdater::update_terrain_edit_preview(
+            &self.resources,
+            terrain_edit_preview_center,
+            terrain_edit_preview_radius,
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
@@ -2658,31 +2665,6 @@ impl Tracer {
 
     pub fn camera_front(&self) -> Vec3 {
         self.camera.front()
-    }
-
-    pub fn project_world_point_to_screen(
-        &self,
-        world_pos: Vec3,
-        screen_extent: Vec2,
-    ) -> Option<Vec2> {
-        if screen_extent.x <= 0.0 || screen_extent.y <= 0.0 {
-            return None;
-        }
-
-        let clip = self.camera.get_proj_mat() * self.camera.get_view_mat() * world_pos.extend(1.0);
-        if clip.w.abs() <= 1e-6 {
-            return None;
-        }
-
-        let ndc = clip.truncate() / clip.w;
-        if !ndc.is_finite() || clip.w <= 0.0 {
-            return None;
-        }
-
-        Some(Vec2::new(
-            (ndc.x + 1.0) * 0.5 * screen_extent.x,
-            (ndc.y + 1.0) * 0.5 * screen_extent.y,
-        ))
     }
 
     pub fn project_screen_point_to_world(

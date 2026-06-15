@@ -1,6 +1,7 @@
 use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
-    ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, VoxelColors,
+    ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, TerrainEditPreview,
+    VoxelColors,
 };
 use crate::tracer::{CloudGuiParams, TracerResources, WindGuiParams, WindSourceGpu};
 use anyhow::Result;
@@ -212,6 +213,25 @@ impl BufferUpdater {
             hash_color_variance,
             ..VoxelColors::zeroed()
         })
+    }
+
+    pub fn update_terrain_edit_preview(
+        resources: &TracerResources,
+        center: Option<Vec3>,
+        radius: f32,
+    ) -> Result<()> {
+        let enabled = center.is_some() && radius > 0.0;
+        resources
+            .uniforms
+            .terrain_edit_preview
+            .fill_uniform(&TerrainEditPreview {
+                center: center.unwrap_or(Vec3::ZERO).to_array(),
+                radius: radius.max(0.0),
+                color: [1.0, 0.04, 0.02],
+                strength: 0.72,
+                enabled: enabled as u32,
+                ..TerrainEditPreview::zeroed()
+            })
     }
 
     #[allow(clippy::too_many_arguments)]

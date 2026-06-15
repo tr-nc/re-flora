@@ -579,6 +579,7 @@ pub struct TracerUniformResources {
     pub env_info: Resource<Buffer>,
     pub starlight_info: Resource<Buffer>,
     pub voxel_colors: Resource<Buffer>,
+    pub terrain_edit_preview: Resource<Buffer>,
     pub flora_growth_info: Resource<Buffer>,
     pub god_ray_info: Resource<Buffer>,
     pub post_processing_info: Resource<Buffer>,
@@ -706,6 +707,7 @@ impl TracerUniformResources {
             env_info: Resource::new(layout_buffer(tracer_sm, "U_EnvInfo")),
             starlight_info: Resource::new(layout_buffer(composition_sm, "U_StarlightInfo")),
             voxel_colors: Resource::new(layout_buffer(tracer_sm, "U_VoxelColors")),
+            terrain_edit_preview: Resource::new(layout_buffer(tracer_sm, "U_TerrainEditPreview")),
             flora_growth_info: Resource::new(layout_buffer(flora_vert_sm, "U_FloraGrowthInfo")),
             god_ray_info: Resource::new(layout_buffer(god_ray_sm, "U_GodRayInfo")),
             post_processing_info: Resource::new(layout_buffer(
