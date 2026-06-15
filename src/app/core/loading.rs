@@ -38,7 +38,6 @@ impl LoadingState {
 impl App {
     pub(super) fn process_loading_step(&mut self) {
         let mut should_apply_debug_audio_wall = false;
-        let mut should_carve_startup_water_pool = false;
         let loading = match &mut self.loading_state {
             Some(loading) => loading,
             None => return,
@@ -66,7 +65,6 @@ impl App {
 
                 loading.current += 1;
                 if loading.current >= total {
-                    should_carve_startup_water_pool = true;
                     should_apply_debug_audio_wall = true;
                     loading.current = 0;
                     loading.phase = LoadingPhase::Building;
@@ -119,12 +117,6 @@ impl App {
                 }
 
                 loading.current += 1;
-            }
-        }
-
-        if should_carve_startup_water_pool {
-            if let Err(err) = self.apply_startup_water_pool() {
-                log::error!("Failed to carve startup water pool terrain: {err}");
             }
         }
 

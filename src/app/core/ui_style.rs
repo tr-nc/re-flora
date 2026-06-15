@@ -1,3 +1,4 @@
+use super::ActiveVoxelType;
 use egui::style::WidgetVisuals;
 use egui::{Color32, TextureHandle};
 
@@ -232,113 +233,34 @@ fn draw_item_panel_slot(
     clicked
 }
 
-pub(crate) fn draw_backpack_summary(
-    ctx: &egui::Context,
-    dirt_count: u32,
-    sand_count: u32,
-    cherry_wood_count: u32,
-    oak_wood_count: u32,
-    rock_count: u32,
-) -> egui::Pos2 {
-    egui::Area::new("backpack_summary".into())
-        .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-16.0, 80.0))
-        .show(ctx, |ui| {
-            let panel_frame = egui::containers::Frame {
-                fill: PANEL_DARK,
-                inner_margin: egui::Margin::symmetric(10, 8),
-                corner_radius: egui::CornerRadius::same(0),
-                shadow: egui::epaint::Shadow {
-                    offset: [4, 4],
-                    blur: 0,
-                    spread: 0,
-                    color: SHADOW_COLOR,
-                },
-                stroke: egui::Stroke::new(2.0, SAGE_ACCENT),
-                ..Default::default()
-            };
-
-            panel_frame.show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new("Voxel Inventory")
-                        .color(GOLD_ACCENT)
-                        .size(12.0)
-                        .strong(),
-                );
-                ui.separator();
-
-                draw_voxel_count_progress(ui, "Dirt", dirt_count, Color32::from_rgb(178, 124, 80));
-                draw_voxel_count_progress(ui, "Sand", sand_count, Color32::from_rgb(229, 204, 126));
-                draw_voxel_count_progress(
-                    ui,
-                    "Cherry wood",
-                    cherry_wood_count,
-                    Color32::from_rgb(219, 128, 152),
-                );
-                draw_voxel_count_progress(
-                    ui,
-                    "Oak wood",
-                    oak_wood_count,
-                    Color32::from_rgb(159, 110, 70),
-                );
-                draw_voxel_count_progress(ui, "Rock", rock_count, Color32::from_rgb(168, 176, 190));
-            });
-        })
-        .response
-        .rect
-        .center()
+pub(crate) struct VoxelPaletteEntry {
+    pub voxel_type: ActiveVoxelType,
+    pub label: &'static str,
+    pub count: u32,
+    pub color: Color32,
+    pub selected: bool,
 }
 
-fn draw_voxel_count_progress(ui: &mut egui::Ui, label: &str, count: u32, fill: Color32) {
-    let clamped = count.min(MAX_VOXEL_STORAGE_PER_TYPE);
-    let ratio = clamped as f32 / MAX_VOXEL_STORAGE_PER_TYPE as f32;
-    ui.horizontal(|ui| {
-        ui.add_sized(
-            egui::vec2(86.0, 16.0),
-            egui::Label::new(egui::RichText::new(label).monospace()),
-        );
-
-        let (bar_rect, _) = ui.allocate_exact_size(egui::vec2(210.0, 16.0), egui::Sense::hover());
-        let painter = ui.painter_at(bar_rect);
-
-        painter.rect_filled(bar_rect, egui::CornerRadius::same(0), PANEL_LIGHT);
-
-        let fill_width = (bar_rect.width() * ratio).floor();
-        if fill_width > 0.0 {
-            let fill_rect = egui::Rect::from_min_max(
-                bar_rect.min,
-                egui::pos2(bar_rect.min.x + fill_width, bar_rect.max.y),
-            );
-            painter.rect_filled(fill_rect, egui::CornerRadius::same(0), fill);
-        }
-
-        painter.rect_stroke(
-            bar_rect,
-            egui::CornerRadius::same(0),
-            egui::Stroke::new(1.0, SAGE_ACCENT),
-            egui::StrokeKind::Inside,
-        );
-
-        painter.text(
-            bar_rect.center(),
-            egui::Align2::CENTER_CENTER,
-            format!("{count}"),
-            egui::TextStyle::Monospace.resolve(ui.style()),
-            TEXT_COLOR,
-        );
-    });
+#[derive(Default)]
+pub(crate) struct VoxelPaletteResponse {
+    pub clicked_voxel_type: Option<ActiveVoxelType>,
+    pub panel_center: Option<egui::Pos2>,
 }
 
-pub(crate) fn draw_active_voxel_display(
+pub(crate) fn draw_voxel_palette(
     ctx: &egui::Context,
-    active_voxel_label: &str,
-    active_voxel_color: Color32,
-) {
-    egui::Area::new("active_voxel_display".into())
+    entries: &[VoxelPaletteEntry],
+    interaction_enabled: bool,
+) -> VoxelPaletteResponse {
+    let mut response = VoxelPaletteResponse::default();
+
+    let area = egui::Area::new("voxel_palette".into())
+        .order(egui::Order::Foreground)
         .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-16.0, 16.0))
         .show(ctx, |ui| {
             let panel_frame = egui::containers::Frame {
                 fill: PANEL_DARK,
-                inner_margin: egui::Margin::symmetric(10, 8),
+                inner_margin: egui::Margin::symmetric(12, 10),
                 corner_radius: egui::CornerRadius::same(0),
                 shadow: egui::epaint::Shadow {
                     offset: [4, 4],
@@ -346,24 +268,167 @@ pub(crate) fn draw_active_voxel_display(
                     spread: 0,
                     color: SHADOW_COLOR,
                 },
-                stroke: egui::Stroke::new(2.0, active_voxel_color),
+                stroke: egui::Stroke::new(
+                    2.0,
+                    entries
+                        .iter()
+                        .find(|entry| entry.selected)
+                        .map(|entry| entry.color)
+                        .unwrap_or(SAGE_ACCENT),
+                ),
                 ..Default::default()
             };
 
             panel_frame.show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new("Active Voxel")
-                        .color(GOLD_ACCENT)
-                        .strong(),
-                );
-                ui.label(
-                    egui::RichText::new(active_voxel_label)
-                        .color(active_voxel_color)
-                        .monospace()
-                        .strong(),
-                );
+                ui.set_width(312.0);
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("Build Material")
+                                .color(GOLD_ACCENT)
+                                .size(12.0)
+                                .strong(),
+                        );
+                        ui.label(
+                            egui::RichText::new("Click to switch voxel type")
+                                .color(TEXT_COLOR.linear_multiply(0.78))
+                                .size(10.0),
+                        );
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(active) = entries.iter().find(|entry| entry.selected) {
+                            ui.label(
+                                egui::RichText::new(active.label)
+                                    .color(active.color)
+                                    .monospace()
+                                    .strong(),
+                            );
+                        }
+                    });
+                });
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                for entry in entries {
+                    if draw_voxel_palette_entry(ui, entry, interaction_enabled) {
+                        response.clicked_voxel_type = Some(entry.voxel_type);
+                    }
+                    ui.add_space(4.0);
+                }
             });
         });
+
+    response.panel_center = Some(area.response.rect.center());
+    response
+}
+
+fn draw_voxel_palette_entry(
+    ui: &mut egui::Ui,
+    entry: &VoxelPaletteEntry,
+    interaction_enabled: bool,
+) -> bool {
+    let sense = if interaction_enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let desired_size = egui::vec2(ui.available_width(), 34.0);
+    let (rect, response) = ui.allocate_exact_size(desired_size, sense);
+    let response = response.on_hover_text(entry.label);
+    let hovered = interaction_enabled && response.hovered();
+    let clicked = interaction_enabled && response.clicked();
+    let painter = ui.painter_at(rect);
+
+    let bg = if entry.selected {
+        Color32::from_rgb(58, 57, 49)
+    } else if hovered {
+        Color32::from_rgb(54, 63, 60)
+    } else {
+        PANEL_LIGHT
+    };
+    let border = if entry.selected {
+        egui::Stroke::new(2.0, entry.color)
+    } else if hovered {
+        egui::Stroke::new(1.5, FLOWER_ACCENT)
+    } else {
+        egui::Stroke::new(1.0, SAGE_ACCENT)
+    };
+
+    painter.rect_filled(rect, egui::CornerRadius::same(0), bg);
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(0),
+        border,
+        egui::StrokeKind::Inside,
+    );
+
+    let swatch_rect = egui::Rect::from_min_max(
+        rect.min + egui::vec2(6.0, 6.0),
+        rect.min + egui::vec2(26.0, rect.height() - 6.0),
+    );
+    painter.rect_filled(swatch_rect, egui::CornerRadius::same(0), entry.color);
+    painter.rect_stroke(
+        swatch_rect,
+        egui::CornerRadius::same(0),
+        egui::Stroke::new(1.0, PANEL_DARK),
+        egui::StrokeKind::Inside,
+    );
+
+    let label_pos = egui::pos2(swatch_rect.right() + 10.0, rect.center().y - 8.0);
+    painter.text(
+        label_pos,
+        egui::Align2::LEFT_TOP,
+        entry.label,
+        egui::TextStyle::Body.resolve(ui.style()),
+        if entry.selected {
+            GOLD_ACCENT
+        } else {
+            TEXT_COLOR
+        },
+    );
+
+    let meter_rect = egui::Rect::from_min_size(
+        egui::pos2(label_pos.x, rect.bottom() - 12.0),
+        egui::vec2(138.0, 6.0),
+    );
+    painter.rect_filled(meter_rect, egui::CornerRadius::same(0), PANEL_BG);
+    let ratio =
+        entry.count.min(MAX_VOXEL_STORAGE_PER_TYPE) as f32 / MAX_VOXEL_STORAGE_PER_TYPE as f32;
+    if ratio > 0.0 {
+        let fill_rect = egui::Rect::from_min_max(
+            meter_rect.min,
+            egui::pos2(
+                meter_rect.min.x + meter_rect.width() * ratio,
+                meter_rect.max.y,
+            ),
+        );
+        painter.rect_filled(fill_rect, egui::CornerRadius::same(0), entry.color);
+    }
+    painter.rect_stroke(
+        meter_rect,
+        egui::CornerRadius::same(0),
+        egui::Stroke::new(1.0, SAGE_ACCENT),
+        egui::StrokeKind::Inside,
+    );
+
+    painter.text(
+        egui::pos2(rect.right() - 10.0, rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        format!("{:>6}", entry.count),
+        egui::TextStyle::Monospace.resolve(ui.style()),
+        TEXT_COLOR,
+    );
+
+    if entry.selected {
+        let marker_rect = egui::Rect::from_min_max(
+            egui::pos2(rect.right() - 4.0, rect.top() + 4.0),
+            egui::pos2(rect.right(), rect.bottom() - 4.0),
+        );
+        painter.rect_filled(marker_rect, egui::CornerRadius::same(0), GOLD_ACCENT);
+    }
+
+    clicked
 }
 
 pub(crate) fn apply_gui_style(style: &mut egui::Style) {

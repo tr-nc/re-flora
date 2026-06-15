@@ -27,13 +27,10 @@ impl App {
             scene_accel_builder,
             super::VOXEL_DIM_PER_CHUNK,
             WorldEditPlan {
-                voxel_edits: vec![
-                    VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
-                        offset: UVec3::ZERO,
-                        dim: world_dim,
-                    }),
-                    super::startup_water_pool_inverted_pyramid_voxel_edit()?,
-                ],
+                voxel_edits: vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
+                    offset: UVec3::ZERO,
+                    dim: world_dim,
+                })],
                 build_edits: vec![BuildEdit::RebuildMesh(world_bound)],
             },
         )?;
