@@ -37,7 +37,7 @@ use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
-    SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY,
+    SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -61,9 +61,9 @@ use std::collections::HashMap;
 
 use std::time::{Duration, Instant};
 use ui_style::{
-    apply_gui_style, draw_active_voxel_display, draw_backpack_summary, draw_item_panel,
-    ItemPanelSlot, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT,
-    HOE_SLOT_INDEX, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
+    apply_gui_style, draw_item_panel, draw_voxel_palette, ItemPanelSlot, VoxelPaletteEntry,
+    CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT, HOE_SLOT_INDEX,
+    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
@@ -78,7 +78,7 @@ use verdarium_vkn::{
 use verdarium_vkn::{Swapchain, VulkanContext};
 use verdarium_water::PondWaterConfig;
 use winit::{
-    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, PhysicalKey},
     window::WindowId,
@@ -336,6 +336,9 @@ const TERRAIN_SMOOTH_RADIUS: f32 = 0.10;
 const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
 const TERRAIN_SMOOTH_MAX_DELTA: f32 = 0.025;
 const TERRAIN_SMOOTH_DEADBAND: f32 = 0.0035;
+const BLUEPRINT_TERRAIN_SPAWN_HEIGHT_OFFSET: f32 = 0.5;
+const BLUEPRINT_TERRAIN_SPAWN_RADIUS: f32 = 0.2;
+const BLUEPRINT_TERRAIN_SPAWN_PARTICLES: usize = 8;
 const WATER_DEBUG_SPAWN_COUNT: usize = 48;
 const WATER_DEBUG_SPAWN_RADIUS: f32 = 0.12;
 const TERRAIN_EDIT_LOOP_PATH: &str =
@@ -346,10 +349,6 @@ const ITEM_PANEL_SCROLL_SFX_PATH: &str =
     "assets/sfx/MECHSwtch_Game Boy Advance SP, B Button, On 05_SARM_BTNS.wav";
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
-const STARTUP_WATER_POOL_MIN: Vec3 = Vec3::new(1.0, 0.2, 1.0);
-const STARTUP_WATER_POOL_MAX: Vec3 = Vec3::new(1.5, 2.0, 1.5);
-const STARTUP_WATER_PARTICLE_MIN_Y: f32 = 1.0;
-const STARTUP_WATER_PARTICLE_MAX_Y: f32 = 1.2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
@@ -363,94 +362,6 @@ pub(super) enum ActiveVoxelType {
     CherryWood,
     OakWood,
     Rock,
-}
-
-const ACTIVE_VOXEL_TYPES: [ActiveVoxelType; 6] = [
-    ActiveVoxelType::All,
-    ActiveVoxelType::Dirt,
-    ActiveVoxelType::Sand,
-    ActiveVoxelType::CherryWood,
-    ActiveVoxelType::OakWood,
-    ActiveVoxelType::Rock,
-];
-
-#[allow(dead_code)]
-fn startup_water_pool_voxel_edit() -> Result<VoxelEdit> {
-    startup_water_pool_cuboid_voxel_edit(STARTUP_WATER_POOL_MIN, STARTUP_WATER_POOL_MAX)
-}
-
-fn startup_water_pool_cuboid_voxel_edit(min: Vec3, max: Vec3) -> Result<VoxelEdit> {
-    let min_vox = min * 256.0;
-    let max_vox = max * 256.0;
-    let cuboid = Cuboid::from_min_max(min_vox, max_vox);
-    let bvh_nodes = build_bvh(&[Aabb3::new(min_vox, max_vox)], &[0]).map_err(anyhow::Error::msg)?;
-
-    Ok(VoxelEdit::StampCuboids {
-        bvh_nodes,
-        cuboids: vec![cuboid],
-        voxel_type: VOXEL_TYPE_EMPTY,
-    })
-}
-
-fn startup_water_pool_inverted_pyramid_voxel_edit() -> Result<VoxelEdit> {
-    let apex = Vec3::new(
-        (STARTUP_WATER_POOL_MIN.x + STARTUP_WATER_POOL_MAX.x) * 0.5,
-        STARTUP_WATER_POOL_MIN.y,
-        (STARTUP_WATER_POOL_MIN.z + STARTUP_WATER_POOL_MAX.z) * 0.5,
-    );
-    let top_y = STARTUP_WATER_POOL_MAX.y;
-    let layer_height = 1.0 / 256.0;
-    let world_min = Vec3::ZERO;
-    let world_max = CHUNK_DIM.as_vec3();
-    let layer_count = ((top_y - apex.y) / layer_height).ceil().max(1.0) as u32;
-    let mut cuboids = Vec::with_capacity(layer_count as usize);
-
-    for layer in 0..layer_count {
-        let y_min = (apex.y + layer as f32 * layer_height).min(top_y);
-        let y_max = (y_min + layer_height).min(top_y);
-        if y_max <= y_min {
-            continue;
-        }
-
-        let y_mid = (y_min + y_max) * 0.5;
-        let half_width = (y_mid - apex.y).max(layer_height * 0.5);
-        let min = Vec3::new(apex.x - half_width, y_min, apex.z - half_width).max(world_min);
-        let max = Vec3::new(apex.x + half_width, y_max, apex.z + half_width).min(world_max);
-        if max.x <= min.x || max.y <= min.y || max.z <= min.z {
-            continue;
-        }
-
-        cuboids.push(Cuboid::from_min_max(min * 256.0, max * 256.0));
-    }
-
-    if cuboids.is_empty() {
-        anyhow::bail!("startup water pool inverted pyramid produced no cuboids");
-    }
-
-    let aabbs: Vec<Aabb3> = cuboids.iter().map(Cuboid::aabb).collect();
-    let leaves_data: Vec<u32> = (0..cuboids.len() as u32).collect();
-    let bvh_nodes = build_bvh(&aabbs, &leaves_data).map_err(anyhow::Error::msg)?;
-
-    Ok(VoxelEdit::StampCuboids {
-        bvh_nodes,
-        cuboids,
-        voxel_type: VOXEL_TYPE_EMPTY,
-    })
-}
-
-fn startup_water_particle_spawn_bounds() -> (Vec3, Vec3) {
-    (
-        Vec3::new(
-            STARTUP_WATER_POOL_MIN.x,
-            STARTUP_WATER_PARTICLE_MIN_Y,
-            STARTUP_WATER_POOL_MIN.z,
-        ),
-        Vec3::new(
-            STARTUP_WATER_POOL_MAX.x,
-            STARTUP_WATER_PARTICLE_MAX_Y,
-            STARTUP_WATER_POOL_MAX.z,
-        ),
-    )
 }
 
 const BACKPACK_VOXEL_TYPES: [ActiveVoxelType; 5] = [
@@ -497,22 +408,6 @@ impl ActiveVoxelType {
 }
 
 impl App {
-    fn apply_startup_water_pool(&mut self) -> Result<()> {
-        self.execute_edit_plan(WorldEditPlan::with_voxel(
-            startup_water_pool_inverted_pyramid_voxel_edit()?,
-        ))?;
-        log::info!(
-            "[TERRAIN_INIT] carved empty startup water pool inverted pyramid apex {:?} top_y {:.2}",
-            Vec3::new(
-                (STARTUP_WATER_POOL_MIN.x + STARTUP_WATER_POOL_MAX.x) * 0.5,
-                STARTUP_WATER_POOL_MIN.y,
-                (STARTUP_WATER_POOL_MIN.z + STARTUP_WATER_POOL_MAX.z) * 0.5,
-            ),
-            STARTUP_WATER_POOL_MAX.y,
-        );
-        Ok(())
-    }
-
     fn apply_debug_audio_wall(&mut self) -> Result<()> {
         let wall = Cuboid::from_min_max(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
         let wall_aabb = Aabb3::new(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
@@ -865,10 +760,6 @@ impl App {
         if water_gui_config_applied {
             water::apply_water_gui_adjustables_to_config(&mut water_config, &gui_adjustables);
         }
-        let (startup_water_particle_min, startup_water_particle_max) =
-            startup_water_particle_spawn_bounds();
-        water_config = water_config
-            .with_initial_fluid_bounds(startup_water_particle_min, startup_water_particle_max);
         if let Some(particle_count) = options.water_particles {
             water_config = water_config.with_particle_count(particle_count);
         }
@@ -902,7 +793,7 @@ impl App {
         water::sync_water_gui_adjustables_from_config(&mut gui_adjustables, &water_config);
 
         log::info!(
-            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} initial_fluid {:?}..{:?} cells_per_unit={}",
+            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
             options.water_profile,
             water_gui_config_applied,
             water_config.particle_count,
@@ -926,8 +817,6 @@ impl App {
             water_config.wall_damping,
             water_config.collider.min_ws,
             water_config.collider.max_ws,
-            water_config.initial_fluid_min_ws,
-            water_config.initial_fluid_max_ws,
             cells_per_unit,
         );
         let water_sim = water::AsyncWaterSim::new(water_config);
@@ -1276,6 +1165,14 @@ impl App {
         let is_keyboard_event = matches!(&event, WindowEvent::KeyboardInput { .. });
         let gui_wanted_keyboard_before_event = self.gui_wants_keyboard_input();
 
+        if let WindowEvent::KeyboardInput { event, .. } = &event {
+            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyE {
+                self.config_panel_visible = !self.config_panel_visible;
+                self.sync_cursor_with_panels();
+                return;
+            }
+        }
+
         // Feed GUI-visible events to egui first. Keep keyboard movement available while panels are
         // merely open, but reserve keyboard input for egui while a text/numeric edit has focus.
         if self.window_state.is_cursor_visible() {
@@ -1339,11 +1236,6 @@ impl App {
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyE {
-                    self.config_panel_visible = !self.config_panel_visible;
-                    self.sync_cursor_with_panels();
-                }
-
                 if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyF {
                     self.window_state.toggle_fullscreen();
                 }
@@ -1421,28 +1313,7 @@ impl App {
                 }
             }
 
-            WindowEvent::MouseWheel { delta, .. } => {
-                if !self.window_state.is_cursor_visible() && self.is_shovel_selected() {
-                    let scroll_y: f64 = match delta {
-                        MouseScrollDelta::LineDelta(_, y) => y as f64,
-                        MouseScrollDelta::PixelDelta(pos) => pos.y,
-                    };
-                    if scroll_y.abs() > 0.0 {
-                        let direction: isize = if scroll_y > 0.0 { -1 } else { 1 };
-                        let current_idx = ACTIVE_VOXEL_TYPES
-                            .iter()
-                            .position(|voxel| *voxel == self.player_tools.active_voxel_type)
-                            .unwrap_or(0) as isize;
-                        let max_idx: isize = (ACTIVE_VOXEL_TYPES.len() - 1) as isize;
-                        let new_idx = (current_idx + direction).rem_euclid(max_idx + 1) as usize;
-                        let new_voxel = ACTIVE_VOXEL_TYPES[new_idx];
-                        if new_voxel != self.player_tools.active_voxel_type {
-                            self.player_tools.active_voxel_type = new_voxel;
-                            self.play_item_panel_scroll_sound();
-                        }
-                    }
-                }
-            }
+            WindowEvent::MouseWheel { .. } => {}
 
             // redraw the window
             WindowEvent::RedrawRequested => {
@@ -1547,19 +1418,24 @@ impl App {
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
-                let backpack_dirt_count = self.player_tools.backpack_dirt_count;
-                let backpack_sand_count = self.player_tools.backpack_sand_count;
-                let backpack_cherry_wood_count = self.player_tools.backpack_cherry_wood_count;
-                let backpack_oak_wood_count = self.player_tools.backpack_oak_wood_count;
-                let backpack_rock_count = self.player_tools.backpack_rock_count;
+                let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
+                    .iter()
+                    .copied()
+                    .map(|voxel_type| VoxelPaletteEntry {
+                        voxel_type,
+                        label: voxel_type.label(),
+                        count: self.voxel_count(voxel_type),
+                        color: voxel_type.color(),
+                        selected: voxel_type == self.player_tools.active_voxel_type,
+                    })
+                    .collect();
                 let status_bar_text = self
                     .water_sim
                     .status_text(self.water_particle_handoff_main_thread_ms);
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
-                let active_voxel_label = self.player_tools.active_voxel_type.label();
-                let active_voxel_color = self.player_tools.active_voxel_type.color();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
+                let mut clicked_voxel_type = None;
                 let current_camera_pose = self.tracer.camera_pose();
                 let egui_start = Instant::now();
                 self.egui_renderer
@@ -2030,19 +1906,15 @@ impl App {
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
 
-                        let backpack_summary_panel_center = draw_backpack_summary(
+                        let voxel_palette_response = draw_voxel_palette(
                             ctx,
-                            backpack_dirt_count,
-                            backpack_sand_count,
-                            backpack_cherry_wood_count,
-                            backpack_oak_wood_count,
-                            backpack_rock_count,
+                            &voxel_palette_entries,
+                            self.window_state.is_cursor_visible(),
                         );
-                        self.player_tools.backpack_summary_panel_screen_pos = Some(Vec2::new(
-                            backpack_summary_panel_center.x,
-                            backpack_summary_panel_center.y,
-                        ));
-                        draw_active_voxel_display(ctx, active_voxel_label, active_voxel_color);
+                        clicked_voxel_type = voxel_palette_response.clicked_voxel_type;
+                        self.player_tools.backpack_summary_panel_screen_pos = voxel_palette_response
+                            .panel_center
+                            .map(|center| Vec2::new(center.x, center.y));
 
                         egui::Area::new("status_bar_panel".into())
                             .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::new(16.0, -16.0))
@@ -2145,6 +2017,12 @@ impl App {
                 self.sync_cursor_with_panels();
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);
+                }
+                if let Some(voxel_type) = clicked_voxel_type {
+                    if voxel_type != self.player_tools.active_voxel_type {
+                        self.player_tools.active_voxel_type = voxel_type;
+                        self.play_item_panel_scroll_sound();
+                    }
                 }
                 if self.gui_wants_keyboard_input() {
                     self.tracer.reset_camera_input();
@@ -2701,61 +2579,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::App;
-    use crate::app::world_edits::VoxelEdit;
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
-
-    fn assert_approx_eq(actual: f32, expected: f32) {
-        assert!(
-            (actual - expected).abs() < 0.0001,
-            "expected {expected}, got {actual}"
-        );
-    }
-
-    #[test]
-    fn startup_water_pool_cuboid_edit_is_still_available() {
-        let edit = super::startup_water_pool_voxel_edit().unwrap();
-        let VoxelEdit::StampCuboids { cuboids, .. } = edit else {
-            panic!("expected cuboid voxel edit");
-        };
-
-        assert_eq!(cuboids.len(), 1);
-        assert_approx_eq(cuboids[0].min().x / 256.0, super::STARTUP_WATER_POOL_MIN.x);
-        assert_approx_eq(cuboids[0].min().y / 256.0, super::STARTUP_WATER_POOL_MIN.y);
-        assert_approx_eq(cuboids[0].min().z / 256.0, super::STARTUP_WATER_POOL_MIN.z);
-        assert_approx_eq(cuboids[0].max().x / 256.0, super::STARTUP_WATER_POOL_MAX.x);
-        assert_approx_eq(cuboids[0].max().y / 256.0, super::STARTUP_WATER_POOL_MAX.y);
-        assert_approx_eq(cuboids[0].max().z / 256.0, super::STARTUP_WATER_POOL_MAX.z);
-    }
-
-    #[test]
-    fn startup_water_pool_inverted_pyramid_uses_45_degree_slices() {
-        let edit = super::startup_water_pool_inverted_pyramid_voxel_edit().unwrap();
-        let VoxelEdit::StampCuboids { cuboids, .. } = edit else {
-            panic!("expected cuboid voxel edit");
-        };
-
-        assert!(cuboids.len() > 1);
-        let center_x = (super::STARTUP_WATER_POOL_MIN.x + super::STARTUP_WATER_POOL_MAX.x) * 0.5;
-        let center_z = (super::STARTUP_WATER_POOL_MIN.z + super::STARTUP_WATER_POOL_MAX.z) * 0.5;
-        let layer = cuboids
-            .iter()
-            .find(|cuboid| {
-                let min = cuboid.min() / 256.0;
-                let max = cuboid.max() / 256.0;
-                min.y <= super::STARTUP_WATER_PARTICLE_MIN_Y
-                    && super::STARTUP_WATER_PARTICLE_MIN_Y <= max.y
-            })
-            .expect("missing pyramid layer at startup water particle height");
-        let min = layer.min() / 256.0;
-        let max = layer.max() / 256.0;
-        let y_mid = (min.y + max.y) * 0.5;
-        let expected_half_width = (y_mid - super::STARTUP_WATER_POOL_MIN.y).max(0.5 / 256.0);
-
-        assert_approx_eq(center_x - min.x, expected_half_width);
-        assert_approx_eq(max.x - center_x, expected_half_width);
-        assert_approx_eq(center_z - min.z, expected_half_width);
-        assert_approx_eq(max.z - center_z, expected_half_width);
-    }
 
     #[test]
     fn ambisonics_backend_selects_matching_decoder_backend() {

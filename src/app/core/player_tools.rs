@@ -28,7 +28,7 @@ impl Default for PlayerToolState {
     fn default() -> Self {
         Self {
             selected_item_panel_slot: 0,
-            active_voxel_type: ActiveVoxelType::All,
+            active_voxel_type: ActiveVoxelType::Dirt,
             left_mouse_held: false,
             right_mouse_held: false,
             shovel_dig_held: false,
