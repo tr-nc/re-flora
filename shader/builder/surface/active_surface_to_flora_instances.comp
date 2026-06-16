@@ -81,7 +81,7 @@ void calculate_density_placement(ivec3 world_pos, out bool o_allow_any_flora,
     float placement_threshold = (density_noise + 1.0) * 0.5;
     placement_threshold       = clamp(0.08 + placement_threshold * 0.22, 0.0, 1.0);
 
-    float grass_placement_threshold = clamp(placement_threshold * 1.5, 0.0, 1.0);
+    float grass_placement_threshold = clamp(placement_threshold * 2.25, 0.0, 1.0);
     float tall_grass_threshold      = clamp(grass_placement_threshold * 0.30, 0.0, 1.0);
     float short_grass_threshold     = clamp(grass_placement_threshold * 0.8, 0.0, 1.0);
 

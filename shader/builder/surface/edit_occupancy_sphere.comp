@@ -27,6 +27,10 @@ layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D surface;
 const uint OCCUPANCY_MODE_REMOVE = 0u;
 const uint OCCUPANCY_MODE_ADD    = 1u;
 const uint OCCUPANCY_MODE_TRIM   = 2u;
+// Keep trimmed grasses visibly clipped rather than reset to the tiny rebirth edge.
+// Short grass is four voxels tall, so half growth is the lowest neat cut that
+// avoids a one-voxel stump with the floor-based grass height trim.
+const uint OCCUPANCY_TRIM_MIN_GROWTH_PROGRESS = 128u;
 
 bool in_chunk_local_bound(ivec3 local_pos) {
     return all(greaterThanEqual(local_pos, ivec3(0))) &&
@@ -36,7 +40,7 @@ bool in_chunk_local_bound(ivec3 local_pos) {
 bool is_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }
 
 uint randomized_trim_growth_progress(uvec3 stem_world_pos, uint current_growth_progress) {
-    uint min_progress = INSTANCE_GROWTH_PROGRESS_REBIRTH;
+    uint min_progress = max(INSTANCE_GROWTH_PROGRESS_REBIRTH, OCCUPANCY_TRIM_MIN_GROWTH_PROGRESS);
     uint max_progress = min(edit_occupancy_info.target_age, INSTANCE_GROWTH_PROGRESS_MATURE - 1u);
     max_progress      = max(max_progress, min_progress);
 

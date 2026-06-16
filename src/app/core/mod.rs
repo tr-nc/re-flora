@@ -335,13 +335,20 @@ impl App {
         };
 
         let tick_delta = self.flora_tick.wrapping_sub(last_flora_tick);
+        let growth_tick_delta = tick_delta / FLORA_GROWTH_SPEED_DIVISOR;
+        if growth_tick_delta == 0 {
+            self.growing_flora_chunks.push(chunk_id, last_flora_tick);
+            return;
+        }
         match self
             .surface_builder
-            .update_flora_growth_for_chunk(chunk_id, tick_delta)
+            .update_flora_growth_for_chunk(chunk_id, growth_tick_delta)
         {
             Ok(true) => {
                 // still growing, requeue from the tick we successfully applied through
-                self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+                let consumed_ticks = growth_tick_delta * FLORA_GROWTH_SPEED_DIVISOR;
+                self.growing_flora_chunks
+                    .push(chunk_id, last_flora_tick.wrapping_add(consumed_ticks));
             }
             Ok(false) => {}
             Err(err) => {
@@ -412,7 +419,10 @@ const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
-const FLORA_TRIM_MAX_GROWTH_PROGRESS: u32 = 96;
+const FLORA_GROWTH_SPEED_DIVISOR: u32 = 10;
+// Trimmed grasses should read as clipped, not newly sprouted: the shader's floor-based
+// height trim makes low growth values collapse short grass to one voxel.
+const FLORA_TRIM_MAX_GROWTH_PROGRESS: u32 = 160;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
