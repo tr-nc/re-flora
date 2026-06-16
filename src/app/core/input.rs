@@ -182,7 +182,7 @@ impl App {
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
-        if self.is_smooth_selected() || self.is_water_tool_selected() {
+        if self.is_water_tool_selected() {
             TerrainEditPreviewShape::SurfaceCircle
         } else {
             TerrainEditPreviewShape::Sphere
