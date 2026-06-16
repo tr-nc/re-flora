@@ -1939,9 +1939,17 @@ impl App {
 
                         let item_panel_slots = [
                             ItemPanelSlot {
+                                index: STAFF_SLOT_INDEX,
+                                label: "Grow",
+                                key_hint: "1",
+                                icon: item_panel_staff_icon.as_ref(),
+                                accent: STAFF_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
                                 index: SHOVEL_SLOT_INDEX,
                                 label: "Dig",
-                                key_hint: "1",
+                                key_hint: "2",
                                 icon: item_panel_shovel_icon.as_ref(),
                                 accent: SHOVEL_TOOL_ACCENT,
                                 enabled: true,
@@ -1949,17 +1957,9 @@ impl App {
                             ItemPanelSlot {
                                 index: SMOOTH_SLOT_INDEX,
                                 label: "Smooth",
-                                key_hint: "2",
+                                key_hint: "3",
                                 icon: item_panel_smooth_icon.as_ref(),
                                 accent: SMOOTH_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
-                                index: STAFF_SLOT_INDEX,
-                                label: "Grow",
-                                key_hint: "3",
-                                icon: item_panel_staff_icon.as_ref(),
-                                accent: STAFF_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {

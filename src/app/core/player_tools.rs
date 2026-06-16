@@ -29,7 +29,7 @@ pub(super) struct PlayerToolState {
 impl Default for PlayerToolState {
     fn default() -> Self {
         Self {
-            selected_item_panel_slot: 0,
+            selected_item_panel_slot: super::ui_style::STAFF_SLOT_INDEX,
             active_voxel_type: ActiveVoxelType::Dirt,
             left_mouse_held: false,
             right_mouse_held: false,

@@ -36,9 +36,9 @@ pub(crate) const ITEM_PANEL_WATER_ICON_PATH: &str =
 pub(crate) const ITEM_PANEL_WATER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/30_Copper_Watering_Can.PNG";
 pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 4;
-pub(crate) const SHOVEL_SLOT_INDEX: usize = 0;
-pub(crate) const SMOOTH_SLOT_INDEX: usize = 1;
-pub(crate) const STAFF_SLOT_INDEX: usize = 2;
+pub(crate) const STAFF_SLOT_INDEX: usize = 0;
+pub(crate) const SHOVEL_SLOT_INDEX: usize = 1;
+pub(crate) const SMOOTH_SLOT_INDEX: usize = 2;
 pub(crate) const HOE_SLOT_INDEX: usize = 3;
 pub(crate) const WATER_SLOT_INDEX: usize = 4;
 pub(crate) const MAX_VOXEL_STORAGE_PER_TYPE: u32 = 200_000;
