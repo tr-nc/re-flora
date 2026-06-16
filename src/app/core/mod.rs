@@ -128,7 +128,6 @@ pub struct App {
     wind_sources: Vec<WindSourceGuiValues>,
     debug_tree_pos: Vec3,
     config_panel_visible: bool,
-    settings_panel_visible: bool,
     camera_snapshots: CameraSnapshotLibrary,
     camera_snapshot_draft_name: String,
     camera_snapshot_draft_description: String,
@@ -559,24 +558,10 @@ impl App {
         }
     }
 
-    fn hrtf_backend_label(backend: HrtfBackend) -> &'static str {
-        match backend {
-            HrtfBackend::Native => "Native (.petalhrtf)",
-            HrtfBackend::SteamAudio => "Steam Audio (SOFA)",
-        }
-    }
-
     fn selected_ambisonics_backend(value: u32) -> AmbisonicsBackend {
         match value {
             1 => AmbisonicsBackend::SteamAudio,
             _ => AmbisonicsBackend::Native,
-        }
-    }
-
-    fn ambisonics_backend_label(backend: AmbisonicsBackend) -> &'static str {
-        match backend {
-            AmbisonicsBackend::Native => "Native Ambisonics (order 4)",
-            AmbisonicsBackend::SteamAudio => "Steam Audio Ambisonics (order 2)",
         }
     }
 
@@ -937,7 +922,6 @@ impl App {
             prev_bound: Default::default(),
             tree_records: HashMap::new(),
             config_panel_visible: false,
-            settings_panel_visible: false,
             camera_snapshots,
             camera_snapshot_draft_name,
             camera_snapshot_draft_description: String::new(),
@@ -1270,12 +1254,6 @@ impl App {
         if let WindowEvent::KeyboardInput { event, .. } = &event {
             if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyQ {
                 self.on_terminate(event_loop);
-                return;
-            }
-
-            if event.state == ElementState::Pressed && event.physical_key == KeyCode::Escape {
-                self.settings_panel_visible = !self.settings_panel_visible;
-                self.sync_cursor_with_panels();
                 return;
             }
 
@@ -1660,284 +1638,6 @@ impl App {
                         }
                         self.config_panel_visible = config_panel_open;
 
-                        if self.settings_panel_visible {
-                            let settings_size = egui::Vec2::new(
-                                ctx.content_rect().width() * 0.5,
-                                ctx.content_rect().height() * 0.5,
-                            );
-
-                            egui::Window::new("Settings Panel")
-                                .id(egui::Id::new("settings_panel"))
-                                .resizable(false)
-                                .movable(false)
-                                .collapsible(false)
-                                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-                                .default_size(settings_size)
-                                .show(ctx, |ui| {
-                                    egui::ScrollArea::vertical().show(ui, |ui| {
-                                        ui.heading(
-                                            RichText::new("Audio").size(18.0).color(GOLD_ACCENT),
-                                        );
-                                        ui.add_space(8.0);
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self.gui_adjustables.master_volume.value,
-                                                self.gui_adjustables.master_volume.range.clone(),
-                                            )
-                                            .text("Master Volume (dB)"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self.gui_adjustables.footstep_volume_db.value,
-                                                self.gui_adjustables
-                                                    .footstep_volume_db
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Footstep Volume (dB)"),
-                                        );
-                                        let selected_hrtf_backend = Self::selected_hrtf_backend(
-                                            self.gui_adjustables.audio_hrtf_backend.value,
-                                        );
-                                        egui::ComboBox::from_label("Direct HRTF Backend")
-                                            .selected_text(Self::hrtf_backend_label(
-                                                selected_hrtf_backend,
-                                            ))
-                                            .show_ui(ui, |ui| {
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_hrtf_backend
-                                                        .value,
-                                                    0,
-                                                    Self::hrtf_backend_label(HrtfBackend::Native),
-                                                );
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_hrtf_backend
-                                                        .value,
-                                                    1,
-                                                    Self::hrtf_backend_label(
-                                                        HrtfBackend::SteamAudio,
-                                                    ),
-                                                );
-                                            });
-                                        ui.checkbox(
-                                            &mut self.gui_adjustables.audio_use_ambisonics.value,
-                                            "Use Ambisonics",
-                                        );
-                                        let selected_ambisonics_backend =
-                                            Self::selected_ambisonics_backend(
-                                                self.gui_adjustables.audio_ambisonics_backend.value,
-                                            );
-                                        egui::ComboBox::from_label("Ambisonics Backend")
-                                            .selected_text(Self::ambisonics_backend_label(
-                                                selected_ambisonics_backend,
-                                            ))
-                                            .show_ui(ui, |ui| {
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_ambisonics_backend
-                                                        .value,
-                                                    0,
-                                                    Self::ambisonics_backend_label(
-                                                        AmbisonicsBackend::Native,
-                                                    ),
-                                                );
-                                                ui.selectable_value(
-                                                    &mut self
-                                                        .gui_adjustables
-                                                        .audio_ambisonics_backend
-                                                        .value,
-                                                    1,
-                                                    Self::ambisonics_backend_label(
-                                                        AmbisonicsBackend::SteamAudio,
-                                                    ),
-                                                );
-                                            });
-                                        ui.label(
-                                            "Ambisonics backend selects the full Ambisonics encode/decode path.",
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self
-                                                    .gui_adjustables
-                                                    .tree_wind_response_min_strength
-                                                    .value,
-                                                self.gui_adjustables
-                                                    .tree_wind_response_min_strength
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Tree Wind Response Min"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self
-                                                    .gui_adjustables
-                                                    .tree_wind_response_max_strength
-                                                    .value,
-                                                self.gui_adjustables
-                                                    .tree_wind_response_max_strength
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Tree Wind Response Max"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self.gui_adjustables.tree_wind_volume_db.value,
-                                                self.gui_adjustables
-                                                    .tree_wind_volume_db
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Tree Wind Volume (dB)"),
-                                        );
-                                        ui.separator();
-                                        ui.label(RichText::new("Tree Rustle").color(GOLD_ACCENT));
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self
-                                                    .gui_adjustables
-                                                    .tree_rustle_base_wind
-                                                    .value,
-                                                self.gui_adjustables
-                                                    .tree_rustle_base_wind
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Base Wind"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self
-                                                    .gui_adjustables
-                                                    .tree_rustle_gustiness
-                                                    .value,
-                                                self.gui_adjustables
-                                                    .tree_rustle_gustiness
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Gustiness"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self
-                                                    .gui_adjustables
-                                                    .tree_rustle_leaf_density
-                                                    .value,
-                                                self.gui_adjustables
-                                                    .tree_rustle_leaf_density
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Leaf Density"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self.gui_adjustables.tree_rustle_dryness.value,
-                                                self.gui_adjustables
-                                                    .tree_rustle_dryness
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Dryness"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self.gui_adjustables.tree_rustle_branch.value,
-                                                self.gui_adjustables
-                                                    .tree_rustle_branch
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Branch Creak"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self.gui_adjustables.tree_rustle_air.value,
-                                                self.gui_adjustables.tree_rustle_air.range.clone(),
-                                            )
-                                            .text("Air"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self
-                                                    .gui_adjustables
-                                                    .tree_rustle_leaf_body
-                                                    .value,
-                                                self.gui_adjustables
-                                                    .tree_rustle_leaf_body
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Leaf Body"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self.gui_adjustables.tree_rustle_crackle.value,
-                                                self.gui_adjustables
-                                                    .tree_rustle_crackle
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Crackle"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self
-                                                    .gui_adjustables
-                                                    .tree_rustle_brightness
-                                                    .value,
-                                                self.gui_adjustables
-                                                    .tree_rustle_brightness
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Brightness"),
-                                        );
-                                        ui.separator();
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self
-                                                    .gui_adjustables
-                                                    .wind_audio_attack_decay
-                                                    .value,
-                                                self.gui_adjustables
-                                                    .wind_audio_attack_decay
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Wind Audio Attack Decay (0 slow, 1 fast)"),
-                                        );
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut self
-                                                    .gui_adjustables
-                                                    .wind_audio_release_decay
-                                                    .value,
-                                                self.gui_adjustables
-                                                    .wind_audio_release_decay
-                                                    .range
-                                                    .clone(),
-                                            )
-                                            .text("Wind Audio Release Decay (0 slow, 1 fast)"),
-                                        );
-                                        ui.checkbox(
-                                            &mut self
-                                                .gui_adjustables
-                                                .audio_ray_tracing_enabled
-                                                .value,
-                                            "Audio Ray Tracing",
-                                        );
-                                    });
-                                });
-                        }
-
                         let item_panel_slots = [
                             ItemPanelSlot {
                                 index: STAFF_SLOT_INDEX,
@@ -1986,9 +1686,10 @@ impl App {
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_voxel_type = voxel_palette_response.clicked_voxel_type;
-                        self.player_tools.backpack_summary_panel_screen_pos = voxel_palette_response
-                            .panel_center
-                            .map(|center| Vec2::new(center.x, center.y));
+                        self.player_tools.backpack_summary_panel_screen_pos =
+                            voxel_palette_response
+                                .panel_center
+                                .map(|center| Vec2::new(center.x, center.y));
 
                         egui::Area::new("status_bar_panel".into())
                             .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::new(16.0, -16.0))
