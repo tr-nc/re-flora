@@ -222,6 +222,7 @@ const float TERRARIUM_GLASS_FACE_FADE_WIDTH_WORLD = 0.18;
 const int TERRARIUM_GLASS_SSR_STEPS = 18;
 const float TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD = 1.45;
 const float TERRARIUM_GLASS_SSR_MIN_HIT_THICKNESS_WORLD = TERRARIUM_VOXEL_WORLD_SIZE * 5.0;
+const float TERRARIUM_GLASS_SSR_FOOTPRINT_PIXELS = 2.0;
 // Compare glass occlusion in ray/world space instead of non-linear depth space.
 // A fixed NDC-depth epsilon grows to a large world-space distance near the far plane.
 const float TERRARIUM_GLASS_OCCLUSION_EPS_WORLD = TERRARIUM_VOXEL_WORLD_SIZE * 0.25;
@@ -409,6 +410,42 @@ vec3 sample_scene_color(vec2 screen_uv) {
     return apply_terrarium_panels_to_scene(scene_color, ray, scene_t);
 }
 
+void accumulate_raster_reflection_tap(inout vec3 color_sum, inout float weight_sum,
+                                       vec2 sample_uv, ivec2 tex_size, float weight) {
+    ivec2 sample_uvi = ivec2(
+        clamp(sample_uv * vec2(tex_size), vec2(0.0), vec2(tex_size - ivec2(1))));
+    vec4 raster_rgba = texelFetch(gfx_output_tex, sample_uvi, 0);
+    if (raster_rgba.a <= 0.02) {
+        return;
+    }
+
+    float tap_weight = weight * clamp(raster_rgba.a, 0.0, 1.0);
+    color_sum += (raster_rgba.rgb / max(raster_rgba.a, 0.08)) * tap_weight;
+    weight_sum += tap_weight;
+}
+
+vec3 sample_raster_reflection_footprint(vec2 sample_uv, ivec2 tex_size, vec4 center_rgba) {
+    vec2 texel = 1.0 / vec2(tex_size);
+    vec2 radius = texel * TERRARIUM_GLASS_SSR_FOOTPRINT_PIXELS;
+    vec3 color_sum = vec3(0.0);
+    float weight_sum = 0.0;
+
+    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv, tex_size, 1.00);
+    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv + vec2(radius.x, 0.0),
+                                     tex_size, 0.55);
+    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv - vec2(radius.x, 0.0),
+                                     tex_size, 0.55);
+    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv + vec2(0.0, radius.y),
+                                     tex_size, 0.55);
+    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv - vec2(0.0, radius.y),
+                                     tex_size, 0.55);
+
+    if (weight_sum > 0.0) {
+        return color_sum / weight_sum;
+    }
+    return center_rgba.rgb / max(center_rgba.a, 0.08);
+}
+
 float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitter_seed,
                                    out vec3 reflection_color) {
     reflection_color = vec3(0.0);
@@ -473,7 +510,7 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
         float ray_fade = 1.0 - clamp(ray_distance / hit_thickness, 0.0, 1.0);
         float confidence = screen_fade * distance_fade * ray_fade *
                            clamp(raster_rgba.a, 0.0, 1.0);
-        reflection_color = raster_rgba.rgb / max(raster_rgba.a, 0.08);
+        reflection_color = sample_raster_reflection_footprint(sample_uv, tex_size, raster_rgba);
         return confidence;
     }
 
@@ -591,9 +628,12 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
                           max(core_bottom_edge, core_top_edge));
     float corner = max(left_edge, right_edge) * max(top_edge, bottom_edge);
 
-    vec2 voxel_pos = uv * face_world_extent * TERRARIUM_GLASS_VOXEL_GRID;
+    vec2 voxel_grid_extent = face_world_extent * TERRARIUM_GLASS_VOXEL_GRID;
+    vec2 voxel_pos = uv * voxel_grid_extent;
     vec2 voxel_cell = floor(voxel_pos);
     vec2 voxel_uv = fract(voxel_pos);
+    vec2 voxel_center_uv = clamp((voxel_cell + vec2(0.5)) / max(voxel_grid_extent, vec2(1.0)),
+                                 vec2(0.0), vec2(1.0));
     vec2 voxel_center_offset = voxel_uv - vec2(0.5);
     float cell_noise = hash13(vec3(voxel_cell, dot(abs(hit.normal), vec3(3.0, 17.0, 41.0))));
     float cell_noise_b = hash13(vec3(voxel_cell.yx + vec2(29.0, 11.0),
@@ -607,6 +647,23 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
                                                            voxel_slope.x * 0.030) +
                                   face_bitangent * ((cell_noise_b - 0.5) * 0.040 +
                                                     voxel_slope.y * 0.026));
+    vec3 ssr_normal = normalize(normal + face_tangent * ((cell_noise - 0.5) * 0.050) +
+                                face_bitangent * ((cell_noise_b - 0.5) * 0.040));
+    vec3 voxel_center_ws = hit.position;
+    if (abs(hit.normal.x) > 0.5) {
+        voxel_center_ws.z = mix(TERRARIUM_GLASS_BOX_MIN.z, TERRARIUM_GLASS_BOX_MAX.z,
+                                voxel_center_uv.x);
+        voxel_center_ws.y = mix(TERRARIUM_GLASS_BOX_MIN.y, TERRARIUM_GLASS_BOX_MAX.y,
+                                voxel_center_uv.y);
+    } else {
+        voxel_center_ws.x = mix(TERRARIUM_GLASS_BOX_MIN.x, TERRARIUM_GLASS_BOX_MAX.x,
+                                voxel_center_uv.x);
+        voxel_center_ws.y = mix(TERRARIUM_GLASS_BOX_MIN.y, TERRARIUM_GLASS_BOX_MAX.y,
+                                voxel_center_uv.y);
+    }
+    vec3 ssr_view_dir = normalize(camera_info.pos.xyz - voxel_center_ws);
+    float ssr_fresnel = pow(1.0 - clamp(dot(ssr_normal, ssr_view_dir), 0.0, 1.0), 5.0);
+    float ssr_voxel_lens = pane * (0.12 + cell_noise_c * 0.08);
 
     float ndotv = clamp(dot(micro_normal, view_dir), 0.0, 1.0);
     float fresnel = pow(1.0 - ndotv, 5.0);
@@ -673,13 +730,15 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
 
     vec3 reflected_dir = reflect(-view_dir, micro_normal);
     vec3 sky_reflection = compute_sky_with_sun_and_stars(reflected_dir);
-    vec3 ssr_reflection = sky_reflection;
+    vec3 ssr_reflected_dir = reflect(-ssr_view_dir, ssr_normal);
+    vec3 ssr_sky_reflection = compute_sky_with_sun_and_stars(ssr_reflected_dir);
+    vec3 ssr_reflection = ssr_sky_reflection;
     float ssr_hit = 0.0;
     if (glass_visibility > 0.001) {
         ssr_hit = sample_raster_ssr_reflection(
-            hit.position + reflected_dir * (TERRARIUM_VOXEL_WORLD_SIZE * 2.0),
-            reflected_dir,
-            fract(cell_noise_c + voxel_lens * 0.37),
+            voxel_center_ws + ssr_reflected_dir * (TERRARIUM_VOXEL_WORLD_SIZE * 2.0),
+            ssr_reflected_dir,
+            cell_noise_c,
             ssr_reflection) * glass_visibility;
     }
     vec3 reflection_color = mix(sky_reflection, ssr_reflection, clamp(ssr_hit * 0.86, 0.0, 1.0));
@@ -705,8 +764,8 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     glassed_color = mix(glassed_color, glassed_color * glass_tint, glass_visibility * 0.18);
     glass_color = mix(glass_color, glass_tint, glass_visibility * 0.28);
     glass_color += reflection_color * (edge * 0.14 + core_edge * 0.08 + fresnel_band * 0.035 +
-                                       pane * (0.018 + voxel_lens * 0.020 + ssr_hit * 0.070));
-    glass_color += ssr_reflection * ssr_hit * (pane * (0.12 + fresnel * 0.08) + edge * 0.08);
+                                       pane * (0.018 + ssr_voxel_lens * 0.020 + ssr_hit * 0.070));
+    glass_color += ssr_reflection * ssr_hit * (pane * (0.12 + ssr_fresnel * 0.08) + edge * 0.08);
     glass_color += sun_info.sun_color * sun_glint * (edge * 0.58 + core_edge * 0.32 +
                                                      pane * 0.050);
 
