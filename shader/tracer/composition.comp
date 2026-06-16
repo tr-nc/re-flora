@@ -600,9 +600,10 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
         normal = -normal;
     }
 
-    bool camera_inside_glass = all(greaterThanEqual(camera_info.pos.xyz, TERRARIUM_GLASS_BOX_MIN)) &&
-                               all(lessThanEqual(camera_info.pos.xyz, TERRARIUM_GLASS_BOX_MAX));
-    if (!camera_inside_glass) {
+    // Only shade the inner side of each pane. Rays crossing a pane from outside to inside
+    // see air, while rays crossing from inside to outside see glass. This hides the two
+    // camera-facing outside panes without depending on camera distance or box containment.
+    if (dot(ray.direction, hit.normal) <= 0.0) {
         return scene_color;
     }
 
