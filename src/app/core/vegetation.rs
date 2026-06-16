@@ -1171,7 +1171,7 @@ impl App {
 
     pub(super) fn apply_flora_trim(&mut self, edit: TerrainRemovalEdit) -> Result<()> {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
-            let target_age = super::FLORA_FULL_GROWTH_TICKS / 2;
+            let target_age = super::FLORA_TRIM_MAX_GROWTH_PROGRESS;
             let growing_chunks = world_ops::mesh_trim_flora_for_sphere_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,

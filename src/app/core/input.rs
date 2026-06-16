@@ -1,11 +1,11 @@
 use super::ui_style::{
-    HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_SLOT_COUNT, MAX_VOXEL_STORAGE_PER_TYPE,
-    SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX,
-    STAFF_TOOL_ACCENT, WATER_SLOT_INDEX, WATER_TOOL_ACCENT,
+    HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_SLOT_COUNT, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT,
+    SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, WATER_SLOT_INDEX,
+    WATER_TOOL_ACCENT,
 };
 use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
-use crate::builder::{ChunkModifyStats, EDIT_STATS_VOXEL_TYPE_COUNT};
+use crate::builder::ChunkModifyStats;
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
 use std::time::Instant;
@@ -243,99 +243,32 @@ impl App {
         self.voxel_count(self.player_tools.active_voxel_type)
     }
 
-    fn is_active_voxel_storage_full(&self) -> bool {
-        if self.player_tools.active_voxel_type == super::ActiveVoxelType::All {
-            return super::BACKPACK_VOXEL_TYPES
-                .iter()
-                .all(|voxel_type| self.voxel_count(*voxel_type) >= MAX_VOXEL_STORAGE_PER_TYPE);
-        }
-
-        self.active_voxel_count() >= MAX_VOXEL_STORAGE_PER_TYPE
-    }
-
-    fn active_voxel_storage_remaining(&self) -> u32 {
-        if self.player_tools.active_voxel_type == super::ActiveVoxelType::All {
-            return super::BACKPACK_VOXEL_TYPES
-                .iter()
-                .map(|voxel_type| self.voxel_storage_remaining(*voxel_type))
-                .sum();
-        }
-
-        self.voxel_storage_remaining(self.player_tools.active_voxel_type)
-    }
-
-    fn voxel_storage_remaining(&self, voxel_type: super::ActiveVoxelType) -> u32 {
-        if voxel_type == super::ActiveVoxelType::All {
-            return super::BACKPACK_VOXEL_TYPES
-                .iter()
-                .map(|voxel_type| self.voxel_storage_remaining(*voxel_type))
-                .sum();
-        }
-
-        MAX_VOXEL_STORAGE_PER_TYPE.saturating_sub(self.voxel_count(voxel_type))
-    }
-
-    fn active_removed_voxel_limits(&self) -> [u32; EDIT_STATS_VOXEL_TYPE_COUNT] {
-        let mut limits = [0; EDIT_STATS_VOXEL_TYPE_COUNT];
-        let mut set_limit = |voxel_type: super::ActiveVoxelType, remaining: u32| {
-            if let Some(voxel_type_id) = voxel_type.voxel_type() {
-                if let Some(limit) = limits.get_mut(voxel_type_id as usize) {
-                    *limit = remaining;
-                }
-            }
-        };
-
-        if self.player_tools.active_voxel_type == super::ActiveVoxelType::All {
-            for voxel_type in super::BACKPACK_VOXEL_TYPES {
-                set_limit(voxel_type, self.voxel_storage_remaining(voxel_type));
-            }
-        } else {
-            set_limit(
-                self.player_tools.active_voxel_type,
-                self.voxel_storage_remaining(self.player_tools.active_voxel_type),
-            );
-        }
-
-        limits
-    }
-
     fn add_voxel_to_backpack(&mut self, voxel_type: super::ActiveVoxelType, amount: u32) {
         match voxel_type {
             super::ActiveVoxelType::All => unreachable!("All is not a concrete backpack voxel"),
             super::ActiveVoxelType::Dirt => {
-                self.player_tools.backpack_dirt_count = self
-                    .player_tools
-                    .backpack_dirt_count
-                    .saturating_add(amount)
-                    .min(MAX_VOXEL_STORAGE_PER_TYPE)
+                self.player_tools.backpack_dirt_count =
+                    self.player_tools.backpack_dirt_count.saturating_add(amount)
             }
             super::ActiveVoxelType::Sand => {
-                self.player_tools.backpack_sand_count = self
-                    .player_tools
-                    .backpack_sand_count
-                    .saturating_add(amount)
-                    .min(MAX_VOXEL_STORAGE_PER_TYPE)
+                self.player_tools.backpack_sand_count =
+                    self.player_tools.backpack_sand_count.saturating_add(amount)
             }
             super::ActiveVoxelType::CherryWood => {
                 self.player_tools.backpack_cherry_wood_count = self
                     .player_tools
                     .backpack_cherry_wood_count
                     .saturating_add(amount)
-                    .min(MAX_VOXEL_STORAGE_PER_TYPE)
             }
             super::ActiveVoxelType::OakWood => {
                 self.player_tools.backpack_oak_wood_count = self
                     .player_tools
                     .backpack_oak_wood_count
                     .saturating_add(amount)
-                    .min(MAX_VOXEL_STORAGE_PER_TYPE)
             }
             super::ActiveVoxelType::Rock => {
-                self.player_tools.backpack_rock_count = self
-                    .player_tools
-                    .backpack_rock_count
-                    .saturating_add(amount)
-                    .min(MAX_VOXEL_STORAGE_PER_TYPE)
+                self.player_tools.backpack_rock_count =
+                    self.player_tools.backpack_rock_count.saturating_add(amount)
             }
         }
     }
@@ -504,18 +437,6 @@ impl App {
             return;
         }
 
-        if self.is_active_voxel_storage_full() {
-            self.stop_terrain_edit_loop_sound();
-            return;
-        }
-
-        let remaining_capacity = self.active_voxel_storage_remaining();
-        if remaining_capacity == 0 {
-            self.stop_terrain_edit_loop_sound();
-            return;
-        }
-        let removed_voxel_limits = self.active_removed_voxel_limits();
-
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.start_terrain_edit_loop_sound(center);
@@ -533,8 +454,8 @@ impl App {
                             radius: self.player_tools.terrain_edit_radius,
                         },
                         self.active_voxel_type_id(),
-                        Some(remaining_capacity),
-                        Some(removed_voxel_limits),
+                        None,
+                        None,
                     )
                     .map(|readback| {
                         let removed_total: u32 = readback.stats.removed_counts.iter().sum();
@@ -680,7 +601,10 @@ impl App {
                 self.player_tools.last_staff_remove_time = Some(now);
             }
             Err(err) => {
-                log::error!("Staff flora removal attempt failed during terrain query: {}", err);
+                log::error!(
+                    "Staff flora removal attempt failed during terrain query: {}",
+                    err
+                );
             }
         }
     }

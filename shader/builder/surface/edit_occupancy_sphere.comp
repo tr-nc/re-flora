@@ -19,6 +19,7 @@ layout(set = 0, binding = 1, r32ui) uniform uimage3D occupancy_data;
 
 layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D surface;
 
+#include "../../include/core/hash.glsl"
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 #include "../../include/instance.glsl"
@@ -33,6 +34,18 @@ bool in_chunk_local_bound(ivec3 local_pos) {
 }
 
 bool is_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }
+
+uint randomized_trim_growth_progress(uvec3 stem_world_pos, uint current_growth_progress) {
+    uint min_progress = INSTANCE_GROWTH_PROGRESS_REBIRTH;
+    uint max_progress = min(edit_occupancy_info.target_age, INSTANCE_GROWTH_PROGRESS_MATURE - 1u);
+    max_progress      = max(max_progress, min_progress);
+
+    uint seed = get_instance_seed(stem_world_pos) ^ wellons_hash(edit_occupancy_info.flora_tick);
+    uint span = max_progress - min_progress + 1u;
+    uint randomized_progress = min_progress + (wellons_hash(seed ^ 0x9E3779B9u) % span);
+
+    return min(current_growth_progress, randomized_progress);
+}
 
 void main() {
     ivec3 base_local = ivec3(gl_GlobalInvocationID.xyz);
@@ -80,9 +93,11 @@ void main() {
             return;
         }
         uint growth_progress = current_occupancy - 1u;
-        if (growth_progress > INSTANCE_GROWTH_PROGRESS_REBIRTH) {
+        uint trimmed_growth_progress = randomized_trim_growth_progress(
+            edit_occupancy_info.chunk_world_offset + uvec3(stem_local), growth_progress);
+        if (growth_progress > trimmed_growth_progress) {
             imageStore(occupancy_data, stem_local,
-                       uvec4(INSTANCE_GROWTH_PROGRESS_REBIRTH + 1u, 0u, 0u, 0u));
+                       uvec4(trimmed_growth_progress + 1u, 0u, 0u, 0u));
         }
     }
 }
