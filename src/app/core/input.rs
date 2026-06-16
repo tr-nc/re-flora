@@ -15,7 +15,7 @@ use winit::keyboard::PhysicalKey;
 
 impl App {
     fn blocking_panel_open(&self) -> bool {
-        self.config_panel_visible || self.settings_panel_visible
+        self.config_panel_visible
     }
 
     pub(super) fn is_free_look_camera_mode(&self) -> bool {
@@ -680,7 +680,10 @@ impl App {
                 self.player_tools.last_staff_remove_time = Some(now);
             }
             Err(err) => {
-                log::error!("Staff flora removal attempt failed during terrain query: {}", err);
+                log::error!(
+                    "Staff flora removal attempt failed during terrain query: {}",
+                    err
+                );
             }
         }
     }
