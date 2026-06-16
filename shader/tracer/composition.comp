@@ -614,8 +614,12 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
 
     vec3 glass_color = mix(pane_color, edge_color, edge);
     vec3 debug_near_tint = vec3(0.16, 1.00, 0.30);
+    vec3 debug_far_tint = vec3(1.00, 0.12, 0.08);
+    float is_far_face = 1.0 - is_near_face;
     glassed_color = mix(glassed_color, glassed_color * debug_near_tint, is_near_face * 0.32);
+    glassed_color = mix(glassed_color, glassed_color * debug_far_tint, is_far_face * 0.32);
     glass_color = mix(glass_color, debug_near_tint, is_near_face * 0.62);
+    glass_color = mix(glass_color, debug_far_tint, is_far_face * 0.62);
     glass_color += sky_reflection * (edge * 0.14 + core_edge * 0.08 + fresnel_band * 0.035 +
                                      pane * (0.010 + voxel_lens * 0.018));
     glass_color += sun_info.sun_color * sun_glint * (edge * 0.58 + core_edge * 0.32 +
