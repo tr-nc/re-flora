@@ -537,6 +537,14 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     float fresnel = pow(1.0 - ndotv, 5.0);
     float fresnel_band = step(0.42, fresnel);
 
+    float is_near_face = dot(hit.normal, camera_info.pos.xyz -
+                             (TERRARIUM_GLASS_BOX_MIN + TERRARIUM_GLASS_BOX_MAX) * 0.5) >= 0.0
+                             ? 1.0
+                             : 0.0;
+    if (is_near_face > 0.5) {
+        return scene_color;
+    }
+
     vec3 entry_normal = dot(ray.direction, hit.normal) < 0.0 ? micro_normal : -micro_normal;
     float eta = dot(ray.direction, hit.normal) < 0.0 ? (1.0 / 1.45) : 1.45;
     vec3 physical_refracted_dir = refract(ray.direction, entry_normal, eta);
@@ -583,10 +591,6 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     chromatic_color.b = sample_scene_color(screen_uv + refraction_offset -
                                            chroma_dir * chroma).b;
 
-    float is_near_face = dot(hit.normal, camera_info.pos.xyz -
-                             (TERRARIUM_GLASS_BOX_MIN + TERRARIUM_GLASS_BOX_MAX) * 0.5) >= 0.0
-                             ? 1.0
-                             : 0.0;
     float body_alpha = mix(TERRARIUM_GLASS_FAR_ALPHA, TERRARIUM_GLASS_NEAR_ALPHA, is_near_face);
     float refraction_mix = pane * clamp(0.095 + fresnel_band * 0.040 + voxel_lens * 0.020 +
                                         (1.0 - is_near_face) * 0.038, 0.0, 0.19) +
