@@ -218,6 +218,7 @@ const int TERRARIUM_GLASS_MAX_HITS = 4;
 const float TERRARIUM_GLASS_NEAR_ALPHA = 0.022;
 const float TERRARIUM_GLASS_FAR_ALPHA = 0.092;
 const float TERRARIUM_GLASS_VOXEL_GRID = TERRARIUM_VOXELS_PER_CHUNK_AXIS;
+const float TERRARIUM_GLASS_FACE_FADE_WIDTH_WORLD = 0.18;
 // Compare glass occlusion in ray/world space instead of non-linear depth space.
 // A fixed NDC-depth epsilon grows to a large world-space distance near the far plane.
 const float TERRARIUM_GLASS_OCCLUSION_EPS_WORLD = TERRARIUM_VOXEL_WORLD_SIZE * 0.25;
@@ -537,13 +538,11 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     float fresnel = pow(1.0 - ndotv, 5.0);
     float fresnel_band = step(0.42, fresnel);
 
-    float is_near_face = dot(hit.normal, camera_info.pos.xyz -
-                             (TERRARIUM_GLASS_BOX_MIN + TERRARIUM_GLASS_BOX_MAX) * 0.5) >= 0.0
-                             ? 1.0
-                             : 0.0;
-    if (is_near_face > 0.5) {
-        return scene_color;
-    }
+    float face_side = dot(hit.normal, camera_info.pos.xyz -
+                          (TERRARIUM_GLASS_BOX_MIN + TERRARIUM_GLASS_BOX_MAX) * 0.5);
+    float is_near_face = smoothstep(-TERRARIUM_GLASS_FACE_FADE_WIDTH_WORLD,
+                                    TERRARIUM_GLASS_FACE_FADE_WIDTH_WORLD, face_side);
+    float glass_visibility = 1.0 - is_near_face;
 
     vec3 entry_normal = dot(ray.direction, hit.normal) < 0.0 ? micro_normal : -micro_normal;
     float eta = dot(ray.direction, hit.normal) < 0.0 ? (1.0 / 1.45) : 1.45;
@@ -633,7 +632,8 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     float edge_alpha = edge * (0.145 + core_edge * 0.090 + corner * 0.070 +
                                fresnel_band * 0.030);
     float alpha = clamp(pane_alpha + edge_alpha, 0.0, mix(0.46, 0.30, is_near_face));
-    return mix(glassed_color, glass_color, alpha);
+    vec3 shaded_glass = mix(glassed_color, glass_color, alpha);
+    return mix(scene_color, shaded_glass, glass_visibility);
 }
 
 vec3 apply_terrarium_glass(vec3 scene_color, vec2 screen_uv, Ray ray, float scene_t) {
