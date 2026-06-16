@@ -87,6 +87,10 @@ cargo run --release -- --latest-log
 cargo run --release -- --tail-latest-log 200
 ```
 
+### User Try-Out Role
+
+After implementing and validating a change, do not automatically launch the visible game. If the user says they want to try it, visualize it, experience it, or otherwise asks for a live/manual check, run the game in visible mode with plain `cargo run` and no `--hidden` flag. If the implementation lives in a worker worktree, run `cargo run` from that same worktree so the user tests the intended branch and assets.
+
 ## Session End Rule
 
 At the end of every conversation or agent session, before reporting completion, run **both** `cargo build` and `cargo build --release` in sequence. This ensures both debug and release profiles compile correctly. Do not skip this step — a change that compiles in debug may fail in release and vice versa.
