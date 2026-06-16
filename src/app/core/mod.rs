@@ -69,7 +69,7 @@ use ui_style::{
     ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
-    SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, WATER_SLOT_INDEX, WATER_TOOL_ACCENT,
+    SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT,
 };
 use verdarium_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -1325,7 +1325,6 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit2) => Some(1),
                         PhysicalKey::Code(KeyCode::Digit3) => Some(2),
                         PhysicalKey::Code(KeyCode::Digit4) => Some(3),
-                        PhysicalKey::Code(KeyCode::Digit5) => Some(4),
                         _ => None,
                     };
 
@@ -1496,7 +1495,6 @@ impl App {
                 let item_panel_smooth_icon = self.item_panel_smooth_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
-                let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
                 let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
                     .iter()
@@ -1970,14 +1968,6 @@ impl App {
                                 key_hint: "4",
                                 icon: item_panel_hoe_icon.as_ref(),
                                 accent: HOE_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
-                                index: WATER_SLOT_INDEX,
-                                label: "Water",
-                                key_hint: "5",
-                                icon: item_panel_water_icon.as_ref(),
-                                accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
                         ];
