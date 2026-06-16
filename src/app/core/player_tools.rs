@@ -1,11 +1,9 @@
-use super::ActiveVoxelType;
 use glam::Vec2;
 use std::time::Instant;
 use uuid::Uuid;
 
 pub(super) struct PlayerToolState {
     pub(super) selected_item_panel_slot: usize,
-    pub(super) active_voxel_type: ActiveVoxelType,
     pub(super) left_mouse_held: bool,
     pub(super) right_mouse_held: bool,
     pub(super) shovel_dig_held: bool,
@@ -30,7 +28,6 @@ impl Default for PlayerToolState {
     fn default() -> Self {
         Self {
             selected_item_panel_slot: super::ui_style::STAFF_SLOT_INDEX,
-            active_voxel_type: ActiveVoxelType::Dirt,
             left_mouse_held: false,
             right_mouse_held: false,
             shovel_dig_held: false,

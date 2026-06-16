@@ -1493,7 +1493,7 @@ impl App {
                         label: voxel_type.label(),
                         count: self.voxel_count(voxel_type),
                         color: voxel_type.color(),
-                        selected: voxel_type == self.player_tools.active_voxel_type,
+                        selected: false,
                     })
                     .collect();
                 let status_bar_text = self
@@ -1502,7 +1502,7 @@ impl App {
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
-                let mut clicked_voxel_type = None;
+
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_preview_center = self.terrain_edit_hover_center();
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
@@ -1690,12 +1690,8 @@ impl App {
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
 
-                        let voxel_palette_response = draw_voxel_palette(
-                            ctx,
-                            &voxel_palette_entries,
-                            self.window_state.is_cursor_visible(),
-                        );
-                        clicked_voxel_type = voxel_palette_response.clicked_voxel_type;
+                        let voxel_palette_response =
+                            draw_voxel_palette(ctx, &voxel_palette_entries, false);
                         self.player_tools.backpack_summary_panel_screen_pos =
                             voxel_palette_response
                                 .panel_center
@@ -1793,12 +1789,6 @@ impl App {
                 self.sync_cursor_with_panels();
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);
-                }
-                if let Some(voxel_type) = clicked_voxel_type {
-                    if voxel_type != self.player_tools.active_voxel_type {
-                        self.player_tools.active_voxel_type = voxel_type;
-                        self.play_item_panel_scroll_sound();
-                    }
                 }
                 if self.gui_wants_keyboard_input() {
                     self.reset_camera_movement_input();

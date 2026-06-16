@@ -222,7 +222,8 @@ impl App {
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {
-        self.player_tools.active_voxel_type.voxel_type()
+        // No selected backpack voxel means terrain removal accepts every concrete voxel type.
+        super::ActiveVoxelType::All.voxel_type()
     }
 
     pub(super) fn voxel_count(&self, voxel_type: super::ActiveVoxelType) -> u32 {
@@ -237,10 +238,6 @@ impl App {
             super::ActiveVoxelType::OakWood => self.player_tools.backpack_oak_wood_count,
             super::ActiveVoxelType::Rock => self.player_tools.backpack_rock_count,
         }
-    }
-
-    fn active_voxel_count(&self) -> u32 {
-        self.voxel_count(self.player_tools.active_voxel_type)
     }
 
     fn add_voxel_to_backpack(&mut self, voxel_type: super::ActiveVoxelType, amount: u32) {
@@ -271,10 +268,6 @@ impl App {
                     self.player_tools.backpack_rock_count.saturating_add(amount)
             }
         }
-    }
-
-    fn add_active_voxel_to_backpack(&mut self, amount: u32) {
-        self.add_voxel_to_backpack(self.player_tools.active_voxel_type, amount);
     }
 
     fn add_removed_voxels_to_backpack(&mut self, stats: &ChunkModifyStats) {
@@ -316,10 +309,7 @@ impl App {
     }
 
     fn first_placeable_voxel_type(&self) -> Option<super::ActiveVoxelType> {
-        if self.player_tools.active_voxel_type != super::ActiveVoxelType::All {
-            return (self.active_voxel_count() > 0).then_some(self.player_tools.active_voxel_type);
-        }
-
+        // Placement also ignores material selection: use any available stored voxel.
         super::BACKPACK_VOXEL_TYPES
             .iter()
             .copied()
@@ -464,12 +454,7 @@ impl App {
                             return;
                         }
 
-                        if let Some(active_voxel_type_id) = self.active_voxel_type_id() {
-                            let harvested = readback.stats.count_removed(active_voxel_type_id);
-                            self.add_active_voxel_to_backpack(harvested);
-                        } else {
-                            self.add_removed_voxels_to_backpack(&readback.stats);
-                        }
+                        self.add_removed_voxels_to_backpack(&readback.stats);
                         self.spawn_terrain_harvest_particles(
                             center,
                             &readback.stats,

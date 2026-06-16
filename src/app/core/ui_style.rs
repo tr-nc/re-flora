@@ -294,26 +294,24 @@ pub(crate) fn draw_voxel_palette(
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label(
-                            egui::RichText::new("Build Material")
+                            egui::RichText::new("Backpack")
                                 .color(GOLD_ACCENT)
                                 .size(12.0)
                                 .strong(),
                         );
                         ui.label(
-                            egui::RichText::new("Click to switch voxel type")
+                            egui::RichText::new("status only · no material filter")
                                 .color(TEXT_COLOR.linear_multiply(0.78))
                                 .size(10.0),
                         );
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(active) = entries.iter().find(|entry| entry.selected) {
-                            ui.label(
-                                egui::RichText::new(active.label)
-                                    .color(active.color)
-                                    .monospace()
-                                    .strong(),
-                            );
-                        }
+                        ui.label(
+                            egui::RichText::new("ALL")
+                                .color(SAGE_ACCENT)
+                                .monospace()
+                                .strong(),
+                        );
                     });
                 });
                 ui.add_space(6.0);
