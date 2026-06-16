@@ -680,7 +680,10 @@ impl App {
                 self.player_tools.last_staff_remove_time = Some(now);
             }
             Err(err) => {
-                log::error!("Staff flora removal attempt failed during terrain query: {}", err);
+                log::error!(
+                    "Staff flora removal attempt failed during terrain query: {}",
+                    err
+                );
             }
         }
     }

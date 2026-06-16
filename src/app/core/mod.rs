@@ -413,6 +413,7 @@ const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
 const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
+const FLORA_TRIM_MAX_GROWTH_PROGRESS: u32 = 96;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
