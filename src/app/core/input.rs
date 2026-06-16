@@ -650,6 +650,41 @@ impl App {
         }
     }
 
+    pub(super) fn try_staff_remove_flora(&mut self, now: Instant) {
+        if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
+            self.stop_terrain_edit_loop_sound();
+            return;
+        }
+
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) => {
+                self.start_terrain_edit_loop_sound(center);
+
+                if let Some(last_remove) = self.player_tools.last_staff_remove_time {
+                    if now.duration_since(last_remove) < super::SHOVEL_DIG_INTERVAL {
+                        return;
+                    }
+                }
+
+                if let Err(err) = self.apply_surface_flora_removal(TerrainRemovalEdit {
+                    center,
+                    radius: self.player_tools.terrain_edit_radius,
+                }) {
+                    log::error!("Failed to apply flora removal: {}", err);
+                    return;
+                }
+                self.player_tools.last_staff_remove_time = Some(now);
+            }
+            Ok(None) => {
+                self.stop_terrain_edit_loop_sound();
+                self.player_tools.last_staff_remove_time = Some(now);
+            }
+            Err(err) => {
+                log::error!("Staff flora removal attempt failed during terrain query: {}", err);
+            }
+        }
+    }
+
     pub(super) fn adjust_terrain_edit_radius(&mut self, scroll_lines: f32) {
         if scroll_lines.abs() <= f32::EPSILON {
             return;

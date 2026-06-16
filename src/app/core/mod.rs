@@ -1363,6 +1363,9 @@ impl App {
                             } else if self.is_staff_selected() && button == MouseButton::Left {
                                 self.player_tools.shovel_dig_held = true;
                                 self.try_staff_regenerate(now);
+                            } else if self.is_staff_selected() && button == MouseButton::Right {
+                                self.player_tools.shovel_dig_held = true;
+                                self.try_staff_remove_flora(now);
                             } else if self.is_hoe_selected() && button == MouseButton::Left {
                                 self.player_tools.shovel_dig_held = true;
                                 self.try_hoe_trim(now);
@@ -1436,6 +1439,8 @@ impl App {
                         self.try_terrain_smooth(now);
                     } else if self.is_staff_selected() && self.player_tools.left_mouse_held {
                         self.try_staff_regenerate(now);
+                    } else if self.is_staff_selected() && self.player_tools.right_mouse_held {
+                        self.try_staff_remove_flora(now);
                     } else if self.is_hoe_selected() && self.player_tools.left_mouse_held {
                         self.try_hoe_trim(now);
                     } else {
