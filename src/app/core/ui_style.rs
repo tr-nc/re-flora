@@ -41,7 +41,6 @@ pub(crate) const SMOOTH_SLOT_INDEX: usize = 1;
 pub(crate) const STAFF_SLOT_INDEX: usize = 2;
 pub(crate) const HOE_SLOT_INDEX: usize = 3;
 pub(crate) const WATER_SLOT_INDEX: usize = 4;
-pub(crate) const MAX_VOXEL_STORAGE_PER_TYPE: u32 = 200_000;
 
 pub(crate) const SHOVEL_TOOL_ACCENT: Color32 = Color32::from_rgb(178, 124, 80);
 pub(crate) const SMOOTH_TOOL_ACCENT: Color32 = Color32::from_rgb(190, 156, 106);
@@ -397,30 +396,6 @@ fn draw_voxel_palette_entry(
         } else {
             TEXT_COLOR
         },
-    );
-
-    let meter_rect = egui::Rect::from_min_size(
-        egui::pos2(label_pos.x, rect.bottom() - 12.0),
-        egui::vec2(138.0, 6.0),
-    );
-    painter.rect_filled(meter_rect, egui::CornerRadius::same(0), PANEL_BG);
-    let ratio =
-        entry.count.min(MAX_VOXEL_STORAGE_PER_TYPE) as f32 / MAX_VOXEL_STORAGE_PER_TYPE as f32;
-    if ratio > 0.0 {
-        let fill_rect = egui::Rect::from_min_max(
-            meter_rect.min,
-            egui::pos2(
-                meter_rect.min.x + meter_rect.width() * ratio,
-                meter_rect.max.y,
-            ),
-        );
-        painter.rect_filled(fill_rect, egui::CornerRadius::same(0), entry.color);
-    }
-    painter.rect_stroke(
-        meter_rect,
-        egui::CornerRadius::same(0),
-        egui::Stroke::new(1.0, SAGE_ACCENT),
-        egui::StrokeKind::Inside,
     );
 
     painter.text(
