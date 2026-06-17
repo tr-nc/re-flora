@@ -830,7 +830,7 @@ label = "Glass Tint"
 type = "Color"
 
 [section.param.data]
-value = "#B8EBFF"
+value = "#97F6FF"
 
 [[section.param]]
 id = "glass_reflection_strength"
@@ -839,7 +839,7 @@ label = "Reflection Strength"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 2
 min = 0
 max = 3
 
@@ -872,7 +872,7 @@ label = "Alpha Multiplier"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 0.5
 min = 0
 max = 3
 
