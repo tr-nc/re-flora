@@ -850,7 +850,7 @@ label = "Screen-Space Reflection Strength"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 1.5
 min = 0
 max = 3
 
@@ -861,7 +861,7 @@ label = "SSR Steps"
 type = "Uint"
 
 [section.param.data]
-value = 18
+value = 64
 min = 1
 max = 64
 
@@ -872,7 +872,7 @@ label = "SSR Min Hit Thickness (Voxels)"
 type = "Float"
 
 [section.param.data]
-value = 5
+value = 10
 min = 0.5
 max = 20
 
@@ -883,7 +883,7 @@ label = "SSR Footprint (Pixels)"
 type = "Float"
 
 [section.param.data]
-value = 2
+value = 8
 min = 0
 max = 8
 
