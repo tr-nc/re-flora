@@ -1,0 +1,52 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(set = 0, binding = 0) readonly uniform U_TerrainSmoothMboInfo {
+    uvec4 offset;
+    uvec4 dim;
+    vec4 center_radius;
+    vec4 params;
+    uvec4 threshold;
+} terrain_smooth_mbo_info;
+
+layout(set = 0, binding = 1) buffer B_TerrainSmoothMboDensityA { float data[]; }
+terrain_smooth_mbo_density_a;
+layout(set = 0, binding = 2) readonly buffer B_TerrainSmoothMboDensityB { float data[]; }
+terrain_smooth_mbo_density_b;
+layout(set = 0, binding = 3, r8ui) readonly uniform uimage3D chunk_atlas;
+
+#include "terrain_smooth_mbo_common.glsl"
+
+float sample_density(ivec3 local, float fallback) {
+    if (!in_local_bounds(local)) {
+        return fallback;
+    }
+    return terrain_smooth_mbo_density_b.data[local_index(uvec3(local))];
+}
+
+void main() {
+    uvec3 local = gl_GlobalInvocationID;
+    if (any(greaterThanEqual(local, terrain_smooth_mbo_info.dim.xyz))) {
+        return;
+    }
+
+    uint idx = local_index(local);
+    float center = terrain_smooth_mbo_density_b.data[idx];
+    uint voxel_type = load_voxel_type(local);
+    if (!is_mutable_voxel(voxel_type) || brush_falloff(local) <= 0.0) {
+        terrain_smooth_mbo_density_a.data[idx] = center;
+        return;
+    }
+
+    ivec3 p = ivec3(local);
+    float sum = center * 2.0;
+    sum += sample_density(p + ivec3(1, 0, 0), center);
+    sum += sample_density(p + ivec3(-1, 0, 0), center);
+    sum += sample_density(p + ivec3(0, 1, 0), center);
+    sum += sample_density(p + ivec3(0, -1, 0), center);
+    sum += sample_density(p + ivec3(0, 0, 1), center);
+    sum += sample_density(p + ivec3(0, 0, -1), center);
+    terrain_smooth_mbo_density_a.data[idx] = sum * 0.125;
+}

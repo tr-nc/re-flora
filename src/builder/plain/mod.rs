@@ -44,6 +44,11 @@ const PRIMITIVE_KIND_SPHERE: u32 = 2;
 pub const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 8;
 pub(crate) const EDIT_REMOVAL_CANDIDATE_CAPACITY: u64 = 65_536;
 pub(crate) const CHUNK_SOLID_SAMPLE_CAPACITY: u64 = 65_536;
+pub(crate) const TERRAIN_SMOOTH_MBO_HISTOGRAM_BINS: u32 = 1024;
+pub(crate) const TERRAIN_SMOOTH_MBO_MAX_DIM: u32 = 224;
+pub(crate) const TERRAIN_SMOOTH_MBO_CELL_CAPACITY: u64 = (TERRAIN_SMOOTH_MBO_MAX_DIM as u64)
+    * (TERRAIN_SMOOTH_MBO_MAX_DIM as u64)
+    * (TERRAIN_SMOOTH_MBO_MAX_DIM as u64);
 const EDIT_REMOVAL_SAMPLE_COUNT: usize = 50;
 
 /// GPU-friendly triangle vertex for model voxelization.
@@ -160,6 +165,25 @@ struct TerrainSmoothInfoGpu {
     _pad2: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct TerrainSmoothMboInfoGpu {
+    offset: [u32; 4],
+    dim: [u32; 4],
+    center_radius: [f32; 4],
+    params: [f32; 4],
+    threshold: [u32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+struct TerrainSmoothMboResultGpu {
+    counts: [u32; 4],
+    counts_extra: [u32; 4],
+    changed_min: [u32; 4],
+    changed_max: [u32; 4],
+}
+
 pub struct PlainBuilder {
     vulkan_ctx: VulkanContext,
     resources: PlainBuilderResources,
@@ -177,6 +201,11 @@ pub struct PlainBuilder {
     terrain_smooth_target_ppl: ComputePipeline,
     #[allow(dead_code)]
     terrain_smooth_apply_ppl: ComputePipeline,
+    terrain_smooth_mbo_init_ppl: ComputePipeline,
+    terrain_smooth_mbo_diffuse_ab_ppl: ComputePipeline,
+    terrain_smooth_mbo_diffuse_ba_ppl: ComputePipeline,
+    terrain_smooth_mbo_score_ppl: ComputePipeline,
+    terrain_smooth_mbo_apply_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
     chunk_solid_sample_ppl: ComputePipeline,
@@ -272,6 +301,41 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let terrain_smooth_mbo_init_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_smooth_mbo_init.comp",
+            "main",
+        )
+        .unwrap();
+        let terrain_smooth_mbo_diffuse_ab_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_smooth_mbo_diffuse_ab.comp",
+            "main",
+        )
+        .unwrap();
+        let terrain_smooth_mbo_diffuse_ba_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_smooth_mbo_diffuse_ba.comp",
+            "main",
+        )
+        .unwrap();
+        let terrain_smooth_mbo_score_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_smooth_mbo_score.comp",
+            "main",
+        )
+        .unwrap();
+        let terrain_smooth_mbo_apply_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_smooth_mbo_apply.comp",
+            "main",
+        )
+        .unwrap();
 
         let resources = PlainBuilderResources::new(
             device,
@@ -299,6 +363,24 @@ impl PlainBuilder {
             ComputePipeline::new(device, &terrain_smooth_target_sm, &pool, &[&resources]);
         let terrain_smooth_apply_ppl =
             ComputePipeline::new(device, &terrain_smooth_apply_sm, &pool, &[&resources]);
+        let terrain_smooth_mbo_init_ppl =
+            ComputePipeline::new(device, &terrain_smooth_mbo_init_sm, &pool, &[&resources]);
+        let terrain_smooth_mbo_diffuse_ab_ppl = ComputePipeline::new(
+            device,
+            &terrain_smooth_mbo_diffuse_ab_sm,
+            &pool,
+            &[&resources],
+        );
+        let terrain_smooth_mbo_diffuse_ba_ppl = ComputePipeline::new(
+            device,
+            &terrain_smooth_mbo_diffuse_ba_sm,
+            &pool,
+            &[&resources],
+        );
+        let terrain_smooth_mbo_score_ppl =
+            ComputePipeline::new(device, &terrain_smooth_mbo_score_sm, &pool, &[&resources]);
+        let terrain_smooth_mbo_apply_ppl =
+            ComputePipeline::new(device, &terrain_smooth_mbo_apply_sm, &pool, &[&resources]);
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
         let chunk_modify_sample_ppl =
             ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
@@ -328,6 +410,11 @@ impl PlainBuilder {
             terrain_smooth_heights_ppl,
             terrain_smooth_target_ppl,
             terrain_smooth_apply_ppl,
+            terrain_smooth_mbo_init_ppl,
+            terrain_smooth_mbo_diffuse_ab_ppl,
+            terrain_smooth_mbo_diffuse_ba_ppl,
+            terrain_smooth_mbo_score_ppl,
+            terrain_smooth_mbo_apply_ppl,
             chunk_modify_ppl,
             chunk_modify_sample_ppl,
             chunk_solid_sample_ppl,
@@ -722,6 +809,294 @@ impl PlainBuilder {
     }
 
     pub fn smooth_terrain_dirt(
+        &mut self,
+        center: Vec3,
+        brush_radius_world: f32,
+        strength: f32,
+        max_delta_world: f32,
+        deadband_world: f32,
+    ) -> Result<Option<UAabb3>> {
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let center_vox = center * 256.0;
+        let brush_radius_vox = (brush_radius_world * 256.0).max(0.0);
+        if brush_radius_vox <= 0.0 || !center_vox.is_finite() {
+            return Ok(None);
+        }
+        let max_delta_vox = (max_delta_world * 256.0).max(1.0);
+        let sample_radius_vox = brush_radius_vox + max_delta_vox.ceil().clamp(2.0, 10.0) + 3.0;
+        let Some((_offset, dim)) = clipped_voxel_box(center_vox, sample_radius_vox, atlas_dim)
+        else {
+            return Ok(None);
+        };
+
+        let cell_count = volume_cell_count(dim)? as u64;
+        if dim.max_element() > TERRAIN_SMOOTH_MBO_MAX_DIM
+            || cell_count > TERRAIN_SMOOTH_MBO_CELL_CAPACITY
+        {
+            log::warn!(
+                "[TERRAIN_SMOOTH_MBO] sample dim {:?} exceeds GPU capacity dim={} cells={}; falling back to CPU smoother",
+                dim,
+                TERRAIN_SMOOTH_MBO_MAX_DIM,
+                TERRAIN_SMOOTH_MBO_CELL_CAPACITY,
+            );
+            return self.smooth_terrain_dirt_cpu(
+                center,
+                brush_radius_world,
+                strength,
+                max_delta_world,
+                deadband_world,
+            );
+        }
+
+        self.smooth_terrain_mbo_gpu(
+            center,
+            brush_radius_world,
+            strength,
+            max_delta_world,
+            deadband_world,
+        )
+    }
+
+    fn smooth_terrain_mbo_gpu(
+        &mut self,
+        center: Vec3,
+        brush_radius_world: f32,
+        strength: f32,
+        max_delta_world: f32,
+        deadband_world: f32,
+    ) -> Result<Option<UAabb3>> {
+        let total_start = Instant::now();
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let center_vox = center * 256.0;
+        let brush_radius_vox = (brush_radius_world * 256.0).max(0.0);
+        if brush_radius_vox <= 0.0 || !center_vox.is_finite() {
+            return Ok(None);
+        }
+
+        let strength = strength.clamp(0.0, 1.0);
+        let deadband_vox = (deadband_world * 256.0).max(0.0);
+        let kernel_radius_vox = (brush_radius_vox * 0.35).clamp(2.0, 12.0);
+        let band_radius = ((max_delta_world * 256.0).max(1.0).ceil() as u32).clamp(2, 10);
+        let sample_radius_vox = brush_radius_vox + band_radius as f32 + 3.0;
+        let Some((offset, dim)) = clipped_voxel_box(center_vox, sample_radius_vox, atlas_dim)
+        else {
+            return Ok(None);
+        };
+        let cell_count = volume_cell_count(dim)? as u64;
+        if dim.max_element() > TERRAIN_SMOOTH_MBO_MAX_DIM
+            || cell_count > TERRAIN_SMOOTH_MBO_CELL_CAPACITY
+        {
+            anyhow::bail!(
+                "terrain smooth MBO sample dim {:?} cells={} exceeds capacity dim={} cells={}",
+                dim,
+                cell_count,
+                TERRAIN_SMOOTH_MBO_MAX_DIM,
+                TERRAIN_SMOOTH_MBO_CELL_CAPACITY,
+            );
+        }
+
+        let mut iteration_count = ((kernel_radius_vox / 2.0).ceil() as u32).clamp(2, 6);
+        if iteration_count % 2 != 0 {
+            iteration_count += 1;
+        }
+
+        let mut info = TerrainSmoothMboInfoGpu {
+            offset: [offset.x, offset.y, offset.z, 0],
+            dim: [dim.x, dim.y, dim.z, TERRAIN_SMOOTH_MBO_HISTOGRAM_BINS],
+            center_radius: [center_vox.x, center_vox.y, center_vox.z, brush_radius_vox],
+            params: [strength, deadband_vox, 0.0, 0.0],
+            threshold: [0, 0, 0, 0],
+        };
+
+        let prepare_start = Instant::now();
+        self.resources.terrain_smooth_mbo_info.fill_uniform(&info)?;
+        let prepare_ms = prepare_start.elapsed().as_secs_f64() * 1000.0;
+
+        let transfer_to_compute_barrier = PipelineBarrier::transfer_to_compute_shader_access();
+        let shader_access_barrier = PipelineBarrier::compute_shader_access();
+        let host_read_barrier = PipelineBarrier::compute_to_host_read();
+
+        let score_gpu_start = Instant::now();
+        let command_buffer =
+            CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
+        command_buffer.begin(true);
+        self.resources.terrain_smooth_mbo_histogram.record_fill(
+            &command_buffer,
+            0,
+            self.resources.terrain_smooth_mbo_histogram.get_size_bytes(),
+            0,
+        );
+        self.resources.terrain_smooth_mbo_result.record_fill(
+            &command_buffer,
+            0,
+            self.resources.terrain_smooth_mbo_result.get_size_bytes(),
+            0,
+        );
+        transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        self.terrain_smooth_mbo_init_ppl.record(
+            &command_buffer,
+            Extent3D::new(dim.x, dim.y, dim.z),
+            None,
+        );
+        shader_access_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        for _ in 0..(iteration_count / 2) {
+            self.terrain_smooth_mbo_diffuse_ab_ppl.record(
+                &command_buffer,
+                Extent3D::new(dim.x, dim.y, dim.z),
+                None,
+            );
+            shader_access_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+            self.terrain_smooth_mbo_diffuse_ba_ppl.record(
+                &command_buffer,
+                Extent3D::new(dim.x, dim.y, dim.z),
+                None,
+            );
+            shader_access_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        }
+        self.terrain_smooth_mbo_score_ppl.record(
+            &command_buffer,
+            Extent3D::new(dim.x, dim.y, dim.z),
+            None,
+        );
+        host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.end();
+        command_buffer
+            .submit_gpu_job(
+                &self.vulkan_ctx.get_general_queue(),
+                "plain.terrain_smooth_mbo_score",
+            )?
+            .wait_complete()?;
+        let score_gpu_ms = score_gpu_start.elapsed().as_secs_f64() * 1000.0;
+
+        let read_start = Instant::now();
+        let histogram_raw = self.resources.terrain_smooth_mbo_histogram.read_back()?;
+        let result_raw = self.resources.terrain_smooth_mbo_result.read_back()?;
+        let histogram = histogram_raw
+            .chunks_exact(std::mem::size_of::<u32>())
+            .map(|chunk| u32::from_ne_bytes(chunk.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        let score_result = *bytemuck::from_bytes::<TerrainSmoothMboResultGpu>(&result_raw);
+        let read_ms = read_start.elapsed().as_secs_f64() * 1000.0;
+        let candidate_count = score_result.counts[0];
+        let target_solid_count = score_result.counts[1];
+        if candidate_count == 0 || target_solid_count == 0 || target_solid_count == candidate_count
+        {
+            log::info!(
+                "[TERRAIN_SMOOTH_MBO] no-op candidates={} target_solid={} dim={:?} iters={} prepare={:.2}ms score_gpu={:.2}ms read={:.2}ms total={:.2}ms",
+                candidate_count,
+                target_solid_count,
+                dim,
+                iteration_count,
+                prepare_ms,
+                score_gpu_ms,
+                read_ms,
+                total_start.elapsed().as_secs_f64() * 1000.0,
+            );
+            return Ok(None);
+        }
+
+        let Some(threshold) = terrain_smooth_mbo_threshold(&histogram, target_solid_count) else {
+            return Ok(None);
+        };
+        info.threshold = [threshold.bin, threshold.tie_hash_limit, 0, 0];
+        self.resources.terrain_smooth_mbo_info.fill_uniform(&info)?;
+
+        let apply_gpu_start = Instant::now();
+        let command_buffer =
+            CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
+        command_buffer.begin(true);
+        self.resources.terrain_smooth_mbo_result.record_fill(
+            &command_buffer,
+            0,
+            self.resources.terrain_smooth_mbo_result.get_size_bytes(),
+            0,
+        );
+        let changed_min_offset = 2 * std::mem::size_of::<[u32; 4]>() as u64;
+        self.resources.terrain_smooth_mbo_result.record_fill(
+            &command_buffer,
+            changed_min_offset,
+            std::mem::size_of::<[u32; 4]>() as u64,
+            u32::MAX,
+        );
+        transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        self.terrain_smooth_mbo_apply_ppl.record(
+            &command_buffer,
+            Extent3D::new(dim.x, dim.y, dim.z),
+            None,
+        );
+        host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.end();
+        command_buffer
+            .submit_gpu_job(
+                &self.vulkan_ctx.get_general_queue(),
+                "plain.terrain_smooth_mbo_apply",
+            )?
+            .wait_complete()?;
+        let apply_gpu_ms = apply_gpu_start.elapsed().as_secs_f64() * 1000.0;
+
+        let apply_read_start = Instant::now();
+        let apply_raw = self.resources.terrain_smooth_mbo_result.read_back()?;
+        let apply_result = *bytemuck::from_bytes::<TerrainSmoothMboResultGpu>(&apply_raw);
+        let apply_read_ms = apply_read_start.elapsed().as_secs_f64() * 1000.0;
+        let changed_count = apply_result.counts[2];
+        if changed_count == 0 || apply_result.changed_min[0] == u32::MAX {
+            log::info!(
+                "[TERRAIN_SMOOTH_MBO] no-op stable candidates={} target_solid={} threshold_bin={} tie_keep={}/{} dim={:?} iters={} score_gpu={:.2}ms apply_gpu={:.2}ms total={:.2}ms",
+                candidate_count,
+                target_solid_count,
+                threshold.bin,
+                threshold.tie_keep_count,
+                threshold.tie_bin_count,
+                dim,
+                iteration_count,
+                score_gpu_ms,
+                apply_gpu_ms,
+                total_start.elapsed().as_secs_f64() * 1000.0,
+            );
+            return Ok(None);
+        }
+
+        let changed_min = UVec3::new(
+            apply_result.changed_min[0],
+            apply_result.changed_min[1],
+            apply_result.changed_min[2],
+        );
+        let changed_max = UVec3::new(
+            apply_result.changed_max[0],
+            apply_result.changed_max[1],
+            apply_result.changed_max[2],
+        );
+        let volume_delta = apply_result.counts[3] as i64 - apply_result.counts_extra[0] as i64;
+        log::info!(
+            "[TERRAIN_SMOOTH_MBO] changed={} added={} removed={} volume_delta={} candidates={} target_solid={} threshold_bin={} tie_keep={}/{} dim={:?} changed_min={:?} changed_max={:?} iters={} prepare={:.2}ms score_gpu={:.2}ms read={:.2}ms apply_gpu={:.2}ms apply_read={:.2}ms total={:.2}ms",
+            changed_count,
+            apply_result.counts[3],
+            apply_result.counts_extra[0],
+            volume_delta,
+            candidate_count,
+            target_solid_count,
+            threshold.bin,
+            threshold.tie_keep_count,
+            threshold.tie_bin_count,
+            dim,
+            changed_min,
+            changed_max,
+            iteration_count,
+            prepare_ms,
+            score_gpu_ms,
+            read_ms,
+            apply_gpu_ms,
+            apply_read_ms,
+            total_start.elapsed().as_secs_f64() * 1000.0,
+        );
+
+        Ok(Some(UAabb3::new(
+            changed_min.saturating_sub(UVec3::ONE),
+            (changed_max + UVec3::ONE).min(atlas_dim - UVec3::ONE),
+        )))
+    }
+
+    fn smooth_terrain_dirt_cpu(
         &mut self,
         center: Vec3,
         brush_radius_world: f32,
@@ -1355,6 +1730,14 @@ struct TerrainSmoothCandidate {
     tie_breaker: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct TerrainSmoothMboThreshold {
+    bin: u32,
+    tie_keep_count: u32,
+    tie_bin_count: u32,
+    tie_hash_limit: u32,
+}
+
 const TERRAIN_SMOOTH_UNREACHED: u16 = u16::MAX;
 
 fn is_terrain_voxel(voxel_type: u32) -> bool {
@@ -1409,6 +1792,41 @@ fn smooth_candidate_hash(pos: UVec3) -> u32 {
     x ^= x >> 15;
     x = x.wrapping_mul(0x846C_A68B);
     x ^ (x >> 16)
+}
+
+fn terrain_smooth_mbo_threshold(
+    histogram: &[u32],
+    target_solid_count: u32,
+) -> Option<TerrainSmoothMboThreshold> {
+    if target_solid_count == 0 || histogram.is_empty() {
+        return None;
+    }
+
+    let mut remaining = target_solid_count;
+    for (bin, count) in histogram.iter().enumerate().rev() {
+        if *count == 0 {
+            continue;
+        }
+        if remaining > *count {
+            remaining -= *count;
+            continue;
+        }
+
+        let tie_keep_count = remaining;
+        let tie_hash_limit = if tie_keep_count >= *count {
+            u32::MAX
+        } else {
+            ((tie_keep_count as f64 / *count as f64) * u32::MAX as f64).floor() as u32
+        };
+        return Some(TerrainSmoothMboThreshold {
+            bin: bin as u32,
+            tie_keep_count,
+            tie_bin_count: *count,
+            tie_hash_limit,
+        });
+    }
+
+    None
 }
 
 fn clipped_voxel_box(
@@ -1711,6 +2129,29 @@ fn choose_smooth_fill_voxel_type(atlas_data: &[u8], solid: &[bool], idx: usize, 
     }
 
     best_type
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mbo_threshold_keeps_top_histogram_bins() {
+        let histogram = [2, 3, 5, 7];
+        let threshold = terrain_smooth_mbo_threshold(&histogram, 9).unwrap();
+        assert_eq!(threshold.bin, 2);
+        assert_eq!(threshold.tie_keep_count, 2);
+        assert_eq!(threshold.tie_bin_count, 5);
+    }
+
+    #[test]
+    fn mbo_threshold_handles_full_top_bin() {
+        let histogram = [0, 4, 0, 6];
+        let threshold = terrain_smooth_mbo_threshold(&histogram, 6).unwrap();
+        assert_eq!(threshold.bin, 3);
+        assert_eq!(threshold.tie_keep_count, 6);
+        assert_eq!(threshold.tie_hash_limit, u32::MAX);
+    }
 }
 
 fn calculate_clipped_offset_and_dim(
