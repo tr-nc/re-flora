@@ -4,7 +4,8 @@ use crate::generated::gpu_structs::{
     VoxelColors,
 };
 use crate::tracer::{
-    CloudGuiParams, TerrainEditPreviewShape, TracerResources, WindGuiParams, WindSourceGpu,
+    CloudGuiParams, GlassGuiParams, TerrainEditPreviewShape, TracerResources, WindGuiParams,
+    WindSourceGpu,
 };
 use anyhow::Result;
 use bytemuck::Zeroable;
@@ -253,6 +254,7 @@ impl BufferUpdater {
         grass_tip_light: Vec3,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
+        glass_gui_params: GlassGuiParams,
         wind_directional_bias_fraction: f32,
         wind_turbulence_fraction: f32,
         world_tick_seconds: f32,
@@ -302,6 +304,12 @@ impl BufferUpdater {
             grass_bottom_light: grass_bottom_light.to_array(),
             grass_tip_dark: grass_tip_dark.to_array(),
             grass_tip_light: grass_tip_light.to_array(),
+            glass_tint: glass_gui_params.tint.to_array(),
+            glass_reflection_strength: glass_gui_params.reflection_strength,
+            glass_ssr_strength: glass_gui_params.ssr_strength,
+            glass_refraction_strength: glass_gui_params.refraction_strength,
+            glass_alpha: glass_gui_params.alpha,
+            glass_glint_strength: glass_gui_params.glint_strength,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
             wind_source_count,

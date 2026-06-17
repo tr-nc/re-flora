@@ -106,6 +106,16 @@ impl TerrainEditPreviewShape {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct GlassGuiParams {
+    pub tint: Vec3,
+    pub reflection_strength: f32,
+    pub ssr_strength: f32,
+    pub refraction_strength: f32,
+    pub alpha: f32,
+    pub glint_strength: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct CloudGuiParams {
     pub enabled: bool,
     pub coverage: f32,
@@ -679,6 +689,7 @@ impl Tracer {
         update_shadow_map: bool,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
+        glass_gui_params: GlassGuiParams,
         wind_directional_bias_fraction: f32,
         wind_turbulence_fraction: f32,
         grass_vibration_amplitude_voxels: f32,
@@ -833,6 +844,7 @@ impl Tracer {
             grass_tip_light,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
+            glass_gui_params,
             wind_directional_bias_fraction,
             wind_turbulence_fraction,
             self.world_tick_seconds,

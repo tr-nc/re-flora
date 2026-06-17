@@ -821,6 +821,73 @@ min = 0.1
 max = 60
 
 [[section]]
+name = "Glass"
+
+[[section.param]]
+id = "glass_tint"
+kind = "color"
+label = "Glass Tint"
+type = "Color"
+
+[section.param.data]
+value = "#B8EBFF"
+
+[[section.param]]
+id = "glass_reflection_strength"
+kind = "float"
+label = "Reflection Strength"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
+id = "glass_ssr_strength"
+kind = "float"
+label = "Screen-Space Reflection Strength"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
+id = "glass_refraction_strength"
+kind = "float"
+label = "Refraction Strength"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
+id = "glass_alpha"
+kind = "float"
+label = "Alpha Multiplier"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
+id = "glass_glint_strength"
+kind = "float"
+label = "Sun Glint Strength"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section]]
 name = "Shadow"
 
 [[section.param]]

@@ -431,6 +431,13 @@ pub struct GuiInput {
     pub grass_tip_dark: [f32; 3],
     pub _pad5: [u8; 4],
     pub grass_tip_light: [f32; 3],
+    pub _pad6: [u8; 4],
+    pub glass_tint: [f32; 3],
+    pub glass_reflection_strength: f32,
+    pub glass_ssr_strength: f32,
+    pub glass_refraction_strength: f32,
+    pub glass_alpha: f32,
+    pub glass_glint_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
     pub wind_source_count: u32,
@@ -479,7 +486,6 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad6: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).

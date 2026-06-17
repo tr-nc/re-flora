@@ -45,7 +45,9 @@ use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
-use crate::tracer::{CloudGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams};
+use crate::tracer::{
+    CloudGuiParams, GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
+};
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
@@ -2283,6 +2285,24 @@ impl App {
                         update_shadow_map,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
+                        GlassGuiParams {
+                            tint: Vec3::new(
+                                self.gui_adjustables.glass_tint.value.r() as f32 / 255.0,
+                                self.gui_adjustables.glass_tint.value.g() as f32 / 255.0,
+                                self.gui_adjustables.glass_tint.value.b() as f32 / 255.0,
+                            ),
+                            reflection_strength: self
+                                .gui_adjustables
+                                .glass_reflection_strength
+                                .value,
+                            ssr_strength: self.gui_adjustables.glass_ssr_strength.value,
+                            refraction_strength: self
+                                .gui_adjustables
+                                .glass_refraction_strength
+                                .value,
+                            alpha: self.gui_adjustables.glass_alpha.value,
+                            glint_strength: self.gui_adjustables.glass_glint_strength.value,
+                        },
                         self.gui_adjustables.wind_directional_bias_fraction.value,
                         self.gui_adjustables.wind_turbulence_fraction.value,
                         self.gui_adjustables.grass_vibration_amplitude_voxels.value,
