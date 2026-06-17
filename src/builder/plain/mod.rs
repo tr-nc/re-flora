@@ -741,7 +741,7 @@ impl PlainBuilder {
         let deadband_vox = (deadband_world * 256.0).max(0.0);
         let kernel_radius_vox = (brush_radius_vox * 0.35).clamp(2.0, 12.0);
         let band_radius = ((max_delta_world * 256.0).max(1.0).ceil() as u32).clamp(2, 10);
-        let sample_radius_vox = brush_radius_vox + kernel_radius_vox + band_radius as f32 + 2.0;
+        let sample_radius_vox = brush_radius_vox + band_radius as f32 + 3.0;
         let Some((offset, dim)) = clipped_voxel_box(center_vox, sample_radius_vox, atlas_dim)
         else {
             return Ok(None);
@@ -788,7 +788,11 @@ impl PlainBuilder {
             brush_radius_vox,
             surface_seed,
         );
-        if surface_component.iter().all(|selected| !*selected) {
+        let surface_voxel_count = surface_component
+            .iter()
+            .filter(|selected| **selected)
+            .count();
+        if surface_voxel_count == 0 {
             return Ok(None);
         }
 
@@ -798,10 +802,20 @@ impl PlainBuilder {
             &surface_component,
             band_radius.saturating_add(2),
         );
+        let band_indices: Vec<usize> = band_distance
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, distance)| {
+                (u32::from(*distance) <= band_radius.saturating_add(2)).then_some(idx)
+            })
+            .collect();
+        if band_indices.is_empty() {
+            return Ok(None);
+        }
         let classify_ms = classify_start.elapsed().as_secs_f64() * 1000.0;
 
         let blur_start = Instant::now();
-        let iteration_count = ((kernel_radius_vox / 3.0).ceil() as usize).clamp(2, 5);
+        let iteration_count = ((kernel_radius_vox / 2.0).ceil() as usize).clamp(3, 6);
         let mut density_a: Vec<f32> = solid
             .iter()
             .map(|is_solid| if *is_solid { 1.0 } else { 0.0 })
@@ -814,6 +828,7 @@ impl PlainBuilder {
                 &band_distance,
                 dim,
                 band_radius + 2,
+                &band_indices,
             );
             std::mem::swap(&mut density_a, &mut density_b);
         }
@@ -822,46 +837,55 @@ impl PlainBuilder {
         let rank_start = Instant::now();
         let mut candidates = Vec::new();
         let mut target_solid_count = 0usize;
-        for z in 0..dim.z {
-            for y in 0..dim.y {
-                for x in 0..dim.x {
-                    let local = UVec3::new(x, y, z);
-                    let idx = volume_index(local, dim);
-                    if !mutable[idx] || u32::from(band_distance[idx]) > band_radius {
-                        continue;
-                    }
-
-                    let world_center = offset.as_vec3() + local.as_vec3() + Vec3::splat(0.5);
-                    let center_dist = world_center.distance(center_vox);
-                    if center_dist > brush_radius_vox {
-                        continue;
-                    }
-
-                    if solid[idx] {
-                        target_solid_count += 1;
-                    }
-
-                    let brush_falloff = 1.0 - smoothstep01(center_dist / brush_radius_vox);
-                    let local_strength = strength * brush_falloff;
-                    let original_density = if solid[idx] { 1.0 } else { 0.0 };
-                    let mut score =
-                        original_density * (1.0 - local_strength) + density_a[idx] * local_strength;
-                    if (score - original_density).abs() <= deadband_vox / 256.0 {
-                        score = original_density;
-                    }
-                    candidates.push(TerrainSmoothCandidate {
-                        index: idx,
-                        score,
-                        tie_breaker: smooth_candidate_hash(offset + local),
-                    });
-                }
+        candidates.reserve(band_indices.len().min(cell_count));
+        for &idx in &band_indices {
+            if !mutable[idx] || u32::from(band_distance[idx]) > band_radius {
+                continue;
             }
+
+            let local = volume_local_pos(idx, dim);
+            let world_center = offset.as_vec3() + local.as_vec3() + Vec3::splat(0.5);
+            let center_dist = world_center.distance(center_vox);
+            if center_dist > brush_radius_vox {
+                continue;
+            }
+
+            if solid[idx] {
+                target_solid_count += 1;
+            }
+
+            let brush_falloff = 1.0 - smoothstep01(center_dist / brush_radius_vox);
+            let local_strength = (strength * brush_falloff * 2.25).clamp(0.0, 1.0);
+            let original_density = if solid[idx] { 1.0 } else { 0.0 };
+            let mut score =
+                original_density * (1.0 - local_strength) + density_a[idx] * local_strength;
+            if (score - original_density).abs() <= deadband_vox / 256.0 {
+                score = original_density;
+            }
+            candidates.push(TerrainSmoothCandidate {
+                index: idx,
+                score,
+                tie_breaker: smooth_candidate_hash(offset + local),
+            });
         }
 
         if candidates.is_empty()
             || target_solid_count == 0
             || target_solid_count == candidates.len()
         {
+            log::info!(
+                "[TERRAIN_SMOOTH_3D] no-op candidates={} target_solid={} surface={} band={} dim={:?} read={:.2}ms classify={:.2}ms blur={:.2}ms rank={:.2}ms total={:.2}ms",
+                candidates.len(),
+                target_solid_count,
+                surface_voxel_count,
+                band_indices.len(),
+                dim,
+                read_ms,
+                classify_ms,
+                blur_ms,
+                rank_start.elapsed().as_secs_f64() * 1000.0,
+                total_start.elapsed().as_secs_f64() * 1000.0,
+            );
             return Ok(None);
         }
 
@@ -872,20 +896,15 @@ impl PlainBuilder {
                 .then_with(|| b.tie_breaker.cmp(&a.tie_breaker))
         });
 
-        let mut next_solid = vec![false; cell_count];
-        for candidate in candidates.iter().take(target_solid_count) {
-            next_solid[candidate.index] = true;
-        }
         let rank_ms = rank_start.elapsed().as_secs_f64() * 1000.0;
 
         let apply_start = Instant::now();
-        let original_atlas_data = atlas_data.clone();
-        let mut changed_count = 0u32;
+        let mut changes = Vec::new();
         let mut changed_min = UVec3::splat(u32::MAX);
         let mut changed_max = UVec3::ZERO;
-        for candidate in candidates {
+        for (rank, candidate) in candidates.into_iter().enumerate() {
             let idx = candidate.index;
-            let wants_solid = next_solid[idx];
+            let wants_solid = rank < target_solid_count;
             if wants_solid == solid[idx] {
                 continue;
             }
@@ -893,7 +912,7 @@ impl PlainBuilder {
             let local = volume_local_pos(idx, dim);
             let world = offset + local;
             let new_voxel = if wants_solid {
-                choose_smooth_fill_voxel_type(&original_atlas_data, &solid, idx, dim)
+                choose_smooth_fill_voxel_type(&atlas_data, &solid, idx, dim)
             } else {
                 VOXEL_TYPE_EMPTY as u8
             };
@@ -901,15 +920,37 @@ impl PlainBuilder {
                 continue;
             }
 
-            atlas_data[idx] = new_voxel;
-            changed_count = changed_count.saturating_add(1);
+            changes.push((idx, new_voxel));
             changed_min = changed_min.min(world);
             changed_max = changed_max.max(world);
         }
 
-        if changed_count == 0 {
+        if changes.is_empty() {
+            log::info!(
+                "[TERRAIN_SMOOTH_3D] no-op stable target_solid={} candidates={} surface={} band={} dim={:?} read={:.2}ms classify={:.2}ms blur={:.2}ms rank={:.2}ms apply={:.2}ms total={:.2}ms",
+                target_solid_count,
+                candidate_count,
+                surface_voxel_count,
+                band_indices.len(),
+                dim,
+                read_ms,
+                classify_ms,
+                blur_ms,
+                rank_ms,
+                apply_start.elapsed().as_secs_f64() * 1000.0,
+                total_start.elapsed().as_secs_f64() * 1000.0,
+            );
             return Ok(None);
         }
+
+        for (idx, new_voxel) in &changes {
+            atlas_data[*idx] = *new_voxel;
+        }
+        let changed_count = changes.len() as u32;
+        let write_offset = changed_min;
+        let write_dim = changed_max - changed_min + UVec3::ONE;
+        let write_data =
+            extract_volume_region_u8(&atlas_data, dim, write_offset - offset, write_dim);
 
         let queue = self.vulkan_ctx.get_general_queue();
         let command_pool = self.vulkan_ctx.command_pool();
@@ -917,10 +958,14 @@ impl PlainBuilder {
             &queue,
             command_pool,
             TextureRegion {
-                offset: [offset.x as i32, offset.y as i32, offset.z as i32],
-                extent: Extent3D::new(dim.x, dim.y, dim.z),
+                offset: [
+                    write_offset.x as i32,
+                    write_offset.y as i32,
+                    write_offset.z as i32,
+                ],
+                extent: Extent3D::new(write_dim.x, write_dim.y, write_dim.z),
             },
-            &atlas_data,
+            &write_data,
             0,
             Some(TextureLayout::GENERAL),
         )?;
@@ -928,11 +973,15 @@ impl PlainBuilder {
         let apply_ms = apply_start.elapsed().as_secs_f64() * 1000.0;
 
         log::info!(
-            "[TERRAIN_SMOOTH_3D] changed={} target_solid={} candidates={} dim={:?} read={:.2}ms classify={:.2}ms blur={:.2}ms rank={:.2}ms apply={:.2}ms total={:.2}ms",
+            "[TERRAIN_SMOOTH_3D] changed={} target_solid={} candidates={} surface={} band={} dim={:?} write_dim={:?} iters={} read={:.2}ms classify={:.2}ms blur={:.2}ms rank={:.2}ms apply={:.2}ms total={:.2}ms",
             changed_count,
             target_solid_count,
             candidate_count,
+            surface_voxel_count,
+            band_indices.len(),
             dim,
+            write_dim,
+            iteration_count,
             read_ms,
             classify_ms,
             blur_ms,
@@ -1431,18 +1480,33 @@ fn find_nearest_smooth_surface_seed(
 ) -> Option<usize> {
     let mut best = None;
     let mut best_dist_sq = f32::INFINITY;
-    let seed_radius = brush_radius_vox + 3.0;
+    let seed_radius = brush_radius_vox.min(10.0) + 3.0;
     let seed_radius_sq = seed_radius * seed_radius;
-    for idx in 0..solid.len() {
-        if !mutable[idx] || !is_smooth_surface_solid(solid, idx, dim) {
-            continue;
-        }
-        let local = volume_local_pos(idx, dim);
-        let world_center = offset.as_vec3() + local.as_vec3() + Vec3::splat(0.5);
-        let dist_sq = world_center.distance_squared(center_vox);
-        if dist_sq <= seed_radius_sq && dist_sq < best_dist_sq {
-            best = Some(idx);
-            best_dist_sq = dist_sq;
+    let local_center = center_vox - offset.as_vec3();
+    let local_min = (local_center - Vec3::splat(seed_radius))
+        .floor()
+        .as_ivec3()
+        .clamp(IVec3::ZERO, dim.as_ivec3());
+    let local_max = (local_center + Vec3::splat(seed_radius))
+        .ceil()
+        .as_ivec3()
+        .clamp(IVec3::ZERO, dim.as_ivec3());
+
+    for z in local_min.z..local_max.z {
+        for y in local_min.y..local_max.y {
+            for x in local_min.x..local_max.x {
+                let local = UVec3::new(x as u32, y as u32, z as u32);
+                let idx = volume_index(local, dim);
+                if !mutable[idx] || !is_smooth_surface_solid(solid, idx, dim) {
+                    continue;
+                }
+                let world_center = offset.as_vec3() + local.as_vec3() + Vec3::splat(0.5);
+                let dist_sq = world_center.distance_squared(center_vox);
+                if dist_sq <= seed_radius_sq && dist_sq < best_dist_sq {
+                    best = Some(idx);
+                    best_dist_sq = dist_sq;
+                }
+            }
         }
     }
     best
@@ -1555,9 +1619,9 @@ fn diffuse_smooth_density(
     band_distance: &[u16],
     dim: UVec3,
     max_band: u32,
+    active_indices: &[usize],
 ) {
-    output.copy_from_slice(input);
-    for idx in 0..input.len() {
+    for &idx in active_indices {
         if u32::from(band_distance[idx]) > max_band {
             continue;
         }
@@ -1590,6 +1654,24 @@ fn diffuse_smooth_density(
             output[idx] = weighted_sum / total_weight;
         }
     }
+}
+
+fn extract_volume_region_u8(
+    source: &[u8],
+    source_dim: UVec3,
+    region_offset: UVec3,
+    region_dim: UVec3,
+) -> Vec<u8> {
+    let mut out = vec![0; (region_dim.x * region_dim.y * region_dim.z) as usize];
+    for z in 0..region_dim.z {
+        for y in 0..region_dim.y {
+            let src_start = volume_index(region_offset + UVec3::new(0, y, z), source_dim);
+            let dst_start = ((z * region_dim.y + y) * region_dim.x) as usize;
+            let len = region_dim.x as usize;
+            out[dst_start..dst_start + len].copy_from_slice(&source[src_start..src_start + len]);
+        }
+    }
+    out
 }
 
 fn choose_smooth_fill_voxel_type(atlas_data: &[u8], solid: &[bool], idx: usize, dim: UVec3) -> u8 {
