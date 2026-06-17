@@ -242,6 +242,8 @@ struct OrbitCameraInput {
     backward: bool,
     left: bool,
     right: bool,
+    up: bool,
+    down: bool,
 }
 
 impl OrbitCameraInput {
@@ -255,6 +257,8 @@ impl OrbitCameraInput {
             KeyCode::KeyS => self.backward = pressed,
             KeyCode::KeyA => self.left = pressed,
             KeyCode::KeyD => self.right = pressed,
+            KeyCode::Space => self.up = pressed,
+            KeyCode::ControlLeft | KeyCode::ControlRight => self.down = pressed,
             _ => {}
         }
     }
@@ -265,6 +269,10 @@ impl OrbitCameraInput {
 
     fn orbit_axis(self) -> f32 {
         self.right as i32 as f32 - self.left as i32 as f32
+    }
+
+    fn elevation_axis(self) -> f32 {
+        self.up as i32 as f32 - self.down as i32 as f32
     }
 }
 
