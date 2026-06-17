@@ -2304,6 +2304,15 @@ impl App {
                                 .glass_reflection_strength
                                 .value,
                             ssr_strength: self.gui_adjustables.glass_ssr_strength.value,
+                            ssr_steps: self.gui_adjustables.glass_ssr_steps.value,
+                            ssr_min_hit_thickness_voxels: self
+                                .gui_adjustables
+                                .glass_ssr_min_hit_thickness_voxels
+                                .value,
+                            ssr_footprint_pixels: self
+                                .gui_adjustables
+                                .glass_ssr_footprint_pixels
+                                .value,
                             refraction_strength: self
                                 .gui_adjustables
                                 .glass_refraction_strength

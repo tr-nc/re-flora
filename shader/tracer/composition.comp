@@ -217,10 +217,8 @@ const float TERRARIUM_GLASS_TOP_PADDING_WORLD = 0.08;
 const int TERRARIUM_GLASS_MAX_HITS = 4;
 const float TERRARIUM_GLASS_ALPHA = 0.092;
 const float TERRARIUM_GLASS_VOXEL_GRID = TERRARIUM_VOXELS_PER_CHUNK_AXIS;
-const int TERRARIUM_GLASS_SSR_STEPS = 18;
+const uint TERRARIUM_GLASS_SSR_MAX_STEPS = 64u;
 const float TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD = 1.45;
-const float TERRARIUM_GLASS_SSR_MIN_HIT_THICKNESS_WORLD = TERRARIUM_VOXEL_WORLD_SIZE * 5.0;
-const float TERRARIUM_GLASS_SSR_FOOTPRINT_PIXELS = 2.0;
 // Compare glass occlusion in ray/world space instead of non-linear depth space.
 // A fixed NDC-depth epsilon grows to a large world-space distance near the far plane.
 const float TERRARIUM_GLASS_OCCLUSION_EPS_WORLD = TERRARIUM_VOXEL_WORLD_SIZE * 0.25;
@@ -424,7 +422,8 @@ void accumulate_raster_reflection_tap(inout vec3 color_sum, inout float weight_s
 
 vec3 sample_raster_reflection_footprint(vec2 sample_uv, ivec2 tex_size, vec4 center_rgba) {
     vec2 texel = 1.0 / vec2(tex_size);
-    vec2 radius = texel * TERRARIUM_GLASS_SSR_FOOTPRINT_PIXELS;
+    float footprint_pixels = max(gui_input.glass_ssr_footprint_pixels, 0.0);
+    vec2 radius = texel * footprint_pixels;
     vec3 color_sum = vec3(0.0);
     float weight_sum = 0.0;
 
@@ -448,12 +447,17 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
                                    out vec3 reflection_color) {
     reflection_color = vec3(0.0);
     vec3 ray_dir = normalize(direction_ws);
-    float step_len = TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD /
-                     float(TERRARIUM_GLASS_SSR_STEPS);
+    uint step_count = clamp(gui_input.glass_ssr_steps, 1u, TERRARIUM_GLASS_SSR_MAX_STEPS);
+    float step_len = TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD / float(step_count);
+    float min_hit_thickness_world = max(gui_input.glass_ssr_min_hit_thickness_voxels, 0.0) *
+                                    TERRARIUM_VOXEL_WORLD_SIZE;
     float jitter = (jitter_seed - 0.5) * step_len * 0.45;
     ivec2 tex_size = textureSize(gfx_output_tex, 0);
 
-    for (int i = 0; i < TERRARIUM_GLASS_SSR_STEPS; i++) {
+    for (uint i = 0u; i < TERRARIUM_GLASS_SSR_MAX_STEPS; i++) {
+        if (i >= step_count) {
+            break;
+        }
         float t = (float(i) + 0.65) * step_len + jitter;
         if (t <= 0.0) {
             continue;
@@ -494,7 +498,7 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
         }
 
         float ray_distance = length(delta - ray_dir * hit_t);
-        float hit_thickness = TERRARIUM_GLASS_SSR_MIN_HIT_THICKNESS_WORLD + hit_t * 0.028;
+        float hit_thickness = max(min_hit_thickness_world, 1e-5) + hit_t * 0.028;
         if (ray_distance > hit_thickness) {
             continue;
         }
