@@ -15,23 +15,28 @@ Done means:
 ## Current State
 
 - Work branch/worktree:
-  - Branch: `agent/smoothing-tool-optimization`
-  - Worktree: `/home/terence/code/verdarium-agent-smoothing`
-  - Main worktree `/home/terence/code/verdarium` is clean and remains on `main`.
-- Current committed work:
-  - `130e0f2 optimize terrain smoothing pass`
-  - This is still a CPU-side 3D smoother, with smaller sample volumes, active-band iteration, changed-bounds upload, and one minor allocation removal.
+  - Branch: `agent/gpu-mbo-smoothing`
+  - Worktree: `/home/terence/code/verdarium`
+  - Previous smoothing worker worktree `/home/terence/code/verdarium-agent-smoothing` has been merged and removed.
+  - `main` was fast-forwarded to include the prior CPU smoothing optimization and progress doc before this branch was created.
+- Current implemented work:
+  - CPU-side 3D smoother remains as a fallback for oversized GPU sample volumes.
+  - GPU MBO first pass is implemented: init density, ping-pong 3D diffusion, score/histogram, CPU threshold from small histogram, GPU apply, and small result readback.
+  - Volume preservation is approximate at the threshold tie bin using deterministic hash tie-breaking; exact prefix-sum tie selection is not implemented yet.
 - Important files:
-  - `src/builder/plain/mod.rs` — current CPU 3D smoothing implementation and voxel atlas helpers.
-  - `src/builder/plain/resources.rs` — existing smoothing buffers/resources.
+  - `src/builder/plain/mod.rs` — Smooth tool entry point, GPU MBO orchestration, CPU fallback, threshold helper, voxel atlas helpers.
+  - `src/builder/plain/resources.rs` — smoothing GPU buffers/resources.
   - `shader/builder/chunk_writer/terrain_smooth_heights.comp`
   - `shader/builder/chunk_writer/terrain_smooth_target.comp`
   - `shader/builder/chunk_writer/terrain_smooth_apply.comp`
+  - `shader/builder/chunk_writer/terrain_smooth_mbo_*.comp`
+  - `shader/builder/chunk_writer/terrain_smooth_mbo_common.glsl`
   - `src/app/core/input.rs` — Smooth tool input path.
   - `src/app/core/vegetation.rs` — tool call into `PlainBuilder::smooth_terrain_dirt` and rebuild scheduling.
-- Known performance issue:
-  - Current smoother reads a 3D voxel region from GPU to CPU, performs CPU BFS/diffusion/ranking, then uploads voxel data back to GPU.
-  - This causes synchronization cost and scales with brush volume.
+- Known performance issue addressed in current prototype:
+  - The default Smooth path no longer reads the full 3D voxel region back to CPU.
+  - CPU now reads only a small histogram/result buffer to choose the threshold and return changed bounds.
+  - The CPU fallback still exists for sample volumes above the fixed GPU work-buffer capacity.
 - Research direction:
   - Best near-term fit appears to be GPU volume-preserving MBO / threshold-dynamics smoothing: parallel 3D density blur, GPU histogram/prefix threshold selection, then parallel threshold apply.
   - Longer-term industry-standard smooth voxel terrain often uses continuous SDF/density fields plus Surface Nets, Dual Contouring, Marching Cubes, or Transvoxel; that is a larger terrain representation shift.
@@ -48,7 +53,7 @@ Done means:
 - Objective: Document current behavior, bottlenecks, and chosen algorithm direction.
 - Expected output: Progress doc plus brief evidence from code inspection, synthetic evaluation, and prior hidden app runs.
 - Dependencies/blockers: None.
-- Status: in progress.
+- Status: done.
 
 ### Phase 2 — Deterministic benchmark harness
 
@@ -62,21 +67,21 @@ Done means:
 - Objective: Prototype a 3D GPU path without full voxel readback.
 - Expected output: Compute shaders/buffers for brush-region occupancy extraction, narrow-band or brush-AABB density blur, changed-count/bounds stats, and threshold apply.
 - Dependencies/blockers: Need buffer/image layout design and dispatch orchestration in `PlainBuilder`.
-- Status: not started.
+- Status: in progress.
 
 ### Phase 4 — Volume-preserving threshold selection
 
 - Objective: Replace CPU sort with a GPU-friendly threshold method.
 - Expected output: Histogram/prefix-sum or quantized score threshold pass that preserves the original solid count closely enough for sculpting.
 - Dependencies/blockers: Requires Phase 3 score/density output; exact preservation may require tie-breaking or second pass.
-- Status: not started.
+- Status: in progress.
 
 ### Phase 5 — Tool integration and fallback
 
 - Objective: Route the Smooth tool to the GPU path while preserving a safe fallback/debug option.
 - Expected output: `apply_surface_terrain_smooth` uses GPU smoother by default; CPU smoother can remain temporarily for comparison.
 - Dependencies/blockers: Phases 3–4 must produce stable changed bounds and material updates.
-- Status: not started.
+- Status: done for first prototype; further tuning remains.
 
 ### Phase 6 — Quality/performance tuning
 
@@ -98,8 +103,9 @@ Current checks already used on the branch:
 
 - `cargo fmt --check`
 - `cargo check`
+- `cargo test`
 - `cargo run --release -- --hidden --mute --auto-exit 0.5`
-- `cargo run --release -- --tail-latest-log 120`
+- `cargo run --release -- --tail-latest-log 160`
 - `cargo build`
 - `cargo build --release`
 
@@ -115,12 +121,12 @@ Additional verification needed before GPU smoother is considered done:
   - Roughness/exposed-surface metric improves on representative synthetic and real terrain cases.
   - Material types remain valid terrain/empty types.
 - Manual validation:
-  - Visible `cargo run` from `/home/terence/code/verdarium-agent-smoothing` after implementation, only when requested.
+  - Visible `cargo run` from `/home/terence/code/verdarium` on `agent/gpu-mbo-smoothing`, only when requested.
   - Try held smoothing strokes on rough terrain, slope, cliff/overhang, and large radius.
 
 Verification gap:
 
-- There is no current automated app path that triggers the Smooth tool in a release hidden run, so performance evidence for the real tool path is incomplete until Phase 2.
+- There is no current automated app path that triggers the Smooth tool in a release hidden run, so performance evidence for the real tool path is incomplete until Phase 2 or a manual visible run.
 
 ## Progress Log
 
@@ -136,13 +142,21 @@ Verification gap:
   - Allen-Cahn/phase-field smoothing as another stencil-friendly but more parameter-heavy option.
 - Decision so far: prefer a GPU volume-preserving MBO/threshold-dynamics path as the next implementation direction because it preserves the current binary/material voxel representation while removing CPU readback and full sort from the interaction path.
 - Created this progress document: `docs/terrain_smoothing_gpu_progress.md`.
+- Fast-forward merged `agent/smoothing-tool-optimization` into `main`, then removed `/home/terence/code/verdarium-agent-smoothing`.
+- Created `agent/gpu-mbo-smoothing` from the merged main worktree.
+- Implemented first GPU MBO prototype:
+  - Added MBO init/diffuse/score/apply compute shaders and shared GLSL helpers.
+  - Added fixed-capacity GPU work buffers for density ping-pong, scores, histogram, and result readback.
+  - Routed `smooth_terrain_dirt` through GPU MBO by default, with CPU fallback when the brush sample volume exceeds GPU buffer capacity.
+  - Added threshold-selection unit tests.
+- Validated compilation, unit tests, shader/pipeline initialization, and hidden release startup.
 
 ## Open Questions / Risks
 
-- Exact vs approximate volume preservation: exact preservation costs more GPU passes; approximate thresholding may be visually fine.
-- Active region selection: full brush AABB is simple but can still be large at max radius; a GPU narrow-band mask may be needed.
+- Exact vs approximate volume preservation: current prototype uses approximate deterministic hash tie-breaking at the threshold bin; exact preservation would need prefix-sum or compaction.
+- Active region selection: current prototype uses the brush AABB/sphere rather than a BFS-connected surface band; behavior on nearby disconnected surfaces needs manual validation.
 - Material assignment: adding solid voxels needs robust material choice near mixed dirt/sand/rock boundaries.
 - Topology behavior: MBO can close small holes or detach small components; need to decide whether this is desirable for a sculpting tool.
 - Mesh/rebuild cost may become the next bottleneck after smoothing moves to GPU.
-- Existing shader resources for heightfield smoothing are not enough for the desired real 3D path; new compute passes are likely needed.
+- Existing heightfield smoothing shaders remain unused legacy/alternative path; the real 3D path now has separate MBO compute passes.
 - The project currently lacks a deterministic Smooth-tool benchmark, so performance comparisons are not yet authoritative.

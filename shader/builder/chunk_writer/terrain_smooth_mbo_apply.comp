@@ -1,0 +1,90 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(set = 0, binding = 0) readonly uniform U_TerrainSmoothMboInfo {
+    uvec4 offset;
+    uvec4 dim;
+    vec4 center_radius;
+    vec4 params;
+    uvec4 threshold;
+} terrain_smooth_mbo_info;
+
+layout(set = 0, binding = 1) readonly buffer B_TerrainSmoothMboScores { float data[]; }
+terrain_smooth_mbo_scores;
+layout(set = 0, binding = 2) buffer B_TerrainSmoothMboResult {
+    uvec4 counts;
+    uvec4 counts_extra;
+    uvec4 changed_min;
+    uvec4 changed_max;
+} terrain_smooth_mbo_result;
+layout(set = 0, binding = 3, r8ui) uniform uimage3D chunk_atlas;
+layout(set = 0, binding = 4) buffer B_SolidWorkgroupFlags { uint data[]; }
+solid_workgroup_flags;
+
+#include "../../include/solid_workgroups.glsl"
+#include "terrain_smooth_mbo_common.glsl"
+
+bool wants_solid_from_score(uvec3 local, float score) {
+    uint bin = score_bin(score);
+    uint threshold_bin = terrain_smooth_mbo_info.threshold.x;
+    if (bin > threshold_bin) {
+        return true;
+    }
+    if (bin < threshold_bin) {
+        return false;
+    }
+    return smooth_hash(terrain_smooth_mbo_info.offset.xyz + local) <= terrain_smooth_mbo_info.threshold.y;
+}
+
+void record_changed(uvec3 world_pos, bool added) {
+    atomicAdd(terrain_smooth_mbo_result.counts.z, 1u);
+    if (added) {
+        atomicAdd(terrain_smooth_mbo_result.counts.w, 1u);
+    } else {
+        atomicAdd(terrain_smooth_mbo_result.counts_extra.x, 1u);
+    }
+    atomicMin(terrain_smooth_mbo_result.changed_min.x, world_pos.x);
+    atomicMin(terrain_smooth_mbo_result.changed_min.y, world_pos.y);
+    atomicMin(terrain_smooth_mbo_result.changed_min.z, world_pos.z);
+    atomicMax(terrain_smooth_mbo_result.changed_max.x, world_pos.x);
+    atomicMax(terrain_smooth_mbo_result.changed_max.y, world_pos.y);
+    atomicMax(terrain_smooth_mbo_result.changed_max.z, world_pos.z);
+    mark_solid_workgroup(world_pos);
+}
+
+void main() {
+    uvec3 local = gl_GlobalInvocationID;
+    if (any(greaterThanEqual(local, terrain_smooth_mbo_info.dim.xyz))) {
+        return;
+    }
+
+    uint voxel_type = load_voxel_type(local);
+    if (!is_candidate_voxel(local, voxel_type)) {
+        return;
+    }
+
+    uint idx = local_index(local);
+    bool old_solid = is_terrain_voxel(voxel_type);
+    bool new_solid = wants_solid_from_score(local, terrain_smooth_mbo_scores.data[idx]);
+    if (old_solid == new_solid) {
+        return;
+    }
+
+    uvec3 world_pos = terrain_smooth_mbo_info.offset.xyz + local;
+    if (new_solid) {
+        if (voxel_type != VOXEL_TYPE_EMPTY) {
+            return;
+        }
+        uint fill_type = choose_fill_voxel_type(local);
+        imageStore(chunk_atlas, ivec3(world_pos), uvec4(fill_type, 0, 0, 0));
+        record_changed(world_pos, true);
+    } else {
+        if (!old_solid) {
+            return;
+        }
+        imageStore(chunk_atlas, ivec3(world_pos), uvec4(VOXEL_TYPE_EMPTY, 0, 0, 0));
+        record_changed(world_pos, false);
+    }
+}

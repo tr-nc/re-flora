@@ -19,6 +19,12 @@ pub struct PlainBuilderResources {
     pub terrain_smooth_info: Resource<Buffer>,
     pub terrain_smooth_columns: Resource<Buffer>,
     pub terrain_smooth_result: Resource<Buffer>,
+    pub terrain_smooth_mbo_info: Resource<Buffer>,
+    pub terrain_smooth_mbo_density_a: Resource<Buffer>,
+    pub terrain_smooth_mbo_density_b: Resource<Buffer>,
+    pub terrain_smooth_mbo_scores: Resource<Buffer>,
+    pub terrain_smooth_mbo_histogram: Resource<Buffer>,
+    pub terrain_smooth_mbo_result: Resource<Buffer>,
     pub chunk_modify_info: Resource<Buffer>,
     pub chunk_solid_sample_info: Resource<Buffer>,
     pub chunk_solid_samples: Resource<Buffer>,
@@ -263,6 +269,55 @@ impl PlainBuilderResources {
             std::mem::size_of::<u32>() as u64,
         );
 
+        let terrain_smooth_mbo_info = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::UNIFORM_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of::<super::TerrainSmoothMboInfoGpu>() as u64,
+        );
+        let terrain_smooth_mbo_work_bytes =
+            std::mem::size_of::<f32>() as u64 * super::TERRAIN_SMOOTH_MBO_CELL_CAPACITY;
+        let terrain_smooth_mbo_density_a = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::GpuOnly,
+            terrain_smooth_mbo_work_bytes,
+        );
+        let terrain_smooth_mbo_density_b = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::GpuOnly,
+            terrain_smooth_mbo_work_bytes,
+        );
+        let terrain_smooth_mbo_scores = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::GpuOnly,
+            terrain_smooth_mbo_work_bytes,
+        );
+        let terrain_smooth_mbo_histogram = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            MemoryLocation::GpuToCpu,
+            std::mem::size_of::<u32>() as u64 * super::TERRAIN_SMOOTH_MBO_HISTOGRAM_BINS as u64,
+        );
+        let terrain_smooth_mbo_result = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            MemoryLocation::GpuToCpu,
+            std::mem::size_of::<super::TerrainSmoothMboResultGpu>() as u64,
+        );
+
         Self {
             chunk_atlas: Resource::new(chunk_atlas),
             free_atlas: Resource::new(free_atlas),
@@ -270,6 +325,12 @@ impl PlainBuilderResources {
             terrain_smooth_info: Resource::new(terrain_smooth_info),
             terrain_smooth_columns: Resource::new(terrain_smooth_columns),
             terrain_smooth_result: Resource::new(terrain_smooth_result),
+            terrain_smooth_mbo_info: Resource::new(terrain_smooth_mbo_info),
+            terrain_smooth_mbo_density_a: Resource::new(terrain_smooth_mbo_density_a),
+            terrain_smooth_mbo_density_b: Resource::new(terrain_smooth_mbo_density_b),
+            terrain_smooth_mbo_scores: Resource::new(terrain_smooth_mbo_scores),
+            terrain_smooth_mbo_histogram: Resource::new(terrain_smooth_mbo_histogram),
+            terrain_smooth_mbo_result: Resource::new(terrain_smooth_mbo_result),
             chunk_modify_info: Resource::new(chunk_modify_info),
             chunk_solid_sample_info: Resource::new(chunk_solid_sample_info),
             chunk_solid_samples: Resource::new(chunk_solid_samples),
