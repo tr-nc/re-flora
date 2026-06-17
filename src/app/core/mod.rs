@@ -222,7 +222,7 @@ enum CameraControlMode {
 
 impl Default for CameraControlMode {
     fn default() -> Self {
-        Self::FreeLook
+        Self::OrbitEdit
     }
 }
 
