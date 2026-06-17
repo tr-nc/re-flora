@@ -152,7 +152,7 @@ label = "Wind Source 1 Active"
 type = "Bool"
 
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "wind_source_0_direction_deg"
