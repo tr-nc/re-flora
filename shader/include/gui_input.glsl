@@ -19,6 +19,15 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     vec3 grass_bottom_light;
     vec3 grass_tip_dark;
     vec3 grass_tip_light;
+    vec3 glass_tint;
+    float glass_reflection_strength;
+    float glass_ssr_strength;
+    uint glass_ssr_steps;
+    float glass_ssr_min_hit_thickness_voxels;
+    float glass_ssr_footprint_pixels;
+    float glass_refraction_strength;
+    float glass_alpha;
+    float glass_glint_strength;
     float lens_flare_intensity;
     float lens_flare_sun_pixel_scale;
     uint wind_source_count;

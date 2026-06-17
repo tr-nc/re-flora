@@ -821,6 +821,106 @@ min = 0.1
 max = 60
 
 [[section]]
+name = "Glass"
+
+[[section.param]]
+id = "glass_tint"
+kind = "color"
+label = "Glass Tint"
+type = "Color"
+
+[section.param.data]
+value = "#97F6FF"
+
+[[section.param]]
+id = "glass_reflection_strength"
+kind = "float"
+label = "Reflection Strength"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 3
+
+[[section.param]]
+id = "glass_ssr_strength"
+kind = "float"
+label = "Screen-Space Reflection Strength"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
+id = "glass_ssr_steps"
+kind = "uint"
+label = "SSR Steps"
+type = "Uint"
+
+[section.param.data]
+value = 18
+min = 1
+max = 64
+
+[[section.param]]
+id = "glass_ssr_min_hit_thickness_voxels"
+kind = "float"
+label = "SSR Min Hit Thickness (Voxels)"
+type = "Float"
+
+[section.param.data]
+value = 5
+min = 0.5
+max = 20
+
+[[section.param]]
+id = "glass_ssr_footprint_pixels"
+kind = "float"
+label = "SSR Footprint (Pixels)"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 8
+
+[[section.param]]
+id = "glass_refraction_strength"
+kind = "float"
+label = "Refraction Strength"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
+id = "glass_alpha"
+kind = "float"
+label = "Alpha Multiplier"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 3
+
+[[section.param]]
+id = "glass_glint_strength"
+kind = "float"
+label = "Sun Glint Strength"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section]]
 name = "Shadow"
 
 [[section.param]]

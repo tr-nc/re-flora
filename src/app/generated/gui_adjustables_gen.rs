@@ -481,6 +481,60 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Day Cycle Duration (Minutes)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_tint",
+        kind: "color",
+        label: "Glass Tint",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_reflection_strength",
+        kind: "float",
+        label: "Reflection Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_ssr_strength",
+        kind: "float",
+        label: "Screen-Space Reflection Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_ssr_steps",
+        kind: "uint",
+        label: "SSR Steps",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_ssr_min_hit_thickness_voxels",
+        kind: "float",
+        label: "SSR Min Hit Thickness (Voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_ssr_footprint_pixels",
+        kind: "float",
+        label: "SSR Footprint (Pixels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_refraction_strength",
+        kind: "float",
+        label: "Refraction Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_alpha",
+        kind: "float",
+        label: "Alpha Multiplier",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_glint_strength",
+        kind: "float",
+        label: "Sun Glint Strength",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Shadow",
         id: "vsm_blur_radius",
         kind: "uint",
@@ -1340,6 +1394,15 @@ pub struct GuiAdjustables {
     pub latitude: crate::gui_adjustables::FloatParam,
     pub season: crate::gui_adjustables::FloatParam,
     pub day_cycle_minutes: crate::gui_adjustables::FloatParam,
+    pub glass_tint: crate::gui_adjustables::ColorParam,
+    pub glass_reflection_strength: crate::gui_adjustables::FloatParam,
+    pub glass_ssr_strength: crate::gui_adjustables::FloatParam,
+    pub glass_ssr_steps: crate::gui_adjustables::UintParam,
+    pub glass_ssr_min_hit_thickness_voxels: crate::gui_adjustables::FloatParam,
+    pub glass_ssr_footprint_pixels: crate::gui_adjustables::FloatParam,
+    pub glass_refraction_strength: crate::gui_adjustables::FloatParam,
+    pub glass_alpha: crate::gui_adjustables::FloatParam,
+    pub glass_glint_strength: crate::gui_adjustables::FloatParam,
     pub vsm_blur_radius: crate::gui_adjustables::UintParam,
     pub vsm_temporal_alpha: crate::gui_adjustables::FloatParam,
     pub leaf_shadow_fragment_opacity: crate::gui_adjustables::FloatParam,
@@ -1559,6 +1622,15 @@ impl GuiAdjustables {
         let mut latitude_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut season_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut day_cycle_minutes_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_tint_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut glass_reflection_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_ssr_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_ssr_steps_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut glass_ssr_min_hit_thickness_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_ssr_footprint_pixels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_refraction_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_glint_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut vsm_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_shadow_fragment_opacity_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2195,6 +2267,67 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             day_cycle_minutes_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_tint" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            glass_tint_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "glass_reflection_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_reflection_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_ssr_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_ssr_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_ssr_steps" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            glass_ssr_steps_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_ssr_min_hit_thickness_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_ssr_min_hit_thickness_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_ssr_footprint_pixels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_ssr_footprint_pixels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_refraction_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_refraction_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_glint_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_glint_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "vsm_blur_radius" => {
@@ -3149,6 +3282,15 @@ impl GuiAdjustables {
             latitude: latitude_field.expect("Missing parameter: latitude"),
             season: season_field.expect("Missing parameter: season"),
             day_cycle_minutes: day_cycle_minutes_field.expect("Missing parameter: day_cycle_minutes"),
+            glass_tint: glass_tint_field.expect("Missing parameter: glass_tint"),
+            glass_reflection_strength: glass_reflection_strength_field.expect("Missing parameter: glass_reflection_strength"),
+            glass_ssr_strength: glass_ssr_strength_field.expect("Missing parameter: glass_ssr_strength"),
+            glass_ssr_steps: glass_ssr_steps_field.expect("Missing parameter: glass_ssr_steps"),
+            glass_ssr_min_hit_thickness_voxels: glass_ssr_min_hit_thickness_voxels_field.expect("Missing parameter: glass_ssr_min_hit_thickness_voxels"),
+            glass_ssr_footprint_pixels: glass_ssr_footprint_pixels_field.expect("Missing parameter: glass_ssr_footprint_pixels"),
+            glass_refraction_strength: glass_refraction_strength_field.expect("Missing parameter: glass_refraction_strength"),
+            glass_alpha: glass_alpha_field.expect("Missing parameter: glass_alpha"),
+            glass_glint_strength: glass_glint_strength_field.expect("Missing parameter: glass_glint_strength"),
             vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
             vsm_temporal_alpha: vsm_temporal_alpha_field.expect("Missing parameter: vsm_temporal_alpha"),
             leaf_shadow_fragment_opacity: leaf_shadow_fragment_opacity_field.expect("Missing parameter: leaf_shadow_fragment_opacity"),
@@ -3339,6 +3481,13 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "latitude" => Some(&adjustables.latitude),
         "season" => Some(&adjustables.season),
         "day_cycle_minutes" => Some(&adjustables.day_cycle_minutes),
+        "glass_reflection_strength" => Some(&adjustables.glass_reflection_strength),
+        "glass_ssr_strength" => Some(&adjustables.glass_ssr_strength),
+        "glass_ssr_min_hit_thickness_voxels" => Some(&adjustables.glass_ssr_min_hit_thickness_voxels),
+        "glass_ssr_footprint_pixels" => Some(&adjustables.glass_ssr_footprint_pixels),
+        "glass_refraction_strength" => Some(&adjustables.glass_refraction_strength),
+        "glass_alpha" => Some(&adjustables.glass_alpha),
+        "glass_glint_strength" => Some(&adjustables.glass_glint_strength),
         "vsm_temporal_alpha" => Some(&adjustables.vsm_temporal_alpha),
         "leaf_shadow_fragment_opacity" => Some(&adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&adjustables.leaf_shadow_strength),
@@ -3466,6 +3615,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_3_octaves" => Some(&adjustables.wind_source_3_octaves),
         "audio_hrtf_backend" => Some(&adjustables.audio_hrtf_backend),
         "audio_ambisonics_backend" => Some(&adjustables.audio_ambisonics_backend),
+        "glass_ssr_steps" => Some(&adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
@@ -3519,6 +3669,7 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
     match id {
         "sun_color" => Some(&adjustables.sun_color),
         "ambient_light" => Some(&adjustables.ambient_light),
+        "glass_tint" => Some(&adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&adjustables.grass_bottom_dark_color),
         "grass_bottom_light_color" => Some(&adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&adjustables.grass_tip_dark_color),
@@ -3592,6 +3743,13 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "latitude" => Some(&mut adjustables.latitude),
         "season" => Some(&mut adjustables.season),
         "day_cycle_minutes" => Some(&mut adjustables.day_cycle_minutes),
+        "glass_reflection_strength" => Some(&mut adjustables.glass_reflection_strength),
+        "glass_ssr_strength" => Some(&mut adjustables.glass_ssr_strength),
+        "glass_ssr_min_hit_thickness_voxels" => Some(&mut adjustables.glass_ssr_min_hit_thickness_voxels),
+        "glass_ssr_footprint_pixels" => Some(&mut adjustables.glass_ssr_footprint_pixels),
+        "glass_refraction_strength" => Some(&mut adjustables.glass_refraction_strength),
+        "glass_alpha" => Some(&mut adjustables.glass_alpha),
+        "glass_glint_strength" => Some(&mut adjustables.glass_glint_strength),
         "vsm_temporal_alpha" => Some(&mut adjustables.vsm_temporal_alpha),
         "leaf_shadow_fragment_opacity" => Some(&mut adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&mut adjustables.leaf_shadow_strength),
@@ -3719,6 +3877,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_3_octaves" => Some(&mut adjustables.wind_source_3_octaves),
         "audio_hrtf_backend" => Some(&mut adjustables.audio_hrtf_backend),
         "audio_ambisonics_backend" => Some(&mut adjustables.audio_ambisonics_backend),
+        "glass_ssr_steps" => Some(&mut adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
@@ -3772,6 +3931,7 @@ pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
     match id {
         "sun_color" => Some(&mut adjustables.sun_color),
         "ambient_light" => Some(&mut adjustables.ambient_light),
+        "glass_tint" => Some(&mut adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&mut adjustables.grass_bottom_dark_color),
         "grass_bottom_light_color" => Some(&mut adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&mut adjustables.grass_tip_dark_color),

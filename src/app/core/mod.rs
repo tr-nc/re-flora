@@ -45,7 +45,9 @@ use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
-use crate::tracer::{CloudGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams};
+use crate::tracer::{
+    CloudGuiParams, GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
+};
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
@@ -219,7 +221,7 @@ enum CameraControlMode {
 
 impl Default for CameraControlMode {
     fn default() -> Self {
-        Self::FreeLook
+        Self::OrbitEdit
     }
 }
 
@@ -239,6 +241,8 @@ struct OrbitCameraInput {
     backward: bool,
     left: bool,
     right: bool,
+    up: bool,
+    down: bool,
 }
 
 impl OrbitCameraInput {
@@ -252,6 +256,8 @@ impl OrbitCameraInput {
             KeyCode::KeyS => self.backward = pressed,
             KeyCode::KeyA => self.left = pressed,
             KeyCode::KeyD => self.right = pressed,
+            KeyCode::Space => self.up = pressed,
+            KeyCode::ControlLeft | KeyCode::ControlRight => self.down = pressed,
             _ => {}
         }
     }
@@ -262,6 +268,10 @@ impl OrbitCameraInput {
 
     fn orbit_axis(self) -> f32 {
         self.right as i32 as f32 - self.left as i32 as f32
+    }
+
+    fn elevation_axis(self) -> f32 {
+        self.up as i32 as f32 - self.down as i32 as f32
     }
 }
 
@@ -1984,6 +1994,33 @@ impl App {
                         update_shadow_map,
                         self.gui_adjustables.lens_flare_intensity.value,
                         self.gui_adjustables.lens_flare_sun_pixel_scale.value,
+                        GlassGuiParams {
+                            tint: Vec3::new(
+                                self.gui_adjustables.glass_tint.value.r() as f32 / 255.0,
+                                self.gui_adjustables.glass_tint.value.g() as f32 / 255.0,
+                                self.gui_adjustables.glass_tint.value.b() as f32 / 255.0,
+                            ),
+                            reflection_strength: self
+                                .gui_adjustables
+                                .glass_reflection_strength
+                                .value,
+                            ssr_strength: self.gui_adjustables.glass_ssr_strength.value,
+                            ssr_steps: self.gui_adjustables.glass_ssr_steps.value,
+                            ssr_min_hit_thickness_voxels: self
+                                .gui_adjustables
+                                .glass_ssr_min_hit_thickness_voxels
+                                .value,
+                            ssr_footprint_pixels: self
+                                .gui_adjustables
+                                .glass_ssr_footprint_pixels
+                                .value,
+                            refraction_strength: self
+                                .gui_adjustables
+                                .glass_refraction_strength
+                                .value,
+                            alpha: self.gui_adjustables.glass_alpha.value,
+                            glint_strength: self.gui_adjustables.glass_glint_strength.value,
+                        },
                         self.gui_adjustables.wind_directional_bias_fraction.value,
                         self.gui_adjustables.wind_turbulence_fraction.value,
                         self.gui_adjustables.grass_vibration_amplitude_voxels.value,

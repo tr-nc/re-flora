@@ -120,6 +120,13 @@ impl App {
         azimuth += self.orbit_camera_input.orbit_axis()
             * super::ORBIT_CAMERA_ANGULAR_SPEED
             * frame_delta_time;
+        elevation += self.orbit_camera_input.elevation_axis()
+            * super::ORBIT_CAMERA_ANGULAR_SPEED
+            * frame_delta_time;
+        elevation = elevation.clamp(
+            -super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
+            super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
+        );
         distance -= self.orbit_camera_input.dolly_axis()
             * super::ORBIT_CAMERA_DOLLY_SPEED
             * frame_delta_time;
