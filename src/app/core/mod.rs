@@ -113,6 +113,7 @@ pub struct App {
     cursor_position_physical: Option<Vec2>,
     camera_control_mode: CameraControlMode,
     orbit_camera_input: OrbitCameraInput,
+    mouse_wheel_dolly: MouseWheelDollySmoother,
     modifiers: ModifiersState,
     perf_logging: bool,
     mute_audio_output: bool,
@@ -276,6 +277,55 @@ impl OrbitCameraInput {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct MouseWheelDollySmoother {
+    current_lines: f32,
+    target_lines: f32,
+}
+
+impl MouseWheelDollySmoother {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn add_scroll_lines(&mut self, scroll_lines: f32) {
+        if scroll_lines.abs() <= f32::EPSILON || !scroll_lines.is_finite() {
+            return;
+        }
+
+        let pending_lines = (self.target_lines - self.current_lines + scroll_lines).clamp(
+            -MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES,
+            MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES,
+        );
+        self.target_lines = self.current_lines + pending_lines;
+    }
+
+    fn advance(&mut self, frame_delta_time: f32) -> f32 {
+        if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
+            return 0.0;
+        }
+
+        let remaining_lines = self.target_lines - self.current_lines;
+        if remaining_lines.abs() <= MOUSE_WHEEL_DOLLY_SNAP_LINES {
+            self.reset();
+            return 0.0;
+        }
+
+        let alpha = (1.0 - (-MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE * frame_delta_time).exp())
+            .clamp(0.0, 1.0);
+        let mut advanced_lines = remaining_lines * alpha;
+        self.current_lines += advanced_lines;
+
+        let remaining_after_advance = self.target_lines - self.current_lines;
+        if remaining_after_advance.abs() <= MOUSE_WHEEL_DOLLY_SNAP_LINES {
+            advanced_lines += remaining_after_advance;
+            self.reset();
+        }
+
+        advanced_lines
+    }
+}
+
 impl Drop for App {
     fn drop(&mut self) {
         if let Err(err) = self.spatial_sound_manager.stop() {
@@ -412,6 +462,9 @@ const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.12;
 const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
 const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
 const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
+const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
+const MOUSE_WHEEL_DOLLY_SNAP_LINES: f32 = 0.001;
+const MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES: f32 = 24.0;
 const ORBIT_CAMERA_ANGULAR_SPEED: f32 = 1.6;
 const ORBIT_CAMERA_MAX_ELEVATION_RAD: f32 = std::f32::consts::FRAC_PI_2 - 0.04;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
@@ -915,6 +968,7 @@ impl App {
             cursor_position_physical: None,
             camera_control_mode: CameraControlMode::default(),
             orbit_camera_input: OrbitCameraInput::default(),
+            mouse_wheel_dolly: MouseWheelDollySmoother::default(),
             modifiers: ModifiersState::default(),
             perf_logging: options.perf,
             mute_audio_output: options.mute,
@@ -2382,7 +2436,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::App;
+    use super::{App, MouseWheelDollySmoother};
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 
     #[test]
@@ -2412,5 +2466,41 @@ mod tests {
         assert_eq!(normal_default_gain_db, 0.0);
         assert!(muted_gain_db <= normal_min_gain_db);
         assert!(normal_default_gain_db < normal_max_gain_db);
+    }
+
+    #[test]
+    fn mouse_wheel_dolly_smoother_interpolates_toward_target() {
+        let mut smoother = MouseWheelDollySmoother::default();
+        smoother.add_scroll_lines(1.0);
+
+        let first_step = smoother.advance(1.0 / 60.0);
+        assert!(first_step > 0.0);
+        assert!(first_step < 1.0);
+
+        let mut total_advanced = first_step;
+        for _ in 0..120 {
+            total_advanced += smoother.advance(1.0 / 60.0);
+        }
+
+        assert!((total_advanced - 1.0).abs() <= 0.0001);
+        assert_eq!(smoother.current_lines, 0.0);
+        assert_eq!(smoother.target_lines, 0.0);
+    }
+
+    #[test]
+    fn mouse_wheel_dolly_smoother_clamps_pending_scroll_lines() {
+        let mut smoother = MouseWheelDollySmoother::default();
+        smoother.add_scroll_lines(100.0);
+        assert_eq!(
+            smoother.target_lines - smoother.current_lines,
+            super::MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES
+        );
+
+        smoother.advance(1.0 / 60.0);
+        smoother.add_scroll_lines(-100.0);
+        assert_eq!(
+            smoother.target_lines - smoother.current_lines,
+            -super::MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES
+        );
     }
 }

@@ -45,6 +45,7 @@ impl App {
     pub(super) fn reset_camera_movement_input(&mut self) {
         self.tracer.reset_camera_input();
         self.orbit_camera_input.reset();
+        self.mouse_wheel_dolly.reset();
     }
 
     pub(super) fn sync_cursor_with_panels(&mut self) {
@@ -103,6 +104,7 @@ impl App {
             self.tracer
                 .update_camera(frame_delta_time, self.is_fly_mode);
         }
+        self.update_mouse_wheel_camera_dolly(frame_delta_time);
     }
 
     fn update_orbit_camera(&mut self, frame_delta_time: f32) {
@@ -179,7 +181,7 @@ impl App {
         }
 
         if self.camera_scroll_available() {
-            self.move_camera_forward_from_scroll(scroll_lines);
+            self.mouse_wheel_dolly.add_scroll_lines(scroll_lines);
         }
     }
 
@@ -187,11 +189,21 @@ impl App {
         !self.blocking_panel_open()
     }
 
-    fn move_camera_forward_from_scroll(&mut self, scroll_lines: f32) {
+    fn update_mouse_wheel_camera_dolly(&mut self, frame_delta_time: f32) {
+        if !self.camera_scroll_available() {
+            self.mouse_wheel_dolly.reset();
+            return;
+        }
+
+        let scroll_lines = self.mouse_wheel_dolly.advance(frame_delta_time);
         if scroll_lines.abs() <= f32::EPSILON {
             return;
         }
 
+        self.apply_mouse_wheel_camera_delta(scroll_lines);
+    }
+
+    fn apply_mouse_wheel_camera_delta(&mut self, scroll_lines: f32) {
         if self.is_orbit_edit_camera_mode() {
             let forward_distance = scroll_lines
                 * super::ORBIT_CAMERA_DOLLY_SPEED
