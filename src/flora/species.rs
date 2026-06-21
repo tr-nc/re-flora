@@ -42,6 +42,12 @@ impl FloraPaintBrushSettings {
 pub const GRASS_MIX_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings =
     FloraPaintBrushSettings::dense(80);
 
+// Shared conservative initial preset for paintable special flora. The one-layer cap is the
+// integer-layer equivalent of reducing the previous 4-5 layer caps to roughly 20%, and the
+// 500ms dab interval is 20% of the previous ~100ms average release rate.
+pub const SPECIAL_FLORA_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings =
+    FloraPaintBrushSettings::new(500, 20, 1, 1);
+
 #[derive(Clone, Copy)]
 pub struct FloraSpeciesDesc {
     pub key: &'static str,
@@ -96,7 +102,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [74, 165, 0],
         [85, 0, 207],
         gen_lavender,
-        FloraPaintBrushSettings::new(80, 10, 5, 1),
+        SPECIAL_FLORA_PAINT_BRUSH_SETTINGS,
     ),
     FloraSpeciesDesc::new(
         "ember_bloom",
@@ -104,7 +110,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [42, 138, 102],
         [255, 141, 78],
         gen_ember_bloom,
-        FloraPaintBrushSettings::new(120, 20, 4, 1),
+        SPECIAL_FLORA_PAINT_BRUSH_SETTINGS,
     ),
 ];
 
