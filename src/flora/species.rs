@@ -58,13 +58,8 @@ pub const LAVENDER_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBru
     1,
 );
 
-pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
-    SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
-    SPECIAL_FLORA_PAINT_DENSITY_STEP_INTERVAL_MS,
-    SPECIAL_FLORA_PAINT_SPARSE_CELL_SIZE,
-    1,
-    1,
-);
+pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings =
+    LAVENDER_PAINT_BRUSH_SETTINGS;
 
 #[derive(Clone, Copy)]
 pub struct FloraSpeciesDesc {
