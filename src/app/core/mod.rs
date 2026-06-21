@@ -1348,7 +1348,7 @@ impl App {
 
                 if self.keyboard_tool_shortcuts_available() && event.state == ElementState::Pressed
                 {
-                    if event.physical_key == KeyCode::KeyC {
+                    if event.physical_key == KeyCode::Tab {
                         self.cycle_flora_paint_selection();
                         return;
                     }
@@ -1540,7 +1540,7 @@ impl App {
                     .water_sim
                     .status_text(self.water_particle_handoff_main_thread_ms);
                 let status_bar_text = format!(
-                    "{}\nGrow brush: {} (C to cycle)",
+                    "{}\nGrow brush: {} (Tab to cycle)",
                     water_status_text,
                     self.current_flora_paint_selection_label()
                 );

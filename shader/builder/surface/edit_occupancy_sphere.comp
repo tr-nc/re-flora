@@ -42,6 +42,26 @@ bool in_chunk_local_bound(ivec3 local_pos) {
 
 bool is_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }
 
+uint flora_paint_priority(uint selection) {
+    // Grass, including mixed grass and existing tall/short grass instances, is the lowest
+    // priority. Special flowers share the higher paint priority so they can replace grass
+    // without overwriting each other.
+    if (selection == FLORA_SPECIES_LAVENDER || selection == FLORA_SPECIES_EMBER_BLOOM) {
+        return 1u;
+    }
+
+    return 0u;
+}
+
+bool flora_paint_can_replace_current(uint paint_selection, uint current_occupancy) {
+    if (current_occupancy == 0u) {
+        return true;
+    }
+
+    uint current_selection = unpack_flora_occupancy_selection(current_occupancy);
+    return flora_paint_priority(paint_selection) > flora_paint_priority(current_selection);
+}
+
 uint randomized_trim_growth_progress(uvec3 stem_world_pos, uint current_growth_progress) {
     uint min_progress = max(INSTANCE_GROWTH_PROGRESS_REBIRTH, OCCUPANCY_TRIM_MIN_GROWTH_PROGRESS);
     uint max_progress = min(edit_occupancy_info.target_age, INSTANCE_GROWTH_PROGRESS_MATURE - 1u);
@@ -86,6 +106,12 @@ void main() {
             return;
         }
         if (is_surface_plantable(voxel_type_from_data(surface_data))) {
+            uint current_occupancy = imageLoad(occupancy_data, stem_local).r;
+            if (!flora_paint_can_replace_current(edit_occupancy_info.paint_selection,
+                                                 current_occupancy)) {
+                return;
+            }
+
             ivec3 world_base_pos = ivec3(edit_occupancy_info.chunk_world_offset) + base_local;
             if (!flora_sparse_paint_selection_allows(edit_occupancy_info.paint_selection,
                                                      world_base_pos)) {
