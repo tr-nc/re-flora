@@ -337,13 +337,13 @@ impl App {
         paint_dab_serial
     }
 
-    fn current_staff_regen_paint_dab_serial(&mut self, now: Instant) -> u32 {
+    fn current_staff_regen_paint_dab_serial(&mut self, now: Instant) -> (u32, bool) {
         let paint_brush = species::flora_paint_brush_settings(self.current_flora_paint_selection());
         if paint_brush.sparse_cell_size == 0
             || paint_brush.max_plants_per_cell == 0
             || paint_brush.plants_per_cell_per_dab == 0
         {
-            return self.flora_paint_dab_serial;
+            return (self.flora_paint_dab_serial, true);
         }
 
         if let (Some(active_serial), Some(last_density_step)) = (
@@ -353,11 +353,11 @@ impl App {
             if now.duration_since(last_density_step)
                 < self.current_flora_paint_density_step_interval()
             {
-                return active_serial;
+                return (active_serial, false);
             }
         }
 
-        self.consume_next_flora_paint_dab_serial(now)
+        (self.consume_next_flora_paint_dab_serial(now), true)
     }
 
     pub(super) fn cycle_flora_paint_selection(&mut self) {
@@ -744,7 +744,8 @@ impl App {
                 }
 
                 let start = self.player_tools.last_staff_regen_center.unwrap_or(center);
-                let paint_dab_serial = self.current_staff_regen_paint_dab_serial(now);
+                let (paint_dab_serial, is_density_step) =
+                    self.current_staff_regen_paint_dab_serial(now);
                 if let Err(err) = self.apply_surface_flora_regeneration(
                     TerrainBrushEdit {
                         start,
@@ -752,6 +753,7 @@ impl App {
                         radius: self.player_tools.terrain_edit_radius,
                     },
                     paint_dab_serial,
+                    is_density_step,
                 ) {
                     log::error!("Failed to apply flora regeneration: {}", err);
                     self.reset_staff_regen_stroke_tracking();

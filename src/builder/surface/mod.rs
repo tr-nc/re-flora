@@ -11,9 +11,12 @@ use crate::{
 };
 use anyhow::Result;
 use bytemuck::Zeroable;
-use glam::{UVec3, Vec3};
+use glam::{IVec2, UVec3, Vec3};
 pub use resources::*;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 use verdarium_vkn::{
     Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
     GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineBarrier, PipelineStage, QueueLane,
@@ -307,6 +310,33 @@ const FLORA_GROWTH_TIMING_PASSES: [SurfacePassTimingPass; 1] = [SurfacePassTimin
     bench_key: "flora_growth_pass_update_gpu",
 }];
 
+#[derive(Clone, Copy, Debug)]
+pub struct AuthoredFloraInstance {
+    pub species_index: u32,
+    pub stem_world_vox: UVec3,
+    pub growth_progress: u32,
+    #[allow(dead_code)]
+    pub seed: u32,
+}
+
+#[derive(Default)]
+struct AuthoredFloraStore {
+    instances_by_chunk: HashMap<UVec3, Vec<AuthoredFloraInstance>>,
+}
+
+impl AuthoredFloraStore {
+    fn instances_for_chunk(&self, chunk_id: UVec3) -> &[AuthoredFloraInstance] {
+        self.instances_by_chunk
+            .get(&chunk_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    fn instances_for_chunk_mut(&mut self, chunk_id: UVec3) -> &mut Vec<AuthoredFloraInstance> {
+        self.instances_by_chunk.entry(chunk_id).or_default()
+    }
+}
+
 pub struct SurfaceBuilder {
     vulkan_ctx: VulkanContext,
     pub resources: SurfaceResources,
@@ -325,6 +355,7 @@ pub struct SurfaceBuilder {
     update_flora_growth_ppl: ComputePipeline,
     pass_timing: Option<SurfacePassTiming>,
     gpu_job_profiler: Option<GpuJobProfiler>,
+    authored_flora: AuthoredFloraStore,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -505,6 +536,7 @@ impl SurfaceBuilder {
             update_flora_growth_ppl,
             pass_timing,
             gpu_job_profiler: None,
+            authored_flora: AuthoredFloraStore::default(),
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
@@ -766,6 +798,7 @@ impl SurfaceBuilder {
             for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
                 chunk_resources_mut.set_species_len(species_idx, *len);
             }
+            self.sync_authored_flora_chunk_to_gpu(job.chunk_id)?;
         }
         let flora_elapsed = flora_start.elapsed();
         let total_elapsed = job.total_start.elapsed();
@@ -804,6 +837,147 @@ impl SurfaceBuilder {
         })
     }
 
+    pub fn authored_flora_sparse_cell_count(
+        &self,
+        species_index: u32,
+        cell_size: u32,
+        cell: IVec2,
+    ) -> u32 {
+        let safe_cell_size = cell_size.max(1) as i32;
+        self.authored_flora
+            .instances_by_chunk
+            .values()
+            .flat_map(|instances| instances.iter())
+            .filter(|instance| instance.species_index == species_index)
+            .filter(|instance| {
+                let instance_cell = IVec2::new(
+                    (instance.stem_world_vox.x as i32).div_euclid(safe_cell_size),
+                    (instance.stem_world_vox.z as i32).div_euclid(safe_cell_size),
+                );
+                instance_cell == cell
+            })
+            .count() as u32
+    }
+
+    pub fn try_add_authored_flora_instance(
+        &mut self,
+        species_index: u32,
+        stem_world_vox: UVec3,
+        growth_progress: u32,
+        seed: u32,
+        cell_size: u32,
+        max_plants_per_cell: u32,
+    ) -> Result<bool> {
+        if !species::is_authored_plant_species_index(species_index) {
+            return Ok(false);
+        }
+        if max_plants_per_cell == 0 {
+            return Ok(false);
+        }
+        let chunk_id = self.chunk_id_for_world_voxel(stem_world_vox);
+        if !self.chunk_bound.in_bound(chunk_id) {
+            return Ok(false);
+        }
+        let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
+        let local_pos = stem_world_vox - chunk_world_offset;
+        if local_pos.cmpge(self.voxel_dim_per_chunk).any() {
+            return Ok(false);
+        }
+
+        let cell_size = cell_size.max(1) as i32;
+        let cell = IVec2::new(
+            (stem_world_vox.x as i32).div_euclid(cell_size),
+            (stem_world_vox.z as i32).div_euclid(cell_size),
+        );
+        if self.authored_flora_sparse_cell_count(species_index, cell_size as u32, cell)
+            >= max_plants_per_cell
+        {
+            return Ok(false);
+        }
+
+        let chunk_instances = self.authored_flora.instances_for_chunk_mut(chunk_id);
+        if chunk_instances.iter().any(|instance| {
+            instance.species_index == species_index && instance.stem_world_vox == stem_world_vox
+        }) {
+            return Ok(false);
+        }
+
+        chunk_instances.push(AuthoredFloraInstance {
+            species_index,
+            stem_world_vox,
+            growth_progress: growth_progress.min(0xff),
+            seed,
+        });
+        self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
+        Ok(true)
+    }
+
+    pub fn remove_authored_flora_for_brush(
+        &mut self,
+        chunk_id: UVec3,
+        edit_start: Vec3,
+        edit_end: Vec3,
+        edit_radius: f32,
+    ) -> Result<u32> {
+        if !self.chunk_bound.in_bound(chunk_id) || edit_radius <= 0.0 {
+            return Ok(0);
+        }
+
+        let Some(chunk_instances) = self.authored_flora.instances_by_chunk.get_mut(&chunk_id)
+        else {
+            return Ok(0);
+        };
+
+        let edit_start_vox = edit_start * 256.0;
+        let edit_end_vox = edit_end * 256.0;
+        let radius_sq = (edit_radius * 256.0).powi(2);
+        let before = chunk_instances.len();
+        chunk_instances.retain(|instance| {
+            let base_center_vox = Vec3::new(
+                instance.stem_world_vox.x as f32 + 0.5,
+                instance.stem_world_vox.y as f32 - 0.5,
+                instance.stem_world_vox.z as f32 + 0.5,
+            );
+            distance_sq_to_segment(base_center_vox, edit_start_vox, edit_end_vox) > radius_sq
+        });
+        let removed = (before - chunk_instances.len()) as u32;
+        if removed > 0 {
+            self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
+        }
+        Ok(removed)
+    }
+
+    fn chunk_id_for_world_voxel(&self, world_vox: UVec3) -> UVec3 {
+        world_vox / self.voxel_dim_per_chunk
+    }
+
+    fn sync_authored_flora_chunk_to_gpu(&mut self, chunk_id: UVec3) -> Result<()> {
+        let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
+        let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
+        let authored_instances = self.authored_flora.instances_for_chunk(chunk_id);
+        let chunk_resources = &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
+
+        for species_index in species::AUTHORED_PLANT_SPECIES_INDICES {
+            let mut gpu_instances = Vec::new();
+            for instance in authored_instances
+                .iter()
+                .filter(|instance| instance.species_index == species_index)
+            {
+                let local_pos = instance.stem_world_vox - chunk_world_offset;
+                if local_pos.cmpge(self.voxel_dim_per_chunk).any() {
+                    continue;
+                }
+                gpu_instances.push(pack_manual_flora_instance(
+                    local_pos,
+                    instance.growth_progress,
+                ));
+            }
+            chunk_resources.write_species_instances(species_index as usize, &gpu_instances)?;
+        }
+
+        Ok(())
+    }
+
     pub fn edit_flora_instances_for_brush(
         &mut self,
         chunk_id: UVec3,
@@ -812,6 +986,7 @@ impl SurfaceBuilder {
         edit_radius: f32,
         flora_tick: u32,
     ) -> Result<()> {
+        self.remove_authored_flora_for_brush(chunk_id, edit_start, edit_end, edit_radius)?;
         let _ = self.run_occupancy_edit(
             chunk_id,
             edit_start,
@@ -1057,6 +1232,7 @@ impl SurfaceBuilder {
             chunk_resources_mut.set_species_len(species_idx, *len);
             after_total = after_total.saturating_add(*len);
         }
+        self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
 
         let appended_total = if mode == OccupancyEditMode::Add {
             after_total.saturating_sub(before_total)
@@ -1173,6 +1349,23 @@ impl SurfaceBuilder {
     pub fn get_resources(&self) -> &SurfaceResources {
         &self.resources
     }
+}
+
+fn pack_manual_flora_instance(local_pos: UVec3, growth_progress: u32) -> resources::Instance {
+    resources::Instance {
+        packed_local_pos: (local_pos.x & 0xff)
+            | ((local_pos.y & 0xff) << 8)
+            | ((local_pos.z & 0xff) << 16)
+            | ((growth_progress & 0xff) << 24),
+    }
+}
+
+fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
+    let segment = end - start;
+    let segment_len_sq = segment.length_squared().max(1.0e-4);
+    let t = ((point - start).dot(segment) / segment_len_sq).clamp(0.0, 1.0);
+    let closest = start + segment * t;
+    point.distance_squared(closest)
 }
 
 fn record_compute_barrier(device: &verdarium_vkn::Device, cmdbuf: &CommandBuffer) {

@@ -3,6 +3,10 @@ use crate::tracer::Vertex;
 use anyhow::Result;
 
 pub const MAX_FLORA_SPECIES: usize = 4;
+pub const LAVENDER_SPECIES_INDEX: u32 = 2;
+pub const EMBER_BLOOM_SPECIES_INDEX: u32 = 3;
+pub const AUTHORED_PLANT_SPECIES_INDICES: [u32; 2] =
+    [LAVENDER_SPECIES_INDEX, EMBER_BLOOM_SPECIES_INDEX];
 pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
 
 pub type MeshGeneratorFn = fn(bool) -> Result<(Vec<Vertex>, Vec<u32>)>;
@@ -58,8 +62,7 @@ pub const LAVENDER_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBru
     1,
 );
 
-pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings =
-    LAVENDER_PAINT_BRUSH_SETTINGS;
+pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = LAVENDER_PAINT_BRUSH_SETTINGS;
 
 #[derive(Clone, Copy)]
 pub struct FloraSpeciesDesc {
@@ -160,8 +163,8 @@ impl FloraPaintSelection {
 
 pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
     FloraPaintSelection::GrassMix,
-    FloraPaintSelection::Species(2),
-    FloraPaintSelection::Species(3),
+    FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX),
+    FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX),
 ];
 
 pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static str {
@@ -182,6 +185,10 @@ pub fn flora_paint_brush_settings(selection: FloraPaintSelection) -> FloraPaintB
             .map(|species| species.paint_brush)
             .unwrap_or(GRASS_MIX_PAINT_BRUSH_SETTINGS),
     }
+}
+
+pub fn is_authored_plant_species_index(species_idx: u32) -> bool {
+    AUTHORED_PLANT_SPECIES_INDICES.contains(&species_idx)
 }
 
 pub fn assert_species_limit() {

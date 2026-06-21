@@ -3,6 +3,7 @@ use crate::{
     geom::{Aabb3, UAabb3},
     resource::Resource,
 };
+use anyhow::Result;
 use glam::{UVec3, Vec3};
 use resource_container_derive::ResourceContainer;
 use std::collections::HashMap;
@@ -135,6 +136,50 @@ impl FloraInstanceResources {
 
     pub fn set_species_len(&mut self, species_index: usize, len: u32) {
         self.species_instance_len[species_index] = len;
+    }
+
+    pub fn write_species_instances(
+        &mut self,
+        species_index: usize,
+        instances: &[Instance],
+    ) -> Result<()> {
+        if species_index >= species::MAX_FLORA_SPECIES {
+            return Err(anyhow::anyhow!(
+                "flora species index {} exceeds max {}",
+                species_index,
+                species::MAX_FLORA_SPECIES
+            ));
+        }
+        if instances.len() > MAX_FLORA_INSTANCES_PER_SPECIES as usize {
+            return Err(anyhow::anyhow!(
+                "authored flora species {} has {} instances, max is {}",
+                species_index,
+                instances.len(),
+                MAX_FLORA_INSTANCES_PER_SPECIES
+            ));
+        }
+
+        let instance_size = std::mem::size_of::<Instance>();
+        let species_offset = Self::species_offset(species_index) as usize;
+        let byte_start = species_offset * instance_size;
+        let byte_capacity = MAX_FLORA_INSTANCES_PER_SPECIES as usize * instance_size;
+        let mut raw = self.resource.instances_buf.read_back()?;
+        if byte_start + byte_capacity > raw.len() {
+            return Err(anyhow::anyhow!(
+                "flora species {} byte range [{}..{}) exceeds buffer size {}",
+                species_index,
+                byte_start,
+                byte_start + byte_capacity,
+                raw.len()
+            ));
+        }
+
+        raw[byte_start..byte_start + byte_capacity].fill(0);
+        let instance_bytes = bytemuck::cast_slice(instances);
+        raw[byte_start..byte_start + instance_bytes.len()].copy_from_slice(instance_bytes);
+        self.resource.instances_buf.fill_with_raw_u8(&raw)?;
+        self.set_species_len(species_index, instances.len() as u32);
+        Ok(())
     }
 
     pub fn total_instance_len(&self) -> u32 {
