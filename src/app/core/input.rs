@@ -45,6 +45,7 @@ impl App {
     pub(super) fn reset_camera_movement_input(&mut self) {
         self.tracer.reset_camera_input();
         self.orbit_camera_input.reset();
+        self.reset_orbit_middle_mouse_drag();
         self.mouse_wheel_dolly.reset();
     }
 
@@ -165,6 +166,74 @@ impl App {
             );
         self.tracer
             .set_camera_pose_looking_at(position, super::ORBIT_CAMERA_FOCUS);
+    }
+
+    fn orbit_middle_mouse_drag_available(&self) -> bool {
+        self.is_orbit_edit_camera_mode() && !self.blocking_panel_open()
+    }
+
+    fn reset_orbit_middle_mouse_drag(&mut self) {
+        self.orbit_middle_mouse_drag_held = false;
+        self.orbit_middle_mouse_drag_last_position_physical = None;
+    }
+
+    pub(super) fn set_orbit_middle_mouse_drag_state(
+        &mut self,
+        button: MouseButton,
+        state: ElementState,
+    ) {
+        if button != MouseButton::Middle {
+            return;
+        }
+
+        match state {
+            ElementState::Pressed if self.orbit_middle_mouse_drag_available() => {
+                self.orbit_middle_mouse_drag_held = true;
+                self.orbit_middle_mouse_drag_last_position_physical = self.cursor_position_physical;
+            }
+            ElementState::Pressed => {
+                self.reset_orbit_middle_mouse_drag();
+            }
+            ElementState::Released => {
+                self.reset_orbit_middle_mouse_drag();
+            }
+        }
+    }
+
+    pub(super) fn sync_orbit_middle_mouse_drag_position(&mut self, position_physical: Vec2) {
+        if self.orbit_middle_mouse_drag_held {
+            self.orbit_middle_mouse_drag_last_position_physical = Some(position_physical);
+        }
+    }
+
+    pub(super) fn handle_orbit_middle_mouse_drag(&mut self, position_physical: Vec2) {
+        if !self.orbit_middle_mouse_drag_held {
+            return;
+        }
+        if !self.orbit_middle_mouse_drag_available() {
+            self.reset_orbit_middle_mouse_drag();
+            return;
+        }
+
+        let Some(previous_position) = self.orbit_middle_mouse_drag_last_position_physical else {
+            self.orbit_middle_mouse_drag_last_position_physical = Some(position_physical);
+            return;
+        };
+        self.orbit_middle_mouse_drag_last_position_physical = Some(position_physical);
+
+        let drag_delta = position_physical - previous_position;
+        if drag_delta.length_squared() <= f32::EPSILON {
+            return;
+        }
+
+        self.apply_orbit_middle_mouse_drag_delta(drag_delta);
+    }
+
+    fn apply_orbit_middle_mouse_drag_delta(&mut self, drag_delta_physical: Vec2) {
+        let (mut azimuth, mut elevation, distance) = self.orbit_camera_spherical();
+        azimuth += drag_delta_physical.x * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
+        elevation -= drag_delta_physical.y * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
+        self.apply_orbit_camera_spherical(azimuth, elevation, distance);
     }
 
     pub(super) fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {

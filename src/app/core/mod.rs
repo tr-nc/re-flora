@@ -113,6 +113,8 @@ pub struct App {
     cursor_position_physical: Option<Vec2>,
     camera_control_mode: CameraControlMode,
     orbit_camera_input: OrbitCameraInput,
+    orbit_middle_mouse_drag_held: bool,
+    orbit_middle_mouse_drag_last_position_physical: Option<Vec2>,
     mouse_wheel_dolly: MouseWheelDollySmoother,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -453,6 +455,7 @@ const ORBIT_CAMERA_FOCUS: Vec3 = Vec3::new(0.5, 0.5, 0.5);
 const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.12;
 const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
 const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
+const ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL: f32 = 0.005;
 const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
 const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
 const MOUSE_WHEEL_DOLLY_SNAP_LINES: f32 = 0.001;
@@ -960,6 +963,8 @@ impl App {
             cursor_position_physical: None,
             camera_control_mode: CameraControlMode::default(),
             orbit_camera_input: OrbitCameraInput::default(),
+            orbit_middle_mouse_drag_held: false,
+            orbit_middle_mouse_drag_last_position_physical: None,
             mouse_wheel_dolly: MouseWheelDollySmoother::default(),
             modifiers: ModifiersState::default(),
             perf_logging: options.perf,
@@ -1313,9 +1318,16 @@ impl App {
             }
 
             if consumed && !is_keyboard_event {
+                if let WindowEvent::CursorMoved { position, .. } = &event {
+                    self.sync_orbit_middle_mouse_drag_position(Vec2::new(
+                        position.x as f32,
+                        position.y as f32,
+                    ));
+                }
                 if let WindowEvent::MouseInput { state, button, .. } = &event {
                     if *state == ElementState::Released {
                         self.set_tool_mouse_button_state(*button, *state);
+                        self.set_orbit_middle_mouse_drag_state(*button, *state);
                         self.refresh_terrain_edit_hold_from_mouse_buttons();
                     }
                 }
@@ -1390,9 +1402,15 @@ impl App {
                     self.tracer.handle_keyboard(&event);
                 }
             }
-            WindowEvent::CursorMoved { .. } => {}
+            WindowEvent::CursorMoved { position, .. } => {
+                self.handle_orbit_middle_mouse_drag(Vec2::new(
+                    position.x as f32,
+                    position.y as f32,
+                ));
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 self.set_tool_mouse_button_state(button, state);
+                self.set_orbit_middle_mouse_drag_state(button, state);
 
                 if self.terrain_edit_pointer_available()
                     && (button == MouseButton::Left || button == MouseButton::Right)
