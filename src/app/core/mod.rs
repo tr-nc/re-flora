@@ -241,8 +241,6 @@ impl CameraControlMode {
 
 #[derive(Debug, Clone, Copy, Default)]
 struct OrbitCameraInput {
-    left: bool,
-    right: bool,
     up: bool,
     down: bool,
 }
@@ -254,16 +252,10 @@ impl OrbitCameraInput {
 
     fn handle_key(&mut self, code: KeyCode, pressed: bool) {
         match code {
-            KeyCode::KeyA => self.left = pressed,
-            KeyCode::KeyD => self.right = pressed,
             KeyCode::Space => self.up = pressed,
             KeyCode::ControlLeft | KeyCode::ControlRight => self.down = pressed,
             _ => {}
         }
-    }
-
-    fn orbit_axis(self) -> f32 {
-        self.right as i32 as f32 - self.left as i32 as f32
     }
 
     fn elevation_axis(self) -> f32 {
