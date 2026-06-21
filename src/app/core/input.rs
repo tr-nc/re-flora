@@ -9,9 +9,8 @@ use crate::builder::ChunkModifyStats;
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
 use std::time::Instant;
-use winit::event::{DeviceEvent, ElementState, KeyEvent, MouseButton, MouseScrollDelta};
+use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::PhysicalKey;
 
 fn scroll_delta_lines(delta: MouseScrollDelta) -> f32 {
     match delta {
@@ -44,7 +43,6 @@ impl App {
 
     pub(super) fn reset_camera_movement_input(&mut self) {
         self.tracer.reset_camera_input();
-        self.orbit_camera_input.reset();
         self.reset_orbit_middle_mouse_drag();
         self.mouse_wheel_dolly.reset();
     }
@@ -91,30 +89,12 @@ impl App {
             .set_camera_pose_looking_at(position, super::ORBIT_CAMERA_FOCUS);
     }
 
-    pub(super) fn handle_orbit_camera_keyboard(&mut self, key_event: &KeyEvent) {
-        if let PhysicalKey::Code(code) = key_event.physical_key {
-            self.orbit_camera_input
-                .handle_key(code, key_event.state == ElementState::Pressed);
-        }
-    }
-
     pub(super) fn update_camera_for_current_mode(&mut self, frame_delta_time: f32) {
-        if self.is_orbit_edit_camera_mode() {
-            self.update_orbit_camera(frame_delta_time);
-        } else {
+        if self.is_free_look_camera_mode() {
             self.tracer
                 .update_camera(frame_delta_time, self.is_fly_mode);
         }
         self.update_mouse_wheel_camera_dolly(frame_delta_time);
-    }
-
-    fn update_orbit_camera(&mut self, frame_delta_time: f32) {
-        let (azimuth, mut elevation, distance) = self.orbit_camera_spherical();
-        elevation += self.orbit_camera_input.elevation_axis()
-            * super::ORBIT_CAMERA_ANGULAR_SPEED
-            * frame_delta_time;
-
-        self.apply_orbit_camera_spherical(azimuth, elevation, distance);
     }
 
     fn orbit_camera_spherical(&self) -> (f32, f32, f32) {

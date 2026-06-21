@@ -112,7 +112,6 @@ pub struct App {
     smoothed_mouse_delta: Vec2,
     cursor_position_physical: Option<Vec2>,
     camera_control_mode: CameraControlMode,
-    orbit_camera_input: OrbitCameraInput,
     orbit_middle_mouse_drag_held: bool,
     orbit_middle_mouse_drag_last_position_physical: Option<Vec2>,
     mouse_wheel_dolly: MouseWheelDollySmoother,
@@ -236,30 +235,6 @@ impl CameraControlMode {
 
     fn is_orbit_edit(self) -> bool {
         matches!(self, Self::OrbitEdit)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct OrbitCameraInput {
-    up: bool,
-    down: bool,
-}
-
-impl OrbitCameraInput {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn handle_key(&mut self, code: KeyCode, pressed: bool) {
-        match code {
-            KeyCode::Space => self.up = pressed,
-            KeyCode::ControlLeft | KeyCode::ControlRight => self.down = pressed,
-            _ => {}
-        }
-    }
-
-    fn elevation_axis(self) -> f32 {
-        self.up as i32 as f32 - self.down as i32 as f32
     }
 }
 
@@ -452,7 +427,6 @@ const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
 const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
 const MOUSE_WHEEL_DOLLY_SNAP_LINES: f32 = 0.001;
 const MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES: f32 = 24.0;
-const ORBIT_CAMERA_ANGULAR_SPEED: f32 = 1.6;
 const ORBIT_CAMERA_MAX_ELEVATION_RAD: f32 = std::f32::consts::FRAC_PI_2 - 0.04;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
@@ -954,7 +928,6 @@ impl App {
             smoothed_mouse_delta: Vec2::ZERO,
             cursor_position_physical: None,
             camera_control_mode: CameraControlMode::default(),
-            orbit_camera_input: OrbitCameraInput::default(),
             orbit_middle_mouse_drag_held: false,
             orbit_middle_mouse_drag_last_position_physical: None,
             mouse_wheel_dolly: MouseWheelDollySmoother::default(),
@@ -1388,9 +1361,7 @@ impl App {
                     }
                 }
 
-                if self.is_orbit_edit_camera_mode() {
-                    self.handle_orbit_camera_keyboard(&event);
-                } else {
+                if self.is_free_look_camera_mode() {
                     self.tracer.handle_keyboard(&event);
                 }
             }
