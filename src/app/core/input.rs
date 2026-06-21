@@ -291,7 +291,7 @@ impl App {
 
     fn reset_staff_regen_stroke_tracking(&mut self) {
         self.player_tools.last_staff_regen_center = None;
-        self.player_tools.last_staff_regen_density_time = None;
+        self.player_tools.last_staff_regen_release_time = None;
         self.player_tools.active_staff_regen_paint_dab_serial = None;
     }
 
@@ -322,10 +322,10 @@ impl App {
         )
     }
 
-    fn current_flora_paint_density_step_interval(&self) -> Duration {
+    fn current_flora_paint_release_interval(&self) -> Duration {
         Duration::from_millis(
             species::flora_paint_brush_settings(self.current_flora_paint_selection())
-                .density_step_interval_ms,
+                .release_interval_ms,
         )
     }
 
@@ -333,26 +333,21 @@ impl App {
         let paint_dab_serial = self.flora_paint_dab_serial;
         self.flora_paint_dab_serial = self.flora_paint_dab_serial.wrapping_add(1);
         self.player_tools.active_staff_regen_paint_dab_serial = Some(paint_dab_serial);
-        self.player_tools.last_staff_regen_density_time = Some(now);
+        self.player_tools.last_staff_regen_release_time = Some(now);
         paint_dab_serial
     }
 
     fn current_staff_regen_paint_dab_serial(&mut self, now: Instant) -> (u32, bool) {
         let paint_brush = species::flora_paint_brush_settings(self.current_flora_paint_selection());
-        if paint_brush.sparse_cell_size == 0
-            || paint_brush.max_plants_per_cell == 0
-            || paint_brush.plants_per_cell_per_dab == 0
-        {
+        if paint_brush.soft_spacing_voxels == 0 || paint_brush.plants_per_release == 0 {
             return (self.flora_paint_dab_serial, true);
         }
 
-        if let (Some(active_serial), Some(last_density_step)) = (
+        if let (Some(active_serial), Some(last_release)) = (
             self.player_tools.active_staff_regen_paint_dab_serial,
-            self.player_tools.last_staff_regen_density_time,
+            self.player_tools.last_staff_regen_release_time,
         ) {
-            if now.duration_since(last_density_step)
-                < self.current_flora_paint_density_step_interval()
-            {
+            if now.duration_since(last_release) < self.current_flora_paint_release_interval() {
                 return (active_serial, false);
             }
         }
@@ -744,7 +739,7 @@ impl App {
                 }
 
                 let start = self.player_tools.last_staff_regen_center.unwrap_or(center);
-                let (paint_dab_serial, is_density_step) =
+                let (paint_dab_serial, is_release_step) =
                     self.current_staff_regen_paint_dab_serial(now);
                 if let Err(err) = self.apply_surface_flora_regeneration(
                     TerrainBrushEdit {
@@ -753,7 +748,7 @@ impl App {
                         radius: self.player_tools.terrain_edit_radius,
                     },
                     paint_dab_serial,
-                    is_density_step,
+                    is_release_step,
                 ) {
                     log::error!("Failed to apply flora regeneration: {}", err);
                     self.reset_staff_regen_stroke_tracking();

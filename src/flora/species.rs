@@ -15,35 +15,31 @@ pub type MeshGeneratorFn = fn(bool) -> Result<(Vec<Vertex>, Vec<u32>)>;
 pub struct FloraPaintBrushSettings {
     /// How often a held paint stroke refreshes its capsule coverage for this flora selection.
     pub dab_interval_ms: u64,
-    /// How often a held sparse paint stroke advances to a new density layer.
-    pub density_step_interval_ms: u64,
-    /// Size of the stratified paint-density cell in surface voxels. Zero disables sparse paint.
-    pub sparse_cell_size: u32,
-    /// Maximum painted plants per stratified cell for this flora selection.
-    pub max_plants_per_cell: u32,
-    /// Number of new cell slots a single dab may release. This is per cell covered by the brush.
-    pub plants_per_cell_per_dab: u32,
+    /// How often a held authored-plant stroke releases a new batch of plants.
+    pub release_interval_ms: u64,
+    /// Soft blue-noise spacing target in surface voxels. Zero disables authored release.
+    pub soft_spacing_voxels: u32,
+    /// Number of authored plants to release per interval for this flora selection.
+    pub plants_per_release: u32,
 }
 
 impl FloraPaintBrushSettings {
     pub const fn new(
         dab_interval_ms: u64,
-        density_step_interval_ms: u64,
-        sparse_cell_size: u32,
-        max_plants_per_cell: u32,
-        plants_per_cell_per_dab: u32,
+        release_interval_ms: u64,
+        soft_spacing_voxels: u32,
+        plants_per_release: u32,
     ) -> Self {
         Self {
             dab_interval_ms,
-            density_step_interval_ms,
-            sparse_cell_size,
-            max_plants_per_cell,
-            plants_per_cell_per_dab,
+            release_interval_ms,
+            soft_spacing_voxels,
+            plants_per_release,
         }
     }
 
     pub const fn dense(dab_interval_ms: u64) -> Self {
-        Self::new(dab_interval_ms, dab_interval_ms, 0, 0, 0)
+        Self::new(dab_interval_ms, dab_interval_ms, 0, 0)
     }
 }
 
@@ -51,18 +47,22 @@ pub const GRASS_MIX_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings =
     FloraPaintBrushSettings::dense(80);
 
 const SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS: u64 = 50;
-const SPECIAL_FLORA_PAINT_DENSITY_STEP_INTERVAL_MS: u64 = 300;
-const SPECIAL_FLORA_PAINT_SPARSE_CELL_SIZE: u32 = 20;
+const SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS: u64 = 500;
+const SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS: u32 = 20;
 
 pub const LAVENDER_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
     SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
-    SPECIAL_FLORA_PAINT_DENSITY_STEP_INTERVAL_MS,
-    SPECIAL_FLORA_PAINT_SPARSE_CELL_SIZE,
-    4,
+    SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
+    SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS,
     1,
 );
 
-pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = LAVENDER_PAINT_BRUSH_SETTINGS;
+pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
+    SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
+    SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
+    SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS,
+    1,
+);
 
 #[derive(Clone, Copy)]
 pub struct FloraSpeciesDesc {

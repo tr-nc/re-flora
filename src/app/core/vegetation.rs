@@ -11,13 +11,13 @@ use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::cluster_positions;
 use anyhow::Result;
-use glam::{IVec2, UVec3, Vec2, Vec3};
+use glam::{UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
 use std::collections::HashSet;
 use std::time::Instant;
 
 const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
-const AUTHORED_FLORA_PLACEMENT_ATTEMPTS_PER_CELL: u32 = 16;
+const AUTHORED_FLORA_BLUE_NOISE_CANDIDATES_PER_PLANT: u32 = 48;
 
 #[derive(Debug, Clone)]
 pub(super) struct TreeVariationConfig {
@@ -563,16 +563,49 @@ fn authored_flora_hash(mut value: u32) -> u32 {
 fn authored_flora_candidate_seed(
     species_index: u32,
     paint_dab_serial: u32,
-    cell: IVec2,
     plant_index: u32,
     attempt: u32,
 ) -> u32 {
     let mut seed = paint_dab_serial ^ species_index.wrapping_mul(0x9e37_79b9);
-    seed ^= (cell.x as u32).wrapping_mul(0x85eb_ca6b);
-    seed ^= (cell.y as u32).wrapping_mul(0xc2b2_ae35);
     seed ^= plant_index.wrapping_mul(0x27d4_eb2d);
     seed ^= attempt.wrapping_mul(0x1656_67b1);
     authored_flora_hash(seed)
+}
+
+fn authored_flora_base_center_from_stem(stem_world_vox: UVec3) -> Vec3 {
+    Vec3::new(
+        stem_world_vox.x as f32 + 0.5,
+        stem_world_vox.y as f32 - 0.5,
+        stem_world_vox.z as f32 + 0.5,
+    )
+}
+
+fn authored_flora_xz_distance_sq(a: Vec3, b: Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    dx * dx + dz * dz
+}
+
+fn authored_flora_blue_noise_score(
+    candidate_base_center_vox: Vec3,
+    existing_base_centers_vox: &[Vec3],
+    placed_base_centers_vox: &[Vec3],
+    soft_spacing_vox: f32,
+    tie_breaker_seed: u32,
+) -> f32 {
+    let min_distance_sq = existing_base_centers_vox
+        .iter()
+        .chain(placed_base_centers_vox.iter())
+        .map(|center| authored_flora_xz_distance_sq(candidate_base_center_vox, *center))
+        .fold(f32::INFINITY, f32::min);
+    let spacing_sq = soft_spacing_vox * soft_spacing_vox;
+    let clamped_distance_sq = if min_distance_sq.is_finite() {
+        min_distance_sq.min(spacing_sq)
+    } else {
+        spacing_sq
+    };
+
+    clamped_distance_sq + authored_flora_unit_from_seed(tie_breaker_seed) * 0.001
 }
 
 fn authored_flora_unit_from_seed(seed: u32) -> f32 {
@@ -1226,14 +1259,14 @@ impl App {
         &mut self,
         edit: TerrainBrushEdit,
         paint_dab_serial: u32,
-        is_density_step: bool,
+        is_release_step: bool,
     ) -> Result<()> {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
             let paint_selection = self.current_flora_paint_selection();
             let paint_brush = species::flora_paint_brush_settings(paint_selection);
             if let species::FloraPaintSelection::Species(species_index) = paint_selection {
                 if species::is_authored_plant_species_index(species_index) {
-                    if is_density_step {
+                    if is_release_step {
                         self.paint_authored_surface_flora(
                             edit,
                             compiled.rebuild_bound,
@@ -1279,95 +1312,101 @@ impl App {
         paint_dab_serial: u32,
         paint_brush: species::FloraPaintBrushSettings,
     ) -> Result<()> {
-        let cell_size = paint_brush.sparse_cell_size.max(1);
-        let max_plants_per_cell = paint_brush.max_plants_per_cell.max(1);
-        let plants_per_cell_per_dab = paint_brush.plants_per_cell_per_dab.max(1);
+        if paint_brush.soft_spacing_voxels == 0 || paint_brush.plants_per_release == 0 {
+            return Ok(());
+        }
+        let plants_per_release = paint_brush.plants_per_release;
         let radius_vox = edit.radius * 256.0;
         let radius_sq = radius_vox * radius_vox;
         let start_vox = edit.start * 256.0;
         let end_vox = edit.end * 256.0;
         let world_dim = super::VOXEL_DIM_PER_CHUNK * super::CHUNK_DIM;
-        let min = rebuild_bound.min();
-        let max = rebuild_bound.max();
-        let min_cell = IVec2::new(
-            (min.x as i32).div_euclid(cell_size as i32),
-            (min.z as i32).div_euclid(cell_size as i32),
-        );
-        let max_cell = IVec2::new(
-            (max.x as i32).div_euclid(cell_size as i32),
-            (max.z as i32).div_euclid(cell_size as i32),
-        );
+        let min = rebuild_bound
+            .min()
+            .min(world_dim.saturating_sub(UVec3::ONE));
+        let max = rebuild_bound.max().min(world_dim);
+        if min.x >= max.x || min.z >= max.z {
+            return Ok(());
+        }
 
+        let existing_base_centers_vox = self
+            .surface_builder
+            .authored_flora_stem_positions_for_species(species_index)
+            .into_iter()
+            .map(authored_flora_base_center_from_stem)
+            .collect::<Vec<_>>();
+        let mut placed_base_centers_vox = Vec::new();
         let mut dirty_chunks = Vec::new();
-        for cell_x in min_cell.x..=max_cell.x {
-            for cell_z in min_cell.y..=max_cell.y {
-                let cell = IVec2::new(cell_x, cell_z);
-                for plant_index in 0..plants_per_cell_per_dab {
-                    if self.surface_builder.authored_flora_sparse_cell_count(
-                        species_index,
-                        cell_size,
-                        cell,
-                    ) >= max_plants_per_cell
-                    {
-                        break;
-                    }
+        let soft_spacing_vox = paint_brush.soft_spacing_voxels.max(1) as f32;
+        let x_span = max.x - min.x;
+        let z_span = max.z - min.z;
 
-                    for attempt in 0..AUTHORED_FLORA_PLACEMENT_ATTEMPTS_PER_CELL {
-                        let seed = authored_flora_candidate_seed(
-                            species_index,
-                            paint_dab_serial,
-                            cell,
-                            plant_index,
-                            attempt,
-                        );
-                        let offset_seed = authored_flora_hash(seed ^ 0xa511_e9b3);
-                        let local_x =
-                            (authored_flora_unit_from_seed(seed) * cell_size as f32).floor() as u32;
-                        let local_z = (authored_flora_unit_from_seed(offset_seed)
-                            * cell_size as f32)
-                            .floor() as u32;
-                        let x_vox_i = cell_x * cell_size as i32 + local_x as i32;
-                        let z_vox_i = cell_z * cell_size as i32 + local_z as i32;
-                        if x_vox_i < 0 || z_vox_i < 0 {
-                            continue;
-                        }
-                        let x_vox = x_vox_i as u32;
-                        let z_vox = z_vox_i as u32;
-                        if x_vox >= world_dim.x || z_vox >= world_dim.z {
-                            continue;
-                        }
+        for plant_index in 0..plants_per_release {
+            let mut best_candidate: Option<(f32, UVec3, Vec3, u32)> = None;
 
-                        let pos_xz =
-                            Vec2::new((x_vox as f32 + 0.5) / 256.0, (z_vox as f32 + 0.5) / 256.0);
-                        let terrain_height = self.query_terrain_height_cpu(pos_xz);
-                        let base_y = (terrain_height * 256.0).floor().max(0.0) as u32;
-                        if base_y + 1 >= world_dim.y {
-                            continue;
-                        }
+            for attempt in 0..AUTHORED_FLORA_BLUE_NOISE_CANDIDATES_PER_PLANT {
+                let seed = authored_flora_candidate_seed(
+                    species_index,
+                    paint_dab_serial,
+                    plant_index,
+                    attempt,
+                );
+                let x_seed = authored_flora_hash(seed ^ 0xa511_e9b3);
+                let z_seed = authored_flora_hash(seed ^ 0x63d8_3595);
+                let x_vox = min.x
+                    + ((authored_flora_unit_from_seed(x_seed) * x_span as f32).floor() as u32)
+                        .min(x_span.saturating_sub(1));
+                let z_vox = min.z
+                    + ((authored_flora_unit_from_seed(z_seed) * z_span as f32).floor() as u32)
+                        .min(z_span.saturating_sub(1));
 
-                        let base_center_vox =
-                            Vec3::new(x_vox as f32 + 0.5, base_y as f32 + 0.5, z_vox as f32 + 0.5);
-                        if distance_sq_to_segment(base_center_vox, start_vox, end_vox) > radius_sq {
-                            continue;
-                        }
-
-                        let stem_world_vox = UVec3::new(x_vox, base_y + 1, z_vox);
-                        if self
-                            .surface_builder
-                            .try_add_authored_flora_instance_deferred(
-                                species_index,
-                                stem_world_vox,
-                                AUTHORED_FLORA_GROWTH_MATURE,
-                                seed,
-                                cell_size,
-                                max_plants_per_cell,
-                                &mut dirty_chunks,
-                            )
-                        {
-                            break;
-                        }
-                    }
+                let pos_xz = Vec2::new((x_vox as f32 + 0.5) / 256.0, (z_vox as f32 + 0.5) / 256.0);
+                let terrain_height = self.query_terrain_height_cpu(pos_xz);
+                let base_y = (terrain_height * 256.0).floor().max(0.0) as u32;
+                if base_y + 1 >= world_dim.y {
+                    continue;
                 }
+
+                let base_center_vox =
+                    Vec3::new(x_vox as f32 + 0.5, base_y as f32 + 0.5, z_vox as f32 + 0.5);
+                if distance_sq_to_segment(base_center_vox, start_vox, end_vox) > radius_sq {
+                    continue;
+                }
+
+                let score = authored_flora_blue_noise_score(
+                    base_center_vox,
+                    &existing_base_centers_vox,
+                    &placed_base_centers_vox,
+                    soft_spacing_vox,
+                    seed,
+                );
+                if best_candidate
+                    .as_ref()
+                    .is_none_or(|(best_score, _, _, _)| score > *best_score)
+                {
+                    best_candidate = Some((
+                        score,
+                        UVec3::new(x_vox, base_y + 1, z_vox),
+                        base_center_vox,
+                        seed,
+                    ));
+                }
+            }
+
+            let Some((_, stem_world_vox, base_center_vox, seed)) = best_candidate else {
+                continue;
+            };
+            if self
+                .surface_builder
+                .try_add_authored_flora_instance_deferred(
+                    species_index,
+                    stem_world_vox,
+                    AUTHORED_FLORA_GROWTH_MATURE,
+                    seed,
+                    &mut dirty_chunks,
+                )
+            {
+                placed_base_centers_vox.push(base_center_vox);
             }
         }
 

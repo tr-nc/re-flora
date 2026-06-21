@@ -11,7 +11,7 @@ use crate::{
 };
 use anyhow::Result;
 use bytemuck::Zeroable;
-use glam::{IVec2, UVec3, Vec3};
+use glam::{UVec3, Vec3};
 pub use resources::*;
 use std::{
     collections::HashMap,
@@ -837,67 +837,25 @@ impl SurfaceBuilder {
         })
     }
 
-    pub fn authored_flora_sparse_cell_count(
-        &self,
-        species_index: u32,
-        cell_size: u32,
-        cell: IVec2,
-    ) -> u32 {
-        let safe_cell_size = cell_size.max(1) as i32;
+    pub fn authored_flora_stem_positions_for_species(&self, species_index: u32) -> Vec<UVec3> {
         self.authored_flora
             .instances_by_chunk
             .values()
             .flat_map(|instances| instances.iter())
             .filter(|instance| instance.species_index == species_index)
-            .filter(|instance| {
-                let instance_cell = IVec2::new(
-                    (instance.stem_world_vox.x as i32).div_euclid(safe_cell_size),
-                    (instance.stem_world_vox.z as i32).div_euclid(safe_cell_size),
-                );
-                instance_cell == cell
-            })
-            .count() as u32
+            .map(|instance| instance.stem_world_vox)
+            .collect()
     }
 
-    #[allow(dead_code)]
-    pub fn try_add_authored_flora_instance(
-        &mut self,
-        species_index: u32,
-        stem_world_vox: UVec3,
-        growth_progress: u32,
-        seed: u32,
-        cell_size: u32,
-        max_plants_per_cell: u32,
-    ) -> Result<bool> {
-        let mut dirty_chunks = Vec::new();
-        let added = self.try_add_authored_flora_instance_deferred(
-            species_index,
-            stem_world_vox,
-            growth_progress,
-            seed,
-            cell_size,
-            max_plants_per_cell,
-            &mut dirty_chunks,
-        );
-        self.sync_authored_flora_dirty_chunks(&dirty_chunks)?;
-        Ok(added)
-    }
-
-    #[allow(clippy::too_many_arguments)]
     pub fn try_add_authored_flora_instance_deferred(
         &mut self,
         species_index: u32,
         stem_world_vox: UVec3,
         growth_progress: u32,
         seed: u32,
-        cell_size: u32,
-        max_plants_per_cell: u32,
         dirty_chunks: &mut Vec<UVec3>,
     ) -> bool {
         if !species::is_authored_plant_species_index(species_index) {
-            return false;
-        }
-        if max_plants_per_cell == 0 {
             return false;
         }
         let chunk_id = self.chunk_id_for_world_voxel(stem_world_vox);
@@ -907,17 +865,6 @@ impl SurfaceBuilder {
         let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
         let local_pos = stem_world_vox - chunk_world_offset;
         if local_pos.cmpge(self.voxel_dim_per_chunk).any() {
-            return false;
-        }
-
-        let cell_size = cell_size.max(1) as i32;
-        let cell = IVec2::new(
-            (stem_world_vox.x as i32).div_euclid(cell_size),
-            (stem_world_vox.z as i32).div_euclid(cell_size),
-        );
-        if self.authored_flora_sparse_cell_count(species_index, cell_size as u32, cell)
-            >= max_plants_per_cell
-        {
             return false;
         }
 
@@ -1513,9 +1460,9 @@ fn update_edit_occupancy_info(
         paint_selection: paint_selection.shader_selection(),
         paint_config: [
             paint_dab_serial,
-            paint_brush.sparse_cell_size,
-            paint_brush.max_plants_per_cell,
-            paint_brush.plants_per_cell_per_dab,
+            paint_brush.soft_spacing_voxels,
+            0,
+            paint_brush.plants_per_release,
         ],
         ..EditOccupancyInfo::zeroed()
     })

@@ -105,8 +105,8 @@ impl AuthoredFloraBench {
 }
 
 fn authored_flora_bench_center(sample_index: u32) -> Vec2 {
-    // Spread samples across mostly distinct sparse paint cells in the default 256-voxel world.
-    // This avoids benchmarking only the saturated-cell early-out path.
+    // Spread samples across the default 256-voxel world so repeated releases exercise
+    // authored placement over varied terrain, not only one brush neighborhood.
     let grid_x = sample_index % 5;
     let grid_z = (sample_index / 5) % 5;
     let cycle = sample_index / 25;
