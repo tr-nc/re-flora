@@ -9,7 +9,7 @@ use crate::builder::ChunkModifyStats;
 use crate::flora::species;
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
 
@@ -294,10 +294,18 @@ impl App {
         species::flora_paint_selection_label(self.current_flora_paint_selection())
     }
 
+    pub(super) fn current_flora_paint_dab_interval(&self) -> Duration {
+        Duration::from_millis(
+            species::flora_paint_brush_settings(self.current_flora_paint_selection())
+                .dab_interval_ms,
+        )
+    }
+
     pub(super) fn cycle_flora_paint_selection(&mut self) {
         let selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
         self.player_tools.flora_paint_selection_index =
             (self.player_tools.flora_paint_selection_index + 1) % selection_count;
+        self.player_tools.last_staff_regen_time = None;
         self.play_item_panel_scroll_sound();
         log::info!(
             "Grow brush flora selection: {}",
@@ -669,7 +677,7 @@ impl App {
                 self.start_terrain_edit_loop_sound(center);
 
                 if let Some(last_regen) = self.player_tools.last_staff_regen_time {
-                    if now.duration_since(last_regen) < super::SHOVEL_DIG_INTERVAL {
+                    if now.duration_since(last_regen) < self.current_flora_paint_dab_interval() {
                         return;
                     }
                 }

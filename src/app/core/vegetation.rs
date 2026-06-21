@@ -5,6 +5,7 @@ use crate::app::world_edits::{
 };
 use crate::app::world_ops;
 use crate::builder::{ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_OAK_WOOD};
+use crate::flora::species;
 use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tree_gen::{Tree, TreeDesc};
@@ -1128,6 +1129,9 @@ impl App {
     ) -> Result<()> {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
             let paint_selection = self.current_flora_paint_selection();
+            let paint_brush = species::flora_paint_brush_settings(paint_selection);
+            let paint_dab_serial = self.flora_paint_dab_serial;
+            self.flora_paint_dab_serial = self.flora_paint_dab_serial.wrapping_add(1);
             world_ops::mesh_regenerate_flora_for_sphere_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
@@ -1138,6 +1142,8 @@ impl App {
                     tick: self.flora_tick.wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
                 },
                 paint_selection,
+                paint_dab_serial,
+                paint_brush,
             )?;
         } else {
             log::info!(

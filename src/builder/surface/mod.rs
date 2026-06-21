@@ -818,6 +818,8 @@ impl SurfaceBuilder {
             flora_tick,
             0,
             species::FloraPaintSelection::GrassMix,
+            0,
+            species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
             OccupancyEditMode::Remove,
         )?;
         Ok(())
@@ -830,6 +832,8 @@ impl SurfaceBuilder {
         edit_radius: f32,
         flora_tick: u32,
         paint_selection: species::FloraPaintSelection,
+        paint_dab_serial: u32,
+        paint_brush: species::FloraPaintBrushSettings,
     ) -> Result<FloraRegenStats> {
         self.run_occupancy_edit(
             chunk_id,
@@ -838,6 +842,8 @@ impl SurfaceBuilder {
             flora_tick,
             0,
             paint_selection,
+            paint_dab_serial,
+            paint_brush,
             OccupancyEditMode::Add,
         )
     }
@@ -857,6 +863,8 @@ impl SurfaceBuilder {
             flora_tick,
             target_age,
             species::FloraPaintSelection::GrassMix,
+            0,
+            species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
             OccupancyEditMode::Trim,
         )
     }
@@ -869,6 +877,8 @@ impl SurfaceBuilder {
         flora_tick: u32,
         target_age: u32,
         paint_selection: species::FloraPaintSelection,
+        paint_dab_serial: u32,
+        paint_brush: species::FloraPaintBrushSettings,
         mode: OccupancyEditMode,
     ) -> Result<FloraRegenStats> {
         if !self.chunk_bound.in_bound(chunk_id) {
@@ -919,6 +929,8 @@ impl SurfaceBuilder {
             flora_tick,
             target_age,
             paint_selection,
+            paint_dab_serial,
+            paint_brush,
         )?;
         update_occupancy_to_instances_info(
             &self.resources.occupancy_to_instances_info,
@@ -1239,6 +1251,8 @@ fn update_edit_occupancy_info(
     flora_tick: u32,
     target_age: u32,
     paint_selection: species::FloraPaintSelection,
+    paint_dab_serial: u32,
+    paint_brush: species::FloraPaintBrushSettings,
 ) -> Result<()> {
     edit_occupancy_info.fill_uniform(&EditOccupancyInfo {
         edit_center_radius_vox: [
@@ -1253,6 +1267,12 @@ fn update_edit_occupancy_info(
         flora_tick,
         target_age,
         paint_selection: paint_selection.shader_selection(),
+        paint_config: [
+            paint_dab_serial,
+            paint_brush.sparse_cell_size,
+            paint_brush.max_plants_per_cell,
+            paint_brush.plants_per_cell_per_dab,
+        ],
         ..EditOccupancyInfo::zeroed()
     })
 }

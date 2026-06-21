@@ -7,6 +7,41 @@ pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
 
 pub type MeshGeneratorFn = fn(bool) -> Result<(Vec<Vertex>, Vec<u32>)>;
 
+#[derive(Clone, Copy, Debug)]
+pub struct FloraPaintBrushSettings {
+    /// How often a held paint stroke releases another dab for this flora selection.
+    pub dab_interval_ms: u64,
+    /// Size of the stratified paint-density cell in surface voxels. Zero disables sparse paint.
+    pub sparse_cell_size: u32,
+    /// Maximum painted plants per stratified cell for this flora selection.
+    pub max_plants_per_cell: u32,
+    /// Number of new cell slots a single dab may release. This is per cell covered by the brush.
+    pub plants_per_cell_per_dab: u32,
+}
+
+impl FloraPaintBrushSettings {
+    pub const fn new(
+        dab_interval_ms: u64,
+        sparse_cell_size: u32,
+        max_plants_per_cell: u32,
+        plants_per_cell_per_dab: u32,
+    ) -> Self {
+        Self {
+            dab_interval_ms,
+            sparse_cell_size,
+            max_plants_per_cell,
+            plants_per_cell_per_dab,
+        }
+    }
+
+    pub const fn dense(dab_interval_ms: u64) -> Self {
+        Self::new(dab_interval_ms, 0, 0, 0)
+    }
+}
+
+pub const GRASS_MIX_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings =
+    FloraPaintBrushSettings::dense(80);
+
 #[derive(Clone, Copy)]
 pub struct FloraSpeciesDesc {
     pub key: &'static str,
@@ -15,6 +50,7 @@ pub struct FloraSpeciesDesc {
     pub default_bottom_color: [u8; 3],
     pub default_tip_color: [u8; 3],
     pub mesh_generator: MeshGeneratorFn,
+    pub paint_brush: FloraPaintBrushSettings,
 }
 
 impl FloraSpeciesDesc {
@@ -24,6 +60,7 @@ impl FloraSpeciesDesc {
         default_bottom_color: [u8; 3],
         default_tip_color: [u8; 3],
         mesh_generator: MeshGeneratorFn,
+        paint_brush: FloraPaintBrushSettings,
     ) -> Self {
         Self {
             key,
@@ -31,6 +68,7 @@ impl FloraSpeciesDesc {
             default_bottom_color,
             default_tip_color,
             mesh_generator,
+            paint_brush,
         }
     }
 }
@@ -42,6 +80,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [61, 163, 59],
         [168, 227, 0],
         gen_tall_grass,
+        FloraPaintBrushSettings::dense(80),
     ),
     FloraSpeciesDesc::new(
         "short_grass",
@@ -49,6 +88,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [61, 163, 59],
         [168, 227, 0],
         gen_short_grass,
+        FloraPaintBrushSettings::dense(80),
     ),
     FloraSpeciesDesc::new(
         "lavender",
@@ -56,6 +96,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [74, 165, 0],
         [85, 0, 207],
         gen_lavender,
+        FloraPaintBrushSettings::new(80, 10, 5, 1),
     ),
     FloraSpeciesDesc::new(
         "ember_bloom",
@@ -63,6 +104,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [42, 138, 102],
         [255, 141, 78],
         gen_ember_bloom,
+        FloraPaintBrushSettings::new(120, 20, 4, 1),
     ),
 ];
 
@@ -110,6 +152,16 @@ pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static s
             .get(species_idx as usize)
             .map(|species| species.display_name)
             .unwrap_or("Unknown Flora"),
+    }
+}
+
+pub fn flora_paint_brush_settings(selection: FloraPaintSelection) -> FloraPaintBrushSettings {
+    match selection {
+        FloraPaintSelection::GrassMix => GRASS_MIX_PAINT_BRUSH_SETTINGS,
+        FloraPaintSelection::Species(species_idx) => species()
+            .get(species_idx as usize)
+            .map(|species| species.paint_brush)
+            .unwrap_or(GRASS_MIX_PAINT_BRUSH_SETTINGS),
     }
 }
 

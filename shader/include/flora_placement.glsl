@@ -59,44 +59,116 @@ bool flora_sparse_species_mask_allows(uint species_idx, ivec3 world_pos) {
     return true;
 }
 
-// Paint placement uses a stratified mask rather than the natural random density
-// noise. Sparse flowers still land on deterministic world-space seeds, but every
-// screen-sized brush area gets a more even spread of candidate points.
-const uint FLORA_LAVENDER_PAINT_SPARSE_CELL_SIZE    = 10u;
-const uint FLORA_EMBER_BLOOM_PAINT_SPARSE_CELL_SIZE = 20u;
+// Paint placement uses a stratified, layered mask rather than the natural random density noise.
+// The current paint dab chooses one or more layers inside each cell; repeated dabs visit new
+// layers until the per-species max density is reached.
+// paint_config: x=dab_serial, y=cell_size_voxels, z=max_plants_per_cell,
+//               w=plants_per_cell_per_dab.
+const uint FLORA_PAINT_MAX_PLANTS_PER_CELL_PER_DAB = 16u;
 
-bool flora_stratified_sparse_paint_mask_allows(uint cell_size, vec2 seed_offset,
-                                               ivec3 world_pos) {
+uint flora_uint_gcd(uint a, uint b) {
+    for (uint i = 0u; i < 32u && b != 0u; ++i) {
+        uint r = a % b;
+        a      = b;
+        b      = r;
+    }
+    return a;
+}
+
+uint flora_coprime_step(uint raw_step, uint modulus) {
+    if (modulus <= 1u) {
+        return 0u;
+    }
+
+    uint step = raw_step % modulus;
+    if (step == 0u) {
+        step = 1u;
+    }
+
+    for (uint attempt = 0u; attempt < 64u; ++attempt) {
+        if (flora_uint_gcd(step, modulus) == 1u) {
+            return step;
+        }
+        step += 1u;
+        if (step >= modulus) {
+            step = 1u;
+        }
+    }
+
+    return 1u;
+}
+
+uvec2 flora_layered_sparse_paint_anchor(uint cell_size, ivec2 cell, uint layer,
+                                        vec2 seed_offset) {
     uint safe_cell_size = max(cell_size, 1u);
-    int cell_size_i     = int(safe_cell_size);
-    ivec2 world_xz      = ivec2(world_pos.x, world_pos.z);
-    ivec2 cell = ivec2(floor(vec2(float(world_xz.x), float(world_xz.y)) / float(cell_size_i)));
-    ivec2 local = world_xz - cell * cell_size_i;
+    uint cell_area      = safe_cell_size * safe_cell_size;
+    if (cell_area <= 1u) {
+        return uvec2(0u, 0u);
+    }
 
     vec2 cell_seed = vec2(float(cell.x), float(cell.y)) + seed_offset;
-    uint anchor_x = min(uint(floor(flora_legacy_hash(cell_seed) * float(safe_cell_size))),
-                        safe_cell_size - 1u);
-    uint anchor_z = min(uint(floor(flora_legacy_hash(cell_seed + vec2(37.0, 71.0)) *
-                                   float(safe_cell_size))),
-                        safe_cell_size - 1u);
+    // Layer 0 intentionally matches the previous single-anchor paint mask so existing saved
+    // flowers stay on-grid under the new accumulative paint model.
+    uint base_x = min(uint(floor(flora_legacy_hash(cell_seed) * float(safe_cell_size))),
+                      safe_cell_size - 1u);
+    uint base_z = min(uint(floor(flora_legacy_hash(cell_seed + vec2(37.0, 71.0)) *
+                                 float(safe_cell_size))),
+                      safe_cell_size - 1u);
+    uint base_slot = base_z * safe_cell_size + base_x;
+    uint raw_step = 1u + min(uint(floor(flora_legacy_hash(cell_seed + vec2(113.0, 197.0)) *
+                                        float(cell_area - 1u))),
+                             cell_area - 2u);
+    uint step = flora_coprime_step(raw_step, cell_area);
+    uint slot = (base_slot + (layer % cell_area) * step) % cell_area;
 
-    return uint(local.x) == anchor_x && uint(local.y) == anchor_z;
+    return uvec2(slot % safe_cell_size, slot / safe_cell_size);
 }
 
-bool flora_paint_selection_uses_sparse_density(uint paint_selection) {
-    return paint_selection < FLORA_SPECIES_COUNT &&
-           flora_species_uses_sparse_paint_density(paint_selection);
+bool flora_layered_sparse_paint_mask_allows(uvec4 paint_config, vec2 seed_offset,
+                                            ivec3 world_pos) {
+    uint cell_size           = max(paint_config.y, 1u);
+    uint cell_area           = cell_size * cell_size;
+    uint max_plants_per_cell = min(paint_config.z, cell_area);
+    uint released_per_dab = min(min(paint_config.w, max_plants_per_cell),
+                                FLORA_PAINT_MAX_PLANTS_PER_CELL_PER_DAB);
+
+    if (max_plants_per_cell == 0u || released_per_dab == 0u) {
+        return false;
+    }
+
+    int cell_size_i = int(cell_size);
+    ivec2 world_xz  = ivec2(world_pos.x, world_pos.z);
+    ivec2 cell = ivec2(floor(vec2(float(world_xz.x), float(world_xz.y)) / float(cell_size_i)));
+    ivec2 local = world_xz - cell * cell_size_i;
+    uvec2 local_u = uvec2(local);
+
+    uint first_layer = ((paint_config.x % max_plants_per_cell) * released_per_dab) %
+                       max_plants_per_cell;
+    for (uint i = 0u; i < FLORA_PAINT_MAX_PLANTS_PER_CELL_PER_DAB; ++i) {
+        if (i >= released_per_dab) {
+            break;
+        }
+
+        uint layer  = (first_layer + i) % max_plants_per_cell;
+        uvec2 anchor = flora_layered_sparse_paint_anchor(cell_size, cell, layer, seed_offset);
+        if (all(equal(local_u, anchor))) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
-bool flora_sparse_paint_selection_allows(uint paint_selection, ivec3 world_pos) {
+bool flora_sparse_paint_selection_allows(uint paint_selection, ivec3 world_pos,
+                                         uvec4 paint_config) {
     if (paint_selection == FLORA_SPECIES_LAVENDER) {
-        return flora_stratified_sparse_paint_mask_allows(
-            FLORA_LAVENDER_PAINT_SPARSE_CELL_SIZE, vec2(42.0, -15.0), world_pos);
+        return flora_layered_sparse_paint_mask_allows(paint_config, vec2(42.0, -15.0),
+                                                      world_pos);
     }
 
     if (paint_selection == FLORA_SPECIES_EMBER_BLOOM) {
-        return flora_stratified_sparse_paint_mask_allows(
-            FLORA_EMBER_BLOOM_PAINT_SPARSE_CELL_SIZE, vec2(-53.0, 91.0), world_pos);
+        return flora_layered_sparse_paint_mask_allows(paint_config, vec2(-53.0, 91.0),
+                                                      world_pos);
     }
 
     return true;

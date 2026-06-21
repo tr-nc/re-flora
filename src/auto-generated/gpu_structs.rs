@@ -381,6 +381,7 @@ pub struct EditOccupancyInfo {
     pub target_age: u32,
     pub paint_selection: u32,
     pub _pad1: [u8; 4],
+    pub paint_config: [u32; 4],
 }
 
 /// Auto-generated from `U_EnvInfo` (GLSL source of truth).

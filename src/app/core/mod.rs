@@ -150,6 +150,7 @@ pub struct App {
 
     flora_tick: u32,
     flora_tick_accumulator: f32,
+    flora_paint_dab_serial: u32,
     growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
     vsm_history_reset_pending: bool,
@@ -977,6 +978,7 @@ impl App {
             water_particle_handoff_main_thread_ms: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
+            flora_paint_dab_serial: 0,
             growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
             vsm_history_reset_pending: true,
