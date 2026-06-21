@@ -252,7 +252,7 @@ impl App {
     }
 
     fn camera_scroll_available(&self) -> bool {
-        !self.blocking_panel_open()
+        self.is_orbit_edit_camera_mode() && !self.blocking_panel_open()
     }
 
     fn update_mouse_wheel_camera_dolly(&mut self, frame_delta_time: f32) {
@@ -270,18 +270,11 @@ impl App {
     }
 
     fn apply_mouse_wheel_camera_delta(&mut self, scroll_lines: f32) {
-        if self.is_orbit_edit_camera_mode() {
-            let forward_distance = scroll_lines
-                * super::ORBIT_CAMERA_DOLLY_SPEED
-                * super::MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE;
-            let (azimuth, elevation, distance) = self.orbit_camera_spherical();
-            self.apply_orbit_camera_spherical(azimuth, elevation, distance - forward_distance);
-        } else {
-            self.tracer.move_camera_forward_by_input_axis(
-                scroll_lines,
-                super::MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE,
-            );
-        }
+        let forward_distance = scroll_lines
+            * super::ORBIT_CAMERA_DOLLY_SPEED
+            * super::MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE;
+        let (azimuth, elevation, distance) = self.orbit_camera_spherical();
+        self.apply_orbit_camera_spherical(azimuth, elevation, distance - forward_distance);
     }
 
     pub(super) fn set_tool_mouse_button_state(&mut self, button: MouseButton, state: ElementState) {
