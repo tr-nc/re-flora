@@ -311,6 +311,20 @@ impl Buffer {
         self.map_buffer_mem_and_write(data, 0)
     }
 
+    pub fn fill_range_with_raw_u8(&self, byte_offset: u64, data: &[u8]) -> Result<()> {
+        let byte_count = data.len() as u64;
+        let buffer_size = self.get_size_bytes();
+        if byte_offset > buffer_size || byte_count > buffer_size - byte_offset {
+            return Err(anyhow::anyhow!(
+                "Write range [{}, {}) is outside buffer size {}",
+                byte_offset,
+                byte_offset.saturating_add(byte_count),
+                buffer_size
+            ));
+        }
+        self.map_buffer_mem_and_write(data, byte_offset)
+    }
+
     #[allow(dead_code)]
     pub fn fill_with_raw_u32(&self, data: &[u32]) -> Result<()> {
         let data_u8: &[u8] = unsafe {

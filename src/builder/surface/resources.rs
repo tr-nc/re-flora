@@ -163,21 +163,23 @@ impl FloraInstanceResources {
         let species_offset = Self::species_offset(species_index) as usize;
         let byte_start = species_offset * instance_size;
         let byte_capacity = MAX_FLORA_INSTANCES_PER_SPECIES as usize * instance_size;
-        let mut raw = self.resource.instances_buf.read_back()?;
-        if byte_start + byte_capacity > raw.len() {
+        let buffer_size = self.resource.instances_buf.get_size_bytes() as usize;
+        if byte_start + byte_capacity > buffer_size {
             return Err(anyhow::anyhow!(
                 "flora species {} byte range [{}..{}) exceeds buffer size {}",
                 species_index,
                 byte_start,
                 byte_start + byte_capacity,
-                raw.len()
+                buffer_size
             ));
         }
 
-        raw[byte_start..byte_start + byte_capacity].fill(0);
         let instance_bytes = bytemuck::cast_slice(instances);
-        raw[byte_start..byte_start + instance_bytes.len()].copy_from_slice(instance_bytes);
-        self.resource.instances_buf.fill_with_raw_u8(&raw)?;
+        if !instance_bytes.is_empty() {
+            self.resource
+                .instances_buf
+                .fill_range_with_raw_u8(byte_start as u64, instance_bytes)?;
+        }
         self.set_species_len(species_index, instances.len() as u32);
         Ok(())
     }
