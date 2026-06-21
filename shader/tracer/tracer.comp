@@ -246,18 +246,22 @@ vec3 offset_color(vec3 input_color, vec3 center_pos) {
     return hsv_to_rgb(hsv);
 }
 
+float terrain_edit_preview_tint_at(vec3 center_pos) {
+    if (terrain_edit_preview.enabled == 0u || terrain_edit_preview.radius <= 0.0) {
+        return 0.0;
+    }
+
+    float dist = terrain_edit_preview.shape == 1u
+                     ? length(center_pos.xz - terrain_edit_preview.center.xz)
+                     : length(center_pos - terrain_edit_preview.center);
+    float edge = max(terrain_edit_preview.radius * 0.12, 0.002);
+    float mask = 1.0 - smoothstep(terrain_edit_preview.radius - edge,
+                                   terrain_edit_preview.radius, dist);
+    return clamp(mask * terrain_edit_preview.strength, 0.0, 1.0);
+}
+
 void parse_trace_result(out vec3 albedo, out vec3 next_tracing_pos, MarchingResult res) {
     albedo = voxel_color_by_type_and_hash_unorm(res.voxel_type, res.hash_id);
-    if (terrain_edit_preview.enabled != 0u && terrain_edit_preview.radius > 0.0) {
-        float dist = terrain_edit_preview.shape == 1u
-                         ? length(res.center_pos.xz - terrain_edit_preview.center.xz)
-                         : length(res.center_pos - terrain_edit_preview.center);
-        float edge = max(terrain_edit_preview.radius * 0.12, 0.002);
-        float mask = 1.0 - smoothstep(terrain_edit_preview.radius - edge,
-                                       terrain_edit_preview.radius, dist);
-        float tint = clamp(mask * terrain_edit_preview.strength, 0.0, 1.0);
-        albedo     = mix(albedo, terrain_edit_preview.color, tint);
-    }
     // albedo = offset_color(albedo, res.center_pos);
     next_tracing_pos = get_next_tracing_pos(res.center_pos, res.normal);
 }
@@ -311,6 +315,13 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
             : vec3(0.0);
 
     o_color = ambient_color + direct_color + indirect_color;
+
+    // The edit brush is a UI affordance, not terrain material. Apply it after lighting so its
+    // apparent strength does not depend on which side of the voxel terrain faces the sun.
+    float terrain_edit_tint = terrain_edit_preview_tint_at(res_primary_ray.center_pos);
+    if (terrain_edit_tint > 0.0) {
+        o_color = mix(o_color, terrain_edit_preview.color, terrain_edit_tint);
+    }
 }
 
 void main() {
