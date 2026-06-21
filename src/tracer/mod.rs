@@ -2670,6 +2670,20 @@ impl Tracer {
         self.camera.reset_velocity();
     }
 
+    pub fn move_camera_forward_by_input_axis(&mut self, axis: f32, elapsed_seconds: f32) {
+        self.camera
+            .move_forward_by_input_axis(axis, elapsed_seconds);
+        if let Err(err) = self
+            .spatial_sound_manager
+            .update_player_pos(self.camera.position(), self.camera.vectors())
+        {
+            log::warn!(
+                "Failed to update listener after mouse-wheel camera move: {}",
+                err
+            );
+        }
+    }
+
     pub fn camera_position(&self) -> Vec3 {
         self.camera.position()
     }

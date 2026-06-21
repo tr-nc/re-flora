@@ -80,9 +80,9 @@ use verdarium_vkn::{
 use verdarium_vkn::{Swapchain, VulkanContext};
 use verdarium_water::PondWaterConfig;
 use winit::{
-    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
-    keyboard::{KeyCode, PhysicalKey},
+    keyboard::{KeyCode, ModifiersState, PhysicalKey},
     window::WindowId,
 };
 
@@ -113,6 +113,7 @@ pub struct App {
     cursor_position_physical: Option<Vec2>,
     camera_control_mode: CameraControlMode,
     orbit_camera_input: OrbitCameraInput,
+    modifiers: ModifiersState,
     perf_logging: bool,
     mute_audio_output: bool,
 
@@ -410,6 +411,7 @@ const ORBIT_CAMERA_FOCUS: Vec3 = Vec3::new(0.5, 0.5, 0.5);
 const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.12;
 const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
 const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
+const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
 const ORBIT_CAMERA_ANGULAR_SPEED: f32 = 1.6;
 const ORBIT_CAMERA_MAX_ELEVATION_RAD: f32 = std::f32::consts::FRAC_PI_2 - 0.04;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
@@ -913,6 +915,7 @@ impl App {
             cursor_position_physical: None,
             camera_control_mode: CameraControlMode::default(),
             orbit_camera_input: OrbitCameraInput::default(),
+            modifiers: ModifiersState::default(),
             perf_logging: options.perf,
             mute_audio_output: options.mute,
 
@@ -1244,6 +1247,9 @@ impl App {
         if let WindowEvent::CursorMoved { position, .. } = &event {
             self.cursor_position_physical = Some(Vec2::new(position.x as f32, position.y as f32));
         }
+        if let WindowEvent::ModifiersChanged(modifiers) = &event {
+            self.modifiers = modifiers.state();
+        }
 
         // Feed GUI-visible events to egui first. Keep keyboard movement available while panels are
         // merely open, but reserve keyboard input for egui while a text/numeric edit has focus.
@@ -1380,15 +1386,7 @@ impl App {
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
-                if self.terrain_edit_pointer_available()
-                    && self.is_terrain_edit_radius_tool_selected()
-                {
-                    let scroll_lines = match delta {
-                        MouseScrollDelta::LineDelta(_, y) => y,
-                        MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 120.0,
-                    };
-                    self.adjust_terrain_edit_radius(scroll_lines);
-                }
+                self.handle_mouse_wheel(delta);
             }
 
             // redraw the window

@@ -263,6 +263,14 @@ impl Camera {
         ) * frame_delta_time;
     }
 
+    pub fn move_forward_by_input_axis(&mut self, axis: f32, elapsed_seconds: f32) {
+        if axis.abs() <= f32::EPSILON || elapsed_seconds <= 0.0 {
+            return;
+        }
+
+        self.position += self.vectors.front * self.normal_speed * axis * elapsed_seconds;
+    }
+
     /// Limits the yaw to prevent the camera from spinning indefinitely.
     fn limit_yaw(&mut self) {
         if self.yaw > std::f32::consts::PI {
