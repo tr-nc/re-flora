@@ -108,15 +108,12 @@ impl App {
     }
 
     fn update_orbit_camera(&mut self, frame_delta_time: f32) {
-        let (mut azimuth, mut elevation, mut distance) = self.orbit_camera_spherical();
+        let (mut azimuth, mut elevation, distance) = self.orbit_camera_spherical();
         azimuth += self.orbit_camera_input.orbit_axis()
             * super::ORBIT_CAMERA_ANGULAR_SPEED
             * frame_delta_time;
         elevation += self.orbit_camera_input.elevation_axis()
             * super::ORBIT_CAMERA_ANGULAR_SPEED
-            * frame_delta_time;
-        distance -= self.orbit_camera_input.dolly_axis()
-            * super::ORBIT_CAMERA_DOLLY_SPEED
             * frame_delta_time;
 
         self.apply_orbit_camera_spherical(azimuth, elevation, distance);
