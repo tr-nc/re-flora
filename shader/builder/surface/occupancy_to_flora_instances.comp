@@ -2,9 +2,9 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-#include "../../include/core/gradient_noise.glsl"
-#include "../../include/core/hash.glsl"
 #include "../../include/flora_registry.glsl"
+#include "../../include/flora_occupancy.glsl"
+#include "../../include/flora_placement.glsl"
 
 #define GROUP_SIZE 8
 layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROUP_SIZE) in;
@@ -44,12 +44,6 @@ void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal,
     o_normal          = unpack_normal_v2(normal_bits);
 }
 
-float hash(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * .1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
 void add_flora_instance(ivec3 stem_world_pos, ivec3 base_world_pos, uint species_idx,
                         uint growth_progress) {
     uint write_idx = atomicAdd(occupancy_to_instances_result.flora_instance_len[species_idx], 1u);
@@ -63,27 +57,6 @@ void add_flora_instance(ivec3 stem_world_pos, ivec3 base_world_pos, uint species
     }
 }
 
-void calculate_density_placement(ivec3 world_pos, out bool o_allow_any_flora,
-                                 out bool o_allow_tall_grass,
-                                 out bool o_allow_short_grass) {
-    float rng_any_flora  = hash(vec2(world_pos.x, world_pos.z));
-    float rng_tall_grass = hash(vec2(world_pos.x + 17.0, world_pos.z - 29.0));
-    float rng_short_grass = hash(vec2(world_pos.x - 53.0, world_pos.z + 91.0));
-
-    float density_noise = cnoise_seeded(vec2(float(world_pos.x), float(world_pos.z)) * 5.0, 42u);
-
-    float placement_threshold = (density_noise + 1.0) * 0.5;
-    placement_threshold       = clamp(0.08 + placement_threshold * 0.22, 0.0, 1.0);
-
-    float grass_placement_threshold = clamp(placement_threshold * 2.25, 0.0, 1.0);
-    float tall_grass_threshold      = clamp(grass_placement_threshold * 0.30, 0.0, 1.0);
-    float short_grass_threshold     = clamp(grass_placement_threshold * 0.8, 0.0, 1.0);
-
-    o_allow_any_flora   = rng_any_flora < placement_threshold;
-    o_allow_tall_grass  = rng_tall_grass < tall_grass_threshold;
-    o_allow_short_grass = rng_short_grass < short_grass_threshold;
-}
-
 bool is_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }
 
 bool check_surface_plantability(uint voxel_type, vec3 normal, bool is_normal_valid,
@@ -95,34 +68,29 @@ bool check_surface_plantability(uint voxel_type, vec3 normal, bool is_normal_val
     vec3 up                = vec3(0.0, 1.0, 0.0);
     float surface_flatness = dot(normal, up);
     float spawn_chance     = smoothstep(0.5, 1.0, surface_flatness);
-    float rng_stiffness    = hash(vec2(world_pos.x + 123.0, world_pos.z + 456.0));
+    float rng_stiffness    = flora_legacy_hash(vec2(world_pos.x + 123.0, world_pos.z + 456.0));
 
     return rng_stiffness <= spawn_chance;
 }
 
 bool select_flora_biome(ivec3 world_pos, out uint o_flora_type) {
-    float biome_val = cnoise_seeded(vec2(float(world_pos.x), float(world_pos.z)) * 0.02, 1337u);
-
-    float species_rng = hash(vec2(world_pos.x + 42.0, world_pos.z - 15.0));
-
-    const float lavender_sparsity        = 0.10;
-    const float ember_bloom_sparsity     = 0.01;
-    const float grass_decreased_sparsity = 0.45;
+    float biome_val   = cnoise_seeded(vec2(float(world_pos.x), float(world_pos.z)) * 0.02, 1337u);
+    float species_rng = flora_sparse_species_rng(world_pos);
 
     o_flora_type = FLORA_SPECIES_TALL_GRASS;
 
     if (biome_val > 0.3) {
-        if (species_rng < lavender_sparsity) {
+        if (species_rng < FLORA_LAVENDER_SPARSE_THRESHOLD) {
             o_flora_type = FLORA_SPECIES_LAVENDER;
-        } else if (species_rng < grass_decreased_sparsity) {
+        } else if (species_rng < FLORA_GRASS_DECREASED_SPARSE_THRESHOLD) {
             o_flora_type = FLORA_SPECIES_TALL_GRASS;
         } else {
             return false;
         }
     } else if (biome_val < -0.3) {
-        if (species_rng < ember_bloom_sparsity) {
+        if (species_rng < FLORA_EMBER_BLOOM_SPARSE_THRESHOLD) {
             o_flora_type = FLORA_SPECIES_EMBER_BLOOM;
-        } else if (species_rng < grass_decreased_sparsity) {
+        } else if (species_rng < FLORA_GRASS_DECREASED_SPARSE_THRESHOLD) {
             o_flora_type = FLORA_SPECIES_TALL_GRASS;
         } else {
             return false;
@@ -181,6 +149,42 @@ bool select_flora_type(ivec3 world_base_pos, bool allow_any_flora, bool allow_ta
     return false;
 }
 
+bool select_grass_mix_type(bool allow_any_flora, bool allow_tall_grass,
+                           bool allow_short_grass, out uint o_flora_type) {
+    if (allow_any_flora || allow_tall_grass) {
+        o_flora_type = FLORA_SPECIES_TALL_GRASS;
+        return true;
+    }
+
+    if (allow_short_grass) {
+        o_flora_type = FLORA_SPECIES_SHORT_GRASS;
+        return true;
+    }
+
+    return false;
+}
+
+bool select_painted_flora_type(uint paint_selection, ivec3 world_base_pos, bool allow_any_flora,
+                               bool allow_tall_grass, bool allow_short_grass,
+                               out uint o_flora_type) {
+    if (paint_selection == FLORA_OCCUPANCY_SELECTION_NATURAL) {
+        return select_flora_type(world_base_pos, allow_any_flora, allow_tall_grass,
+                                 allow_short_grass, o_flora_type);
+    }
+
+    if (paint_selection == FLORA_OCCUPANCY_SELECTION_GRASS_MIX) {
+        return select_grass_mix_type(allow_any_flora, allow_tall_grass, allow_short_grass,
+                                     o_flora_type);
+    }
+
+    if (paint_selection < FLORA_SPECIES_COUNT) {
+        o_flora_type = paint_selection;
+        return true;
+    }
+
+    return false;
+}
+
 void main() {
     ivec3 stem_local = ivec3(gl_GlobalInvocationID.xyz);
     if (any(greaterThanEqual(stem_local, ivec3(occupancy_to_instances_info.chunk_dim)))) {
@@ -195,7 +199,8 @@ void main() {
     if (occupancy_value == 0u) {
         return;
     }
-    uint growth_progress = occupancy_value - 1u;
+    uint growth_progress = unpack_flora_occupancy_growth(occupancy_value);
+    uint paint_selection = unpack_flora_occupancy_selection(occupancy_value);
 
     ivec3 base_local  = stem_local + ivec3(0, -1, 0);
     uint surface_data = imageLoad(surface, base_local).r;
@@ -212,10 +217,15 @@ void main() {
     ivec3 world_stem_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + stem_local;
 
     bool allow_any_flora, allow_tall_grass, allow_short_grass;
-    calculate_density_placement(world_base_pos, allow_any_flora, allow_tall_grass,
-                                allow_short_grass);
+    calculate_flora_density_placement(world_base_pos, allow_any_flora, allow_tall_grass,
+                                      allow_short_grass);
 
-    if (!(allow_any_flora || allow_tall_grass || allow_short_grass)) {
+    if (flora_paint_selection_uses_sparse_density(paint_selection)) {
+        if (!flora_sparse_paint_selection_allows_with_density(paint_selection, world_base_pos,
+                                                              allow_any_flora)) {
+            return;
+        }
+    } else if (!(allow_any_flora || allow_tall_grass || allow_short_grass)) {
         return;
     }
 
@@ -224,8 +234,8 @@ void main() {
     }
 
     uint flora_type;
-    if (!select_flora_type(world_base_pos, allow_any_flora, allow_tall_grass, allow_short_grass,
-                           flora_type)) {
+    if (!select_painted_flora_type(paint_selection, world_base_pos, allow_any_flora,
+                                   allow_tall_grass, allow_short_grass, flora_type)) {
         return;
     }
 

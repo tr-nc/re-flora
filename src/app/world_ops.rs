@@ -3,6 +3,7 @@ use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder,
     VOXEL_TYPE_CHERRY_WOOD,
 };
+use crate::flora::species::FloraPaintSelection;
 use crate::geom::UAabb3;
 use crate::util::BENCH;
 use anyhow::Result;
@@ -454,6 +455,7 @@ pub(crate) fn mesh_regenerate_flora_for_sphere_edit(
     voxel_dim_per_chunk: UVec3,
     bound: UAabb3,
     flora_edit: FloraSphereEdit,
+    paint_selection: FloraPaintSelection,
 ) -> Result<()> {
     let affected_chunk_indices =
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
@@ -472,6 +474,7 @@ pub(crate) fn mesh_regenerate_flora_for_sphere_edit(
             flora_edit.center,
             flora_edit.radius,
             flora_edit.tick,
+            paint_selection,
         )?;
     }
 
