@@ -1074,8 +1074,9 @@ impl App {
             );
             self.enqueue_deferred_flora_preserving_chunk_rebuilds(
                 &rebuild_chunk_ids,
-                world_ops::FloraSphereEdit {
-                    center: edit.center,
+                world_ops::FloraBrushEdit {
+                    start: edit.center,
+                    end: edit.center,
                     radius: edit.radius,
                     tick: self.flora_tick,
                 },
@@ -1133,8 +1134,9 @@ impl App {
             );
             self.enqueue_deferred_flora_preserving_chunk_rebuilds(
                 &rebuild_chunk_ids,
-                world_ops::FloraSphereEdit {
-                    center: edit.center,
+                world_ops::FloraBrushEdit {
+                    start: edit.center,
+                    end: edit.center,
                     radius: edit.radius,
                     tick: self.flora_tick,
                 },
@@ -1172,8 +1174,9 @@ impl App {
             world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
         self.enqueue_deferred_flora_preserving_chunk_rebuilds(
             &rebuild_chunk_ids,
-            world_ops::FloraSphereEdit {
-                center,
+            world_ops::FloraBrushEdit {
+                start: center,
+                end: center,
                 radius,
                 tick: self.flora_tick,
             },
@@ -1240,15 +1243,21 @@ impl App {
     }
 
     pub(super) fn apply_flora_trim(&mut self, edit: TerrainRemovalEdit) -> Result<()> {
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
+        let brush_edit = TerrainBrushEdit {
+            start: edit.center,
+            end: edit.center,
+            radius: edit.radius,
+        };
+        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(brush_edit) {
             let target_age = super::FLORA_TRIM_MAX_GROWTH_PROGRESS;
-            let growing_chunks = world_ops::mesh_trim_flora_for_sphere_edit(
+            let growing_chunks = world_ops::mesh_trim_flora_for_brush_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
                 compiled.rebuild_bound,
-                world_ops::FloraSphereEdit {
-                    center: edit.center,
-                    radius: edit.radius,
+                world_ops::FloraBrushEdit {
+                    start: brush_edit.start,
+                    end: brush_edit.end,
+                    radius: brush_edit.radius,
                     tick: self.flora_tick,
                 },
                 target_age,
@@ -1258,9 +1267,10 @@ impl App {
             }
         } else {
             log::info!(
-                "Flora trim compile skipped: center={:?}, radius={}",
-                edit.center,
-                edit.radius
+                "Flora trim compile skipped: start={:?}, end={:?}, radius={}",
+                brush_edit.start,
+                brush_edit.end,
+                brush_edit.radius
             );
         }
         Ok(())

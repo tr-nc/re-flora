@@ -379,7 +379,7 @@ impl SurfaceBuilder {
         let edit_occupancy_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
-            "shader/builder/surface/edit_occupancy_sphere.comp",
+            "shader/builder/surface/edit_occupancy_capsule.comp",
             "main",
         )
         .unwrap();
@@ -804,22 +804,6 @@ impl SurfaceBuilder {
         })
     }
 
-    pub fn edit_flora_instances(
-        &mut self,
-        chunk_id: UVec3,
-        edit_center: Vec3,
-        edit_radius: f32,
-        flora_tick: u32,
-    ) -> Result<()> {
-        self.edit_flora_instances_for_brush(
-            chunk_id,
-            edit_center,
-            edit_center,
-            edit_radius,
-            flora_tick,
-        )
-    }
-
     pub fn edit_flora_instances_for_brush(
         &mut self,
         chunk_id: UVec3,
@@ -865,24 +849,6 @@ impl SurfaceBuilder {
             paint_dab_serial,
             paint_brush,
             OccupancyEditMode::Add,
-        )
-    }
-
-    pub fn trim_flora_instances(
-        &mut self,
-        chunk_id: UVec3,
-        edit_center: Vec3,
-        edit_radius: f32,
-        flora_tick: u32,
-        target_age: u32,
-    ) -> Result<FloraRegenStats> {
-        self.trim_flora_instances_for_brush(
-            chunk_id,
-            edit_center,
-            edit_center,
-            edit_radius,
-            flora_tick,
-            target_age,
         )
     }
 
@@ -1299,7 +1265,7 @@ fn update_edit_occupancy_info(
     paint_brush: species::FloraPaintBrushSettings,
 ) -> Result<()> {
     edit_occupancy_info.fill_uniform(&EditOccupancyInfo {
-        edit_center_radius_vox: [
+        edit_segment_start_radius_vox: [
             edit_start_vox.x,
             edit_start_vox.y,
             edit_start_vox.z,

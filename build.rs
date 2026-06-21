@@ -702,7 +702,7 @@ const SHADER_FILES: &[(&str, shaderc::ShaderKind)] = &[
         shaderc::ShaderKind::Compute,
     ),
     (
-        "shader/builder/surface/edit_occupancy_sphere.comp",
+        "shader/builder/surface/edit_occupancy_capsule.comp",
         shaderc::ShaderKind::Compute,
     ),
     (

@@ -11,13 +11,6 @@ use glam::{UVec3, Vec3};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct FloraSphereEdit {
-    pub(crate) center: Vec3,
-    pub(crate) radius: f32,
-    pub(crate) tick: u32,
-}
-
-#[derive(Clone, Copy, Debug)]
 pub(crate) struct FloraBrushEdit {
     pub(crate) start: Vec3,
     pub(crate) end: Vec3,
@@ -368,26 +361,26 @@ pub(crate) fn mesh_generate_chunks(
 }
 
 #[allow(dead_code)]
-pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
+pub(crate) fn mesh_generate_preserve_flora_for_brush_edit(
     surface_builder: &mut SurfaceBuilder,
     contree_builder: &mut ContreeBuilder,
     scene_accel_builder: &mut SceneAccelBuilder,
     voxel_dim_per_chunk: UVec3,
     bound: UAabb3,
-    flora_edit: FloraSphereEdit,
+    flora_edit: FloraBrushEdit,
 ) -> Result<()> {
     let affected_chunk_indices =
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
     if affected_chunk_indices.len() > 1 {
         log::debug!(
-            "[QUEUE][DIRECT_MULTI_REBUILD] preserve-flora sphere edit rebuilding {} chunks synchronously: {:?}",
+            "[QUEUE][DIRECT_MULTI_REBUILD] preserve-flora brush edit rebuilding {} chunks synchronously: {:?}",
             affected_chunk_indices.len(),
             affected_chunk_indices,
         );
     }
 
     for chunk_id in affected_chunk_indices {
-        mesh_generate_chunk_preserve_flora_for_sphere_edit(
+        mesh_generate_chunk_preserve_flora_for_brush_edit(
             surface_builder,
             contree_builder,
             scene_accel_builder,
@@ -401,13 +394,13 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
 }
 
 #[allow(dead_code)]
-pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
+pub(crate) fn mesh_generate_chunk_preserve_flora_for_brush_edit(
     surface_builder: &mut SurfaceBuilder,
     contree_builder: &mut ContreeBuilder,
     scene_accel_builder: &mut SceneAccelBuilder,
     voxel_dim_per_chunk: UVec3,
     chunk_id: UVec3,
-    flora_edit: FloraSphereEdit,
+    flora_edit: FloraBrushEdit,
 ) -> Result<()> {
     let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
@@ -425,9 +418,10 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
         .unwrap()
         .record("build_surface", surface_elapsed);
 
-    surface_builder.edit_flora_instances(
+    surface_builder.edit_flora_instances_for_brush(
         chunk_id,
-        flora_edit.center,
+        flora_edit.start,
+        flora_edit.end,
         flora_edit.radius,
         flora_edit.tick,
     )?;
@@ -524,11 +518,11 @@ pub(crate) fn mesh_remove_flora_for_brush_edit(
     Ok(())
 }
 
-pub(crate) fn mesh_trim_flora_for_sphere_edit(
+pub(crate) fn mesh_trim_flora_for_brush_edit(
     surface_builder: &mut SurfaceBuilder,
     voxel_dim_per_chunk: UVec3,
     bound: UAabb3,
-    flora_edit: FloraSphereEdit,
+    flora_edit: FloraBrushEdit,
     target_age: u32,
 ) -> Result<Vec<UVec3>> {
     let affected_chunk_indices =
@@ -544,9 +538,10 @@ pub(crate) fn mesh_trim_flora_for_sphere_edit(
         }
         BENCH.lock().unwrap().record("build_surface", now.elapsed());
 
-        let regen_stats = surface_builder.trim_flora_instances(
+        let regen_stats = surface_builder.trim_flora_instances_for_brush(
             chunk_id,
-            flora_edit.center,
+            flora_edit.start,
+            flora_edit.end,
             flora_edit.radius,
             flora_edit.tick,
             target_age,

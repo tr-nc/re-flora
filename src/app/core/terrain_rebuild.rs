@@ -5,7 +5,7 @@ use super::*;
 pub(super) enum ChunkRebuildRequest {
     #[default]
     Normal,
-    PreserveFlora(world_ops::FloraSphereEdit),
+    PreserveFlora(world_ops::FloraBrushEdit),
 }
 
 pub(super) struct TerrainChunkRebuildInFlight {
@@ -13,7 +13,7 @@ pub(super) struct TerrainChunkRebuildInFlight {
     revision: u64,
     started_at: Instant,
     main_thread_ms: f64,
-    flora_edit: Option<world_ops::FloraSphereEdit>,
+    flora_edit: Option<world_ops::FloraBrushEdit>,
     stage: TerrainChunkRebuildStage,
 }
 
@@ -50,7 +50,7 @@ impl App {
     pub(super) fn enqueue_deferred_flora_preserving_chunk_rebuilds(
         &mut self,
         chunk_ids: &[UVec3],
-        flora_edit: world_ops::FloraSphereEdit,
+        flora_edit: world_ops::FloraBrushEdit,
     ) {
         if chunk_ids.is_empty() {
             return;
@@ -117,7 +117,7 @@ impl App {
     fn rebuild_visible_flora_preserving_chunk_batch_synchronously(
         &mut self,
         chunk_ids: &[UVec3],
-        flora_edit: world_ops::FloraSphereEdit,
+        flora_edit: world_ops::FloraBrushEdit,
     ) {
         let sync_start = Instant::now();
         if !self.prepare_visible_sync_rebuild(chunk_ids) {
@@ -130,7 +130,7 @@ impl App {
         let mut rebuilt = 0usize;
         let mut failed = false;
         for &chunk_id in chunk_ids {
-            match world_ops::mesh_generate_chunk_preserve_flora_for_sphere_edit(
+            match world_ops::mesh_generate_chunk_preserve_flora_for_brush_edit(
                 &mut self.surface_builder,
                 &mut self.contree_builder,
                 &mut self.scene_accel_builder,
@@ -250,7 +250,7 @@ impl App {
         chunk_id: UVec3,
         revision: u64,
         place_flora: bool,
-        flora_edit: Option<world_ops::FloraSphereEdit>,
+        flora_edit: Option<world_ops::FloraBrushEdit>,
     ) {
         let submit_start = Instant::now();
         match self
@@ -410,9 +410,10 @@ impl App {
                 let mut preserve_flora_ms = 0.0;
                 if let Some(flora_edit) = inflight.flora_edit {
                     let flora_start = Instant::now();
-                    match self.surface_builder.edit_flora_instances(
+                    match self.surface_builder.edit_flora_instances_for_brush(
                         inflight.chunk_id,
-                        flora_edit.center,
+                        flora_edit.start,
+                        flora_edit.end,
                         flora_edit.radius,
                         flora_edit.tick,
                     ) {
