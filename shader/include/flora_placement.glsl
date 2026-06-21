@@ -59,26 +59,47 @@ bool flora_sparse_species_mask_allows(uint species_idx, ivec3 world_pos) {
     return true;
 }
 
+// Paint placement uses a stratified mask rather than the natural random density
+// noise. Sparse flowers still land on deterministic world-space seeds, but every
+// screen-sized brush area gets a more even spread of candidate points.
+const uint FLORA_LAVENDER_PAINT_SPARSE_CELL_SIZE    = 5u;
+const uint FLORA_EMBER_BLOOM_PAINT_SPARSE_CELL_SIZE = 10u;
+
+bool flora_stratified_sparse_paint_mask_allows(uint cell_size, vec2 seed_offset,
+                                               ivec3 world_pos) {
+    uint safe_cell_size = max(cell_size, 1u);
+    int cell_size_i     = int(safe_cell_size);
+    ivec2 world_xz      = ivec2(world_pos.x, world_pos.z);
+    ivec2 cell = ivec2(floor(vec2(float(world_xz.x), float(world_xz.y)) / float(cell_size_i)));
+    ivec2 local = world_xz - cell * cell_size_i;
+
+    vec2 cell_seed = vec2(float(cell.x), float(cell.y)) + seed_offset;
+    uint anchor_x = min(uint(floor(flora_legacy_hash(cell_seed) * float(safe_cell_size))),
+                        safe_cell_size - 1u);
+    uint anchor_z = min(uint(floor(flora_legacy_hash(cell_seed + vec2(37.0, 71.0)) *
+                                   float(safe_cell_size))),
+                        safe_cell_size - 1u);
+
+    return uint(local.x) == anchor_x && uint(local.y) == anchor_z;
+}
+
 bool flora_paint_selection_uses_sparse_density(uint paint_selection) {
     return paint_selection < FLORA_SPECIES_COUNT &&
            flora_species_uses_sparse_paint_density(paint_selection);
 }
 
-bool flora_sparse_paint_selection_allows_with_density(uint paint_selection, ivec3 world_pos,
-                                                      bool allow_any_flora) {
-    if (!flora_paint_selection_uses_sparse_density(paint_selection)) {
-        return true;
+bool flora_sparse_paint_selection_allows(uint paint_selection, ivec3 world_pos) {
+    if (paint_selection == FLORA_SPECIES_LAVENDER) {
+        return flora_stratified_sparse_paint_mask_allows(
+            FLORA_LAVENDER_PAINT_SPARSE_CELL_SIZE, vec2(42.0, -15.0), world_pos);
     }
 
-    return allow_any_flora && flora_sparse_species_mask_allows(paint_selection, world_pos);
-}
+    if (paint_selection == FLORA_SPECIES_EMBER_BLOOM) {
+        return flora_stratified_sparse_paint_mask_allows(
+            FLORA_EMBER_BLOOM_PAINT_SPARSE_CELL_SIZE, vec2(-53.0, 91.0), world_pos);
+    }
 
-bool flora_sparse_paint_selection_allows(uint paint_selection, ivec3 world_pos) {
-    bool allow_any_flora, allow_tall_grass, allow_short_grass;
-    calculate_flora_density_placement(world_pos, allow_any_flora, allow_tall_grass,
-                                      allow_short_grass);
-    return flora_sparse_paint_selection_allows_with_density(paint_selection, world_pos,
-                                                            allow_any_flora);
+    return true;
 }
 
 #endif // FLORA_PLACEMENT_GLSL

@@ -221,8 +221,7 @@ void main() {
                                       allow_short_grass);
 
     if (flora_paint_selection_uses_sparse_density(paint_selection)) {
-        if (!flora_sparse_paint_selection_allows_with_density(paint_selection, world_base_pos,
-                                                              allow_any_flora)) {
+        if (!flora_sparse_paint_selection_allows(paint_selection, world_base_pos)) {
             return;
         }
     } else if (!(allow_any_flora || allow_tall_grass || allow_short_grass)) {
