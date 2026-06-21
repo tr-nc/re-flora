@@ -20,6 +20,27 @@ fn scroll_delta_lines(delta: MouseScrollDelta) -> f32 {
     }
 }
 
+fn orbit_offset_to_spherical(mut offset: Vec3) -> (f32, f32, f32) {
+    if !offset.is_finite() || offset.length_squared() <= f32::EPSILON {
+        offset = Vec3::Z * super::ORBIT_CAMERA_MIN_DISTANCE;
+    }
+
+    let distance = offset.length().clamp(
+        super::ORBIT_CAMERA_MIN_DISTANCE,
+        super::ORBIT_CAMERA_MAX_DISTANCE,
+    );
+    let mut elevation = (offset.y / distance).asin().clamp(
+        -super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
+        super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
+    );
+    if !elevation.is_finite() {
+        elevation = 0.0;
+    }
+    let azimuth = offset.x.atan2(offset.z);
+
+    (azimuth, elevation, distance)
+}
+
 impl App {
     fn blocking_panel_open(&self) -> bool {
         self.config_panel_visible
@@ -99,25 +120,7 @@ impl App {
     }
 
     fn orbit_camera_spherical(&self) -> (f32, f32, f32) {
-        let mut offset = self.tracer.camera_position() - super::ORBIT_CAMERA_FOCUS;
-        if offset.length_squared() <= super::ORBIT_CAMERA_MIN_DISTANCE.powi(2) {
-            offset = Vec3::Z * super::ORBIT_CAMERA_MIN_DISTANCE;
-        }
-
-        let distance = offset.length().clamp(
-            super::ORBIT_CAMERA_MIN_DISTANCE,
-            super::ORBIT_CAMERA_MAX_DISTANCE,
-        );
-        let mut elevation = (offset.y / distance).asin().clamp(
-            -super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
-            super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
-        );
-        if !elevation.is_finite() {
-            elevation = 0.0;
-        }
-        let azimuth = offset.x.atan2(offset.z);
-
-        (azimuth, elevation, distance)
+        orbit_offset_to_spherical(self.tracer.camera_position() - super::ORBIT_CAMERA_FOCUS)
     }
 
     fn apply_orbit_camera_spherical(&mut self, azimuth: f32, elevation: f32, distance: f32) {
@@ -886,5 +889,28 @@ impl App {
                 self.accumulated_mouse_delta += Vec2::new(delta.0 as f32, delta.1 as f32);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::orbit_offset_to_spherical;
+    use glam::Vec3;
+
+    fn assert_near(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() <= 0.0001,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn orbit_spherical_preserves_angles_at_minimum_distance() {
+        let min_distance = super::super::ORBIT_CAMERA_MIN_DISTANCE;
+        let (azimuth, elevation, distance) = orbit_offset_to_spherical(Vec3::X * min_distance);
+
+        assert_near(azimuth, std::f32::consts::FRAC_PI_2);
+        assert_near(elevation, 0.0);
+        assert_near(distance, min_distance);
     }
 }
