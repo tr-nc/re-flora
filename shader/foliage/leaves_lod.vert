@@ -82,6 +82,8 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "../include/vsm.glsl"
 #include "../include/leaf_shadow.glsl"
 #include "../include/cloud_shadow.glsl"
+#define TERRAIN_EDIT_PREVIEW_BINDING 12
+#include "../include/terrain_edit_preview.glsl"
 #include "../include/wind_volume.glsl"
 #include "./billboard.glsl"
 #include "./color_variation.glsl"
@@ -131,5 +133,8 @@ void main() {
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);
     vec3 sun_light = sun_info.sun_color * sun_luminance;
-    vert_color = base_color_linear * (sun_light * shadow_weight + shading_info.ambient_light);
+    vec3 lit_color = base_color_linear * (sun_light * shadow_weight + shading_info.ambient_light);
+    // The edit brush is a UI affordance, not foliage material. Match the terrain tracer by
+    // applying the tint after lighting so rasterized voxels highlight consistently.
+    vert_color = apply_terrain_edit_preview_tint(lit_color, voxel_pos);
 }
