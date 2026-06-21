@@ -3,6 +3,8 @@
 This roadmap captures planned improvements for gameplay, visuals, and performance.
 Items are ordered by priority and intended implementation sequence.
 
+The canonical product direction lives in [docs/game_direction.md](./docs/game_direction.md). Keep this roadmap as an implementation plan that follows that direction rather than a second source of truth.
+
 ## Guiding Goals
 
 Goals matter - even for a small cozy game that could keep evolving forever. They help guide decisions, keep development focused, and make it easier to measure progress.

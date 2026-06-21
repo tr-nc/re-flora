@@ -54,6 +54,7 @@ Most values can be tuned live from the config panel. Runtime defaults are stored
 - [Camera snapshots](./docs/camera_snapshots.md)
 - [Packaging paid builds](./docs/packaging.md)
 - [Technical references](./docs/references.md)
+- [Game direction](./docs/game_direction.md)
 - [Inspirations and art direction](./docs/inspirations.md)
 - [Roadmap](./ROADMAP.md)
 - [Contributing](./CONTRIBUTING.md)

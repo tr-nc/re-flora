@@ -1,5 +1,7 @@
 # Steam Direction
 
+The canonical global game direction lives in [Game Direction](./game_direction.md). This document is a Steam/storefront positioning companion and should not redefine the game's core identity.
+
 This project should stay author-led: it should follow the creator's taste, curiosity, and constraints before trying to satisfy every player request. The goal is not to build a generic feature checklist. The goal is to make a small, coherent, memorable work that strangers can understand, want to wishlist, and want to spend time inside.
 
 ## Core Positioning
@@ -30,7 +32,7 @@ Do not automatically follow requests like:
 - Add multiplayer.
 - Add a full survival loop.
 - Add equipment progression.
-- Add trading or shop systems.
+- Add generic trading or shop systems unrelated to plant care.
 - Add generic quest, inventory, or crafting complexity.
 
 Those features may be valid in other games, but they can dilute this project's strongest identity.
