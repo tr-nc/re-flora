@@ -15,6 +15,7 @@ instances_to_occupancy_info;
 layout(set = 0, binding = 1, r32ui) uniform uimage3D occupancy_data;
 
 #include "../../include/flora_registry.glsl"
+#include "../../include/flora_occupancy.glsl"
 #include "../../include/instance.glsl"
 
 layout(set = 1, binding = 0) readonly buffer B_ManualFloraInstances { Instance data[]; }
@@ -38,8 +39,9 @@ void mark_stem_occupied(uint species_idx, uint idx, uint instance_len) {
     }
 
     uvec3 stem_local = stem_world - instances_to_occupancy_info.chunk_world_offset;
-    imageStore(occupancy_data, ivec3(stem_local),
-               uvec4(unpack_instance_growth_progress(instance.packed_local_pos) + 1u, 0u, 0u, 0u));
+    uint occupancy_value = pack_flora_occupancy(
+        species_idx, unpack_instance_growth_progress(instance.packed_local_pos));
+    imageStore(occupancy_data, ivec3(stem_local), uvec4(occupancy_value, 0u, 0u, 0u));
 }
 
 void main() {

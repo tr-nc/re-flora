@@ -817,6 +817,7 @@ impl SurfaceBuilder {
             edit_radius,
             flora_tick,
             0,
+            species::FloraPaintSelection::GrassMix,
             OccupancyEditMode::Remove,
         )?;
         Ok(())
@@ -828,6 +829,7 @@ impl SurfaceBuilder {
         edit_center: Vec3,
         edit_radius: f32,
         flora_tick: u32,
+        paint_selection: species::FloraPaintSelection,
     ) -> Result<FloraRegenStats> {
         self.run_occupancy_edit(
             chunk_id,
@@ -835,6 +837,7 @@ impl SurfaceBuilder {
             edit_radius,
             flora_tick,
             0,
+            paint_selection,
             OccupancyEditMode::Add,
         )
     }
@@ -853,6 +856,7 @@ impl SurfaceBuilder {
             edit_radius,
             flora_tick,
             target_age,
+            species::FloraPaintSelection::GrassMix,
             OccupancyEditMode::Trim,
         )
     }
@@ -864,6 +868,7 @@ impl SurfaceBuilder {
         edit_radius: f32,
         flora_tick: u32,
         target_age: u32,
+        paint_selection: species::FloraPaintSelection,
         mode: OccupancyEditMode,
     ) -> Result<FloraRegenStats> {
         if !self.chunk_bound.in_bound(chunk_id) {
@@ -913,6 +918,7 @@ impl SurfaceBuilder {
             mode,
             flora_tick,
             target_age,
+            paint_selection,
         )?;
         update_occupancy_to_instances_info(
             &self.resources.occupancy_to_instances_info,
@@ -1232,6 +1238,7 @@ fn update_edit_occupancy_info(
     mode: OccupancyEditMode,
     flora_tick: u32,
     target_age: u32,
+    paint_selection: species::FloraPaintSelection,
 ) -> Result<()> {
     edit_occupancy_info.fill_uniform(&EditOccupancyInfo {
         edit_center_radius_vox: [
@@ -1245,6 +1252,7 @@ fn update_edit_occupancy_info(
         mode: mode as u32,
         flora_tick,
         target_age,
+        paint_selection: paint_selection.shader_selection(),
         ..EditOccupancyInfo::zeroed()
     })
 }

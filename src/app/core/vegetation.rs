@@ -1127,6 +1127,7 @@ impl App {
         edit: TerrainRemovalEdit,
     ) -> Result<()> {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
+            let paint_selection = self.current_flora_paint_selection();
             world_ops::mesh_regenerate_flora_for_sphere_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
@@ -1136,6 +1137,7 @@ impl App {
                     radius: edit.radius,
                     tick: self.flora_tick.wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
                 },
+                paint_selection,
             )?;
         } else {
             log::info!(

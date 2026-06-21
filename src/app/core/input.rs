@@ -6,6 +6,7 @@ use super::ui_style::{
 use super::App;
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::builder::ChunkModifyStats;
+use crate::flora::species;
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
 use std::time::Instant;
@@ -170,6 +171,27 @@ impl App {
             self.player_tools.selected_item_panel_slot = slot_idx;
             self.play_item_panel_scroll_sound();
         }
+    }
+
+    pub(super) fn current_flora_paint_selection(&self) -> species::FloraPaintSelection {
+        let selections = species::PLAYER_FLORA_PAINT_SELECTIONS;
+        let selection_idx = self.player_tools.flora_paint_selection_index % selections.len();
+        selections[selection_idx]
+    }
+
+    pub(super) fn current_flora_paint_selection_label(&self) -> &'static str {
+        species::flora_paint_selection_label(self.current_flora_paint_selection())
+    }
+
+    pub(super) fn cycle_flora_paint_selection(&mut self) {
+        let selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
+        self.player_tools.flora_paint_selection_index =
+            (self.player_tools.flora_paint_selection_index + 1) % selection_count;
+        self.play_item_panel_scroll_sound();
+        log::info!(
+            "Grow brush flora selection: {}",
+            self.current_flora_paint_selection_label()
+        );
     }
 
     pub(super) fn is_shovel_selected(&self) -> bool {

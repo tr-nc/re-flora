@@ -3,6 +3,7 @@ use crate::tracer::Vertex;
 use anyhow::Result;
 
 pub const MAX_FLORA_SPECIES: usize = 4;
+pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
 
 pub type MeshGeneratorFn = fn(bool) -> Result<(Vec<Vertex>, Vec<u32>)>;
 
@@ -71,6 +72,47 @@ pub fn species() -> &'static [FloraSpeciesDesc] {
 
 pub fn species_count() -> usize {
     FLORA_SPECIES.len()
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FloraPaintSelection {
+    GrassMix,
+    Species(u32),
+}
+
+impl FloraPaintSelection {
+    pub fn shader_selection(self) -> u32 {
+        match self {
+            Self::GrassMix => FLORA_OCCUPANCY_SELECTION_GRASS_MIX,
+            Self::Species(species_idx) => {
+                debug_assert!(
+                    (species_idx as usize) < species_count(),
+                    "flora paint species index {} exceeds species count {}",
+                    species_idx,
+                    species_count()
+                );
+                species_idx
+            }
+        }
+    }
+}
+
+pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
+    FloraPaintSelection::GrassMix,
+    FloraPaintSelection::Species(0),
+    FloraPaintSelection::Species(1),
+    FloraPaintSelection::Species(2),
+    FloraPaintSelection::Species(3),
+];
+
+pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static str {
+    match selection {
+        FloraPaintSelection::GrassMix => "Grass Mix",
+        FloraPaintSelection::Species(species_idx) => species()
+            .get(species_idx as usize)
+            .map(|species| species.display_name)
+            .unwrap_or("Unknown Flora"),
+    }
 }
 
 pub fn assert_species_limit() {

@@ -1319,6 +1319,11 @@ impl App {
 
                 if self.keyboard_tool_shortcuts_available() && event.state == ElementState::Pressed
                 {
+                    if event.physical_key == KeyCode::KeyC {
+                        self.cycle_flora_paint_selection();
+                        return;
+                    }
+
                     let target_slot = match event.physical_key {
                         PhysicalKey::Code(KeyCode::Digit1) => Some(0),
                         PhysicalKey::Code(KeyCode::Digit2) => Some(1),
@@ -1506,9 +1511,14 @@ impl App {
                         selected: false,
                     })
                     .collect();
-                let status_bar_text = self
+                let water_status_text = self
                     .water_sim
                     .status_text(self.water_particle_handoff_main_thread_ms);
+                let status_bar_text = format!(
+                    "{}\nGrow brush: {} (C to cycle)",
+                    water_status_text,
+                    self.current_flora_paint_selection_label()
+                );
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;

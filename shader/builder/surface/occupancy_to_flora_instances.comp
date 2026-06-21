@@ -5,6 +5,7 @@
 #include "../../include/core/gradient_noise.glsl"
 #include "../../include/core/hash.glsl"
 #include "../../include/flora_registry.glsl"
+#include "../../include/flora_occupancy.glsl"
 
 #define GROUP_SIZE 8
 layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROUP_SIZE) in;
@@ -181,6 +182,42 @@ bool select_flora_type(ivec3 world_base_pos, bool allow_any_flora, bool allow_ta
     return false;
 }
 
+bool select_grass_mix_type(bool allow_any_flora, bool allow_tall_grass,
+                           bool allow_short_grass, out uint o_flora_type) {
+    if (allow_any_flora || allow_tall_grass) {
+        o_flora_type = FLORA_SPECIES_TALL_GRASS;
+        return true;
+    }
+
+    if (allow_short_grass) {
+        o_flora_type = FLORA_SPECIES_SHORT_GRASS;
+        return true;
+    }
+
+    return false;
+}
+
+bool select_painted_flora_type(uint paint_selection, ivec3 world_base_pos, bool allow_any_flora,
+                               bool allow_tall_grass, bool allow_short_grass,
+                               out uint o_flora_type) {
+    if (paint_selection == FLORA_OCCUPANCY_SELECTION_NATURAL) {
+        return select_flora_type(world_base_pos, allow_any_flora, allow_tall_grass,
+                                 allow_short_grass, o_flora_type);
+    }
+
+    if (paint_selection == FLORA_OCCUPANCY_SELECTION_GRASS_MIX) {
+        return select_grass_mix_type(allow_any_flora, allow_tall_grass, allow_short_grass,
+                                     o_flora_type);
+    }
+
+    if (paint_selection < FLORA_SPECIES_COUNT) {
+        o_flora_type = paint_selection;
+        return true;
+    }
+
+    return false;
+}
+
 void main() {
     ivec3 stem_local = ivec3(gl_GlobalInvocationID.xyz);
     if (any(greaterThanEqual(stem_local, ivec3(occupancy_to_instances_info.chunk_dim)))) {
@@ -195,7 +232,8 @@ void main() {
     if (occupancy_value == 0u) {
         return;
     }
-    uint growth_progress = occupancy_value - 1u;
+    uint growth_progress = unpack_flora_occupancy_growth(occupancy_value);
+    uint paint_selection = unpack_flora_occupancy_selection(occupancy_value);
 
     ivec3 base_local  = stem_local + ivec3(0, -1, 0);
     uint surface_data = imageLoad(surface, base_local).r;
@@ -224,8 +262,8 @@ void main() {
     }
 
     uint flora_type;
-    if (!select_flora_type(world_base_pos, allow_any_flora, allow_tall_grass, allow_short_grass,
-                           flora_type)) {
+    if (!select_painted_flora_type(paint_selection, world_base_pos, allow_any_flora,
+                                   allow_tall_grass, allow_short_grass, flora_type)) {
         return;
     }
 
