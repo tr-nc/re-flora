@@ -1270,9 +1270,10 @@ impl App {
         // Tab is a game shortcut in normal play, but egui also uses it for focus traversal.
         // Handle it before forwarding to egui so pressing Tab does not leave a focused UI widget
         // that captures later keyboard shortcuts until the player clicks the world again.
+        // Ignore keyboard-repeat presses so holding Tab changes the brush only once.
         if let WindowEvent::KeyboardInput { event, .. } = &event {
             if self.keyboard_tool_shortcuts_available() && event.physical_key == KeyCode::Tab {
-                if event.state == ElementState::Pressed {
+                if event.state == ElementState::Pressed && !event.repeat {
                     self.cycle_flora_paint_selection();
                 }
                 return;
