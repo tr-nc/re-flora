@@ -1,4 +1,4 @@
-use glam::Vec2;
+use glam::{Vec2, Vec3};
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -13,6 +13,8 @@ pub(super) struct PlayerToolState {
     pub(super) last_smooth_time: Option<Instant>,
     pub(super) last_staff_regen_time: Option<Instant>,
     pub(super) last_staff_remove_time: Option<Instant>,
+    pub(super) last_staff_regen_center: Option<Vec3>,
+    pub(super) last_staff_remove_center: Option<Vec3>,
     pub(super) flora_paint_selection_index: usize,
     pub(super) last_hoe_trim_time: Option<Instant>,
     pub(super) backpack_dirt_count: u32,
@@ -38,6 +40,8 @@ impl Default for PlayerToolState {
             last_smooth_time: None,
             last_staff_regen_time: None,
             last_staff_remove_time: None,
+            last_staff_regen_center: None,
+            last_staff_remove_center: None,
             flora_paint_selection_index: 0,
             last_hoe_trim_time: None,
             backpack_dirt_count: 0,

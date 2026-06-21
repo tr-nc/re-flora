@@ -1,7 +1,7 @@
 use super::App;
 use crate::app::world_edits::{
-    BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainRemovalEdit,
-    TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
+    BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
+    TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
 };
 use crate::app::world_ops;
 use crate::builder::{ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_OAK_WOOD};
@@ -151,6 +151,10 @@ struct CompiledTerrainSurfaceRemoval {
     rebuild_bound: UAabb3,
 }
 
+struct CompiledTerrainBrushSurfaceEdit {
+    rebuild_bound: UAabb3,
+}
+
 #[allow(dead_code)]
 struct FencePostPlacementService;
 
@@ -289,6 +293,60 @@ impl TerrainSurfaceRemovalService {
             },
             rebuild_bound,
         })
+    }
+
+    fn compile_surface_brush(edit: TerrainBrushEdit) -> Option<CompiledTerrainBrushSurfaceEdit> {
+        if edit.radius <= 0.0 {
+            return None;
+        }
+
+        let start_voxel = edit.start * 256.0;
+        let end_voxel = edit.end * 256.0;
+        let radius_voxel = edit.radius * 256.0;
+        let min_f = start_voxel.min(end_voxel) - Vec3::splat(radius_voxel);
+        let max_f = start_voxel.max(end_voxel) + Vec3::splat(radius_voxel);
+        let world_dim = super::VOXEL_DIM_PER_CHUNK * super::CHUNK_DIM;
+        let max_inclusive = world_dim - UVec3::ONE;
+        if max_f.x < 0.0
+            || max_f.y < 0.0
+            || max_f.z < 0.0
+            || min_f.x > max_inclusive.x as f32
+            || min_f.y > max_inclusive.y as f32
+            || min_f.z > max_inclusive.z as f32
+        {
+            return None;
+        }
+
+        let min = UVec3::new(
+            min_f.x.max(0.0).floor() as u32,
+            min_f.y.max(0.0).floor() as u32,
+            min_f.z.max(0.0).floor() as u32,
+        )
+        .min(world_dim);
+        let max_exclusive = UVec3::new(
+            max_f.x.max(0.0).ceil() as u32,
+            max_f.y.max(0.0).ceil() as u32,
+            max_f.z.max(0.0).ceil() as u32,
+        )
+        .min(world_dim);
+        if min.cmpge(max_exclusive).any() {
+            return None;
+        }
+
+        let clipped_aabb = crate::geom::Aabb3::new(min.as_vec3(), max_exclusive.as_vec3());
+        let bvh_nodes = build_bvh(&[clipped_aabb], &[0_u32]).ok()?;
+        let rebuild_max = UVec3::new(
+            max_exclusive.x.saturating_sub(1),
+            max_exclusive.y.saturating_sub(1),
+            max_exclusive.z.saturating_sub(1),
+        )
+        .min(max_inclusive);
+        let rebuild_bound = UAabb3::new(
+            bvh_nodes[0].aabb.min_uvec3().min(max_inclusive),
+            rebuild_max,
+        );
+
+        Some(CompiledTerrainBrushSurfaceEdit { rebuild_bound })
     }
 }
 
@@ -1125,19 +1183,20 @@ impl App {
 
     pub(super) fn apply_surface_flora_regeneration(
         &mut self,
-        edit: TerrainRemovalEdit,
+        edit: TerrainBrushEdit,
     ) -> Result<()> {
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
+        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
             let paint_selection = self.current_flora_paint_selection();
             let paint_brush = species::flora_paint_brush_settings(paint_selection);
             let paint_dab_serial = self.flora_paint_dab_serial;
             self.flora_paint_dab_serial = self.flora_paint_dab_serial.wrapping_add(1);
-            world_ops::mesh_regenerate_flora_for_sphere_edit(
+            world_ops::mesh_regenerate_flora_for_brush_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
                 compiled.rebuild_bound,
-                world_ops::FloraSphereEdit {
-                    center: edit.center,
+                world_ops::FloraBrushEdit {
+                    start: edit.start,
+                    end: edit.end,
                     radius: edit.radius,
                     tick: self.flora_tick.wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
                 },
@@ -1147,30 +1206,33 @@ impl App {
             )?;
         } else {
             log::info!(
-                "Flora regen compile skipped: center={:?}, radius={}",
-                edit.center,
+                "Flora regen compile skipped: start={:?}, end={:?}, radius={}",
+                edit.start,
+                edit.end,
                 edit.radius
             );
         }
         Ok(())
     }
 
-    pub(super) fn apply_surface_flora_removal(&mut self, edit: TerrainRemovalEdit) -> Result<()> {
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
-            world_ops::mesh_remove_flora_for_sphere_edit(
+    pub(super) fn apply_surface_flora_removal(&mut self, edit: TerrainBrushEdit) -> Result<()> {
+        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
+            world_ops::mesh_remove_flora_for_brush_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
                 compiled.rebuild_bound,
-                world_ops::FloraSphereEdit {
-                    center: edit.center,
+                world_ops::FloraBrushEdit {
+                    start: edit.start,
+                    end: edit.end,
                     radius: edit.radius,
                     tick: self.flora_tick,
                 },
             )?;
         } else {
             log::info!(
-                "Flora removal compile skipped: center={:?}, radius={}",
-                edit.center,
+                "Flora removal compile skipped: start={:?}, end={:?}, radius={}",
+                edit.start,
+                edit.end,
                 edit.radius
             );
         }
@@ -1416,6 +1478,27 @@ mod tests {
         assert_eq!(
             compiled.rebuild_bound.max().x,
             super::super::VOXEL_DIM_PER_CHUNK.x - 1
+        );
+    }
+
+    #[test]
+    fn terrain_brush_capsule_bound_covers_start_end_and_radius() {
+        let radius = super::super::TERRAIN_EDIT_DEFAULT_RADIUS;
+        let compiled = TerrainSurfaceRemovalService::compile_surface_brush(TerrainBrushEdit {
+            start: Vec3::new(0.25, 0.5, 0.25),
+            end: Vec3::new(0.75, 0.5, 0.75),
+            radius,
+        })
+        .expect("capsule edit should compile");
+
+        let radius_vox = (radius * 256.0).ceil() as u32;
+        assert!(compiled.rebuild_bound.min().x <= 64_u32.saturating_sub(radius_vox));
+        assert!(compiled.rebuild_bound.min().z <= 64_u32.saturating_sub(radius_vox));
+        assert!(
+            compiled.rebuild_bound.max().x >= 192_u32.saturating_add(radius_vox).saturating_sub(1)
+        );
+        assert!(
+            compiled.rebuild_bound.max().z >= 192_u32.saturating_add(radius_vox).saturating_sub(1)
         );
     }
 }

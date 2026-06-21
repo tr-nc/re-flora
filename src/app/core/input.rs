@@ -4,7 +4,7 @@ use super::ui_style::{
     WATER_TOOL_ACCENT,
 };
 use super::App;
-use crate::app::world_edits::TerrainRemovalEdit;
+use crate::app::world_edits::{TerrainBrushEdit, TerrainRemovalEdit};
 use crate::builder::ChunkModifyStats;
 use crate::flora::species;
 use crate::tracer::TerrainEditPreviewShape;
@@ -261,9 +261,11 @@ impl App {
     pub(super) fn set_tool_mouse_button_state(&mut self, button: MouseButton, state: ElementState) {
         if button == MouseButton::Left {
             self.player_tools.left_mouse_held = state == ElementState::Pressed;
+            self.player_tools.last_staff_regen_center = None;
         }
         if button == MouseButton::Right {
             self.player_tools.right_mouse_held = state == ElementState::Pressed;
+            self.player_tools.last_staff_remove_center = None;
         }
     }
 
@@ -272,7 +274,13 @@ impl App {
             self.player_tools.left_mouse_held || self.player_tools.right_mouse_held;
         if !self.player_tools.shovel_dig_held {
             self.stop_terrain_edit_loop_sound();
+            self.reset_staff_stroke_tracking();
         }
+    }
+
+    fn reset_staff_stroke_tracking(&mut self) {
+        self.player_tools.last_staff_regen_center = None;
+        self.player_tools.last_staff_remove_center = None;
     }
 
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
@@ -280,6 +288,7 @@ impl App {
             && slot_idx != self.player_tools.selected_item_panel_slot
         {
             self.player_tools.selected_item_panel_slot = slot_idx;
+            self.reset_staff_stroke_tracking();
             self.play_item_panel_scroll_sound();
         }
     }
@@ -306,6 +315,7 @@ impl App {
         self.player_tools.flora_paint_selection_index =
             (self.player_tools.flora_paint_selection_index + 1) % selection_count;
         self.player_tools.last_staff_regen_time = None;
+        self.player_tools.last_staff_regen_center = None;
         self.play_item_panel_scroll_sound();
         log::info!(
             "Grow brush flora selection: {}",
@@ -669,6 +679,7 @@ impl App {
     pub(super) fn try_staff_regenerate(&mut self, now: Instant) {
         if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
             self.stop_terrain_edit_loop_sound();
+            self.player_tools.last_staff_regen_center = None;
             return;
         }
 
@@ -682,20 +693,26 @@ impl App {
                     }
                 }
 
-                if let Err(err) = self.apply_surface_flora_regeneration(TerrainRemovalEdit {
-                    center,
+                let start = self.player_tools.last_staff_regen_center.unwrap_or(center);
+                if let Err(err) = self.apply_surface_flora_regeneration(TerrainBrushEdit {
+                    start,
+                    end: center,
                     radius: self.player_tools.terrain_edit_radius,
                 }) {
                     log::error!("Failed to apply flora regeneration: {}", err);
+                    self.player_tools.last_staff_regen_center = None;
                     return;
                 }
                 self.player_tools.last_staff_regen_time = Some(now);
+                self.player_tools.last_staff_regen_center = Some(center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
                 self.player_tools.last_staff_regen_time = Some(now);
+                self.player_tools.last_staff_regen_center = None;
             }
             Err(err) => {
+                self.player_tools.last_staff_regen_center = None;
                 log::error!(
                     "Staff regeneration attempt failed during terrain query: {}",
                     err
@@ -707,6 +724,7 @@ impl App {
     pub(super) fn try_staff_remove_flora(&mut self, now: Instant) {
         if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
             self.stop_terrain_edit_loop_sound();
+            self.player_tools.last_staff_remove_center = None;
             return;
         }
 
@@ -720,20 +738,26 @@ impl App {
                     }
                 }
 
-                if let Err(err) = self.apply_surface_flora_removal(TerrainRemovalEdit {
-                    center,
+                let start = self.player_tools.last_staff_remove_center.unwrap_or(center);
+                if let Err(err) = self.apply_surface_flora_removal(TerrainBrushEdit {
+                    start,
+                    end: center,
                     radius: self.player_tools.terrain_edit_radius,
                 }) {
                     log::error!("Failed to apply flora removal: {}", err);
+                    self.player_tools.last_staff_remove_center = None;
                     return;
                 }
                 self.player_tools.last_staff_remove_time = Some(now);
+                self.player_tools.last_staff_remove_center = Some(center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
                 self.player_tools.last_staff_remove_time = Some(now);
+                self.player_tools.last_staff_remove_center = None;
             }
             Err(err) => {
+                self.player_tools.last_staff_remove_center = None;
                 log::error!(
                     "Staff flora removal attempt failed during terrain query: {}",
                     err

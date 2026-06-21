@@ -17,6 +17,14 @@ pub(crate) struct FloraSphereEdit {
     pub(crate) tick: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FloraBrushEdit {
+    pub(crate) start: Vec3,
+    pub(crate) end: Vec3,
+    pub(crate) radius: f32,
+    pub(crate) tick: u32,
+}
+
 struct DirectChunkRebuildRecord {
     chunk_id: UVec3,
     active_voxel_len: u32,
@@ -450,11 +458,11 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
     Ok(())
 }
 
-pub(crate) fn mesh_regenerate_flora_for_sphere_edit(
+pub(crate) fn mesh_regenerate_flora_for_brush_edit(
     surface_builder: &mut SurfaceBuilder,
     voxel_dim_per_chunk: UVec3,
     bound: UAabb3,
-    flora_edit: FloraSphereEdit,
+    flora_edit: FloraBrushEdit,
     paint_selection: FloraPaintSelection,
     paint_dab_serial: u32,
     paint_brush: FloraPaintBrushSettings,
@@ -471,9 +479,10 @@ pub(crate) fn mesh_regenerate_flora_for_sphere_edit(
         }
         BENCH.lock().unwrap().record("build_surface", now.elapsed());
 
-        let _regen_stats = surface_builder.regenerate_flora_instances(
+        let _regen_stats = surface_builder.regenerate_flora_instances_for_brush(
             chunk_id,
-            flora_edit.center,
+            flora_edit.start,
+            flora_edit.end,
             flora_edit.radius,
             flora_edit.tick,
             paint_selection,
@@ -485,11 +494,11 @@ pub(crate) fn mesh_regenerate_flora_for_sphere_edit(
     Ok(())
 }
 
-pub(crate) fn mesh_remove_flora_for_sphere_edit(
+pub(crate) fn mesh_remove_flora_for_brush_edit(
     surface_builder: &mut SurfaceBuilder,
     voxel_dim_per_chunk: UVec3,
     bound: UAabb3,
-    flora_edit: FloraSphereEdit,
+    flora_edit: FloraBrushEdit,
 ) -> Result<()> {
     let affected_chunk_indices =
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
@@ -503,9 +512,10 @@ pub(crate) fn mesh_remove_flora_for_sphere_edit(
         }
         BENCH.lock().unwrap().record("build_surface", now.elapsed());
 
-        surface_builder.edit_flora_instances(
+        surface_builder.edit_flora_instances_for_brush(
             chunk_id,
-            flora_edit.center,
+            flora_edit.start,
+            flora_edit.end,
             flora_edit.radius,
             flora_edit.tick,
         )?;

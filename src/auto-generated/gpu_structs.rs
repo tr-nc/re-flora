@@ -373,6 +373,7 @@ pub struct ContreeBuildInfo {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct EditOccupancyInfo {
     pub edit_center_radius_vox: [f32; 4],
+    pub edit_segment_end_radius_vox: [f32; 4],
     pub chunk_world_offset: [u32; 3],
     pub _pad0: [u8; 4],
     pub chunk_dim: [u32; 3],

@@ -811,9 +811,27 @@ impl SurfaceBuilder {
         edit_radius: f32,
         flora_tick: u32,
     ) -> Result<()> {
-        let _ = self.run_occupancy_edit(
+        self.edit_flora_instances_for_brush(
             chunk_id,
             edit_center,
+            edit_center,
+            edit_radius,
+            flora_tick,
+        )
+    }
+
+    pub fn edit_flora_instances_for_brush(
+        &mut self,
+        chunk_id: UVec3,
+        edit_start: Vec3,
+        edit_end: Vec3,
+        edit_radius: f32,
+        flora_tick: u32,
+    ) -> Result<()> {
+        let _ = self.run_occupancy_edit(
+            chunk_id,
+            edit_start,
+            edit_end,
             edit_radius,
             flora_tick,
             0,
@@ -825,10 +843,11 @@ impl SurfaceBuilder {
         Ok(())
     }
 
-    pub fn regenerate_flora_instances(
+    pub fn regenerate_flora_instances_for_brush(
         &mut self,
         chunk_id: UVec3,
-        edit_center: Vec3,
+        edit_start: Vec3,
+        edit_end: Vec3,
         edit_radius: f32,
         flora_tick: u32,
         paint_selection: species::FloraPaintSelection,
@@ -837,7 +856,8 @@ impl SurfaceBuilder {
     ) -> Result<FloraRegenStats> {
         self.run_occupancy_edit(
             chunk_id,
-            edit_center,
+            edit_start,
+            edit_end,
             edit_radius,
             flora_tick,
             0,
@@ -856,9 +876,29 @@ impl SurfaceBuilder {
         flora_tick: u32,
         target_age: u32,
     ) -> Result<FloraRegenStats> {
-        self.run_occupancy_edit(
+        self.trim_flora_instances_for_brush(
             chunk_id,
             edit_center,
+            edit_center,
+            edit_radius,
+            flora_tick,
+            target_age,
+        )
+    }
+
+    pub fn trim_flora_instances_for_brush(
+        &mut self,
+        chunk_id: UVec3,
+        edit_start: Vec3,
+        edit_end: Vec3,
+        edit_radius: f32,
+        flora_tick: u32,
+        target_age: u32,
+    ) -> Result<FloraRegenStats> {
+        self.run_occupancy_edit(
+            chunk_id,
+            edit_start,
+            edit_end,
             edit_radius,
             flora_tick,
             target_age,
@@ -872,7 +912,8 @@ impl SurfaceBuilder {
     fn run_occupancy_edit(
         &mut self,
         chunk_id: UVec3,
-        edit_center: Vec3,
+        edit_start: Vec3,
+        edit_end: Vec3,
         edit_radius: f32,
         flora_tick: u32,
         target_age: u32,
@@ -887,7 +928,8 @@ impl SurfaceBuilder {
 
         let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
         let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
-        let edit_center_vox = edit_center * 256.0;
+        let edit_start_vox = edit_start * 256.0;
+        let edit_end_vox = edit_end * 256.0;
         let edit_radius_vox = edit_radius * 256.0;
 
         let before_total = self.resources.instances.chunk_flora_instances[chunk_idx]
@@ -921,7 +963,8 @@ impl SurfaceBuilder {
         )?;
         update_edit_occupancy_info(
             &self.resources.edit_occupancy_info,
-            edit_center_vox,
+            edit_start_vox,
+            edit_end_vox,
             edit_radius_vox,
             chunk_world_offset,
             self.voxel_dim_per_chunk,
@@ -1243,7 +1286,8 @@ fn update_instances_to_occupancy_info(
 #[allow(clippy::too_many_arguments)]
 fn update_edit_occupancy_info(
     edit_occupancy_info: &Buffer,
-    edit_center_vox: Vec3,
+    edit_start_vox: Vec3,
+    edit_end_vox: Vec3,
     edit_radius_vox: f32,
     chunk_world_offset: UVec3,
     chunk_dim: UVec3,
@@ -1256,9 +1300,15 @@ fn update_edit_occupancy_info(
 ) -> Result<()> {
     edit_occupancy_info.fill_uniform(&EditOccupancyInfo {
         edit_center_radius_vox: [
-            edit_center_vox.x,
-            edit_center_vox.y,
-            edit_center_vox.z,
+            edit_start_vox.x,
+            edit_start_vox.y,
+            edit_start_vox.z,
+            edit_radius_vox,
+        ],
+        edit_segment_end_radius_vox: [
+            edit_end_vox.x,
+            edit_end_vox.y,
+            edit_end_vox.z,
             edit_radius_vox,
         ],
         chunk_world_offset: chunk_world_offset.to_array(),

@@ -62,6 +62,13 @@ pub(crate) struct TerrainRemovalEdit {
     pub(crate) radius: f32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TerrainBrushEdit {
+    pub(crate) start: Vec3,
+    pub(crate) end: Vec3,
+    pub(crate) radius: f32,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum VoxelEdit {
     StampRoundCones {
