@@ -1187,12 +1187,11 @@ impl App {
     pub(super) fn apply_surface_flora_regeneration(
         &mut self,
         edit: TerrainBrushEdit,
+        paint_dab_serial: u32,
     ) -> Result<()> {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
             let paint_selection = self.current_flora_paint_selection();
             let paint_brush = species::flora_paint_brush_settings(paint_selection);
-            let paint_dab_serial = self.flora_paint_dab_serial;
-            self.flora_paint_dab_serial = self.flora_paint_dab_serial.wrapping_add(1);
             world_ops::mesh_regenerate_flora_for_brush_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,

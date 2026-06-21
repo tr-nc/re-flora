@@ -261,11 +261,17 @@ impl App {
     pub(super) fn set_tool_mouse_button_state(&mut self, button: MouseButton, state: ElementState) {
         if button == MouseButton::Left {
             self.player_tools.left_mouse_held = state == ElementState::Pressed;
-            self.player_tools.last_staff_regen_center = None;
+            self.reset_staff_regen_stroke_tracking();
+            if state == ElementState::Pressed {
+                self.player_tools.last_staff_regen_time = None;
+            }
         }
         if button == MouseButton::Right {
             self.player_tools.right_mouse_held = state == ElementState::Pressed;
             self.player_tools.last_staff_remove_center = None;
+            if state == ElementState::Pressed {
+                self.player_tools.last_staff_remove_time = None;
+            }
         }
     }
 
@@ -279,8 +285,14 @@ impl App {
     }
 
     fn reset_staff_stroke_tracking(&mut self) {
-        self.player_tools.last_staff_regen_center = None;
+        self.reset_staff_regen_stroke_tracking();
         self.player_tools.last_staff_remove_center = None;
+    }
+
+    fn reset_staff_regen_stroke_tracking(&mut self) {
+        self.player_tools.last_staff_regen_center = None;
+        self.player_tools.last_staff_regen_density_time = None;
+        self.player_tools.active_staff_regen_paint_dab_serial = None;
     }
 
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
@@ -310,12 +322,50 @@ impl App {
         )
     }
 
+    fn current_flora_paint_density_step_interval(&self) -> Duration {
+        Duration::from_millis(
+            species::flora_paint_brush_settings(self.current_flora_paint_selection())
+                .density_step_interval_ms,
+        )
+    }
+
+    fn consume_next_flora_paint_dab_serial(&mut self, now: Instant) -> u32 {
+        let paint_dab_serial = self.flora_paint_dab_serial;
+        self.flora_paint_dab_serial = self.flora_paint_dab_serial.wrapping_add(1);
+        self.player_tools.active_staff_regen_paint_dab_serial = Some(paint_dab_serial);
+        self.player_tools.last_staff_regen_density_time = Some(now);
+        paint_dab_serial
+    }
+
+    fn current_staff_regen_paint_dab_serial(&mut self, now: Instant) -> u32 {
+        let paint_brush = species::flora_paint_brush_settings(self.current_flora_paint_selection());
+        if paint_brush.sparse_cell_size == 0
+            || paint_brush.max_plants_per_cell == 0
+            || paint_brush.plants_per_cell_per_dab == 0
+        {
+            return self.flora_paint_dab_serial;
+        }
+
+        if let (Some(active_serial), Some(last_density_step)) = (
+            self.player_tools.active_staff_regen_paint_dab_serial,
+            self.player_tools.last_staff_regen_density_time,
+        ) {
+            if now.duration_since(last_density_step)
+                < self.current_flora_paint_density_step_interval()
+            {
+                return active_serial;
+            }
+        }
+
+        self.consume_next_flora_paint_dab_serial(now)
+    }
+
     pub(super) fn cycle_flora_paint_selection(&mut self) {
         let selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
         self.player_tools.flora_paint_selection_index =
             (self.player_tools.flora_paint_selection_index + 1) % selection_count;
         self.player_tools.last_staff_regen_time = None;
-        self.player_tools.last_staff_regen_center = None;
+        self.reset_staff_regen_stroke_tracking();
         self.play_item_panel_scroll_sound();
         log::info!(
             "Grow brush flora selection: {}",
@@ -679,7 +729,7 @@ impl App {
     pub(super) fn try_staff_regenerate(&mut self, now: Instant) {
         if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
             self.stop_terrain_edit_loop_sound();
-            self.player_tools.last_staff_regen_center = None;
+            self.reset_staff_regen_stroke_tracking();
             return;
         }
 
@@ -694,13 +744,17 @@ impl App {
                 }
 
                 let start = self.player_tools.last_staff_regen_center.unwrap_or(center);
-                if let Err(err) = self.apply_surface_flora_regeneration(TerrainBrushEdit {
-                    start,
-                    end: center,
-                    radius: self.player_tools.terrain_edit_radius,
-                }) {
+                let paint_dab_serial = self.current_staff_regen_paint_dab_serial(now);
+                if let Err(err) = self.apply_surface_flora_regeneration(
+                    TerrainBrushEdit {
+                        start,
+                        end: center,
+                        radius: self.player_tools.terrain_edit_radius,
+                    },
+                    paint_dab_serial,
+                ) {
                     log::error!("Failed to apply flora regeneration: {}", err);
-                    self.player_tools.last_staff_regen_center = None;
+                    self.reset_staff_regen_stroke_tracking();
                     return;
                 }
                 self.player_tools.last_staff_regen_time = Some(now);
@@ -709,10 +763,10 @@ impl App {
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
                 self.player_tools.last_staff_regen_time = Some(now);
-                self.player_tools.last_staff_regen_center = None;
+                self.reset_staff_regen_stroke_tracking();
             }
             Err(err) => {
-                self.player_tools.last_staff_regen_center = None;
+                self.reset_staff_regen_stroke_tracking();
                 log::error!(
                     "Staff regeneration attempt failed during terrain query: {}",
                     err
