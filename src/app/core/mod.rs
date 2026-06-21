@@ -1267,6 +1267,18 @@ impl App {
             self.modifiers = modifiers.state();
         }
 
+        // Tab is a game shortcut in normal play, but egui also uses it for focus traversal.
+        // Handle it before forwarding to egui so pressing Tab does not leave a focused UI widget
+        // that captures later keyboard shortcuts until the player clicks the world again.
+        if let WindowEvent::KeyboardInput { event, .. } = &event {
+            if self.keyboard_tool_shortcuts_available() && event.physical_key == KeyCode::Tab {
+                if event.state == ElementState::Pressed {
+                    self.cycle_flora_paint_selection();
+                }
+                return;
+            }
+        }
+
         // Feed GUI-visible events to egui first. Keep keyboard movement available while panels are
         // merely open, but reserve keyboard input for egui while a text/numeric edit has focus.
         if self.window_state.is_cursor_visible() {
@@ -1348,11 +1360,6 @@ impl App {
 
                 if self.keyboard_tool_shortcuts_available() && event.state == ElementState::Pressed
                 {
-                    if event.physical_key == KeyCode::Tab {
-                        self.cycle_flora_paint_selection();
-                        return;
-                    }
-
                     let target_slot = match event.physical_key {
                         PhysicalKey::Code(KeyCode::Digit1) => Some(0),
                         PhysicalKey::Code(KeyCode::Digit2) => Some(1),
