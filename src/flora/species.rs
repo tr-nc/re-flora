@@ -47,7 +47,7 @@ pub const GRASS_MIX_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings =
     FloraPaintBrushSettings::dense(80);
 
 const SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS: u64 = 50;
-const SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS: u64 = 500;
+const SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS: u64 = 100;
 const SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS: u32 = 20;
 
 pub const LAVENDER_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
