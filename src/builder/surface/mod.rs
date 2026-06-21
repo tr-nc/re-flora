@@ -859,6 +859,7 @@ impl SurfaceBuilder {
             .count() as u32
     }
 
+    #[allow(dead_code)]
     pub fn try_add_authored_flora_instance(
         &mut self,
         species_index: u32,
@@ -868,20 +869,45 @@ impl SurfaceBuilder {
         cell_size: u32,
         max_plants_per_cell: u32,
     ) -> Result<bool> {
+        let mut dirty_chunks = Vec::new();
+        let added = self.try_add_authored_flora_instance_deferred(
+            species_index,
+            stem_world_vox,
+            growth_progress,
+            seed,
+            cell_size,
+            max_plants_per_cell,
+            &mut dirty_chunks,
+        );
+        self.sync_authored_flora_dirty_chunks(&dirty_chunks)?;
+        Ok(added)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_add_authored_flora_instance_deferred(
+        &mut self,
+        species_index: u32,
+        stem_world_vox: UVec3,
+        growth_progress: u32,
+        seed: u32,
+        cell_size: u32,
+        max_plants_per_cell: u32,
+        dirty_chunks: &mut Vec<UVec3>,
+    ) -> bool {
         if !species::is_authored_plant_species_index(species_index) {
-            return Ok(false);
+            return false;
         }
         if max_plants_per_cell == 0 {
-            return Ok(false);
+            return false;
         }
         let chunk_id = self.chunk_id_for_world_voxel(stem_world_vox);
         if !self.chunk_bound.in_bound(chunk_id) {
-            return Ok(false);
+            return false;
         }
         let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
         let local_pos = stem_world_vox - chunk_world_offset;
         if local_pos.cmpge(self.voxel_dim_per_chunk).any() {
-            return Ok(false);
+            return false;
         }
 
         let cell_size = cell_size.max(1) as i32;
@@ -892,14 +918,14 @@ impl SurfaceBuilder {
         if self.authored_flora_sparse_cell_count(species_index, cell_size as u32, cell)
             >= max_plants_per_cell
         {
-            return Ok(false);
+            return false;
         }
 
         let chunk_instances = self.authored_flora.instances_for_chunk_mut(chunk_id);
         if chunk_instances.iter().any(|instance| {
             instance.species_index == species_index && instance.stem_world_vox == stem_world_vox
         }) {
-            return Ok(false);
+            return false;
         }
 
         chunk_instances.push(AuthoredFloraInstance {
@@ -908,8 +934,17 @@ impl SurfaceBuilder {
             growth_progress: growth_progress.min(0xff),
             seed,
         });
-        self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
-        Ok(true)
+        if !dirty_chunks.contains(&chunk_id) {
+            dirty_chunks.push(chunk_id);
+        }
+        true
+    }
+
+    pub fn sync_authored_flora_dirty_chunks(&mut self, dirty_chunks: &[UVec3]) -> Result<()> {
+        for &chunk_id in dirty_chunks {
+            self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
+        }
+        Ok(())
     }
 
     pub fn remove_authored_flora_for_brush(

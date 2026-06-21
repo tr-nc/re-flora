@@ -1298,6 +1298,7 @@ impl App {
             (max.z as i32).div_euclid(cell_size as i32),
         );
 
+        let mut dirty_chunks = Vec::new();
         for cell_x in min_cell.x..=max_cell.x {
             for cell_z in min_cell.y..=max_cell.y {
                 let cell = IVec2::new(cell_x, cell_z);
@@ -1351,14 +1352,18 @@ impl App {
                         }
 
                         let stem_world_vox = UVec3::new(x_vox, base_y + 1, z_vox);
-                        if self.surface_builder.try_add_authored_flora_instance(
-                            species_index,
-                            stem_world_vox,
-                            AUTHORED_FLORA_GROWTH_MATURE,
-                            seed,
-                            cell_size,
-                            max_plants_per_cell,
-                        )? {
+                        if self
+                            .surface_builder
+                            .try_add_authored_flora_instance_deferred(
+                                species_index,
+                                stem_world_vox,
+                                AUTHORED_FLORA_GROWTH_MATURE,
+                                seed,
+                                cell_size,
+                                max_plants_per_cell,
+                                &mut dirty_chunks,
+                            )
+                        {
                             break;
                         }
                     }
@@ -1366,6 +1371,8 @@ impl App {
             }
         }
 
+        self.surface_builder
+            .sync_authored_flora_dirty_chunks(&dirty_chunks)?;
         Ok(())
     }
 
