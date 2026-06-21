@@ -231,8 +231,8 @@ impl App {
 
     fn apply_orbit_middle_mouse_drag_delta(&mut self, drag_delta_physical: Vec2) {
         let (mut azimuth, mut elevation, distance) = self.orbit_camera_spherical();
-        azimuth += drag_delta_physical.x * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
-        elevation -= drag_delta_physical.y * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
+        azimuth -= drag_delta_physical.x * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
+        elevation += drag_delta_physical.y * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
         self.apply_orbit_camera_spherical(azimuth, elevation, distance);
     }
 
