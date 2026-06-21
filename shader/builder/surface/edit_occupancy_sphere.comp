@@ -14,6 +14,7 @@ layout(set = 0, binding = 0) readonly uniform U_EditOccupancyInfo {
     uint target_age;
     uint paint_selection;
     uvec4 paint_config;
+    uint paint_flow_denominator;
 }
 edit_occupancy_info;
 
@@ -114,9 +115,10 @@ void main() {
             }
 
             ivec3 world_base_pos = ivec3(edit_occupancy_info.chunk_world_offset) + base_local;
-            if (!flora_sparse_paint_selection_allows(edit_occupancy_info.paint_selection,
-                                                     world_base_pos,
-                                                     edit_occupancy_info.paint_config)) {
+            if (!flora_sparse_paint_selection_allows(
+                    edit_occupancy_info.paint_selection, world_base_pos,
+                    edit_occupancy_info.paint_config,
+                    edit_occupancy_info.paint_flow_denominator)) {
                 return;
             }
 

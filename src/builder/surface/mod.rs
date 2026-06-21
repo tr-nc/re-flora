@@ -1273,6 +1273,7 @@ fn update_edit_occupancy_info(
             paint_brush.max_plants_per_cell,
             paint_brush.plants_per_cell_per_dab,
         ],
+        paint_flow_denominator: paint_brush.dab_flow_denominator.max(1),
         ..EditOccupancyInfo::zeroed()
     })
 }

@@ -15,8 +15,11 @@ pub struct FloraPaintBrushSettings {
     pub sparse_cell_size: u32,
     /// Maximum painted plants per stratified cell for this flora selection.
     pub max_plants_per_cell: u32,
-    /// Number of new cell slots a single dab may release. This is per cell covered by the brush.
+    /// Number of new cell slots a single active dab may release. This is per cell covered by the brush.
     pub plants_per_cell_per_dab: u32,
+    /// Spatial-temporal thinning for fractional paint flow. A value of 10 releases 1/10 of cells
+    /// per dab, so ten 50ms dabs produce roughly the same coverage as one full 500ms dab.
+    pub dab_flow_denominator: u32,
 }
 
 impl FloraPaintBrushSettings {
@@ -25,28 +28,44 @@ impl FloraPaintBrushSettings {
         sparse_cell_size: u32,
         max_plants_per_cell: u32,
         plants_per_cell_per_dab: u32,
+        dab_flow_denominator: u32,
     ) -> Self {
         Self {
             dab_interval_ms,
             sparse_cell_size,
             max_plants_per_cell,
             plants_per_cell_per_dab,
+            dab_flow_denominator,
         }
     }
 
     pub const fn dense(dab_interval_ms: u64) -> Self {
-        Self::new(dab_interval_ms, 0, 0, 0)
+        Self::new(dab_interval_ms, 0, 0, 0, 1)
     }
 }
 
 pub const GRASS_MIX_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings =
     FloraPaintBrushSettings::dense(80);
 
-// Shared conservative initial preset for paintable special flora. The one-layer cap is the
-// integer-layer equivalent of reducing the previous 4-5 layer caps to roughly 20%, and the
-// 500ms dab interval is 20% of the previous ~100ms average release rate.
-pub const SPECIAL_FLORA_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings =
-    FloraPaintBrushSettings::new(500, 20, 1, 1);
+const SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS: u64 = 50;
+const SPECIAL_FLORA_PAINT_SPARSE_CELL_SIZE: u32 = 20;
+const SPECIAL_FLORA_PAINT_FLOW_DENOMINATOR: u32 = 10;
+
+pub const LAVENDER_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
+    SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
+    SPECIAL_FLORA_PAINT_SPARSE_CELL_SIZE,
+    2,
+    1,
+    SPECIAL_FLORA_PAINT_FLOW_DENOMINATOR,
+);
+
+pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
+    SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
+    SPECIAL_FLORA_PAINT_SPARSE_CELL_SIZE,
+    1,
+    1,
+    SPECIAL_FLORA_PAINT_FLOW_DENOMINATOR,
+);
 
 #[derive(Clone, Copy)]
 pub struct FloraSpeciesDesc {
@@ -102,7 +121,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [74, 165, 0],
         [85, 0, 207],
         gen_lavender,
-        SPECIAL_FLORA_PAINT_BRUSH_SETTINGS,
+        LAVENDER_PAINT_BRUSH_SETTINGS,
     ),
     FloraSpeciesDesc::new(
         "ember_bloom",
@@ -110,7 +129,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [42, 138, 102],
         [255, 141, 78],
         gen_ember_bloom,
-        SPECIAL_FLORA_PAINT_BRUSH_SETTINGS,
+        EMBER_BLOOM_PAINT_BRUSH_SETTINGS,
     ),
 ];
 
