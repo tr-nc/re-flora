@@ -64,8 +64,6 @@ bool flora_sparse_species_mask_allows(uint species_idx, ivec3 world_pos) {
 // layers until the per-species max density is reached.
 // paint_config: x=dab_serial, y=cell_size_voxels, z=max_plants_per_cell,
 //               w=plants_per_cell_per_dab.
-// paint_flow_denominator spatially-thins dabs for fractional paint flow. For example, 10 means
-// only 1/10 of cells release on this 50ms dab; after ten dabs, every cell has had one release.
 const uint FLORA_PAINT_MAX_PLANTS_PER_CELL_PER_DAB = 16u;
 
 uint flora_uint_gcd(uint a, uint b) {
@@ -126,8 +124,8 @@ uvec2 flora_layered_sparse_paint_anchor(uint cell_size, ivec2 cell, uint layer,
     return uvec2(slot % safe_cell_size, slot / safe_cell_size);
 }
 
-bool flora_layered_sparse_paint_mask_allows(uvec4 paint_config, uint paint_flow_denominator,
-                                            vec2 seed_offset, ivec3 world_pos) {
+bool flora_layered_sparse_paint_mask_allows(uvec4 paint_config, vec2 seed_offset,
+                                            ivec3 world_pos) {
     uint cell_size           = max(paint_config.y, 1u);
     uint cell_area           = cell_size * cell_size;
     uint max_plants_per_cell = min(paint_config.z, cell_area);
@@ -144,17 +142,7 @@ bool flora_layered_sparse_paint_mask_allows(uvec4 paint_config, uint paint_flow_
     ivec2 local = world_xz - cell * cell_size_i;
     uvec2 local_u = uvec2(local);
 
-    uint flow_denominator = max(paint_flow_denominator, 1u);
-    uint active_phase = min(
-        uint(floor(flora_legacy_hash(vec2(float(cell.x), float(cell.y)) + seed_offset +
-                                      vec2(211.0, 307.0)) * float(flow_denominator))),
-        flow_denominator - 1u);
-    if ((paint_config.x % flow_denominator) != active_phase) {
-        return false;
-    }
-
-    uint release_index = paint_config.x / flow_denominator;
-    uint first_layer = ((release_index % max_plants_per_cell) * released_per_dab) %
+    uint first_layer = ((paint_config.x % max_plants_per_cell) * released_per_dab) %
                        max_plants_per_cell;
     for (uint i = 0u; i < FLORA_PAINT_MAX_PLANTS_PER_CELL_PER_DAB; ++i) {
         if (i >= released_per_dab) {
@@ -172,15 +160,15 @@ bool flora_layered_sparse_paint_mask_allows(uvec4 paint_config, uint paint_flow_
 }
 
 bool flora_sparse_paint_selection_allows(uint paint_selection, ivec3 world_pos,
-                                         uvec4 paint_config, uint paint_flow_denominator) {
+                                         uvec4 paint_config) {
     if (paint_selection == FLORA_SPECIES_LAVENDER) {
         return flora_layered_sparse_paint_mask_allows(
-            paint_config, paint_flow_denominator, vec2(42.0, -15.0), world_pos);
+            paint_config, vec2(42.0, -15.0), world_pos);
     }
 
     if (paint_selection == FLORA_SPECIES_EMBER_BLOOM) {
         return flora_layered_sparse_paint_mask_allows(
-            paint_config, paint_flow_denominator, vec2(-53.0, 91.0), world_pos);
+            paint_config, vec2(-53.0, 91.0), world_pos);
     }
 
     return true;

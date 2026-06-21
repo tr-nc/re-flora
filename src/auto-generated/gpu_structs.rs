@@ -383,8 +383,6 @@ pub struct EditOccupancyInfo {
     pub paint_selection: u32,
     pub _pad1: [u8; 4],
     pub paint_config: [u32; 4],
-    pub paint_flow_denominator: u32,
-    pub _pad2: [u8; 12],
 }
 
 /// Auto-generated from `U_EnvInfo` (GLSL source of truth).
