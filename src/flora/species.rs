@@ -99,8 +99,6 @@ impl FloraPaintSelection {
 
 pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
     FloraPaintSelection::GrassMix,
-    FloraPaintSelection::Species(0),
-    FloraPaintSelection::Species(1),
     FloraPaintSelection::Species(2),
     FloraPaintSelection::Species(3),
 ];

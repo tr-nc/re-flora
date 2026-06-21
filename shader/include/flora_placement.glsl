@@ -62,8 +62,8 @@ bool flora_sparse_species_mask_allows(uint species_idx, ivec3 world_pos) {
 // Paint placement uses a stratified mask rather than the natural random density
 // noise. Sparse flowers still land on deterministic world-space seeds, but every
 // screen-sized brush area gets a more even spread of candidate points.
-const uint FLORA_LAVENDER_PAINT_SPARSE_CELL_SIZE    = 5u;
-const uint FLORA_EMBER_BLOOM_PAINT_SPARSE_CELL_SIZE = 10u;
+const uint FLORA_LAVENDER_PAINT_SPARSE_CELL_SIZE    = 10u;
+const uint FLORA_EMBER_BLOOM_PAINT_SPARSE_CELL_SIZE = 20u;
 
 bool flora_stratified_sparse_paint_mask_allows(uint cell_size, vec2 seed_offset,
                                                ivec3 world_pos) {
