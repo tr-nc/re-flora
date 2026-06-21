@@ -11,7 +11,7 @@ Verdarium is a relaxing, programmable voxel terrarium where players grow, shape,
 
 The desired player feeling is:
 
-> I made a tiny ecosystem, changed one small thing, and the plants visibly responded.
+> I shaped a tiny plant world, changed one small thing, and the plants visibly responded.
 
 The game should feel calm, tactile, alive, and easy to return to. It should not become a stressful survival sim, a generic crafting checklist, or a hard optimization spreadsheet.
 
@@ -29,7 +29,7 @@ This is closer to a cozy plant laboratory than an industrial farm.
 
 ## MVP Promise
 
-The MVP must prove the game is fun before it proves the full ecosystem is deep.
+The MVP must prove the game is fun before it proves the environment systems are deep.
 
 A good MVP loop is:
 
@@ -114,13 +114,11 @@ The world should be relaxing, but not bland. It can include quiet mystery:
 - Fireflies, glowing mushrooms, fog, rain, pollen, and low-resolution water highlights.
 - Small signs that the terrarium has a history beyond the player's tools.
 
-## Ecology Direction
+## Environmental Response Direction
 
-Biosphere 2-style closed ecology is a useful inspiration, but it should not be the MVP's core pressure system.
+Verdarium should prioritize local, readable plant responses over global resource balancing.
 
-### MVP: Soft Ecology
-
-Implement only a few local factors first:
+Implement only a few readable local factors first:
 
 - Water / moisture
 - Light / shade
@@ -136,28 +134,18 @@ These should affect:
 - Variant or mutation chance
 - Ambient behavior
 
-They should not initially require precise global balance.
+They should not require precise global balance.
 
-### Later: Ecology as Reward
-
-After the plant loop is fun, add ecological harmony as a reward layer:
+After the plant loop is fun, environmental depth should grow as a reward layer:
 
 - Plant diversity bonuses
 - Companion planting effects
 - Pollinator attraction
 - Stable moisture/light microclimates
-- Rare seeds from balanced habitats
-- Decorative ecosystem score or journal discoveries
+- Rare seeds from well-composed habitats
+- Decorative journal discoveries
 
-The key rule: harmony grants bonuses; disharmony creates different outcomes, not chores.
-
-### Optional Advanced Mode: Closed Terrarium Challenge
-
-A harder Biosphere 2-inspired mode can exist later as opt-in content:
-
-> Keep a sealed terrarium self-sustaining for several in-game days with limited water, light, and air exchange.
-
-This should be a challenge mode or late-game device system, not the default relaxing experience.
+The key rule: good care grants bonuses; unusual conditions create different outcomes, not chores.
 
 ## MVP Feature Cut Line
 
@@ -173,7 +161,7 @@ Prioritize for MVP:
 
 Defer until after the MVP is fun:
 
-- Full oxygen/CO2/temperature/nutrient simulation.
+- Complex global resource simulation.
 - Plant death as a normal consequence.
 - Text-code programming.
 - Large economy simulation.
