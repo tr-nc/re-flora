@@ -1,6 +1,7 @@
 #[allow(unused)]
 use crate::util::Timer;
 
+mod authored_flora_bench;
 mod boot;
 mod camera_snapshot_ui;
 mod frame_timing;
@@ -16,6 +17,7 @@ mod ui_style;
 mod vegetation;
 mod water;
 
+use self::authored_flora_bench::AuthoredFloraBench;
 use self::camera_snapshot_ui::draw_camera_snapshots_ui;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
@@ -204,6 +206,7 @@ pub struct App {
     screenshot_taken: bool,
     auto_exit_delay: Option<f32>,
     tree_bench: Option<TreeBench>,
+    authored_flora_bench: Option<AuthoredFloraBench>,
     water_edit_soak: Option<water::WaterEditSoak>,
     deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
     terrain_chunk_rebuild_inflight: Option<TerrainChunkRebuildInFlight>,
@@ -1026,6 +1029,9 @@ impl App {
                 };
                 TreeBench::new(options.tree_bench_samples, mode, options.tree_bench_rapid)
             }),
+            authored_flora_bench: options
+                .authored_flora_bench
+                .then(|| AuthoredFloraBench::new(options.authored_flora_bench_samples)),
             water_edit_soak: options.water_edit_soak.then(water::WaterEditSoak::default),
             deferred_chunk_rebuilds: LatestChunkQueue::default(),
             terrain_chunk_rebuild_inflight: None,
@@ -1866,6 +1872,10 @@ impl App {
                     .set_rustle_params(Self::tree_rustle_params(&self.gui_adjustables));
 
                 if TreeBench::run_next(self) {
+                    self.on_terminate(event_loop);
+                    return;
+                }
+                if AuthoredFloraBench::run_next(self) {
                     self.on_terminate(event_loop);
                     return;
                 }
