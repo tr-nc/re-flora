@@ -1280,7 +1280,10 @@ impl App {
         // that captures later keyboard shortcuts until the player clicks the world again.
         // Ignore keyboard-repeat presses so holding Tab changes the brush only once.
         if let WindowEvent::KeyboardInput { event, .. } = &event {
-            if self.keyboard_tool_shortcuts_available() && event.physical_key == KeyCode::Tab {
+            if self.keyboard_tool_shortcuts_available()
+                && self.is_staff_selected()
+                && event.physical_key == KeyCode::Tab
+            {
                 if event.state == ElementState::Pressed && !event.repeat {
                     self.cycle_flora_paint_selection();
                 }
@@ -1555,11 +1558,15 @@ impl App {
                 let water_status_text = self
                     .water_sim
                     .status_text(self.water_particle_handoff_main_thread_ms);
-                let status_bar_text = format!(
-                    "{}\nGrow brush: {} (Tab to cycle)",
-                    water_status_text,
-                    self.current_flora_paint_selection_label()
-                );
+                let grow_brush_hint = if self.is_staff_selected() {
+                    format!(
+                        "Grow brush: {} (Tab to cycle)",
+                        self.current_flora_paint_selection_label()
+                    )
+                } else {
+                    format!("Grow brush: {}", self.current_flora_paint_selection_label())
+                };
+                let status_bar_text = format!("{}\n{}", water_status_text, grow_brush_hint);
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
