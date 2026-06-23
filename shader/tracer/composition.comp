@@ -406,11 +406,25 @@ vec3 sample_scene_color(vec2 screen_uv) {
     return apply_terrarium_panels_to_scene(scene_color, ray, scene_t);
 }
 
+vec4 sample_raster_rgba_bilinear(vec2 sample_uv, ivec2 tex_size) {
+    vec2 max_texel = vec2(tex_size - ivec2(1));
+    vec2 texel_pos = clamp(sample_uv * vec2(tex_size) - vec2(0.5), vec2(0.0), max_texel);
+    ivec2 p0 = ivec2(floor(texel_pos));
+    ivec2 p1 = min(p0 + ivec2(1), tex_size - ivec2(1));
+    vec2 f = fract(texel_pos);
+
+    vec4 c00 = texelFetch(gfx_output_tex, p0, 0);
+    vec4 c10 = texelFetch(gfx_output_tex, ivec2(p1.x, p0.y), 0);
+    vec4 c01 = texelFetch(gfx_output_tex, ivec2(p0.x, p1.y), 0);
+    vec4 c11 = texelFetch(gfx_output_tex, p1, 0);
+    return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
+}
+
 void accumulate_raster_reflection_tap(inout vec3 color_sum, inout float weight_sum,
-                                       vec2 sample_uv, ivec2 tex_size, float weight) {
-    ivec2 sample_uvi = ivec2(
-        clamp(sample_uv * vec2(tex_size), vec2(0.0), vec2(tex_size - ivec2(1))));
-    vec4 raster_rgba = texelFetch(gfx_output_tex, sample_uvi, 0);
+                                       inout float total_weight, vec2 sample_uv,
+                                       ivec2 tex_size, float weight) {
+    total_weight += weight;
+    vec4 raster_rgba = sample_raster_rgba_bilinear(sample_uv, tex_size);
     if (raster_rgba.a <= 0.02) {
         return;
     }
@@ -420,23 +434,32 @@ void accumulate_raster_reflection_tap(inout vec3 color_sum, inout float weight_s
     weight_sum += tap_weight;
 }
 
-vec3 sample_raster_reflection_footprint(vec2 sample_uv, ivec2 tex_size, vec4 center_rgba) {
+vec3 sample_raster_reflection_footprint(vec2 sample_uv, ivec2 tex_size, vec4 center_rgba,
+                                        out float coverage) {
     vec2 texel = 1.0 / vec2(tex_size);
     float footprint_pixels = max(gui_input.glass_ssr_footprint_pixels, 0.0);
-    vec2 radius = texel * footprint_pixels;
     vec3 color_sum = vec3(0.0);
     float weight_sum = 0.0;
+    float total_weight = 0.0;
 
-    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv, tex_size, 1.00);
-    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv + vec2(radius.x, 0.0),
-                                     tex_size, 0.55);
-    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv - vec2(radius.x, 0.0),
-                                     tex_size, 0.55);
-    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv + vec2(0.0, radius.y),
-                                     tex_size, 0.55);
-    accumulate_raster_reflection_tap(color_sum, weight_sum, sample_uv - vec2(0.0, radius.y),
-                                     tex_size, 0.55);
+    if (footprint_pixels <= 0.25) {
+        accumulate_raster_reflection_tap(color_sum, weight_sum, total_weight, sample_uv,
+                                         tex_size, 1.0);
+    } else {
+        float radius_pixels = footprint_pixels;
+        float sigma = max(radius_pixels * 0.42, 0.75);
+        for (int y = -2; y <= 2; y++) {
+            for (int x = -2; x <= 2; x++) {
+                vec2 pixel_offset = vec2(float(x), float(y)) * (radius_pixels * 0.5);
+                float weight = exp(-0.5 * dot(pixel_offset, pixel_offset) / (sigma * sigma));
+                accumulate_raster_reflection_tap(color_sum, weight_sum, total_weight,
+                                                 sample_uv + pixel_offset * texel, tex_size,
+                                                 weight);
+            }
+        }
+    }
 
+    coverage = total_weight > 0.0 ? clamp(weight_sum / total_weight, 0.0, 1.0) : 0.0;
     if (weight_sum > 0.0) {
         return color_sum / weight_sum;
     }
@@ -515,24 +538,22 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
 
         vec2 hit_uv = sample_uv;
         float hit_t = t;
-        vec4 hit_rgba = raster_rgba;
         float depth_fade = 1.0 - clamp(depth_gap / hit_thickness, 0.0, 1.0);
         if (crosses_depth) {
             float cross_alpha = clamp((-prev_depth_gap) / max(depth_gap - prev_depth_gap, 1e-5),
                                       0.0, 1.0);
             hit_uv = mix(prev_uv, sample_uv, cross_alpha);
             hit_t = mix(prev_t, t, cross_alpha);
-            ivec2 hit_uvi = ivec2(
-                clamp(hit_uv * vec2(tex_size), vec2(0.0), vec2(tex_size - ivec2(1))));
-            hit_rgba = texelFetch(gfx_output_tex, hit_uvi, 0);
-            if (hit_rgba.a <= 0.02) {
-                have_prev_depth_sample = true;
-                prev_depth_gap = depth_gap;
-                prev_t = t;
-                prev_uv = sample_uv;
-                continue;
-            }
             depth_fade = 1.0;
+        }
+
+        vec4 hit_rgba = sample_raster_rgba_bilinear(hit_uv, tex_size);
+        if (hit_rgba.a <= 0.02) {
+            have_prev_depth_sample = true;
+            prev_depth_gap = depth_gap;
+            prev_t = t;
+            prev_uv = sample_uv;
+            continue;
         }
 
         float screen_edge = min(min(hit_uv.x, 1.0 - hit_uv.x),
@@ -543,8 +564,10 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
                                          TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD, hit_t);
         float confidence = screen_fade * distance_fade * depth_fade *
                            clamp(hit_rgba.a, 0.0, 1.0);
-        reflection_color = sample_raster_reflection_footprint(hit_uv, tex_size, hit_rgba);
-        return confidence;
+        float footprint_coverage;
+        reflection_color = sample_raster_reflection_footprint(hit_uv, tex_size, hit_rgba,
+                                                              footprint_coverage);
+        return confidence * footprint_coverage;
     }
 
     return 0.0;
