@@ -111,6 +111,7 @@ pub struct GlassGuiParams {
     pub reflection_strength: f32,
     pub ssr_strength: f32,
     pub ssr_steps: u32,
+    pub per_voxel_reflection: bool,
     pub ssr_min_hit_thickness_voxels: f32,
     pub ssr_footprint_pixels: f32,
     pub refraction_strength: f32,

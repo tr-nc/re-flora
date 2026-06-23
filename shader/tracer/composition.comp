@@ -671,6 +671,7 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     float glass_refraction_strength = max(gui_input.glass_refraction_strength, 0.0);
     float glass_alpha_multiplier = max(gui_input.glass_alpha, 0.0);
     float glass_glint_strength = max(gui_input.glass_glint_strength, 0.0);
+    bool use_per_voxel_reflection = gui_input.glass_per_voxel_reflection != 0u;
 
     vec2 uv = hit.face_uv;
     vec2 face_world_extent = abs(hit.normal.y) > 0.5
@@ -702,6 +703,8 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     vec2 voxel_pos = uv * voxel_grid_extent;
     vec2 voxel_cell = floor(voxel_pos);
     vec2 voxel_uv = fract(voxel_pos);
+    vec2 voxel_center_uv = clamp((voxel_cell + vec2(0.5)) / max(voxel_grid_extent, vec2(1.0)),
+                                 vec2(0.0), vec2(1.0));
     vec2 voxel_center_offset = voxel_uv - vec2(0.5);
     float cell_noise = hash13(vec3(voxel_cell, dot(abs(hit.normal), vec3(3.0, 17.0, 41.0))));
     float cell_noise_b = hash13(vec3(voxel_cell.yx + vec2(29.0, 11.0),
@@ -715,7 +718,31 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
                                                            voxel_slope.x * 0.030) +
                                   face_bitangent * ((cell_noise_b - 0.5) * 0.040 +
                                                     voxel_slope.y * 0.026));
-    float mirror_fresnel = pow(1.0 - clamp(dot(normal, view_dir), 0.0, 1.0), 5.0);
+    vec3 voxel_reflection_normal = normalize(normal + face_tangent * ((cell_noise - 0.5) * 0.050) +
+                                             face_bitangent * ((cell_noise_b - 0.5) * 0.040));
+    vec3 voxel_center_ws = hit.position;
+    if (abs(hit.normal.x) > 0.5) {
+        voxel_center_ws.z = mix(TERRARIUM_GLASS_BOX_MIN.z, TERRARIUM_GLASS_BOX_MAX.z,
+                                voxel_center_uv.x);
+        voxel_center_ws.y = mix(TERRARIUM_GLASS_BOX_MIN.y, TERRARIUM_GLASS_BOX_MAX.y,
+                                voxel_center_uv.y);
+    } else {
+        voxel_center_ws.x = mix(TERRARIUM_GLASS_BOX_MIN.x, TERRARIUM_GLASS_BOX_MAX.x,
+                                voxel_center_uv.x);
+        voxel_center_ws.y = mix(TERRARIUM_GLASS_BOX_MIN.y, TERRARIUM_GLASS_BOX_MAX.y,
+                                voxel_center_uv.y);
+    }
+    vec3 reflection_origin_ws = use_per_voxel_reflection ? voxel_center_ws : hit.position;
+    vec3 reflection_view_dir = use_per_voxel_reflection
+                                   ? normalize(camera_info.pos.xyz - voxel_center_ws)
+                                   : view_dir;
+    vec3 reflection_normal = use_per_voxel_reflection ? voxel_reflection_normal : normal;
+    float mirror_fresnel = pow(1.0 - clamp(dot(reflection_normal, reflection_view_dir),
+                                           0.0, 1.0),
+                               5.0);
+    float reflection_voxel_lens = use_per_voxel_reflection
+                                      ? pane * (0.12 + cell_noise_c * 0.08)
+                                      : mirror_fresnel;
 
     float ndotv = clamp(dot(micro_normal, view_dir), 0.0, 1.0);
     float fresnel = pow(1.0 - ndotv, 5.0);
@@ -777,16 +804,14 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     refraction_mix = clamp(refraction_mix * glass_refraction_strength, 0.0, 0.98);
     vec3 glassed_color = mix(scene_color, chromatic_color, refraction_mix);
 
-    // Keep reflection perfectly planar: trace from the exact glass hit position with the
-    // geometric face normal, rather than snapping the ray to a per-voxel pane cell.
-    vec3 reflected_dir = reflect(-view_dir, normal);
+    vec3 reflected_dir = reflect(-reflection_view_dir, reflection_normal);
     vec3 sky_reflection = compute_sky_with_sun_and_stars(reflected_dir);
     vec3 ssr_reflection = sky_reflection;
     vec2 reflection_pixel = screen_uv * vec2(imageSize(composited_tex));
     float temporal_jitter = float(env_info.frame_serial_idx % 4096u) * 0.61803398875;
     float ssr_jitter_seed = fract(hash13(vec3(reflection_pixel, 17.0)) + temporal_jitter);
     float ssr_hit = sample_raster_ssr_reflection(
-        hit.position + reflected_dir * (TERRARIUM_VOXEL_WORLD_SIZE * 2.0),
+        reflection_origin_ws + reflected_dir * (TERRARIUM_VOXEL_WORLD_SIZE * 2.0),
         reflected_dir,
         ssr_jitter_seed,
         ssr_reflection);
@@ -818,7 +843,7 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     glass_color = mix(glass_color, glass_tint, 0.28);
     glass_color += reflection_color * glass_reflection_strength *
                    (edge * 0.14 + core_edge * 0.08 + fresnel_band * 0.035 +
-                    pane * (0.018 + mirror_fresnel * 0.020 +
+                    pane * (0.018 + reflection_voxel_lens * 0.020 +
                             ssr_hit * glass_ssr_strength * 0.070));
     glass_color += ssr_reflection * ssr_hit * glass_ssr_strength *
                    glass_reflection_strength *

@@ -2061,6 +2061,10 @@ impl App {
                                 .value,
                             ssr_strength: self.gui_adjustables.glass_ssr_strength.value,
                             ssr_steps: self.gui_adjustables.glass_ssr_steps.value,
+                            per_voxel_reflection: self
+                                .gui_adjustables
+                                .glass_per_voxel_reflection
+                                .value,
                             ssr_min_hit_thickness_voxels: self
                                 .gui_adjustables
                                 .glass_ssr_min_hit_thickness_voxels

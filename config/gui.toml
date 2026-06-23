@@ -866,6 +866,15 @@ min = 1
 max = 64
 
 [[section.param]]
+id = "glass_per_voxel_reflection"
+kind = "bool"
+label = "Per-Voxel Glass"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "glass_ssr_min_hit_thickness_voxels"
 kind = "float"
 label = "SSR Min Hit Thickness (Voxels)"

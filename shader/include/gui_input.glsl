@@ -23,6 +23,7 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float glass_reflection_strength;
     float glass_ssr_strength;
     uint glass_ssr_steps;
+    uint glass_per_voxel_reflection;
     float glass_ssr_min_hit_thickness_voxels;
     float glass_ssr_footprint_pixels;
     float glass_refraction_strength;
