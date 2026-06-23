@@ -1332,6 +1332,61 @@ max = 5
 name = "Flora"
 
 [[section.param]]
+id = "special_flora_plants_per_release"
+kind = "uint"
+label = "Special Flora Plants / Release"
+type = "Uint"
+
+[section.param.data]
+value = 2
+min = 1
+max = 8
+
+[[section.param]]
+id = "special_flora_cluster_radius_voxels"
+kind = "float"
+label = "Special Flora Cluster Radius (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 18
+min = 2
+max = 64
+
+[[section.param]]
+id = "special_flora_min_spacing_voxels"
+kind = "float"
+label = "Special Flora Min Spacing (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 5
+min = 0
+max = 32
+
+[[section.param]]
+id = "special_flora_cluster_bias"
+kind = "float"
+label = "Special Flora Cluster Bias"
+type = "Float"
+
+[section.param.data]
+value = 0.75
+min = 0
+max = 1
+
+[[section.param]]
+id = "special_flora_outlier_chance"
+kind = "float"
+label = "Special Flora Outlier Chance"
+type = "Float"
+
+[section.param.data]
+value = 0.15
+min = 0
+max = 1
+
+[[section.param]]
 id = "grass_natural_bend_min_voxels"
 kind = "float"
 label = "Flora Natural Bend Min (voxels)"

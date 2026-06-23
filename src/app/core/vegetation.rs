@@ -17,7 +17,16 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
-const AUTHORED_FLORA_BLUE_NOISE_CANDIDATES_PER_PLANT: u32 = 48;
+const AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT: u32 = 48;
+
+#[derive(Clone, Copy, Debug)]
+struct SpecialFloraDistributionParams {
+    plants_per_release: u32,
+    cluster_radius_voxels: f32,
+    min_spacing_voxels: f32,
+    cluster_bias: f32,
+    outlier_chance: f32,
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct TreeVariationConfig {
@@ -586,26 +595,102 @@ fn authored_flora_xz_distance_sq(a: Vec3, b: Vec3) -> f32 {
     dx * dx + dz * dz
 }
 
-fn authored_flora_blue_noise_score(
+fn authored_flora_nearest_xz_distance_sq(
     candidate_base_center_vox: Vec3,
     existing_base_centers_vox: &[Vec3],
     placed_base_centers_vox: &[Vec3],
-    soft_spacing_vox: f32,
-    tie_breaker_seed: u32,
 ) -> f32 {
-    let min_distance_sq = existing_base_centers_vox
+    existing_base_centers_vox
         .iter()
         .chain(placed_base_centers_vox.iter())
         .map(|center| authored_flora_xz_distance_sq(candidate_base_center_vox, *center))
-        .fold(f32::INFINITY, f32::min);
-    let spacing_sq = soft_spacing_vox * soft_spacing_vox;
-    let clamped_distance_sq = if min_distance_sq.is_finite() {
-        min_distance_sq.min(spacing_sq)
+        .fold(f32::INFINITY, f32::min)
+}
+
+fn authored_flora_release_is_outlier(
+    paint_dab_serial: u32,
+    species_index: u32,
+    chance: f32,
+) -> bool {
+    let chance = chance.clamp(0.0, 1.0);
+    if chance <= 0.0 {
+        return false;
+    }
+    let seed = authored_flora_hash(
+        paint_dab_serial ^ species_index.wrapping_mul(0x85eb_ca6b) ^ 0xc2b2_ae35,
+    );
+    authored_flora_unit_from_seed(seed) < chance
+}
+
+fn authored_flora_existing_cluster_anchor(
+    edit: TerrainBrushEdit,
+    existing_base_centers_vox: &[Vec3],
+    cluster_radius_vox: f32,
+    seed: u32,
+) -> Option<Vec3> {
+    let start_vox = edit.start * 256.0;
+    let end_vox = edit.end * 256.0;
+    let brush_radius_vox = edit.radius * 256.0;
+    let influence_radius_sq = (brush_radius_vox + cluster_radius_vox).powi(2);
+    let mut candidates = existing_base_centers_vox
+        .iter()
+        .copied()
+        .filter(|center| distance_sq_to_segment(*center, start_vox, end_vox) <= influence_radius_sq)
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return None;
+    }
+
+    candidates.sort_by(|a, b| {
+        let key_a = authored_flora_hash(
+            seed ^ (a.x.floor() as u32).wrapping_mul(0x9e37_79b9)
+                ^ (a.z.floor() as u32).wrapping_mul(0x7f4a_7c15),
+        );
+        let key_b = authored_flora_hash(
+            seed ^ (b.x.floor() as u32).wrapping_mul(0x9e37_79b9)
+                ^ (b.z.floor() as u32).wrapping_mul(0x7f4a_7c15),
+        );
+        key_a.cmp(&key_b)
+    });
+    candidates.into_iter().next()
+}
+
+fn authored_flora_natural_candidate_score(
+    candidate_base_center_vox: Vec3,
+    cluster_anchor_vox: Vec3,
+    existing_base_centers_vox: &[Vec3],
+    placed_base_centers_vox: &[Vec3],
+    params: SpecialFloraDistributionParams,
+    seed: u32,
+) -> Option<f32> {
+    let nearest_distance_sq = authored_flora_nearest_xz_distance_sq(
+        candidate_base_center_vox,
+        existing_base_centers_vox,
+        placed_base_centers_vox,
+    );
+    let min_spacing_sq = params.min_spacing_voxels * params.min_spacing_voxels;
+    if nearest_distance_sq.is_finite() && nearest_distance_sq < min_spacing_sq {
+        return None;
+    }
+
+    let cluster_radius = params.cluster_radius_voxels.max(1.0);
+    let cluster_distance =
+        authored_flora_xz_distance_sq(candidate_base_center_vox, cluster_anchor_vox).sqrt();
+    let cluster_score = (1.0 - cluster_distance / cluster_radius).clamp(0.0, 1.0);
+    let random_score = authored_flora_unit_from_seed(seed ^ 0x27d4_eb2d);
+    let spacing_score = if nearest_distance_sq.is_finite() {
+        (nearest_distance_sq.sqrt() / cluster_radius).clamp(0.0, 1.0)
     } else {
-        spacing_sq
+        1.0
     };
 
-    clamped_distance_sq + authored_flora_unit_from_seed(tie_breaker_seed) * 0.001
+    let cluster_bias = params.cluster_bias.clamp(0.0, 1.0);
+    Some(
+        cluster_score * cluster_bias
+            + random_score * (1.0 - cluster_bias)
+            + spacing_score * 0.18
+            + authored_flora_unit_from_seed(seed ^ 0x9e37_79b9) * 0.03,
+    )
 }
 
 fn authored_flora_unit_from_seed(seed: u32) -> f32 {
@@ -1312,10 +1397,28 @@ impl App {
         paint_dab_serial: u32,
         paint_brush: species::FloraPaintBrushSettings,
     ) -> Result<()> {
-        if paint_brush.soft_spacing_voxels == 0 || paint_brush.plants_per_release == 0 {
+        if paint_brush.soft_spacing_voxels == 0 {
             return Ok(());
         }
-        let plants_per_release = paint_brush.plants_per_release;
+        let distribution = SpecialFloraDistributionParams {
+            plants_per_release: self
+                .gui_adjustables
+                .special_flora_plants_per_release
+                .value
+                .clamp(1, 8),
+            cluster_radius_voxels: self
+                .gui_adjustables
+                .special_flora_cluster_radius_voxels
+                .value
+                .max(1.0),
+            min_spacing_voxels: self
+                .gui_adjustables
+                .special_flora_min_spacing_voxels
+                .value
+                .max(0.0),
+            cluster_bias: self.gui_adjustables.special_flora_cluster_bias.value,
+            outlier_chance: self.gui_adjustables.special_flora_outlier_chance.value,
+        };
         let radius_vox = edit.radius * 256.0;
         let radius_sq = radius_vox * radius_vox;
         let start_vox = edit.start * 256.0;
@@ -1337,14 +1440,30 @@ impl App {
             .collect::<Vec<_>>();
         let mut placed_base_centers_vox = Vec::new();
         let mut dirty_chunks = Vec::new();
-        let soft_spacing_vox = paint_brush.soft_spacing_voxels.max(1) as f32;
         let x_span = max.x - min.x;
         let z_span = max.z - min.z;
+        let release_seed = authored_flora_hash(
+            paint_dab_serial ^ species_index.wrapping_mul(0x517c_c1b7) ^ 0x68bc_21ebu32,
+        );
+        let is_outlier_release = authored_flora_release_is_outlier(
+            paint_dab_serial,
+            species_index,
+            distribution.outlier_chance,
+        );
+        let existing_anchor = (!is_outlier_release).then(|| {
+            authored_flora_existing_cluster_anchor(
+                edit,
+                &existing_base_centers_vox,
+                distribution.cluster_radius_voxels,
+                release_seed,
+            )
+        });
+        let mut release_anchor_vox = existing_anchor.flatten();
 
-        for plant_index in 0..plants_per_release {
+        for plant_index in 0..distribution.plants_per_release {
             let mut best_candidate: Option<(f32, UVec3, Vec3, u32)> = None;
 
-            for attempt in 0..AUTHORED_FLORA_BLUE_NOISE_CANDIDATES_PER_PLANT {
+            for attempt in 0..AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT {
                 let seed = authored_flora_candidate_seed(
                     species_index,
                     paint_dab_serial,
@@ -1373,13 +1492,17 @@ impl App {
                     continue;
                 }
 
-                let score = authored_flora_blue_noise_score(
+                let cluster_anchor_vox = *release_anchor_vox.get_or_insert(base_center_vox);
+                let Some(score) = authored_flora_natural_candidate_score(
                     base_center_vox,
+                    cluster_anchor_vox,
                     &existing_base_centers_vox,
                     &placed_base_centers_vox,
-                    soft_spacing_vox,
+                    distribution,
                     seed,
-                );
+                ) else {
+                    continue;
+                };
                 if best_candidate
                     .as_ref()
                     .is_none_or(|(best_score, _, _, _)| score > *best_score)
