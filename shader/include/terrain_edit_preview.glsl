@@ -34,11 +34,20 @@ float terrain_edit_preview_tint_at(vec3 center_pos) {
     return clamp(mask * terrain_edit_preview.strength, 0.0, 1.0);
 }
 
+vec3 terrain_edit_preview_overlay_blend(vec3 base_color, vec3 overlay_color) {
+    vec3 low = 2.0 * base_color * overlay_color;
+    vec3 high = 1.0 - 2.0 * (1.0 - base_color) * (1.0 - overlay_color);
+    return mix(low, high, step(vec3(0.5), base_color));
+}
+
 vec3 apply_terrain_edit_preview_tint(vec3 base_color, vec3 center_pos) {
     float terrain_edit_tint = terrain_edit_preview_tint_at(center_pos);
-    return terrain_edit_tint > 0.0
-               ? mix(base_color, terrain_edit_preview.color, terrain_edit_tint)
-               : base_color;
+    if (terrain_edit_tint <= 0.0) {
+        return base_color;
+    }
+
+    vec3 overlay_color = terrain_edit_preview_overlay_blend(base_color, terrain_edit_preview.color);
+    return mix(base_color, overlay_color, terrain_edit_tint);
 }
 
 #endif // TERRAIN_EDIT_PREVIEW_GLSL

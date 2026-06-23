@@ -2207,6 +2207,7 @@ impl App {
                         self.player_tools.terrain_edit_radius,
                         terrain_edit_preview_shape,
                         terrain_edit_preview_color,
+                        self.gui_adjustables.terrain_edit_preview_alpha.value,
                     )
                     .unwrap();
 

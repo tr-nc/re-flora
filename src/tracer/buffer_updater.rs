@@ -224,6 +224,7 @@ impl BufferUpdater {
         radius: f32,
         shape: TerrainEditPreviewShape,
         color: Vec3,
+        alpha: f32,
     ) -> Result<()> {
         let enabled = center.is_some() && radius > 0.0;
         resources
@@ -233,7 +234,7 @@ impl BufferUpdater {
                 center: center.unwrap_or(Vec3::ZERO).to_array(),
                 radius: radius.max(0.0),
                 color: color.clamp(Vec3::ZERO, Vec3::ONE).to_array(),
-                strength: 0.72,
+                strength: alpha.clamp(0.0, 1.0),
                 enabled: enabled as u32,
                 shape: shape.as_u32(),
                 ..TerrainEditPreview::zeroed()

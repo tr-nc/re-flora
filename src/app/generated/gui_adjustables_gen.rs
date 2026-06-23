@@ -67,6 +67,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "World Tick Time (s)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Tool Overlay",
+        id: "terrain_edit_preview_alpha",
+        kind: "float",
+        label: "Brush Overlay Alpha",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Wind",
         id: "wind_source_count",
         kind: "uint",
@@ -1331,6 +1337,7 @@ pub struct GuiAdjustables {
     pub grass_render_mode: crate::gui_adjustables::UintParam,
     pub debug_bool: crate::gui_adjustables::BoolParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
+    pub terrain_edit_preview_alpha: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_directional_bias_fraction: crate::gui_adjustables::FloatParam,
     pub wind_turbulence_fraction: crate::gui_adjustables::FloatParam,
@@ -1560,6 +1567,7 @@ impl GuiAdjustables {
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut debug_bool_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut terrain_edit_preview_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_directional_bias_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_turbulence_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1818,6 +1826,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             world_tick_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "terrain_edit_preview_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            terrain_edit_preview_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "wind_source_count" => {
@@ -3226,6 +3241,7 @@ impl GuiAdjustables {
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
             debug_bool: debug_bool_field.expect("Missing parameter: debug_bool"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
+            terrain_edit_preview_alpha: terrain_edit_preview_alpha_field.expect("Missing parameter: terrain_edit_preview_alpha"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_directional_bias_fraction: wind_directional_bias_fraction_field.expect("Missing parameter: wind_directional_bias_fraction"),
             wind_turbulence_fraction: wind_turbulence_fraction_field.expect("Missing parameter: wind_turbulence_fraction"),
@@ -3446,6 +3462,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "lod_distance" => Some(&adjustables.lod_distance),
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
+        "terrain_edit_preview_alpha" => Some(&adjustables.terrain_edit_preview_alpha),
         "wind_directional_bias_fraction" => Some(&adjustables.wind_directional_bias_fraction),
         "wind_turbulence_fraction" => Some(&adjustables.wind_turbulence_fraction),
         "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
@@ -3709,6 +3726,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "lod_distance" => Some(&mut adjustables.lod_distance),
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
+        "terrain_edit_preview_alpha" => Some(&mut adjustables.terrain_edit_preview_alpha),
         "wind_directional_bias_fraction" => Some(&mut adjustables.wind_directional_bias_fraction),
         "wind_turbulence_fraction" => Some(&mut adjustables.wind_turbulence_fraction),
         "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
