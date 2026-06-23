@@ -217,7 +217,7 @@ const float TERRARIUM_GLASS_TOP_PADDING_WORLD = 0.08;
 const int TERRARIUM_GLASS_MAX_HITS = 4;
 const float TERRARIUM_GLASS_ALPHA = 0.092;
 const float TERRARIUM_GLASS_VOXEL_GRID = TERRARIUM_VOXELS_PER_CHUNK_AXIS;
-const uint TERRARIUM_GLASS_SSR_MAX_STEPS = 512u;
+const uint TERRARIUM_GLASS_SSR_MAX_STEPS = 64u;
 const float TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD = 1.45;
 // Compare glass occlusion in ray/world space instead of non-linear depth space.
 // A fixed NDC-depth epsilon grows to a large world-space distance near the far plane.
