@@ -453,6 +453,10 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
                                     TERRARIUM_VOXEL_WORLD_SIZE;
     float jitter = (jitter_seed - 0.5) * step_len * 0.45;
     ivec2 tex_size = textureSize(gfx_output_tex, 0);
+    bool have_prev_depth_sample = false;
+    float prev_depth_gap = 0.0;
+    float prev_t = 0.0;
+    vec2 prev_uv = vec2(0.0);
 
     for (uint i = 0u; i < TERRARIUM_GLASS_SSR_MAX_STEPS; i++) {
         if (i >= step_count) {
@@ -466,16 +470,19 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
         vec3 probe_ws = origin_ws + ray_dir * t;
         vec4 clip = camera_info.view_proj_mat * vec4(probe_ws, 1.0);
         if (clip.w <= 0.0) {
+            have_prev_depth_sample = false;
             continue;
         }
 
         vec3 ndc = clip.xyz / clip.w;
         if (ndc.z <= 0.0 || ndc.z >= 1.0) {
+            have_prev_depth_sample = false;
             continue;
         }
 
         vec2 sample_uv = ndc.xy * 0.5 + 0.5;
         if (any(lessThan(sample_uv, vec2(0.0))) || any(greaterThan(sample_uv, vec2(1.0)))) {
+            have_prev_depth_sample = false;
             continue;
         }
 
@@ -484,35 +491,59 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
         float raster_depth = texelFetch(gfx_depth_tex, sample_uvi, 0).r;
         vec4 raster_rgba = texelFetch(gfx_output_tex, sample_uvi, 0);
         if (raster_depth >= 1.0 || raster_rgba.a <= 0.02) {
+            have_prev_depth_sample = false;
             continue;
         }
 
-        vec3 raster_ws = ndc_to_world(vec4(sample_uv * 2.0 - 1.0, raster_depth, 1.0),
-                                      camera_info.view_proj_mat_inv);
-        vec3 delta = raster_ws - origin_ws;
-        float hit_t = dot(delta, ray_dir);
-        if (hit_t <= TERRARIUM_VOXEL_WORLD_SIZE ||
-            hit_t > TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD ||
-            hit_t > t + step_len * 1.35) {
+        // Treat min-hit-thickness as a camera-depth tolerance only. The previous
+        // ray-cylinder test expanded sideways in world space, so large values could
+        // accept nearby but different raster silhouettes and show ghost reflections.
+        Ray camera_ray = ray_gen(sample_uv, camera_info.view_proj_mat_inv);
+        float scene_camera_t = scene_ray_t_from_depth(sample_uv, camera_ray, raster_depth);
+        float probe_camera_t = dot(probe_ws - camera_ray.origin, camera_ray.direction);
+        float depth_gap = probe_camera_t - scene_camera_t;
+        float hit_thickness = max(min_hit_thickness_world, 1e-5) + t * 0.028;
+        bool crosses_depth = have_prev_depth_sample && prev_depth_gap < 0.0 && depth_gap >= 0.0;
+        bool inside_depth_slab = depth_gap >= 0.0 && depth_gap <= hit_thickness;
+        if (!crosses_depth && !inside_depth_slab) {
+            have_prev_depth_sample = true;
+            prev_depth_gap = depth_gap;
+            prev_t = t;
+            prev_uv = sample_uv;
             continue;
         }
 
-        float ray_distance = length(delta - ray_dir * hit_t);
-        float hit_thickness = max(min_hit_thickness_world, 1e-5) + hit_t * 0.028;
-        if (ray_distance > hit_thickness) {
-            continue;
+        vec2 hit_uv = sample_uv;
+        float hit_t = t;
+        vec4 hit_rgba = raster_rgba;
+        float depth_fade = 1.0 - clamp(depth_gap / hit_thickness, 0.0, 1.0);
+        if (crosses_depth) {
+            float cross_alpha = clamp((-prev_depth_gap) / max(depth_gap - prev_depth_gap, 1e-5),
+                                      0.0, 1.0);
+            hit_uv = mix(prev_uv, sample_uv, cross_alpha);
+            hit_t = mix(prev_t, t, cross_alpha);
+            ivec2 hit_uvi = ivec2(
+                clamp(hit_uv * vec2(tex_size), vec2(0.0), vec2(tex_size - ivec2(1))));
+            hit_rgba = texelFetch(gfx_output_tex, hit_uvi, 0);
+            if (hit_rgba.a <= 0.02) {
+                have_prev_depth_sample = true;
+                prev_depth_gap = depth_gap;
+                prev_t = t;
+                prev_uv = sample_uv;
+                continue;
+            }
+            depth_fade = 1.0;
         }
 
-        float screen_edge = min(min(sample_uv.x, 1.0 - sample_uv.x),
-                                min(sample_uv.y, 1.0 - sample_uv.y));
+        float screen_edge = min(min(hit_uv.x, 1.0 - hit_uv.x),
+                                min(hit_uv.y, 1.0 - hit_uv.y));
         float screen_fade = smoothstep(0.02, 0.14, screen_edge);
         float distance_fade = 1.0 -
                               smoothstep(TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD * 0.72,
                                          TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD, hit_t);
-        float ray_fade = 1.0 - clamp(ray_distance / hit_thickness, 0.0, 1.0);
-        float confidence = screen_fade * distance_fade * ray_fade *
-                           clamp(raster_rgba.a, 0.0, 1.0);
-        reflection_color = sample_raster_reflection_footprint(sample_uv, tex_size, raster_rgba);
+        float confidence = screen_fade * distance_fade * depth_fade *
+                           clamp(hit_rgba.a, 0.0, 1.0);
+        reflection_color = sample_raster_reflection_footprint(hit_uv, tex_size, hit_rgba);
         return confidence;
     }
 
