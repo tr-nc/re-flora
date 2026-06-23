@@ -217,7 +217,7 @@ const float TERRARIUM_GLASS_TOP_PADDING_WORLD = 0.08;
 const int TERRARIUM_GLASS_MAX_HITS = 4;
 const float TERRARIUM_GLASS_ALPHA = 0.092;
 const float TERRARIUM_GLASS_VOXEL_GRID = TERRARIUM_VOXELS_PER_CHUNK_AXIS;
-const uint TERRARIUM_GLASS_SSR_MAX_STEPS = 64u;
+const uint TERRARIUM_GLASS_SSR_MAX_STEPS = 512u;
 const float TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD = 1.45;
 // Compare glass occlusion in ray/world space instead of non-linear depth space.
 // A fixed NDC-depth epsilon grows to a large world-space distance near the far plane.
@@ -451,7 +451,7 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
     float step_len = TERRARIUM_GLASS_SSR_MAX_DISTANCE_WORLD / float(step_count);
     float min_hit_thickness_world = max(gui_input.glass_ssr_min_hit_thickness_voxels, 0.0) *
                                     TERRARIUM_VOXEL_WORLD_SIZE;
-    float jitter = (jitter_seed - 0.5) * step_len * 0.45;
+    float jitter = clamp(jitter_seed, 0.0, 0.9999) * step_len;
     ivec2 tex_size = textureSize(gfx_output_tex, 0);
     bool have_prev_depth_sample = false;
     float prev_depth_gap = 0.0;
@@ -462,7 +462,7 @@ float sample_raster_ssr_reflection(vec3 origin_ws, vec3 direction_ws, float jitt
         if (i >= step_count) {
             break;
         }
-        float t = (float(i) + 0.65) * step_len + jitter;
+        float t = float(i) * step_len + jitter;
         if (t <= 0.0) {
             continue;
         }
@@ -760,7 +760,8 @@ vec3 shade_terrarium_glass_hit(vec3 scene_color, vec2 screen_uv, Ray ray,
     vec3 sky_reflection = compute_sky_with_sun_and_stars(reflected_dir);
     vec3 ssr_reflection = sky_reflection;
     vec2 reflection_pixel = screen_uv * vec2(imageSize(composited_tex));
-    float ssr_jitter_seed = hash13(vec3(reflection_pixel, 17.0));
+    float temporal_jitter = float(env_info.frame_serial_idx % 4096u) * 0.61803398875;
+    float ssr_jitter_seed = fract(hash13(vec3(reflection_pixel, 17.0)) + temporal_jitter);
     float ssr_hit = sample_raster_ssr_reflection(
         hit.position + reflected_dir * (TERRARIUM_VOXEL_WORLD_SIZE * 2.0),
         reflected_dir,
