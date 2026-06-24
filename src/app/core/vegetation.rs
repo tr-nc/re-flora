@@ -892,9 +892,9 @@ impl App {
         let rebuild_chunk_ids = self.tree_rebuild_chunk_ids(old_bound, compiled.this_bound);
         let rebuild_start = Instant::now();
         if defer_rebuild {
-            self.enqueue_deferred_chunk_rebuilds(&rebuild_chunk_ids);
+            self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
         } else {
-            world_ops::mesh_generate_chunks(
+            world_ops::mesh_generate_chunks_without_flora(
                 &mut self.surface_builder,
                 &mut self.contree_builder,
                 &mut self.scene_accel_builder,
@@ -1751,9 +1751,9 @@ impl App {
         }
 
         let rebuild_start = Instant::now();
-        self.execute_edit_plan(WorldEditPlan::with_build(BuildEdit::RebuildMesh(
-            compiled.rebuild_bound,
-        )))?;
+        self.execute_edit_plan(WorldEditPlan::with_build(
+            BuildEdit::RebuildMeshWithoutFlora(compiled.rebuild_bound),
+        ))?;
         let rebuild_elapsed = rebuild_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH

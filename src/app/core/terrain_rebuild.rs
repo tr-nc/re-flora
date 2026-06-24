@@ -47,6 +47,14 @@ impl App {
         self.rebuild_visible_chunk_batch_synchronously(chunk_ids);
     }
 
+    pub(super) fn enqueue_deferred_chunk_rebuilds_without_flora(&mut self, chunk_ids: &[UVec3]) {
+        if chunk_ids.is_empty() {
+            return;
+        }
+
+        self.rebuild_visible_chunk_batch_without_flora_synchronously(chunk_ids);
+    }
+
     pub(super) fn enqueue_deferred_flora_preserving_chunk_rebuilds(
         &mut self,
         chunk_ids: &[UVec3],
@@ -105,6 +113,48 @@ impl App {
             Err(err) => {
                 log::error!(
                     "[PERF][SYNC_VISIBLE_REBUILD] failed chunks {} after {:.2}ms preserve_flora=false chunk_ids={:?}: {}",
+                    chunk_ids.len(),
+                    elapsed_ms,
+                    chunk_ids,
+                    err,
+                );
+            }
+        }
+    }
+
+    fn rebuild_visible_chunk_batch_without_flora_synchronously(&mut self, chunk_ids: &[UVec3]) {
+        let sync_start = Instant::now();
+        if !self.prepare_visible_sync_rebuild(chunk_ids) {
+            log::error!(
+                "[SYNC_VISIBLE_REBUILD] failed to prepare synchronous no-flora rebuild; leaving visible terrain unchanged for chunks {:?}",
+                chunk_ids,
+            );
+            return;
+        }
+        let result = world_ops::mesh_generate_chunks_without_flora(
+            &mut self.surface_builder,
+            &mut self.contree_builder,
+            &mut self.scene_accel_builder,
+            VOXEL_DIM_PER_CHUNK,
+            chunk_ids.to_vec(),
+        );
+        let elapsed_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
+        match result {
+            Ok(()) => {
+                for &chunk_id in chunk_ids {
+                    self.schedule_terrain_sdf_source_refresh(chunk_id);
+                }
+                self.request_vsm_history_reset();
+                log::info!(
+                    "[PERF][SYNC_VISIBLE_REBUILD] chunks {} total {:.2}ms preserve_flora=false place_flora=false chunk_ids={:?}",
+                    chunk_ids.len(),
+                    elapsed_ms,
+                    chunk_ids,
+                );
+            }
+            Err(err) => {
+                log::error!(
+                    "[PERF][SYNC_VISIBLE_REBUILD] failed chunks {} after {:.2}ms preserve_flora=false place_flora=false chunk_ids={:?}: {}",
                     chunk_ids.len(),
                     elapsed_ms,
                     chunk_ids,

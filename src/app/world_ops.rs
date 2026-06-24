@@ -168,7 +168,21 @@ pub(crate) fn apply_build_edit(
             voxel_dim_per_chunk,
             bound,
         ),
+        BuildEdit::RebuildMeshWithoutFlora(bound) => mesh_generate_without_flora(
+            surface_builder,
+            contree_builder,
+            scene_accel_builder,
+            voxel_dim_per_chunk,
+            bound,
+        ),
         BuildEdit::RebuildChunks(chunk_ids) => mesh_generate_chunks(
+            surface_builder,
+            contree_builder,
+            scene_accel_builder,
+            voxel_dim_per_chunk,
+            chunk_ids,
+        ),
+        BuildEdit::RebuildChunksWithoutFlora(chunk_ids) => mesh_generate_chunks_without_flora(
             surface_builder,
             contree_builder,
             scene_accel_builder,
@@ -227,12 +241,63 @@ pub(crate) fn mesh_generate(
     )
 }
 
+pub(crate) fn mesh_generate_without_flora(
+    surface_builder: &mut SurfaceBuilder,
+    contree_builder: &mut ContreeBuilder,
+    scene_accel_builder: &mut SceneAccelBuilder,
+    voxel_dim_per_chunk: UVec3,
+    bound: UAabb3,
+) -> Result<()> {
+    mesh_generate_chunks_without_flora(
+        surface_builder,
+        contree_builder,
+        scene_accel_builder,
+        voxel_dim_per_chunk,
+        affected_chunk_indices_for_bound(bound, voxel_dim_per_chunk),
+    )
+}
+
 pub(crate) fn mesh_generate_chunks(
     surface_builder: &mut SurfaceBuilder,
     contree_builder: &mut ContreeBuilder,
     scene_accel_builder: &mut SceneAccelBuilder,
     voxel_dim_per_chunk: UVec3,
     chunk_ids: Vec<UVec3>,
+) -> Result<()> {
+    mesh_generate_chunks_with_flora(
+        surface_builder,
+        contree_builder,
+        scene_accel_builder,
+        voxel_dim_per_chunk,
+        chunk_ids,
+        true,
+    )
+}
+
+pub(crate) fn mesh_generate_chunks_without_flora(
+    surface_builder: &mut SurfaceBuilder,
+    contree_builder: &mut ContreeBuilder,
+    scene_accel_builder: &mut SceneAccelBuilder,
+    voxel_dim_per_chunk: UVec3,
+    chunk_ids: Vec<UVec3>,
+) -> Result<()> {
+    mesh_generate_chunks_with_flora(
+        surface_builder,
+        contree_builder,
+        scene_accel_builder,
+        voxel_dim_per_chunk,
+        chunk_ids,
+        false,
+    )
+}
+
+fn mesh_generate_chunks_with_flora(
+    surface_builder: &mut SurfaceBuilder,
+    contree_builder: &mut ContreeBuilder,
+    scene_accel_builder: &mut SceneAccelBuilder,
+    voxel_dim_per_chunk: UVec3,
+    chunk_ids: Vec<UVec3>,
+    place_flora: bool,
 ) -> Result<()> {
     let rebuild_start = Instant::now();
     let chunk_count = chunk_ids.len();
@@ -253,7 +318,7 @@ pub(crate) fn mesh_generate_chunks(
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
         let surface_start = Instant::now();
-        let active_voxel_len = match surface_builder.build_surface(chunk_id, true) {
+        let active_voxel_len = match surface_builder.build_surface(chunk_id, place_flora) {
             Ok(active_voxel_len) => active_voxel_len,
             Err(e) => {
                 finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records);
@@ -347,7 +412,7 @@ pub(crate) fn mesh_generate_chunks(
     });
 
     log::debug!(
-        "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms contree_skipped {}",
+        "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms contree_skipped {} place_flora {}",
         chunk_count,
         rebuilt_chunk_count,
         rebuild_start.elapsed().as_secs_f32() * 1000.0,
@@ -355,6 +420,7 @@ pub(crate) fn mesh_generate_chunks(
         contree_total.as_secs_f32() * 1000.0,
         scene_total.as_secs_f32() * 1000.0,
         contree_skipped_count,
+        place_flora,
     );
 
     Ok(())

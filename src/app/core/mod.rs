@@ -407,8 +407,16 @@ impl WorldBuildBackend for App {
                     world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
                 self.enqueue_deferred_chunk_rebuilds(&chunk_ids);
             }
+            BuildEdit::RebuildMeshWithoutFlora(bound) => {
+                let chunk_ids =
+                    world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
+                self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids);
+            }
             BuildEdit::RebuildChunks(chunk_ids) => {
                 self.enqueue_deferred_chunk_rebuilds(&chunk_ids);
+            }
+            BuildEdit::RebuildChunksWithoutFlora(chunk_ids) => {
+                self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids);
             }
         }
         Ok(())
