@@ -1,14 +1,17 @@
 use super::ui_style::{
     HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_SLOT_COUNT, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT,
-    SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, WATER_SLOT_INDEX,
-    WATER_TOOL_ACCENT,
+    SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, TREE_SLOT_INDEX,
+    TREE_TOOL_ACCENT, WATER_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use super::App;
-use crate::app::world_edits::{TerrainBrushEdit, TerrainRemovalEdit};
+use crate::app::world_edits::{
+    TerrainBrushEdit, TerrainRemovalEdit, TreeAddOptions, TreePlacement,
+};
 use crate::builder::ChunkModifyStats;
 use crate::flora::species;
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
+use rand::RngExt;
 use std::time::{Duration, Instant};
 use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
@@ -381,11 +384,12 @@ impl App {
             || self.is_smooth_selected()
             || self.is_staff_selected()
             || self.is_hoe_selected()
+            || self.is_tree_plant_selected()
             || self.is_water_tool_selected()
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
-        if self.is_water_tool_selected() {
+        if self.is_water_tool_selected() || self.is_tree_plant_selected() {
             TerrainEditPreviewShape::SurfaceCircle
         } else {
             TerrainEditPreviewShape::Sphere
@@ -399,6 +403,8 @@ impl App {
             STAFF_TOOL_ACCENT
         } else if self.is_hoe_selected() {
             HOE_TOOL_ACCENT
+        } else if self.is_tree_plant_selected() {
+            TREE_TOOL_ACCENT
         } else if self.is_water_tool_selected() {
             WATER_TOOL_ACCENT
         } else {
@@ -418,6 +424,10 @@ impl App {
 
     pub(super) fn is_hoe_selected(&self) -> bool {
         self.player_tools.selected_item_panel_slot == HOE_SLOT_INDEX
+    }
+
+    pub(super) fn is_tree_plant_selected(&self) -> bool {
+        self.player_tools.selected_item_panel_slot == TREE_SLOT_INDEX
     }
 
     pub(super) fn is_water_tool_selected(&self) -> bool {
@@ -937,6 +947,36 @@ impl App {
             }
             Err(err) => {
                 log::error!("Hoe trim attempt failed during terrain query: {}", err);
+            }
+        }
+    }
+
+    pub(super) fn try_tree_plant(&mut self) {
+        if !self.terrain_edit_pointer_available() || !self.is_tree_plant_selected() {
+            self.stop_terrain_edit_loop_sound();
+            return;
+        }
+
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) => {
+                self.stop_terrain_edit_loop_sound();
+                let mut tree_desc = self.debug_tree_desc.clone();
+                tree_desc.seed = rand::rng().random::<u64>();
+                if let Err(err) = self.add_tree(
+                    tree_desc,
+                    TreePlacement::World(center),
+                    TreeAddOptions::default().with_new_id(),
+                ) {
+                    log::error!("Failed to plant tree: {}", err);
+                } else {
+                    log::info!("Planted tree at {:?}", center);
+                }
+            }
+            Ok(None) => {
+                self.stop_terrain_edit_loop_sound();
+            }
+            Err(err) => {
+                log::error!("Tree plant attempt failed during terrain query: {}", err);
             }
         }
     }

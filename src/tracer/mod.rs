@@ -2730,6 +2730,31 @@ impl Tracer {
         changed
     }
 
+    pub fn project_world_to_screen_position(
+        &self,
+        world_pos: Vec3,
+        screen_extent: Extent2D,
+    ) -> Option<Vec2> {
+        if screen_extent.width == 0 || screen_extent.height == 0 {
+            return None;
+        }
+
+        let clip = self.current_view_proj_mat * world_pos.extend(1.0);
+        if clip.w <= 1.0e-6 {
+            return None;
+        }
+
+        let ndc = clip.truncate() / clip.w;
+        if ndc.z < -1.0 || ndc.z > 1.0 {
+            return None;
+        }
+
+        Some(Vec2::new(
+            (ndc.x * 0.5 + 0.5) * screen_extent.width as f32,
+            (1.0 - (ndc.y * 0.5 + 0.5)) * screen_extent.height as f32,
+        ))
+    }
+
     pub fn project_screen_point_to_world(
         &self,
         screen_pos: Vec2,

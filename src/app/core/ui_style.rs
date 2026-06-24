@@ -35,17 +35,23 @@ pub(crate) const ITEM_PANEL_WATER_ICON_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/15_Wooden_Watering_Can.PNG";
 pub(crate) const ITEM_PANEL_WATER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/30_Copper_Watering_Can.PNG";
-pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 4;
+pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str =
+    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/1_Tree_Log.PNG";
+pub(crate) const ITEM_PANEL_TREE_ICON_FALLBACK_PATH: &str =
+    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/8_Wooden_Axe.PNG";
+pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 5;
 pub(crate) const STAFF_SLOT_INDEX: usize = 0;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 1;
 pub(crate) const SMOOTH_SLOT_INDEX: usize = 2;
 pub(crate) const HOE_SLOT_INDEX: usize = 3;
-pub(crate) const WATER_SLOT_INDEX: usize = 4;
+pub(crate) const TREE_SLOT_INDEX: usize = 4;
+pub(crate) const WATER_SLOT_INDEX: usize = 5;
 
 pub(crate) const SHOVEL_TOOL_ACCENT: Color32 = Color32::from_rgb(178, 124, 80);
 pub(crate) const SMOOTH_TOOL_ACCENT: Color32 = Color32::from_rgb(190, 156, 106);
 pub(crate) const STAFF_TOOL_ACCENT: Color32 = Color32::from_rgb(129, 189, 122);
 pub(crate) const HOE_TOOL_ACCENT: Color32 = Color32::from_rgb(219, 128, 152);
+pub(crate) const TREE_TOOL_ACCENT: Color32 = Color32::from_rgb(82, 154, 90);
 pub(crate) const WATER_TOOL_ACCENT: Color32 = Color32::from_rgb(96, 171, 218);
 
 pub(crate) struct ItemPanelSlot<'a> {
@@ -241,6 +247,72 @@ fn draw_item_panel_slot(
     }
 
     clicked
+}
+
+pub(crate) fn draw_tree_placement_preview(
+    ctx: &egui::Context,
+    anchor_physical: Option<egui::Pos2>,
+) {
+    let Some(anchor_physical) = anchor_physical else {
+        return;
+    };
+
+    let pixels_per_point = ctx.pixels_per_point().max(1.0);
+    let anchor = egui::pos2(
+        anchor_physical.x / pixels_per_point,
+        anchor_physical.y / pixels_per_point,
+    );
+
+    egui::Area::new("tree_placement_preview".into())
+        .order(egui::Order::Foreground)
+        .fixed_pos(anchor + egui::vec2(-44.0, -118.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(88.0, 118.0), egui::Sense::hover());
+            let painter = ui.painter_at(rect);
+            let base = egui::pos2(rect.center().x, rect.bottom() - 12.0);
+            let ghost = Color32::from_rgba_unmultiplied(
+                TREE_TOOL_ACCENT.r(),
+                TREE_TOOL_ACCENT.g(),
+                TREE_TOOL_ACCENT.b(),
+                150,
+            );
+            let ghost_dark = Color32::from_rgba_unmultiplied(38, 54, 38, 165);
+            let trunk = Color32::from_rgba_unmultiplied(130, 82, 44, 170);
+            let outline = Color32::from_rgba_unmultiplied(235, 230, 215, 130);
+
+            painter.circle_stroke(
+                base,
+                24.0,
+                egui::Stroke::new(2.0, Color32::from_rgba_unmultiplied(235, 165, 60, 130)),
+            );
+            painter.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(base.x - 5.0, base.y - 54.0),
+                    egui::pos2(base.x + 5.0, base.y + 2.0),
+                ),
+                egui::CornerRadius::same(0),
+                trunk,
+            );
+
+            for (offset, radius, color) in [
+                (egui::vec2(0.0, -74.0), 29.0, ghost),
+                (egui::vec2(-20.0, -58.0), 24.0, ghost_dark),
+                (egui::vec2(21.0, -57.0), 24.0, ghost_dark),
+                (egui::vec2(0.0, -43.0), 25.0, ghost),
+            ] {
+                painter.circle_filled(base + offset, radius, color);
+                painter.circle_stroke(base + offset, radius, egui::Stroke::new(1.5, outline));
+            }
+
+            painter.text(
+                egui::pos2(rect.center().x, rect.top() + 8.0),
+                egui::Align2::CENTER_TOP,
+                "click to plant",
+                egui::TextStyle::Small.resolve(ui.style()),
+                Color32::from_rgba_unmultiplied(235, 230, 215, 190),
+            );
+        });
 }
 
 pub(crate) struct VoxelPaletteEntry {

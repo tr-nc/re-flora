@@ -71,9 +71,10 @@ use ui_style::{
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
+    ITEM_PANEL_TREE_ICON_FALLBACK_PATH, ITEM_PANEL_TREE_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
-    SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT,
+    SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, TREE_SLOT_INDEX, TREE_TOOL_ACCENT,
 };
 use verdarium_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -146,6 +147,7 @@ pub struct App {
     item_panel_smooth_icon: Option<TextureHandle>,
     item_panel_staff_icon: Option<TextureHandle>,
     item_panel_hoe_icon: Option<TextureHandle>,
+    item_panel_tree_icon: Option<TextureHandle>,
     item_panel_water_icon: Option<TextureHandle>,
     player_tools: PlayerToolState,
     water_particle_handoff_main_thread_ms: Option<f32>,
@@ -976,6 +978,7 @@ impl App {
             item_panel_smooth_icon: None,
             item_panel_staff_icon: None,
             item_panel_hoe_icon: None,
+            item_panel_tree_icon: None,
             item_panel_water_icon: None,
             player_tools: PlayerToolState::default(),
             water_particle_handoff_main_thread_ms: None,
@@ -1191,6 +1194,33 @@ impl App {
         );
         self.item_panel_hoe_icon = Some(hoe_texture);
 
+        let tree_path = if std::path::Path::new(ITEM_PANEL_TREE_ICON_PATH).exists() {
+            ITEM_PANEL_TREE_ICON_PATH
+        } else {
+            log::warn!(
+                "Item panel icon not found at {}. Falling back to {}",
+                ITEM_PANEL_TREE_ICON_PATH,
+                ITEM_PANEL_TREE_ICON_FALLBACK_PATH
+            );
+            ITEM_PANEL_TREE_ICON_FALLBACK_PATH
+        };
+
+        let tree_bytes = std::fs::read(tree_path)
+            .with_context(|| format!("Failed to read item panel icon from {tree_path}"))?;
+        let tree_rgba = image::load_from_memory(&tree_bytes)
+            .with_context(|| format!("Failed to decode item panel icon from {tree_path}"))?
+            .to_rgba8();
+        let tree_size = [tree_rgba.width() as usize, tree_rgba.height() as usize];
+        let tree_pixels = tree_rgba.into_raw();
+        let tree_image = ColorImage::from_rgba_unmultiplied(tree_size, &tree_pixels);
+
+        let tree_texture = self.egui_renderer.context().load_texture(
+            "item_panel_tree_plant",
+            tree_image,
+            egui::TextureOptions::NEAREST,
+        );
+        self.item_panel_tree_icon = Some(tree_texture);
+
         let water_path = if std::path::Path::new(ITEM_PANEL_WATER_ICON_PATH).exists() {
             ITEM_PANEL_WATER_ICON_PATH
         } else {
@@ -1377,6 +1407,7 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit2) => Some(1),
                         PhysicalKey::Code(KeyCode::Digit3) => Some(2),
                         PhysicalKey::Code(KeyCode::Digit4) => Some(3),
+                        PhysicalKey::Code(KeyCode::Digit5) => Some(4),
                         _ => None,
                     };
 
@@ -1424,6 +1455,9 @@ impl App {
                             } else if self.is_hoe_selected() && button == MouseButton::Left {
                                 self.player_tools.shovel_dig_held = true;
                                 self.try_hoe_trim(now);
+                            } else if self.is_tree_plant_selected() && button == MouseButton::Left {
+                                self.stop_terrain_edit_loop_sound();
+                                self.try_tree_plant();
                             } else if self.is_water_tool_selected() && button == MouseButton::Left {
                                 self.stop_terrain_edit_loop_sound();
                                 self.try_water_particle_spawn();
@@ -1543,6 +1577,7 @@ impl App {
                 let item_panel_smooth_icon = self.item_panel_smooth_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
+                let item_panel_tree_icon = self.item_panel_tree_icon.clone();
                 let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
                 let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
                     .iter()
@@ -1573,6 +1608,18 @@ impl App {
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_preview_center = self.terrain_edit_hover_center();
+                let tree_placement_preview_screen_pos = if self.is_tree_plant_selected() {
+                    terrain_edit_preview_center.and_then(|center| {
+                        self.tracer
+                            .project_world_to_screen_position(
+                                center,
+                                self.window_state.window_extent(),
+                            )
+                            .map(|pos| egui::pos2(pos.x, pos.y))
+                    })
+                } else {
+                    None
+                };
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
                 let terrain_edit_preview_color = self.terrain_edit_preview_color();
                 let egui_start = Instant::now();
@@ -1749,6 +1796,14 @@ impl App {
                                 accent: HOE_TOOL_ACCENT,
                                 enabled: true,
                             },
+                            ItemPanelSlot {
+                                index: TREE_SLOT_INDEX,
+                                label: "Tree",
+                                key_hint: "5",
+                                icon: item_panel_tree_icon.as_ref(),
+                                accent: TREE_TOOL_ACCENT,
+                                enabled: true,
+                            },
                         ];
                         let item_panel_response = draw_item_panel(
                             ctx,
@@ -1757,6 +1812,11 @@ impl App {
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
+
+                        ui_style::draw_tree_placement_preview(
+                            ctx,
+                            tree_placement_preview_screen_pos,
+                        );
 
                         let voxel_palette_response =
                             draw_voxel_palette(ctx, &voxel_palette_entries, false);
