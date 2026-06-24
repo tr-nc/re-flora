@@ -25,7 +25,7 @@ float terrain_edit_preview_tint_at(vec3 center_pos) {
         return 0.0;
     }
 
-    float dist = terrain_edit_preview.shape == 1u
+    float dist = terrain_edit_preview.shape == 1u || terrain_edit_preview.shape == 2u
                      ? length(center_pos.xz - terrain_edit_preview.center.xz)
                      : length(center_pos - terrain_edit_preview.center);
     float edge = max(terrain_edit_preview.radius * 0.12, 0.002);

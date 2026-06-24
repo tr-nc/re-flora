@@ -1608,18 +1608,6 @@ impl App {
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_preview_center = self.terrain_edit_hover_center();
-                let tree_placement_preview_screen_pos = if self.is_tree_plant_selected() {
-                    terrain_edit_preview_center.and_then(|center| {
-                        self.tracer
-                            .project_world_to_screen_position(
-                                center,
-                                self.window_state.window_extent(),
-                            )
-                            .map(|pos| egui::pos2(pos.x, pos.y))
-                    })
-                } else {
-                    None
-                };
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
                 let terrain_edit_preview_color = self.terrain_edit_preview_color();
                 let egui_start = Instant::now();
@@ -1812,11 +1800,6 @@ impl App {
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
-
-                        ui_style::draw_tree_placement_preview(
-                            ctx,
-                            tree_placement_preview_screen_pos,
-                        );
 
                         let voxel_palette_response =
                             draw_voxel_palette(ctx, &voxel_palette_entries, false);

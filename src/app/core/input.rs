@@ -389,7 +389,9 @@ impl App {
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
-        if self.is_water_tool_selected() || self.is_tree_plant_selected() {
+        if self.is_tree_plant_selected() {
+            TerrainEditPreviewShape::TreeBillboard
+        } else if self.is_water_tool_selected() {
             TerrainEditPreviewShape::SurfaceCircle
         } else {
             TerrainEditPreviewShape::Sphere
