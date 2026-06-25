@@ -59,7 +59,7 @@ The player does not need to dominate the world. Small actions are enough:
 - Scatter seeds or spores.
 - Disturb butterflies.
 - Ripple water.
-- Influence wind, weather, or local growth with simple objects.
+- Influence wind, weather, local growth, moisture, or fertility with simple objects.
 
 The world should respond visibly.
 
@@ -99,14 +99,15 @@ Prioritize small, high-impact additions:
 4. Time and weather: dawn, dusk, night, rain, fog, stronger wind states.
 5. Small creatures: fireflies, bees, dragonflies, frogs, fish shadows, beetles.
 6. Mysterious environmental anchors: stones, ruins, bells, shrine-like objects.
-7. Screenshot or camera support once the world is visually rich enough.
+7. A few expressive garden tools and devices, such as sprinklers, pipes, cables, and toy-like generators.
+8. Screenshot or camera support once the world is visually rich enough.
 
 ## Product Shape
 
 A good first Steam target is a small but complete vertical slice:
 
 - One compact area with grass, flowers, water, insects, wind, and day/night changes.
-- A few ways for the player to disturb or nurture the area.
+- A few ways for the player to disturb, nurture, plant, irrigate, and lightly automate the area.
 - At least one memorable mystery or landmark.
 - Enough variation to make players want to return.
 - No heavy systems that require months of content production before they feel good.
@@ -115,4 +116,4 @@ The game can be light and still feel complete if the world is reactive, beautifu
 
 ## One-Line Pitch
 
-> A living low-resolution voxel terrarium about wind, grass, water, insects, and time.
+> A living low-resolution voxel garden about wind, grass, water, insects, and time.

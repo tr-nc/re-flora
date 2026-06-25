@@ -24,6 +24,25 @@ Goals matter - even for a small cozy game that could keep evolving forever. They
 
 ## 2) High-Priority Features
 
+- **Third-person garden loop vertical slice**
+  - Turn the current terrarium feel into a small player-managed garden plot.
+  - Support a short loop: buy or receive seed packet -> plant -> adjust soil/moisture -> observe response -> harvest -> sell or fulfill order -> unlock one new item.
+  - Keep the first slice small enough to prove fun within 2-3 minutes.
+
+- **Local soil state and plant response**
+  - Track simple per-area soil state such as moisture and fertility.
+  - Let grass/plants visibly respond through greenness, density, growth speed, yield, or particles.
+  - Prioritize readable feedback over deep simulation.
+
+- **First utility device chain**
+  - Prototype a tiny sprinkler or drip irrigator that can be placed on/into soil.
+  - Feed it through a simple water pipe/hose and optional power cable.
+  - Show obvious activation feedback: spray, wet soil, sound, plant response.
+
+- **Surface object layer behavior**
+  - Treat grass, devices, pipes, cables, generators, decor, shops, and house pieces as non-voxel surface objects above editable terrain.
+  - When terrain below them changes, resample support and let objects settle, fall, tilt, or become invalid rather than making every prop destructible.
+
 - **Terrain harvesting feedback**
   - Add particle effects at terrain-edit positions.
   - Emit particles matching voxel color.
@@ -34,6 +53,18 @@ Goals matter - even for a small cozy game that could keep evolving forever. They
   - Make sure bootstrap_macos.sh work properly
 
 ## 3) Visual & World Expansion
+
+- **Cozy garden economy objects**
+  - Add a tiny shop, trading platform, or order board for seeds, devices, pipes, cables, and plant/fruit sales.
+  - Keep commerce lightweight and directly tied to plant experimentation.
+
+- **Home base / shed direction**
+  - Add a small player house or garden shed as a long-term upgrade anchor.
+  - Prefer cosmetic and gentle utility upgrades over survival pressure.
+
+- **Playful generators**
+  - Explore toy-like power sources such as a rattling diesel generator, kite/wind generator, tiny windmill, or solar mirror.
+  - Make each generator strongly animated and readable before adding many variants.
 
 - **Reflective pond biome element**
   - Add a small pond with SSR reflections for terrain and flora.
