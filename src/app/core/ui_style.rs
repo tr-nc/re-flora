@@ -44,8 +44,11 @@ pub(crate) const STAFF_SLOT_INDEX: usize = 0;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 1;
 pub(crate) const SMOOTH_SLOT_INDEX: usize = 2;
 pub(crate) const HOE_SLOT_INDEX: usize = 3;
-pub(crate) const TREE_SLOT_INDEX: usize = 4;
-pub(crate) const WATER_SLOT_INDEX: usize = 5;
+pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = 4;
+pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
+pub(crate) const PLACEABLE_PANEL_SLOT_COUNT: usize = 2;
+pub(crate) const TREE_PLACEABLE_SLOT_INDEX: usize = 0;
+pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
 pub(crate) const SHOVEL_TOOL_ACCENT: Color32 = Color32::from_rgb(178, 124, 80);
 pub(crate) const SMOOTH_TOOL_ACCENT: Color32 = Color32::from_rgb(190, 156, 106);
@@ -65,6 +68,20 @@ pub(crate) struct ItemPanelSlot<'a> {
 
 #[derive(Default)]
 pub(crate) struct ItemPanelResponse {
+    pub clicked_slot: Option<usize>,
+}
+
+pub(crate) struct PlaceablePanelSlot<'a> {
+    pub index: usize,
+    pub label: &'static str,
+    pub key_hint: &'static str,
+    pub icon: Option<&'a TextureHandle>,
+    pub accent: Color32,
+    pub enabled: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct PlaceablePanelResponse {
     pub clicked_slot: Option<usize>,
 }
 
@@ -128,6 +145,101 @@ pub(crate) fn draw_item_panel(
                         let clicked = draw_item_panel_slot(
                             ui,
                             slot,
+                            slot.index == selected_slot_idx,
+                            interaction_enabled && slot.enabled,
+                            theme,
+                        );
+                        if clicked {
+                            panel_response.clicked_slot = Some(slot.index);
+                        }
+                    }
+                });
+            });
+        });
+
+    panel_response
+}
+
+pub(crate) fn draw_placeable_panel(
+    ctx: &egui::Context,
+    slots: &[PlaceablePanelSlot<'_>],
+    selected_slot_idx: usize,
+    placement_tool_active: bool,
+    interaction_enabled: bool,
+) -> PlaceablePanelResponse {
+    let theme = ItemPanelTheme {
+        slot_size: egui::Vec2::new(60.0, 56.0),
+        icon_size: egui::Vec2::new(28.0, 28.0),
+        slot_gap: 6.0,
+        tray_padding: egui::Vec2::new(10.0, 8.0),
+        keycap_size: egui::Vec2::new(18.0, 14.0),
+    };
+    let mut panel_response = PlaceablePanelResponse::default();
+
+    egui::Area::new("placeable_panel".into())
+        .order(egui::Order::Foreground)
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::Vec2::new(0.0, -94.0))
+        .show(ctx, |ui| {
+            let panel_frame = egui::containers::Frame {
+                fill: if placement_tool_active {
+                    PANEL_DARK
+                } else {
+                    PANEL_DARK.linear_multiply(0.82)
+                },
+                inner_margin: egui::Margin {
+                    left: theme.tray_padding.x as i8,
+                    right: theme.tray_padding.x as i8,
+                    top: theme.tray_padding.y as i8,
+                    bottom: theme.tray_padding.y as i8,
+                },
+                corner_radius: egui::CornerRadius::same(0),
+                shadow: egui::epaint::Shadow {
+                    offset: [3, 3],
+                    blur: 0,
+                    spread: 0,
+                    color: SHADOW_COLOR,
+                },
+                stroke: egui::Stroke::new(
+                    2.0,
+                    if placement_tool_active {
+                        GOLD_ACCENT
+                    } else {
+                        SAGE_ACCENT
+                    },
+                ),
+                ..Default::default()
+            };
+
+            panel_frame.show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(if placement_tool_active {
+                            "Place"
+                        } else {
+                            "Place · press 5"
+                        })
+                        .color(if placement_tool_active {
+                            GOLD_ACCENT
+                        } else {
+                            SAGE_ACCENT
+                        })
+                        .monospace()
+                        .size(11.0),
+                    );
+                    ui.add_space(3.0);
+                    ui.spacing_mut().item_spacing.x = theme.slot_gap;
+                    for slot in slots {
+                        let item_slot = ItemPanelSlot {
+                            index: slot.index,
+                            label: slot.label,
+                            key_hint: slot.key_hint,
+                            icon: slot.icon,
+                            accent: slot.accent,
+                            enabled: slot.enabled,
+                        };
+                        let clicked = draw_item_panel_slot(
+                            ui,
+                            &item_slot,
                             slot.index == selected_slot_idx,
                             interaction_enabled && slot.enabled,
                             theme,

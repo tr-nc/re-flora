@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 pub(super) struct PlayerToolState {
     pub(super) selected_item_panel_slot: usize,
+    pub(super) selected_placeable_panel_slot: usize,
     pub(super) left_mouse_held: bool,
     pub(super) right_mouse_held: bool,
     pub(super) shovel_dig_held: bool,
@@ -33,6 +34,7 @@ impl Default for PlayerToolState {
     fn default() -> Self {
         Self {
             selected_item_panel_slot: super::ui_style::STAFF_SLOT_INDEX,
+            selected_placeable_panel_slot: super::ui_style::TREE_PLACEABLE_SLOT_INDEX,
             left_mouse_held: false,
             right_mouse_held: false,
             shovel_dig_held: false,
