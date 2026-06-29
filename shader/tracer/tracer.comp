@@ -59,6 +59,8 @@ layout(set = 0, binding = 10) uniform sampler2D shadow_map_tex;
 layout(set = 0, binding = 12) uniform sampler2D leaf_shadow_opacity_blended_tex;
 layout(set = 0, binding = 13) uniform sampler2D leaf_shadow_mask_tex;
 layout(set = 0, binding = 14) uniform sampler2D cloud_shadow_tex;
+const int TERRAIN_MOISTURE_PATCH_CAPACITY = 48;
+
 layout(set = 0, binding = 11) uniform U_VoxelColors {
     vec3 dirt_color;
     vec3 sand_color;
@@ -66,6 +68,8 @@ layout(set = 0, binding = 11) uniform U_VoxelColors {
     vec3 oak_wood_color;
     vec3 rock_color;
     float hash_color_variance;
+    vec4 moisture_patches[TERRAIN_MOISTURE_PATCH_CAPACITY];
+    vec4 moisture_params;
 }
 voxel_colors;
 #include "../include/terrain_edit_preview.glsl"
@@ -240,6 +244,7 @@ vec3 offset_color(vec3 input_color, vec3 center_pos) {
 
 void parse_trace_result(out vec3 albedo, out vec3 next_tracing_pos, MarchingResult res) {
     albedo = voxel_color_by_type_and_hash_unorm(res.voxel_type, res.hash_id);
+    albedo = apply_terrain_moisture(albedo, res.voxel_type, res.center_pos);
     // albedo = offset_color(albedo, res.center_pos);
     next_tracing_pos = get_next_tracing_pos(res.center_pos, res.normal);
 }

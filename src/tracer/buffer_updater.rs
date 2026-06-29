@@ -5,7 +5,7 @@ use crate::generated::gpu_structs::{
 };
 use crate::tracer::{
     CloudGuiParams, GlassGuiParams, TerrainEditPreviewShape, TracerResources, WindGuiParams,
-    WindSourceGpu,
+    WindSourceGpu, TERRAIN_MOISTURE_PATCH_CAPACITY,
 };
 use anyhow::Result;
 use bytemuck::Zeroable;
@@ -206,7 +206,18 @@ impl BufferUpdater {
         oak_wood_color: Vec3,
         rock_color: Vec3,
         hash_color_variance: f32,
+        moisture_patches: &[[f32; 4]; TERRAIN_MOISTURE_PATCH_CAPACITY],
+        moisture_patch_count: u32,
     ) -> Result<()> {
+        let mut moisture_patch_bits = [0u32; TERRAIN_MOISTURE_PATCH_CAPACITY * 4];
+        for (patch_idx, patch) in moisture_patches.iter().enumerate() {
+            let base = patch_idx * 4;
+            moisture_patch_bits[base] = patch[0].to_bits();
+            moisture_patch_bits[base + 1] = patch[1].to_bits();
+            moisture_patch_bits[base + 2] = patch[2].to_bits();
+            moisture_patch_bits[base + 3] = patch[3].to_bits();
+        }
+
         resources.uniforms.voxel_colors.fill_uniform(&VoxelColors {
             dirt_color: dirt_color.to_array(),
             sand_color: sand_color.to_array(),
@@ -214,6 +225,8 @@ impl BufferUpdater {
             oak_wood_color: oak_wood_color.to_array(),
             rock_color: rock_color.to_array(),
             hash_color_variance,
+            moisture_patches: moisture_patch_bits,
+            moisture_params: [moisture_patch_count as f32, 1.0, 0.0, 0.0],
             ..VoxelColors::zeroed()
         })
     }

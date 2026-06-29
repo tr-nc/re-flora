@@ -10,19 +10,19 @@ use glam::{Vec3, Vec4};
 use rand::{rngs::SmallRng, RngExt, SeedableRng};
 use std::f32::consts::TAU;
 
-const SPRINKLER_BASE_HALF_EXTENT_VOXELS: Vec3 = Vec3::new(9.0, 3.0, 9.0);
-const SPRINKLER_BASE_CENTER_Y_VOXELS: f32 = 3.0;
-const SPRINKLER_STEM_BOTTOM_Y_VOXELS: f32 = 5.0;
-const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 = 48.0;
-const SPRINKLER_STEM_RADIUS_VOXELS: f32 = 3.0;
-const SPRINKLER_NOZZLE_HALF_LENGTH_VOXELS: f32 = 13.0;
-const SPRINKLER_NOZZLE_HALF_THICKNESS_VOXELS: f32 = 2.0;
+const SPRINKLER_BASE_HALF_EXTENT_VOXELS: Vec3 = Vec3::new(4.0, 1.4, 4.0);
+const SPRINKLER_BASE_CENTER_Y_VOXELS: f32 = 1.4;
+const SPRINKLER_STEM_BOTTOM_Y_VOXELS: f32 = 2.4;
+const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 = 10.0;
+const SPRINKLER_STEM_RADIUS_VOXELS: f32 = 1.2;
+const SPRINKLER_NOZZLE_HALF_LENGTH_VOXELS: f32 = 4.5;
+const SPRINKLER_NOZZLE_HALF_THICKNESS_VOXELS: f32 = 1.0;
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 
 const SPRINKLER_SPAWN_RATE_PER_SECOND: f32 = 72.0;
 const SPRINKLER_MAX_SPAWN_PER_FRAME: u32 = 24;
 const SPRINKLER_DROPLET_SIZE: f32 = 0.010;
-const SPRINKLER_DROPLET_LIFETIME: f32 = 0.78;
+const SPRINKLER_DROPLET_LIFETIME: f32 = 0.62;
 const SPRINKLER_GRAVITY_FACTOR: f32 = 0.82;
 const SPRINKLER_COLOR_LOW: Vec4 = Vec4::new(0.34, 0.68, 1.0, 0.92);
 const SPRINKLER_COLOR_HIGH: Vec4 = Vec4::new(0.78, 0.93, 1.0, 0.96);
@@ -82,8 +82,8 @@ impl SprinklerEmitter {
         let jet_sweep = time * 7.5 + self.phase;
         let angle = self.rng.random_range(0.0..TAU) + jet_sweep.sin() * 0.18;
         let horizontal_dir = Vec3::new(angle.cos(), 0.0, angle.sin());
-        let horizontal_speed = self.rng.random_range(0.65..=1.20);
-        let vertical_speed = self.rng.random_range(0.38..=0.74);
+        let horizontal_speed = self.rng.random_range(0.42..=0.95);
+        let vertical_speed = self.rng.random_range(0.20..=0.44);
         let muzzle_jitter = Vec3::new(
             self.rng.random_range(-0.008..=0.008),
             self.rng.random_range(-0.002..=0.006),

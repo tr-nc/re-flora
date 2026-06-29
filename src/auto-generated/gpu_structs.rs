@@ -690,6 +690,8 @@ pub struct VoxelColors {
     pub _pad3: [u8; 4],
     pub rock_color: [f32; 3],
     pub hash_color_variance: f32,
+    pub moisture_patches: [u32; 192],
+    pub moisture_params: [f32; 4],
 }
 
 /// Auto-generated from `U_WindVolumeInfo` (GLSL source of truth).
