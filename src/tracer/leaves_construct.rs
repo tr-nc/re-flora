@@ -3,6 +3,17 @@ use anyhow::Result;
 use glam::{IVec3, Vec3};
 use noise::{NoiseFn, Perlin};
 
+pub const DEFAULT_LEAF_INNER_DENSITY: f32 = 0.5;
+pub const DEFAULT_LEAF_OUTER_DENSITY: f32 = 0.25;
+pub const DEFAULT_LEAF_INNER_RADIUS: f32 = 8.0;
+pub const DEFAULT_LEAF_OUTER_RADIUS: f32 = 16.0;
+
+#[derive(Debug, Clone)]
+pub struct LeafVoxelShape {
+    pub offsets: Vec<IVec3>,
+    pub max_length: u32,
+}
+
 fn push_voxel(
     vertices: &mut Vec<Vertex>,
     indices: &mut Vec<u32>,
@@ -23,7 +34,7 @@ fn push_voxel(
     )
 }
 
-/// Generates indexed voxel data for hollow sphere-shaped leaves.
+/// Generates voxel offsets for hollow sphere-shaped leaves.
 ///
 /// # Parameters
 /// - `inner_density`: Density at the inner shell edge (0.0 to 1.0)
@@ -32,14 +43,13 @@ fn push_voxel(
 /// - `outer_radius`: Outer radius of the hollow sphere (max 128 due to encoding constraints)
 ///
 /// # Returns
-/// A tuple of (vertices, indices) for rendering the voxel leaves.
-pub fn generate_indexed_voxel_leaves(
+/// The leaf-shell voxel offsets and the gradient length used by the foliage shaders.
+pub fn generate_voxel_leaf_shape(
     inner_density: f32,
     outer_density: f32,
     inner_radius: f32,
     outer_radius: f32,
-    is_lod_used: bool,
-) -> Result<(Vec<Vertex>, Vec<u32>)> {
+) -> Result<LeafVoxelShape> {
     if outer_radius > 128.0 {
         return Err(anyhow::anyhow!(
             "Outer radius must be <= 128 due to encoding constraints"
@@ -50,15 +60,16 @@ pub fn generate_indexed_voxel_leaves(
         return Err(anyhow::anyhow!("Inner radius must be <= outer radius"));
     }
 
-    if inner_density.max(outer_density) <= 0.0 {
-        return Ok((Vec::new(), Vec::new()));
-    }
-
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
-    let origin = IVec3::ZERO;
     let max_length = outer_radius.ceil().max(1.0) as u32;
 
+    if inner_density.max(outer_density) <= 0.0 {
+        return Ok(LeafVoxelShape {
+            offsets: Vec::new(),
+            max_length,
+        });
+    }
+
+    let mut offsets = Vec::new();
     let noise = Perlin::new(42); // Fixed seed for consistent results
     let outer_radius_i = outer_radius as i32;
 
@@ -97,18 +108,66 @@ pub fn generate_indexed_voxel_leaves(
                 let noise_threshold = (1.0 - falloff_density) as f64; // Higher density = lower threshold
 
                 if noise_value > noise_threshold {
-                    push_voxel(
-                        &mut vertices,
-                        &mut indices,
-                        pos,
-                        origin,
-                        max_length,
-                        is_lod_used,
-                    )?;
+                    offsets.push(pos);
                 }
             }
         }
     }
+
+    Ok(LeafVoxelShape {
+        offsets,
+        max_length,
+    })
+}
+
+/// Generates indexed voxel data for hollow sphere-shaped leaves.
+///
+/// This is kept for callers that need the historical cluster mesh. Tree leaves now render the
+/// same offsets as per-voxel instances instead of baking every offset into this mesh.
+#[allow(dead_code)]
+pub fn generate_indexed_voxel_leaves(
+    inner_density: f32,
+    outer_density: f32,
+    inner_radius: f32,
+    outer_radius: f32,
+    is_lod_used: bool,
+) -> Result<(Vec<Vertex>, Vec<u32>)> {
+    let shape =
+        generate_voxel_leaf_shape(inner_density, outer_density, inner_radius, outer_radius)?;
+
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let origin = IVec3::ZERO;
+
+    for pos in shape.offsets {
+        push_voxel(
+            &mut vertices,
+            &mut indices,
+            pos,
+            origin,
+            shape.max_length,
+            is_lod_used,
+        )?;
+    }
+
+    Ok((vertices, indices))
+}
+
+/// Generates a one-voxel mesh for per-leaf-voxel tree rendering.
+pub fn generate_indexed_single_voxel_leaf(
+    max_length: u32,
+    is_lod_used: bool,
+) -> Result<(Vec<Vertex>, Vec<u32>)> {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    push_voxel(
+        &mut vertices,
+        &mut indices,
+        IVec3::ZERO,
+        IVec3::ZERO,
+        max_length.max(1),
+        is_lod_used,
+    )?;
 
     Ok((vertices, indices))
 }

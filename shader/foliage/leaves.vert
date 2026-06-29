@@ -109,11 +109,18 @@ void main() {
     vec3 anchor_pos;
     float shadow_weight;
     bool should_trim_voxel;
-    uint in_instance_packed_local_pos =
-        manual_tree_leaf_instances.data[gl_InstanceIndex].packed_local_pos;
-    uvec3 instance_pos = get_tree_leaf_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
+    TreeLeafInstance tree_leaf_instance = manual_tree_leaf_instances.data[gl_InstanceIndex];
+    uvec3 leaf_voxel_world_pos =
+        get_tree_leaf_world_pos(tree_leaf_instance.packed_local_pos, pc.chunk_world_offset);
+    bool is_tree_leaf = pc.instance_ty == FLORA_SPECIES_TREE_LEAF;
+    ivec3 leaf_vox_local_pos = is_tree_leaf
+                                   ? unpack_tree_leaf_voxel_local_pos(
+                                         tree_leaf_instance.packed_leaf_local_pos)
+                                   : vox_local_pos;
+    uvec3 instance_pos = is_tree_leaf ? uvec3(ivec3(leaf_voxel_world_pos) - leaf_vox_local_pos)
+                                      : leaf_voxel_world_pos;
     uint instance_seed = get_instance_seed(instance_pos);
-    prepaverdarium_vertex(vox_local_pos, gradient_origin, max_length, instance_pos,
+    prepaverdarium_vertex(leaf_vox_local_pos, gradient_origin, max_length, instance_pos,
                           pc.instance_ty, instance_seed, TREE_LEAF_GROWTH_PROGRESS, is_grass,
                           color_gradient, voxel_pos, anchor_pos, shadow_weight, should_trim_voxel);
     vec3 vert_pos = anchor_pos + vec3(vert_offset_in_vox) * scaling_factor;
@@ -128,7 +135,7 @@ void main() {
         apply_depth_offset(vert_pos, instance_pos, camera_info.view_mat, camera_info.proj_mat);
 
     vec3 base_color_linear =
-        sample_flora_base_color(is_grass, pc.instance_ty, instance_seed, vox_local_pos,
+        sample_flora_base_color(is_grass, pc.instance_ty, instance_seed, leaf_vox_local_pos,
                                 instance_pos, color_gradient);
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);

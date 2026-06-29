@@ -4,7 +4,11 @@ use crate::{
     particles::{BUTTERFLY_ATLAS_ROW_FOR_VIEW, PARTICLE_CAPACITY, PARTICLE_SPRITE_FRAME_DIM},
     resource::Resource,
     tracer::{
-        leaves_construct::{generate_indexed_voxel_apple, generate_indexed_voxel_leaves},
+        leaves_construct::{
+            generate_indexed_single_voxel_leaf, generate_indexed_voxel_apple,
+            generate_voxel_leaf_shape, DEFAULT_LEAF_INNER_DENSITY, DEFAULT_LEAF_INNER_RADIUS,
+            DEFAULT_LEAF_OUTER_DENSITY, DEFAULT_LEAF_OUTER_RADIUS,
+        },
         load_butterfly_and_remap, ButterflyPalettePreset, DenoiserResources,
         ExtentDependentResources, ParticleTextureLayout, Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
@@ -78,7 +82,15 @@ pub struct LeavesResources {
 impl LeavesResources {
     pub fn new(device: Device, allocator: Allocator, is_lod_used: bool) -> Self {
         // use default parameters for initial leaf generation
-        Self::new_with_params(device, allocator, 0.5, 0.25, 8.0, 16.0, is_lod_used)
+        Self::new_with_params(
+            device,
+            allocator,
+            DEFAULT_LEAF_INNER_DENSITY,
+            DEFAULT_LEAF_OUTER_DENSITY,
+            DEFAULT_LEAF_INNER_RADIUS,
+            DEFAULT_LEAF_OUTER_RADIUS,
+            is_lod_used,
+        )
     }
 
     pub fn new_with_params(
@@ -90,15 +102,14 @@ impl LeavesResources {
         outer_radius: f32,
         is_lod_used: bool,
     ) -> Self {
-        // 1. Generate the indexed data for hollow sphere-shaped leaves.
-        let (mut vertices_data, mut indices_data) = generate_indexed_voxel_leaves(
-            inner_density,
-            outer_density,
-            inner_radius,
-            outer_radius,
-            is_lod_used,
-        )
-        .unwrap();
+        // 1. Tree leaves keep the historical hollow-sphere offsets, but those offsets are now
+        // uploaded per voxel as instances. The shared mesh is therefore a single voxel whose
+        // gradient length matches the configured leaf-shell radius.
+        let shape =
+            generate_voxel_leaf_shape(inner_density, outer_density, inner_radius, outer_radius)
+                .unwrap();
+        let (mut vertices_data, mut indices_data) =
+            generate_indexed_single_voxel_leaf(shape.max_length, is_lod_used).unwrap();
 
         // guard against empty data - create minimal buffers to avoid Vulkan validation errors
         if vertices_data.is_empty() {

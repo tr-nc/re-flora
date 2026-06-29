@@ -186,7 +186,7 @@ pub struct TerrainQueryResult {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TreeLeafInstances {
     pub packed_local_pos: u32,
-    pub packed_orientation: u32,
+    pub packed_leaf_local_pos: u32,
 }
 
 /// Auto-generated from `B_WindSources` (GLSL source of truth).

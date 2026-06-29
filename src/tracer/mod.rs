@@ -30,7 +30,7 @@ use pipeline_builder::*;
 mod buffer_updater;
 use buffer_updater::*;
 
-use glam::{Mat4, UVec3, Vec2, Vec3};
+use glam::{IVec3, Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
 const LEAF_INSTANCE_TYPE: u32 = 4;
@@ -225,6 +225,12 @@ fn flora_push_constant(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TreeRenderInstanceData {
+    world_pos: UVec3,
+    leaf_local_pos: IVec3,
+}
+
 pub struct TracerDesc {
     pub scaling_factor: f32,
 }
@@ -271,6 +277,7 @@ pub struct Tracer {
     initialized_wind_volume_bucket_count: u32,
     wind_source_buffer_capacity: usize,
     spatial_sound_manager: SpatialSoundManager,
+    leaf_voxel_offsets: Vec<IVec3>,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
 
@@ -408,6 +415,13 @@ impl Tracer {
         );
 
         let particle_capacity = PARTICLE_CAPACITY;
+        let leaf_voxel_offsets = leaves_construct::generate_voxel_leaf_shape(
+            leaves_construct::DEFAULT_LEAF_INNER_DENSITY,
+            leaves_construct::DEFAULT_LEAF_OUTER_DENSITY,
+            leaves_construct::DEFAULT_LEAF_INNER_RADIUS,
+            leaves_construct::DEFAULT_LEAF_OUTER_RADIUS,
+        )?
+        .offsets;
 
         Ok(Self {
             vulkan_ctx,
@@ -437,6 +451,7 @@ impl Tracer {
             initialized_wind_volume_bucket_count: 0,
             wind_source_buffer_capacity: 1,
             spatial_sound_manager,
+            leaf_voxel_offsets,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
     }
@@ -2889,22 +2904,73 @@ impl Tracer {
         Ok(())
     }
 
+    fn pack_tree_leaf_voxel_local_pos(local_pos: IVec3) -> Result<u32> {
+        const PACKED_MIN: i32 = -512;
+        const PACKED_MAX: i32 = 511;
+        anyhow::ensure!(
+            (PACKED_MIN..=PACKED_MAX).contains(&local_pos.x)
+                && (PACKED_MIN..=PACKED_MAX).contains(&local_pos.y)
+                && (PACKED_MIN..=PACKED_MAX).contains(&local_pos.z),
+            "tree leaf voxel local position {:?} exceeds packed signed 10-bit range",
+            local_pos,
+        );
+        let encode = |value: i32| -> u32 { ((value - PACKED_MIN) as u32) & 0x3ff };
+        Ok(encode(local_pos.x) | (encode(local_pos.y) << 10) | (encode(local_pos.z) << 20))
+    }
+
+    fn add_signed_leaf_offset(center: UVec3, offset: IVec3) -> Option<UVec3> {
+        let x = i64::from(center.x) + i64::from(offset.x);
+        let y = i64::from(center.y) + i64::from(offset.y);
+        let z = i64::from(center.z) + i64::from(offset.z);
+        let upper = i64::from(u32::MAX);
+        if x < 0 || y < 0 || z < 0 || x > upper || y > upper || z > upper {
+            return None;
+        }
+        Some(UVec3::new(x as u32, y as u32, z as u32))
+    }
+
+    fn expand_tree_leaf_render_instances(
+        &self,
+        leaf_positions: &[UVec3],
+    ) -> Vec<TreeRenderInstanceData> {
+        let mut instances = Vec::with_capacity(
+            leaf_positions
+                .len()
+                .saturating_mul(self.leaf_voxel_offsets.len()),
+        );
+        for leaf_center in leaf_positions.iter().copied() {
+            for leaf_local_pos in self.leaf_voxel_offsets.iter().copied() {
+                if let Some(world_pos) = Self::add_signed_leaf_offset(leaf_center, leaf_local_pos) {
+                    instances.push(TreeRenderInstanceData {
+                        world_pos,
+                        leaf_local_pos,
+                    });
+                }
+            }
+        }
+        instances
+    }
+
     fn build_tree_render_instances(
         &self,
         tree_id: u32,
-        positions: &[UVec3],
+        instances: &[TreeRenderInstanceData],
         aabb_margin: f32,
         span_label: &str,
     ) -> Result<TreeLeavesInstance> {
         use crate::builder::TreeLeafInstance;
 
-        let mut instances_data = Vec::with_capacity(positions.len());
-        let chunk_world_offset = positions
+        let mut instances_data = Vec::with_capacity(instances.len());
+        let chunk_world_offset = instances
             .iter()
-            .copied()
+            .map(|instance| instance.world_pos)
             .reduce(UVec3::min)
             .unwrap_or(UVec3::ZERO);
-        if let Some(max_pos) = positions.iter().copied().reduce(UVec3::max) {
+        if let Some(max_pos) = instances
+            .iter()
+            .map(|instance| instance.world_pos)
+            .reduce(UVec3::max)
+        {
             anyhow::ensure!(
                 (max_pos - chunk_world_offset)
                     .cmplt(UVec3::splat(1024))
@@ -2917,16 +2983,19 @@ impl Tracer {
             let local_pos = world_pos - chunk_world_offset;
             (local_pos.x & 0x3ff) | ((local_pos.y & 0x3ff) << 10) | ((local_pos.z & 0x3ff) << 20)
         };
-        for pos in positions.iter() {
+        for instance in instances.iter() {
             instances_data.push(TreeLeafInstance {
-                packed_local_pos: pack_local_pos(*pos),
-                packed_orientation: 0,
+                packed_local_pos: pack_local_pos(instance.world_pos),
+                packed_leaf_local_pos: Self::pack_tree_leaf_voxel_local_pos(
+                    instance.leaf_local_pos,
+                )?,
             });
         }
 
-        let scaled_positions = positions
+        let scaled_positions = instances
             .iter()
-            .map(|pos| {
+            .map(|instance| {
+                let pos = instance.world_pos;
                 Vec3::new(
                     pos.x as f32 / 256.0,
                     pos.y as f32 / 256.0,
@@ -2943,7 +3012,7 @@ impl Tracer {
             chunk_world_offset,
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
-            positions.len() as u64,
+            instances.len() as u64,
         );
 
         if !instances_data.is_empty() {
@@ -2965,8 +3034,9 @@ impl Tracer {
         tree_id: u32,
         leaf_positions: &[UVec3],
     ) -> Result<()> {
+        let leaf_voxel_instances = self.expand_tree_leaf_render_instances(leaf_positions);
         let tree_leaves_instance =
-            self.build_tree_render_instances(tree_id, leaf_positions, 0.2, "tree leaf")?;
+            self.build_tree_render_instances(tree_id, &leaf_voxel_instances, 0.2, "tree leaf")?;
         surface_resources
             .instances
             .leaves_instances
@@ -2981,8 +3051,16 @@ impl Tracer {
         tree_id: u32,
         apple_positions: &[UVec3],
     ) -> Result<()> {
+        let apple_instances = apple_positions
+            .iter()
+            .copied()
+            .map(|world_pos| TreeRenderInstanceData {
+                world_pos,
+                leaf_local_pos: IVec3::ZERO,
+            })
+            .collect::<Vec<_>>();
         let tree_apple_instance =
-            self.build_tree_render_instances(tree_id, apple_positions, 0.08, "tree apple")?;
+            self.build_tree_render_instances(tree_id, &apple_instances, 0.08, "tree apple")?;
         surface_resources
             .instances
             .apple_instances
@@ -3032,6 +3110,12 @@ impl Tracer {
         inner_radius: f32,
         outer_radius: f32,
     ) -> Result<()> {
+        let shape = leaves_construct::generate_voxel_leaf_shape(
+            inner_density,
+            outer_density,
+            inner_radius,
+            outer_radius,
+        )?;
         let device = self.vulkan_ctx.device();
         self.resources.meshes.leaves_resources = LeavesResources::new_with_params(
             device.clone(),
@@ -3052,6 +3136,7 @@ impl Tracer {
             outer_radius,
             true,
         );
+        self.leaf_voxel_offsets = shape.offsets;
         Ok(())
     }
 
