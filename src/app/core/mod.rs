@@ -79,7 +79,8 @@ use ui_style::{
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
     SMOOTH_TOOL_ACCENT, SPRINKLER_PLACEABLE_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT,
-    TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATER_TOOL_ACCENT,
+    TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX,
+    WATER_TOOL_ACCENT,
 };
 use verdarium_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -1432,6 +1433,7 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit3) => Some(2),
                         PhysicalKey::Code(KeyCode::Digit4) => Some(3),
                         PhysicalKey::Code(KeyCode::Digit5) => Some(4),
+                        PhysicalKey::Code(KeyCode::Digit6) => Some(5),
                         _ => None,
                     };
 
@@ -1489,6 +1491,10 @@ impl App {
                             } else if self.is_hoe_selected() && button == MouseButton::Left {
                                 self.player_tools.shovel_dig_held = true;
                                 self.try_hoe_trim(now);
+                            } else if self.is_watering_selected() && button == MouseButton::Left {
+                                self.player_tools.shovel_dig_held = true;
+                                self.player_tools.last_watering_time = None;
+                                self.try_watering_brush(now);
                             } else if self.is_place_tool_selected() && button == MouseButton::Left {
                                 self.stop_terrain_edit_loop_sound();
                                 self.try_placeable_placement();
@@ -1555,6 +1561,8 @@ impl App {
                         self.try_staff_remove_flora(now);
                     } else if self.is_hoe_selected() && self.player_tools.left_mouse_held {
                         self.try_hoe_trim(now);
+                    } else if self.is_watering_selected() && self.player_tools.left_mouse_held {
+                        self.try_watering_brush(now);
                     } else {
                         self.stop_terrain_edit_loop_sound();
                     }
@@ -1637,7 +1645,7 @@ impl App {
                     format!("Grow brush: {}", self.current_flora_paint_selection_label())
                 };
                 let placeable_hint = format!(
-                    "Place: {} (Z/X to choose) · sprinklers {} · wet patches {}",
+                    "Place: {} (Z/X) · Water brush: 6 + LMB · sprinklers {} · wet patches {}",
                     self.current_placeable_label(),
                     self.sprinkler_records.len(),
                     self.terrain_moisture.patch_count()
@@ -1835,6 +1843,14 @@ impl App {
                                 key_hint: "5",
                                 icon: item_panel_tree_icon.as_ref(),
                                 accent: TREE_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: WATERING_SLOT_INDEX,
+                                label: "Water",
+                                key_hint: "6",
+                                icon: item_panel_water_icon.as_ref(),
+                                accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
                         ];

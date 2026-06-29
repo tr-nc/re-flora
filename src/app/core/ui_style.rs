@@ -39,13 +39,14 @@ pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/1_Tree_Log.PNG";
 pub(crate) const ITEM_PANEL_TREE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/8_Wooden_Axe.PNG";
-pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 5;
+pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 6;
 pub(crate) const STAFF_SLOT_INDEX: usize = 0;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 1;
 pub(crate) const SMOOTH_SLOT_INDEX: usize = 2;
 pub(crate) const HOE_SLOT_INDEX: usize = 3;
 pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = 4;
 pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
+pub(crate) const WATERING_SLOT_INDEX: usize = 5;
 pub(crate) const PLACEABLE_PANEL_SLOT_COUNT: usize = 2;
 pub(crate) const TREE_PLACEABLE_SLOT_INDEX: usize = 0;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;

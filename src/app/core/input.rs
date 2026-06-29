@@ -2,7 +2,7 @@ use super::placeables::PlaceableKind;
 use super::ui_style::{
     HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_SLOT_COUNT, PLACEABLE_PANEL_SLOT_COUNT,
     SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX,
-    STAFF_TOOL_ACCENT, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATER_TOOL_ACCENT,
+    STAFF_TOOL_ACCENT, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use super::App;
 use crate::app::world_edits::{
@@ -395,6 +395,7 @@ impl App {
             || self.is_staff_selected()
             || self.is_hoe_selected()
             || self.is_place_tool_selected()
+            || self.is_watering_selected()
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
@@ -403,6 +404,8 @@ impl App {
                 PlaceableKind::Tree => TerrainEditPreviewShape::TreeBillboard,
                 PlaceableKind::Sprinkler => TerrainEditPreviewShape::SurfaceCircle,
             }
+        } else if self.is_watering_selected() {
+            TerrainEditPreviewShape::SurfaceCircle
         } else {
             TerrainEditPreviewShape::Sphere
         }
@@ -420,6 +423,8 @@ impl App {
                 PlaceableKind::Tree => TREE_TOOL_ACCENT,
                 PlaceableKind::Sprinkler => WATER_TOOL_ACCENT,
             }
+        } else if self.is_watering_selected() {
+            WATER_TOOL_ACCENT
         } else {
             SHOVEL_TOOL_ACCENT
         };
@@ -441,6 +446,10 @@ impl App {
 
     pub(super) fn is_place_tool_selected(&self) -> bool {
         self.player_tools.selected_item_panel_slot == TREE_SLOT_INDEX
+    }
+
+    pub(super) fn is_watering_selected(&self) -> bool {
+        self.player_tools.selected_item_panel_slot == WATERING_SLOT_INDEX
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {
@@ -956,6 +965,38 @@ impl App {
             }
             Err(err) => {
                 log::error!("Hoe trim attempt failed during terrain query: {}", err);
+            }
+        }
+    }
+
+    pub(super) fn try_watering_brush(&mut self, now: Instant) {
+        if !self.terrain_edit_pointer_available() || !self.is_watering_selected() {
+            self.stop_terrain_edit_loop_sound();
+            return;
+        }
+
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) => {
+                self.start_terrain_edit_loop_sound(center);
+
+                if let Some(last_water) = self.player_tools.last_watering_time {
+                    if now.duration_since(last_water) < super::SHOVEL_DIG_INTERVAL {
+                        return;
+                    }
+                }
+
+                self.add_watering_brush_moisture(center, self.player_tools.terrain_edit_radius);
+                self.player_tools.last_watering_time = Some(now);
+            }
+            Ok(None) => {
+                self.stop_terrain_edit_loop_sound();
+                self.player_tools.last_watering_time = Some(now);
+            }
+            Err(err) => {
+                log::error!(
+                    "Watering brush attempt failed during terrain query: {}",
+                    err
+                );
             }
         }
     }
