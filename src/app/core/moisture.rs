@@ -1,11 +1,12 @@
 use super::App;
 use glam::{Vec2, Vec3};
 
-const SPRINKLER_MOISTURE_RADIUS: f32 = 0.18;
-const SPRINKLER_MOISTURE_PER_SECOND: f32 = 0.24;
-const TERRAIN_MOISTURE_DRY_RATE_PER_SECOND: f32 = 0.012;
+const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
+const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;
+const SPRINKLER_MOISTURE_INITIAL_STRENGTH: f32 = 0.38;
+const TERRAIN_MOISTURE_DRY_RATE_PER_SECOND: f32 = 0.018;
 const TERRAIN_MOISTURE_MIN_STRENGTH: f32 = 0.025;
-const TERRAIN_MOISTURE_MAX_RADIUS: f32 = 0.22;
+const TERRAIN_MOISTURE_MAX_RADIUS: f32 = 0.34;
 
 #[derive(Clone, Copy, Debug)]
 struct TerrainMoisturePatch {
@@ -57,7 +58,7 @@ impl TerrainMoistureSystem {
         self.patches.push(TerrainMoisturePatch {
             center,
             radius,
-            strength: amount.min(1.0),
+            strength: amount.max(SPRINKLER_MOISTURE_INITIAL_STRENGTH).min(1.0),
         });
 
         if self.patches.len() > crate::tracer::TERRAIN_MOISTURE_PATCH_CAPACITY {

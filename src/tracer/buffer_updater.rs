@@ -226,7 +226,7 @@ impl BufferUpdater {
             rock_color: rock_color.to_array(),
             hash_color_variance,
             moisture_patches: moisture_patch_bits,
-            moisture_params: [moisture_patch_count as f32, 1.0, 0.0, 0.0],
+            moisture_params: [moisture_patch_count as f32, 2.0, 0.0, 0.0],
             ..VoxelColors::zeroed()
         })
     }
