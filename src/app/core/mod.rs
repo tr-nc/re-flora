@@ -25,7 +25,6 @@ use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
 use self::loading::{LoadingPhase, LoadingState};
-use self::moisture::TerrainMoistureSystem;
 use self::particles::TreeLeafEmitter;
 use self::placeables::{SprinklerEmitter, SprinklerRecord};
 use self::player_tools::PlayerToolState;
@@ -189,7 +188,6 @@ pub struct App {
     sprinkler_records: Vec<SprinklerRecord>,
     sprinkler_emitters: Vec<SprinklerEmitter>,
     next_sprinkler_id: u32,
-    terrain_moisture: TerrainMoistureSystem,
     particle_animation_time_sec: f32,
     water_sim: water::AsyncWaterSim,
     water_terrain_initialized: bool,
@@ -844,7 +842,6 @@ impl App {
         let sprinkler_records = Vec::new();
         let sprinkler_emitters = Vec::new();
         let next_sprinkler_id = 1;
-        let terrain_moisture = TerrainMoistureSystem::default();
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
         // Start with the chosen profile and proportional world grid. For the implicit
         // default run, apply persisted GUI water sliders, then let explicit CLI
@@ -1024,7 +1021,6 @@ impl App {
             sprinkler_records,
             sprinkler_emitters,
             next_sprinkler_id,
-            terrain_moisture,
             particle_animation_time_sec: 0.0,
             water_sim,
             water_terrain_initialized: false,
@@ -1569,7 +1565,6 @@ impl App {
                     }
                 }
                 let frame_delta_time = self.time_info.delta_time();
-                self.terrain_moisture.update(frame_delta_time);
                 self.update_sprinkler_moisture(frame_delta_time);
                 let time_since_start = self.time_info.time_since_start();
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
@@ -1646,10 +1641,9 @@ impl App {
                     format!("Grow brush: {}", self.current_flora_paint_selection_label())
                 };
                 let placeable_hint = format!(
-                    "Place: {} (Z/X) · Water brush: 6 + LMB · sprinklers {} · wet patches {}",
+                    "Place: {} (Z/X) · Water brush: 6 + LMB · sprinklers {}",
                     self.current_placeable_label(),
-                    self.sprinkler_records.len(),
-                    self.terrain_moisture.patch_count()
+                    self.sprinkler_records.len()
                 );
                 let status_bar_text = format!(
                     "{}\n{}\n{}",
@@ -2152,9 +2146,6 @@ impl App {
                     shadow_steps: self.gui_adjustables.cloud_shadow_steps.value,
                 };
 
-                let (terrain_moisture_patch_count, terrain_moisture_patches) =
-                    self.terrain_moisture.shader_patches();
-
                 self.tracer
                     .update_buffers(
                         &self.time_info,
@@ -2342,8 +2333,6 @@ impl App {
                             self.gui_adjustables.voxel_rock_color.value.b() as f32 / 255.0,
                         ),
                         self.gui_adjustables.voxel_color_variance.value,
-                        &terrain_moisture_patches,
-                        terrain_moisture_patch_count,
                         terrain_edit_preview_center,
                         self.player_tools.terrain_edit_radius,
                         terrain_edit_preview_shape,

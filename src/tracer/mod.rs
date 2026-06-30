@@ -84,7 +84,6 @@ struct GlassPushConstants {
 
 const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
 const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
-pub const TERRAIN_MOISTURE_PATCH_CAPACITY: usize = 48;
 
 #[derive(Debug, Clone)]
 pub struct WindGuiParams {
@@ -778,8 +777,6 @@ impl Tracer {
         voxel_oak_wood_color: Vec3,
         voxel_rock_color: Vec3,
         voxel_color_variance: f32,
-        terrain_moisture_patches: &[[f32; 4]; TERRAIN_MOISTURE_PATCH_CAPACITY],
-        terrain_moisture_patch_count: u32,
         terrain_edit_preview_center: Option<Vec3>,
         terrain_edit_preview_radius: f32,
         terrain_edit_preview_shape: TerrainEditPreviewShape,
@@ -842,8 +839,6 @@ impl Tracer {
             voxel_oak_wood_color,
             voxel_rock_color,
             voxel_color_variance,
-            terrain_moisture_patches,
-            terrain_moisture_patch_count,
         )?;
         BufferUpdater::update_terrain_edit_preview(
             &self.resources,

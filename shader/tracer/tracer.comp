@@ -60,7 +60,6 @@ layout(set = 0, binding = 12) uniform sampler2D leaf_shadow_opacity_blended_tex;
 layout(set = 0, binding = 13) uniform sampler2D leaf_shadow_mask_tex;
 layout(set = 0, binding = 14) uniform sampler2D cloud_shadow_tex;
 layout(set = 0, binding = 16, r8ui) readonly uniform uimage3D chunk_atlas;
-const int TERRAIN_MOISTURE_PATCH_CAPACITY = 48;
 
 layout(set = 0, binding = 11) uniform U_VoxelColors {
     vec3 dirt_color;
@@ -69,8 +68,6 @@ layout(set = 0, binding = 11) uniform U_VoxelColors {
     vec3 oak_wood_color;
     vec3 rock_color;
     float hash_color_variance;
-    vec4 moisture_patches[TERRAIN_MOISTURE_PATCH_CAPACITY];
-    vec4 moisture_params;
 }
 voxel_colors;
 #include "../include/terrain_edit_preview.glsl"
