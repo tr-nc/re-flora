@@ -1,8 +1,7 @@
 use super::placeables::PlaceableKind;
 use super::ui_style::{
-    HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_SLOT_COUNT, PLACEABLE_PANEL_SLOT_COUNT,
-    SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX,
-    STAFF_TOOL_ACCENT, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
+    HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT, PLACEABLE_PANEL_SLOT_COUNT, SHOVEL_SLOT_INDEX,
+    SMOOTH_SLOT_INDEX, STAFF_SLOT_INDEX, TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
 };
 use super::App;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
@@ -56,6 +55,15 @@ fn terrain_edit_disc_within_editable_chunk(center: Vec3, radius: f32) -> bool {
 
 fn terrain_brush_within_editable_chunk(edit: TerrainBrushEdit) -> bool {
     INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_stroke(edit)
+}
+
+const TERRAIN_EDIT_PREVIEW_VALID_COLOR: Vec3 = Vec3::new(0.45, 0.86, 1.0);
+const TERRAIN_EDIT_PREVIEW_INVALID_COLOR: Vec3 = Vec3::new(1.0, 0.08, 0.06);
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct TerrainEditHover {
+    pub(super) center: Vec3,
+    pub(super) is_editable: bool,
 }
 
 impl App {
@@ -431,29 +439,12 @@ impl App {
         }
     }
 
-    pub(super) fn terrain_edit_preview_color(&self) -> Vec3 {
-        let color = if self.is_smooth_selected() {
-            SMOOTH_TOOL_ACCENT
-        } else if self.is_staff_selected() {
-            STAFF_TOOL_ACCENT
-        } else if self.is_hoe_selected() {
-            HOE_TOOL_ACCENT
-        } else if self.is_place_tool_selected() {
-            match self.current_placeable_kind() {
-                PlaceableKind::Tree => TREE_TOOL_ACCENT,
-                PlaceableKind::Sprinkler => WATER_TOOL_ACCENT,
-            }
-        } else if self.is_watering_selected() {
-            WATER_TOOL_ACCENT
+    pub(super) fn terrain_edit_preview_color(&self, is_editable: bool) -> Vec3 {
+        if is_editable {
+            TERRAIN_EDIT_PREVIEW_VALID_COLOR
         } else {
-            SHOVEL_TOOL_ACCENT
-        };
-
-        Vec3::new(
-            color.r() as f32 / 255.0,
-            color.g() as f32 / 255.0,
-            color.b() as f32 / 255.0,
-        )
+            TERRAIN_EDIT_PREVIEW_INVALID_COLOR
+        }
     }
 
     pub(super) fn is_staff_selected(&self) -> bool {
@@ -927,22 +918,28 @@ impl App {
         }
     }
 
-    pub(super) fn terrain_edit_hover_center(&mut self) -> Option<Vec3> {
+    pub(super) fn terrain_edit_hover(&mut self) -> Option<TerrainEditHover> {
         if !self.terrain_edit_pointer_available() || !self.is_terrain_edit_radius_tool_selected() {
             return None;
         }
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
-            Ok(hit) => hit.filter(|center| {
-                terrain_edit_disc_within_editable_chunk(
-                    *center,
-                    self.player_tools.terrain_edit_radius,
-                )
+            Ok(hit) => hit.map(|center| TerrainEditHover {
+                center,
+                is_editable: self.terrain_edit_preview_position_is_editable(center),
             }),
             Err(err) => {
                 log::error!("Terrain edit preview query failed: {}", err);
                 None
             }
+        }
+    }
+
+    fn terrain_edit_preview_position_is_editable(&self, center: Vec3) -> bool {
+        if self.is_place_tool_selected() {
+            terrain_edit_point_within_editable_chunk(center)
+        } else {
+            terrain_edit_disc_within_editable_chunk(center, self.player_tools.terrain_edit_radius)
         }
     }
 

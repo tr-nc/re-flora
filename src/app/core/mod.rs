@@ -1656,9 +1656,14 @@ impl App {
                 let mut clicked_placeable_panel_slot = None;
 
                 let current_camera_pose = self.tracer.camera_pose();
-                let terrain_edit_preview_center = self.terrain_edit_hover_center();
+                let terrain_edit_hover = self.terrain_edit_hover();
+                let terrain_edit_preview_center = terrain_edit_hover.map(|hover| hover.center);
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
-                let terrain_edit_preview_color = self.terrain_edit_preview_color();
+                let terrain_edit_preview_color = self.terrain_edit_preview_color(
+                    terrain_edit_hover
+                        .map(|hover| hover.is_editable)
+                        .unwrap_or(true),
+                );
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
