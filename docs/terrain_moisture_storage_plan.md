@@ -162,6 +162,7 @@ contree 保持为派生加速结构，不作为 moisture source of truth。
 
 4. GPU 写 moisture。
    - Water brush：用 compute brush 写 `chunk_atlas` moisture bits，提高 moisture。
+   - 笔刷在连续 falloff 量化到 4 个档位前做 seeded spatial dithering，避免湿度边界形成过于规则的同心环，同时保持写入后的 atlas 状态稳定。
    - Sprinkler：基于喷水器位置周期性写附近 soil voxel 的 moisture bits。
    - 写入时保持 low nibble 的 voxel type 以及 reserved state bits 不变。
 

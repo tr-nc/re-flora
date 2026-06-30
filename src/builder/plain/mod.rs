@@ -249,6 +249,7 @@ pub struct PlainBuilder {
 
     build_cmdbuf: CommandBuffer,
     next_edit_sample_seed: u32,
+    next_moisture_dither_seed: u32,
     #[allow(dead_code)]
     chunk_atlas_readback_buffer: Option<Buffer>,
 }
@@ -464,6 +465,7 @@ impl PlainBuilder {
             pool,
             build_cmdbuf,
             next_edit_sample_seed: 1,
+            next_moisture_dither_seed: 1,
             chunk_atlas_readback_buffer: None,
         };
 
@@ -678,10 +680,16 @@ impl PlainBuilder {
 
         let offset = clamped_min.as_uvec3();
         let dim = (clamped_max - clamped_min).as_uvec3();
+        let dither_seed = self.next_moisture_dither_seed;
+        self.next_moisture_dither_seed = self
+            .next_moisture_dither_seed
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223)
+            .max(1);
         self.resources
             .terrain_moisture_brush_info
             .fill_uniform(&TerrainMoistureBrushInfoGpu {
-                offset: [offset.x, offset.y, offset.z, 0],
+                offset: [offset.x, offset.y, offset.z, dither_seed],
                 dim: [dim.x, dim.y, dim.z, 0],
                 start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
                 end_amount: [end_vox.x, end_vox.y, end_vox.z, amount],

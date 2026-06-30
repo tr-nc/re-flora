@@ -57,6 +57,19 @@ float distance_to_segment(vec3 point, vec3 start, vec3 end) {
     return length(point - closest);
 }
 
+float moisture_hash01(uvec3 p, uint seed) {
+    uint h = seed ^ 0x9E3779B9u;
+    h ^= p.x * 0x85EBCA6Bu;
+    h ^= p.y * 0xC2B2AE35u;
+    h ^= p.z * 0x27D4EB2Fu;
+    h ^= h >> 16u;
+    h *= 0x7FEB352Du;
+    h ^= h >> 15u;
+    h *= 0x846CA68Bu;
+    h ^= h >> 16u;
+    return float(h & 0x00FFFFFFu) * (1.0 / 16777216.0);
+}
+
 void main() {
     uvec3 local = gl_GlobalInvocationID.xyz;
     uvec3 dim   = terrain_moisture_brush_info.dim.xyz;
@@ -65,6 +78,7 @@ void main() {
     }
 
     uvec3 atlas_u = terrain_moisture_brush_info.offset.xyz + local;
+    uint dither_seed = terrain_moisture_brush_info.offset.w;
     vec3 start_vox = terrain_moisture_brush_info.start_radius.xyz;
     float radius_vox = max(terrain_moisture_brush_info.start_radius.w, 0.0);
     vec3 end_vox = terrain_moisture_brush_info.end_amount.xyz;
@@ -85,10 +99,18 @@ void main() {
         return;
     }
 
-    // Four discrete moisture states are stored in two bits. Use a full-radius linear falloff
-    // before quantization so a single brush stroke leaves a wetter center and drier edge.
+    // Four discrete moisture states are stored in two bits. Use a full-radius linear falloff,
+    // then dither before stochastic quantization so a stroke keeps the center-to-edge gradient
+    // without drawing perfectly regular rings in voxel space.
     float falloff = clamp(1.0 - dist / max(radius_vox, 0.0001), 0.0, 1.0);
-    uint add_moisture = uint(ceil(amount * falloff * float(VOXEL_MOISTURE_MAX)));
+    float fine_noise = moisture_hash01(atlas_u, dither_seed);
+    float coarse_noise = moisture_hash01(atlas_u / 4u, dither_seed ^ 0xA511E9B3u);
+    float noisy_falloff = clamp(falloff + (mix(fine_noise, coarse_noise, 0.35) - 0.5) * 0.28, 0.0, 1.0);
+    float continuous_add = amount * noisy_falloff * float(VOXEL_MOISTURE_MAX);
+    uint add_moisture = uint(floor(continuous_add));
+    if (moisture_hash01(atlas_u, dither_seed ^ 0x68BC21EBu) < fract(continuous_add)) {
+        add_moisture += 1u;
+    }
     if (add_moisture == 0u) {
         return;
     }
