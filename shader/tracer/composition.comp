@@ -401,9 +401,8 @@ vec3 sample_scene_color(vec2 screen_uv) {
     vec3 denoised_color = imageLoad(denoiser_spatial_pong_tex, sample_uvi).rgb;
     vec3 scene_color = combine_colors(gfx_depth_01, compute_depth_01, gfx_rgba,
                                       denoised_color, clamped_uv);
-    Ray ray = ray_gen(clamped_uv, camera_info.view_proj_mat_inv);
-    float scene_t = nearest_scene_ray_t(clamped_uv, ray, gfx_depth_01, compute_depth_01, gfx_rgba);
-    return apply_terrarium_panels_to_scene(scene_color, ray, scene_t);
+    // Terrarium top/bottom panels are intentionally disabled for the open-tank view.
+    return scene_color;
 }
 
 vec4 sample_raster_rgba_bilinear(vec2 sample_uv, ivec2 tex_size) {
@@ -909,14 +908,8 @@ void main() {
     vec3 denoiser_spatial_pong_tex = imageLoad(denoiser_spatial_pong_tex, uvi).rgb;
     vec3 final_color               = combine_colors(gfx_depth_01, compute_depth_01, gfx_rgba,
                                                     denoiser_spatial_pong_tex, screen_uv);
-    Ray ray = ray_gen(screen_uv, camera_info.view_proj_mat_inv);
-    float scene_t = nearest_scene_ray_t(screen_uv, ray, gfx_depth_01, compute_depth_01, gfx_rgba);
-    TerrariumPanelHit panel_hit = trace_terrarium_panels(ray, 0.0);
-    if (panel_hit.hit && panel_hit.t + TERRARIUM_GLASS_OCCLUSION_EPS_WORLD < scene_t) {
-        final_color = shade_terrarium_panel_hit(panel_hit);
-        scene_t = panel_hit.t;
-    }
-    final_color = apply_terrarium_glass(final_color, screen_uv, ray, scene_t);
+    // Open-tank view: leave the panel/glass and SSR helper code in this shader for future reuse,
+    // but do not composite the terrarium lid/base panels or any glass this frame.
     final_color += sample_lens_flare(screen_uv);
 
     float sun_visibility = sun_luminance_from_dir(sun_info.sun_dir, 1.0);
