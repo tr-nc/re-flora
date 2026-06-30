@@ -58,7 +58,7 @@ pub(crate) const HOE_TOOL_ACCENT: Color32 = Color32::from_rgb(219, 128, 152);
 pub(crate) const TREE_TOOL_ACCENT: Color32 = Color32::from_rgb(82, 154, 90);
 pub(crate) const WATER_TOOL_ACCENT: Color32 = Color32::from_rgb(96, 171, 218);
 
-pub(crate) struct ItemPanelSlot<'a> {
+pub(crate) struct ToolPanelSlot<'a> {
     pub index: usize,
     pub label: &'static str,
     pub key_hint: &'static str,
@@ -67,44 +67,114 @@ pub(crate) struct ItemPanelSlot<'a> {
     pub enabled: bool,
 }
 
+pub(crate) type ItemPanelSlot<'a> = ToolPanelSlot<'a>;
+pub(crate) type PlaceablePanelSlot<'a> = ToolPanelSlot<'a>;
+
 #[derive(Default)]
-pub(crate) struct ItemPanelResponse {
+pub(crate) struct ToolPanelResponse {
     pub clicked_slot: Option<usize>,
 }
 
-pub(crate) struct PlaceablePanelSlot<'a> {
-    pub index: usize,
-    pub label: &'static str,
-    pub key_hint: &'static str,
-    pub icon: Option<&'a TextureHandle>,
-    pub accent: Color32,
-    pub enabled: bool,
-}
+pub(crate) type ItemPanelResponse = ToolPanelResponse;
+pub(crate) type PlaceablePanelResponse = ToolPanelResponse;
 
-#[derive(Default)]
-pub(crate) struct PlaceablePanelResponse {
-    pub clicked_slot: Option<usize>,
+#[derive(Clone, Copy)]
+enum ToolPanelOrientation {
+    Horizontal,
+    Vertical,
 }
 
 #[derive(Clone, Copy)]
-struct ItemPanelTheme {
+struct ToolPanelHeader {
+    active: bool,
+    active_text: &'static str,
+    inactive_text: &'static str,
+}
+
+impl ToolPanelHeader {
+    fn text(self) -> &'static str {
+        if self.active {
+            self.active_text
+        } else {
+            self.inactive_text
+        }
+    }
+
+    fn color(self) -> Color32 {
+        if self.active {
+            GOLD_ACCENT
+        } else {
+            SAGE_ACCENT
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ToolPanelTheme {
     slot_size: egui::Vec2,
     icon_size: egui::Vec2,
     slot_gap: f32,
     tray_padding: egui::Vec2,
+    bottom_padding_extra: f32,
     keycap_size: egui::Vec2,
+    shadow_offset: [i8; 2],
 }
 
-impl Default for ItemPanelTheme {
-    fn default() -> Self {
+impl ToolPanelTheme {
+    const fn new(
+        slot_size: egui::Vec2,
+        icon_size: egui::Vec2,
+        slot_gap: f32,
+        tray_padding: egui::Vec2,
+        bottom_padding_extra: f32,
+        keycap_size: egui::Vec2,
+        shadow_offset: [i8; 2],
+    ) -> Self {
         Self {
-            slot_size: egui::Vec2::new(66.0, 62.0),
-            icon_size: egui::Vec2::new(31.0, 31.0),
-            slot_gap: 7.0,
-            tray_padding: egui::Vec2::new(12.0, 10.0),
-            keycap_size: egui::Vec2::new(16.0, 14.0),
+            slot_size,
+            icon_size,
+            slot_gap,
+            tray_padding,
+            bottom_padding_extra,
+            keycap_size,
+            shadow_offset,
         }
     }
+
+    fn tool_bar() -> Self {
+        Self::new(
+            egui::Vec2::new(66.0, 62.0),
+            egui::Vec2::new(31.0, 31.0),
+            7.0,
+            egui::Vec2::new(12.0, 10.0),
+            3.0,
+            egui::Vec2::new(16.0, 14.0),
+            [4, 4],
+        )
+    }
+
+    fn placeable_bar() -> Self {
+        Self::new(
+            egui::Vec2::new(60.0, 56.0),
+            egui::Vec2::new(28.0, 28.0),
+            6.0,
+            egui::Vec2::new(10.0, 8.0),
+            0.0,
+            egui::Vec2::new(18.0, 14.0),
+            [3, 3],
+        )
+    }
+}
+
+struct ToolPanelSpec {
+    area_id: &'static str,
+    anchor: egui::Align2,
+    offset: egui::Vec2,
+    orientation: ToolPanelOrientation,
+    theme: ToolPanelTheme,
+    fill: Color32,
+    stroke: egui::Stroke,
+    header: Option<ToolPanelHeader>,
 }
 
 pub(crate) fn draw_item_panel(
@@ -113,52 +183,22 @@ pub(crate) fn draw_item_panel(
     selected_slot_idx: usize,
     interaction_enabled: bool,
 ) -> ItemPanelResponse {
-    let theme = ItemPanelTheme::default();
-    let mut panel_response = ItemPanelResponse::default();
-
-    egui::Area::new("item_panel".into())
-        .order(egui::Order::Foreground)
-        .anchor(egui::Align2::CENTER_BOTTOM, egui::Vec2::new(0.0, -16.0))
-        .show(ctx, |ui| {
-            let panel_frame = egui::containers::Frame {
-                fill: PANEL_DARK,
-                inner_margin: egui::Margin {
-                    left: theme.tray_padding.x as i8,
-                    right: theme.tray_padding.x as i8,
-                    top: theme.tray_padding.y as i8,
-                    bottom: (theme.tray_padding.y + 3.0) as i8,
-                },
-                corner_radius: egui::CornerRadius::same(0),
-                shadow: egui::epaint::Shadow {
-                    offset: [4, 4],
-                    blur: 0,
-                    spread: 0,
-                    color: SHADOW_COLOR,
-                },
-                stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
-                ..Default::default()
-            };
-
-            panel_frame.show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = theme.slot_gap;
-                    for slot in slots {
-                        let clicked = draw_item_panel_slot(
-                            ui,
-                            slot,
-                            slot.index == selected_slot_idx,
-                            interaction_enabled && slot.enabled,
-                            theme,
-                        );
-                        if clicked {
-                            panel_response.clicked_slot = Some(slot.index);
-                        }
-                    }
-                });
-            });
-        });
-
-    panel_response
+    draw_tool_panel(
+        ctx,
+        slots,
+        selected_slot_idx,
+        interaction_enabled,
+        ToolPanelSpec {
+            area_id: "item_panel",
+            anchor: egui::Align2::CENTER_BOTTOM,
+            offset: egui::Vec2::new(0.0, -16.0),
+            orientation: ToolPanelOrientation::Horizontal,
+            theme: ToolPanelTheme::tool_bar(),
+            fill: PANEL_DARK,
+            stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
+            header: None,
+        },
+    )
 }
 
 pub(crate) fn draw_placeable_panel(
@@ -168,100 +208,155 @@ pub(crate) fn draw_placeable_panel(
     placement_tool_active: bool,
     interaction_enabled: bool,
 ) -> PlaceablePanelResponse {
-    let theme = ItemPanelTheme {
-        slot_size: egui::Vec2::new(60.0, 56.0),
-        icon_size: egui::Vec2::new(28.0, 28.0),
-        slot_gap: 6.0,
-        tray_padding: egui::Vec2::new(10.0, 8.0),
-        keycap_size: egui::Vec2::new(18.0, 14.0),
-    };
-    let mut panel_response = PlaceablePanelResponse::default();
+    draw_tool_panel(
+        ctx,
+        slots,
+        selected_slot_idx,
+        interaction_enabled,
+        ToolPanelSpec {
+            area_id: "placeable_panel",
+            anchor: egui::Align2::RIGHT_CENTER,
+            offset: egui::Vec2::new(-16.0, 0.0),
+            orientation: ToolPanelOrientation::Vertical,
+            theme: ToolPanelTheme::placeable_bar(),
+            fill: if placement_tool_active {
+                PANEL_DARK
+            } else {
+                PANEL_DARK.linear_multiply(0.82)
+            },
+            stroke: egui::Stroke::new(
+                2.0,
+                if placement_tool_active {
+                    GOLD_ACCENT
+                } else {
+                    SAGE_ACCENT
+                },
+            ),
+            header: Some(ToolPanelHeader {
+                active: placement_tool_active,
+                active_text: "Place",
+                inactive_text: "Place · 5",
+            }),
+        },
+    )
+}
 
-    egui::Area::new("placeable_panel".into())
+fn draw_tool_panel(
+    ctx: &egui::Context,
+    slots: &[ToolPanelSlot<'_>],
+    selected_slot_idx: usize,
+    interaction_enabled: bool,
+    spec: ToolPanelSpec,
+) -> ToolPanelResponse {
+    let mut panel_response = ToolPanelResponse::default();
+    let theme = spec.theme;
+
+    egui::Area::new(spec.area_id.into())
         .order(egui::Order::Foreground)
-        .anchor(egui::Align2::CENTER_BOTTOM, egui::Vec2::new(0.0, -94.0))
+        .anchor(spec.anchor, spec.offset)
         .show(ctx, |ui| {
             let panel_frame = egui::containers::Frame {
-                fill: if placement_tool_active {
-                    PANEL_DARK
-                } else {
-                    PANEL_DARK.linear_multiply(0.82)
-                },
+                fill: spec.fill,
                 inner_margin: egui::Margin {
                     left: theme.tray_padding.x as i8,
                     right: theme.tray_padding.x as i8,
                     top: theme.tray_padding.y as i8,
-                    bottom: theme.tray_padding.y as i8,
+                    bottom: (theme.tray_padding.y + theme.bottom_padding_extra) as i8,
                 },
                 corner_radius: egui::CornerRadius::same(0),
                 shadow: egui::epaint::Shadow {
-                    offset: [3, 3],
+                    offset: theme.shadow_offset,
                     blur: 0,
                     spread: 0,
                     color: SHADOW_COLOR,
                 },
-                stroke: egui::Stroke::new(
-                    2.0,
-                    if placement_tool_active {
-                        GOLD_ACCENT
-                    } else {
-                        SAGE_ACCENT
-                    },
-                ),
+                stroke: spec.stroke,
                 ..Default::default()
             };
 
-            panel_frame.show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(if placement_tool_active {
-                            "Place"
-                        } else {
-                            "Place · press 5"
-                        })
-                        .color(if placement_tool_active {
-                            GOLD_ACCENT
-                        } else {
-                            SAGE_ACCENT
-                        })
-                        .monospace()
-                        .size(11.0),
-                    );
-                    ui.add_space(3.0);
-                    ui.spacing_mut().item_spacing.x = theme.slot_gap;
-                    for slot in slots {
-                        let item_slot = ItemPanelSlot {
-                            index: slot.index,
-                            label: slot.label,
-                            key_hint: slot.key_hint,
-                            icon: slot.icon,
-                            accent: slot.accent,
-                            enabled: slot.enabled,
-                        };
-                        let clicked = draw_item_panel_slot(
+            panel_frame.show(ui, |ui| match spec.orientation {
+                ToolPanelOrientation::Horizontal => {
+                    ui.horizontal(|ui| {
+                        draw_tool_panel_contents(
                             ui,
-                            &item_slot,
-                            slot.index == selected_slot_idx,
-                            interaction_enabled && slot.enabled,
+                            slots,
+                            selected_slot_idx,
+                            interaction_enabled,
                             theme,
+                            spec.header,
+                            ToolPanelOrientation::Horizontal,
+                            &mut panel_response,
                         );
-                        if clicked {
-                            panel_response.clicked_slot = Some(slot.index);
-                        }
-                    }
-                });
+                    });
+                }
+                ToolPanelOrientation::Vertical => {
+                    ui.vertical_centered(|ui| {
+                        draw_tool_panel_contents(
+                            ui,
+                            slots,
+                            selected_slot_idx,
+                            interaction_enabled,
+                            theme,
+                            spec.header,
+                            ToolPanelOrientation::Vertical,
+                            &mut panel_response,
+                        );
+                    });
+                }
             });
         });
 
     panel_response
 }
 
-fn draw_item_panel_slot(
+fn draw_tool_panel_contents(
     ui: &mut egui::Ui,
-    slot: &ItemPanelSlot<'_>,
+    slots: &[ToolPanelSlot<'_>],
+    selected_slot_idx: usize,
+    interaction_enabled: bool,
+    theme: ToolPanelTheme,
+    header: Option<ToolPanelHeader>,
+    orientation: ToolPanelOrientation,
+    panel_response: &mut ToolPanelResponse,
+) {
+    if let Some(header) = header {
+        ui.label(
+            egui::RichText::new(header.text())
+                .color(header.color())
+                .monospace()
+                .size(11.0),
+        );
+        match orientation {
+            ToolPanelOrientation::Horizontal => ui.add_space(3.0),
+            ToolPanelOrientation::Vertical => ui.add_space(2.0),
+        }
+    }
+
+    match orientation {
+        ToolPanelOrientation::Horizontal => ui.spacing_mut().item_spacing.x = theme.slot_gap,
+        ToolPanelOrientation::Vertical => ui.spacing_mut().item_spacing.y = theme.slot_gap,
+    }
+
+    for slot in slots {
+        let clicked = draw_tool_panel_slot(
+            ui,
+            slot,
+            slot.index == selected_slot_idx,
+            interaction_enabled && slot.enabled,
+            theme,
+        );
+        if clicked {
+            panel_response.clicked_slot = Some(slot.index);
+        }
+    }
+}
+
+fn draw_tool_panel_slot(
+    ui: &mut egui::Ui,
+    slot: &ToolPanelSlot<'_>,
     selected: bool,
     interaction_enabled: bool,
-    theme: ItemPanelTheme,
+    theme: ToolPanelTheme,
 ) -> bool {
     let sense = if interaction_enabled {
         egui::Sense::click()
