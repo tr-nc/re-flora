@@ -45,6 +45,39 @@ fn orbit_offset_to_spherical(mut offset: Vec3) -> (f32, f32, f32) {
     (azimuth, elevation, distance)
 }
 
+fn editable_chunk_xz_min() -> Vec2 {
+    Vec2::new(
+        super::EDITABLE_CHUNK_INDEX.x as f32,
+        super::EDITABLE_CHUNK_INDEX.z as f32,
+    )
+}
+
+fn editable_chunk_xz_max() -> Vec2 {
+    editable_chunk_xz_min() + Vec2::ONE
+}
+
+fn terrain_edit_disc_within_editable_chunk(center: Vec3, radius: f32) -> bool {
+    if !center.is_finite() || !radius.is_finite() || radius < 0.0 {
+        return false;
+    }
+
+    let min = editable_chunk_xz_min();
+    let max = editable_chunk_xz_max();
+    center.x >= min.x
+        && center.z >= min.y
+        && center.x < max.x
+        && center.z < max.y
+        && center.x - radius >= min.x
+        && center.z - radius >= min.y
+        && center.x + radius <= max.x
+        && center.z + radius <= max.y
+}
+
+fn terrain_brush_within_editable_chunk(edit: TerrainBrushEdit) -> bool {
+    terrain_edit_disc_within_editable_chunk(edit.start, edit.radius)
+        && terrain_edit_disc_within_editable_chunk(edit.end, edit.radius)
+}
+
 impl App {
     fn blocking_panel_open(&self) -> bool {
         self.config_panel_visible
@@ -667,6 +700,14 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
+                if !terrain_edit_disc_within_editable_chunk(
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                ) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_shovel_dig_time = Some(now);
+                    return;
+                }
                 self.start_terrain_edit_loop_sound(center);
 
                 if let Some(last_dig) = self.player_tools.last_shovel_dig_time {
@@ -723,6 +764,14 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
+                if !terrain_edit_disc_within_editable_chunk(
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                ) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_smooth_time = Some(now);
+                    return;
+                }
                 self.start_terrain_edit_loop_sound(center);
 
                 if let Some(last_smooth) = self.player_tools.last_smooth_time {
@@ -765,6 +814,15 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
+                if !terrain_edit_disc_within_editable_chunk(
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                ) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_staff_regen_time = Some(now);
+                    self.reset_staff_regen_stroke_tracking();
+                    return;
+                }
                 self.start_terrain_edit_loop_sound(center);
 
                 if let Some(last_regen) = self.player_tools.last_staff_regen_time {
@@ -778,6 +836,12 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
+                if !terrain_brush_within_editable_chunk(edit) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_staff_regen_time = Some(now);
+                    self.reset_staff_regen_stroke_tracking();
+                    return;
+                }
                 let (paint_dab_serial, is_release_step) =
                     self.current_staff_regen_paint_dab_serial(now);
                 if let Err(err) =
@@ -814,6 +878,15 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
+                if !terrain_edit_disc_within_editable_chunk(
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                ) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_staff_remove_time = Some(now);
+                    self.player_tools.last_staff_remove_center = None;
+                    return;
+                }
                 self.start_terrain_edit_loop_sound(center);
 
                 if let Some(last_remove) = self.player_tools.last_staff_remove_time {
@@ -827,6 +900,12 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
+                if !terrain_brush_within_editable_chunk(edit) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_staff_remove_time = Some(now);
+                    self.player_tools.last_staff_remove_center = None;
+                    return;
+                }
                 if let Err(err) = self.apply_surface_flora_removal(edit) {
                     log::error!("Failed to apply flora removal: {}", err);
                     self.player_tools.last_staff_remove_center = None;
@@ -874,7 +953,12 @@ impl App {
         }
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
-            Ok(hit) => hit,
+            Ok(hit) => hit.filter(|center| {
+                terrain_edit_disc_within_editable_chunk(
+                    *center,
+                    self.player_tools.terrain_edit_radius,
+                )
+            }),
             Err(err) => {
                 log::error!("Terrain edit preview query failed: {}", err);
                 None
@@ -900,6 +984,14 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
+                if !terrain_edit_disc_within_editable_chunk(
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                ) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_shovel_place_time = Some(now);
+                    return;
+                }
                 self.start_terrain_edit_loop_sound(center);
 
                 if let Some(last_place) = self.player_tools.last_shovel_place_time {
@@ -947,6 +1039,14 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
+                if !terrain_edit_disc_within_editable_chunk(
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                ) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_hoe_trim_time = Some(now);
+                    return;
+                }
                 self.start_terrain_edit_loop_sound(center);
 
                 if let Some(last_trim) = self.player_tools.last_hoe_trim_time {
@@ -983,6 +1083,15 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
+                if !terrain_edit_disc_within_editable_chunk(
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                ) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_watering_time = Some(now);
+                    self.reset_watering_stroke_tracking();
+                    return;
+                }
                 self.start_terrain_edit_loop_sound(center);
 
                 if let Some(last_water) = self.player_tools.last_watering_time {
@@ -996,6 +1105,12 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
+                if !terrain_brush_within_editable_chunk(edit) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_watering_time = Some(now);
+                    self.reset_watering_stroke_tracking();
+                    return;
+                }
                 if let Err(err) = self.add_watering_brush_moisture(edit) {
                     log::error!("Failed to apply watering brush: {}", err);
                     self.reset_watering_stroke_tracking();
@@ -1028,6 +1143,9 @@ impl App {
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.stop_terrain_edit_loop_sound();
+                if !terrain_edit_disc_within_editable_chunk(center, 0.0) {
+                    return;
+                }
                 match self.current_placeable_kind() {
                     PlaceableKind::Tree => {
                         let mut tree_desc = self.debug_tree_desc.clone();
@@ -1074,7 +1192,11 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::orbit_offset_to_spherical;
+    use super::{
+        orbit_offset_to_spherical, terrain_brush_within_editable_chunk,
+        terrain_edit_disc_within_editable_chunk,
+    };
+    use crate::app::world_edits::TerrainBrushEdit;
     use glam::Vec3;
 
     fn assert_near(actual: f32, expected: f32) {
@@ -1092,5 +1214,43 @@ mod tests {
         assert_near(azimuth, std::f32::consts::FRAC_PI_2);
         assert_near(elevation, 0.0);
         assert_near(distance, min_distance);
+    }
+
+    #[test]
+    fn terrain_edit_disc_accepts_only_middle_chunk_xz() {
+        assert!(terrain_edit_disc_within_editable_chunk(
+            Vec3::new(1.5, 0.5, 1.5),
+            0.25,
+        ));
+        assert!(terrain_edit_disc_within_editable_chunk(
+            Vec3::new(1.92, 0.5, 1.5),
+            0.08,
+        ));
+        assert!(!terrain_edit_disc_within_editable_chunk(
+            Vec3::new(0.9, 0.5, 1.5),
+            0.0,
+        ));
+        assert!(!terrain_edit_disc_within_editable_chunk(
+            Vec3::new(1.05, 0.5, 1.5),
+            0.08,
+        ));
+        assert!(!terrain_edit_disc_within_editable_chunk(
+            Vec3::new(2.0, 0.5, 1.5),
+            0.0,
+        ));
+    }
+
+    #[test]
+    fn terrain_brush_requires_whole_stroke_in_middle_chunk_xz() {
+        assert!(terrain_brush_within_editable_chunk(TerrainBrushEdit {
+            start: Vec3::new(1.2, 0.5, 1.2),
+            end: Vec3::new(1.8, 0.5, 1.8),
+            radius: 0.1,
+        }));
+        assert!(!terrain_brush_within_editable_chunk(TerrainBrushEdit {
+            start: Vec3::new(1.5, 0.5, 1.5),
+            end: Vec3::new(2.05, 0.5, 1.5),
+            radius: 0.1,
+        }));
     }
 }
