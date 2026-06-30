@@ -412,7 +412,7 @@ impl App {
                 PlaceableKind::Sprinkler => TerrainEditPreviewShape::SurfaceCircle,
             }
         } else if self.is_watering_selected() {
-            TerrainEditPreviewShape::SurfaceCircle
+            TerrainEditPreviewShape::Sphere
         } else {
             TerrainEditPreviewShape::Sphere
         }

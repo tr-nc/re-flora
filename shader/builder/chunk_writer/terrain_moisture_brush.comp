@@ -21,15 +21,40 @@ bool is_moisture_voxel(uint voxel_type) {
     return voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND;
 }
 
-float distance_to_segment_xz(vec3 point, vec3 start, vec3 end) {
-    vec2 ab = end.xz - start.xz;
+uint load_atlas_voxel_type(ivec3 p) {
+    ivec3 atlas_size = imageSize(chunk_atlas).xyz;
+    if (any(lessThan(p, ivec3(0))) || any(greaterThanEqual(p, atlas_size))) {
+        return VOXEL_TYPE_EMPTY;
+    }
+    return voxel_type_from_atlas_data(imageLoad(chunk_atlas, p).r);
+}
+
+bool is_surface_moisture_voxel(ivec3 p, uint voxel_type) {
+    if (!is_moisture_voxel(voxel_type)) {
+        return false;
+    }
+
+    const ivec3 neighbours_to_check[6] = {
+        ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
+        ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
+    };
+    for (int i = 0; i < 6; i++) {
+        if (load_atlas_voxel_type(p + neighbours_to_check[i]) == VOXEL_TYPE_EMPTY) {
+            return true;
+        }
+    }
+    return false;
+}
+
+float distance_to_segment(vec3 point, vec3 start, vec3 end) {
+    vec3 ab = end - start;
     float len_sq = dot(ab, ab);
     if (len_sq <= 1.0e-5) {
-        return length(point.xz - start.xz);
+        return length(point - start);
     }
-    float t = clamp(dot(point.xz - start.xz, ab) / len_sq, 0.0, 1.0);
-    vec2 closest = start.xz + ab * t;
-    return length(point.xz - closest);
+    float t = clamp(dot(point - start, ab) / len_sq, 0.0, 1.0);
+    vec3 closest = start + ab * t;
+    return length(point - closest);
 }
 
 void main() {
@@ -49,19 +74,19 @@ void main() {
     }
 
     vec3 voxel_center = vec3(atlas_u) + vec3(0.5);
-    float xz_dist = distance_to_segment_xz(voxel_center, start_vox, end_vox);
-    if (xz_dist > radius_vox) {
+    float dist = distance_to_segment(voxel_center, start_vox, end_vox);
+    if (dist > radius_vox) {
         return;
     }
 
     uint old_data = imageLoad(chunk_atlas, ivec3(atlas_u)).r;
     uint voxel_type = voxel_type_from_atlas_data(old_data);
-    if (!is_moisture_voxel(voxel_type)) {
+    if (!is_surface_moisture_voxel(ivec3(atlas_u), voxel_type)) {
         return;
     }
 
     float edge = max(radius_vox * 0.35, 1.0);
-    float falloff = 1.0 - smoothstep(max(radius_vox - edge, 0.0), radius_vox, xz_dist);
+    float falloff = 1.0 - smoothstep(max(radius_vox - edge, 0.0), radius_vox, dist);
     uint add_moisture = uint(ceil(amount * falloff * float(VOXEL_MOISTURE_MAX)));
     if (add_moisture == 0u) {
         return;

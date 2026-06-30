@@ -658,20 +658,19 @@ impl PlainBuilder {
             return Ok(None);
         }
 
-        // Moisture is surface state for now. Limit the vertical write band to avoid touching deep
-        // soil under large sprinklers while still covering small slopes around the hit point.
-        let vertical_radius_vox = (radius_vox * 0.25).clamp(6.0, 16.0);
+        // The water dab is a swept sphere in voxel space, not a whole vertical column over the XZ
+        // footprint. The shader still restricts writes to surface dirt/sand voxels.
         let atlas_dim_i = atlas_dim.as_ivec3();
         let min_vox = start_vox.min(end_vox);
         let max_vox = start_vox.max(end_vox);
         let min = IVec3::new(
             (min_vox.x - radius_vox).floor() as i32,
-            (min_vox.y - vertical_radius_vox).floor() as i32,
+            (min_vox.y - radius_vox).floor() as i32,
             (min_vox.z - radius_vox).floor() as i32,
         );
         let max_exclusive = IVec3::new(
             (max_vox.x + radius_vox).ceil() as i32,
-            (max_vox.y + vertical_radius_vox).ceil() as i32,
+            (max_vox.y + radius_vox).ceil() as i32,
             (max_vox.z + radius_vox).ceil() as i32,
         );
         let clamped_min = min.clamp(IVec3::ZERO, atlas_dim_i);
