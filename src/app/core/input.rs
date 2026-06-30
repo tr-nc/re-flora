@@ -267,8 +267,11 @@ impl App {
             {
                 self.orbit_mouse_drag_held = true;
                 self.orbit_mouse_drag_button = Some(button);
-                self.orbit_mouse_drag_pan_active = false;
-                self.orbit_mouse_drag_anchor = None;
+                self.orbit_mouse_drag_pan_active = self.modifiers.shift_key();
+                self.orbit_mouse_drag_anchor = self
+                    .orbit_mouse_drag_pan_active
+                    .then(|| self.orbit_mouse_pan_anchor())
+                    .flatten();
                 self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
                 true
             }
