@@ -214,8 +214,8 @@ struct TerrainSmoothMboResultGpu {
 struct TerrainMoistureBrushInfoGpu {
     offset: [u32; 4],
     dim: [u32; 4],
-    center_radius: [f32; 4],
-    params: [f32; 4],
+    start_radius: [f32; 4],
+    end_amount: [f32; 4],
 }
 
 pub struct PlainBuilder {
@@ -644,15 +644,17 @@ impl PlainBuilder {
     #[allow(dead_code)]
     pub fn apply_terrain_moisture_brush(
         &mut self,
-        center: Vec3,
+        start: Vec3,
+        end: Vec3,
         radius_world: f32,
         amount: f32,
     ) -> Result<Option<UAabb3>> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
-        let center_vox = center * 256.0;
+        let start_vox = start * 256.0;
+        let end_vox = end * 256.0;
         let radius_vox = (radius_world * 256.0).max(0.0);
         let amount = amount.clamp(0.0, 1.0);
-        if radius_vox <= 0.0 || amount <= 0.0 || !center_vox.is_finite() {
+        if radius_vox <= 0.0 || amount <= 0.0 || !start_vox.is_finite() || !end_vox.is_finite() {
             return Ok(None);
         }
 
@@ -660,15 +662,17 @@ impl PlainBuilder {
         // soil under large sprinklers while still covering small slopes around the hit point.
         let vertical_radius_vox = (radius_vox * 0.25).clamp(6.0, 16.0);
         let atlas_dim_i = atlas_dim.as_ivec3();
+        let min_vox = start_vox.min(end_vox);
+        let max_vox = start_vox.max(end_vox);
         let min = IVec3::new(
-            (center_vox.x - radius_vox).floor() as i32,
-            (center_vox.y - vertical_radius_vox).floor() as i32,
-            (center_vox.z - radius_vox).floor() as i32,
+            (min_vox.x - radius_vox).floor() as i32,
+            (min_vox.y - vertical_radius_vox).floor() as i32,
+            (min_vox.z - radius_vox).floor() as i32,
         );
         let max_exclusive = IVec3::new(
-            (center_vox.x + radius_vox).ceil() as i32,
-            (center_vox.y + vertical_radius_vox).ceil() as i32,
-            (center_vox.z + radius_vox).ceil() as i32,
+            (max_vox.x + radius_vox).ceil() as i32,
+            (max_vox.y + vertical_radius_vox).ceil() as i32,
+            (max_vox.z + radius_vox).ceil() as i32,
         );
         let clamped_min = min.clamp(IVec3::ZERO, atlas_dim_i);
         let clamped_max = max_exclusive.clamp(IVec3::ZERO, atlas_dim_i);
@@ -683,8 +687,8 @@ impl PlainBuilder {
             .fill_uniform(&TerrainMoistureBrushInfoGpu {
                 offset: [offset.x, offset.y, offset.z, 0],
                 dim: [dim.x, dim.y, dim.z, 0],
-                center_radius: [center_vox.x, center_vox.y, center_vox.z, radius_vox],
-                params: [amount, 0.0, 0.0, 0.0],
+                start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
+                end_amount: [end_vox.x, end_vox.y, end_vox.z, amount],
             })?;
 
         let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();

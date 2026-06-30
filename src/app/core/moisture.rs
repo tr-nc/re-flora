@@ -1,4 +1,6 @@
 use super::App;
+use crate::app::world_edits::TerrainBrushEdit;
+use anyhow::Result;
 use glam::{Vec2, Vec3};
 
 const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
@@ -195,6 +197,7 @@ impl App {
                 .add_sprinkler_water(sprinkler_id, base_position, amount);
             if let Err(err) = self.plain_builder.apply_terrain_moisture_brush(
                 base_position,
+                base_position,
                 SPRINKLER_MOISTURE_RADIUS,
                 amount,
             ) {
@@ -206,18 +209,16 @@ impl App {
         }
     }
 
-    pub(super) fn add_watering_brush_moisture(&mut self, center: Vec3, radius: f32) {
-        self.terrain_moisture.add_watering_brush(center, radius);
-        if let Err(err) = self.plain_builder.apply_terrain_moisture_brush(
-            center,
-            radius,
+    pub(super) fn add_watering_brush_moisture(&mut self, edit: TerrainBrushEdit) -> Result<()> {
+        self.plain_builder.apply_terrain_moisture_brush(
+            edit.start,
+            edit.end,
+            edit.radius,
             WATERING_BRUSH_MOISTURE_PER_DAB,
-        ) {
-            log::error!(
-                "Failed to write watering brush moisture into terrain atlas: {}",
-                err
-            );
-        }
+        )?;
+        self.terrain_moisture
+            .add_watering_brush(edit.end, edit.radius);
+        Ok(())
     }
 }
 

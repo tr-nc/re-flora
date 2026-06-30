@@ -7,8 +7,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 layout(set = 0, binding = 0) uniform U_TerrainMoistureBrushInfo {
     uvec4 offset;
     uvec4 dim;
-    vec4 center_radius;
-    vec4 params;
+    vec4 start_radius;
+    vec4 end_amount;
 }
 terrain_moisture_brush_info;
 
@@ -21,6 +21,17 @@ bool is_moisture_voxel(uint voxel_type) {
     return voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND;
 }
 
+float distance_to_segment_xz(vec3 point, vec3 start, vec3 end) {
+    vec2 ab = end.xz - start.xz;
+    float len_sq = dot(ab, ab);
+    if (len_sq <= 1.0e-5) {
+        return length(point.xz - start.xz);
+    }
+    float t = clamp(dot(point.xz - start.xz, ab) / len_sq, 0.0, 1.0);
+    vec2 closest = start.xz + ab * t;
+    return length(point.xz - closest);
+}
+
 void main() {
     uvec3 local = gl_GlobalInvocationID.xyz;
     uvec3 dim   = terrain_moisture_brush_info.dim.xyz;
@@ -29,15 +40,16 @@ void main() {
     }
 
     uvec3 atlas_u = terrain_moisture_brush_info.offset.xyz + local;
-    vec3 center_vox = terrain_moisture_brush_info.center_radius.xyz;
-    float radius_vox = max(terrain_moisture_brush_info.center_radius.w, 0.0);
-    float amount = clamp(terrain_moisture_brush_info.params.x, 0.0, 1.0);
+    vec3 start_vox = terrain_moisture_brush_info.start_radius.xyz;
+    float radius_vox = max(terrain_moisture_brush_info.start_radius.w, 0.0);
+    vec3 end_vox = terrain_moisture_brush_info.end_amount.xyz;
+    float amount = clamp(terrain_moisture_brush_info.end_amount.w, 0.0, 1.0);
     if (radius_vox <= 0.0 || amount <= 0.0) {
         return;
     }
 
     vec3 voxel_center = vec3(atlas_u) + vec3(0.5);
-    float xz_dist = length(voxel_center.xz - center_vox.xz);
+    float xz_dist = distance_to_segment_xz(voxel_center, start_vox, end_vox);
     if (xz_dist > radius_vox) {
         return;
     }

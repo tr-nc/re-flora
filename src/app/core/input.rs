@@ -266,6 +266,7 @@ impl App {
         if button == MouseButton::Left {
             self.player_tools.left_mouse_held = state == ElementState::Pressed;
             self.reset_staff_regen_stroke_tracking();
+            self.reset_watering_stroke_tracking();
             if state == ElementState::Pressed {
                 self.player_tools.last_staff_regen_time = None;
             }
@@ -285,6 +286,7 @@ impl App {
         if !self.player_tools.shovel_dig_held {
             self.stop_terrain_edit_loop_sound();
             self.reset_staff_stroke_tracking();
+            self.reset_watering_stroke_tracking();
         }
     }
 
@@ -299,12 +301,17 @@ impl App {
         self.player_tools.active_staff_regen_paint_dab_serial = None;
     }
 
+    fn reset_watering_stroke_tracking(&mut self) {
+        self.player_tools.last_watering_center = None;
+    }
+
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
         if slot_idx < ITEM_PANEL_SLOT_COUNT
             && slot_idx != self.player_tools.selected_item_panel_slot
         {
             self.player_tools.selected_item_panel_slot = slot_idx;
             self.reset_staff_stroke_tracking();
+            self.reset_watering_stroke_tracking();
             self.play_item_panel_scroll_sound();
         }
     }
@@ -766,18 +773,16 @@ impl App {
                     }
                 }
 
-                let start = self.player_tools.last_staff_regen_center.unwrap_or(center);
+                let edit = TerrainBrushEdit::from_previous_center(
+                    self.player_tools.last_staff_regen_center,
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                );
                 let (paint_dab_serial, is_release_step) =
                     self.current_staff_regen_paint_dab_serial(now);
-                if let Err(err) = self.apply_surface_flora_regeneration(
-                    TerrainBrushEdit {
-                        start,
-                        end: center,
-                        radius: self.player_tools.terrain_edit_radius,
-                    },
-                    paint_dab_serial,
-                    is_release_step,
-                ) {
+                if let Err(err) =
+                    self.apply_surface_flora_regeneration(edit, paint_dab_serial, is_release_step)
+                {
                     log::error!("Failed to apply flora regeneration: {}", err);
                     self.reset_staff_regen_stroke_tracking();
                     return;
@@ -817,12 +822,12 @@ impl App {
                     }
                 }
 
-                let start = self.player_tools.last_staff_remove_center.unwrap_or(center);
-                if let Err(err) = self.apply_surface_flora_removal(TerrainBrushEdit {
-                    start,
-                    end: center,
-                    radius: self.player_tools.terrain_edit_radius,
-                }) {
+                let edit = TerrainBrushEdit::from_previous_center(
+                    self.player_tools.last_staff_remove_center,
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                );
+                if let Err(err) = self.apply_surface_flora_removal(edit) {
                     log::error!("Failed to apply flora removal: {}", err);
                     self.player_tools.last_staff_remove_center = None;
                     return;
@@ -972,6 +977,7 @@ impl App {
     pub(super) fn try_watering_brush(&mut self, now: Instant) {
         if !self.terrain_edit_pointer_available() || !self.is_watering_selected() {
             self.stop_terrain_edit_loop_sound();
+            self.reset_watering_stroke_tracking();
             return;
         }
 
@@ -985,14 +991,26 @@ impl App {
                     }
                 }
 
-                self.add_watering_brush_moisture(center, self.player_tools.terrain_edit_radius);
+                let edit = TerrainBrushEdit::from_previous_center(
+                    self.player_tools.last_watering_center,
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                );
+                if let Err(err) = self.add_watering_brush_moisture(edit) {
+                    log::error!("Failed to apply watering brush: {}", err);
+                    self.reset_watering_stroke_tracking();
+                    return;
+                }
                 self.player_tools.last_watering_time = Some(now);
+                self.player_tools.last_watering_center = Some(center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
                 self.player_tools.last_watering_time = Some(now);
+                self.reset_watering_stroke_tracking();
             }
             Err(err) => {
+                self.reset_watering_stroke_tracking();
                 log::error!(
                     "Watering brush attempt failed during terrain query: {}",
                     err
