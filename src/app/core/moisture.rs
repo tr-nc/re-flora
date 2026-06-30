@@ -5,19 +5,24 @@ use glam::{Vec2, Vec3};
 
 const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
 const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;
+#[allow(dead_code)]
 const SPRINKLER_MOISTURE_INITIAL_STRENGTH: f32 = 0.38;
 const WATERING_BRUSH_MOISTURE_PER_DAB: f32 = 0.68;
+#[allow(dead_code)]
 const WATERING_BRUSH_MERGE_RADIUS_FACTOR: f32 = 0.42;
 const TERRAIN_MOISTURE_DRY_RATE_PER_SECOND: f32 = 0.018;
 const TERRAIN_MOISTURE_MIN_STRENGTH: f32 = 0.025;
+#[allow(dead_code)]
 const TERRAIN_MOISTURE_MAX_RADIUS: f32 = 0.34;
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TerrainMoistureSource {
     Sprinkler(u32),
     Brush(u32),
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 struct TerrainMoisturePatch {
     source: TerrainMoistureSource,
@@ -54,6 +59,7 @@ impl TerrainMoistureSystem {
             .retain(|patch| patch.strength >= TERRAIN_MOISTURE_MIN_STRENGTH);
     }
 
+    #[allow(dead_code)]
     pub(super) fn add_sprinkler_water(&mut self, sprinkler_id: u32, center: Vec3, amount: f32) {
         self.upsert_source_patch(
             TerrainMoistureSource::Sprinkler(sprinkler_id),
@@ -64,6 +70,7 @@ impl TerrainMoistureSystem {
         );
     }
 
+    #[allow(dead_code)]
     pub(super) fn add_watering_brush(&mut self, center: Vec3, radius: f32) {
         let radius = radius.clamp(0.01, TERRAIN_MOISTURE_MAX_RADIUS);
         let center_xz = Vec2::new(center.x, center.z);
@@ -89,6 +96,7 @@ impl TerrainMoistureSystem {
         self.enforce_capacity();
     }
 
+    #[allow(dead_code)]
     fn upsert_source_patch(
         &mut self,
         source: TerrainMoistureSource,
@@ -122,6 +130,7 @@ impl TerrainMoistureSystem {
         self.enforce_capacity();
     }
 
+    #[allow(dead_code)]
     fn enforce_capacity(&mut self) {
         while self.patches.len() > crate::tracer::TERRAIN_MOISTURE_PATCH_CAPACITY {
             if let Some((weakest_brush_index, _)) = self
@@ -174,6 +183,7 @@ impl TerrainMoistureSystem {
     }
 }
 
+#[allow(dead_code)]
 fn strength_order(a: &TerrainMoisturePatch, b: &TerrainMoisturePatch) -> std::cmp::Ordering {
     a.strength
         .partial_cmp(&b.strength)
@@ -192,9 +202,7 @@ impl App {
             .iter()
             .map(|sprinkler| (sprinkler.id, sprinkler.base_position))
             .collect::<Vec<_>>();
-        for (sprinkler_id, base_position) in sprinkler_sources {
-            self.terrain_moisture
-                .add_sprinkler_water(sprinkler_id, base_position, amount);
+        for (_sprinkler_id, base_position) in sprinkler_sources {
             if let Err(err) = self.plain_builder.apply_terrain_moisture_brush(
                 base_position,
                 base_position,
@@ -216,8 +224,6 @@ impl App {
             edit.radius,
             WATERING_BRUSH_MOISTURE_PER_DAB,
         )?;
-        self.terrain_moisture
-            .add_watering_brush(edit.end, edit.radius);
         Ok(())
     }
 }

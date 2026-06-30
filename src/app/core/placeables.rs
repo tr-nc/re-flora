@@ -254,8 +254,6 @@ impl App {
             base_position,
             nozzle_position: compiled.nozzle_position,
         });
-        self.terrain_moisture
-            .add_sprinkler_water(id, base_position, 1.0);
         self.sprinkler_emitters
             .push(SprinklerEmitter::new(id, compiled.nozzle_position));
         log::info!("Placed sprinkler {} at {:?}", id, base_position);
