@@ -185,17 +185,39 @@ impl App {
         }
 
         let amount = SPRINKLER_MOISTURE_PER_SECOND * dt;
-        for sprinkler in &self.sprinkler_records {
-            self.terrain_moisture.add_sprinkler_water(
-                sprinkler.id,
-                sprinkler.base_position,
+        let sprinkler_sources = self
+            .sprinkler_records
+            .iter()
+            .map(|sprinkler| (sprinkler.id, sprinkler.base_position))
+            .collect::<Vec<_>>();
+        for (sprinkler_id, base_position) in sprinkler_sources {
+            self.terrain_moisture
+                .add_sprinkler_water(sprinkler_id, base_position, amount);
+            if let Err(err) = self.plain_builder.apply_terrain_moisture_brush(
+                base_position,
+                SPRINKLER_MOISTURE_RADIUS,
                 amount,
-            );
+            ) {
+                log::error!(
+                    "Failed to write sprinkler moisture into terrain atlas: {}",
+                    err
+                );
+            }
         }
     }
 
     pub(super) fn add_watering_brush_moisture(&mut self, center: Vec3, radius: f32) {
         self.terrain_moisture.add_watering_brush(center, radius);
+        if let Err(err) = self.plain_builder.apply_terrain_moisture_brush(
+            center,
+            radius,
+            WATERING_BRUSH_MOISTURE_PER_DAB,
+        ) {
+            log::error!(
+                "Failed to write watering brush moisture into terrain atlas: {}",
+                err
+            );
+        }
     }
 }
 

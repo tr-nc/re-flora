@@ -1,6 +1,7 @@
 #ifndef TERRAIN_SMOOTH_MBO_COMMON_GLSL
 #define TERRAIN_SMOOTH_MBO_COMMON_GLSL
 
+#include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 
 const float TERRAIN_SMOOTH_MBO_DEAD_SCORE_SCALE = 1.0 / 256.0;
@@ -16,7 +17,7 @@ bool in_local_bounds(ivec3 local) {
 
 ivec3 atlas_pos(uvec3 local) { return ivec3(terrain_smooth_mbo_info.offset.xyz + local); }
 
-uint load_voxel_type(uvec3 local) { return imageLoad(chunk_atlas, atlas_pos(local)).r; }
+uint load_voxel_type(uvec3 local) { return voxel_type_from_atlas_data(imageLoad(chunk_atlas, atlas_pos(local)).r); }
 
 bool is_terrain_voxel(uint voxel_type) {
     return voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND ||

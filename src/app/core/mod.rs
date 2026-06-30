@@ -780,6 +780,7 @@ impl App {
             window_state.window_extent(),
             contree_builder.get_resources(),
             scene_accel_builder.get_resources(),
+            plain_builder.get_resources(),
             TracerDesc {
                 scaling_factor: 0.5,
             },

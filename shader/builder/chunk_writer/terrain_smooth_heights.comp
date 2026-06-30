@@ -21,6 +21,7 @@ layout(set = 0, binding = 1) buffer B_TerrainSmoothColumns { vec4 data[]; }
 terrain_smooth_columns;
 layout(set = 0, binding = 2, r8ui) readonly uniform uimage3D chunk_atlas;
 
+#include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 
 bool is_terrain_voxel(uint voxel_type) {
@@ -28,7 +29,7 @@ bool is_terrain_voxel(uint voxel_type) {
            voxel_type == VOXEL_TYPE_ROCK;
 }
 
-uint load_voxel_type(ivec3 p) { return imageLoad(chunk_atlas, p).r; }
+uint load_voxel_type(ivec3 p) { return voxel_type_from_atlas_data(imageLoad(chunk_atlas, p).r); }
 
 void main() {
     uvec2 column = gl_GlobalInvocationID.xy;

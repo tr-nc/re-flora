@@ -72,20 +72,19 @@ float terrain_moisture_at(vec3 center_pos) {
     return clamp(wetness * voxel_colors.moisture_params.y, 0.0, 1.0);
 }
 
-vec3 apply_terrain_moisture(vec3 base_color, uint voxel_type, vec3 center_pos) {
+vec3 apply_terrain_moisture_wetness(vec3 base_color, uint voxel_type, float wetness) {
     bool can_show_moisture = voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND;
-    if (!can_show_moisture) {
+    if (!can_show_moisture || wetness <= 0.0) {
         return base_color;
     }
 
-    float wetness = terrain_moisture_at(center_pos);
-    if (wetness <= 0.0) {
-        return base_color;
-    }
-
-    wetness = pow(wetness, 0.58);
+    wetness = pow(clamp(wetness, 0.0, 1.0), 0.58);
     vec3 cool_wet_color = mix(base_color * 0.26, vec3(0.012, 0.028, 0.023), 0.42);
     return mix(base_color, cool_wet_color, clamp(wetness * 1.18, 0.0, 1.0));
+}
+
+vec3 apply_terrain_moisture(vec3 base_color, uint voxel_type, vec3 center_pos) {
+    return apply_terrain_moisture_wetness(base_color, voxel_type, terrain_moisture_at(center_pos));
 }
 
 #endif // VOXEL_COLORS_GLSL

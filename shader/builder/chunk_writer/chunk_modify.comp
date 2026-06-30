@@ -58,6 +58,7 @@ solid_workgroup_flags;
 #include "../../include/config.glsl"
 #include "../../include/core/aabb.glsl"
 #include "../../include/core/sdf.glsl"
+#include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 #include "../../include/solid_workgroups.glsl"
 
@@ -82,7 +83,14 @@ uint load_voxel_type(ivec3 p) {
     if (!in_atlas_bound(p)) {
         return VOXEL_TYPE_EMPTY;
     }
-    return imageLoad(chunk_atlas, p).r;
+    return voxel_type_from_atlas_data(imageLoad(chunk_atlas, p).r);
+}
+
+uint atlas_data_for_fill(uint old_voxel_data, uint fill_voxel_type) {
+    if (fill_voxel_type == VOXEL_TYPE_DIRT || fill_voxel_type == VOXEL_TYPE_SAND) {
+        return pack_voxel_atlas_type_preserve_state(old_voxel_data, fill_voxel_type);
+    }
+    return pack_voxel_atlas_type_clear_state(fill_voxel_type);
 }
 
 uint max_removed_count_for_type(uint voxel_type) {
@@ -226,7 +234,8 @@ void main() {
                     }
                 }
 
-                uint old_voxel_type = load_voxel_type(world_voxel_pos);
+                uint old_voxel_data = imageLoad(chunk_atlas, world_voxel_pos).r;
+                uint old_voxel_type = voxel_type_from_atlas_data(old_voxel_data);
                 if (chunk_modify_info.target_voxel_type != VOXEL_TYPE_ANY &&
                     old_voxel_type != chunk_modify_info.target_voxel_type) {
                     return;
@@ -252,7 +261,7 @@ void main() {
                     }
                 }
                 imageStore(chunk_atlas, world_voxel_pos,
-                           uvec4(chunk_modify_info.fill_voxel_type, 0, 0, 0));
+                           uvec4(atlas_data_for_fill(old_voxel_data, chunk_modify_info.fill_voxel_type), 0, 0, 0));
                 if (chunk_modify_info.fill_voxel_type != VOXEL_TYPE_EMPTY) {
                     mark_solid_workgroup(uvec3(world_voxel_pos));
                 }

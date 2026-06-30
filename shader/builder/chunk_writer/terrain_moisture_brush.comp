@@ -1,0 +1,65 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(set = 0, binding = 0) uniform U_TerrainMoistureBrushInfo {
+    uvec4 offset;
+    uvec4 dim;
+    vec4 center_radius;
+    vec4 params;
+}
+terrain_moisture_brush_info;
+
+layout(set = 0, binding = 1, r8ui) uniform uimage3D chunk_atlas;
+
+#include "../../include/voxel_data.glsl"
+#include "../../include/voxel_types.glsl"
+
+bool is_moisture_voxel(uint voxel_type) {
+    return voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND;
+}
+
+void main() {
+    uvec3 local = gl_GlobalInvocationID.xyz;
+    uvec3 dim   = terrain_moisture_brush_info.dim.xyz;
+    if (any(greaterThanEqual(local, dim))) {
+        return;
+    }
+
+    uvec3 atlas_u = terrain_moisture_brush_info.offset.xyz + local;
+    vec3 center_vox = terrain_moisture_brush_info.center_radius.xyz;
+    float radius_vox = max(terrain_moisture_brush_info.center_radius.w, 0.0);
+    float amount = clamp(terrain_moisture_brush_info.params.x, 0.0, 1.0);
+    if (radius_vox <= 0.0 || amount <= 0.0) {
+        return;
+    }
+
+    vec3 voxel_center = vec3(atlas_u) + vec3(0.5);
+    float xz_dist = length(voxel_center.xz - center_vox.xz);
+    if (xz_dist > radius_vox) {
+        return;
+    }
+
+    uint old_data = imageLoad(chunk_atlas, ivec3(atlas_u)).r;
+    uint voxel_type = voxel_type_from_atlas_data(old_data);
+    if (!is_moisture_voxel(voxel_type)) {
+        return;
+    }
+
+    float edge = max(radius_vox * 0.35, 1.0);
+    float falloff = 1.0 - smoothstep(max(radius_vox - edge, 0.0), radius_vox, xz_dist);
+    uint add_moisture = uint(ceil(amount * falloff * float(VOXEL_MOISTURE_MAX)));
+    if (add_moisture == 0u) {
+        return;
+    }
+
+    uint old_moisture = voxel_moisture_from_atlas_data(old_data);
+    uint new_moisture = min(VOXEL_MOISTURE_MAX, old_moisture + add_moisture);
+    if (new_moisture == old_moisture) {
+        return;
+    }
+
+    imageStore(chunk_atlas, ivec3(atlas_u), uvec4(pack_voxel_atlas_data(voxel_type, new_moisture), 0u, 0u, 0u));
+}

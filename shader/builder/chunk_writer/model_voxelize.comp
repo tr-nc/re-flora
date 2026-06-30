@@ -21,6 +21,7 @@ layout(set = 0, binding = 2, r8ui) uniform uimage3D chunk_atlas;
 layout(set = 0, binding = 3) buffer B_SolidWorkgroupFlags { uint data[]; }
 solid_workgroup_flags;
 
+#include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 #include "../../include/solid_workgroups.glsl"
 
@@ -136,7 +137,7 @@ void main() {
     }
 
     if (abs(total_solid_angle) > INSIDE_SOLID_ANGLE_THRESHOLD || near_surface) {
-        imageStore(chunk_atlas, world_voxel_pos, uvec4(model_voxelize_info.fill_voxel_type, 0, 0, 0));
+        imageStore(chunk_atlas, world_voxel_pos, uvec4(pack_voxel_atlas_type_clear_state(model_voxelize_info.fill_voxel_type), 0, 0, 0));
         if (model_voxelize_info.fill_voxel_type != VOXEL_TYPE_EMPTY) {
             mark_solid_workgroup(uvec3(world_voxel_pos));
         }

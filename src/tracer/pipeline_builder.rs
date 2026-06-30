@@ -1,4 +1,4 @@
-use crate::builder::{ContreeBuilderResources, SceneAccelBuilderResources};
+use crate::builder::{ContreeBuilderResources, PlainBuilderResources, SceneAccelBuilderResources};
 use crate::resource::ResourceContainer;
 use crate::tracer::TracerResources;
 use crate::util::ShaderCompiler;
@@ -331,6 +331,7 @@ impl PipelineBuilder {
         resources: &TracerResources,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
     ) -> ComputePipelines {
         let device = vulkan_ctx.device();
 
@@ -338,7 +339,12 @@ impl PipelineBuilder {
             device,
             &shader_modules.tracer_sm,
             pool,
-            &[resources, contree_builder_resources, scene_accel_resources],
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+            ],
         );
 
         let tracer_shadow_ppl = ComputePipeline::new(

@@ -38,6 +38,8 @@ pub const VOXEL_TYPE_ROCK: u32 = 7;
 pub const VOXEL_TYPE_EMPTY: u32 = 0;
 pub const VOXEL_TYPE_DIRT: u32 = 2;
 pub const VOXEL_TYPE_SAND: u32 = 3;
+pub const VOXEL_TYPE_MASK: u8 = 0x0f;
+pub const VOXEL_MOISTURE_MASK: u8 = 0xf0;
 const PRIMITIVE_KIND_ROUND_CONE: u32 = 0;
 const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
@@ -50,6 +52,29 @@ pub(crate) const TERRAIN_SMOOTH_MBO_CELL_CAPACITY: u64 = (TERRAIN_SMOOTH_MBO_MAX
     * (TERRAIN_SMOOTH_MBO_MAX_DIM as u64)
     * (TERRAIN_SMOOTH_MBO_MAX_DIM as u64);
 const EDIT_REMOVAL_SAMPLE_COUNT: usize = 50;
+
+fn voxel_type_from_atlas_byte(voxel_data: u8) -> u8 {
+    voxel_data & VOXEL_TYPE_MASK
+}
+
+fn voxel_moisture_from_atlas_byte(voxel_data: u8) -> u8 {
+    (voxel_data & VOXEL_MOISTURE_MASK) >> 4
+}
+
+fn pack_voxel_atlas_byte(voxel_type: u8, moisture: u8) -> u8 {
+    (voxel_type & VOXEL_TYPE_MASK) | ((moisture & VOXEL_TYPE_MASK) << 4)
+}
+
+fn pack_voxel_atlas_byte_for_fill(old_voxel_data: u8, fill_voxel_type: u8) -> u8 {
+    if fill_voxel_type == VOXEL_TYPE_DIRT as u8 || fill_voxel_type == VOXEL_TYPE_SAND as u8 {
+        pack_voxel_atlas_byte(
+            fill_voxel_type,
+            voxel_moisture_from_atlas_byte(old_voxel_data),
+        )
+    } else {
+        pack_voxel_atlas_byte(fill_voxel_type, 0)
+    }
+}
 
 /// GPU-friendly triangle vertex for model voxelization.
 #[repr(C)]
@@ -184,6 +209,15 @@ struct TerrainSmoothMboResultGpu {
     changed_max: [u32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+struct TerrainMoistureBrushInfoGpu {
+    offset: [u32; 4],
+    dim: [u32; 4],
+    center_radius: [f32; 4],
+    params: [f32; 4],
+}
+
 pub struct PlainBuilder {
     vulkan_ctx: VulkanContext,
     resources: PlainBuilderResources,
@@ -206,6 +240,7 @@ pub struct PlainBuilder {
     terrain_smooth_mbo_diffuse_ba_ppl: ComputePipeline,
     terrain_smooth_mbo_score_ppl: ComputePipeline,
     terrain_smooth_mbo_apply_ppl: ComputePipeline,
+    terrain_moisture_brush_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
     chunk_solid_sample_ppl: ComputePipeline,
@@ -336,6 +371,13 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let terrain_moisture_brush_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_moisture_brush.comp",
+            "main",
+        )
+        .unwrap();
 
         let resources = PlainBuilderResources::new(
             device,
@@ -381,6 +423,8 @@ impl PlainBuilder {
             ComputePipeline::new(device, &terrain_smooth_mbo_score_sm, &pool, &[&resources]);
         let terrain_smooth_mbo_apply_ppl =
             ComputePipeline::new(device, &terrain_smooth_mbo_apply_sm, &pool, &[&resources]);
+        let terrain_moisture_brush_ppl =
+            ComputePipeline::new(device, &terrain_moisture_brush_sm, &pool, &[&resources]);
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
         let chunk_modify_sample_ppl =
             ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
@@ -415,6 +459,7 @@ impl PlainBuilder {
             terrain_smooth_mbo_diffuse_ba_ppl,
             terrain_smooth_mbo_score_ppl,
             terrain_smooth_mbo_apply_ppl,
+            terrain_moisture_brush_ppl,
             chunk_modify_ppl,
             chunk_modify_sample_ppl,
             chunk_solid_sample_ppl,
@@ -594,6 +639,70 @@ impl PlainBuilder {
                 );
             },
         );
+    }
+
+    #[allow(dead_code)]
+    pub fn apply_terrain_moisture_brush(
+        &mut self,
+        center: Vec3,
+        radius_world: f32,
+        amount: f32,
+    ) -> Result<Option<UAabb3>> {
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let center_vox = center * 256.0;
+        let radius_vox = (radius_world * 256.0).max(0.0);
+        let amount = amount.clamp(0.0, 1.0);
+        if radius_vox <= 0.0 || amount <= 0.0 || !center_vox.is_finite() {
+            return Ok(None);
+        }
+
+        // Moisture is surface state for now. Limit the vertical write band to avoid touching deep
+        // soil under large sprinklers while still covering small slopes around the hit point.
+        let vertical_radius_vox = (radius_vox * 0.25).clamp(6.0, 16.0);
+        let atlas_dim_i = atlas_dim.as_ivec3();
+        let min = IVec3::new(
+            (center_vox.x - radius_vox).floor() as i32,
+            (center_vox.y - vertical_radius_vox).floor() as i32,
+            (center_vox.z - radius_vox).floor() as i32,
+        );
+        let max_exclusive = IVec3::new(
+            (center_vox.x + radius_vox).ceil() as i32,
+            (center_vox.y + vertical_radius_vox).ceil() as i32,
+            (center_vox.z + radius_vox).ceil() as i32,
+        );
+        let clamped_min = min.clamp(IVec3::ZERO, atlas_dim_i);
+        let clamped_max = max_exclusive.clamp(IVec3::ZERO, atlas_dim_i);
+        if any_ivec3_less_equal(clamped_max, clamped_min) {
+            return Ok(None);
+        }
+
+        let offset = clamped_min.as_uvec3();
+        let dim = (clamped_max - clamped_min).as_uvec3();
+        self.resources
+            .terrain_moisture_brush_info
+            .fill_uniform(&TerrainMoistureBrushInfoGpu {
+                offset: [offset.x, offset.y, offset.z, 0],
+                dim: [dim.x, dim.y, dim.z, 0],
+                center_radius: [center_vox.x, center_vox.y, center_vox.z, radius_vox],
+                params: [amount, 0.0, 0.0, 0.0],
+            })?;
+
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
+        execute_one_time_command(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.terrain_moisture_brush_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(dim.x, dim.y, dim.z),
+                    None,
+                );
+                shader_access_pipeline_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            },
+        );
+
+        Ok(Some(UAabb3::new(offset, offset + dim - UVec3::ONE)))
     }
 
     #[allow(dead_code)]
@@ -1136,11 +1245,13 @@ impl PlainBuilder {
 
         let solid: Vec<bool> = atlas_data
             .iter()
-            .map(|voxel_type| is_terrain_voxel(*voxel_type as u32))
+            .map(|voxel_data| is_terrain_voxel(voxel_type_from_atlas_byte(*voxel_data) as u32))
             .collect();
         let mutable: Vec<bool> = atlas_data
             .iter()
-            .map(|voxel_type| is_terrain_smooth_mutable_voxel(*voxel_type as u32))
+            .map(|voxel_data| {
+                is_terrain_smooth_mutable_voxel(voxel_type_from_atlas_byte(*voxel_data) as u32)
+            })
             .collect();
 
         let classify_start = Instant::now();
@@ -1286,15 +1397,16 @@ impl PlainBuilder {
 
             let local = volume_local_pos(idx, dim);
             let world = offset + local;
-            let new_voxel = if wants_solid {
+            let new_voxel_type = if wants_solid {
                 choose_smooth_fill_voxel_type(&atlas_data, &solid, idx, dim)
             } else {
                 VOXEL_TYPE_EMPTY as u8
             };
-            if atlas_data[idx] == new_voxel {
+            if voxel_type_from_atlas_byte(atlas_data[idx]) == new_voxel_type {
                 continue;
             }
 
+            let new_voxel = pack_voxel_atlas_byte_for_fill(atlas_data[idx], new_voxel_type);
             changes.push((idx, new_voxel));
             changed_min = changed_min.min(world);
             changed_max = changed_max.max(world);
@@ -2108,7 +2220,7 @@ fn choose_smooth_fill_voxel_type(atlas_data: &[u8], solid: &[bool], idx: usize, 
                     if !solid[neighbor] {
                         continue;
                     }
-                    let voxel_type = atlas_data[neighbor] as usize;
+                    let voxel_type = voxel_type_from_atlas_byte(atlas_data[neighbor]) as usize;
                     if voxel_type < counts.len() {
                         counts[voxel_type] += 1;
                     }
