@@ -60,7 +60,7 @@ fn orbit_focus_pan_delta(drag_delta_physical: Vec2, camera_front: Vec3, distance
         super::ORBIT_CAMERA_MAX_DISTANCE,
     ) * super::ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE;
 
-    (planar_right * drag_delta_physical.x - planar_front * drag_delta_physical.y) * pan_scale
+    (planar_front * drag_delta_physical.y - planar_right * drag_delta_physical.x) * pan_scale
 }
 
 impl App {
@@ -1147,8 +1147,8 @@ mod tests {
         let delta = orbit_focus_pan_delta(Vec2::new(10.0, -20.0), -Vec3::Z, 1.0);
         let scale = super::super::ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE;
 
-        assert_near(delta.x, 10.0 * scale);
+        assert_near(delta.x, -10.0 * scale);
         assert_near(delta.y, 0.0);
-        assert_near(delta.z, -20.0 * scale);
+        assert_near(delta.z, 20.0 * scale);
     }
 }
