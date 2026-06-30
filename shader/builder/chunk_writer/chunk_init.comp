@@ -26,6 +26,7 @@ layout(set = 0, binding = 3) buffer B_SolidWorkgroupFlags { uint data[]; }
 solid_workgroup_flags;
 
 #include "../../include/config.glsl"
+#include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 #include "../../include/solid_workgroups.glsl"
 
@@ -82,7 +83,7 @@ void main() {
     float base_density = base_shape_2d - world_voxel_pos.y;
     uint voxel_type    = get_voxel_type(density, base_density, uvec3(atlas_uvi));
 
-    imageStore(chunk_atlas, atlas_uvi, uvec4(voxel_type, 0, 0, 0));
+    imageStore(chunk_atlas, atlas_uvi, uvec4(pack_voxel_atlas_type_clear_state(voxel_type), 0, 0, 0));
     if (voxel_type != VOXEL_TYPE_EMPTY) {
         mark_solid_workgroup(uvec3(atlas_uvi));
     }

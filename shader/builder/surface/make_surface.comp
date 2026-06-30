@@ -63,13 +63,13 @@ ivec3 local_idx_to_shared_idx(ivec3 local_idx) {
 uint load_atlas(ivec3 atlas_idx, ivec3 atlas_read_offset, ivec3 atlas_read_dim,
                 bool is_crossing_boundary) {
     if (is_crossing_boundary) {
-        return imageLoad(chunk_atlas, atlas_idx).r;
+        return voxel_type_from_atlas_data(imageLoad(chunk_atlas, atlas_idx).r);
     } else {
         if (any(lessThan(atlas_idx, atlas_read_offset)) ||
             any(greaterThanEqual(atlas_idx, atlas_read_offset + atlas_read_dim))) {
             return 0;
         }
-        return imageLoad(chunk_atlas, atlas_idx).r;
+        return voxel_type_from_atlas_data(imageLoad(chunk_atlas, atlas_idx).r);
     }
 }
 

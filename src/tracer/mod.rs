@@ -40,8 +40,8 @@ const APPLE_TIP_COLOR: Vec3 = Vec3::new(0.95, 0.06, 0.035);
 
 use crate::audio::SpatialSoundManager;
 use crate::builder::{
-    ContreeBuilderResources, FloraInstanceResources, SceneAccelBuilderResources, SurfaceResources,
-    TreeLeavesInstance,
+    ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
+    SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
@@ -311,6 +311,7 @@ impl Tracer {
         screen_extent: Extent2D,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
         desc: TracerDesc,
         spatial_sound_manager: SpatialSoundManager,
     ) -> Result<Self> {
@@ -367,6 +368,7 @@ impl Tracer {
             &resources,
             contree_builder_resources,
             scene_accel_resources,
+            plain_builder_resources,
         );
         let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
@@ -521,6 +523,7 @@ impl Tracer {
         screen_extent: Extent2D,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
     ) {
         let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
 
@@ -568,13 +571,18 @@ impl Tracer {
 
         self.cloud_history_valid = false;
         self.cloud_shadow_history_valid = false;
-        self.update_sets(contree_builder_resources, scene_accel_resources);
+        self.update_sets(
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+        );
     }
 
     fn update_sets(
         &mut self,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
     ) {
         let update_compute_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
             ppl.auto_update_descriptor_sets(resources).unwrap()
@@ -584,8 +592,11 @@ impl Tracer {
             ppl.auto_update_descriptor_sets(resources).unwrap()
         };
 
-        let all_resources =
-            self.all_descriptor_resources(contree_builder_resources, scene_accel_resources);
+        let all_resources = self.all_descriptor_resources(
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+        );
         update_compute_fn(&self.compute_pipelines.tracer_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
@@ -652,11 +663,13 @@ impl Tracer {
         &'a self,
         contree_builder_resources: &'a ContreeBuilderResources,
         scene_accel_resources: &'a SceneAccelBuilderResources,
-    ) -> [&'a dyn ResourceContainer; 3] {
+        plain_builder_resources: &'a PlainBuilderResources,
+    ) -> [&'a dyn ResourceContainer; 4] {
         [
             &self.resources as &dyn ResourceContainer,
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
+            plain_builder_resources as &dyn ResourceContainer,
         ]
     }
 

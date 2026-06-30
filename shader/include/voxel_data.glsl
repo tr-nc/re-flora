@@ -1,13 +1,43 @@
 #ifndef VOXEL_DATA_GLSL
 #define VOXEL_DATA_GLSL
 
-const uint VOXEL_TYPE_MASK         = 0xFFu;
-const uint VOXEL_NORMAL_BITS_MASK  = 0x1FFFFFu;
-const uint VOXEL_NORMAL_VALID_MASK = 1u << 29u;
-const uint VOXEL_HASH_MASK         = 0x3u;
-const uint VOXEL_HASH_SHIFT        = 30u;
+const uint VOXEL_TYPE_MASK          = 0x0Fu;
+const uint VOXEL_ATLAS_STATE_MASK   = 0xF0u;
+// Moisture intentionally uses only two bits (4..5): 0=dry, 1..3=wetter.
+// Bits 6..7 stay reserved for future soil state such as tilled/fertility flags.
+const uint VOXEL_MOISTURE_MASK      = 0x30u;
+const uint VOXEL_MOISTURE_SHIFT     = 4u;
+const uint VOXEL_MOISTURE_MAX       = 3u;
+const uint VOXEL_NORMAL_BITS_MASK   = 0x1FFFFFu;
+const uint VOXEL_NORMAL_VALID_MASK  = 1u << 29u;
+const uint VOXEL_HASH_MASK          = 0x3u;
+const uint VOXEL_HASH_SHIFT         = 30u;
 
 uint voxel_type_from_data(uint voxel_data) { return voxel_data & VOXEL_TYPE_MASK; }
+
+uint voxel_type_from_atlas_data(uint voxel_data) { return voxel_data & VOXEL_TYPE_MASK; }
+
+uint voxel_moisture_from_atlas_data(uint voxel_data) {
+    return (voxel_data & VOXEL_MOISTURE_MASK) >> VOXEL_MOISTURE_SHIFT;
+}
+
+uint pack_voxel_atlas_data(uint voxel_type, uint moisture) {
+    return (voxel_type & VOXEL_TYPE_MASK) |
+           ((moisture & VOXEL_MOISTURE_MAX) << VOXEL_MOISTURE_SHIFT);
+}
+
+uint pack_voxel_atlas_type_clear_state(uint voxel_type) {
+    return pack_voxel_atlas_data(voxel_type, 0u);
+}
+
+uint pack_voxel_atlas_moisture_preserve_state(uint old_voxel_data, uint moisture) {
+    return (old_voxel_data & ~VOXEL_MOISTURE_MASK) |
+           ((moisture & VOXEL_MOISTURE_MAX) << VOXEL_MOISTURE_SHIFT);
+}
+
+uint pack_voxel_atlas_type_preserve_state(uint old_voxel_data, uint voxel_type) {
+    return (old_voxel_data & VOXEL_ATLAS_STATE_MASK) | (voxel_type & VOXEL_TYPE_MASK);
+}
 
 uint voxel_normal_bits_from_data(uint voxel_data) {
     return (voxel_data >> 8u) & VOXEL_NORMAL_BITS_MASK;

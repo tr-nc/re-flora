@@ -25,6 +25,7 @@ terrain_smooth_result;
 layout(set = 0, binding = 4) buffer B_SolidWorkgroupFlags { uint data[]; }
 solid_workgroup_flags;
 
+#include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 #include "../../include/solid_workgroups.glsl"
 
@@ -56,14 +57,14 @@ void main() {
 
     ivec3 world_voxel_pos = ivec3(local) + ivec3(terrain_smooth_info.offset);
     uvec4 voxel_data = imageLoad(chunk_atlas, world_voxel_pos);
-    uint voxel_type = voxel_data.r;
+    uint voxel_type = voxel_type_from_atlas_data(voxel_data.r);
     float voxel_center_y = float(world_voxel_pos.y) + 0.5;
     float old_height = entry.x;
     float target_height = entry.y;
 
     if (target_height < old_height - terrain_smooth_info.deadband_vox) {
         if (voxel_center_y > target_height && voxel_center_y <= old_height && is_terrain_voxel(voxel_type)) {
-            imageStore(chunk_atlas, world_voxel_pos, uvec4(VOXEL_TYPE_EMPTY, 0, 0, 0));
+            imageStore(chunk_atlas, world_voxel_pos, uvec4(pack_voxel_atlas_type_clear_state(VOXEL_TYPE_EMPTY), 0, 0, 0));
             atomicAdd(terrain_smooth_result.changed_voxel_count, 1u);
         }
         return;
@@ -72,11 +73,11 @@ void main() {
     if (target_height > old_height + terrain_smooth_info.deadband_vox) {
         if (voxel_center_y > old_height && voxel_center_y <= target_height) {
             if (voxel_type == VOXEL_TYPE_EMPTY) {
-                imageStore(chunk_atlas, world_voxel_pos, uvec4(VOXEL_TYPE_DIRT, 0, 0, 0));
+                imageStore(chunk_atlas, world_voxel_pos, uvec4(pack_voxel_atlas_type_preserve_state(voxel_data.r, VOXEL_TYPE_DIRT), 0, 0, 0));
                 mark_solid_workgroup(uvec3(world_voxel_pos));
                 atomicAdd(terrain_smooth_result.changed_voxel_count, 1u);
             } else if (is_terrain_voxel(voxel_type) && voxel_type != VOXEL_TYPE_DIRT) {
-                imageStore(chunk_atlas, world_voxel_pos, uvec4(VOXEL_TYPE_DIRT, 0, 0, 0));
+                imageStore(chunk_atlas, world_voxel_pos, uvec4(pack_voxel_atlas_type_preserve_state(voxel_data.r, VOXEL_TYPE_DIRT), 0, 0, 0));
                 mark_solid_workgroup(uvec3(world_voxel_pos));
                 atomicAdd(terrain_smooth_result.changed_voxel_count, 1u);
             }

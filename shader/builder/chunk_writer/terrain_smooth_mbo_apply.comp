@@ -78,13 +78,14 @@ void main() {
             return;
         }
         uint fill_type = choose_fill_voxel_type(local);
-        imageStore(chunk_atlas, ivec3(world_pos), uvec4(fill_type, 0, 0, 0));
+        uint old_data = imageLoad(chunk_atlas, ivec3(world_pos)).r;
+        imageStore(chunk_atlas, ivec3(world_pos), uvec4(pack_voxel_atlas_type_preserve_state(old_data, fill_type), 0, 0, 0));
         record_changed(world_pos, true);
     } else {
         if (!old_solid) {
             return;
         }
-        imageStore(chunk_atlas, ivec3(world_pos), uvec4(VOXEL_TYPE_EMPTY, 0, 0, 0));
+        imageStore(chunk_atlas, ivec3(world_pos), uvec4(pack_voxel_atlas_type_clear_state(VOXEL_TYPE_EMPTY), 0, 0, 0));
         record_changed(world_pos, false);
     }
 }

@@ -25,6 +25,7 @@ pub struct PlainBuilderResources {
     pub terrain_smooth_mbo_scores: Resource<Buffer>,
     pub terrain_smooth_mbo_histogram: Resource<Buffer>,
     pub terrain_smooth_mbo_result: Resource<Buffer>,
+    pub terrain_moisture_brush_info: Resource<Buffer>,
     pub chunk_modify_info: Resource<Buffer>,
     pub chunk_solid_sample_info: Resource<Buffer>,
     pub chunk_solid_samples: Resource<Buffer>,
@@ -318,6 +319,14 @@ impl PlainBuilderResources {
             std::mem::size_of::<super::TerrainSmoothMboResultGpu>() as u64,
         );
 
+        let terrain_moisture_brush_info = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::UNIFORM_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of::<super::TerrainMoistureBrushInfoGpu>() as u64,
+        );
+
         Self {
             chunk_atlas: Resource::new(chunk_atlas),
             free_atlas: Resource::new(free_atlas),
@@ -331,6 +340,7 @@ impl PlainBuilderResources {
             terrain_smooth_mbo_scores: Resource::new(terrain_smooth_mbo_scores),
             terrain_smooth_mbo_histogram: Resource::new(terrain_smooth_mbo_histogram),
             terrain_smooth_mbo_result: Resource::new(terrain_smooth_mbo_result),
+            terrain_moisture_brush_info: Resource::new(terrain_moisture_brush_info),
             chunk_modify_info: Resource::new(chunk_modify_info),
             chunk_solid_sample_info: Resource::new(chunk_solid_sample_info),
             chunk_solid_samples: Resource::new(chunk_solid_samples),

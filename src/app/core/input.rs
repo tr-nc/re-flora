@@ -1,7 +1,8 @@
+use super::placeables::PlaceableKind;
 use super::ui_style::{
-    HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_SLOT_COUNT, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT,
-    SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, TREE_SLOT_INDEX,
-    TREE_TOOL_ACCENT, WATER_SLOT_INDEX, WATER_TOOL_ACCENT,
+    HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_SLOT_COUNT, PLACEABLE_PANEL_SLOT_COUNT,
+    SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX, SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX,
+    STAFF_TOOL_ACCENT, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use super::App;
 use crate::app::world_edits::{
@@ -265,6 +266,7 @@ impl App {
         if button == MouseButton::Left {
             self.player_tools.left_mouse_held = state == ElementState::Pressed;
             self.reset_staff_regen_stroke_tracking();
+            self.reset_watering_stroke_tracking();
             if state == ElementState::Pressed {
                 self.player_tools.last_staff_regen_time = None;
             }
@@ -284,6 +286,7 @@ impl App {
         if !self.player_tools.shovel_dig_held {
             self.stop_terrain_edit_loop_sound();
             self.reset_staff_stroke_tracking();
+            self.reset_watering_stroke_tracking();
         }
     }
 
@@ -298,12 +301,26 @@ impl App {
         self.player_tools.active_staff_regen_paint_dab_serial = None;
     }
 
+    fn reset_watering_stroke_tracking(&mut self) {
+        self.player_tools.last_watering_center = None;
+    }
+
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
         if slot_idx < ITEM_PANEL_SLOT_COUNT
             && slot_idx != self.player_tools.selected_item_panel_slot
         {
             self.player_tools.selected_item_panel_slot = slot_idx;
             self.reset_staff_stroke_tracking();
+            self.reset_watering_stroke_tracking();
+            self.play_item_panel_scroll_sound();
+        }
+    }
+
+    pub(super) fn select_placeable_panel_slot(&mut self, slot_idx: usize) {
+        if slot_idx < PLACEABLE_PANEL_SLOT_COUNT
+            && slot_idx != self.player_tools.selected_placeable_panel_slot
+        {
+            self.player_tools.selected_placeable_panel_slot = slot_idx;
             self.play_item_panel_scroll_sound();
         }
     }
@@ -384,15 +401,18 @@ impl App {
             || self.is_smooth_selected()
             || self.is_staff_selected()
             || self.is_hoe_selected()
-            || self.is_tree_plant_selected()
-            || self.is_water_tool_selected()
+            || self.is_place_tool_selected()
+            || self.is_watering_selected()
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
-        if self.is_tree_plant_selected() {
-            TerrainEditPreviewShape::TreeBillboard
-        } else if self.is_water_tool_selected() {
-            TerrainEditPreviewShape::SurfaceCircle
+        if self.is_place_tool_selected() {
+            match self.current_placeable_kind() {
+                PlaceableKind::Tree => TerrainEditPreviewShape::TreeBillboard,
+                PlaceableKind::Sprinkler => TerrainEditPreviewShape::SurfaceCircle,
+            }
+        } else if self.is_watering_selected() {
+            TerrainEditPreviewShape::Sphere
         } else {
             TerrainEditPreviewShape::Sphere
         }
@@ -405,9 +425,12 @@ impl App {
             STAFF_TOOL_ACCENT
         } else if self.is_hoe_selected() {
             HOE_TOOL_ACCENT
-        } else if self.is_tree_plant_selected() {
-            TREE_TOOL_ACCENT
-        } else if self.is_water_tool_selected() {
+        } else if self.is_place_tool_selected() {
+            match self.current_placeable_kind() {
+                PlaceableKind::Tree => TREE_TOOL_ACCENT,
+                PlaceableKind::Sprinkler => WATER_TOOL_ACCENT,
+            }
+        } else if self.is_watering_selected() {
             WATER_TOOL_ACCENT
         } else {
             SHOVEL_TOOL_ACCENT
@@ -428,12 +451,12 @@ impl App {
         self.player_tools.selected_item_panel_slot == HOE_SLOT_INDEX
     }
 
-    pub(super) fn is_tree_plant_selected(&self) -> bool {
+    pub(super) fn is_place_tool_selected(&self) -> bool {
         self.player_tools.selected_item_panel_slot == TREE_SLOT_INDEX
     }
 
-    pub(super) fn is_water_tool_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == WATER_SLOT_INDEX
+    pub(super) fn is_watering_selected(&self) -> bool {
+        self.player_tools.selected_item_panel_slot == WATERING_SLOT_INDEX
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {
@@ -750,18 +773,16 @@ impl App {
                     }
                 }
 
-                let start = self.player_tools.last_staff_regen_center.unwrap_or(center);
+                let edit = TerrainBrushEdit::from_previous_center(
+                    self.player_tools.last_staff_regen_center,
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                );
                 let (paint_dab_serial, is_release_step) =
                     self.current_staff_regen_paint_dab_serial(now);
-                if let Err(err) = self.apply_surface_flora_regeneration(
-                    TerrainBrushEdit {
-                        start,
-                        end: center,
-                        radius: self.player_tools.terrain_edit_radius,
-                    },
-                    paint_dab_serial,
-                    is_release_step,
-                ) {
+                if let Err(err) =
+                    self.apply_surface_flora_regeneration(edit, paint_dab_serial, is_release_step)
+                {
                     log::error!("Failed to apply flora regeneration: {}", err);
                     self.reset_staff_regen_stroke_tracking();
                     return;
@@ -801,12 +822,12 @@ impl App {
                     }
                 }
 
-                let start = self.player_tools.last_staff_remove_center.unwrap_or(center);
-                if let Err(err) = self.apply_surface_flora_removal(TerrainBrushEdit {
-                    start,
-                    end: center,
-                    radius: self.player_tools.terrain_edit_radius,
-                }) {
+                let edit = TerrainBrushEdit::from_previous_center(
+                    self.player_tools.last_staff_remove_center,
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                );
+                if let Err(err) = self.apply_surface_flora_removal(edit) {
                     log::error!("Failed to apply flora removal: {}", err);
                     self.player_tools.last_staff_remove_center = None;
                     return;
@@ -953,8 +974,53 @@ impl App {
         }
     }
 
-    pub(super) fn try_tree_plant(&mut self) {
-        if !self.terrain_edit_pointer_available() || !self.is_tree_plant_selected() {
+    pub(super) fn try_watering_brush(&mut self, now: Instant) {
+        if !self.terrain_edit_pointer_available() || !self.is_watering_selected() {
+            self.stop_terrain_edit_loop_sound();
+            self.reset_watering_stroke_tracking();
+            return;
+        }
+
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) => {
+                self.start_terrain_edit_loop_sound(center);
+
+                if let Some(last_water) = self.player_tools.last_watering_time {
+                    if now.duration_since(last_water) < super::SHOVEL_DIG_INTERVAL {
+                        return;
+                    }
+                }
+
+                let edit = TerrainBrushEdit::from_previous_center(
+                    self.player_tools.last_watering_center,
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                );
+                if let Err(err) = self.add_watering_brush_moisture(edit) {
+                    log::error!("Failed to apply watering brush: {}", err);
+                    self.reset_watering_stroke_tracking();
+                    return;
+                }
+                self.player_tools.last_watering_time = Some(now);
+                self.player_tools.last_watering_center = Some(center);
+            }
+            Ok(None) => {
+                self.stop_terrain_edit_loop_sound();
+                self.player_tools.last_watering_time = Some(now);
+                self.reset_watering_stroke_tracking();
+            }
+            Err(err) => {
+                self.reset_watering_stroke_tracking();
+                log::error!(
+                    "Watering brush attempt failed during terrain query: {}",
+                    err
+                );
+            }
+        }
+    }
+
+    pub(super) fn try_placeable_placement(&mut self) {
+        if !self.terrain_edit_pointer_available() || !self.is_place_tool_selected() {
             self.stop_terrain_edit_loop_sound();
             return;
         }
@@ -962,43 +1028,32 @@ impl App {
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.stop_terrain_edit_loop_sound();
-                let mut tree_desc = self.debug_tree_desc.clone();
-                tree_desc.seed = rand::rng().random::<u64>();
-                if let Err(err) = self.add_tree(
-                    tree_desc,
-                    TreePlacement::World(center),
-                    TreeAddOptions::default().with_new_id(),
-                ) {
-                    log::error!("Failed to plant tree: {}", err);
-                } else {
-                    log::info!("Planted tree at {:?}", center);
+                match self.current_placeable_kind() {
+                    PlaceableKind::Tree => {
+                        let mut tree_desc = self.debug_tree_desc.clone();
+                        tree_desc.seed = rand::rng().random::<u64>();
+                        if let Err(err) = self.add_tree(
+                            tree_desc,
+                            TreePlacement::World(center),
+                            TreeAddOptions::default().with_new_id(),
+                        ) {
+                            log::error!("Failed to plant tree: {}", err);
+                        } else {
+                            log::info!("Planted tree at {:?}", center);
+                        }
+                    }
+                    PlaceableKind::Sprinkler => {
+                        if let Err(err) = self.apply_sprinkler_placement(center) {
+                            log::error!("Failed to place sprinkler: {}", err);
+                        }
+                    }
                 }
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
             }
             Err(err) => {
-                log::error!("Tree plant attempt failed during terrain query: {}", err);
-            }
-        }
-    }
-
-    pub(super) fn try_water_particle_spawn(&mut self) {
-        if !self.terrain_edit_pointer_available() || !self.is_water_tool_selected() {
-            return;
-        }
-
-        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
-            Ok(Some(center)) => {
-                self.water_sim.request_debug_particle_spawn(
-                    center,
-                    super::WATER_DEBUG_SPAWN_COUNT,
-                    self.player_tools.terrain_edit_radius,
-                );
-            }
-            Ok(None) => {}
-            Err(err) => {
-                log::error!("Water particle spawn failed during terrain query: {}", err);
+                log::error!("Placeable placement failed during terrain query: {}", err);
             }
         }
     }

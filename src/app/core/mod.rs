@@ -8,7 +8,9 @@ mod frame_timing;
 mod input;
 mod lifecycle;
 mod loading;
+mod moisture;
 mod particles;
+mod placeables;
 mod player_tools;
 mod screenshot;
 mod terrain_rebuild;
@@ -24,6 +26,7 @@ use self::frame_timing::{
 };
 use self::loading::{LoadingPhase, LoadingState};
 use self::particles::TreeLeafEmitter;
+use self::placeables::{SprinklerEmitter, SprinklerRecord};
 use self::player_tools::PlayerToolState;
 use self::terrain_rebuild::{ChunkRebuildRequest, TerrainChunkRebuildInFlight};
 use self::tree_bench::{TreeBench, TreeBenchMode};
@@ -65,16 +68,18 @@ use std::collections::HashMap;
 
 use std::time::{Duration, Instant};
 use ui_style::{
-    apply_gui_style, draw_item_panel, draw_voxel_palette, ItemPanelSlot, VoxelPaletteEntry,
-    CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT, HOE_SLOT_INDEX,
-    HOE_TOOL_ACCENT, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
-    ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
+    apply_gui_style, draw_item_panel, draw_placeable_panel, draw_voxel_palette, ItemPanelSlot,
+    PlaceablePanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
+    FLOWER_ACCENT, GOLD_ACCENT, HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_HOE_ICON_FALLBACK_PATH,
+    ITEM_PANEL_HOE_ICON_PATH, ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
     ITEM_PANEL_TREE_ICON_FALLBACK_PATH, ITEM_PANEL_TREE_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
-    SMOOTH_TOOL_ACCENT, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, TREE_SLOT_INDEX, TREE_TOOL_ACCENT,
+    SMOOTH_TOOL_ACCENT, SPRINKLER_PLACEABLE_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT,
+    TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX,
+    WATER_TOOL_ACCENT,
 };
 use verdarium_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -180,6 +185,9 @@ pub struct App {
     leaf_emitter_desc: LeafEmitterDesc,
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
+    sprinkler_records: Vec<SprinklerRecord>,
+    sprinkler_emitters: Vec<SprinklerEmitter>,
+    next_sprinkler_id: u32,
     particle_animation_time_sec: f32,
     water_sim: water::AsyncWaterSim,
     water_terrain_initialized: bool,
@@ -447,7 +455,6 @@ const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
 const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
 const TERRAIN_SMOOTH_MAX_DELTA: f32 = 0.025;
 const TERRAIN_SMOOTH_DEADBAND: f32 = 0.0035;
-const WATER_DEBUG_SPAWN_COUNT: usize = 48;
 const TERRAIN_EDIT_LOOP_PATH: &str =
     "assets/sfx/ROCKMisc_Designed Rock Movement Loop A_SARM_RkBrck_Stereo-Loop.wav";
 const TERRAIN_EDIT_LOOP_VOLUME_DB: f32 = 20.0;
@@ -771,6 +778,7 @@ impl App {
             window_state.window_extent(),
             contree_builder.get_resources(),
             scene_accel_builder.get_resources(),
+            plain_builder.get_resources(),
             TracerDesc {
                 scaling_factor: 0.5,
             },
@@ -831,6 +839,9 @@ impl App {
         );
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
+        let sprinkler_records = Vec::new();
+        let sprinkler_emitters = Vec::new();
+        let next_sprinkler_id = 1;
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
         // Start with the chosen profile and proportional world grid. For the implicit
         // default run, apply persisted GUI water sliders, then let explicit CLI
@@ -1007,6 +1018,9 @@ impl App {
             leaf_emitter_desc,
             butterfly_emitters,
             butterfly_emitter_desc,
+            sprinkler_records,
+            sprinkler_emitters,
+            next_sprinkler_id,
             particle_animation_time_sec: 0.0,
             water_sim,
             water_terrain_initialized: false,
@@ -1416,11 +1430,22 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit3) => Some(2),
                         PhysicalKey::Code(KeyCode::Digit4) => Some(3),
                         PhysicalKey::Code(KeyCode::Digit5) => Some(4),
+                        PhysicalKey::Code(KeyCode::Digit6) => Some(5),
                         _ => None,
                     };
 
                     if let Some(slot_idx) = target_slot {
                         self.select_item_panel_slot(slot_idx);
+                    }
+
+                    let target_placeable_slot = match event.physical_key {
+                        PhysicalKey::Code(KeyCode::KeyZ) => Some(TREE_PLACEABLE_SLOT_INDEX),
+                        PhysicalKey::Code(KeyCode::KeyX) => Some(SPRINKLER_PLACEABLE_SLOT_INDEX),
+                        _ => None,
+                    };
+                    if let Some(slot_idx) = target_placeable_slot {
+                        self.select_placeable_panel_slot(slot_idx);
+                        self.select_item_panel_slot(TREE_SLOT_INDEX);
                     }
                 }
 
@@ -1463,12 +1488,13 @@ impl App {
                             } else if self.is_hoe_selected() && button == MouseButton::Left {
                                 self.player_tools.shovel_dig_held = true;
                                 self.try_hoe_trim(now);
-                            } else if self.is_tree_plant_selected() && button == MouseButton::Left {
+                            } else if self.is_watering_selected() && button == MouseButton::Left {
+                                self.player_tools.shovel_dig_held = true;
+                                self.player_tools.last_watering_time = None;
+                                self.try_watering_brush(now);
+                            } else if self.is_place_tool_selected() && button == MouseButton::Left {
                                 self.stop_terrain_edit_loop_sound();
-                                self.try_tree_plant();
-                            } else if self.is_water_tool_selected() && button == MouseButton::Left {
-                                self.stop_terrain_edit_loop_sound();
-                                self.try_water_particle_spawn();
+                                self.try_placeable_placement();
                             }
                         }
                         ElementState::Released => {
@@ -1532,11 +1558,14 @@ impl App {
                         self.try_staff_remove_flora(now);
                     } else if self.is_hoe_selected() && self.player_tools.left_mouse_held {
                         self.try_hoe_trim(now);
+                    } else if self.is_watering_selected() && self.player_tools.left_mouse_held {
+                        self.try_watering_brush(now);
                     } else {
                         self.stop_terrain_edit_loop_sound();
                     }
                 }
                 let frame_delta_time = self.time_info.delta_time();
+                self.update_sprinkler_moisture(frame_delta_time);
                 let time_since_start = self.time_info.time_since_start();
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.gui_adjustables.world_tick_seconds.value,
@@ -1586,7 +1615,9 @@ impl App {
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
                 let item_panel_tree_icon = self.item_panel_tree_icon.clone();
+                let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
+                let selected_placeable_panel_slot = self.player_tools.selected_placeable_panel_slot;
                 let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
                     .iter()
                     .copied()
@@ -1609,10 +1640,19 @@ impl App {
                 } else {
                     format!("Grow brush: {}", self.current_flora_paint_selection_label())
                 };
-                let status_bar_text = format!("{}\n{}", water_status_text, grow_brush_hint);
+                let placeable_hint = format!(
+                    "Place: {} (Z/X) · Water brush: 6 + LMB · sprinklers {}",
+                    self.current_placeable_label(),
+                    self.sprinkler_records.len()
+                );
+                let status_bar_text = format!(
+                    "{}\n{}\n{}",
+                    water_status_text, grow_brush_hint, placeable_hint
+                );
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
+                let mut clicked_placeable_panel_slot = None;
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_preview_center = self.terrain_edit_hover_center();
@@ -1794,10 +1834,18 @@ impl App {
                             },
                             ItemPanelSlot {
                                 index: TREE_SLOT_INDEX,
-                                label: "Tree",
+                                label: "Place",
                                 key_hint: "5",
                                 icon: item_panel_tree_icon.as_ref(),
                                 accent: TREE_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: WATERING_SLOT_INDEX,
+                                label: "Water",
+                                key_hint: "6",
+                                icon: item_panel_water_icon.as_ref(),
+                                accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
                         ];
@@ -1808,6 +1856,33 @@ impl App {
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
+
+                        let placeable_panel_slots = [
+                            PlaceablePanelSlot {
+                                index: TREE_PLACEABLE_SLOT_INDEX,
+                                label: "Tree",
+                                key_hint: "Z",
+                                icon: item_panel_tree_icon.as_ref(),
+                                accent: TREE_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            PlaceablePanelSlot {
+                                index: SPRINKLER_PLACEABLE_SLOT_INDEX,
+                                label: "Spray",
+                                key_hint: "X",
+                                icon: item_panel_water_icon.as_ref(),
+                                accent: WATER_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                        ];
+                        let placeable_panel_response = draw_placeable_panel(
+                            ctx,
+                            &placeable_panel_slots,
+                            selected_placeable_panel_slot,
+                            selected_item_panel_slot == TREE_SLOT_INDEX,
+                            self.window_state.is_cursor_visible(),
+                        );
+                        clicked_placeable_panel_slot = placeable_panel_response.clicked_slot;
 
                         let voxel_palette_response =
                             draw_voxel_palette(ctx, &voxel_palette_entries, false);
@@ -1908,6 +1983,10 @@ impl App {
                 self.sync_cursor_with_panels();
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);
+                }
+                if let Some(slot_idx) = clicked_placeable_panel_slot {
+                    self.select_placeable_panel_slot(slot_idx);
+                    self.select_item_panel_slot(TREE_SLOT_INDEX);
                 }
                 if self.gui_wants_keyboard_input() {
                     self.reset_camera_movement_input();
