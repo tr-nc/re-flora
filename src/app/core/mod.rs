@@ -120,6 +120,7 @@ pub struct App {
     smoothed_mouse_delta: Vec2,
     cursor_position_physical: Option<Vec2>,
     camera_control_mode: CameraControlMode,
+    orbit_camera_focus: Vec3,
     orbit_middle_mouse_drag_held: bool,
     orbit_middle_mouse_drag_last_position_physical: Option<Vec2>,
     mouse_wheel_dolly: MouseWheelDollySmoother,
@@ -440,11 +441,12 @@ const TERRAIN_EDIT_DEFAULT_RADIUS: f32 = 0.08;
 const TERRAIN_EDIT_RADIUS_MIN: f32 = 0.03;
 const TERRAIN_EDIT_RADIUS_MAX: f32 = 0.36;
 const TERRAIN_EDIT_RADIUS_SCROLL_STEP: f32 = 0.01;
-const ORBIT_CAMERA_FOCUS: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+const ORBIT_CAMERA_DEFAULT_FOCUS: Vec3 = Vec3::new(0.5, 0.5, 0.5);
 const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.2;
 const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
 const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
 const ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL: f32 = 0.005;
+const ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE: f32 = 0.001;
 const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
 const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
 const MOUSE_WHEEL_DOLLY_SNAP_LINES: f32 = 0.001;
@@ -953,6 +955,7 @@ impl App {
             smoothed_mouse_delta: Vec2::ZERO,
             cursor_position_physical: None,
             camera_control_mode: CameraControlMode::default(),
+            orbit_camera_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
             orbit_middle_mouse_drag_held: false,
             orbit_middle_mouse_drag_last_position_physical: None,
             mouse_wheel_dolly: MouseWheelDollySmoother::default(),

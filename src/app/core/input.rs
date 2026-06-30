@@ -45,6 +45,24 @@ fn orbit_offset_to_spherical(mut offset: Vec3) -> (f32, f32, f32) {
     (azimuth, elevation, distance)
 }
 
+fn orbit_focus_pan_delta(drag_delta_physical: Vec2, camera_front: Vec3, distance: f32) -> Vec3 {
+    if !drag_delta_physical.is_finite() || drag_delta_physical.length_squared() <= f32::EPSILON {
+        return Vec3::ZERO;
+    }
+
+    let mut planar_front = Vec3::new(camera_front.x, 0.0, camera_front.z).normalize_or_zero();
+    if planar_front.length_squared() <= f32::EPSILON {
+        planar_front = -Vec3::Z;
+    }
+    let planar_right = Vec3::new(-planar_front.z, 0.0, planar_front.x);
+    let pan_scale = distance.clamp(
+        super::ORBIT_CAMERA_MIN_DISTANCE,
+        super::ORBIT_CAMERA_MAX_DISTANCE,
+    ) * super::ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE;
+
+    (planar_right * drag_delta_physical.x - planar_front * drag_delta_physical.y) * pan_scale
+}
+
 impl App {
     fn blocking_panel_open(&self) -> bool {
         self.config_panel_visible
@@ -100,8 +118,9 @@ impl App {
     }
 
     fn look_at_orbit_focus_from_current_position(&mut self) {
+        let focus = self.orbit_camera_focus;
         let mut position = self.tracer.camera_position();
-        let offset = position - super::ORBIT_CAMERA_FOCUS;
+        let offset = position - focus;
         if offset.length_squared() <= super::ORBIT_CAMERA_MIN_DISTANCE.powi(2) {
             let fallback = -self.tracer.camera_front().normalize_or_zero();
             let fallback = if fallback.length_squared() > f32::EPSILON {
@@ -109,10 +128,9 @@ impl App {
             } else {
                 Vec3::Z
             };
-            position = super::ORBIT_CAMERA_FOCUS + fallback * super::ORBIT_CAMERA_MIN_DISTANCE;
+            position = focus + fallback * super::ORBIT_CAMERA_MIN_DISTANCE;
         }
-        self.tracer
-            .set_camera_pose_looking_at(position, super::ORBIT_CAMERA_FOCUS);
+        self.tracer.set_camera_pose_looking_at(position, focus);
     }
 
     pub(super) fn update_camera_for_current_mode(&mut self, frame_delta_time: f32) {
@@ -124,7 +142,7 @@ impl App {
     }
 
     fn orbit_camera_spherical(&self) -> (f32, f32, f32) {
-        orbit_offset_to_spherical(self.tracer.camera_position() - super::ORBIT_CAMERA_FOCUS)
+        orbit_offset_to_spherical(self.tracer.camera_position() - self.orbit_camera_focus)
     }
 
     fn apply_orbit_camera_spherical(&mut self, azimuth: f32, elevation: f32, distance: f32) {
@@ -143,14 +161,14 @@ impl App {
         );
 
         let horizontal_radius = distance * elevation.cos();
-        let position = super::ORBIT_CAMERA_FOCUS
+        let focus = self.orbit_camera_focus;
+        let position = focus
             + Vec3::new(
                 azimuth.sin() * horizontal_radius,
                 elevation.sin() * distance,
                 azimuth.cos() * horizontal_radius,
             );
-        self.tracer
-            .set_camera_pose_looking_at(position, super::ORBIT_CAMERA_FOCUS);
+        self.tracer.set_camera_pose_looking_at(position, focus);
     }
 
     fn orbit_middle_mouse_drag_available(&self) -> bool {
@@ -215,10 +233,32 @@ impl App {
     }
 
     fn apply_orbit_middle_mouse_drag_delta(&mut self, drag_delta_physical: Vec2) {
+        if self.modifiers.shift_key() {
+            self.apply_orbit_middle_mouse_pan_delta(drag_delta_physical);
+            return;
+        }
+
         let (mut azimuth, mut elevation, distance) = self.orbit_camera_spherical();
         azimuth -= drag_delta_physical.x * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
         elevation += drag_delta_physical.y * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
         self.apply_orbit_camera_spherical(azimuth, elevation, distance);
+    }
+
+    fn apply_orbit_middle_mouse_pan_delta(&mut self, drag_delta_physical: Vec2) {
+        let position = self.tracer.camera_position();
+        let focus = self.orbit_camera_focus;
+        let distance = (position - focus).length();
+        let pan_delta =
+            orbit_focus_pan_delta(drag_delta_physical, self.tracer.camera_front(), distance);
+        if pan_delta.length_squared() <= f32::EPSILON {
+            return;
+        }
+
+        let new_focus = focus + pan_delta;
+        let new_position = position + pan_delta;
+        self.orbit_camera_focus = new_focus;
+        self.tracer
+            .set_camera_pose_looking_at(new_position, new_focus);
     }
 
     pub(super) fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
@@ -1074,8 +1114,8 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::orbit_offset_to_spherical;
-    use glam::Vec3;
+    use super::{orbit_focus_pan_delta, orbit_offset_to_spherical};
+    use glam::{Vec2, Vec3};
 
     fn assert_near(actual: f32, expected: f32) {
         assert!(
@@ -1092,5 +1132,23 @@ mod tests {
         assert_near(azimuth, std::f32::consts::FRAC_PI_2);
         assert_near(elevation, 0.0);
         assert_near(distance, min_distance);
+    }
+
+    #[test]
+    fn orbit_focus_pan_delta_stays_on_xz_plane() {
+        let delta = orbit_focus_pan_delta(Vec2::new(24.0, -16.0), Vec3::new(0.2, -0.9, -0.4), 2.0);
+
+        assert_near(delta.y, 0.0);
+        assert!(delta.x.abs() > 0.0 || delta.z.abs() > 0.0);
+    }
+
+    #[test]
+    fn orbit_focus_pan_delta_uses_camera_planar_axes() {
+        let delta = orbit_focus_pan_delta(Vec2::new(10.0, -20.0), -Vec3::Z, 1.0);
+        let scale = super::super::ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE;
+
+        assert_near(delta.x, 10.0 * scale);
+        assert_near(delta.y, 0.0);
+        assert_near(delta.z, -20.0 * scale);
     }
 }
