@@ -16,6 +16,7 @@ use rand::RngExt;
 use std::time::{Duration, Instant};
 use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::KeyCode;
 
 fn scroll_delta_lines(delta: MouseScrollDelta) -> f32 {
     match delta {
@@ -45,16 +46,21 @@ fn orbit_offset_to_spherical(mut offset: Vec3) -> (f32, f32, f32) {
     (azimuth, elevation, distance)
 }
 
-fn orbit_focus_pan_delta(drag_delta_physical: Vec2, camera_front: Vec3, distance: f32) -> Vec3 {
-    if !drag_delta_physical.is_finite() || drag_delta_physical.length_squared() <= f32::EPSILON {
-        return Vec3::ZERO;
-    }
-
+fn orbit_planar_camera_axes(camera_front: Vec3) -> (Vec3, Vec3) {
     let mut planar_front = Vec3::new(camera_front.x, 0.0, camera_front.z).normalize_or_zero();
     if planar_front.length_squared() <= f32::EPSILON {
         planar_front = -Vec3::Z;
     }
     let planar_right = Vec3::new(-planar_front.z, 0.0, planar_front.x);
+    (planar_front, planar_right)
+}
+
+fn orbit_focus_pan_delta(drag_delta_physical: Vec2, camera_front: Vec3, distance: f32) -> Vec3 {
+    if !drag_delta_physical.is_finite() || drag_delta_physical.length_squared() <= f32::EPSILON {
+        return Vec3::ZERO;
+    }
+
+    let (planar_front, planar_right) = orbit_planar_camera_axes(camera_front);
     let pan_scale = distance.clamp(
         super::ORBIT_CAMERA_MIN_DISTANCE,
         super::ORBIT_CAMERA_MAX_DISTANCE,
@@ -108,7 +114,9 @@ impl App {
 
     pub(super) fn reset_camera_movement_input(&mut self) {
         self.tracer.reset_camera_input();
-        self.reset_orbit_middle_mouse_drag();
+        self.orbit_keyboard_pan_input.reset();
+        self.orbit_space_pan_held = false;
+        self.reset_orbit_mouse_drag();
         self.mouse_wheel_dolly.reset();
     }
 
@@ -158,6 +166,8 @@ impl App {
         if self.is_free_look_camera_mode() {
             self.tracer
                 .update_camera(frame_delta_time, self.is_fly_mode);
+        } else {
+            self.update_orbit_keyboard_camera_pan(frame_delta_time);
         }
         self.update_mouse_wheel_camera_dolly(frame_delta_time);
     }
@@ -192,84 +202,134 @@ impl App {
         self.tracer.set_camera_pose_looking_at(position, focus);
     }
 
-    fn orbit_middle_mouse_drag_available(&self) -> bool {
+    pub(super) fn handle_orbit_keyboard_camera_input(
+        &mut self,
+        code: KeyCode,
+        state: ElementState,
+    ) {
+        let pressed = state == ElementState::Pressed;
+        if code == KeyCode::Space {
+            self.orbit_space_pan_held = pressed;
+            return;
+        }
+        self.orbit_keyboard_pan_input.handle_key(code, pressed);
+    }
+
+    fn update_orbit_keyboard_camera_pan(&mut self, frame_delta_time: f32) {
+        if !self.orbit_mouse_drag_available()
+            || frame_delta_time <= f32::EPSILON
+            || !frame_delta_time.is_finite()
+        {
+            self.orbit_keyboard_pan_input.reset();
+            return;
+        }
+
+        let input = self.orbit_keyboard_pan_input.input_vector();
+        if input.length_squared() <= f32::EPSILON {
+            return;
+        }
+
+        let (planar_front, planar_right) = orbit_planar_camera_axes(self.tracer.camera_front());
+        let distance = (self.tracer.camera_position() - self.orbit_camera_focus)
+            .length()
+            .clamp(
+                super::ORBIT_CAMERA_MIN_DISTANCE,
+                super::ORBIT_CAMERA_MAX_DISTANCE,
+            );
+        let speed = distance * super::ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE;
+        let pan_delta =
+            (planar_right * input.x + planar_front * input.y) * speed * frame_delta_time;
+        if pan_delta.length_squared() > f32::EPSILON {
+            self.translate_orbit_camera(pan_delta);
+        }
+    }
+
+    fn orbit_mouse_drag_available(&self) -> bool {
         self.is_orbit_edit_camera_mode() && !self.blocking_panel_open()
     }
 
-    fn reset_orbit_middle_mouse_drag(&mut self) {
-        self.orbit_middle_mouse_drag_held = false;
-        self.orbit_middle_mouse_drag_pan_active = false;
-        self.orbit_middle_mouse_drag_anchor = None;
-        self.orbit_middle_mouse_drag_last_position_physical = None;
+    fn reset_orbit_mouse_drag(&mut self) {
+        self.orbit_mouse_drag_held = false;
+        self.orbit_mouse_drag_button = None;
+        self.orbit_mouse_drag_pan_active = false;
+        self.orbit_mouse_drag_anchor = None;
+        self.orbit_mouse_drag_last_position_physical = None;
     }
 
-    pub(super) fn set_orbit_middle_mouse_drag_state(
+    pub(super) fn set_orbit_mouse_drag_state(
         &mut self,
         button: MouseButton,
         state: ElementState,
-    ) {
-        if button != MouseButton::Middle {
-            return;
-        }
-
+    ) -> bool {
         match state {
-            ElementState::Pressed if self.orbit_middle_mouse_drag_available() => {
-                self.orbit_middle_mouse_drag_held = true;
-                self.orbit_middle_mouse_drag_pan_active = self.modifiers.shift_key();
-                self.orbit_middle_mouse_drag_anchor = self
-                    .orbit_middle_mouse_drag_pan_active
-                    .then(|| self.orbit_middle_mouse_pan_anchor())
-                    .flatten();
-                self.orbit_middle_mouse_drag_last_position_physical = self.cursor_position_physical;
+            ElementState::Pressed
+                if self.orbit_mouse_drag_available() && button == MouseButton::Middle =>
+            {
+                self.orbit_mouse_drag_held = true;
+                self.orbit_mouse_drag_button = Some(button);
+                self.orbit_mouse_drag_pan_active = false;
+                self.orbit_mouse_drag_anchor = None;
+                self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
+                true
             }
-            ElementState::Pressed => {
-                self.reset_orbit_middle_mouse_drag();
+            ElementState::Pressed
+                if self.orbit_mouse_drag_available()
+                    && button == MouseButton::Left
+                    && self.orbit_space_pan_held =>
+            {
+                self.player_tools.left_mouse_held = false;
+                self.player_tools.shovel_dig_held = false;
+                self.stop_terrain_edit_loop_sound();
+                self.orbit_mouse_drag_held = true;
+                self.orbit_mouse_drag_button = Some(button);
+                self.orbit_mouse_drag_pan_active = true;
+                self.orbit_mouse_drag_anchor = self.orbit_mouse_pan_anchor();
+                self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
+                true
             }
-            ElementState::Released => {
-                self.reset_orbit_middle_mouse_drag();
+            ElementState::Released if self.orbit_mouse_drag_button == Some(button) => {
+                self.reset_orbit_mouse_drag();
+                true
             }
+            _ => false,
         }
     }
 
-    pub(super) fn sync_orbit_middle_mouse_drag_position(&mut self, position_physical: Vec2) {
-        if self.orbit_middle_mouse_drag_held {
-            self.orbit_middle_mouse_drag_last_position_physical = Some(position_physical);
+    pub(super) fn sync_orbit_mouse_drag_position(&mut self, position_physical: Vec2) {
+        if self.orbit_mouse_drag_held {
+            self.orbit_mouse_drag_last_position_physical = Some(position_physical);
         }
     }
 
-    pub(super) fn handle_orbit_middle_mouse_drag(&mut self, position_physical: Vec2) {
-        if !self.orbit_middle_mouse_drag_held {
+    pub(super) fn handle_orbit_mouse_drag(&mut self, position_physical: Vec2) {
+        if !self.orbit_mouse_drag_held {
             return;
         }
-        if !self.orbit_middle_mouse_drag_available() {
-            self.reset_orbit_middle_mouse_drag();
+        if !self.orbit_mouse_drag_available() {
+            self.reset_orbit_mouse_drag();
             return;
         }
 
-        let Some(previous_position) = self.orbit_middle_mouse_drag_last_position_physical else {
-            self.orbit_middle_mouse_drag_last_position_physical = Some(position_physical);
+        let Some(previous_position) = self.orbit_mouse_drag_last_position_physical else {
+            self.orbit_mouse_drag_last_position_physical = Some(position_physical);
             return;
         };
-        self.orbit_middle_mouse_drag_last_position_physical = Some(position_physical);
+        self.orbit_mouse_drag_last_position_physical = Some(position_physical);
 
         let drag_delta = position_physical - previous_position;
         if drag_delta.length_squared() <= f32::EPSILON {
             return;
         }
 
-        self.apply_orbit_middle_mouse_drag_delta(drag_delta, position_physical);
+        self.apply_orbit_mouse_drag_delta(drag_delta, position_physical);
     }
 
-    fn apply_orbit_middle_mouse_drag_delta(
-        &mut self,
-        drag_delta_physical: Vec2,
-        position_physical: Vec2,
-    ) {
-        if self.orbit_middle_mouse_drag_pan_active {
-            if self.apply_orbit_middle_mouse_anchored_pan(position_physical) {
+    fn apply_orbit_mouse_drag_delta(&mut self, drag_delta_physical: Vec2, position_physical: Vec2) {
+        if self.orbit_mouse_drag_pan_active {
+            if self.apply_orbit_mouse_anchored_pan(position_physical) {
                 return;
             }
-            self.apply_orbit_middle_mouse_pan_delta(drag_delta_physical);
+            self.apply_orbit_mouse_pan_delta(drag_delta_physical);
             return;
         }
 
@@ -279,7 +339,7 @@ impl App {
         self.apply_orbit_camera_spherical(azimuth, elevation, distance);
     }
 
-    fn orbit_middle_mouse_pan_anchor(&self) -> Option<Vec3> {
+    fn orbit_mouse_pan_anchor(&self) -> Option<Vec3> {
         let (origin, direction) = self.terrain_edit_ray()?;
         if direction.length_squared() <= f32::EPSILON {
             return None;
@@ -289,8 +349,8 @@ impl App {
             .filter(|hit| (*hit - origin).length() <= super::SHOVEL_RAY_QUERY_DISTANCE)
     }
 
-    fn apply_orbit_middle_mouse_anchored_pan(&mut self, position_physical: Vec2) -> bool {
-        let Some(anchor) = self.orbit_middle_mouse_drag_anchor else {
+    fn apply_orbit_mouse_anchored_pan(&mut self, position_physical: Vec2) -> bool {
+        let Some(anchor) = self.orbit_mouse_drag_anchor else {
             return false;
         };
 
@@ -311,7 +371,7 @@ impl App {
         true
     }
 
-    fn apply_orbit_middle_mouse_pan_delta(&mut self, drag_delta_physical: Vec2) {
+    fn apply_orbit_mouse_pan_delta(&mut self, drag_delta_physical: Vec2) {
         let position = self.tracer.camera_position();
         let focus = self.orbit_camera_focus;
         let distance = (position - focus).length();

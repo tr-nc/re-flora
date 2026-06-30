@@ -121,10 +121,13 @@ pub struct App {
     cursor_position_physical: Option<Vec2>,
     camera_control_mode: CameraControlMode,
     orbit_camera_focus: Vec3,
-    orbit_middle_mouse_drag_held: bool,
-    orbit_middle_mouse_drag_pan_active: bool,
-    orbit_middle_mouse_drag_anchor: Option<Vec3>,
-    orbit_middle_mouse_drag_last_position_physical: Option<Vec2>,
+    orbit_keyboard_pan_input: OrbitKeyboardPanInput,
+    orbit_space_pan_held: bool,
+    orbit_mouse_drag_held: bool,
+    orbit_mouse_drag_button: Option<MouseButton>,
+    orbit_mouse_drag_pan_active: bool,
+    orbit_mouse_drag_anchor: Option<Vec3>,
+    orbit_mouse_drag_last_position_physical: Option<Vec2>,
     mouse_wheel_dolly: MouseWheelDollySmoother,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -252,6 +255,47 @@ impl CameraControlMode {
 
     fn is_orbit_edit(self) -> bool {
         matches!(self, Self::OrbitEdit)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct OrbitKeyboardPanInput {
+    forward: bool,
+    backward: bool,
+    left: bool,
+    right: bool,
+}
+
+impl OrbitKeyboardPanInput {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn handle_key(&mut self, code: KeyCode, pressed: bool) {
+        match code {
+            KeyCode::KeyW => self.forward = pressed,
+            KeyCode::KeyS => self.backward = pressed,
+            KeyCode::KeyA => self.left = pressed,
+            KeyCode::KeyD => self.right = pressed,
+            _ => {}
+        }
+    }
+
+    fn input_vector(self) -> Vec2 {
+        let mut input = Vec2::ZERO;
+        if self.forward {
+            input.y += 1.0;
+        }
+        if self.backward {
+            input.y -= 1.0;
+        }
+        if self.left {
+            input.x -= 1.0;
+        }
+        if self.right {
+            input.x += 1.0;
+        }
+        input.normalize_or_zero()
     }
 }
 
@@ -449,6 +493,7 @@ const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
 const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
 const ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL: f32 = 0.005;
 const ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE: f32 = 0.001;
+const ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE: f32 = 0.45;
 const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
 const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
 const MOUSE_WHEEL_DOLLY_SNAP_LINES: f32 = 0.001;
@@ -958,10 +1003,13 @@ impl App {
             cursor_position_physical: None,
             camera_control_mode: CameraControlMode::default(),
             orbit_camera_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
-            orbit_middle_mouse_drag_held: false,
-            orbit_middle_mouse_drag_pan_active: false,
-            orbit_middle_mouse_drag_anchor: None,
-            orbit_middle_mouse_drag_last_position_physical: None,
+            orbit_keyboard_pan_input: OrbitKeyboardPanInput::default(),
+            orbit_space_pan_held: false,
+            orbit_mouse_drag_held: false,
+            orbit_mouse_drag_button: None,
+            orbit_mouse_drag_pan_active: false,
+            orbit_mouse_drag_anchor: None,
+            orbit_mouse_drag_last_position_physical: None,
             mouse_wheel_dolly: MouseWheelDollySmoother::default(),
             modifiers: ModifiersState::default(),
             perf_logging: options.perf,
@@ -1367,16 +1415,18 @@ impl App {
 
             if consumed && !is_keyboard_event {
                 if let WindowEvent::CursorMoved { position, .. } = &event {
-                    self.sync_orbit_middle_mouse_drag_position(Vec2::new(
+                    self.sync_orbit_mouse_drag_position(Vec2::new(
                         position.x as f32,
                         position.y as f32,
                     ));
                 }
                 if let WindowEvent::MouseInput { state, button, .. } = &event {
                     if *state == ElementState::Released {
-                        self.set_tool_mouse_button_state(*button, *state);
-                        self.set_orbit_middle_mouse_drag_state(*button, *state);
-                        self.refresh_terrain_edit_hold_from_mouse_buttons();
+                        let captured = self.set_orbit_mouse_drag_state(*button, *state);
+                        if !captured {
+                            self.set_tool_mouse_button_state(*button, *state);
+                            self.refresh_terrain_edit_hold_from_mouse_buttons();
+                        }
                     }
                 }
                 return;
@@ -1429,6 +1479,12 @@ impl App {
                     return;
                 }
 
+                if self.is_orbit_edit_camera_mode() && self.keyboard_tool_shortcuts_available() {
+                    if let PhysicalKey::Code(code) = event.physical_key {
+                        self.handle_orbit_keyboard_camera_input(code, event.state);
+                    }
+                }
+
                 if self.keyboard_tool_shortcuts_available() && event.state == ElementState::Pressed
                 {
                     let target_slot = match event.physical_key {
@@ -1461,14 +1517,15 @@ impl App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.handle_orbit_middle_mouse_drag(Vec2::new(
-                    position.x as f32,
-                    position.y as f32,
-                ));
+                self.handle_orbit_mouse_drag(Vec2::new(position.x as f32, position.y as f32));
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                let captured = self.set_orbit_mouse_drag_state(button, state);
+                if captured {
+                    return;
+                }
+
                 self.set_tool_mouse_button_state(button, state);
-                self.set_orbit_middle_mouse_drag_state(button, state);
 
                 if self.terrain_edit_pointer_available()
                     && (button == MouseButton::Left || button == MouseButton::Right)
@@ -2588,8 +2645,9 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{App, MouseWheelDollySmoother};
+    use super::{App, MouseWheelDollySmoother, OrbitKeyboardPanInput};
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
+    use winit::keyboard::KeyCode;
 
     #[test]
     fn ambisonics_backend_selects_matching_decoder_backend() {
@@ -2618,6 +2676,18 @@ mod tests {
         assert_eq!(normal_default_gain_db, 0.0);
         assert!(muted_gain_db <= normal_min_gain_db);
         assert!(normal_default_gain_db < normal_max_gain_db);
+    }
+
+    #[test]
+    fn orbit_keyboard_pan_input_normalizes_diagonal_motion() {
+        let mut input = OrbitKeyboardPanInput::default();
+        input.handle_key(KeyCode::KeyW, true);
+        input.handle_key(KeyCode::KeyD, true);
+
+        let direction = input.input_vector();
+        assert!((direction.length() - 1.0).abs() <= 0.0001);
+        assert!(direction.x > 0.0);
+        assert!(direction.y > 0.0);
     }
 
     #[test]
