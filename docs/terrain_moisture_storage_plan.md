@@ -76,19 +76,20 @@ contree 是派生的 ray traversal / surface hit 加速结构，不是完整 vox
   - `R32_UINT` 约 64 MiB / chunk
 - dense state atlas 会让每个 chunk 固定增加大量显存，即使大部分 voxel 没有状态。
 
-### 方案 C：短期把 moisture pack 到 `chunk_atlas` 高 4 bit
+### 方案 C：短期把 moisture pack 到 `chunk_atlas` 高位状态位
 
 短期采用。
 
-建议布局：
+当前布局：
 
 ```text
 chunk_atlas R8_UINT
 bits 0..3 = voxel type
-bits 4..7 = moisture, 0..15
+bits 4..5 = moisture, 0..3（0=dry，1..3=更湿）
+bits 6..7 = reserved soil state bits（后续 fertility/tilled 等）
 ```
 
-当前 voxel type 值较少，可以暂时放在低 4 bit。moisture 用 4 bit 量化为 16 档，足够做短期视觉反馈和基础植物规则。
+当前 voxel type 值较少，可以暂时放在低 4 bit。moisture 只用 2 bit 量化为 4 档；视觉反馈和基础植物规则短期只需要少量离散湿度档位，剩余高位保留给后续土壤状态。
 
 优点：
 
@@ -100,7 +101,7 @@ bits 4..7 = moisture, 0..15
 缺点：
 
 - voxel type 临时限制在 4 bit，最多 16 类。
-- moisture 只有 16 档。
+- moisture 只有 4 档。
 - 所有读取 `chunk_atlas` voxel type 的 shader/Rust 路径都必须 mask 低 4 bit。
 - 所有写 `chunk_atlas` 的路径都必须明确是保留 moisture 还是清除 moisture。
 
@@ -131,9 +132,9 @@ voxel_state_overlay = sparse/bricked state pages, default state implicit zero
 
 ## 当前决策
 
-短期采用方案 C：**把 moisture pack 到 `chunk_atlas` 高 4 bit**。
+短期采用方案 C：**把 moisture pack 到 `chunk_atlas` bits 4..5，并保留 bits 6..7 给后续土壤状态**。
 
-长期保留方案 D：**sparse/bricked voxel state overlay**，当 soil state 超过 4 bit moisture 或材料类型超过低 4 bit 容量时，再升级。
+长期保留方案 D：**sparse/bricked voxel state overlay**，当 soil state 超过当前 packed bits 或材料类型超过低 4 bit 容量时，再升级。
 
 contree 保持为派生加速结构，不作为 moisture source of truth。
 
@@ -143,7 +144,8 @@ contree 保持为派生加速结构，不作为 moisture source of truth。
 
 1. 定义统一的 atlas byte packing helper。
    - low nibble：voxel type。
-   - high nibble：moisture。
+   - bits 4..5：moisture，0..3。
+   - bits 6..7：reserved state bits。
    - 所有 shader 中读取 type 时必须使用 helper，而不是直接 `imageLoad(...).r` 当 type。
 
 2. 修改 `chunk_atlas` 写入路径。
@@ -159,13 +161,13 @@ contree 保持为派生加速结构，不作为 moisture source of truth。
    - `is_solid` 基于 masked voxel type。
 
 4. GPU 写 moisture。
-   - Water brush：用 compute brush 写 `chunk_atlas` high nibble，提高 moisture。
-   - Sprinkler：基于喷水器位置周期性写附近 soil voxel 的 high nibble。
-   - 写入时保持 low nibble 的 voxel type 不变。
+   - Water brush：用 compute brush 写 `chunk_atlas` moisture bits，提高 moisture。
+   - Sprinkler：基于喷水器位置周期性写附近 soil voxel 的 moisture bits。
+   - 写入时保持 low nibble 的 voxel type 以及 reserved state bits 不变。
 
 5. tracer 读取 moisture。
    - contree ray hit 后已有 `center_pos`，可以换算 atlas voxel coordinate。
-   - 读取 `chunk_atlas` high nibble 得到 moisture。
+   - 读取 `chunk_atlas` bits 4..5 得到 moisture level。
    - 仅对 dirt/sand 等可湿润 voxel 做额外读取/着色，避免所有材质都增加成本。
    - 不需要把 atlas index 编码进 contree leaf，因为 hit 后天然可从 world/voxel coordinate 索引回 `chunk_atlas`。
 
@@ -177,15 +179,15 @@ contree 保持为派生加速结构，不作为 moisture source of truth。
 
 - 必须集中定义 packing/unpacking，避免某些 shader 忘记 mask low nibble。
 - `VOXEL_TYPE_MASK` 当前若是 `0xFF`，短期实现时需要调整相关 helper；不要散落手写 `& 0x0F`。
-- 所有 material writer 都必须考虑 high nibble，否则容易误清 moisture 或把 moisture 当 voxel type。
+- 所有 material writer 都必须考虑高位状态位，否则容易误清 moisture/reserved state 或把 state 当 voxel type。
 - 如果未来 voxel type 超过 15 类，此方案必须迁移。
-- 4 bit moisture 是短期量化方案，视觉和 gameplay 阈值需要围绕 0..15 调整。
+- 2 bit moisture 是短期量化方案，视觉和 gameplay 阈值需要围绕 0..3 调整。
 
 ## 长期迁移触发条件
 
-考虑从 packed high nibble 迁移到 sparse/bricked state overlay 的信号：
+考虑从 packed atlas state bits 迁移到 sparse/bricked state overlay 的信号：
 
 - voxel type 数量接近或超过 16。
 - soil state 超过 moisture 单字段，例如 fertility、tilled、nutrients、temperature 都需要持久化。
-- 需要更高精度 moisture 或更复杂的 per-voxel gameplay state。
+- 需要高于 4 档的 moisture 精度或更复杂的 per-voxel gameplay state。
 - dense atlas bit packing 开始让 shader/Rust 写入路径难以维护。

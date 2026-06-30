@@ -240,20 +240,20 @@ vec3 offset_color(vec3 input_color, vec3 center_pos) {
     return hsv_to_rgb(hsv);
 }
 
-float terrain_atlas_moisture_at(vec3 center_pos) {
+uint terrain_atlas_moisture_level_at(vec3 center_pos) {
     ivec3 atlas_coord = ivec3(floor(center_pos * 256.0));
     ivec3 atlas_size  = imageSize(chunk_atlas).xyz;
     if (any(lessThan(atlas_coord, ivec3(0))) || any(greaterThanEqual(atlas_coord, atlas_size))) {
-        return 0.0;
+        return 0u;
     }
     uint voxel_data = imageLoad(chunk_atlas, atlas_coord).r;
-    return float(voxel_moisture_from_atlas_data(voxel_data)) / float(VOXEL_MOISTURE_MAX);
+    return voxel_moisture_from_atlas_data(voxel_data);
 }
 
 void parse_trace_result(out vec3 albedo, out vec3 next_tracing_pos, MarchingResult res) {
     albedo = voxel_color_by_type_and_hash_unorm(res.voxel_type, res.hash_id);
-    float wetness = terrain_atlas_moisture_at(res.center_pos);
-    albedo = apply_terrain_moisture_wetness(albedo, res.voxel_type, wetness);
+    uint moisture_level = terrain_atlas_moisture_level_at(res.center_pos);
+    albedo = apply_terrain_moisture_level(albedo, res.voxel_type, moisture_level);
     // albedo = offset_color(albedo, res.center_pos);
     next_tracing_pos = get_next_tracing_pos(res.center_pos, res.normal);
 }

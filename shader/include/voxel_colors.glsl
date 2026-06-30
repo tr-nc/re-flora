@@ -53,15 +53,25 @@ vec3 voxel_color_by_type_and_hash_unorm(uint voxel_type, uint hash_id) {
     return srgb_to_linear(voxel_color_with_hash_srgb(voxel_type, hash_id));
 }
 
-vec3 apply_terrain_moisture_wetness(vec3 base_color, uint voxel_type, float wetness) {
+vec3 apply_terrain_moisture_level(vec3 base_color, uint voxel_type, uint moisture_level) {
     bool can_show_moisture = voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND;
-    if (!can_show_moisture || wetness <= 0.0) {
+    if (!can_show_moisture || moisture_level == 0u) {
         return base_color;
     }
 
-    wetness = pow(clamp(wetness, 0.0, 1.0), 0.58);
-    vec3 cool_wet_color = mix(base_color * 0.26, vec3(0.012, 0.028, 0.023), 0.42);
-    return mix(base_color, cool_wet_color, clamp(wetness * 1.18, 0.0, 1.0));
+    uint level = min(moisture_level, VOXEL_MOISTURE_MAX);
+    vec3 wet_color;
+    if (level == 1u) {
+        // Damp: slightly darker, still mostly the dry material color.
+        wet_color = mix(base_color * 0.76, vec3(0.060, 0.050, 0.038), 0.16);
+    } else if (level == 2u) {
+        // Wet: visibly darker and cooler.
+        wet_color = mix(base_color * 0.52, vec3(0.030, 0.038, 0.032), 0.28);
+    } else {
+        // Saturated: darkest, with a subtle cool green/blue cast.
+        wet_color = mix(base_color * 0.32, vec3(0.010, 0.024, 0.022), 0.42);
+    }
+    return clamp(wet_color, vec3(0.0), vec3(1.0));
 }
 
 #endif // VOXEL_COLORS_GLSL

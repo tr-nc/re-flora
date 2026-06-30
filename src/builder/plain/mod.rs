@@ -39,7 +39,11 @@ pub const VOXEL_TYPE_EMPTY: u32 = 0;
 pub const VOXEL_TYPE_DIRT: u32 = 2;
 pub const VOXEL_TYPE_SAND: u32 = 3;
 pub const VOXEL_TYPE_MASK: u8 = 0x0f;
-pub const VOXEL_MOISTURE_MASK: u8 = 0xf0;
+pub const VOXEL_ATLAS_STATE_MASK: u8 = 0xf0;
+// Moisture intentionally uses only two bits (4..5): 0=dry, 1..3=wetter.
+// Bits 6..7 remain reserved for future packed soil state.
+pub const VOXEL_MOISTURE_MASK: u8 = 0x30;
+pub const VOXEL_MOISTURE_MAX: u8 = 0x03;
 const PRIMITIVE_KIND_ROUND_CONE: u32 = 0;
 const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
@@ -57,20 +61,13 @@ fn voxel_type_from_atlas_byte(voxel_data: u8) -> u8 {
     voxel_data & VOXEL_TYPE_MASK
 }
 
-fn voxel_moisture_from_atlas_byte(voxel_data: u8) -> u8 {
-    (voxel_data & VOXEL_MOISTURE_MASK) >> 4
-}
-
 fn pack_voxel_atlas_byte(voxel_type: u8, moisture: u8) -> u8 {
-    (voxel_type & VOXEL_TYPE_MASK) | ((moisture & VOXEL_TYPE_MASK) << 4)
+    (voxel_type & VOXEL_TYPE_MASK) | (((moisture & VOXEL_MOISTURE_MAX) << 4) & VOXEL_MOISTURE_MASK)
 }
 
 fn pack_voxel_atlas_byte_for_fill(old_voxel_data: u8, fill_voxel_type: u8) -> u8 {
     if fill_voxel_type == VOXEL_TYPE_DIRT as u8 || fill_voxel_type == VOXEL_TYPE_SAND as u8 {
-        pack_voxel_atlas_byte(
-            fill_voxel_type,
-            voxel_moisture_from_atlas_byte(old_voxel_data),
-        )
+        (old_voxel_data & VOXEL_ATLAS_STATE_MASK) | (fill_voxel_type & VOXEL_TYPE_MASK)
     } else {
         pack_voxel_atlas_byte(fill_voxel_type, 0)
     }
@@ -2249,6 +2246,23 @@ fn choose_smooth_fill_voxel_type(atlas_data: &[u8], solid: &[bool], idx: usize, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atlas_pack_uses_two_moisture_bits_and_preserves_reserved_state() {
+        let packed = pack_voxel_atlas_byte(VOXEL_TYPE_DIRT as u8, 7);
+        assert_eq!(voxel_type_from_atlas_byte(packed), VOXEL_TYPE_DIRT as u8);
+        assert_eq!(packed & VOXEL_MOISTURE_MASK, 0x30);
+        assert_eq!(packed & 0xc0, 0x00);
+
+        let old_with_reserved_state = 0b1101_0010u8;
+        let refilled =
+            pack_voxel_atlas_byte_for_fill(old_with_reserved_state, VOXEL_TYPE_SAND as u8);
+        assert_eq!(refilled, 0b1101_0011u8);
+
+        let cleared =
+            pack_voxel_atlas_byte_for_fill(old_with_reserved_state, VOXEL_TYPE_ROCK as u8);
+        assert_eq!(cleared, VOXEL_TYPE_ROCK as u8);
+    }
 
     #[test]
     fn mbo_threshold_keeps_top_histogram_bins() {

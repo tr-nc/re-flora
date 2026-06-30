@@ -85,8 +85,9 @@ void main() {
         return;
     }
 
-    float edge = max(radius_vox * 0.35, 1.0);
-    float falloff = 1.0 - smoothstep(max(radius_vox - edge, 0.0), radius_vox, dist);
+    // Four discrete moisture states are stored in two bits. Use a full-radius linear falloff
+    // before quantization so a single brush stroke leaves a wetter center and drier edge.
+    float falloff = clamp(1.0 - dist / max(radius_vox, 0.0001), 0.0, 1.0);
     uint add_moisture = uint(ceil(amount * falloff * float(VOXEL_MOISTURE_MAX)));
     if (add_moisture == 0u) {
         return;
@@ -98,5 +99,5 @@ void main() {
         return;
     }
 
-    imageStore(chunk_atlas, ivec3(atlas_u), uvec4(pack_voxel_atlas_data(voxel_type, new_moisture), 0u, 0u, 0u));
+    imageStore(chunk_atlas, ivec3(atlas_u), uvec4(pack_voxel_atlas_moisture_preserve_state(old_data, new_moisture), 0u, 0u, 0u));
 }
