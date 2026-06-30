@@ -36,6 +36,7 @@ use crate::app::cpu_solid_voxels::CpuSolidVoxelStore;
 use crate::app::environment;
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::GuiConfigFile;
+use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldBuildBackend, WorldEditPlan};
 use crate::app::world_ops;
 use crate::app::{GuiAdjustables, WindSourceGuiValues};
@@ -433,7 +434,6 @@ impl WorldBuildBackend for App {
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
 const CHUNK_DIM: UVec3 = UVec3::new(3, 1, 3);
-const EDITABLE_CHUNK_INDEX: UVec3 = UVec3::new(1, 0, 1);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const GPU_PROFILER_MAX_SCOPES_PER_FRAME: usize = 64;
@@ -441,11 +441,7 @@ const TERRAIN_EDIT_DEFAULT_RADIUS: f32 = 0.08;
 const TERRAIN_EDIT_RADIUS_MIN: f32 = 0.03;
 const TERRAIN_EDIT_RADIUS_MAX: f32 = 0.36;
 const TERRAIN_EDIT_RADIUS_SCROLL_STEP: f32 = 0.01;
-const ORBIT_CAMERA_FOCUS: Vec3 = Vec3::new(
-    EDITABLE_CHUNK_INDEX.x as f32 + 0.5,
-    EDITABLE_CHUNK_INDEX.y as f32 + 0.5,
-    EDITABLE_CHUNK_INDEX.z as f32 + 0.5,
-);
+const ORBIT_CAMERA_FOCUS: Vec3 = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
 const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.2;
 const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
 const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;

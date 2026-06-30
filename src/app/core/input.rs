@@ -5,6 +5,7 @@ use super::ui_style::{
     STAFF_TOOL_ACCENT, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use super::App;
+use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{
     TerrainBrushEdit, TerrainRemovalEdit, TreeAddOptions, TreePlacement,
 };
@@ -45,37 +46,16 @@ fn orbit_offset_to_spherical(mut offset: Vec3) -> (f32, f32, f32) {
     (azimuth, elevation, distance)
 }
 
-fn editable_chunk_xz_min() -> Vec2 {
-    Vec2::new(
-        super::EDITABLE_CHUNK_INDEX.x as f32,
-        super::EDITABLE_CHUNK_INDEX.z as f32,
-    )
-}
-
-fn editable_chunk_xz_max() -> Vec2 {
-    editable_chunk_xz_min() + Vec2::ONE
+fn terrain_edit_point_within_editable_chunk(center: Vec3) -> bool {
+    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(center)
 }
 
 fn terrain_edit_disc_within_editable_chunk(center: Vec3, radius: f32) -> bool {
-    if !center.is_finite() || !radius.is_finite() || radius < 0.0 {
-        return false;
-    }
-
-    let min = editable_chunk_xz_min();
-    let max = editable_chunk_xz_max();
-    center.x >= min.x
-        && center.z >= min.y
-        && center.x < max.x
-        && center.z < max.y
-        && center.x - radius >= min.x
-        && center.z - radius >= min.y
-        && center.x + radius <= max.x
-        && center.z + radius <= max.y
+    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_disc_xz(center, radius)
 }
 
 fn terrain_brush_within_editable_chunk(edit: TerrainBrushEdit) -> bool {
-    terrain_edit_disc_within_editable_chunk(edit.start, edit.radius)
-        && terrain_edit_disc_within_editable_chunk(edit.end, edit.radius)
+    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_stroke(edit)
 }
 
 impl App {
@@ -1143,7 +1123,7 @@ impl App {
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.stop_terrain_edit_loop_sound();
-                if !terrain_edit_disc_within_editable_chunk(center, 0.0) {
+                if !terrain_edit_point_within_editable_chunk(center) {
                     return;
                 }
                 match self.current_placeable_kind() {
@@ -1192,11 +1172,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        orbit_offset_to_spherical, terrain_brush_within_editable_chunk,
-        terrain_edit_disc_within_editable_chunk,
-    };
-    use crate::app::world_edits::TerrainBrushEdit;
+    use super::orbit_offset_to_spherical;
     use glam::Vec3;
 
     fn assert_near(actual: f32, expected: f32) {
@@ -1214,43 +1190,5 @@ mod tests {
         assert_near(azimuth, std::f32::consts::FRAC_PI_2);
         assert_near(elevation, 0.0);
         assert_near(distance, min_distance);
-    }
-
-    #[test]
-    fn terrain_edit_disc_accepts_only_middle_chunk_xz() {
-        assert!(terrain_edit_disc_within_editable_chunk(
-            Vec3::new(1.5, 0.5, 1.5),
-            0.25,
-        ));
-        assert!(terrain_edit_disc_within_editable_chunk(
-            Vec3::new(1.92, 0.5, 1.5),
-            0.08,
-        ));
-        assert!(!terrain_edit_disc_within_editable_chunk(
-            Vec3::new(0.9, 0.5, 1.5),
-            0.0,
-        ));
-        assert!(!terrain_edit_disc_within_editable_chunk(
-            Vec3::new(1.05, 0.5, 1.5),
-            0.08,
-        ));
-        assert!(!terrain_edit_disc_within_editable_chunk(
-            Vec3::new(2.0, 0.5, 1.5),
-            0.0,
-        ));
-    }
-
-    #[test]
-    fn terrain_brush_requires_whole_stroke_in_middle_chunk_xz() {
-        assert!(terrain_brush_within_editable_chunk(TerrainBrushEdit {
-            start: Vec3::new(1.2, 0.5, 1.2),
-            end: Vec3::new(1.8, 0.5, 1.8),
-            radius: 0.1,
-        }));
-        assert!(!terrain_brush_within_editable_chunk(TerrainBrushEdit {
-            start: Vec3::new(1.5, 0.5, 1.5),
-            end: Vec3::new(2.05, 0.5, 1.5),
-            radius: 0.1,
-        }));
     }
 }
