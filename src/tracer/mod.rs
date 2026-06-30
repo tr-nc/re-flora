@@ -84,6 +84,9 @@ struct GlassPushConstants {
 
 const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
 const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
+const DEFAULT_CAMERA_DISTANCE_SCALE: f32 = 0.7;
+const DEFAULT_CAMERA_DISTANCE_PADDING: f32 = 0.65;
+const DEFAULT_CAMERA_HEIGHT_SCALE: f32 = 1.0;
 
 #[derive(Debug, Clone)]
 pub struct WindGuiParams {
@@ -292,8 +295,9 @@ impl Tracer {
         let extent = max - min;
         let center = (min + max) * 0.5;
         let horizontal_extent = extent.x.max(extent.z).max(1.0);
-        let camera_distance = horizontal_extent * 0.7 + 0.65;
-        let camera_height = extent.y.max(1.0) * 0.28;
+        let camera_distance =
+            horizontal_extent * DEFAULT_CAMERA_DISTANCE_SCALE + DEFAULT_CAMERA_DISTANCE_PADDING;
+        let camera_height = extent.y.max(1.0) * DEFAULT_CAMERA_HEIGHT_SCALE;
         let camera_position = center + Vec3::new(0.0, camera_height, camera_distance);
         let look_direction = (center - camera_position).normalize();
         let yaw_deg = look_direction.x.atan2(-look_direction.z).to_degrees();
