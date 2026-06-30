@@ -1791,8 +1791,10 @@ mod tests {
 
     #[test]
     fn terrain_surface_removal_bvh_reaches_positive_atlas_edge() {
+        let world_dim = super::super::VOXEL_DIM_PER_CHUNK * super::super::CHUNK_DIM;
+        let positive_edge_x = world_dim.x as f32 / super::super::VOXEL_DIM_PER_CHUNK.x as f32;
         let compiled = TerrainSurfaceRemovalService::compile(TerrainRemovalEdit {
-            center: Vec3::new(1.0, 0.5, 0.5),
+            center: Vec3::new(positive_edge_x, 0.5, 0.5),
             radius: super::super::TERRAIN_EDIT_DEFAULT_RADIUS,
         })
         .expect("edge-overlapping edit should compile");
@@ -1801,14 +1803,8 @@ mod tests {
             panic!("expected surface sphere edit");
         };
 
-        assert_eq!(
-            bvh_nodes[0].aabb.max().x,
-            super::super::VOXEL_DIM_PER_CHUNK.x as f32
-        );
-        assert_eq!(
-            compiled.rebuild_bound.max().x,
-            super::super::VOXEL_DIM_PER_CHUNK.x - 1
-        );
+        assert_eq!(bvh_nodes[0].aabb.max().x, world_dim.x as f32);
+        assert_eq!(compiled.rebuild_bound.max().x, world_dim.x - 1);
     }
 
     #[test]
