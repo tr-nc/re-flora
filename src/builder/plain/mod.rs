@@ -238,6 +238,7 @@ pub struct PlainBuilder {
     terrain_smooth_mbo_score_ppl: ComputePipeline,
     terrain_smooth_mbo_apply_ppl: ComputePipeline,
     terrain_moisture_brush_ppl: ComputePipeline,
+    terrain_moisture_dry_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
     chunk_solid_sample_ppl: ComputePipeline,
@@ -376,6 +377,13 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let terrain_moisture_dry_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_moisture_dry.comp",
+            "main",
+        )
+        .unwrap();
 
         let resources = PlainBuilderResources::new(
             device,
@@ -423,6 +431,8 @@ impl PlainBuilder {
             ComputePipeline::new(device, &terrain_smooth_mbo_apply_sm, &pool, &[&resources]);
         let terrain_moisture_brush_ppl =
             ComputePipeline::new(device, &terrain_moisture_brush_sm, &pool, &[&resources]);
+        let terrain_moisture_dry_ppl =
+            ComputePipeline::new(device, &terrain_moisture_dry_sm, &pool, &[&resources]);
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
         let chunk_modify_sample_ppl =
             ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
@@ -458,6 +468,7 @@ impl PlainBuilder {
             terrain_smooth_mbo_score_ppl,
             terrain_smooth_mbo_apply_ppl,
             terrain_moisture_brush_ppl,
+            terrain_moisture_dry_ppl,
             chunk_modify_ppl,
             chunk_modify_sample_ppl,
             chunk_solid_sample_ppl,
@@ -711,6 +722,46 @@ impl PlainBuilder {
         );
 
         Ok(Some(UAabb3::new(offset, offset + dim - UVec3::ONE)))
+    }
+
+    pub fn apply_terrain_moisture_dry_tick(&mut self, dry_probability: f32) -> Result<()> {
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let dry_probability = dry_probability.clamp(0.0, 1.0);
+        if dry_probability <= 0.0 || atlas_dim == UVec3::ZERO {
+            return Ok(());
+        }
+
+        let dither_seed = self.next_moisture_dither_seed;
+        self.next_moisture_dither_seed = self
+            .next_moisture_dither_seed
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223)
+            .max(1);
+        self.resources
+            .terrain_moisture_brush_info
+            .fill_uniform(&TerrainMoistureBrushInfoGpu {
+                offset: [0, 0, 0, dither_seed],
+                dim: [atlas_dim.x, atlas_dim.y, atlas_dim.z, 0],
+                start_radius: [dry_probability, 0.0, 0.0, 0.0],
+                end_amount: [0.0, 0.0, 0.0, 0.0],
+            })?;
+
+        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
+        execute_one_time_command(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.terrain_moisture_dry_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
+                    None,
+                );
+                shader_access_pipeline_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            },
+        );
+
+        Ok(())
     }
 
     #[allow(dead_code)]
