@@ -47,16 +47,12 @@ fn orbit_offset_to_spherical(mut offset: Vec3) -> (f32, f32, f32) {
     (azimuth, elevation, distance)
 }
 
-fn terrain_edit_point_within_editable_chunk(center: Vec3) -> bool {
+fn terrain_edit_endpoint_within_editable_chunk(center: Vec3) -> bool {
     INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(center)
 }
 
-fn terrain_edit_disc_within_editable_chunk(center: Vec3, radius: f32) -> bool {
-    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_disc_xz(center, radius)
-}
-
-fn terrain_brush_within_editable_chunk(edit: TerrainBrushEdit) -> bool {
-    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_stroke(edit)
+fn terrain_brush_endpoint_within_editable_chunk(edit: TerrainBrushEdit) -> bool {
+    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(edit)
 }
 
 const TERRAIN_EDIT_PREVIEW_VALID_COLOR: Vec3 = Vec3::new(0.45, 0.86, 1.0);
@@ -851,10 +847,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_disc_within_editable_chunk(
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                ) {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_shovel_dig_time = Some(now);
                     return;
@@ -915,10 +908,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_disc_within_editable_chunk(
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                ) {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_smooth_time = Some(now);
                     return;
@@ -965,10 +955,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_disc_within_editable_chunk(
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                ) {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_staff_regen_time = Some(now);
                     self.reset_staff_regen_stroke_tracking();
@@ -987,7 +974,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_within_editable_chunk(edit) {
+                if !terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_staff_regen_time = Some(now);
                     self.reset_staff_regen_stroke_tracking();
@@ -1029,10 +1016,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_disc_within_editable_chunk(
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                ) {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_staff_remove_time = Some(now);
                     self.player_tools.last_staff_remove_center = None;
@@ -1051,7 +1035,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_within_editable_chunk(edit) {
+                if !terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_staff_remove_time = Some(now);
                     self.player_tools.last_staff_remove_center = None;
@@ -1116,11 +1100,7 @@ impl App {
     }
 
     fn terrain_edit_preview_position_is_editable(&self, center: Vec3) -> bool {
-        if self.is_place_tool_selected() {
-            terrain_edit_point_within_editable_chunk(center)
-        } else {
-            terrain_edit_disc_within_editable_chunk(center, self.player_tools.terrain_edit_radius)
-        }
+        terrain_edit_endpoint_within_editable_chunk(center)
     }
 
     pub(super) fn try_shovel_place(&mut self, now: Instant) {
@@ -1141,10 +1121,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_disc_within_editable_chunk(
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                ) {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_shovel_place_time = Some(now);
                     return;
@@ -1196,10 +1173,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_disc_within_editable_chunk(
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                ) {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_hoe_trim_time = Some(now);
                     return;
@@ -1240,10 +1214,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_disc_within_editable_chunk(
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                ) {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_watering_time = Some(now);
                     self.reset_watering_stroke_tracking();
@@ -1262,7 +1233,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_within_editable_chunk(edit) {
+                if !terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.last_watering_time = Some(now);
                     self.reset_watering_stroke_tracking();
@@ -1300,7 +1271,7 @@ impl App {
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.stop_terrain_edit_loop_sound();
-                if !terrain_edit_point_within_editable_chunk(center) {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
                     return;
                 }
                 match self.current_placeable_kind() {

@@ -32,29 +32,17 @@ impl EditableTerrainBounds {
     }
 
     pub(crate) fn contains_point_xz(self, point: Vec3) -> bool {
-        self.contains_disc_xz(point, 0.0)
-    }
-
-    pub(crate) fn contains_disc_xz(self, center: Vec3, radius: f32) -> bool {
-        if !center.is_finite() || !radius.is_finite() || radius < 0.0 {
+        if !point.is_finite() {
             return false;
         }
 
         let min = self.min_xz();
         let max = self.max_xz_exclusive();
-        center.x >= min.x
-            && center.z >= min.y
-            && center.x < max.x
-            && center.z < max.y
-            && center.x - radius >= min.x
-            && center.z - radius >= min.y
-            && center.x + radius <= max.x
-            && center.z + radius <= max.y
+        point.x >= min.x && point.z >= min.y && point.x < max.x && point.z < max.y
     }
 
-    pub(crate) fn contains_brush_stroke(self, edit: TerrainBrushEdit) -> bool {
-        self.contains_disc_xz(edit.start, edit.radius)
-            && self.contains_disc_xz(edit.end, edit.radius)
+    pub(crate) fn contains_brush_endpoint(self, edit: TerrainBrushEdit) -> bool {
+        self.contains_point_xz(edit.end)
     }
 
     fn min_xz(self) -> Vec2 {
@@ -76,30 +64,28 @@ mod tests {
     use glam::Vec3;
 
     #[test]
-    fn initial_editable_area_accepts_all_chunks_xz() {
-        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_disc_xz(Vec3::new(1.5, 0.5, 1.5), 0.25));
-        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_disc_xz(Vec3::new(0.08, 0.5, 1.5), 0.08));
-        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_disc_xz(Vec3::new(2.92, 0.5, 1.5), 0.08));
+    fn initial_editable_area_accepts_points_in_unlocked_chunks_xz() {
+        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(1.5, 0.5, 1.5)));
         assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(0.0, 0.5, 0.0)));
+        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(2.99, 0.5, 1.5)));
 
         assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(-0.01, 0.5, 1.5)));
-        assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_disc_xz(Vec3::new(0.05, 0.5, 1.5), 0.08));
         assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(3.0, 0.5, 1.5)));
     }
 
     #[test]
-    fn initial_editable_area_requires_whole_stroke_in_all_chunks_xz() {
+    fn editable_area_checks_only_brush_endpoint_xz() {
         assert!(
-            INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_stroke(TerrainBrushEdit {
-                start: Vec3::new(0.2, 0.5, 0.2),
-                end: Vec3::new(2.8, 0.5, 2.8),
-                radius: 0.1,
+            INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(TerrainBrushEdit {
+                start: Vec3::new(-1.0, 0.5, -1.0),
+                end: Vec3::new(0.02, 0.5, 0.02),
+                radius: 0.5,
             })
         );
         assert!(
-            !INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_stroke(TerrainBrushEdit {
+            !INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(TerrainBrushEdit {
                 start: Vec3::new(1.5, 0.5, 1.5),
-                end: Vec3::new(3.05, 0.5, 1.5),
+                end: Vec3::new(3.0, 0.5, 1.5),
                 radius: 0.1,
             })
         );
