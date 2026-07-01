@@ -5,8 +5,8 @@ use anyhow::Result;
 const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
 const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;
 const WATERING_BRUSH_MOISTURE_PER_DAB: f32 = 0.68;
-const TERRAIN_MOISTURE_DRY_INTERVAL_WORLD_TICKS: u32 = 20;
-const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_VOXEL: f32 = 0.10;
+const TERRAIN_MOISTURE_DRY_INTERVAL_WORLD_TICKS: u32 = 1;
+const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_VOXEL: f32 = 0.02;
 
 impl App {
     pub(super) fn update_terrain_moisture_drying(&mut self, world_tick_steps: u32) {
