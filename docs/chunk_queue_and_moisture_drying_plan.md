@@ -182,11 +182,11 @@ Moisture drying 需要的是简单 round-robin/FIFO：
 1 - (1 - 0.02)^20 ≈ 0.33
 ```
 
-建议先保留可调常量，并在实际手感测试后确定：
+当前实现保留 `0.02` 作为每次 chunk visit 的概率，优先降低 GPU cost 和干燥突变风险；如果后续手感太慢，再把该常量提高到接近 `0.33`。
 
 ```rust
 const TERRAIN_MOISTURE_DRY_ENQUEUE_INTERVAL_WORLD_TICKS: u32 = 20;
-const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_VISIT: f32 = 0.02; // or 0.33 if preserving current speed
+const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.02;
 const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 ```
 
@@ -194,57 +194,57 @@ const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 
 ### Phase 1: Queue API cleanup
 
-- [ ] Make FIFO pop available in production `ChunkWorkQueue`.
-- [ ] Add explicit `ChunkPopMode` enum.
-- [ ] Add `ChunkWorkQueue::pop(mode)`.
-- [ ] Add `ChunkWorkQueue::pop_if(mode, predicate)`.
-- [ ] Keep existing `pop_nearest_to` wrappers temporarily for compatibility.
-- [ ] Add tests for production FIFO mode.
-- [ ] Add tests for nearest-with-aging through `ChunkPopMode`.
-- [ ] Add tests that `pop_if(Fifo, not_ready)` preserves pending work.
+- [x] Make FIFO pop available in production `ChunkWorkQueue`.
+- [x] Add explicit `ChunkPopMode` enum.
+- [x] Add `ChunkWorkQueue::pop(mode)`.
+- [x] Add `ChunkWorkQueue::pop_if(mode, predicate)`.
+- [x] Keep existing `pop_nearest_to` wrappers temporarily for compatibility.
+- [x] Add tests for production FIFO mode.
+- [x] Add tests for nearest-with-aging through `ChunkPopMode`.
+- [x] Add tests that `pop_if(Fifo, not_ready)` preserves pending work.
 
 ### Phase 2: `LatestChunkQueue<T>` integration
 
-- [ ] Add `LatestChunkQueue::pop(mode)`.
-- [ ] Add `LatestChunkQueue::pop_if(mode, predicate)`.
-- [ ] Add payload-aware pop for explicit mode, equivalent to current `pop_nearest_to_if_payload`.
-- [ ] Keep existing nearest APIs as wrappers.
-- [ ] Validate terrain rebuild and water queues still behave the same.
-- [ ] Add tests for FIFO latest pop.
-- [ ] Add tests for active revision + newer work requeue with FIFO mode.
+- [x] Add `LatestChunkQueue::pop(mode)`.
+- [x] Add `LatestChunkQueue::pop_if(mode, predicate)`.
+- [x] Add payload-aware pop for explicit mode, equivalent to current `pop_nearest_to_if_payload`.
+- [x] Keep existing nearest APIs as wrappers.
+- [x] Validate terrain rebuild and water queues still behave the same.
+- [x] Add tests for FIFO latest pop.
+- [x] Add tests for active revision + newer work requeue with FIFO mode.
 
 ### Phase 3: `GrowingFloraQueue` deduplication
 
-- [ ] Refactor `GrowingFloraQueue` to use `ChunkWorkQueue` internally for pending order/pop.
-- [ ] Preserve payload semantics: duplicate push refreshes `last_flora_tick`.
-- [ ] Preserve existing nearest behavior.
-- [ ] Expose FIFO only if needed by future callers.
-- [ ] Ensure all existing `GrowingFloraQueue` tests still pass.
+- [x] Refactor `GrowingFloraQueue` to use `ChunkWorkQueue` internally for pending order/pop.
+- [x] Preserve payload semantics: duplicate push refreshes `last_flora_tick`.
+- [x] Preserve existing nearest behavior.
+- [x] Expose FIFO only if needed by future callers.
+- [x] Ensure all existing `GrowingFloraQueue` tests still pass.
 
 ### Phase 4: Moisture drying queue
 
-- [ ] Add `moisture_dry_chunks: ChunkWorkQueue` to `App`.
-- [ ] Replace per-tick full-atlas dry dispatch with enqueue accumulator.
-- [ ] Every `TERRAIN_MOISTURE_DRY_ENQUEUE_INTERVAL_WORLD_TICKS`, enqueue all chunks in `0..CHUNK_DIM`.
-- [ ] Each frame, pop at most `TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME` using FIFO.
-- [ ] Dispatch dry shader for only that chunk.
-- [ ] Decide and document final dry probability per chunk visit.
+- [x] Add `moisture_dry_chunks: ChunkWorkQueue` to `App`.
+- [x] Replace per-tick full-atlas dry dispatch with enqueue accumulator.
+- [x] Every `TERRAIN_MOISTURE_DRY_ENQUEUE_INTERVAL_WORLD_TICKS`, enqueue all chunks in `0..CHUNK_DIM`.
+- [x] Each frame, pop at most `TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME` using FIFO.
+- [x] Dispatch dry shader for only that chunk.
+- [x] Decide and document final dry probability per chunk visit.
 
 ### Phase 5: Dry shader region support
 
-- [ ] Update `apply_terrain_moisture_dry_tick` to accept `chunk_id` or explicit `atlas_offset + atlas_dim`.
-- [ ] Fill uniform with chunk offset/dim instead of full atlas dim.
-- [ ] Keep seed changes per chunk dispatch.
-- [ ] Confirm shader already respects `offset + local` and works for subregions.
-- [ ] Rename API to something like `apply_terrain_moisture_dry_region` or `apply_terrain_moisture_dry_chunk`.
+- [x] Update `apply_terrain_moisture_dry_tick` to accept `chunk_id` or explicit `atlas_offset + atlas_dim`.
+- [x] Fill uniform with chunk offset/dim instead of full atlas dim.
+- [x] Keep seed changes per chunk dispatch.
+- [x] Confirm shader already respects `offset + local` and works for subregions.
+- [x] Rename API to something like `apply_terrain_moisture_dry_region` or `apply_terrain_moisture_dry_chunk`.
 
 ### Phase 6: Validation and measurement
 
-- [ ] `cargo fmt --check`.
-- [ ] `cargo check`.
-- [ ] `cargo test`.
-- [ ] `cargo run --release -- --hidden --mute --auto-exit 0.5`.
-- [ ] Inspect latest log for errors.
+- [x] `cargo fmt --check`.
+- [x] `cargo check`.
+- [x] `cargo test`.
+- [x] `cargo run --release -- --hidden --mute --auto-exit 0.5`.
+- [x] Inspect latest log for errors.
 - [ ] Add temporary perf instrumentation or GPU scope for dry chunk dispatch.
 - [ ] Compare before/after spike:
   - full atlas dry dispatch: ~3.7ms observed.
