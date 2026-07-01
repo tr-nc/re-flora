@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use glam::{UVec3, Vec3};
+use glam::UVec3;
+#[cfg(test)]
+use glam::Vec3;
 
 use crate::util::{ChunkPopMode, ChunkWorkQueue};
 
@@ -97,6 +99,7 @@ impl<T> LatestChunkQueue<T> {
         self.pop_with(|pending| pending.pop(mode))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pop_if(
         &mut self,
         mode: ChunkPopMode,
@@ -105,6 +108,7 @@ impl<T> LatestChunkQueue<T> {
         self.pop_with(|pending| pending.pop_if(mode, &mut is_ready))
     }
 
+    #[cfg(test)]
     pub(crate) fn pop_nearest_to(
         &mut self,
         focus: Vec3,
@@ -116,7 +120,7 @@ impl<T> LatestChunkQueue<T> {
         })
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn pop_nearest_to_if(
         &mut self,
         focus: Vec3,
@@ -151,6 +155,7 @@ impl<T> LatestChunkQueue<T> {
         self.take_popped_chunk(chunk_id)
     }
 
+    #[cfg(test)]
     pub(crate) fn pop_nearest_to_if_payload(
         &mut self,
         focus: Vec3,

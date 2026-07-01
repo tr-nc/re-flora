@@ -275,7 +275,10 @@ impl App {
         let player_pos = self.tracer.camera_position();
         let Some(work) = self
             .deferred_chunk_rebuilds
-            .pop_nearest_to(player_pos, VOXEL_DIM_PER_CHUNK)
+            .pop(ChunkPopMode::NearestWithAging {
+                focus: player_pos,
+                chunk_extent: VOXEL_DIM_PER_CHUNK,
+            })
         else {
             return;
         };

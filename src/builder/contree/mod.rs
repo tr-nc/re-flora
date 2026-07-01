@@ -5,8 +5,8 @@ use super::SurfaceResources;
 use crate::generated::gpu_structs::ContreeBuildInfo;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
-use crate::util::LatestChunkQueue;
 use crate::util::ShaderCompiler;
+use crate::util::{ChunkPopMode, LatestChunkQueue};
 use anyhow::Result;
 use glam::{UVec3, Vec2, Vec3};
 use petalsonic::{
@@ -1658,7 +1658,10 @@ impl ContreeBuilder {
 
         if let Some(work) = self
             .cpu_chunk_cache_queue
-            .pop_nearest_to(focus, chunk_extent)
+            .pop(ChunkPopMode::NearestWithAging {
+                focus,
+                chunk_extent,
+            })
         {
             log::debug!(
                 "[QUEUE][CPU_CACHE] pop_nearest chunk {:?} revision {} focus={:?} remaining={}",

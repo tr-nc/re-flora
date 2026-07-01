@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use glam::{UVec3, Vec3};
+use glam::UVec3;
+#[cfg(test)]
+use glam::Vec3;
 
 use crate::util::{ChunkPopMode, ChunkWorkQueue};
 
@@ -40,6 +42,7 @@ impl GrowingFloraQueue {
         self.pop(ChunkPopMode::Fifo)
     }
 
+    #[cfg(test)]
     pub(crate) fn pop_nearest_to(
         &mut self,
         focus: Vec3,
@@ -51,7 +54,7 @@ impl GrowingFloraQueue {
         })
     }
 
-    fn pop(&mut self, mode: ChunkPopMode) -> Option<GrowingFloraChunk> {
+    pub(crate) fn pop(&mut self, mode: ChunkPopMode) -> Option<GrowingFloraChunk> {
         let queued = &self.queued;
         let chunk_id = self
             .pending

@@ -57,7 +57,9 @@ use crate::tracer::{
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
-use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
+use crate::util::{
+    ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH,
+};
 use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
@@ -412,9 +414,10 @@ impl App {
         let Some(GrowingFloraChunk {
             chunk_id,
             last_flora_tick,
-        }) = self
-            .growing_flora_chunks
-            .pop_nearest_to(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK)
+        }) = self.growing_flora_chunks.pop(ChunkPopMode::Nearest {
+            focus: self.tracer.camera_position(),
+            chunk_extent: VOXEL_DIM_PER_CHUNK,
+        })
         else {
             return;
         };
