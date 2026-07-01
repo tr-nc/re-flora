@@ -175,11 +175,11 @@ Moisture drying 最终改为固定 cursor 的 round-robin，而不是 pending qu
 需要明确设计选择：
 
 - 每次 chunk visit 内，每个 wet voxel 独立随机判定。
-- 当前使用 `0.04` 作为每次 chunk visit 的概率。
+- 当前使用 `0.01` 作为每次 chunk visit 的概率。
 - 因为当前有 9 个 chunks，每个 chunk 每 9 帧访问一次；这个节奏比“每 20 world tick enqueue 一轮，再由队列分摊”更稳定，也不会因为 queue 去重导致访问次数被吞掉。
 
 ```rust
-const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.04;
+const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.01;
 const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 ```
 
@@ -221,7 +221,7 @@ const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 - [x] Add fixed `moisture_dry_chunk_cursor` to `App`.
 - [x] Each frame, record at most `TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME` chunk using round-robin order.
 - [x] Dispatch dry shader for only that chunk.
-- [x] Set and document final dry probability per chunk visit (`0.04`).
+- [x] Set and document final dry probability per chunk visit (`0.01`).
 
 ### Phase 5: Dry shader region support
 
