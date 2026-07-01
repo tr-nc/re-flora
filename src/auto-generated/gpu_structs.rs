@@ -189,6 +189,14 @@ pub struct TreeLeafInstances {
     pub packed_leaf_local_pos: u32,
 }
 
+/// Auto-generated from `B_VoxelPropertySampleResult` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct VoxelPropertySampleResult {
+    pub stats: [u32; 4],
+    pub extra: [u32; 4],
+}
+
 /// Auto-generated from `B_WindSources` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -690,6 +698,16 @@ pub struct VoxelColors {
     pub _pad3: [u8; 4],
     pub rock_color: [f32; 3],
     pub hash_color_variance: f32,
+}
+
+/// Auto-generated from `U_VoxelPropertySampleInfo` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct VoxelPropertySampleInfo {
+    pub atlas_offset_property_id: [u32; 4],
+    pub atlas_dim_target_mask: [u32; 4],
+    pub center_radius: [f32; 4],
+    pub options: [u32; 4],
 }
 
 /// Auto-generated from `U_WindVolumeInfo` (GLSL source of truth).

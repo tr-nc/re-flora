@@ -1,7 +1,8 @@
 use super::placeables::PlaceableKind;
 use super::ui_style::{
     HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT, PLACEABLE_PANEL_SLOT_COUNT, SHOVEL_SLOT_INDEX,
-    SMOOTH_SLOT_INDEX, STAFF_SLOT_INDEX, TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
+    SMOOTH_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX, STAFF_SLOT_INDEX, TREE_SLOT_INDEX,
+    WATERING_SLOT_INDEX,
 };
 use super::App;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
@@ -598,6 +599,7 @@ impl App {
             || self.is_hoe_selected()
             || self.is_place_tool_selected()
             || self.is_watering_selected()
+            || self.is_soil_inspector_selected()
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
@@ -635,6 +637,10 @@ impl App {
 
     pub(super) fn is_watering_selected(&self) -> bool {
         self.player_tools.selected_item_panel_slot == WATERING_SLOT_INDEX
+    }
+
+    pub(super) fn is_soil_inspector_selected(&self) -> bool {
+        self.player_tools.selected_item_panel_slot == SOIL_INSPECTOR_SLOT_INDEX
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {
