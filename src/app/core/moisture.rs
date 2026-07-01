@@ -80,30 +80,51 @@ impl App {
         UVec3::new(x, y, z)
     }
 
-    pub(super) fn update_sprinkler_moisture(&mut self, dt: f32) {
+    pub(super) fn record_sprinkler_moisture(&mut self, cmdbuf: &CommandBuffer, dt: f32) -> usize {
         if dt <= 0.0 || self.sprinkler_records.is_empty() {
-            return;
+            return 0;
         }
 
+        let record_start = self.perf_logging.then(Instant::now);
         let amount = SPRINKLER_MOISTURE_PER_SECOND * dt;
         let sprinkler_positions = self
             .sprinkler_records
             .iter()
             .map(|sprinkler| sprinkler.base_position)
             .collect::<Vec<_>>();
+        let mut recorded_count = 0;
         for base_position in sprinkler_positions {
-            if let Err(err) = self.plain_builder.apply_terrain_moisture_brush(
-                base_position,
-                base_position,
-                SPRINKLER_MOISTURE_RADIUS,
-                amount,
-            ) {
-                log::error!(
-                    "Failed to write sprinkler moisture into terrain atlas: {}",
-                    err
-                );
+            if self
+                .plain_builder
+                .record_terrain_moisture_brush(
+                    cmdbuf,
+                    base_position,
+                    base_position,
+                    SPRINKLER_MOISTURE_RADIUS,
+                    amount,
+                )
+                .is_some()
+            {
+                recorded_count += 1;
             }
         }
+
+        if let Some(record_start) = record_start {
+            let record_elapsed = record_start.elapsed();
+            BENCH
+                .lock()
+                .unwrap()
+                .record("sprinkler_moisture_record", record_elapsed);
+            log::info!(
+                "[PERF][SPRINKLER_MOISTURE] sprinklers={} recorded={} amount={:.4} record_ms={:.3}",
+                self.sprinkler_records.len(),
+                recorded_count,
+                amount,
+                record_elapsed.as_secs_f64() * 1000.0,
+            );
+        }
+
+        recorded_count
     }
 
     pub(super) fn add_watering_brush_moisture(&mut self, edit: TerrainBrushEdit) -> Result<()> {

@@ -1635,7 +1635,6 @@ impl App {
                     }
                 }
                 let frame_delta_time = self.time_info.delta_time();
-                self.update_sprinkler_moisture(frame_delta_time);
                 let time_since_start = self.time_info.time_since_start();
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.gui_adjustables.world_tick_seconds.value,
@@ -2183,6 +2182,29 @@ impl App {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
+
+                if !self.sprinkler_records.is_empty() {
+                    let sprinkler_moisture_gpu_scope =
+                        self.gpu_profiler.as_mut().and_then(|profiler| {
+                            profiler.begin_scope(
+                                frame_slot,
+                                cmdbuf,
+                                "sprinkler_moisture.pass",
+                                PipelineStage::COMPUTE_SHADER,
+                            )
+                        });
+                    self.record_sprinkler_moisture(cmdbuf, frame_delta_time);
+                    if let Some(scope) = sprinkler_moisture_gpu_scope {
+                        if let Some(profiler) = self.gpu_profiler.as_mut() {
+                            profiler.end_scope(
+                                frame_slot,
+                                cmdbuf,
+                                scope,
+                                PipelineStage::COMPUTE_SHADER,
+                            );
+                        }
+                    }
+                }
 
                 if self.has_terrain_moisture_dry_chunks() {
                     let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {

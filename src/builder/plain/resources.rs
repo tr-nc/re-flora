@@ -324,7 +324,7 @@ impl PlainBuilderResources {
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::UNIFORM_BUFFER),
             MemoryLocation::CpuToGpu,
-            std::mem::size_of::<super::TerrainMoistureBrushInfoGpu>() as u64,
+            std::mem::size_of::<super::TerrainMoistureBrushPushConstants>() as u64,
         );
 
         Self {
