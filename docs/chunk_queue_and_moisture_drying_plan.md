@@ -245,11 +245,12 @@ const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 - [x] `cargo test`.
 - [x] `cargo run --release -- --hidden --mute --auto-exit 0.5`.
 - [x] Inspect latest log for errors.
-- [ ] Add temporary perf instrumentation or GPU scope for dry chunk dispatch.
-- [ ] Compare before/after spike:
+- [x] Add temporary perf instrumentation or GPU scope for dry chunk dispatch.
+- [x] Compare before/after spike:
   - full atlas dry dispatch: ~3.7ms observed.
-  - expected single chunk dispatch: roughly full cost / 9 for current world, plus dispatch overhead.
-- [ ] Remove temporary perf/debug instrumentation before commit unless it is behind `--perf` and intended to stay.
+  - measured single chunk dispatch under `--perf`: 24 samples, avg ~2.39ms, median ~2.18ms, p95 ~3.07ms, max ~3.82ms.
+  - per-dispatch cost did not fall linearly because the current path still uses synchronous one-time command submission and likely pays fixed submit/wait overhead.
+- [x] Remove temporary perf/debug instrumentation before commit unless it is behind `--perf` and intended to stay.
 
 ## Risks / Notes
 

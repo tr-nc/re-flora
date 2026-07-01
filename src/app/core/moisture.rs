@@ -1,7 +1,8 @@
 use super::{App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use crate::app::world_edits::TerrainBrushEdit;
-use crate::util::ChunkPopMode;
+use crate::util::{ChunkPopMode, BENCH};
 use anyhow::Result;
+use std::time::Instant;
 
 const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
 const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;
@@ -40,6 +41,7 @@ impl App {
                 return;
             };
             let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
+            let dry_start = self.perf_logging.then(Instant::now);
             if let Err(err) = self.plain_builder.apply_terrain_moisture_dry_region(
                 atlas_offset,
                 VOXEL_DIM_PER_CHUNK,
@@ -52,6 +54,22 @@ impl App {
                     err
                 );
                 return;
+            }
+            if let Some(dry_start) = dry_start {
+                let dry_elapsed = dry_start.elapsed();
+                BENCH
+                    .lock()
+                    .unwrap()
+                    .record("terrain_moisture_dry_chunk", dry_elapsed);
+                log::info!(
+                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} pending_after={} elapsed_ms={:.3}",
+                    chunk_id,
+                    atlas_offset,
+                    VOXEL_DIM_PER_CHUNK,
+                    TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
+                    self.moisture_dry_chunks.len(),
+                    dry_elapsed.as_secs_f64() * 1000.0,
+                );
             }
         }
     }
