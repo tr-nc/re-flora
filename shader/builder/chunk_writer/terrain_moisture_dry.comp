@@ -4,15 +4,12 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-// Reuse the terrain moisture brush uniform buffer layout so moisture add/dry
-// passes share one small CPU-updated parameter buffer.
-layout(set = 0, binding = 0) uniform U_TerrainMoistureBrushInfo {
+layout(push_constant) uniform PC {
     uvec4 offset;
     uvec4 dim;
-    vec4 start_radius;
-    vec4 end_amount;
+    vec4 dry_params;
 }
-terrain_moisture_brush_info;
+pc;
 
 layout(set = 0, binding = 1, r8ui) uniform uimage3D chunk_atlas;
 
@@ -33,14 +30,14 @@ float moisture_hash01(uvec3 p, uint seed) {
 
 void main() {
     uvec3 local = gl_GlobalInvocationID.xyz;
-    uvec3 dim = terrain_moisture_brush_info.dim.xyz;
+    uvec3 dim = pc.dim.xyz;
     if (any(greaterThanEqual(local, dim))) {
         return;
     }
 
-    uvec3 atlas_u = terrain_moisture_brush_info.offset.xyz + local;
-    uint seed = terrain_moisture_brush_info.offset.w;
-    float dry_probability = clamp(terrain_moisture_brush_info.start_radius.x, 0.0, 1.0);
+    uvec3 atlas_u = pc.offset.xyz + local;
+    uint seed = pc.offset.w;
+    float dry_probability = clamp(pc.dry_params.x, 0.0, 1.0);
     if (dry_probability <= 0.0) {
         return;
     }

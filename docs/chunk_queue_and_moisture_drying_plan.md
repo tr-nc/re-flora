@@ -247,9 +247,10 @@ const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 - [x] Inspect latest log for errors.
 - [x] Add temporary perf instrumentation or GPU scope for dry chunk dispatch.
 - [x] Compare before/after spike:
-  - full atlas dry dispatch: ~3.7ms observed.
-  - measured single chunk dispatch under `--perf`: 24 samples, avg ~2.39ms, median ~2.18ms, p95 ~3.07ms, max ~3.82ms.
-  - per-dispatch cost did not fall linearly because the current path still uses synchronous one-time command submission and likely pays fixed submit/wait overhead.
+  - full atlas dry dispatch via synchronous one-time command: ~3.7ms observed.
+  - single chunk dispatch via synchronous one-time command: 24 samples, avg ~2.39ms, median ~2.18ms, p95 ~3.07ms, max ~3.82ms.
+  - non-blocking frame-recorded dry pass: CPU record 25 samples, avg ~0.018ms, median ~0.017ms, p95 ~0.024ms, max ~0.027ms; GPU frame scope samples showed `moisture_dry.pass` around ~194us.
+  - the synchronous single-chunk path did not fall linearly because `execute_one_time_command` paid fixed submit/wait overhead; recording the pass into the normal frame command removes that CPU stall.
 - [x] Remove temporary perf/debug instrumentation before commit unless it is behind `--perf` and intended to stay.
 
 ## Risks / Notes

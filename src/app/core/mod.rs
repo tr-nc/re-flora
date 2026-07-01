@@ -2170,7 +2170,6 @@ impl App {
                 };
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
-                let device = self.vulkan_ctx.device();
                 let cmdbuf = frame.command_buffer();
                 let image_idx = frame.image_index();
 
@@ -2186,6 +2185,28 @@ impl App {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
+
+                if self.has_pending_terrain_moisture_dry_chunks() {
+                    let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+                        profiler.begin_scope(
+                            frame_slot,
+                            cmdbuf,
+                            "moisture_dry.pass",
+                            PipelineStage::COMPUTE_SHADER,
+                        )
+                    });
+                    self.record_terrain_moisture_dry_chunks(cmdbuf);
+                    if let Some(scope) = moisture_dry_gpu_scope {
+                        if let Some(profiler) = self.gpu_profiler.as_mut() {
+                            profiler.end_scope(
+                                frame_slot,
+                                cmdbuf,
+                                scope,
+                                PipelineStage::COMPUTE_SHADER,
+                            );
+                        }
+                    }
+                }
 
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
                     self.gui_adjustables.time_of_day.value,
@@ -2542,6 +2563,7 @@ impl App {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
+                let device = self.vulkan_ctx.device();
                 self.egui_renderer
                     .record_command_buffer(device, cmdbuf, render_area);
                 if let Some(scope) = egui_gpu_scope {

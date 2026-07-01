@@ -3,6 +3,7 @@ use crate::app::world_edits::TerrainBrushEdit;
 use crate::util::{ChunkPopMode, BENCH};
 use anyhow::Result;
 use std::time::Instant;
+use verdarium_vkn::CommandBuffer;
 
 const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
 const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;
@@ -14,7 +15,6 @@ const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 impl App {
     pub(super) fn update_terrain_moisture_drying(&mut self, world_tick_steps: u32) {
         self.enqueue_terrain_moisture_dry_chunks(world_tick_steps);
-        self.process_terrain_moisture_dry_chunks();
     }
 
     fn enqueue_terrain_moisture_dry_chunks(&mut self, world_tick_steps: u32) {
@@ -35,43 +35,45 @@ impl App {
         }
     }
 
-    fn process_terrain_moisture_dry_chunks(&mut self) {
+    pub(super) fn has_pending_terrain_moisture_dry_chunks(&self) -> bool {
+        !self.moisture_dry_chunks.is_empty()
+    }
+
+    pub(super) fn record_terrain_moisture_dry_chunks(&mut self, cmdbuf: &CommandBuffer) -> usize {
+        let mut recorded_count = 0;
         for _ in 0..TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME {
             let Some(chunk_id) = self.moisture_dry_chunks.pop(ChunkPopMode::Fifo) else {
-                return;
+                return recorded_count;
             };
             let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
-            let dry_start = self.perf_logging.then(Instant::now);
-            if let Err(err) = self.plain_builder.apply_terrain_moisture_dry_region(
+            let dry_record_start = self.perf_logging.then(Instant::now);
+            if !self.plain_builder.record_terrain_moisture_dry_region(
+                cmdbuf,
                 atlas_offset,
                 VOXEL_DIM_PER_CHUNK,
                 TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
             ) {
-                log::error!(
-                    "Failed to dry terrain moisture in chunk {:?} at atlas offset {:?}: {}",
-                    chunk_id,
-                    atlas_offset,
-                    err
-                );
-                return;
+                continue;
             }
-            if let Some(dry_start) = dry_start {
-                let dry_elapsed = dry_start.elapsed();
+            recorded_count += 1;
+            if let Some(dry_record_start) = dry_record_start {
+                let dry_record_elapsed = dry_record_start.elapsed();
                 BENCH
                     .lock()
                     .unwrap()
-                    .record("terrain_moisture_dry_chunk", dry_elapsed);
+                    .record("terrain_moisture_dry_record", dry_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} pending_after={} elapsed_ms={:.3}",
+                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} pending_after={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
                     TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
                     self.moisture_dry_chunks.len(),
-                    dry_elapsed.as_secs_f64() * 1000.0,
+                    dry_record_elapsed.as_secs_f64() * 1000.0,
                 );
             }
         }
+        recorded_count
     }
 
     pub(super) fn update_sprinkler_moisture(&mut self, dt: f32) {
