@@ -724,10 +724,30 @@ impl PlainBuilder {
         Ok(Some(UAabb3::new(offset, offset + dim - UVec3::ONE)))
     }
 
-    pub fn apply_terrain_moisture_dry_tick(&mut self, dry_probability: f32) -> Result<()> {
-        let atlas_dim = chunk_atlas_dim(&self.resources);
+    pub fn apply_terrain_moisture_dry_region(
+        &mut self,
+        atlas_offset: UVec3,
+        atlas_dim: UVec3,
+        dry_probability: f32,
+    ) -> Result<()> {
+        let chunk_atlas_dim = chunk_atlas_dim(&self.resources);
         let dry_probability = dry_probability.clamp(0.0, 1.0);
-        if dry_probability <= 0.0 || atlas_dim == UVec3::ZERO {
+        if dry_probability <= 0.0 || atlas_dim == UVec3::ZERO || chunk_atlas_dim == UVec3::ZERO {
+            return Ok(());
+        }
+        if atlas_offset.x > chunk_atlas_dim.x
+            || atlas_offset.y > chunk_atlas_dim.y
+            || atlas_offset.z > chunk_atlas_dim.z
+            || atlas_dim.x > chunk_atlas_dim.x - atlas_offset.x
+            || atlas_dim.y > chunk_atlas_dim.y - atlas_offset.y
+            || atlas_dim.z > chunk_atlas_dim.z - atlas_offset.z
+        {
+            log::warn!(
+                "Skipping terrain moisture dry region outside atlas: offset={:?} dim={:?} atlas={:?}",
+                atlas_offset,
+                atlas_dim,
+                chunk_atlas_dim,
+            );
             return Ok(());
         }
 
@@ -740,7 +760,7 @@ impl PlainBuilder {
         self.resources
             .terrain_moisture_brush_info
             .fill_uniform(&TerrainMoistureBrushInfoGpu {
-                offset: [0, 0, 0, dither_seed],
+                offset: [atlas_offset.x, atlas_offset.y, atlas_offset.z, dither_seed],
                 dim: [atlas_dim.x, atlas_dim.y, atlas_dim.z, 0],
                 start_radius: [dry_probability, 0.0, 0.0, 0.0],
                 end_amount: [0.0, 0.0, 0.0, 0.0],

@@ -29,6 +29,7 @@ impl ChunkWorkQueue {
         true
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pop_next(&mut self) -> Option<UVec3> {
         self.pop(ChunkPopMode::Fifo)
     }
@@ -65,6 +66,7 @@ impl ChunkWorkQueue {
         Some(chunk_id)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pop_nearest_to(&mut self, focus: Vec3, chunk_extent: UVec3) -> Option<UVec3> {
         self.pop(ChunkPopMode::NearestWithAging {
             focus,
@@ -72,6 +74,7 @@ impl ChunkWorkQueue {
         })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pop_nearest_to_if(
         &mut self,
         focus: Vec3,

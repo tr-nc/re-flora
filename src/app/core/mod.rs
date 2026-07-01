@@ -57,7 +57,9 @@ use crate::tracer::{
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
-use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
+use crate::util::{
+    ChunkWorkQueue, GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH,
+};
 use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
@@ -167,6 +169,7 @@ pub struct App {
     flora_tick: u32,
     flora_tick_accumulator: f32,
     moisture_dry_tick_accumulator: u32,
+    moisture_dry_chunks: ChunkWorkQueue,
     flora_paint_dab_serial: u32,
     growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
@@ -1061,6 +1064,7 @@ impl App {
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
             moisture_dry_tick_accumulator: 0,
+            moisture_dry_chunks: ChunkWorkQueue::default(),
             flora_paint_dab_serial: 0,
             growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
@@ -1646,8 +1650,8 @@ impl App {
                 }
                 if world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
-                    self.update_terrain_moisture_drying(world_tick_steps);
                 }
+                self.update_terrain_moisture_drying(world_tick_steps);
                 let active_wind_sources = GuiAdjustables::active_wind_sources(&self.wind_sources);
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,

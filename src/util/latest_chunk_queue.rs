@@ -88,6 +88,7 @@ impl<T> LatestChunkQueue<T> {
         state.latest_revision
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pop_next(&mut self) -> Option<LatestChunkWork<T>> {
         self.pop(ChunkPopMode::Fifo)
     }
