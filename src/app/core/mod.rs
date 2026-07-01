@@ -1757,37 +1757,49 @@ impl App {
                     self.current_placeable_label(),
                     self.sprinkler_records.len()
                 );
-                let soil_inspector_hint = if self.is_soil_inspector_selected() {
-                    match terrain_edit_hover {
+                let soil_inspector_panel_text = if self.is_soil_inspector_selected() {
+                    Some(match terrain_edit_hover {
                         Some(hover) if hover.is_editable => {
                             match self.plain_builder.sample_soil_moisture_sphere(
                                 hover.center,
                                 self.player_tools.terrain_edit_radius,
                             ) {
                                 Ok(sample) if sample.count > 0 => format!(
-                                    "Soil moisture: avg {:.2}/{} min {} max {} ({} voxels)",
+                                    "avg {:.2}/{}\nmin {}  max {}\n{} soil voxels",
                                     sample.average().unwrap_or(0.0),
                                     VOXEL_MOISTURE_MAX,
                                     sample.min,
                                     sample.max,
                                     sample.count
                                 ),
-                                Ok(_) => "Soil moisture: no soil in range".to_string(),
+                                Ok(_) => "no soil in range".to_string(),
                                 Err(err) => {
                                     log::error!("Soil inspector sample failed: {}", err);
-                                    "Soil moisture: sample failed".to_string()
+                                    "sample failed".to_string()
                                 }
                             }
                         }
-                        Some(_) => "Soil moisture: outside editable area".to_string(),
-                        None => "Soil moisture: point at terrain to sample".to_string(),
-                    }
+                        Some(_) => "outside editable area".to_string(),
+                        None => "point at terrain".to_string(),
+                    })
                 } else {
-                    "Soil inspector: select 7 to sample moisture".to_string()
+                    None
                 };
+                let soil_inspector_panel_pos = soil_inspector_panel_text.as_ref().map(|_| {
+                    let extent = self.window_state.window_extent();
+                    let screen_center =
+                        Vec2::new(extent.width as f32 * 0.5, extent.height as f32 * 0.5);
+                    let cursor = if self.window_state.is_cursor_visible() {
+                        self.cursor_position_physical.unwrap_or(screen_center)
+                    } else {
+                        screen_center
+                    };
+                    let scale_factor = self.window_state.window().scale_factor() as f32;
+                    egui::pos2(cursor.x / scale_factor + 18.0, cursor.y / scale_factor)
+                });
                 let status_bar_text = format!(
-                    "{}\n{}\n{}\n{}",
-                    water_status_text, grow_brush_hint, placeable_hint, soil_inspector_hint
+                    "{}\n{}\n{}",
+                    water_status_text, grow_brush_hint, placeable_hint
                 );
                 let terrain_edit_preview_center = terrain_edit_hover.map(|hover| hover.center);
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
@@ -2036,6 +2048,48 @@ impl App {
                             voxel_palette_response
                                 .panel_center
                                 .map(|center| Vec2::new(center.x, center.y));
+
+                        if let (Some(panel_pos), Some(panel_text)) = (
+                            soil_inspector_panel_pos,
+                            soil_inspector_panel_text.as_deref(),
+                        ) {
+                            egui::Area::new("soil_inspector_panel".into())
+                                .order(egui::Order::Foreground)
+                                .fixed_pos(panel_pos)
+                                .interactable(false)
+                                .show(ctx, |ui| {
+                                    let inspector_frame = egui::containers::Frame {
+                                        fill: PANEL_DARK,
+                                        inner_margin: egui::Margin::symmetric(10, 8),
+                                        corner_radius: egui::CornerRadius::same(0),
+                                        shadow: egui::epaint::Shadow {
+                                            offset: [4, 4],
+                                            blur: 0,
+                                            spread: 0,
+                                            color: SHADOW_COLOR,
+                                        },
+                                        stroke: egui::Stroke::new(2.0, SOIL_INSPECTOR_TOOL_ACCENT),
+                                        ..Default::default()
+                                    };
+
+                                    inspector_frame.show(ui, |ui| {
+                                        ui.set_min_width(150.0);
+                                        ui.label(
+                                            RichText::new("Soil Moisture")
+                                                .color(GOLD_ACCENT)
+                                                .monospace()
+                                                .size(12.0),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            RichText::new(panel_text)
+                                                .color(SAGE_ACCENT)
+                                                .monospace()
+                                                .size(11.0),
+                                        );
+                                    });
+                                });
+                        }
 
                         egui::Area::new("status_bar_panel".into())
                             .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::new(16.0, -16.0))
