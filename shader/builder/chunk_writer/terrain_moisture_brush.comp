@@ -4,13 +4,13 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-layout(set = 0, binding = 0) uniform U_TerrainMoistureBrushInfo {
+layout(push_constant) uniform PC {
     uvec4 offset;
     uvec4 dim;
     vec4 start_radius;
     vec4 end_amount;
 }
-terrain_moisture_brush_info;
+pc;
 
 layout(set = 0, binding = 1, r8ui) uniform uimage3D chunk_atlas;
 
@@ -72,17 +72,17 @@ float moisture_hash01(uvec3 p, uint seed) {
 
 void main() {
     uvec3 local = gl_GlobalInvocationID.xyz;
-    uvec3 dim   = terrain_moisture_brush_info.dim.xyz;
+    uvec3 dim   = pc.dim.xyz;
     if (any(greaterThanEqual(local, dim))) {
         return;
     }
 
-    uvec3 atlas_u = terrain_moisture_brush_info.offset.xyz + local;
-    uint dither_seed = terrain_moisture_brush_info.offset.w;
-    vec3 start_vox = terrain_moisture_brush_info.start_radius.xyz;
-    float radius_vox = max(terrain_moisture_brush_info.start_radius.w, 0.0);
-    vec3 end_vox = terrain_moisture_brush_info.end_amount.xyz;
-    float amount = clamp(terrain_moisture_brush_info.end_amount.w, 0.0, 1.0);
+    uvec3 atlas_u = pc.offset.xyz + local;
+    uint dither_seed = pc.offset.w;
+    vec3 start_vox = pc.start_radius.xyz;
+    float radius_vox = max(pc.start_radius.w, 0.0);
+    vec3 end_vox = pc.end_amount.xyz;
+    float amount = clamp(pc.end_amount.w, 0.0, 1.0);
     if (radius_vox <= 0.0 || amount <= 0.0) {
         return;
     }

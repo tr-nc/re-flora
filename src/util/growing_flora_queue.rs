@@ -1,8 +1,10 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
-use glam::{UVec3, Vec3};
+use glam::UVec3;
+#[cfg(test)]
+use glam::Vec3;
 
-use crate::util::compare_chunk_nearness;
+use crate::util::{ChunkPopMode, ChunkWorkQueue};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GrowingFloraChunk {
@@ -13,7 +15,7 @@ pub(crate) struct GrowingFloraChunk {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct GrowingFloraQueue {
     queued: HashMap<UVec3, u32>, // chunk_id -> last_flora_tick
-    pending: VecDeque<UVec3>,
+    pending: ChunkWorkQueue,
 }
 
 impl GrowingFloraQueue {
@@ -29,8 +31,7 @@ impl GrowingFloraQueue {
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
                 entry.insert(last_flora_tick);
-                self.pending.push_back(chunk_id);
-                true
+                self.pending.push(chunk_id)
             }
         }
     }
@@ -38,42 +39,35 @@ impl GrowingFloraQueue {
     /// pop the next chunk and its last tick. Returns None if empty.
     #[cfg(test)]
     pub(crate) fn pop_next(&mut self) -> Option<GrowingFloraChunk> {
-        self.pop_with(|pending, queued| {
-            while let Some(chunk_id) = pending.pop_front() {
-                if queued.contains_key(&chunk_id) {
-                    return Some(chunk_id);
-                }
-            }
-
-            None
-        })
+        self.pop(ChunkPopMode::Fifo)
     }
 
+    #[cfg(test)]
     pub(crate) fn pop_nearest_to(
         &mut self,
         focus: Vec3,
         chunk_extent: UVec3,
     ) -> Option<GrowingFloraChunk> {
-        self.pop_with(|pending, queued| {
-            let idx = nearest_pending_index(pending, queued, focus, chunk_extent)?;
-            pending.remove(idx)
+        self.pop(ChunkPopMode::Nearest {
+            focus,
+            chunk_extent,
         })
     }
 
-    fn pop_with(
-        &mut self,
-        mut pop_chunk: impl FnMut(&mut VecDeque<UVec3>, &HashMap<UVec3, u32>) -> Option<UVec3>,
-    ) -> Option<GrowingFloraChunk> {
-        while let Some(chunk_id) = pop_chunk(&mut self.pending, &self.queued) {
-            if let Some(last_tick) = self.queued.remove(&chunk_id) {
-                return Some(GrowingFloraChunk {
-                    chunk_id,
-                    last_flora_tick: last_tick,
-                });
-            }
-        }
+    pub(crate) fn pop(&mut self, mode: ChunkPopMode) -> Option<GrowingFloraChunk> {
+        let queued = &self.queued;
+        let chunk_id = self
+            .pending
+            .pop_if(mode, |chunk_id| queued.contains_key(&chunk_id))?;
+        self.take_popped_chunk(chunk_id)
+    }
 
-        None
+    fn take_popped_chunk(&mut self, chunk_id: UVec3) -> Option<GrowingFloraChunk> {
+        let last_tick = self.queued.remove(&chunk_id)?;
+        Some(GrowingFloraChunk {
+            chunk_id,
+            last_flora_tick: last_tick,
+        })
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -84,22 +78,6 @@ impl GrowingFloraQueue {
     pub(crate) fn is_empty(&self) -> bool {
         self.queued.is_empty()
     }
-}
-
-fn nearest_pending_index(
-    pending: &VecDeque<UVec3>,
-    queued: &HashMap<UVec3, u32>,
-    focus: Vec3,
-    chunk_extent: UVec3,
-) -> Option<usize> {
-    pending
-        .iter()
-        .enumerate()
-        .filter(|(_, chunk_id)| queued.contains_key(chunk_id))
-        .min_by(|(_, left), (_, right)| {
-            compare_chunk_nearness(**left, **right, focus, chunk_extent)
-        })
-        .map(|(idx, _)| idx)
 }
 
 #[cfg(test)]

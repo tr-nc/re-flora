@@ -4,11 +4,17 @@ use glam::{UVec3, Vec3};
 
 const AGE_BONUS_PER_POP_CHUNKS: f32 = 0.5;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ChunkPopMode {
+    Fifo,
+    Nearest { focus: Vec3, chunk_extent: UVec3 },
+    NearestWithAging { focus: Vec3, chunk_extent: UVec3 },
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ChunkWorkQueue {
     queued: HashMap<UVec3, u64>,
     pending: VecDeque<UVec3>,
-    queue_clock: u64,
     pop_clock: u64,
 }
 
@@ -18,63 +24,78 @@ impl ChunkWorkQueue {
             return false;
         }
 
-        self.queue_clock = self.queue_clock.wrapping_add(1);
         self.queued.insert(chunk_id, self.pop_clock);
         self.pending.push_back(chunk_id);
         true
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn pop_next(&mut self) -> Option<UVec3> {
-        while let Some(chunk_id) = self.pending.pop_front() {
-            if self.queued.remove(&chunk_id).is_some() {
-                self.pop_clock = self.pop_clock.wrapping_add(1);
-                return Some(chunk_id);
-            }
-        }
-
-        None
+        self.pop(ChunkPopMode::Fifo)
     }
 
+    pub(crate) fn pop(&mut self, mode: ChunkPopMode) -> Option<UVec3> {
+        self.pop_if(mode, |_| true)
+    }
+
+    pub(crate) fn pop_if(
+        &mut self,
+        mode: ChunkPopMode,
+        mut is_ready: impl FnMut(UVec3) -> bool,
+    ) -> Option<UVec3> {
+        let chunk_idx = match mode {
+            ChunkPopMode::Fifo => self.first_pending_index_if(&mut is_ready)?,
+            ChunkPopMode::Nearest {
+                focus,
+                chunk_extent,
+            } => self.nearest_pending_index_if(focus, chunk_extent, &mut is_ready)?,
+            ChunkPopMode::NearestWithAging {
+                focus,
+                chunk_extent,
+            } => self.aged_pending_index_with_log_if(focus, chunk_extent, &mut is_ready)?,
+        };
+
+        let chunk_id = self
+            .pending
+            .remove(chunk_idx)
+            .expect("pending chunk index should be valid");
+        self.queued
+            .remove(&chunk_id)
+            .expect("popped chunk should still be queued");
+        self.pop_clock = self.pop_clock.wrapping_add(1);
+        Some(chunk_id)
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn pop_nearest_to(&mut self, focus: Vec3, chunk_extent: UVec3) -> Option<UVec3> {
-        self.pop_nearest_to_if(focus, chunk_extent, |_| true)
+        self.pop(ChunkPopMode::NearestWithAging {
+            focus,
+            chunk_extent,
+        })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pop_nearest_to_if(
         &mut self,
         focus: Vec3,
         chunk_extent: UVec3,
-        mut is_ready: impl FnMut(UVec3) -> bool,
+        is_ready: impl FnMut(UVec3) -> bool,
     ) -> Option<UVec3> {
-        let nearest_idx = self.nearest_pending_index_if(focus, chunk_extent, &mut is_ready)?;
-        let aged_idx = self.aged_pending_index_if(focus, chunk_extent, &mut is_ready)?;
-        let nearest_chunk_before_pop = self.pending.get(nearest_idx).copied();
-        let chunk_idx = aged_idx;
-        let chunk_id = self
-            .pending
-            .remove(chunk_idx)
-            .expect("nearest pending chunk index should be valid");
-        let queued_at = self
-            .queued
-            .remove(&chunk_id)
-            .expect("popped chunk should still be queued");
-        let age = self.pop_clock.saturating_sub(queued_at);
+        self.pop_if(
+            ChunkPopMode::NearestWithAging {
+                focus,
+                chunk_extent,
+            },
+            is_ready,
+        )
+    }
 
-        if aged_idx != nearest_idx {
-            if let Some(nearest_chunk) = nearest_chunk_before_pop {
-                log::debug!(
-                    "[QUEUE][AGING] selected {:?} age={} over nearest {:?} pending={} focus={:?}",
-                    chunk_id,
-                    age,
-                    nearest_chunk,
-                    self.queued.len(),
-                    focus,
-                );
-            }
-        }
-
-        self.pop_clock = self.pop_clock.wrapping_add(1);
-        Some(chunk_id)
+    fn first_pending_index_if(&self, mut is_ready: impl FnMut(UVec3) -> bool) -> Option<usize> {
+        self.pending
+            .iter()
+            .enumerate()
+            .find(|(_, chunk_id)| self.queued.contains_key(chunk_id) && is_ready(**chunk_id))
+            .map(|(idx, _)| idx)
     }
 
     fn nearest_pending_index_if(
@@ -91,6 +112,31 @@ impl ChunkWorkQueue {
                 compare_chunk_nearness(**left, **right, focus, chunk_extent)
             })
             .map(|(idx, _)| idx)
+    }
+
+    fn aged_pending_index_with_log_if(
+        &self,
+        focus: Vec3,
+        chunk_extent: UVec3,
+        mut is_ready: impl FnMut(UVec3) -> bool,
+    ) -> Option<usize> {
+        let nearest_idx = self.nearest_pending_index_if(focus, chunk_extent, &mut is_ready)?;
+        let aged_idx = self.aged_pending_index_if(focus, chunk_extent, &mut is_ready)?;
+        if aged_idx != nearest_idx {
+            if let Some(nearest_chunk) = self.pending.get(nearest_idx).copied() {
+                if let Some(chunk_id) = self.pending.get(aged_idx).copied() {
+                    log::debug!(
+                        "[QUEUE][AGING] selected {:?} age={} over nearest {:?} pending={} focus={:?}",
+                        chunk_id,
+                        self.chunk_age_pops(chunk_id),
+                        nearest_chunk,
+                        self.queued.len(),
+                        focus,
+                    );
+                }
+            }
+        }
+        Some(aged_idx)
     }
 
     fn aged_pending_index_if(
@@ -214,7 +260,6 @@ mod tests {
     #[test]
     fn duplicate_push_keeps_one_entry() {
         let mut queue = ChunkWorkQueue::default();
-
         assert!(queue.push(chunk(1)));
         assert!(!queue.push(chunk(1)));
 
@@ -234,6 +279,30 @@ mod tests {
         assert_eq!(queue.pop_next(), Some(chunk(1)));
         assert_eq!(queue.pop_next(), Some(chunk(2)));
         assert_eq!(queue.pop_next(), Some(chunk(3)));
+    }
+
+    #[test]
+    fn pop_fifo_if_skips_unready_chunks_without_removing_them() {
+        let mut queue = ChunkWorkQueue::default();
+        queue.push(chunk(1));
+        queue.push(chunk(2));
+        queue.push(chunk(3));
+
+        assert_eq!(
+            queue.pop_if(ChunkPopMode::Fifo, |chunk_id| chunk_id == chunk(2)),
+            Some(chunk(2))
+        );
+        assert_eq!(queue.pop_next(), Some(chunk(1)));
+        assert_eq!(queue.pop_next(), Some(chunk(3)));
+    }
+
+    #[test]
+    fn pop_fifo_if_returns_none_when_no_chunks_are_ready() {
+        let mut queue = ChunkWorkQueue::default();
+        queue.push(chunk(1));
+
+        assert_eq!(queue.pop_if(ChunkPopMode::Fifo, |_| false), None);
+        assert_eq!(queue.pop_next(), Some(chunk(1)));
     }
 
     #[test]
@@ -262,6 +331,23 @@ mod tests {
         assert_eq!(queue.pop_nearest_to(focus, chunk_extent), Some(chunk(1)));
         assert_eq!(queue.pop_nearest_to(focus, chunk_extent), Some(chunk(2)));
         assert_eq!(queue.pop_nearest_to(focus, chunk_extent), Some(chunk(3)));
+    }
+
+    #[test]
+    fn explicit_nearest_mode_orders_by_distance_without_aging() {
+        let mut queue = ChunkWorkQueue::default();
+        queue.push(chunk(10));
+        queue.pop_clock = 30;
+        queue.push(chunk(1));
+
+        let focus = Vec3::new(1.25, 0.5, 0.5);
+        assert_eq!(
+            queue.pop(ChunkPopMode::Nearest {
+                focus,
+                chunk_extent: UVec3::ONE,
+            }),
+            Some(chunk(1))
+        );
     }
 
     #[test]

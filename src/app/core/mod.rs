@@ -57,7 +57,9 @@ use crate::tracer::{
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
-use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
+use crate::util::{
+    ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH,
+};
 use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
@@ -168,6 +170,7 @@ pub struct App {
 
     flora_tick: u32,
     flora_tick_accumulator: f32,
+    moisture_dry_chunk_cursor: u32,
     flora_paint_dab_serial: u32,
     growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
@@ -413,9 +416,10 @@ impl App {
         let Some(GrowingFloraChunk {
             chunk_id,
             last_flora_tick,
-        }) = self
-            .growing_flora_chunks
-            .pop_nearest_to(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK)
+        }) = self.growing_flora_chunks.pop(ChunkPopMode::Nearest {
+            focus: self.tracer.camera_position(),
+            chunk_extent: VOXEL_DIM_PER_CHUNK,
+        })
         else {
             return;
         };
@@ -1062,6 +1066,7 @@ impl App {
             water_particle_handoff_main_thread_ms: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
+            moisture_dry_chunk_cursor: 0,
             flora_paint_dab_serial: 0,
             growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
@@ -1669,7 +1674,6 @@ impl App {
                     }
                 }
                 let frame_delta_time = self.time_info.delta_time();
-                self.update_sprinkler_moisture(frame_delta_time);
                 let time_since_start = self.time_info.time_since_start();
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.gui_adjustables.world_tick_seconds.value,
@@ -2293,7 +2297,6 @@ impl App {
                 };
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
-                let device = self.vulkan_ctx.device();
                 let cmdbuf = frame.command_buffer();
                 let image_idx = frame.image_index();
 
@@ -2309,6 +2312,51 @@ impl App {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
+
+                if !self.sprinkler_records.is_empty() {
+                    let sprinkler_moisture_gpu_scope =
+                        self.gpu_profiler.as_mut().and_then(|profiler| {
+                            profiler.begin_scope(
+                                frame_slot,
+                                cmdbuf,
+                                "sprinkler_moisture.pass",
+                                PipelineStage::COMPUTE_SHADER,
+                            )
+                        });
+                    self.record_sprinkler_moisture(cmdbuf, frame_delta_time);
+                    if let Some(scope) = sprinkler_moisture_gpu_scope {
+                        if let Some(profiler) = self.gpu_profiler.as_mut() {
+                            profiler.end_scope(
+                                frame_slot,
+                                cmdbuf,
+                                scope,
+                                PipelineStage::COMPUTE_SHADER,
+                            );
+                        }
+                    }
+                }
+
+                if self.has_terrain_moisture_dry_chunks() {
+                    let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+                        profiler.begin_scope(
+                            frame_slot,
+                            cmdbuf,
+                            "moisture_dry.pass",
+                            PipelineStage::COMPUTE_SHADER,
+                        )
+                    });
+                    self.record_terrain_moisture_dry_chunks(cmdbuf);
+                    if let Some(scope) = moisture_dry_gpu_scope {
+                        if let Some(profiler) = self.gpu_profiler.as_mut() {
+                            profiler.end_scope(
+                                frame_slot,
+                                cmdbuf,
+                                scope,
+                                PipelineStage::COMPUTE_SHADER,
+                            );
+                        }
+                    }
+                }
 
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
                     self.gui_adjustables.time_of_day.value,
@@ -2665,6 +2713,7 @@ impl App {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
+                let device = self.vulkan_ctx.device();
                 self.egui_renderer
                     .record_command_buffer(device, cmdbuf, render_area);
                 if let Some(scope) = egui_gpu_scope {
