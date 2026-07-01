@@ -57,9 +57,7 @@ use crate::tracer::{
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
-use crate::util::{
-    ChunkWorkQueue, GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH,
-};
+use crate::util::{GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH};
 use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
@@ -168,8 +166,7 @@ pub struct App {
 
     flora_tick: u32,
     flora_tick_accumulator: f32,
-    moisture_dry_tick_accumulator: u32,
-    moisture_dry_chunks: ChunkWorkQueue,
+    moisture_dry_chunk_cursor: u32,
     flora_paint_dab_serial: u32,
     growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
@@ -1063,8 +1060,7 @@ impl App {
             water_particle_handoff_main_thread_ms: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
-            moisture_dry_tick_accumulator: 0,
-            moisture_dry_chunks: ChunkWorkQueue::default(),
+            moisture_dry_chunk_cursor: 0,
             flora_paint_dab_serial: 0,
             growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
@@ -1651,7 +1647,6 @@ impl App {
                 if world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                self.update_terrain_moisture_drying(world_tick_steps);
                 let active_wind_sources = GuiAdjustables::active_wind_sources(&self.wind_sources);
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,
@@ -2186,7 +2181,7 @@ impl App {
                     )
                 });
 
-                if self.has_pending_terrain_moisture_dry_chunks() {
+                if self.has_terrain_moisture_dry_chunks() {
                     let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                         profiler.begin_scope(
                             frame_slot,

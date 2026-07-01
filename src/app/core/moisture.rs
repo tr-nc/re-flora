@@ -1,48 +1,26 @@
 use super::{App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use crate::app::world_edits::TerrainBrushEdit;
-use crate::util::{ChunkPopMode, BENCH};
+use crate::util::BENCH;
 use anyhow::Result;
+use glam::UVec3;
 use std::time::Instant;
 use verdarium_vkn::CommandBuffer;
 
 const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
 const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;
 const WATERING_BRUSH_MOISTURE_PER_DAB: f32 = 0.68;
-const TERRAIN_MOISTURE_DRY_ENQUEUE_INTERVAL_WORLD_TICKS: u32 = 20;
-const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.02;
+const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.04;
 const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 
 impl App {
-    pub(super) fn update_terrain_moisture_drying(&mut self, world_tick_steps: u32) {
-        self.enqueue_terrain_moisture_dry_chunks(world_tick_steps);
-    }
-
-    fn enqueue_terrain_moisture_dry_chunks(&mut self, world_tick_steps: u32) {
-        self.moisture_dry_tick_accumulator = self
-            .moisture_dry_tick_accumulator
-            .saturating_add(world_tick_steps);
-        while self.moisture_dry_tick_accumulator
-            >= TERRAIN_MOISTURE_DRY_ENQUEUE_INTERVAL_WORLD_TICKS
-        {
-            self.moisture_dry_tick_accumulator -= TERRAIN_MOISTURE_DRY_ENQUEUE_INTERVAL_WORLD_TICKS;
-            for x in 0..CHUNK_DIM.x {
-                for y in 0..CHUNK_DIM.y {
-                    for z in 0..CHUNK_DIM.z {
-                        self.moisture_dry_chunks.push(glam::uvec3(x, y, z));
-                    }
-                }
-            }
-        }
-    }
-
-    pub(super) fn has_pending_terrain_moisture_dry_chunks(&self) -> bool {
-        !self.moisture_dry_chunks.is_empty()
+    pub(super) fn has_terrain_moisture_dry_chunks(&self) -> bool {
+        Self::terrain_moisture_dry_chunk_count() > 0
     }
 
     pub(super) fn record_terrain_moisture_dry_chunks(&mut self, cmdbuf: &CommandBuffer) -> usize {
         let mut recorded_count = 0;
         for _ in 0..TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME {
-            let Some(chunk_id) = self.moisture_dry_chunks.pop(ChunkPopMode::Fifo) else {
+            let Some(chunk_id) = self.next_terrain_moisture_dry_chunk() else {
                 return recorded_count;
             };
             let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
@@ -63,17 +41,43 @@ impl App {
                     .unwrap()
                     .record("terrain_moisture_dry_record", dry_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} pending_after={} record_ms={:.3}",
+                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} next_cursor={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
                     TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
-                    self.moisture_dry_chunks.len(),
+                    self.moisture_dry_chunk_cursor,
                     dry_record_elapsed.as_secs_f64() * 1000.0,
                 );
             }
         }
         recorded_count
+    }
+
+    fn next_terrain_moisture_dry_chunk(&mut self) -> Option<UVec3> {
+        let chunk_count = Self::terrain_moisture_dry_chunk_count();
+        if chunk_count == 0 {
+            return None;
+        }
+
+        let chunk_index = self.moisture_dry_chunk_cursor % chunk_count;
+        self.moisture_dry_chunk_cursor = (chunk_index + 1) % chunk_count;
+        Some(Self::terrain_moisture_dry_chunk_from_index(chunk_index))
+    }
+
+    fn terrain_moisture_dry_chunk_count() -> u32 {
+        CHUNK_DIM
+            .x
+            .saturating_mul(CHUNK_DIM.y)
+            .saturating_mul(CHUNK_DIM.z)
+    }
+
+    fn terrain_moisture_dry_chunk_from_index(mut chunk_index: u32) -> UVec3 {
+        let z = chunk_index % CHUNK_DIM.z;
+        chunk_index /= CHUNK_DIM.z;
+        let y = chunk_index % CHUNK_DIM.y;
+        let x = chunk_index / CHUNK_DIM.y;
+        UVec3::new(x, y, z)
     }
 
     pub(super) fn update_sprinkler_moisture(&mut self, dt: f32) {
