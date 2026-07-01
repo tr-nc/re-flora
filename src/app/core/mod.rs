@@ -43,7 +43,7 @@ use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
-    SurfaceBuildJob, SurfaceBuilder, VOXEL_TYPE_CHERRY_WOOD,
+    SurfaceBuildJob, SurfaceBuilder, VOXEL_MOISTURE_MAX, VOXEL_TYPE_CHERRY_WOOD,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -74,13 +74,14 @@ use ui_style::{
     FLOWER_ACCENT, GOLD_ACCENT, HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_HOE_ICON_FALLBACK_PATH,
     ITEM_PANEL_HOE_ICON_PATH, ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
+    ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
     ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
     ITEM_PANEL_TREE_ICON_FALLBACK_PATH, ITEM_PANEL_TREE_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
-    SMOOTH_TOOL_ACCENT, SPRINKLER_PLACEABLE_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT,
-    TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX,
-    WATER_TOOL_ACCENT,
+    SMOOTH_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT,
+    SPRINKLER_PLACEABLE_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, TREE_PLACEABLE_SLOT_INDEX,
+    TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use verdarium_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -161,6 +162,7 @@ pub struct App {
     item_panel_hoe_icon: Option<TextureHandle>,
     item_panel_tree_icon: Option<TextureHandle>,
     item_panel_water_icon: Option<TextureHandle>,
+    item_panel_soil_inspector_icon: Option<TextureHandle>,
     player_tools: PlayerToolState,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
@@ -1055,6 +1057,7 @@ impl App {
             item_panel_hoe_icon: None,
             item_panel_tree_icon: None,
             item_panel_water_icon: None,
+            item_panel_soil_inspector_icon: None,
             player_tools: PlayerToolState::default(),
             water_particle_handoff_main_thread_ms: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
@@ -1325,6 +1328,41 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_water_icon = Some(water_texture);
+
+        let soil_inspector_path =
+            if std::path::Path::new(ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH).exists() {
+                ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH
+            } else {
+                log::warn!(
+                    "Item panel icon not found at {}. Falling back to {}",
+                    ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
+                    ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH
+                );
+                ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH
+            };
+
+        let soil_inspector_bytes = std::fs::read(soil_inspector_path).with_context(|| {
+            format!("Failed to read item panel icon from {soil_inspector_path}")
+        })?;
+        let soil_inspector_rgba = image::load_from_memory(&soil_inspector_bytes)
+            .with_context(|| {
+                format!("Failed to decode item panel icon from {soil_inspector_path}")
+            })?
+            .to_rgba8();
+        let soil_inspector_size = [
+            soil_inspector_rgba.width() as usize,
+            soil_inspector_rgba.height() as usize,
+        ];
+        let soil_inspector_pixels = soil_inspector_rgba.into_raw();
+        let soil_inspector_image =
+            ColorImage::from_rgba_unmultiplied(soil_inspector_size, &soil_inspector_pixels);
+
+        let soil_inspector_texture = self.egui_renderer.context().load_texture(
+            "item_panel_soil_inspector",
+            soil_inspector_image,
+            egui::TextureOptions::NEAREST,
+        );
+        self.item_panel_soil_inspector_icon = Some(soil_inspector_texture);
         Ok(())
     }
 
@@ -1495,6 +1533,7 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit4) => Some(3),
                         PhysicalKey::Code(KeyCode::Digit5) => Some(4),
                         PhysicalKey::Code(KeyCode::Digit6) => Some(5),
+                        PhysicalKey::Code(KeyCode::Digit7) => Some(6),
                         _ => None,
                     };
 
@@ -1681,6 +1720,7 @@ impl App {
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
                 let item_panel_tree_icon = self.item_panel_tree_icon.clone();
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
+                let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
                 let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
                 let selected_placeable_panel_slot = self.player_tools.selected_placeable_panel_slot;
                 let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
@@ -1694,6 +1734,13 @@ impl App {
                         selected: false,
                     })
                     .collect();
+                let growing_flora_chunk_count = self.growing_flora_chunks.len();
+                let mut camera_snapshot_to_apply = None;
+                let mut clicked_item_panel_slot = None;
+                let mut clicked_placeable_panel_slot = None;
+
+                let current_camera_pose = self.tracer.camera_pose();
+                let terrain_edit_hover = self.terrain_edit_hover();
                 let water_status_text = self
                     .water_sim
                     .status_text(self.water_particle_handoff_main_thread_ms);
@@ -1706,21 +1753,54 @@ impl App {
                     format!("Grow brush: {}", self.current_flora_paint_selection_label())
                 };
                 let placeable_hint = format!(
-                    "Place: {} (Z/X) · Water brush: 6 + LMB · sprinklers {}",
+                    "Place: {} (Z/X) · Water: 6 + LMB · Soil: 7 · sprinklers {}",
                     self.current_placeable_label(),
                     self.sprinkler_records.len()
                 );
+                let soil_inspector_panel_text = if self.is_soil_inspector_selected() {
+                    Some(match terrain_edit_hover {
+                        Some(hover) if hover.is_editable => {
+                            match self.plain_builder.sample_soil_moisture_sphere(
+                                hover.center,
+                                self.player_tools.terrain_edit_radius,
+                            ) {
+                                Ok(sample) if sample.count > 0 => format!(
+                                    "avg {:.2}/{}\nmin {}  max {}\n{} soil voxels",
+                                    sample.average().unwrap_or(0.0),
+                                    VOXEL_MOISTURE_MAX,
+                                    sample.min,
+                                    sample.max,
+                                    sample.count
+                                ),
+                                Ok(_) => "no soil in range".to_string(),
+                                Err(err) => {
+                                    log::error!("Soil inspector sample failed: {}", err);
+                                    "sample failed".to_string()
+                                }
+                            }
+                        }
+                        Some(_) => "outside editable area".to_string(),
+                        None => "point at terrain".to_string(),
+                    })
+                } else {
+                    None
+                };
+                let soil_inspector_panel_pos = soil_inspector_panel_text.as_ref().map(|_| {
+                    let extent = self.window_state.window_extent();
+                    let screen_center =
+                        Vec2::new(extent.width as f32 * 0.5, extent.height as f32 * 0.5);
+                    let cursor = if self.window_state.is_cursor_visible() {
+                        self.cursor_position_physical.unwrap_or(screen_center)
+                    } else {
+                        screen_center
+                    };
+                    let scale_factor = self.window_state.window().scale_factor() as f32;
+                    egui::pos2(cursor.x / scale_factor + 18.0, cursor.y / scale_factor)
+                });
                 let status_bar_text = format!(
                     "{}\n{}\n{}",
                     water_status_text, grow_brush_hint, placeable_hint
                 );
-                let growing_flora_chunk_count = self.growing_flora_chunks.len();
-                let mut camera_snapshot_to_apply = None;
-                let mut clicked_item_panel_slot = None;
-                let mut clicked_placeable_panel_slot = None;
-
-                let current_camera_pose = self.tracer.camera_pose();
-                let terrain_edit_hover = self.terrain_edit_hover();
                 let terrain_edit_preview_center = terrain_edit_hover.map(|hover| hover.center);
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
                 let terrain_edit_preview_color = self.terrain_edit_preview_color(
@@ -1918,6 +1998,14 @@ impl App {
                                 accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
+                            ItemPanelSlot {
+                                index: SOIL_INSPECTOR_SLOT_INDEX,
+                                label: "Soil",
+                                key_hint: "7",
+                                icon: item_panel_soil_inspector_icon.as_ref(),
+                                accent: SOIL_INSPECTOR_TOOL_ACCENT,
+                                enabled: true,
+                            },
                         ];
                         let item_panel_response = draw_item_panel(
                             ctx,
@@ -1960,6 +2048,48 @@ impl App {
                             voxel_palette_response
                                 .panel_center
                                 .map(|center| Vec2::new(center.x, center.y));
+
+                        if let (Some(panel_pos), Some(panel_text)) = (
+                            soil_inspector_panel_pos,
+                            soil_inspector_panel_text.as_deref(),
+                        ) {
+                            egui::Area::new("soil_inspector_panel".into())
+                                .order(egui::Order::Foreground)
+                                .fixed_pos(panel_pos)
+                                .interactable(false)
+                                .show(ctx, |ui| {
+                                    let inspector_frame = egui::containers::Frame {
+                                        fill: PANEL_DARK,
+                                        inner_margin: egui::Margin::symmetric(10, 8),
+                                        corner_radius: egui::CornerRadius::same(0),
+                                        shadow: egui::epaint::Shadow {
+                                            offset: [4, 4],
+                                            blur: 0,
+                                            spread: 0,
+                                            color: SHADOW_COLOR,
+                                        },
+                                        stroke: egui::Stroke::new(2.0, SOIL_INSPECTOR_TOOL_ACCENT),
+                                        ..Default::default()
+                                    };
+
+                                    inspector_frame.show(ui, |ui| {
+                                        ui.set_min_width(150.0);
+                                        ui.label(
+                                            RichText::new("Soil Moisture")
+                                                .color(GOLD_ACCENT)
+                                                .monospace()
+                                                .size(12.0),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            RichText::new(panel_text)
+                                                .color(SAGE_ACCENT)
+                                                .monospace()
+                                                .size(11.0),
+                                        );
+                                    });
+                                });
+                        }
 
                         egui::Area::new("status_bar_panel".into())
                             .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::new(16.0, -16.0))

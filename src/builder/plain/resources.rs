@@ -26,6 +26,8 @@ pub struct PlainBuilderResources {
     pub terrain_smooth_mbo_histogram: Resource<Buffer>,
     pub terrain_smooth_mbo_result: Resource<Buffer>,
     pub terrain_moisture_brush_info: Resource<Buffer>,
+    pub voxel_property_sample_info: Resource<Buffer>,
+    pub voxel_property_sample_result: Resource<Buffer>,
     pub chunk_modify_info: Resource<Buffer>,
     pub chunk_solid_sample_info: Resource<Buffer>,
     pub chunk_solid_samples: Resource<Buffer>,
@@ -55,6 +57,7 @@ impl PlainBuilderResources {
         heightmap_sm: &ShaderModule,
         terrain_smooth_heights_sm: &ShaderModule,
         terrain_smooth_apply_sm: &ShaderModule,
+        voxel_property_sample_sm: &ShaderModule,
     ) -> Self {
         let tex_desc = ImageDesc {
             extent: Extent3D::new(plain_atlas_dim.x, plain_atlas_dim.y, plain_atlas_dim.z),
@@ -327,6 +330,25 @@ impl PlainBuilderResources {
             std::mem::size_of::<super::TerrainMoistureBrushInfoGpu>() as u64,
         );
 
+        let voxel_property_sample_info_layout = voxel_property_sample_sm
+            .get_buffer_layout("U_VoxelPropertySampleInfo")
+            .unwrap();
+        let voxel_property_sample_info = Buffer::from_uniform_layout(
+            device.clone(),
+            allocator.clone(),
+            voxel_property_sample_info_layout.clone(),
+        );
+
+        let voxel_property_sample_result = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            MemoryLocation::GpuToCpu,
+            std::mem::size_of::<super::VoxelPropertySampleResultGpu>() as u64,
+        );
+
         Self {
             chunk_atlas: Resource::new(chunk_atlas),
             free_atlas: Resource::new(free_atlas),
@@ -341,6 +363,8 @@ impl PlainBuilderResources {
             terrain_smooth_mbo_histogram: Resource::new(terrain_smooth_mbo_histogram),
             terrain_smooth_mbo_result: Resource::new(terrain_smooth_mbo_result),
             terrain_moisture_brush_info: Resource::new(terrain_moisture_brush_info),
+            voxel_property_sample_info: Resource::new(voxel_property_sample_info),
+            voxel_property_sample_result: Resource::new(voxel_property_sample_result),
             chunk_modify_info: Resource::new(chunk_modify_info),
             chunk_solid_sample_info: Resource::new(chunk_solid_sample_info),
             chunk_solid_samples: Resource::new(chunk_solid_samples),

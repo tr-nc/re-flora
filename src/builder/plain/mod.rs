@@ -2,6 +2,8 @@ mod resources;
 use crate::generated::gpu_structs::{
     BvhNodes, ChunkModifyInfo, ChunkSolidSampleInfo, Cuboids, ModelVoxelizeInfo,
     PushConstantChunkModifySample, RegionInfo, RoundCones, Spheres,
+    VoxelPropertySampleInfo as VoxelPropertySampleInfoGpu,
+    VoxelPropertySampleResult as VoxelPropertySampleResultGpu,
 };
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::util::ShaderCompiler;
@@ -44,6 +46,8 @@ pub const VOXEL_ATLAS_STATE_MASK: u8 = 0xf0;
 // Bits 6..7 remain reserved for future packed soil state.
 pub const VOXEL_MOISTURE_MASK: u8 = 0x30;
 pub const VOXEL_MOISTURE_MAX: u8 = 0x03;
+pub const VOXEL_PROPERTY_MOISTURE: u32 = 1;
+pub const VOXEL_PROPERTY_SOIL_TARGET_MASK: u32 = (1 << VOXEL_TYPE_DIRT) | (1 << VOXEL_TYPE_SAND);
 const PRIMITIVE_KIND_ROUND_CONE: u32 = 0;
 const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
@@ -215,6 +219,39 @@ struct TerrainMoistureBrushInfoGpu {
     end_amount: [f32; 4],
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct VoxelPropertySampleRequest {
+    pub center: Vec3,
+    pub radius_world: f32,
+    pub property_id: u32,
+    pub target_voxel_mask: u32,
+}
+
+impl VoxelPropertySampleRequest {
+    pub fn soil_moisture(center: Vec3, radius_world: f32) -> Self {
+        Self {
+            center,
+            radius_world,
+            property_id: VOXEL_PROPERTY_MOISTURE,
+            target_voxel_mask: VOXEL_PROPERTY_SOIL_TARGET_MASK,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct VoxelPropertySampleStats {
+    pub count: u32,
+    pub sum: u32,
+    pub min: u32,
+    pub max: u32,
+}
+
+impl VoxelPropertySampleStats {
+    pub fn average(&self) -> Option<f32> {
+        (self.count > 0).then(|| self.sum as f32 / self.count as f32)
+    }
+}
+
 pub struct PlainBuilder {
     vulkan_ctx: VulkanContext,
     resources: PlainBuilderResources,
@@ -238,6 +275,7 @@ pub struct PlainBuilder {
     terrain_smooth_mbo_score_ppl: ComputePipeline,
     terrain_smooth_mbo_apply_ppl: ComputePipeline,
     terrain_moisture_brush_ppl: ComputePipeline,
+    voxel_property_sample_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
     chunk_solid_sample_ppl: ComputePipeline,
@@ -376,6 +414,13 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let voxel_property_sample_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/voxel_property_sample.comp",
+            "main",
+        )
+        .unwrap();
 
         let resources = PlainBuilderResources::new(
             device,
@@ -390,6 +435,7 @@ impl PlainBuilder {
             &heightmap_sm,
             &terrain_smooth_heights_sm,
             &terrain_smooth_apply_sm,
+            &voxel_property_sample_sm,
         );
 
         let pool = DescriptorPool::new(device).unwrap();
@@ -423,6 +469,8 @@ impl PlainBuilder {
             ComputePipeline::new(device, &terrain_smooth_mbo_apply_sm, &pool, &[&resources]);
         let terrain_moisture_brush_ppl =
             ComputePipeline::new(device, &terrain_moisture_brush_sm, &pool, &[&resources]);
+        let voxel_property_sample_ppl =
+            ComputePipeline::new(device, &voxel_property_sample_sm, &pool, &[&resources]);
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
         let chunk_modify_sample_ppl =
             ComputePipeline::new(device, &chunk_modify_sample_sm, &pool, &[&resources]);
@@ -458,6 +506,7 @@ impl PlainBuilder {
             terrain_smooth_mbo_score_ppl,
             terrain_smooth_mbo_apply_ppl,
             terrain_moisture_brush_ppl,
+            voxel_property_sample_ppl,
             chunk_modify_ppl,
             chunk_modify_sample_ppl,
             chunk_solid_sample_ppl,
@@ -711,6 +760,88 @@ impl PlainBuilder {
         );
 
         Ok(Some(UAabb3::new(offset, offset + dim - UVec3::ONE)))
+    }
+
+    pub fn sample_voxel_property_sphere(
+        &mut self,
+        request: VoxelPropertySampleRequest,
+    ) -> Result<VoxelPropertySampleStats> {
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let center_vox = request.center * 256.0;
+        let radius_vox = (request.radius_world * 256.0).max(0.0);
+        if radius_vox <= 0.0
+            || !center_vox.is_finite()
+            || request.property_id == 0
+            || request.target_voxel_mask == 0
+        {
+            return Ok(VoxelPropertySampleStats::default());
+        }
+
+        let Some((offset, dim)) = clipped_voxel_box(center_vox, radius_vox, atlas_dim) else {
+            return Ok(VoxelPropertySampleStats::default());
+        };
+
+        self.resources
+            .voxel_property_sample_info
+            .fill_uniform(&VoxelPropertySampleInfoGpu {
+                atlas_offset_property_id: [offset.x, offset.y, offset.z, request.property_id],
+                atlas_dim_target_mask: [dim.x, dim.y, dim.z, request.target_voxel_mask],
+                center_radius: [center_vox.x, center_vox.y, center_vox.z, radius_vox],
+                options: [0, 0, 0, 0],
+            })?;
+
+        let transfer_to_compute_barrier = PipelineBarrier::transfer_to_compute_shader_access();
+        let host_read_barrier = PipelineBarrier::compute_to_host_read();
+        let command_buffer =
+            CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
+        command_buffer.begin(true);
+        self.resources.voxel_property_sample_result.record_fill(
+            &command_buffer,
+            0,
+            self.resources.voxel_property_sample_result.get_size_bytes(),
+            0,
+        );
+        self.resources.voxel_property_sample_result.record_fill(
+            &command_buffer,
+            2 * std::mem::size_of::<u32>() as u64,
+            std::mem::size_of::<u32>() as u64,
+            u32::MAX,
+        );
+        transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        self.voxel_property_sample_ppl.record(
+            &command_buffer,
+            Extent3D::new(dim.x, dim.y, dim.z),
+            None,
+        );
+        host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.end();
+        command_buffer
+            .submit_gpu_job(
+                &self.vulkan_ctx.get_general_queue(),
+                "plain.voxel_property_sample",
+            )?
+            .wait_complete()?;
+
+        let raw = self.resources.voxel_property_sample_result.read_back()?;
+        let result = *bytemuck::from_bytes::<VoxelPropertySampleResultGpu>(&raw);
+        let count = result.stats[0];
+        Ok(VoxelPropertySampleStats {
+            count,
+            sum: result.stats[1],
+            min: if count > 0 { result.stats[2] } else { 0 },
+            max: if count > 0 { result.stats[3] } else { 0 },
+        })
+    }
+
+    pub fn sample_soil_moisture_sphere(
+        &mut self,
+        center: Vec3,
+        radius_world: f32,
+    ) -> Result<VoxelPropertySampleStats> {
+        self.sample_voxel_property_sphere(VoxelPropertySampleRequest::soil_moisture(
+            center,
+            radius_world,
+        ))
     }
 
     #[allow(dead_code)]
