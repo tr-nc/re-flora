@@ -8,12 +8,14 @@ layout(push_constant) uniform PC {
     uvec4 offset;
     uvec4 dim;
     vec4 dry_params;
+    vec4 sun_dir_params;
 }
 pc;
 
 layout(set = 0, binding = 1, r8ui) uniform uimage3D chunk_atlas;
 
 #include "../../include/voxel_data.glsl"
+#include "../../include/voxel_types.glsl"
 
 float moisture_hash01(uvec3 p, uint seed) {
     uint h = seed ^ 0x9E3779B9u;
@@ -28,6 +30,67 @@ float moisture_hash01(uvec3 p, uint seed) {
     return float(h & 0x00FFFFFFu) * (1.0 / 16777216.0);
 }
 
+bool is_moisture_voxel(uint voxel_type) {
+    return voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND;
+}
+
+uint load_atlas_voxel_type(ivec3 p) {
+    ivec3 atlas_size = imageSize(chunk_atlas).xyz;
+    if (any(lessThan(p, ivec3(0))) || any(greaterThanEqual(p, atlas_size))) {
+        return VOXEL_TYPE_EMPTY;
+    }
+    return voxel_type_from_atlas_data(imageLoad(chunk_atlas, p).r);
+}
+
+bool sun_ray_is_occluded(vec3 origin_vox, vec3 sun_dir) {
+    const int SUN_SHADOW_RAY_MAX_STEPS = 768;
+    const float SUN_SHADOW_RAY_STEP_VOX = 1.0;
+    ivec3 atlas_size = imageSize(chunk_atlas).xyz;
+    vec3 sample_pos = origin_vox + sun_dir * 0.25;
+    for (int step_idx = 0; step_idx < SUN_SHADOW_RAY_MAX_STEPS; step_idx++) {
+        sample_pos += sun_dir * SUN_SHADOW_RAY_STEP_VOX;
+        ivec3 sample_vox = ivec3(floor(sample_pos));
+        if (any(lessThan(sample_vox, ivec3(0))) || any(greaterThanEqual(sample_vox, atlas_size))) {
+            return false;
+        }
+        if (load_atlas_voxel_type(sample_vox) != VOXEL_TYPE_EMPTY) {
+            return true;
+        }
+    }
+    return false;
+}
+
+uint moisture_surface_exposure_flags(ivec3 p, uint voxel_type, vec3 sun_dir) {
+    if (!is_moisture_voxel(voxel_type)) {
+        return 0u;
+    }
+
+    uint flags = 0u;
+    const uint SURFACE_FLAG = 1u;
+    const uint SUNLIT_FLAG = 2u;
+    const ivec3 neighbours_to_check[6] = {
+        ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
+        ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
+    };
+    for (int i = 0; i < 6; i++) {
+        if (load_atlas_voxel_type(p + neighbours_to_check[i]) != VOXEL_TYPE_EMPTY) {
+            continue;
+        }
+
+        flags |= SURFACE_FLAG;
+        vec3 face_normal = vec3(neighbours_to_check[i]);
+        if (sun_dir.y <= 0.0 || dot(face_normal, sun_dir) <= 0.05) {
+            continue;
+        }
+
+        vec3 face_origin = vec3(p) + vec3(0.5) + face_normal * 0.51;
+        if (!sun_ray_is_occluded(face_origin, sun_dir)) {
+            flags |= SUNLIT_FLAG;
+        }
+    }
+    return flags;
+}
+
 void main() {
     uvec3 local = gl_GlobalInvocationID.xyz;
     uvec3 dim = pc.dim.xyz;
@@ -38,6 +101,9 @@ void main() {
     uvec3 atlas_u = pc.offset.xyz + local;
     uint seed = pc.offset.w;
     float dry_probability = clamp(pc.dry_params.x, 0.0, 1.0);
+    float sun_dir_len_sq = dot(pc.sun_dir_params.xyz, pc.sun_dir_params.xyz);
+    vec3 sun_dir = sun_dir_len_sq > 0.0 ? pc.sun_dir_params.xyz * inversesqrt(sun_dir_len_sq) : vec3(0.0);
+    float sunlit_probability_multiplier = max(pc.sun_dir_params.w, 1.0);
     if (dry_probability <= 0.0) {
         return;
     }
@@ -46,6 +112,15 @@ void main() {
     uint old_moisture = voxel_moisture_from_atlas_data(old_data);
     if (old_moisture == 0u) {
         return;
+    }
+
+    uint voxel_type = voxel_type_from_atlas_data(old_data);
+    uint exposure_flags = moisture_surface_exposure_flags(ivec3(atlas_u), voxel_type, sun_dir);
+    if ((exposure_flags & 1u) == 0u) {
+        return;
+    }
+    if ((exposure_flags & 2u) != 0u) {
+        dry_probability = clamp(dry_probability * sunlit_probability_multiplier, 0.0, 1.0);
     }
     if (moisture_hash01(atlas_u, seed) >= dry_probability) {
         return;

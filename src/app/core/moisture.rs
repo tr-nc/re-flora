@@ -2,7 +2,7 @@ use super::{App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use crate::app::world_edits::TerrainBrushEdit;
 use crate::util::BENCH;
 use anyhow::Result;
-use glam::UVec3;
+use glam::{UVec3, Vec3};
 use std::time::Instant;
 use verdarium_vkn::CommandBuffer;
 
@@ -10,7 +10,8 @@ const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
 const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;
 const WATERING_BRUSH_MOISTURE_PER_DAB: f32 = 0.68;
 const FERTILIZER_BRUSH_FERTILITY_PER_DAB: f32 = 0.68;
-const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.01;
+const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.0002;
+const TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER: f32 = 12.0;
 const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 
 impl App {
@@ -18,7 +19,11 @@ impl App {
         Self::terrain_moisture_dry_chunk_count() > 0
     }
 
-    pub(super) fn record_terrain_moisture_dry_chunks(&mut self, cmdbuf: &CommandBuffer) -> usize {
+    pub(super) fn record_terrain_moisture_dry_chunks(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        sun_dir: Vec3,
+    ) -> usize {
         let mut recorded_count = 0;
         for _ in 0..TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME {
             let Some(chunk_id) = self.next_terrain_moisture_dry_chunk() else {
@@ -31,6 +36,8 @@ impl App {
                 atlas_offset,
                 VOXEL_DIM_PER_CHUNK,
                 TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
+                sun_dir,
+                TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
             ) {
                 continue;
             }
@@ -42,11 +49,13 @@ impl App {
                     .unwrap()
                     .record("terrain_moisture_dry_record", dry_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} next_cursor={} record_ms={:.3}",
+                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} sunlit_multiplier={:.2} sun_dir={:?} next_cursor={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
                     TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
+                    TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
+                    sun_dir,
                     self.moisture_dry_chunk_cursor,
                     dry_record_elapsed.as_secs_f64() * 1000.0,
                 );
