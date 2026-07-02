@@ -38,6 +38,15 @@ use verdarium_vkn::VulkanContext;
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
+
+// Leaf data is one u32 per active surface voxel, not one ContreeNode.
+// A strict code-level upper bound for a 256^3 chunk is every voxel becoming a
+// leaf entry: 256^3 * 4 bytes = 64 MiB. With the current surface pass, fully
+// occluded voxels are skipped, so a pathological surface-aware estimate is a
+// sponge-like layout where each interior empty voxel exposes up to 6 solids:
+// boundary + interior * 6/7 = (256^3 - 254^3) + 254^3 * 6/7 ≈ 14.44M leaves,
+// or about 55.1 MiB. The 10 MiB cap below is therefore an intentional content
+// budget for normal terrain, not a mathematical worst-case guarantee.
 const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_DDA_ITERATION: usize = 256;
 const DDA_EPSILON: f32 = 1e-4;
