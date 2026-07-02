@@ -792,13 +792,15 @@ impl App {
             surface_builder.enable_gpu_job_profiling(32);
         }
 
-        let (contree_node_pool_size, contree_leaf_pool_size) =
-            ContreeBuilder::pool_sizes_for_chunk_dim(CHUNK_DIM);
+        let contree_pool_sizes =
+            ContreeBuilder::pool_sizes_for_chunk_dim(CHUNK_DIM, VOXEL_DIM_PER_CHUNK);
         log::info!(
-            "Contree pool sizes: node={} MiB leaf={} MiB chunk_dim={:?}",
-            contree_node_pool_size / (1024 * 1024),
-            contree_leaf_pool_size / (1024 * 1024),
+            "Contree pool sizes: node={:.2} MiB leaf={:.2} MiB chunk_dim={:?} per_chunk_node={} bytes per_chunk_leaf={} MiB",
+            contree_pool_sizes.node_pool_size_in_bytes as f64 / (1024.0 * 1024.0),
+            contree_pool_sizes.leaf_pool_size_in_bytes as f64 / (1024.0 * 1024.0),
             CHUNK_DIM,
+            contree_pool_sizes.node_chunk_size_in_bytes,
+            contree_pool_sizes.leaf_chunk_size_in_bytes / (1024 * 1024),
         );
         let contree_builder = ContreeBuilder::new(
             vulkan_ctx.clone(),
@@ -807,8 +809,8 @@ impl App {
             surface_builder.get_resources(),
             CHUNK_DIM,
             VOXEL_DIM_PER_CHUNK,
-            contree_node_pool_size,
-            contree_leaf_pool_size,
+            contree_pool_sizes.node_pool_size_in_bytes,
+            contree_pool_sizes.leaf_pool_size_in_bytes,
         );
 
         let scene_accel_builder = SceneAccelBuilder::new(

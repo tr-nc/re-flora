@@ -38,7 +38,6 @@ use verdarium_vkn::VulkanContext;
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
-const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_DDA_ITERATION: usize = 256;
 const DDA_EPSILON: f32 = 1e-4;
@@ -73,6 +72,7 @@ pub struct ContreeBuilder {
 
     leaf_allocator: FirstFitAllocator,
     node_allocator: FirstFitAllocator,
+    max_node_buffer_size_in_bytes: u64,
 
     chunk_dim: UVec3,
     voxel_dim_per_chunk: UVec3,
@@ -599,18 +599,58 @@ impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContreePoolSizes {
+    pub node_pool_size_in_bytes: u64,
+    pub leaf_pool_size_in_bytes: u64,
+    pub node_chunk_size_in_bytes: u64,
+    pub leaf_chunk_size_in_bytes: u64,
+}
+
 impl ContreeBuilder {
-    pub fn pool_sizes_for_chunk_dim(chunk_dim: UVec3) -> (u64, u64) {
+    pub fn max_node_buffer_size_in_bytes(voxel_dim_per_chunk: UVec3) -> u64 {
+        assert!(
+            voxel_dim_per_chunk.x == voxel_dim_per_chunk.y
+                && voxel_dim_per_chunk.x == voxel_dim_per_chunk.z,
+            "contree node buffer sizing requires cubic chunks"
+        );
+        assert!(is_power_of_four(voxel_dim_per_chunk.x));
+
+        // Contree node levels are formed by repeatedly grouping 4x4x4 child cells.
+        // For a 256^3 chunk, node dimensions are 64^3 + 16^3 + 4^3 + 1^3.
+        // Each node is a ContreeNode: packed_0 + child_mask_lo + child_mask_hi.
+        let mut level_dim = u64::from(voxel_dim_per_chunk.x / 4);
+        let mut node_count = 0_u64;
+        while level_dim > 0 {
+            node_count = node_count.saturating_add(
+                level_dim
+                    .saturating_mul(level_dim)
+                    .saturating_mul(level_dim),
+            );
+            level_dim /= 4;
+        }
+
+        node_count.saturating_mul(SIZE_OF_NODE_ELEMENT)
+    }
+
+    pub fn pool_sizes_for_chunk_dim(
+        chunk_dim: UVec3,
+        voxel_dim_per_chunk: UVec3,
+    ) -> ContreePoolSizes {
         let chunk_count = u64::from(chunk_dim.x)
             .saturating_mul(u64::from(chunk_dim.y))
             .saturating_mul(u64::from(chunk_dim.z));
         // One extra slot lets a chunk rebuild preallocate its replacement while
         // the previous chunk allocation is still resident.
         let allocation_slots = chunk_count.saturating_add(1);
-        (
-            allocation_slots.saturating_mul(MAX_NODE_BUFFER_SIZE_IN_BYTES),
-            allocation_slots.saturating_mul(MAX_LEAF_BUFFER_SIZE_IN_BYTES),
-        )
+        let node_chunk_size_in_bytes = Self::max_node_buffer_size_in_bytes(voxel_dim_per_chunk);
+        let leaf_chunk_size_in_bytes = MAX_LEAF_BUFFER_SIZE_IN_BYTES;
+        ContreePoolSizes {
+            node_pool_size_in_bytes: allocation_slots.saturating_mul(node_chunk_size_in_bytes),
+            leaf_pool_size_in_bytes: allocation_slots.saturating_mul(leaf_chunk_size_in_bytes),
+            node_chunk_size_in_bytes,
+            leaf_chunk_size_in_bytes,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -630,6 +670,9 @@ impl ContreeBuilder {
             "ContreeBuilder: voxel_dim_per_chunk must be a cube"
         );
         assert!(is_power_of_four(voxel_dim_per_chunk.x));
+
+        let max_node_buffer_size_in_bytes =
+            Self::max_node_buffer_size_in_bytes(voxel_dim_per_chunk);
 
         let device = vulkan_ctx.device();
 
@@ -773,6 +816,7 @@ impl ContreeBuilder {
         let cpu_chunk_readback_buffers = Some(CpuChunkReadbackBuffers::new(
             device.clone(),
             allocator.clone(),
+            max_node_buffer_size_in_bytes,
         ));
 
         let shared_ray_query_state = Arc::new(RwLock::new(ContreeRayQueryState {
@@ -801,6 +845,7 @@ impl ContreeBuilder {
             contree_cmdbuf,
             node_allocator,
             leaf_allocator,
+            max_node_buffer_size_in_bytes,
             chunk_dim,
             voxel_dim_per_chunk,
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
@@ -1143,7 +1188,7 @@ impl ContreeBuilder {
         let alloc_start = Instant::now();
         let node_allocation = self
             .node_allocator
-            .allocate(MAX_NODE_BUFFER_SIZE_IN_BYTES)
+            .allocate(self.max_node_buffer_size_in_bytes)
             .map_err(|err| anyhow::anyhow!("failed to allocate contree node buffer: {err}"))?;
         let leaf_allocation = self
             .leaf_allocator
@@ -1397,7 +1442,7 @@ impl ContreeBuilder {
         revision: u64,
         source: CpuChunkCacheBuildSource,
     ) {
-        assert!(source.node_size_in_bytes <= MAX_NODE_BUFFER_SIZE_IN_BYTES);
+        assert!(source.node_size_in_bytes <= self.max_node_buffer_size_in_bytes);
         assert!(source.leaf_size_in_bytes <= MAX_LEAF_BUFFER_SIZE_IN_BYTES);
 
         let readback_buffers = self
@@ -1716,14 +1761,18 @@ impl ContreeBuilder {
 }
 
 impl CpuChunkReadbackBuffers {
-    fn new(device: verdarium_vkn::Device, allocator: Allocator) -> Self {
+    fn new(
+        device: verdarium_vkn::Device,
+        allocator: Allocator,
+        max_node_buffer_size_in_bytes: u64,
+    ) -> Self {
         Self {
             node_readback: Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
                 BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
                 MemoryLocation::GpuToCpu,
-                MAX_NODE_BUFFER_SIZE_IN_BYTES,
+                max_node_buffer_size_in_bytes,
             ),
             leaf_readback: Buffer::new_sized(
                 device,
@@ -1788,12 +1837,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pool_sizes_leave_one_rebuild_scratch_slot() {
-        let (node_pool_size, leaf_pool_size) =
-            ContreeBuilder::pool_sizes_for_chunk_dim(UVec3::new(3, 1, 3));
+    fn max_node_buffer_size_matches_full_contree_node_levels() {
+        let node_chunk_size = ContreeBuilder::max_node_buffer_size_in_bytes(UVec3::splat(256));
 
-        assert_eq!(node_pool_size, 100 * 1024 * 1024);
-        assert_eq!(leaf_pool_size, 100 * 1024 * 1024);
+        assert_eq!(
+            node_chunk_size,
+            (64_u64.pow(3) + 16_u64.pow(3) + 4_u64.pow(3) + 1) * 12
+        );
+        assert_eq!(node_chunk_size, 3_195_660);
+    }
+
+    #[test]
+    fn pool_sizes_leave_one_rebuild_scratch_slot() {
+        let pool_sizes =
+            ContreeBuilder::pool_sizes_for_chunk_dim(UVec3::new(3, 1, 3), UVec3::splat(256));
+
+        assert_eq!(pool_sizes.node_chunk_size_in_bytes, 3_195_660);
+        assert_eq!(pool_sizes.leaf_chunk_size_in_bytes, 10 * 1024 * 1024);
+        assert_eq!(pool_sizes.node_pool_size_in_bytes, 10 * 3_195_660);
+        assert_eq!(pool_sizes.leaf_pool_size_in_bytes, 100 * 1024 * 1024);
     }
 }
 
