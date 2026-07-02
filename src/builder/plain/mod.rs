@@ -62,6 +62,7 @@ struct TerrainMoistureDryPushConstants {
     offset: [u32; 4],
     dim: [u32; 4],
     dry_params: [f32; 4],
+    sun_dir_params: [f32; 4],
 }
 
 pub(crate) const EDIT_REMOVAL_CANDIDATE_CAPACITY: u64 = 65_536;
@@ -968,6 +969,8 @@ impl PlainBuilder {
         atlas_offset: UVec3,
         atlas_dim: UVec3,
         dry_probability: f32,
+        sun_dir: Vec3,
+        sunlit_probability_multiplier: f32,
     ) -> bool {
         let chunk_atlas_dim = chunk_atlas_dim(&self.resources);
         let dry_probability = dry_probability.clamp(0.0, 1.0);
@@ -990,6 +993,13 @@ impl PlainBuilder {
             return false;
         }
 
+        let sun_dir = if sun_dir.is_finite() && sun_dir.length_squared() > 0.0 {
+            sun_dir.normalize()
+        } else {
+            Vec3::ZERO
+        };
+        let sunlit_probability_multiplier = sunlit_probability_multiplier.max(1.0);
+
         let dither_seed = self.next_moisture_dither_seed;
         self.next_moisture_dither_seed = self
             .next_moisture_dither_seed
@@ -1000,6 +1010,12 @@ impl PlainBuilder {
             offset: [atlas_offset.x, atlas_offset.y, atlas_offset.z, dither_seed],
             dim: [atlas_dim.x, atlas_dim.y, atlas_dim.z, 0],
             dry_params: [dry_probability, 0.0, 0.0, 0.0],
+            sun_dir_params: [
+                sun_dir.x,
+                sun_dir.y,
+                sun_dir.z,
+                sunlit_probability_multiplier,
+            ],
         };
 
         self.terrain_moisture_dry_ppl.record(

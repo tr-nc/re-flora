@@ -2372,6 +2372,13 @@ impl App {
                     )
                 });
 
+                let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
+                    self.gui_adjustables.time_of_day.value,
+                    self.gui_adjustables.latitude.value,
+                    self.gui_adjustables.season.value,
+                );
+                let sun_dir = get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
+
                 if !self.sprinkler_records.is_empty() {
                     let sprinkler_moisture_gpu_scope =
                         self.gpu_profiler.as_mut().and_then(|profiler| {
@@ -2404,7 +2411,7 @@ impl App {
                             PipelineStage::COMPUTE_SHADER,
                         )
                     });
-                    self.record_terrain_moisture_dry_chunks(cmdbuf);
+                    self.record_terrain_moisture_dry_chunks(cmdbuf, sun_dir);
                     if let Some(scope) = moisture_dry_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
                             profiler.end_scope(
@@ -2417,11 +2424,6 @@ impl App {
                     }
                 }
 
-                let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
-                    self.gui_adjustables.time_of_day.value,
-                    self.gui_adjustables.latitude.value,
-                    self.gui_adjustables.season.value,
-                );
                 let update_shadow_map = self.render_flags.enable_shadows;
                 let wind_gui_params = Self::wind_gui_params(&self.wind_sources);
                 let cloud_gui_params = CloudGuiParams {
@@ -2568,7 +2570,7 @@ impl App {
                         self.flora_tick,
                         FLORA_SPROUT_DELAY_TICKS,
                         FLORA_FULL_GROWTH_TICKS,
-                        get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0),
+                        sun_dir,
                         self.gui_adjustables.sun_size.value,
                         Vec3::new(
                             self.gui_adjustables.sun_color.value.r() as f32 / 255.0,
