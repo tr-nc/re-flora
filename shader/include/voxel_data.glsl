@@ -3,11 +3,14 @@
 
 const uint VOXEL_TYPE_MASK          = 0x0Fu;
 const uint VOXEL_ATLAS_STATE_MASK   = 0xF0u;
-// Moisture intentionally uses only two bits (4..5): 0=dry, 1..3=wetter.
-// Bits 6..7 stay reserved for future soil state such as tilled/fertility flags.
+// Atlas bytes store 4 bits of voxel type, 2 bits of moisture, and 2 bits of fertility.
 const uint VOXEL_MOISTURE_MASK      = 0x30u;
 const uint VOXEL_MOISTURE_SHIFT     = 4u;
 const uint VOXEL_MOISTURE_MAX       = 3u;
+const uint VOXEL_FERTILITY_MASK     = 0xC0u;
+const uint VOXEL_FERTILITY_SHIFT    = 6u;
+const uint VOXEL_FERTILITY_MAX      = 3u;
+const uint VOXEL_FERTILITY_DEFAULT  = 1u;
 const uint VOXEL_NORMAL_BITS_MASK   = 0x1FFFFFu;
 const uint VOXEL_NORMAL_VALID_MASK  = 1u << 29u;
 const uint VOXEL_HASH_MASK          = 0x3u;
@@ -21,18 +24,32 @@ uint voxel_moisture_from_atlas_data(uint voxel_data) {
     return (voxel_data & VOXEL_MOISTURE_MASK) >> VOXEL_MOISTURE_SHIFT;
 }
 
-uint pack_voxel_atlas_data(uint voxel_type, uint moisture) {
+uint voxel_fertility_from_atlas_data(uint voxel_data) {
+    return (voxel_data & VOXEL_FERTILITY_MASK) >> VOXEL_FERTILITY_SHIFT;
+}
+
+uint default_fertility_for_voxel_type(uint voxel_type) {
+    return voxel_type == 0u ? 0u : VOXEL_FERTILITY_DEFAULT;
+}
+
+uint pack_voxel_atlas_data(uint voxel_type, uint moisture, uint fertility) {
     return (voxel_type & VOXEL_TYPE_MASK) |
-           ((moisture & VOXEL_MOISTURE_MAX) << VOXEL_MOISTURE_SHIFT);
+           ((moisture & VOXEL_MOISTURE_MAX) << VOXEL_MOISTURE_SHIFT) |
+           ((fertility & VOXEL_FERTILITY_MAX) << VOXEL_FERTILITY_SHIFT);
 }
 
 uint pack_voxel_atlas_type_clear_state(uint voxel_type) {
-    return pack_voxel_atlas_data(voxel_type, 0u);
+    return pack_voxel_atlas_data(voxel_type, 0u, default_fertility_for_voxel_type(voxel_type));
 }
 
 uint pack_voxel_atlas_moisture_preserve_state(uint old_voxel_data, uint moisture) {
     return (old_voxel_data & ~VOXEL_MOISTURE_MASK) |
            ((moisture & VOXEL_MOISTURE_MAX) << VOXEL_MOISTURE_SHIFT);
+}
+
+uint pack_voxel_atlas_fertility_preserve_state(uint old_voxel_data, uint fertility) {
+    return (old_voxel_data & ~VOXEL_FERTILITY_MASK) |
+           ((fertility & VOXEL_FERTILITY_MAX) << VOXEL_FERTILITY_SHIFT);
 }
 
 uint pack_voxel_atlas_type_preserve_state(uint old_voxel_data, uint voxel_type) {

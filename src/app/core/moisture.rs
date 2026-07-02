@@ -9,6 +9,7 @@ use verdarium_vkn::CommandBuffer;
 const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
 const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;
 const WATERING_BRUSH_MOISTURE_PER_DAB: f32 = 0.68;
+const FERTILIZER_BRUSH_FERTILITY_PER_DAB: f32 = 0.68;
 const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.01;
 const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 
@@ -133,6 +134,16 @@ impl App {
             edit.end,
             edit.radius,
             WATERING_BRUSH_MOISTURE_PER_DAB,
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn add_fertilizer_brush_fertility(&mut self, edit: TerrainBrushEdit) -> Result<()> {
+        self.plain_builder.apply_terrain_fertility_brush(
+            edit.start,
+            edit.end,
+            edit.radius,
+            FERTILIZER_BRUSH_FERTILITY_PER_DAB,
         )?;
         Ok(())
     }

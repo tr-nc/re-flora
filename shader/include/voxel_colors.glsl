@@ -74,4 +74,27 @@ vec3 apply_terrain_moisture_level(vec3 base_color, uint voxel_type, uint moistur
     return clamp(wet_color, vec3(0.0), vec3(1.0));
 }
 
+vec3 apply_terrain_fertility_level(vec3 base_color, uint voxel_type, uint fertility_level) {
+    bool can_show_fertility = voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND;
+    if (!can_show_fertility) {
+        return base_color;
+    }
+
+    uint level = min(fertility_level, VOXEL_FERTILITY_MAX);
+    if (level == 0u) {
+        // Barren: slightly pale and desaturated.
+        vec3 gray = vec3(dot(base_color, vec3(0.299, 0.587, 0.114)));
+        return clamp(mix(base_color, gray, 0.28) * vec3(1.05, 0.98, 0.86), vec3(0.0), vec3(1.0));
+    }
+    if (level == 1u) {
+        // Wild/default soil should read like the normal terrain palette.
+        return base_color;
+    }
+
+    vec3 fertile_orange = vec3(0.95, 0.28, 0.08);
+    float tint = level == 2u ? 0.22 : 0.42;
+    float warmth = level == 2u ? 1.05 : 1.12;
+    return clamp(mix(base_color * warmth, fertile_orange, tint), vec3(0.0), vec3(1.0));
+}
+
 #endif // VOXEL_COLORS_GLSL

@@ -73,7 +73,7 @@ void main() {
     if (target_height > old_height + terrain_smooth_info.deadband_vox) {
         if (voxel_center_y > old_height && voxel_center_y <= target_height) {
             if (voxel_type == VOXEL_TYPE_EMPTY) {
-                imageStore(chunk_atlas, world_voxel_pos, uvec4(pack_voxel_atlas_type_preserve_state(voxel_data.r, VOXEL_TYPE_DIRT), 0, 0, 0));
+                imageStore(chunk_atlas, world_voxel_pos, uvec4(pack_voxel_atlas_type_clear_state(VOXEL_TYPE_DIRT), 0, 0, 0));
                 mark_solid_workgroup(uvec3(world_voxel_pos));
                 atomicAdd(terrain_smooth_result.changed_voxel_count, 1u);
             } else if (is_terrain_voxel(voxel_type) && voxel_type != VOXEL_TYPE_DIRT) {

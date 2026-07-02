@@ -43,7 +43,8 @@ use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
-    SurfaceBuildJob, SurfaceBuilder, VOXEL_MOISTURE_MAX, VOXEL_TYPE_CHERRY_WOOD,
+    SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX,
+    VOXEL_TYPE_CHERRY_WOOD,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -73,8 +74,10 @@ use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_item_panel, draw_placeable_panel, draw_voxel_palette, ItemPanelSlot,
     PlaceablePanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
-    FLOWER_ACCENT, GOLD_ACCENT, HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_HOE_ICON_FALLBACK_PATH,
-    ITEM_PANEL_HOE_ICON_PATH, ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
+    FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT, GOLD_ACCENT, HOE_SLOT_INDEX,
+    HOE_TOOL_ACCENT, ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH, ITEM_PANEL_FERTILIZER_ICON_PATH,
+    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
+    ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
     ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
@@ -165,6 +168,7 @@ pub struct App {
     item_panel_tree_icon: Option<TextureHandle>,
     item_panel_water_icon: Option<TextureHandle>,
     item_panel_soil_inspector_icon: Option<TextureHandle>,
+    item_panel_fertilizer_icon: Option<TextureHandle>,
     player_tools: PlayerToolState,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
@@ -1062,6 +1066,7 @@ impl App {
             item_panel_tree_icon: None,
             item_panel_water_icon: None,
             item_panel_soil_inspector_icon: None,
+            item_panel_fertilizer_icon: None,
             player_tools: PlayerToolState::default(),
             water_particle_handoff_main_thread_ms: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
@@ -1368,6 +1373,37 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_soil_inspector_icon = Some(soil_inspector_texture);
+
+        let fertilizer_path = if std::path::Path::new(ITEM_PANEL_FERTILIZER_ICON_PATH).exists() {
+            ITEM_PANEL_FERTILIZER_ICON_PATH
+        } else {
+            log::warn!(
+                "Item panel icon not found at {}. Falling back to {}",
+                ITEM_PANEL_FERTILIZER_ICON_PATH,
+                ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH
+            );
+            ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH
+        };
+
+        let fertilizer_bytes = std::fs::read(fertilizer_path)
+            .with_context(|| format!("Failed to read item panel icon from {fertilizer_path}"))?;
+        let fertilizer_rgba = image::load_from_memory(&fertilizer_bytes)
+            .with_context(|| format!("Failed to decode item panel icon from {fertilizer_path}"))?
+            .to_rgba8();
+        let fertilizer_size = [
+            fertilizer_rgba.width() as usize,
+            fertilizer_rgba.height() as usize,
+        ];
+        let fertilizer_pixels = fertilizer_rgba.into_raw();
+        let fertilizer_image =
+            ColorImage::from_rgba_unmultiplied(fertilizer_size, &fertilizer_pixels);
+
+        let fertilizer_texture = self.egui_renderer.context().load_texture(
+            "item_panel_fertilizer",
+            fertilizer_image,
+            egui::TextureOptions::NEAREST,
+        );
+        self.item_panel_fertilizer_icon = Some(fertilizer_texture);
         Ok(())
     }
 
@@ -1539,6 +1575,7 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit5) => Some(4),
                         PhysicalKey::Code(KeyCode::Digit6) => Some(5),
                         PhysicalKey::Code(KeyCode::Digit7) => Some(6),
+                        PhysicalKey::Code(KeyCode::Digit8) => Some(7),
                         _ => None,
                     };
 
@@ -1601,6 +1638,10 @@ impl App {
                                 self.player_tools.shovel_dig_held = true;
                                 self.player_tools.last_watering_time = None;
                                 self.try_watering_brush(now);
+                            } else if self.is_fertilizer_selected() && button == MouseButton::Left {
+                                self.player_tools.shovel_dig_held = true;
+                                self.player_tools.last_fertilizing_time = None;
+                                self.try_fertilizer_brush(now);
                             } else if self.is_place_tool_selected() && button == MouseButton::Left {
                                 self.stop_terrain_edit_loop_sound();
                                 self.try_placeable_placement();
@@ -1669,6 +1710,8 @@ impl App {
                         self.try_hoe_trim(now);
                     } else if self.is_watering_selected() && self.player_tools.left_mouse_held {
                         self.try_watering_brush(now);
+                    } else if self.is_fertilizer_selected() && self.player_tools.left_mouse_held {
+                        self.try_fertilizer_brush(now);
                     } else {
                         self.stop_terrain_edit_loop_sound();
                     }
@@ -1725,6 +1768,7 @@ impl App {
                 let item_panel_tree_icon = self.item_panel_tree_icon.clone();
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
+                let item_panel_fertilizer_icon = self.item_panel_fertilizer_icon.clone();
                 let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
                 let selected_placeable_panel_slot = self.player_tools.selected_placeable_panel_slot;
                 let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
@@ -1757,27 +1801,34 @@ impl App {
                     format!("Grow brush: {}", self.current_flora_paint_selection_label())
                 };
                 let placeable_hint = format!(
-                    "Place: {} (Z/X) · Water: 6 + LMB · Soil: 7 · sprinklers {}",
+                    "Place: {} (Z/X) · Water: 6 + LMB · Soil: 7 · Fert: 8 + LMB · sprinklers {}",
                     self.current_placeable_label(),
                     self.sprinkler_records.len()
                 );
                 let soil_inspector_panel_text = if self.is_soil_inspector_selected() {
                     Some(match terrain_edit_hover {
                         Some(hover) if hover.is_editable => {
-                            match self.plain_builder.sample_soil_moisture_sphere(
-                                hover.center,
-                                self.player_tools.terrain_edit_radius,
+                            let radius = self.player_tools.terrain_edit_radius;
+                            match (
+                                self.plain_builder
+                                    .sample_soil_moisture_sphere(hover.center, radius),
+                                self.plain_builder
+                                    .sample_soil_fertility_sphere(hover.center, radius),
                             ) {
-                                Ok(sample) if sample.count > 0 => format!(
-                                    "avg {:.2}/{}\nmin {}  max {}\n{} soil voxels",
-                                    sample.average().unwrap_or(0.0),
+                                (Ok(moisture), Ok(fertility)) if moisture.count > 0 => format!(
+                                    "moist avg {:.2}/{}  min {} max {}\nfert avg {:.2}/{}  min {} max {}\n{} soil voxels",
+                                    moisture.average().unwrap_or(0.0),
                                     VOXEL_MOISTURE_MAX,
-                                    sample.min,
-                                    sample.max,
-                                    sample.count
+                                    moisture.min,
+                                    moisture.max,
+                                    fertility.average().unwrap_or(0.0),
+                                    VOXEL_FERTILITY_MAX,
+                                    fertility.min,
+                                    fertility.max,
+                                    moisture.count
                                 ),
-                                Ok(_) => "no soil in range".to_string(),
-                                Err(err) => {
+                                (Ok(_), Ok(_)) => "no soil in range".to_string(),
+                                (Err(err), _) | (_, Err(err)) => {
                                     log::error!("Soil inspector sample failed: {}", err);
                                     "sample failed".to_string()
                                 }
@@ -2008,6 +2059,14 @@ impl App {
                                 key_hint: "7",
                                 icon: item_panel_soil_inspector_icon.as_ref(),
                                 accent: SOIL_INSPECTOR_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: FERTILIZER_SLOT_INDEX,
+                                label: "Fert",
+                                key_hint: "8",
+                                icon: item_panel_fertilizer_icon.as_ref(),
+                                accent: FERTILIZER_TOOL_ACCENT,
                                 enabled: true,
                             },
                         ];

@@ -1,8 +1,8 @@
 use super::placeables::PlaceableKind;
 use super::ui_style::{
-    HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT, PLACEABLE_PANEL_SLOT_COUNT, SHOVEL_SLOT_INDEX,
-    SMOOTH_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX, STAFF_SLOT_INDEX, TREE_SLOT_INDEX,
-    WATERING_SLOT_INDEX,
+    FERTILIZER_SLOT_INDEX, HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT, PLACEABLE_PANEL_SLOT_COUNT,
+    SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX, STAFF_SLOT_INDEX,
+    TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
 };
 use super::App;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
@@ -459,6 +459,7 @@ impl App {
             self.player_tools.left_mouse_held = state == ElementState::Pressed;
             self.reset_staff_regen_stroke_tracking();
             self.reset_watering_stroke_tracking();
+            self.reset_fertilizing_stroke_tracking();
             if state == ElementState::Pressed {
                 self.player_tools.last_staff_regen_time = None;
             }
@@ -479,6 +480,7 @@ impl App {
             self.stop_terrain_edit_loop_sound();
             self.reset_staff_stroke_tracking();
             self.reset_watering_stroke_tracking();
+            self.reset_fertilizing_stroke_tracking();
         }
     }
 
@@ -497,6 +499,10 @@ impl App {
         self.player_tools.last_watering_center = None;
     }
 
+    fn reset_fertilizing_stroke_tracking(&mut self) {
+        self.player_tools.last_fertilizing_center = None;
+    }
+
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
         if slot_idx < ITEM_PANEL_SLOT_COUNT
             && slot_idx != self.player_tools.selected_item_panel_slot
@@ -504,6 +510,7 @@ impl App {
             self.player_tools.selected_item_panel_slot = slot_idx;
             self.reset_staff_stroke_tracking();
             self.reset_watering_stroke_tracking();
+            self.reset_fertilizing_stroke_tracking();
             self.play_item_panel_scroll_sound();
         }
     }
@@ -596,6 +603,7 @@ impl App {
             || self.is_place_tool_selected()
             || self.is_watering_selected()
             || self.is_soil_inspector_selected()
+            || self.is_fertilizer_selected()
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
@@ -604,7 +612,7 @@ impl App {
                 PlaceableKind::Tree => TerrainEditPreviewShape::TreeBillboard,
                 PlaceableKind::Sprinkler => TerrainEditPreviewShape::SurfaceCircle,
             }
-        } else if self.is_watering_selected() {
+        } else if self.is_watering_selected() || self.is_fertilizer_selected() {
             TerrainEditPreviewShape::Sphere
         } else {
             TerrainEditPreviewShape::Sphere
@@ -637,6 +645,10 @@ impl App {
 
     pub(super) fn is_soil_inspector_selected(&self) -> bool {
         self.player_tools.selected_item_panel_slot == SOIL_INSPECTOR_SLOT_INDEX
+    }
+
+    pub(super) fn is_fertilizer_selected(&self) -> bool {
+        self.player_tools.selected_item_panel_slot == FERTILIZER_SLOT_INDEX
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {
@@ -1256,6 +1268,63 @@ impl App {
                 self.reset_watering_stroke_tracking();
                 log::error!(
                     "Watering brush attempt failed during terrain query: {}",
+                    err
+                );
+            }
+        }
+    }
+
+    pub(super) fn try_fertilizer_brush(&mut self, now: Instant) {
+        if !self.terrain_edit_pointer_available() || !self.is_fertilizer_selected() {
+            self.stop_terrain_edit_loop_sound();
+            self.reset_fertilizing_stroke_tracking();
+            return;
+        }
+
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) => {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_fertilizing_time = Some(now);
+                    self.reset_fertilizing_stroke_tracking();
+                    return;
+                }
+                self.start_terrain_edit_loop_sound(center);
+
+                if let Some(last_fertilize) = self.player_tools.last_fertilizing_time {
+                    if now.duration_since(last_fertilize) < super::SHOVEL_DIG_INTERVAL {
+                        return;
+                    }
+                }
+
+                let edit = TerrainBrushEdit::from_previous_center(
+                    self.player_tools.last_fertilizing_center,
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                );
+                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_fertilizing_time = Some(now);
+                    self.reset_fertilizing_stroke_tracking();
+                    return;
+                }
+                if let Err(err) = self.add_fertilizer_brush_fertility(edit) {
+                    log::error!("Failed to apply fertilizer brush: {}", err);
+                    self.reset_fertilizing_stroke_tracking();
+                    return;
+                }
+                self.player_tools.last_fertilizing_time = Some(now);
+                self.player_tools.last_fertilizing_center = Some(center);
+            }
+            Ok(None) => {
+                self.stop_terrain_edit_loop_sound();
+                self.player_tools.last_fertilizing_time = Some(now);
+                self.reset_fertilizing_stroke_tracking();
+            }
+            Err(err) => {
+                self.reset_fertilizing_stroke_tracking();
+                log::error!(
+                    "Fertilizer brush attempt failed during terrain query: {}",
                     err
                 );
             }

@@ -87,7 +87,8 @@ uint load_voxel_type(ivec3 p) {
 }
 
 uint atlas_data_for_fill(uint old_voxel_data, uint fill_voxel_type) {
-    if (fill_voxel_type == VOXEL_TYPE_DIRT || fill_voxel_type == VOXEL_TYPE_SAND) {
+    uint old_voxel_type = voxel_type_from_atlas_data(old_voxel_data);
+    if ((fill_voxel_type == VOXEL_TYPE_DIRT || fill_voxel_type == VOXEL_TYPE_SAND) && old_voxel_type != VOXEL_TYPE_EMPTY) {
         return pack_voxel_atlas_type_preserve_state(old_voxel_data, fill_voxel_type);
     }
     return pack_voxel_atlas_type_clear_state(fill_voxel_type);
