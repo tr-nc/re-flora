@@ -600,6 +600,19 @@ impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
 }
 
 impl ContreeBuilder {
+    pub fn pool_sizes_for_chunk_dim(chunk_dim: UVec3) -> (u64, u64) {
+        let chunk_count = u64::from(chunk_dim.x)
+            .saturating_mul(u64::from(chunk_dim.y))
+            .saturating_mul(u64::from(chunk_dim.z));
+        // One extra slot lets a chunk rebuild preallocate its replacement while
+        // the previous chunk allocation is still resident.
+        let allocation_slots = chunk_count.saturating_add(1);
+        (
+            allocation_slots.saturating_mul(MAX_NODE_BUFFER_SIZE_IN_BYTES),
+            allocation_slots.saturating_mul(MAX_LEAF_BUFFER_SIZE_IN_BYTES),
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         vulkan_ctx: VulkanContext,
@@ -1768,6 +1781,20 @@ fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCac
         }),
         readback_buffers: job.readback_buffers,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pool_sizes_leave_one_rebuild_scratch_slot() {
+        let (node_pool_size, leaf_pool_size) =
+            ContreeBuilder::pool_sizes_for_chunk_dim(UVec3::new(3, 1, 3));
+
+        assert_eq!(node_pool_size, 100 * 1024 * 1024);
+        assert_eq!(leaf_pool_size, 100 * 1024 * 1024);
+    }
 }
 
 fn query_terrain_any_hit(
