@@ -44,7 +44,7 @@ use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX,
-    VOXEL_TYPE_CHERRY_WOOD,
+    VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -594,21 +594,51 @@ impl App {
         (min, max)
     }
 
-    fn apply_debug_audio_wall(&mut self) -> Result<()> {
-        let (wall_min, wall_max) = Self::debug_audio_wall_bounds();
-        let wall = Cuboid::from_min_max(wall_min, wall_max);
-        let wall_aabb = Aabb3::new(wall_min, wall_max);
-        let bvh_nodes = build_bvh(&[wall_aabb], &[0]).map_err(anyhow::Error::msg)?;
+    fn debug_soil_percolation_block_bounds() -> (Vec3, Vec3) {
+        // Dirt test block for moisture experiments: a 30x30 voxel column placed near the
+        // synthetic wood obstacle. The top is chosen to sit roughly 50 voxels above the local
+        // generated terrain, leaving a visible face while the lower portion stays embedded in soil.
+        const FOOTPRINT_VOXELS: f32 = 30.0;
+        const BASE_Y_VOXELS: f32 = 80.0;
+        const TOP_Y_VOXELS: f32 = 200.0;
 
-        let result = self.plain_builder.chunk_modify_cuboids_with_voxel_type(
-            &bvh_nodes,
-            &[wall],
-            VOXEL_TYPE_CHERRY_WOOD,
+        let atlas_dim = (CHUNK_DIM * VOXEL_DIM_PER_CHUNK).as_vec3();
+        let half_footprint = (FOOTPRINT_VOXELS * 0.5)
+            .min(atlas_dim.x * 0.5)
+            .min(atlas_dim.z * 0.5);
+        let center_xz = Vec3::new(atlas_dim.x * 0.68, 0.0, atlas_dim.z * 0.84);
+        let top_y = TOP_Y_VOXELS.min(atlas_dim.y).max(1.0);
+        let base_y = BASE_Y_VOXELS.min(top_y - 1.0).max(0.0);
+        let min = Vec3::new(
+            (center_xz.x - half_footprint).max(0.0),
+            base_y,
+            (center_xz.z - half_footprint).max(0.0),
         );
-        if result.is_ok() {
-            self.request_vsm_history_reset();
-        }
-        result
+        let max = Vec3::new(
+            (center_xz.x + half_footprint).min(atlas_dim.x),
+            top_y,
+            (center_xz.z + half_footprint).min(atlas_dim.z),
+        );
+        (min, max)
+    }
+
+    fn apply_debug_cuboid(&mut self, min: Vec3, max: Vec3, voxel_type: u32) -> Result<()> {
+        let cuboid = Cuboid::from_min_max(min, max);
+        let aabb = Aabb3::new(min, max);
+        let bvh_nodes = build_bvh(&[aabb], &[0]).map_err(anyhow::Error::msg)?;
+        self.plain_builder
+            .chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &[cuboid], voxel_type)
+    }
+
+    fn apply_debug_startup_materials(&mut self) -> Result<()> {
+        let (wall_min, wall_max) = Self::debug_audio_wall_bounds();
+        self.apply_debug_cuboid(wall_min, wall_max, VOXEL_TYPE_CHERRY_WOOD)?;
+
+        let (soil_min, soil_max) = Self::debug_soil_percolation_block_bounds();
+        self.apply_debug_cuboid(soil_min, soil_max, VOXEL_TYPE_DIRT)?;
+
+        self.request_vsm_history_reset();
+        Ok(())
     }
 
     fn master_volume_gain_db(master_volume_db: f32, mute_audio_output: bool) -> f32 {
