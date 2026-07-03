@@ -1057,12 +1057,16 @@ impl PlainBuilder {
         atlas_dim: UVec3,
         spread_probability: f32,
         mobility_exponent: f32,
+        downward_multiplier: f32,
+        upward_multiplier: f32,
         axis: u32,
         pair_parity: u32,
     ) -> bool {
         let chunk_atlas_dim = chunk_atlas_dim(&self.resources);
         let spread_probability = spread_probability.clamp(0.0, 1.0);
         let mobility_exponent = mobility_exponent.max(1.0);
+        let downward_multiplier = downward_multiplier.max(0.0);
+        let upward_multiplier = upward_multiplier.max(0.0);
         if spread_probability <= 0.0 || atlas_dim == UVec3::ZERO || chunk_atlas_dim == UVec3::ZERO {
             return false;
         }
@@ -1091,7 +1095,12 @@ impl PlainBuilder {
         let push_constants = TerrainMoistureSpreadPushConstants {
             offset: [atlas_offset.x, atlas_offset.y, atlas_offset.z, dither_seed],
             dim: [atlas_dim.x, atlas_dim.y, atlas_dim.z, 0],
-            spread_params: [spread_probability, mobility_exponent, 0.0, 0.0],
+            spread_params: [
+                spread_probability,
+                mobility_exponent,
+                downward_multiplier,
+                upward_multiplier,
+            ],
             phase_params: [axis.min(2), pair_parity & 1, 0, 0],
         };
 

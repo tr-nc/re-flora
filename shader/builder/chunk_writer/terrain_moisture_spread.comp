@@ -65,6 +65,8 @@ void main() {
     uint seed = pc.offset.w;
     float spread_probability = clamp(pc.spread_params.x, 0.0, 1.0);
     float mobility_exponent = max(pc.spread_params.y, 1.0);
+    float downward_multiplier = max(pc.spread_params.z, 0.0);
+    float upward_multiplier = max(pc.spread_params.w, 0.0);
     if (spread_probability <= 0.0) {
         return;
     }
@@ -103,7 +105,23 @@ void main() {
     // voxels still spread quickly.
     float source_saturation = float(source_moisture) / float(VOXEL_MOISTURE_MAX);
     float unsaturated_mobility = pow(source_saturation, mobility_exponent);
-    float transfer_probability = spread_probability * gradient_factor * unsaturated_mobility;
+
+    // Vertical flow approximates gravity-driven percolation plus weaker capillary rise.
+    // The pair is atlas_u -> atlas_u + axis_offset(axis), so on the Y axis b is above a.
+    // Level-1 residual moisture remains nearly unbiased; wetter/free water is biased down.
+    float directional_bias = 1.0;
+    if (axis == 1u) {
+        float free_water = clamp((float(source_moisture) - 1.0) / max(float(VOXEL_MOISTURE_MAX - 1u), 1.0), 0.0, 1.0);
+        bool source_is_above = b_moisture > a_moisture;
+        float saturated_directional_bias = source_is_above ? downward_multiplier : upward_multiplier;
+        directional_bias = mix(1.0, saturated_directional_bias, free_water);
+    }
+
+    float transfer_probability = clamp(
+        spread_probability * gradient_factor * unsaturated_mobility * directional_bias,
+        0.0,
+        1.0
+    );
     if (moisture_hash01(atlas_u ^ (neighbour_u * 1664525u), seed) >= transfer_probability) {
         return;
     }

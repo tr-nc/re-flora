@@ -16,7 +16,10 @@ const TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER: f32 = 8.0;
 const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 const TERRAIN_MOISTURE_SPREAD_PROBABILITY_PER_PAIR_VISIT: f32 = 0.45;
 const TERRAIN_MOISTURE_SPREAD_MOBILITY_EXPONENT: f32 = 2.0;
-const TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT: u32 = 6;
+const TERRAIN_MOISTURE_SPREAD_DOWNWARD_MULTIPLIER: f32 = 2.5;
+const TERRAIN_MOISTURE_SPREAD_UPWARD_MULTIPLIER: f32 = 0.45;
+const TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS: u32 = 1;
+const TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT: u32 = 2;
 const TERRAIN_MOISTURE_SPREAD_CHUNKS_PER_FRAME: usize = 1;
 
 impl App {
@@ -46,6 +49,8 @@ impl App {
                 VOXEL_DIM_PER_CHUNK,
                 TERRAIN_MOISTURE_SPREAD_PROBABILITY_PER_PAIR_VISIT,
                 TERRAIN_MOISTURE_SPREAD_MOBILITY_EXPONENT,
+                TERRAIN_MOISTURE_SPREAD_DOWNWARD_MULTIPLIER,
+                TERRAIN_MOISTURE_SPREAD_UPWARD_MULTIPLIER,
                 axis,
                 pair_parity,
             ) {
@@ -59,12 +64,14 @@ impl App {
                     .unwrap()
                     .record("terrain_moisture_spread_record", spread_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_SPREAD] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} mobility_exponent={:.2} axis={} pair_parity={} next_cursor={} record_ms={:.3}",
+                    "[PERF][MOISTURE_SPREAD] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} mobility_exponent={:.2} downward_multiplier={:.2} upward_multiplier={:.2} axis={} pair_parity={} next_cursor={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
                     TERRAIN_MOISTURE_SPREAD_PROBABILITY_PER_PAIR_VISIT,
                     TERRAIN_MOISTURE_SPREAD_MOBILITY_EXPONENT,
+                    TERRAIN_MOISTURE_SPREAD_DOWNWARD_MULTIPLIER,
+                    TERRAIN_MOISTURE_SPREAD_UPWARD_MULTIPLIER,
                     axis,
                     pair_parity,
                     self.moisture_spread_chunk_cursor,
@@ -144,8 +151,8 @@ impl App {
         self.moisture_spread_chunk_cursor = (task_index + 1) % task_count;
         let chunk_index = task_index % chunk_count;
         let pair_phase = task_index / chunk_count;
-        let axis = pair_phase / 2;
-        let pair_parity = pair_phase % 2;
+        let axis = TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS;
+        let pair_parity = pair_phase % TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT;
         Some((
             Self::terrain_moisture_chunk_from_index(chunk_index),
             axis,
