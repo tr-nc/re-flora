@@ -1,12 +1,18 @@
-use crate::flora::construct::{gen_ember_bloom, gen_lavender, gen_short_grass, gen_tall_grass};
+use crate::flora::construct::{
+    gen_carrot, gen_ember_bloom, gen_lavender, gen_short_grass, gen_tall_grass,
+};
 use crate::tracer::Vertex;
 use anyhow::Result;
 
-pub const MAX_FLORA_SPECIES: usize = 4;
+pub const MAX_FLORA_SPECIES: usize = 5;
 pub const LAVENDER_SPECIES_INDEX: u32 = 2;
 pub const EMBER_BLOOM_SPECIES_INDEX: u32 = 3;
-pub const AUTHORED_PLANT_SPECIES_INDICES: [u32; 2] =
-    [LAVENDER_SPECIES_INDEX, EMBER_BLOOM_SPECIES_INDEX];
+pub const CARROT_SPECIES_INDEX: u32 = 4;
+pub const AUTHORED_PLANT_SPECIES_INDICES: [u32; 3] = [
+    LAVENDER_SPECIES_INDEX,
+    EMBER_BLOOM_SPECIES_INDEX,
+    CARROT_SPECIES_INDEX,
+];
 pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
 
 pub type MeshGeneratorFn = fn(bool) -> Result<(Vec<Vertex>, Vec<u32>)>;
@@ -61,6 +67,13 @@ pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaint
     SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS,
+    1,
+);
+
+pub const CARROT_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
+    SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
+    SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
+    14,
     1,
 );
 
@@ -128,6 +141,14 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         gen_ember_bloom,
         EMBER_BLOOM_PAINT_BRUSH_SETTINGS,
     ),
+    FloraSpeciesDesc::new(
+        "carrot",
+        "Carrot",
+        [232, 106, 35],
+        [64, 185, 66],
+        gen_carrot,
+        CARROT_PAINT_BRUSH_SETTINGS,
+    ),
 ];
 
 pub fn species() -> &'static [FloraSpeciesDesc] {
@@ -163,6 +184,7 @@ impl FloraPaintSelection {
 
 pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
     FloraPaintSelection::GrassMix,
+    FloraPaintSelection::Species(CARROT_SPECIES_INDEX),
     FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX),
     FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX),
 ];
