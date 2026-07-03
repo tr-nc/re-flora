@@ -74,9 +74,9 @@ use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_item_panel, draw_placeable_panel, draw_voxel_palette, ItemPanelSlot,
     PlaceablePanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
-    FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT, GOLD_ACCENT, HOE_SLOT_INDEX,
-    HOE_TOOL_ACCENT, ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH, ITEM_PANEL_FERTILIZER_ICON_PATH,
-    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
+    FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT, GOLD_ACCENT, HAND_SLOT_INDEX,
+    HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH,
+    ITEM_PANEL_FERTILIZER_ICON_PATH, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
@@ -1593,14 +1593,17 @@ impl App {
                         self.select_item_panel_slot(slot_idx);
                     }
 
+                    if event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
+                        self.clear_selected_tool();
+                    }
+
                     let target_placeable_slot = match event.physical_key {
                         PhysicalKey::Code(KeyCode::KeyZ) => Some(TREE_PLACEABLE_SLOT_INDEX),
                         PhysicalKey::Code(KeyCode::KeyX) => Some(SPRINKLER_PLACEABLE_SLOT_INDEX),
                         _ => None,
                     };
                     if let Some(slot_idx) = target_placeable_slot {
-                        self.select_placeable_panel_slot(slot_idx);
-                        self.select_item_panel_slot(TREE_SLOT_INDEX);
+                        self.select_placeable_tool(slot_idx);
                     }
                 }
 
@@ -1811,7 +1814,7 @@ impl App {
                     format!("Grow brush: {}", self.current_flora_paint_selection_label())
                 };
                 let placeable_hint = format!(
-                    "Place: {} (Z/X) · Water: 6 + LMB · Soil: 7 · Fert: 8 + LMB · sprinklers {}",
+                    "Place: {} (Z/X or side bar) · Water: 6 + LMB · Soil: 7 · Fert: 8 + LMB · sprinklers {}",
                     self.current_placeable_label(),
                     self.sprinkler_records.len()
                 );
@@ -2016,9 +2019,17 @@ impl App {
 
                         let item_panel_slots = [
                             ItemPanelSlot {
+                                index: HAND_SLOT_INDEX,
+                                label: "Hand",
+                                key_hint: "1",
+                                icon: None,
+                                accent: SAGE_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
                                 index: STAFF_SLOT_INDEX,
                                 label: "Grow",
-                                key_hint: "1",
+                                key_hint: "2",
                                 icon: item_panel_staff_icon.as_ref(),
                                 accent: STAFF_TOOL_ACCENT,
                                 enabled: true,
@@ -2026,7 +2037,7 @@ impl App {
                             ItemPanelSlot {
                                 index: SHOVEL_SLOT_INDEX,
                                 label: "Dig",
-                                key_hint: "2",
+                                key_hint: "3",
                                 icon: item_panel_shovel_icon.as_ref(),
                                 accent: SHOVEL_TOOL_ACCENT,
                                 enabled: true,
@@ -2034,7 +2045,7 @@ impl App {
                             ItemPanelSlot {
                                 index: SMOOTH_SLOT_INDEX,
                                 label: "Smooth",
-                                key_hint: "3",
+                                key_hint: "4",
                                 icon: item_panel_smooth_icon.as_ref(),
                                 accent: SMOOTH_TOOL_ACCENT,
                                 enabled: true,
@@ -2042,17 +2053,9 @@ impl App {
                             ItemPanelSlot {
                                 index: HOE_SLOT_INDEX,
                                 label: "Trim",
-                                key_hint: "4",
+                                key_hint: "5",
                                 icon: item_panel_hoe_icon.as_ref(),
                                 accent: HOE_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
-                                index: TREE_SLOT_INDEX,
-                                label: "Place",
-                                key_hint: "5",
-                                icon: item_panel_tree_icon.as_ref(),
-                                accent: TREE_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
@@ -2083,7 +2086,7 @@ impl App {
                         let item_panel_response = draw_item_panel(
                             ctx,
                             &item_panel_slots,
-                            selected_item_panel_slot,
+                            selected_item_panel_slot.or(Some(HAND_SLOT_INDEX)),
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
@@ -2110,7 +2113,7 @@ impl App {
                             ctx,
                             &placeable_panel_slots,
                             selected_placeable_panel_slot,
-                            selected_item_panel_slot == TREE_SLOT_INDEX,
+                            selected_item_panel_slot == Some(TREE_SLOT_INDEX),
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_placeable_panel_slot = placeable_panel_response.clicked_slot;
@@ -2258,8 +2261,7 @@ impl App {
                     self.select_item_panel_slot(slot_idx);
                 }
                 if let Some(slot_idx) = clicked_placeable_panel_slot {
-                    self.select_placeable_panel_slot(slot_idx);
-                    self.select_item_panel_slot(TREE_SLOT_INDEX);
+                    self.select_placeable_tool(slot_idx);
                 }
                 if self.gui_wants_keyboard_input() {
                     self.reset_camera_movement_input();
