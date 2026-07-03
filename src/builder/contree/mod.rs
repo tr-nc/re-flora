@@ -1859,12 +1859,12 @@ mod tests {
     #[test]
     fn pool_sizes_leave_one_rebuild_scratch_slot() {
         let pool_sizes =
-            ContreeBuilder::pool_sizes_for_chunk_dim(UVec3::new(3, 1, 3), UVec3::splat(256));
+            ContreeBuilder::pool_sizes_for_chunk_dim(UVec3::new(3, 2, 3), UVec3::splat(256));
 
         assert_eq!(pool_sizes.node_chunk_size_in_bytes, 3_195_660);
         assert_eq!(pool_sizes.leaf_chunk_size_in_bytes, 10 * 1024 * 1024);
-        assert_eq!(pool_sizes.node_pool_size_in_bytes, 10 * 3_195_660);
-        assert_eq!(pool_sizes.leaf_pool_size_in_bytes, 100 * 1024 * 1024);
+        assert_eq!(pool_sizes.node_pool_size_in_bytes, 19 * 3_195_660);
+        assert_eq!(pool_sizes.leaf_pool_size_in_bytes, 190 * 1024 * 1024);
     }
 }
 

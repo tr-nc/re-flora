@@ -194,6 +194,8 @@ pub struct GlassMeshResources {
     pub box_max: Vec3,
 }
 
+pub const TERRARIUM_GLASS_TOP_PADDING_WORLD: f32 = 0.08;
+
 impl GlassMeshResources {
     const PART_PANE: u32 = 0;
     const PART_EDGE_BAND: u32 = 1;
@@ -201,13 +203,12 @@ impl GlassMeshResources {
     const PART_CORNER_BEVEL: u32 = 3;
     const VOXELS_PER_CHUNK_AXIS: f32 = 256.0;
     const GLASS_THICKNESS_VOXELS: f32 = 2.0;
-    const GLASS_TOP_PADDING_WORLD: f32 = 0.08;
 
     pub fn new(device: Device, allocator: Allocator, chunk_bound: UAabb3) -> Self {
         let extent = chunk_bound.get_extent();
         let glass_thickness_world = Self::GLASS_THICKNESS_VOXELS / Self::VOXELS_PER_CHUNK_AXIS;
         let inset = glass_thickness_world;
-        let top_padding = Self::GLASS_TOP_PADDING_WORLD;
+        let top_padding = TERRARIUM_GLASS_TOP_PADDING_WORLD;
         let box_min = Vec3::new(-inset, 0.0, -inset);
         let box_max = Vec3::new(
             extent.width as f32 + inset,

@@ -515,10 +515,9 @@ impl App {
         const MAX_SPAWN_XZ_RETRIES: usize = 16;
         const STEP_LEN: f32 = crate::particles::emitters::WORM_STEP_LEN;
         const RAY_EPSILON: f32 = 0.02;
-        // Match the terrarium glass box top (chunk height 1.0 + top_padding 0.08).
-        const BUTTERFLY_MAX_Y: f32 = 1.08;
-
+        // Match the terrarium glass box top.
         let map_size = super::CHUNK_DIM.as_vec3();
+        let butterfly_max_y = map_size.y + crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
 
         let mut all_handles: Vec<ParticleHandle> = Vec::new();
         let mut all_positions: Vec<Vec3> = Vec::new();
@@ -669,7 +668,7 @@ impl App {
                 let out_of_bounds = next_pos.x < 0.0
                     || next_pos.x > map_size.x
                     || next_pos.y < 0.0
-                    || next_pos.y > BUTTERFLY_MAX_Y
+                    || next_pos.y > butterfly_max_y
                     || next_pos.z < 0.0
                     || next_pos.z > map_size.z;
 
