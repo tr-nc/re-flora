@@ -65,6 +65,15 @@ struct TerrainMoistureDryPushConstants {
     sun_dir_params: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct TerrainMoistureSpreadPushConstants {
+    offset: [u32; 4],
+    dim: [u32; 4],
+    spread_params: [f32; 4],
+    phase_params: [u32; 4],
+}
+
 pub(crate) const EDIT_REMOVAL_CANDIDATE_CAPACITY: u64 = 65_536;
 pub(crate) const CHUNK_SOLID_SAMPLE_CAPACITY: u64 = 65_536;
 pub(crate) const TERRAIN_SMOOTH_MBO_HISTOGRAM_BINS: u32 = 1024;
@@ -325,6 +334,7 @@ pub struct PlainBuilder {
     terrain_moisture_brush_ppl: ComputePipeline,
     terrain_fertility_brush_ppl: ComputePipeline,
     terrain_moisture_dry_ppl: ComputePipeline,
+    terrain_moisture_spread_ppl: ComputePipeline,
     voxel_property_sample_ppl: ComputePipeline,
     chunk_modify_ppl: ComputePipeline,
     chunk_modify_sample_ppl: ComputePipeline,
@@ -479,6 +489,13 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let terrain_moisture_spread_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_moisture_spread.comp",
+            "main",
+        )
+        .unwrap();
         let voxel_property_sample_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
@@ -538,6 +555,8 @@ impl PlainBuilder {
             ComputePipeline::new(device, &terrain_fertility_brush_sm, &pool, &[&resources]);
         let terrain_moisture_dry_ppl =
             ComputePipeline::new(device, &terrain_moisture_dry_sm, &pool, &[&resources]);
+        let terrain_moisture_spread_ppl =
+            ComputePipeline::new(device, &terrain_moisture_spread_sm, &pool, &[&resources]);
         let voxel_property_sample_ppl =
             ComputePipeline::new(device, &voxel_property_sample_sm, &pool, &[&resources]);
         let chunk_modify_ppl = ComputePipeline::new(device, &chunk_modify_sm, &pool, &[&resources]);
@@ -577,6 +596,7 @@ impl PlainBuilder {
             terrain_moisture_brush_ppl,
             terrain_fertility_brush_ppl,
             terrain_moisture_dry_ppl,
+            terrain_moisture_spread_ppl,
             voxel_property_sample_ppl,
             chunk_modify_ppl,
             chunk_modify_sample_ppl,
@@ -1019,6 +1039,59 @@ impl PlainBuilder {
         };
 
         self.terrain_moisture_dry_ppl.record(
+            cmdbuf,
+            Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+        true
+    }
+
+    pub fn record_terrain_moisture_spread_region(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        atlas_offset: UVec3,
+        atlas_dim: UVec3,
+        spread_probability: f32,
+        axis: u32,
+        pair_parity: u32,
+    ) -> bool {
+        let chunk_atlas_dim = chunk_atlas_dim(&self.resources);
+        let spread_probability = spread_probability.clamp(0.0, 1.0);
+        if spread_probability <= 0.0 || atlas_dim == UVec3::ZERO || chunk_atlas_dim == UVec3::ZERO {
+            return false;
+        }
+        if atlas_offset.x > chunk_atlas_dim.x
+            || atlas_offset.y > chunk_atlas_dim.y
+            || atlas_offset.z > chunk_atlas_dim.z
+            || atlas_dim.x > chunk_atlas_dim.x - atlas_offset.x
+            || atlas_dim.y > chunk_atlas_dim.y - atlas_offset.y
+            || atlas_dim.z > chunk_atlas_dim.z - atlas_offset.z
+        {
+            log::warn!(
+                "Skipping terrain moisture spread region outside atlas: offset={:?} dim={:?} atlas={:?}",
+                atlas_offset,
+                atlas_dim,
+                chunk_atlas_dim,
+            );
+            return false;
+        }
+
+        let dither_seed = self.next_moisture_dither_seed;
+        self.next_moisture_dither_seed = self
+            .next_moisture_dither_seed
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223)
+            .max(1);
+        let push_constants = TerrainMoistureSpreadPushConstants {
+            offset: [atlas_offset.x, atlas_offset.y, atlas_offset.z, dither_seed],
+            dim: [atlas_dim.x, atlas_dim.y, atlas_dim.z, 0],
+            spread_params: [spread_probability, 0.0, 0.0, 0.0],
+            phase_params: [axis.min(2), pair_parity & 1, 0, 0],
+        };
+
+        self.terrain_moisture_spread_ppl.record(
             cmdbuf,
             Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
             Some(bytemuck::bytes_of(&push_constants)),

@@ -175,6 +175,7 @@ pub struct App {
     flora_tick: u32,
     flora_tick_accumulator: f32,
     moisture_dry_chunk_cursor: u32,
+    moisture_spread_chunk_cursor: u32,
     flora_paint_dab_serial: u32,
     growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
@@ -1082,6 +1083,7 @@ impl App {
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
             moisture_dry_chunk_cursor: 0,
+            moisture_spread_chunk_cursor: 0,
             flora_paint_dab_serial: 0,
             growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
@@ -2403,6 +2405,29 @@ impl App {
                         });
                     self.record_sprinkler_moisture(cmdbuf, frame_delta_time);
                     if let Some(scope) = sprinkler_moisture_gpu_scope {
+                        if let Some(profiler) = self.gpu_profiler.as_mut() {
+                            profiler.end_scope(
+                                frame_slot,
+                                cmdbuf,
+                                scope,
+                                PipelineStage::COMPUTE_SHADER,
+                            );
+                        }
+                    }
+                }
+
+                if self.has_terrain_moisture_spread_chunks() {
+                    let moisture_spread_gpu_scope =
+                        self.gpu_profiler.as_mut().and_then(|profiler| {
+                            profiler.begin_scope(
+                                frame_slot,
+                                cmdbuf,
+                                "moisture_spread.pass",
+                                PipelineStage::COMPUTE_SHADER,
+                            )
+                        });
+                    self.record_terrain_moisture_spread_chunks(cmdbuf);
+                    if let Some(scope) = moisture_spread_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
                             profiler.end_scope(
                                 frame_slot,
