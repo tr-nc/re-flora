@@ -524,8 +524,6 @@ const ITEM_PANEL_SCROLL_SFX_PATH: &str =
     "assets/sfx/MECHSwtch_Game Boy Advance SP, B Button, On 05_SARM_BTNS.wav";
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
-const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 384.0);
-const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 472.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const FLORA_GROWTH_SPEED_DIVISOR: u32 = 10;
 // Trimmed grasses should read as clipped, not newly sprouted: the shader's floor-based
@@ -587,9 +585,19 @@ impl ActiveVoxelType {
 }
 
 impl App {
+    fn debug_audio_wall_bounds() -> (Vec3, Vec3) {
+        // Temporary synthetic obstacle for spatial-audio experiments. Bounds are derived from the
+        // atlas dimensions so changing CHUNK_DIM does not require hand-updating debug geometry.
+        let atlas_dim = (CHUNK_DIM * VOXEL_DIM_PER_CHUNK).as_vec3();
+        let min = Vec3::new(atlas_dim.x * 0.58, 0.0, atlas_dim.z * 0.75);
+        let max = (min + Vec3::new(20.0, atlas_dim.y * 0.5, 88.0)).min(atlas_dim);
+        (min, max)
+    }
+
     fn apply_debug_audio_wall(&mut self) -> Result<()> {
-        let wall = Cuboid::from_min_max(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
-        let wall_aabb = Aabb3::new(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
+        let (wall_min, wall_max) = Self::debug_audio_wall_bounds();
+        let wall = Cuboid::from_min_max(wall_min, wall_max);
+        let wall_aabb = Aabb3::new(wall_min, wall_max);
         let bvh_nodes = build_bvh(&[wall_aabb], &[0]).map_err(anyhow::Error::msg)?;
 
         let result = self.plain_builder.chunk_modify_cuboids_with_voxel_type(
@@ -880,7 +888,8 @@ impl App {
         };
         let camera_snapshot_draft_name = camera_snapshots.unique_name("snapshot");
 
-        let debug_tree_pos = Vec3::new(1.0, 0.2, 1.0);
+        let editable_center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
+        let debug_tree_pos = Vec3::new(editable_center.x, 0.2, editable_center.z);
         let gui_config = GuiConfigLoader::load();
         let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
         let wind_sources = crate::app::wind_sources_from_config(&gui_config);
