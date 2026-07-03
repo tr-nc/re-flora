@@ -123,6 +123,7 @@ void main() {
     uvec3 atlas_u = pc.offset.xyz + local;
     uint seed = pc.offset.w;
     float dry_probability = clamp(pc.dry_params.x, 0.0, 1.0);
+    float residual_probability_multiplier = max(pc.dry_params.y, 1.0);
     float sun_dir_len_sq = dot(pc.sun_dir_params.xyz, pc.sun_dir_params.xyz);
     vec3 sun_dir = sun_dir_len_sq > 0.0 ? pc.sun_dir_params.xyz * inversesqrt(sun_dir_len_sq) : vec3(0.0);
     float sunlit_probability_multiplier = max(pc.sun_dir_params.w, 1.0);
@@ -143,8 +144,15 @@ void main() {
     }
     dry_probability *= exposure.evaporation_factor;
     if (exposure.sunlit) {
-        dry_probability = clamp(dry_probability * sunlit_probability_multiplier, 0.0, 1.0);
+        dry_probability *= sunlit_probability_multiplier;
     }
+    // A level-1 voxel represents a thin residual film. Let it evaporate faster than wetter
+    // soil so the quantized moisture simulation does not leave visible single-voxel speckles
+    // random-walking after the main wet patch has dried.
+    if (old_moisture == 1u) {
+        dry_probability *= residual_probability_multiplier;
+    }
+    dry_probability = clamp(dry_probability, 0.0, 1.0);
     if (moisture_hash01(atlas_u, seed) >= dry_probability) {
         return;
     }

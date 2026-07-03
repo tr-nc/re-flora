@@ -12,8 +12,10 @@ const WATERING_BRUSH_MOISTURE_PER_DAB: f32 = 0.68;
 const FERTILIZER_BRUSH_FERTILITY_PER_DAB: f32 = 0.68;
 const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.002;
 const TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER: f32 = 12.0;
+const TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER: f32 = 8.0;
 const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 const TERRAIN_MOISTURE_SPREAD_PROBABILITY_PER_PAIR_VISIT: f32 = 0.45;
+const TERRAIN_MOISTURE_SPREAD_MOBILITY_EXPONENT: f32 = 2.0;
 const TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT: u32 = 6;
 const TERRAIN_MOISTURE_SPREAD_CHUNKS_PER_FRAME: usize = 1;
 
@@ -43,6 +45,7 @@ impl App {
                 atlas_offset,
                 VOXEL_DIM_PER_CHUNK,
                 TERRAIN_MOISTURE_SPREAD_PROBABILITY_PER_PAIR_VISIT,
+                TERRAIN_MOISTURE_SPREAD_MOBILITY_EXPONENT,
                 axis,
                 pair_parity,
             ) {
@@ -56,11 +59,12 @@ impl App {
                     .unwrap()
                     .record("terrain_moisture_spread_record", spread_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_SPREAD] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} axis={} pair_parity={} next_cursor={} record_ms={:.3}",
+                    "[PERF][MOISTURE_SPREAD] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} mobility_exponent={:.2} axis={} pair_parity={} next_cursor={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
                     TERRAIN_MOISTURE_SPREAD_PROBABILITY_PER_PAIR_VISIT,
+                    TERRAIN_MOISTURE_SPREAD_MOBILITY_EXPONENT,
                     axis,
                     pair_parity,
                     self.moisture_spread_chunk_cursor,
@@ -90,6 +94,7 @@ impl App {
                 TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
                 sun_dir,
                 TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
+                TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
             ) {
                 continue;
             }
@@ -101,12 +106,13 @@ impl App {
                     .unwrap()
                     .record("terrain_moisture_dry_record", dry_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} sunlit_multiplier={:.2} sun_dir={:?} next_cursor={} record_ms={:.3}",
+                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} sunlit_multiplier={:.2} residual_multiplier={:.2} sun_dir={:?} next_cursor={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
                     TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
                     TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
+                    TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
                     sun_dir,
                     self.moisture_dry_chunk_cursor,
                     dry_record_elapsed.as_secs_f64() * 1000.0,
