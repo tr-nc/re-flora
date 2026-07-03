@@ -60,35 +60,57 @@ bool sun_ray_is_occluded(vec3 origin_vox, vec3 sun_dir) {
     return false;
 }
 
-uint moisture_surface_exposure_flags(ivec3 p, uint voxel_type, vec3 sun_dir) {
+struct MoistureDryExposure {
+    float evaporation_factor;
+    bool surface;
+    bool sunlit;
+};
+
+MoistureDryExposure moisture_dry_exposure(ivec3 p, uint voxel_type, vec3 sun_dir) {
+    MoistureDryExposure exposure;
+    exposure.evaporation_factor = 0.0;
+    exposure.surface = false;
+    exposure.sunlit = false;
     if (!is_moisture_voxel(voxel_type)) {
-        return 0u;
+        return exposure;
     }
 
-    uint flags = 0u;
-    const uint SURFACE_FLAG = 1u;
-    const uint SUNLIT_FLAG = 2u;
+    const int DRY_AIR_SEARCH_STEPS = 8;
     const ivec3 neighbours_to_check[6] = {
         ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
         ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
     };
+    int best_depth = DRY_AIR_SEARCH_STEPS;
+    ivec3 best_air_dir = ivec3(0);
     for (int i = 0; i < 6; i++) {
-        if (load_atlas_voxel_type(p + neighbours_to_check[i]) != VOXEL_TYPE_EMPTY) {
-            continue;
-        }
-
-        flags |= SURFACE_FLAG;
-        vec3 face_normal = vec3(neighbours_to_check[i]);
-        if (sun_dir.y <= 0.0 || dot(face_normal, sun_dir) <= 0.05) {
-            continue;
-        }
-
-        vec3 face_origin = vec3(p) + vec3(0.5) + face_normal * 0.51;
-        if (!sun_ray_is_occluded(face_origin, sun_dir)) {
-            flags |= SUNLIT_FLAG;
+        for (int step_idx = 1; step_idx <= DRY_AIR_SEARCH_STEPS; step_idx++) {
+            if (load_atlas_voxel_type(p + neighbours_to_check[i] * step_idx) == VOXEL_TYPE_EMPTY) {
+                int depth = step_idx - 1;
+                if (depth < best_depth) {
+                    best_depth = depth;
+                    best_air_dir = neighbours_to_check[i];
+                }
+                break;
+            }
         }
     }
-    return flags;
+    if (best_depth >= DRY_AIR_SEARCH_STEPS) {
+        return exposure;
+    }
+
+    exposure.surface = best_depth == 0;
+    float depth_t = float(best_depth) / float(DRY_AIR_SEARCH_STEPS);
+    float depth_factor = clamp(1.0 - depth_t, 0.0, 1.0);
+    exposure.evaporation_factor = depth_factor * depth_factor;
+
+    if (exposure.surface && sun_dir.y > 0.0) {
+        vec3 face_normal = vec3(best_air_dir);
+        if (dot(face_normal, sun_dir) > 0.05) {
+            vec3 face_origin = vec3(p) + vec3(0.5) + face_normal * 0.51;
+            exposure.sunlit = !sun_ray_is_occluded(face_origin, sun_dir);
+        }
+    }
+    return exposure;
 }
 
 void main() {
@@ -115,11 +137,12 @@ void main() {
     }
 
     uint voxel_type = voxel_type_from_atlas_data(old_data);
-    uint exposure_flags = moisture_surface_exposure_flags(ivec3(atlas_u), voxel_type, sun_dir);
-    if ((exposure_flags & 1u) == 0u) {
+    MoistureDryExposure exposure = moisture_dry_exposure(ivec3(atlas_u), voxel_type, sun_dir);
+    if (exposure.evaporation_factor <= 0.0) {
         return;
     }
-    if ((exposure_flags & 2u) != 0u) {
+    dry_probability *= exposure.evaporation_factor;
+    if (exposure.sunlit) {
         dry_probability = clamp(dry_probability * sunlit_probability_multiplier, 0.0, 1.0);
     }
     if (moisture_hash01(atlas_u, seed) >= dry_probability) {
