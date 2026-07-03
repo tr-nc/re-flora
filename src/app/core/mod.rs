@@ -491,7 +491,7 @@ impl WorldBuildBackend for App {
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
-pub(super) const CHUNK_DIM: UVec3 = UVec3::new(3, 2, 3);
+pub(super) const CHUNK_DIM: UVec3 = UVec3::new(2, 2, 2);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const GPU_PROFILER_MAX_SCOPES_PER_FRAME: usize = 64;
@@ -524,8 +524,8 @@ const ITEM_PANEL_SCROLL_SFX_PATH: &str =
     "assets/sfx/MECHSwtch_Game Boy Advance SP, B Button, On 05_SARM_BTNS.wav";
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
-const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
-const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
+const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 384.0);
+const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 472.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const FLORA_GROWTH_SPEED_DIVISOR: u32 = 10;
 // Trimmed grasses should read as clipped, not newly sprouted: the shader's floor-based
@@ -880,7 +880,7 @@ impl App {
         };
         let camera_snapshot_draft_name = camera_snapshots.unique_name("snapshot");
 
-        let debug_tree_pos = Vec3::new(2.0, 0.2, 2.0);
+        let debug_tree_pos = Vec3::new(1.0, 0.2, 1.0);
         let gui_config = GuiConfigLoader::load();
         let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
         let wind_sources = crate::app::wind_sources_from_config(&gui_config);

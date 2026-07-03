@@ -67,10 +67,10 @@ mod tests {
     fn initial_editable_area_accepts_points_in_unlocked_chunks_xz() {
         assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(1.5, 0.5, 1.5)));
         assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(0.0, 0.5, 0.0)));
-        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(2.99, 0.5, 1.5)));
+        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(1.99, 0.5, 1.5)));
 
         assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(-0.01, 0.5, 1.5)));
-        assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(3.0, 0.5, 1.5)));
+        assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(2.0, 0.5, 1.5)));
     }
 
     #[test]
