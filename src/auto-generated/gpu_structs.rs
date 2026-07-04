@@ -221,11 +221,9 @@ pub struct PushConstantFlora {
     pub instance_ty: u32,
     pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
-    pub _pad1: [u8; 4],
-    pub bottom_color: [f32; 3],
-    pub _pad2: [u8; 4],
-    pub tip_color: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _padding_after_chunk_world_offset: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantFloraLod` (GLSL source of truth).
@@ -236,11 +234,9 @@ pub struct PushConstantFloraLod {
     pub instance_ty: u32,
     pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
-    pub _pad1: [u8; 4],
-    pub bottom_color: [f32; 3],
-    pub _pad2: [u8; 4],
-    pub tip_color: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _padding_after_chunk_world_offset: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantLeafShadowTemporal` (GLSL source of truth).
@@ -260,11 +256,9 @@ pub struct PushConstantLeavesShadow {
     pub instance_ty: u32,
     pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
-    pub _pad1: [u8; 4],
-    pub bottom_color: [f32; 3],
-    pub _pad2: [u8; 4],
-    pub tip_color: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _padding_after_chunk_world_offset: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantSpatial` (GLSL source of truth).

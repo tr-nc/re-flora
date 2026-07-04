@@ -37,6 +37,8 @@ const LEAF_INSTANCE_TYPE: u32 = 4;
 const APPLE_INSTANCE_TYPE: u32 = 5;
 const APPLE_BOTTOM_COLOR: Vec3 = Vec3::new(0.48, 0.025, 0.018);
 const APPLE_TIP_COLOR: Vec3 = Vec3::new(0.95, 0.06, 0.035);
+pub const FLORA_HEIGHT_COLOR_TABLE_LEN: usize = 12;
+pub type FloraHeightColorTables = [[u32; FLORA_HEIGHT_COLOR_TABLE_LEN]; 2];
 
 use crate::audio::SpatialSoundManager;
 use crate::builder::{
@@ -211,19 +213,73 @@ pub struct TerrainRayHitSample {
     pub is_valid: bool,
 }
 
+fn srgb_to_linear_channel(channel: f32) -> f32 {
+    if channel <= 0.04045 {
+        channel / 12.92
+    } else {
+        ((channel + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn srgb_to_linear_color(color: Vec3) -> Vec3 {
+    Vec3::new(
+        srgb_to_linear_channel(color.x),
+        srgb_to_linear_channel(color.y),
+        srgb_to_linear_channel(color.z),
+    )
+}
+
+fn pack_linear_rgb10(color: Vec3) -> u32 {
+    let quantize = |channel: f32| -> u32 { (channel.clamp(0.0, 1.0) * 1023.0).round() as u32 };
+    quantize(color.x) | (quantize(color.y) << 10) | (quantize(color.z) << 20)
+}
+
+fn flora_height_color_table(
+    bottom_srgb: Vec3,
+    tip_srgb: Vec3,
+) -> [u32; FLORA_HEIGHT_COLOR_TABLE_LEN] {
+    let bottom_linear = srgb_to_linear_color(bottom_srgb);
+    let tip_linear = srgb_to_linear_color(tip_srgb);
+    let mut table = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
+    for (row, color) in table.iter_mut().enumerate() {
+        let height_t = row as f32 / (FLORA_HEIGHT_COLOR_TABLE_LEN - 1) as f32;
+        *color = pack_linear_rgb10(bottom_linear.lerp(tip_linear, height_t));
+    }
+    table
+}
+
+pub fn solid_flora_height_color_tables(
+    bottom_srgb: Vec3,
+    tip_srgb: Vec3,
+) -> FloraHeightColorTables {
+    let table = flora_height_color_table(bottom_srgb, tip_srgb);
+    [table, table]
+}
+
+pub fn grass_flora_height_color_tables(
+    bottom_dark_srgb: Vec3,
+    bottom_light_srgb: Vec3,
+    tip_dark_srgb: Vec3,
+    tip_light_srgb: Vec3,
+) -> FloraHeightColorTables {
+    [
+        flora_height_color_table(bottom_dark_srgb, tip_dark_srgb),
+        flora_height_color_table(bottom_light_srgb, tip_light_srgb),
+    ]
+}
+
 fn flora_push_constant(
     time: f32,
     instance_ty: u32,
     chunk_world_offset: UVec3,
-    bottom_color: Vec3,
-    tip_color: Vec3,
+    height_color_tables: FloraHeightColorTables,
 ) -> PushConstantFlora {
     PushConstantFlora {
         time,
         instance_ty,
         chunk_world_offset: chunk_world_offset.to_array(),
-        bottom_color: bottom_color.to_array(),
-        tip_color: tip_color.to_array(),
+        height_dark_color_rgb10: height_color_tables[0],
+        height_light_color_rgb10: height_color_tables[1],
         ..bytemuck::Zeroable::zeroed()
     }
 }
@@ -1096,9 +1152,8 @@ impl Tracer {
         flora_draw_distance: f32,
         grass_render_mode: u32,
         time: f32,
-        flora_colors: &[(Vec3, Vec3)],
-        leaf_bottom_color: Vec3,
-        leaf_tip_color: Vec3,
+        flora_color_tables: &[FloraHeightColorTables],
+        leaf_color_tables: FloraHeightColorTables,
         render_flags: &crate::RenderFlags,
         update_shadow_map: bool,
         vsm_blur_radius: u32,
@@ -1189,8 +1244,7 @@ impl Tracer {
                     self.record_leaves_shadow_lod_pass(
                         cmdbuf,
                         surface_resources,
-                        leaf_bottom_color,
-                        leaf_tip_color,
+                        leaf_color_tables,
                         time,
                     )
                 },
@@ -1288,10 +1342,10 @@ impl Tracer {
 
         if render_flags.enable_flora {
             assert_eq!(
-                flora_colors.len(),
+                flora_color_tables.len(),
                 self.resources.meshes.flora_meshes.len(),
-                "Flora color count ({}) must match flora mesh count ({})",
-                flora_colors.len(),
+                "Flora color-table count ({}) must match flora mesh count ({})",
+                flora_color_tables.len(),
                 self.resources.meshes.flora_meshes.len()
             );
         }
@@ -1309,9 +1363,8 @@ impl Tracer {
                     lod_distance,
                     flora_draw_distance,
                     grass_render_mode,
-                    flora_colors,
-                    leaf_bottom_color,
-                    leaf_tip_color,
+                    flora_color_tables,
+                    leaf_color_tables,
                     time,
                     render_flags.enable_flora,
                     render_flags.enable_particles,
@@ -1334,9 +1387,8 @@ impl Tracer {
                     lod_distance,
                     flora_draw_distance,
                     grass_render_mode,
-                    flora_colors,
-                    leaf_bottom_color,
-                    leaf_tip_color,
+                    flora_color_tables,
+                    leaf_color_tables,
                     time,
                     render_flags.enable_flora,
                     render_flags.enable_particles,
@@ -1695,9 +1747,8 @@ impl Tracer {
         lod_distance: f32,
         flora_draw_distance: f32,
         grass_render_mode: u32,
-        flora_colors: &[(Vec3, Vec3)],
-        leaf_bottom_color: Vec3,
-        leaf_tip_color: Vec3,
+        flora_color_tables: &[FloraHeightColorTables],
+        leaf_color_tables: FloraHeightColorTables,
         time: f32,
         enable_flora: bool,
         enable_particles: bool,
@@ -1781,7 +1832,7 @@ impl Tracer {
                 lod_distance,
                 flora_draw_distance,
             );
-            for (species_index, (bottom_color, tip_color)) in flora_colors.iter().enumerate() {
+            for (species_index, height_color_tables) in flora_color_tables.iter().enumerate() {
                 if !should_render_grass_species(species_index, grass_render_mode) {
                     continue;
                 }
@@ -1815,8 +1866,7 @@ impl Tracer {
                             time,
                             species_index as u32,
                             instances.chunk_world_offset,
-                            *bottom_color,
-                            *tip_color,
+                            *height_color_tables,
                         );
 
                         cmdbuf.bind_vertex_buffers(0, &[&mesh.vertices]);
@@ -1897,8 +1947,7 @@ impl Tracer {
                         time,
                         LEAF_INSTANCE_TYPE,
                         tree_instance.chunk_world_offset,
-                        leaf_bottom_color,
-                        leaf_tip_color,
+                        leaf_color_tables,
                     );
                     cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
                     pipeline.record_indexed_with_manual_buffer(
@@ -1978,8 +2027,7 @@ impl Tracer {
                         time,
                         APPLE_INSTANCE_TYPE,
                         tree_instance.chunk_world_offset,
-                        APPLE_BOTTOM_COLOR,
-                        APPLE_TIP_COLOR,
+                        solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
                     );
                     cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
                     pipeline.record_indexed_with_manual_buffer(
@@ -2155,8 +2203,7 @@ impl Tracer {
         &self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
-        bottom_color: Vec3,
-        tip_color: Vec3,
+        leaf_color_tables: FloraHeightColorTables,
         time: f32,
     ) {
         self.graphics_pipelines
@@ -2202,8 +2249,7 @@ impl Tracer {
                 time,
                 LEAF_INSTANCE_TYPE,
                 tree_instance.chunk_world_offset,
-                bottom_color,
-                tip_color,
+                leaf_color_tables,
             );
 
             cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.leaves_resources_lod.vertices]);
@@ -2236,8 +2282,7 @@ impl Tracer {
                 time,
                 APPLE_INSTANCE_TYPE,
                 tree_instance.chunk_world_offset,
-                APPLE_BOTTOM_COLOR,
-                APPLE_TIP_COLOR,
+                solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
             );
 
             cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.apple_resources_lod.vertices]);

@@ -52,7 +52,8 @@ use crate::particles::{
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
 use crate::tracer::{
-    CloudGuiParams, GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
+    grass_flora_height_color_tables, solid_flora_height_color_tables, CloudGuiParams,
+    GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
 };
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
@@ -2756,14 +2757,18 @@ impl App {
                     )
                 };
 
-                let mut flora_colors = [(Vec3::ZERO, Vec3::ZERO); species::MAX_FLORA_SPECIES];
-                for (slot, desc) in flora_colors.iter_mut().zip(species::species()) {
+                let mut flora_color_tables =
+                    [solid_flora_height_color_tables(Vec3::ZERO, Vec3::ZERO);
+                        species::MAX_FLORA_SPECIES];
+                for (slot, desc) in flora_color_tables.iter_mut().zip(species::species()) {
                     *slot = match desc.key {
-                        "tall_grass" | "short_grass" => (
+                        "tall_grass" | "short_grass" => grass_flora_height_color_tables(
                             color_to_vec3(self.gui_adjustables.grass_bottom_dark_color.value),
+                            color_to_vec3(self.gui_adjustables.grass_bottom_light_color.value),
+                            color_to_vec3(self.gui_adjustables.grass_tip_dark_color.value),
                             color_to_vec3(self.gui_adjustables.grass_tip_light_color.value),
                         ),
-                        "ember_bloom" => (
+                        "ember_bloom" => solid_flora_height_color_tables(
                             color_to_vec3(self.gui_adjustables.ember_bloom_bottom_color.value),
                             color_to_vec3(self.gui_adjustables.ember_bloom_tip_color.value),
                         ),
@@ -2778,14 +2783,19 @@ impl App {
                                 desc.default_tip_color[1],
                                 desc.default_tip_color[2],
                             );
-                            (color_to_vec3(bottom), color_to_vec3(tip))
+                            solid_flora_height_color_tables(
+                                color_to_vec3(bottom),
+                                color_to_vec3(tip),
+                            )
                         }
                     };
                 }
-                let flora_colors = &flora_colors[..species::species_count()];
+                let flora_color_tables = &flora_color_tables[..species::species_count()];
 
-                let leaf_bottom = color_to_vec3(self.gui_adjustables.leaves_bottom_color.value);
-                let leaf_tip = color_to_vec3(self.gui_adjustables.leaves_tip_color.value);
+                let leaf_color_tables = solid_flora_height_color_tables(
+                    color_to_vec3(self.gui_adjustables.leaves_bottom_color.value),
+                    color_to_vec3(self.gui_adjustables.leaves_tip_color.value),
+                );
                 let reset_vsm_history = self.vsm_history_reset_pending;
                 let vsm_temporal_alpha = Self::frame_rate_adjusted_vsm_temporal_alpha(
                     self.gui_adjustables.vsm_temporal_alpha.value,
@@ -2812,9 +2822,8 @@ impl App {
                         self.gui_adjustables.flora_draw_distance.value,
                         self.gui_adjustables.grass_render_mode.value,
                         self.time_info.time_since_start(),
-                        &flora_colors,
-                        leaf_bottom,
-                        leaf_tip,
+                        flora_color_tables,
+                        leaf_color_tables,
                         &self.render_flags,
                         update_shadow_map,
                         self.gui_adjustables.vsm_blur_radius.value,

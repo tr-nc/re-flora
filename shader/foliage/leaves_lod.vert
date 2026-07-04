@@ -3,15 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../include/core/packer.glsl"
-
-layout(push_constant) uniform PC {
-    float time;
-    uint instance_ty;
-    uvec3 chunk_world_offset;
-    vec3 bottom_color;
-    vec3 tip_color;
-}
-pc;
+#include "./flora_push_constant.glsl"
 
 layout(location = 0) in uvec2 in_packed_data;
 

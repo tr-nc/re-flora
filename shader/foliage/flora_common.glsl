@@ -126,33 +126,47 @@ void prepaverdarium_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_
     shadow_weight *= get_shadow_weight(vox_local_pos);
 }
 
+uint flora_height_color_row(float color_gradient) {
+    float row = clamp(color_gradient, 0.0, 1.0) * float(FLORA_HEIGHT_COLOR_TABLE_LEN - 1);
+    return uint(round(row));
+}
+
+vec3 unpack_linear_rgb10(uint packed_color) {
+    const float inv_max_channel = 1.0 / 1023.0;
+    return vec3(float(packed_color & 0x3FFu),
+                float((packed_color >> 10) & 0x3FFu),
+                float((packed_color >> 20) & 0x3FFu)) * inv_max_channel;
+}
+
 vec3 sample_flora_base_color(bool is_grass, uint instance_ty, uint instance_seed,
                              ivec3 vox_local_pos, uvec3 instance_pos_voxels,
                              float color_gradient) {
+    uint color_row = flora_height_color_row(color_gradient);
+    uint dark_height_color_rgb10 = pc.height_dark_color_rgb10[color_row];
+    if (instance_ty == FLORA_SPECIES_LAVENDER) {
+        dark_height_color_rgb10 = sample_lavender_height_palette_rgb10(instance_seed, color_row);
+    }
+    vec3 dark_height_color = unpack_linear_rgb10(dark_height_color_rgb10);
+
     if (is_grass) {
-        vec3 grass_bottom_color_linear;
-        vec3 grass_tip_color_linear;
-        sample_grass_band_gradient(vec2(float(instance_pos_voxels.x), float(instance_pos_voxels.z)),
-                                   grass_bottom_color_linear, grass_tip_color_linear);
-        return mix(grass_bottom_color_linear, grass_tip_color_linear, color_gradient);
+        float grass_band_t = sample_grass_band_interpolation_t(
+            vec2(float(instance_pos_voxels.x), float(instance_pos_voxels.z)));
+        vec3 light_height_color = unpack_linear_rgb10(pc.height_light_color_rgb10[color_row]);
+        return mix(dark_height_color, light_height_color, grass_band_t);
     }
 
-    uint palette_seed        = combine_color_seed(instance_seed);
-    vec3 bottom_color_linear = srgb_to_linear(pc.bottom_color);
-    vec3 tip_color_linear    = sample_tip_palette(instance_ty, palette_seed, pc.tip_color);
     if (instance_ty == FLORA_SPECIES_APPLE) {
-        vec3 apple_color = mix(bottom_color_linear, tip_color_linear, color_gradient);
         float speckle = signed_unit_noise(vec4(vec3(vox_local_pos), float(instance_seed))).x;
-        return apply_hsv_offset(apple_color, vec3(speckle * 0.018, 0.03, speckle * 0.035));
+        return apply_hsv_offset(dark_height_color, vec3(speckle * 0.018, 0.03, speckle * 0.035));
     }
-    vec3 interpolated_color  = mix(bottom_color_linear, tip_color_linear, color_gradient);
+
     vec3 instance_color_variation =
         signed_unit_noise(float(instance_seed)) * gui_input.flora_instance_hsv_offset_max;
     vec3 voxel_color_variation =
         signed_unit_noise(vec4(vec3(vox_local_pos), float(instance_seed))) *
         gui_input.flora_voxel_hsv_offset_max;
     vec3 total_color_variation = instance_color_variation + voxel_color_variation;
-    return apply_hsv_offset(interpolated_color, total_color_variation);
+    return apply_hsv_offset(dark_height_color, total_color_variation);
 }
 
 #endif // FLORA_COMMON_GLSL
