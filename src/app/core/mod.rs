@@ -517,6 +517,9 @@ const ORBIT_CAMERA_FOCUS_RAY_QUERY_DISTANCE: f32 = 10.0;
 const ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL: f32 = 0.005;
 const ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE: f32 = 0.001;
 const ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE: f32 = 0.45;
+const CENTER_CROSS_MARK_ARM_LENGTH: f32 = 8.0;
+const CENTER_CROSS_MARK_GAP: f32 = 3.0;
+const CENTER_CROSS_MARK_STROKE_WIDTH: f32 = 1.5;
 const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
 const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
 const MOUSE_WHEEL_DOLLY_SNAP_LINES: f32 = 0.001;
@@ -592,6 +595,47 @@ impl ActiveVoxelType {
             ActiveVoxelType::OakWood => Color32::from_rgb(159, 110, 70),
             ActiveVoxelType::Rock => Color32::from_rgb(168, 176, 190),
         }
+    }
+}
+
+fn draw_center_cross_mark(ctx: &egui::Context) {
+    let center = ctx.content_rect().center();
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("center_cross_mark"),
+    ));
+    let shadow_stroke = egui::Stroke::new(
+        CENTER_CROSS_MARK_STROKE_WIDTH + 1.5,
+        Color32::from_black_alpha(150),
+    );
+    let foreground_stroke = egui::Stroke::new(
+        CENTER_CROSS_MARK_STROKE_WIDTH,
+        Color32::from_white_alpha(230),
+    );
+    let segments = [
+        (
+            egui::pos2(center.x - CENTER_CROSS_MARK_ARM_LENGTH, center.y),
+            egui::pos2(center.x - CENTER_CROSS_MARK_GAP, center.y),
+        ),
+        (
+            egui::pos2(center.x + CENTER_CROSS_MARK_GAP, center.y),
+            egui::pos2(center.x + CENTER_CROSS_MARK_ARM_LENGTH, center.y),
+        ),
+        (
+            egui::pos2(center.x, center.y - CENTER_CROSS_MARK_ARM_LENGTH),
+            egui::pos2(center.x, center.y - CENTER_CROSS_MARK_GAP),
+        ),
+        (
+            egui::pos2(center.x, center.y + CENTER_CROSS_MARK_GAP),
+            egui::pos2(center.x, center.y + CENTER_CROSS_MARK_ARM_LENGTH),
+        ),
+    ];
+
+    for (start, end) in segments {
+        painter.line_segment([start, end], shadow_stroke);
+    }
+    for (start, end) in segments {
+        painter.line_segment([start, end], foreground_stroke);
     }
 }
 
@@ -2271,6 +2315,8 @@ impl App {
                                     );
                                 });
                             });
+
+                        draw_center_cross_mark(ctx);
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
                 self.sync_cursor_with_panels();
