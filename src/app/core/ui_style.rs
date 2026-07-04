@@ -265,6 +265,7 @@ const CENTER_CARD_HEIGHT: f32 = 220.0;
 const CENTER_CARD_CAMERA_DISTANCE: f32 = 900.0;
 const CENTER_CARD_MAX_YAW_RAD: f32 = 0.26;
 const CENTER_CARD_MAX_PITCH_RAD: f32 = 0.20;
+const CENTER_CARD_SCREEN_RESPONSE_GAIN: f32 = 1.65;
 
 #[derive(Clone, Copy)]
 struct CardTilt {
@@ -275,12 +276,25 @@ struct CardTilt {
     pointer_offset: egui::Vec2,
 }
 
+fn fullscreen_pointer_offset(screen_rect: egui::Rect, pointer_pos: egui::Pos2) -> egui::Vec2 {
+    let center = screen_rect.center();
+    let half_width = (screen_rect.width() * 0.5).max(1.0);
+    let half_height = (screen_rect.height() * 0.5).max(1.0);
+    let raw_offset = egui::vec2(
+        ((pointer_pos.x - center.x) / half_width).clamp(-1.0, 1.0),
+        ((pointer_pos.y - center.y) / half_height).clamp(-1.0, 1.0),
+    );
+    let response_scale = CENTER_CARD_SCREEN_RESPONSE_GAIN.tanh();
+
+    egui::vec2(
+        (raw_offset.x * CENTER_CARD_SCREEN_RESPONSE_GAIN).tanh() / response_scale,
+        (raw_offset.y * CENTER_CARD_SCREEN_RESPONSE_GAIN).tanh() / response_scale,
+    )
+}
+
 impl CardTilt {
-    fn from_pointer(card_center: egui::Pos2, pointer_pos: egui::Pos2) -> Self {
-        let pointer_offset = egui::vec2(
-            ((pointer_pos.x - card_center.x) / (CENTER_CARD_WIDTH * 0.5)).clamp(-1.0, 1.0),
-            ((pointer_pos.y - card_center.y) / (CENTER_CARD_HEIGHT * 0.5)).clamp(-1.0, 1.0),
-        );
+    fn from_pointer(screen_rect: egui::Rect, pointer_pos: egui::Pos2) -> Self {
+        let pointer_offset = fullscreen_pointer_offset(screen_rect, pointer_pos);
         let yaw = pointer_offset.x * CENTER_CARD_MAX_YAW_RAD;
         let pitch = -pointer_offset.y * CENTER_CARD_MAX_PITCH_RAD;
         let (yaw_sin, yaw_cos) = yaw.sin_cos();
@@ -316,10 +330,11 @@ pub(crate) fn draw_center_card(ctx: &egui::Context) {
         .show(ctx, |ui| {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(430.0, 310.0), egui::Sense::hover());
             let card_center = rect.center();
+            let screen_rect = ctx.content_rect();
             let pointer_pos = ctx
                 .input(|input| input.pointer.hover_pos())
-                .unwrap_or(card_center);
-            let tilt = CardTilt::from_pointer(card_center, pointer_pos);
+                .unwrap_or(screen_rect.center());
+            let tilt = CardTilt::from_pointer(screen_rect, pointer_pos);
             let painter = ui.painter_at(rect);
 
             draw_tilted_center_card(ctx, &painter, card_center, tilt);
