@@ -118,7 +118,11 @@ MoistureDryExposure moisture_dry_exposure(ivec3 p, uint voxel_type, vec3 sun_dir
     if (sun_dir.y > 0.0) {
         vec3 face_normal = vec3(best_air_dir);
         if (dot(face_normal, sun_dir) > 0.05) {
-            vec3 face_origin = vec3(p) + vec3(0.5) + face_normal * 0.51;
+            const float SUN_EXPOSURE_NORMAL_BIAS_VOX = 1.25;
+            // Start the sun ray a little farther out along the exposed voxel face normal.
+            // This keeps tiny adjacent protrusions from over-shadowing soil that still reads
+            // as being in direct sunlight, while preserving larger-scale terrain shadowing.
+            vec3 face_origin = vec3(p) + vec3(0.5) + face_normal * SUN_EXPOSURE_NORMAL_BIAS_VOX;
             exposure.sunlit = !sun_ray_is_occluded(face_origin, sun_dir);
         }
     }
