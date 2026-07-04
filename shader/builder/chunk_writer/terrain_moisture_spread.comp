@@ -98,11 +98,18 @@ void main() {
     }
 
     uint difference = a_moisture > b_moisture ? a_moisture - b_moisture : b_moisture - a_moisture;
+    // A one-level gradient is already the smoothest state possible with two moisture bits.
+    // Moving one quantum across that pair only swaps the wet voxel with its neighbor, which
+    // reads as endless flicker and lets residual water random-walk instead of evaporating.
+    if (difference < 2u) {
+        return;
+    }
+
     uint source_moisture = max(a_moisture, b_moisture);
     float gradient_factor = float(difference) / float(VOXEL_MOISTURE_MAX);
-    // Unsaturated soil has much lower hydraulic conductivity. This keeps the last single
-    // moisture quantum from random-walking across dry soil for a long time, while saturated
-    // voxels still spread quickly.
+    // Unsaturated soil has much lower hydraulic conductivity. This keeps residual moisture
+    // from moving once the local gradient can no longer be reduced, while saturated voxels
+    // still spread quickly.
     float source_saturation = float(source_moisture) / float(VOXEL_MOISTURE_MAX);
     float unsaturated_mobility = pow(source_saturation, mobility_exponent);
 
