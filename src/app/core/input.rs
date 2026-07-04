@@ -274,6 +274,31 @@ impl App {
         self.orbit_mouse_drag_last_position_physical = None;
     }
 
+    fn screen_center_camera_ray(&self) -> Option<(Vec3, Vec3)> {
+        let extent = self.window_state.window_extent();
+        let center = Vec2::new(extent.width as f32 * 0.5, extent.height as f32 * 0.5);
+        self.tracer.camera_ray_from_screen_position(center, extent)
+    }
+
+    fn acquire_orbit_focus_from_screen_center(&mut self) {
+        let Some((origin, direction)) = self.screen_center_camera_ray() else {
+            return;
+        };
+        if direction.length_squared() <= f32::EPSILON {
+            return;
+        }
+
+        let Some(focus) = self
+            .query_terrain_ray_cpu(origin, direction)
+            .filter(|hit| (*hit - origin).length() <= super::ORBIT_CAMERA_FOCUS_RAY_QUERY_DISTANCE)
+        else {
+            return;
+        };
+
+        self.orbit_camera_focus = focus;
+        self.look_at_orbit_focus_from_current_position();
+    }
+
     pub(super) fn set_orbit_mouse_drag_state(
         &mut self,
         button: MouseButton,
@@ -286,10 +311,12 @@ impl App {
                 self.orbit_mouse_drag_held = true;
                 self.orbit_mouse_drag_button = Some(button);
                 self.orbit_mouse_drag_pan_active = self.modifiers.shift_key();
-                self.orbit_mouse_drag_anchor = self
-                    .orbit_mouse_drag_pan_active
-                    .then(|| self.orbit_mouse_pan_anchor())
-                    .flatten();
+                if self.orbit_mouse_drag_pan_active {
+                    self.orbit_mouse_drag_anchor = self.orbit_mouse_pan_anchor();
+                } else {
+                    self.orbit_mouse_drag_anchor = None;
+                    self.acquire_orbit_focus_from_screen_center();
+                }
                 self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
                 true
             }
