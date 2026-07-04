@@ -1644,6 +1644,7 @@ impl App {
                 && event.physical_key == KeyCode::KeyC
             {
                 self.card_display_visible = !self.card_display_visible;
+                self.sync_cursor_with_panels();
                 return;
             }
         }

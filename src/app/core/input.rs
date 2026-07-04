@@ -111,7 +111,7 @@ fn orbit_anchored_pan_delta(anchor: Vec3, ray_origin: Vec3, ray_direction: Vec3)
 
 impl App {
     fn blocking_panel_open(&self) -> bool {
-        self.config_panel_visible
+        self.config_panel_visible || self.card_display_visible
     }
 
     pub(super) fn is_free_look_camera_mode(&self) -> bool {

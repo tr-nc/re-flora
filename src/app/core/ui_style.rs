@@ -260,111 +260,279 @@ pub(crate) fn draw_placeable_panel(
     )
 }
 
+const CENTER_CARD_WIDTH: f32 = 340.0;
+const CENTER_CARD_HEIGHT: f32 = 220.0;
+const CENTER_CARD_CAMERA_DISTANCE: f32 = 900.0;
+const CENTER_CARD_MAX_YAW_RAD: f32 = 0.26;
+const CENTER_CARD_MAX_PITCH_RAD: f32 = 0.20;
+
+#[derive(Clone, Copy)]
+struct CardTilt {
+    yaw_sin: f32,
+    yaw_cos: f32,
+    pitch_sin: f32,
+    pitch_cos: f32,
+    pointer_offset: egui::Vec2,
+}
+
+impl CardTilt {
+    fn from_pointer(card_center: egui::Pos2, pointer_pos: egui::Pos2) -> Self {
+        let pointer_offset = egui::vec2(
+            ((pointer_pos.x - card_center.x) / (CENTER_CARD_WIDTH * 0.5)).clamp(-1.0, 1.0),
+            ((pointer_pos.y - card_center.y) / (CENTER_CARD_HEIGHT * 0.5)).clamp(-1.0, 1.0),
+        );
+        let yaw = pointer_offset.x * CENTER_CARD_MAX_YAW_RAD;
+        let pitch = -pointer_offset.y * CENTER_CARD_MAX_PITCH_RAD;
+        let (yaw_sin, yaw_cos) = yaw.sin_cos();
+        let (pitch_sin, pitch_cos) = pitch.sin_cos();
+
+        Self {
+            yaw_sin,
+            yaw_cos,
+            pitch_sin,
+            pitch_cos,
+            pointer_offset,
+        }
+    }
+
+    fn project(self, center: egui::Pos2, local: egui::Vec2, z: f32) -> egui::Pos2 {
+        let rotated_x = local.x * self.yaw_cos + z * self.yaw_sin;
+        let yawed_z = -local.x * self.yaw_sin + z * self.yaw_cos;
+        let rotated_y = local.y * self.pitch_cos - yawed_z * self.pitch_sin;
+        let rotated_z = local.y * self.pitch_sin + yawed_z * self.pitch_cos;
+        let scale = CENTER_CARD_CAMERA_DISTANCE / (CENTER_CARD_CAMERA_DISTANCE - rotated_z);
+
+        egui::pos2(center.x + rotated_x * scale, center.y + rotated_y * scale)
+    }
+}
+
 pub(crate) fn draw_center_card(ctx: &egui::Context) {
+    ctx.request_repaint();
+
     egui::Area::new("center_card".into())
         .order(egui::Order::Tooltip)
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
         .interactable(false)
         .show(ctx, |ui| {
-            let card_frame = egui::containers::Frame {
-                fill: Color32::from_rgb(38, 45, 41),
-                inner_margin: egui::Margin::symmetric(24, 18),
-                corner_radius: egui::CornerRadius::same(0),
-                shadow: egui::epaint::Shadow {
-                    offset: [8, 8],
-                    blur: 0,
-                    spread: 0,
-                    color: SHADOW_COLOR,
-                },
-                stroke: egui::Stroke::new(3.0, GOLD_ACCENT),
-                ..Default::default()
-            };
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(430.0, 310.0), egui::Sense::hover());
+            let card_center = rect.center();
+            let pointer_pos = ctx
+                .input(|input| input.pointer.hover_pos())
+                .unwrap_or(card_center);
+            let tilt = CardTilt::from_pointer(card_center, pointer_pos);
+            let painter = ui.painter_at(rect);
 
-            card_frame.show(ui, |ui| {
-                ui.set_width(320.0);
-                ui.vertical_centered(|ui| {
-                    draw_center_card_sprout(ui);
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new("Seed Card")
-                            .color(GOLD_ACCENT)
-                            .monospace()
-                            .size(22.0)
-                            .strong(),
-                    );
-                    ui.add_space(6.0);
-                    ui.label(
-                        egui::RichText::new("a pocket note from the garden")
-                            .color(FLOWER_ACCENT)
-                            .monospace()
-                            .size(12.0),
-                    );
-                    ui.add_space(12.0);
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(
-                                "Verdarium remembers the soil, the rain, and the next small thing waiting to grow.",
-                            )
-                            .color(TEXT_COLOR)
-                            .size(14.0),
-                        )
-                        .wrap(),
-                    );
-                    ui.add_space(12.0);
-                    ui.label(
-                        egui::RichText::new("press C to tuck it away")
-                            .color(SAGE_ACCENT)
-                            .monospace()
-                            .size(11.0),
-                    );
-                });
-            });
+            draw_tilted_center_card(&painter, card_center, tilt);
         });
 }
 
-fn draw_center_card_sprout(ui: &mut egui::Ui) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(58.0, 48.0), egui::Sense::hover());
-    let painter = ui.painter_at(rect);
-    let center = rect.center();
-
-    let stem =
-        egui::Rect::from_center_size(egui::pos2(center.x, center.y + 8.0), egui::vec2(6.0, 28.0));
-    painter.rect_filled(stem, egui::CornerRadius::same(0), SAGE_ACCENT);
-
-    let left_leaf = egui::Rect::from_min_size(
-        egui::pos2(center.x - 26.0, center.y - 10.0),
-        egui::vec2(24.0, 14.0),
+fn draw_tilted_center_card(painter: &egui::Painter, card_center: egui::Pos2, tilt: CardTilt) {
+    let half_size = egui::vec2(CENTER_CARD_WIDTH * 0.5, CENTER_CARD_HEIGHT * 0.5);
+    let card_points = projected_rect_points(
+        card_center,
+        tilt,
+        egui::Rect::from_min_max(
+            egui::pos2(-half_size.x, -half_size.y),
+            egui::pos2(half_size.x, half_size.y),
+        ),
+        0.0,
     );
-    let right_leaf = egui::Rect::from_min_size(
-        egui::pos2(center.x + 2.0, center.y - 14.0),
-        egui::vec2(24.0, 14.0),
+    let shadow_offset = egui::vec2(
+        10.0 - tilt.pointer_offset.x * 10.0,
+        14.0 - tilt.pointer_offset.y * 8.0,
     );
-    painter.rect_filled(
-        left_leaf,
-        egui::CornerRadius::same(0),
+    let shadow_points = card_points
+        .iter()
+        .map(|point| *point + shadow_offset)
+        .collect();
+    painter.add(egui::Shape::convex_polygon(
+        shadow_points,
+        Color32::from_rgba_unmultiplied(35, 26, 42, 150),
+        egui::Stroke::NONE,
+    ));
+
+    painter.add(egui::Shape::convex_polygon(
+        card_points.clone(),
+        Color32::from_rgb(38, 45, 41),
+        egui::Stroke::new(3.0, GOLD_ACCENT),
+    ));
+
+    draw_projected_rect(
+        painter,
+        card_center,
+        tilt,
+        egui::Rect::from_min_max(
+            egui::pos2(-half_size.x + 13.0, -half_size.y + 13.0),
+            egui::pos2(half_size.x - 13.0, half_size.y - 13.0),
+        ),
+        2.0,
+        Color32::TRANSPARENT,
+        egui::Stroke::new(1.0, SAGE_ACCENT),
+    );
+    draw_projected_rect(
+        painter,
+        card_center,
+        tilt,
+        egui::Rect::from_min_max(
+            egui::pos2(-half_size.x, -half_size.y),
+            egui::pos2(half_size.x, -half_size.y + 8.0),
+        ),
+        5.0,
+        FLOWER_ACCENT,
+        egui::Stroke::NONE,
+    );
+
+    draw_center_card_sprout(painter, card_center, tilt);
+    draw_center_card_text(painter, card_center, tilt);
+    draw_center_card_glare(painter, card_center, tilt);
+}
+
+fn draw_center_card_text(painter: &egui::Painter, card_center: egui::Pos2, tilt: CardTilt) {
+    painter.text(
+        tilt.project(card_center, egui::vec2(0.0, -38.0), 24.0),
+        egui::Align2::CENTER_CENTER,
+        "Seed Card",
+        egui::FontId::monospace(22.0),
+        GOLD_ACCENT,
+    );
+    painter.text(
+        tilt.project(card_center, egui::vec2(0.0, -11.0), 18.0),
+        egui::Align2::CENTER_CENTER,
+        "a pocket note from the garden",
+        egui::FontId::monospace(12.0),
+        FLOWER_ACCENT,
+    );
+
+    for (line_index, line) in [
+        "Verdarium remembers the soil,",
+        "the rain, and the next small thing",
+        "waiting to grow.",
+    ]
+    .iter()
+    .enumerate()
+    {
+        painter.text(
+            tilt.project(
+                card_center,
+                egui::vec2(0.0, 27.0 + line_index as f32 * 17.0),
+                14.0,
+            ),
+            egui::Align2::CENTER_CENTER,
+            *line,
+            egui::FontId::proportional(14.0),
+            TEXT_COLOR,
+        );
+    }
+
+    painter.text(
+        tilt.project(card_center, egui::vec2(0.0, 86.0), 12.0),
+        egui::Align2::CENTER_CENTER,
+        "press C to tuck it away",
+        egui::FontId::monospace(11.0),
+        SAGE_ACCENT,
+    );
+}
+
+fn draw_center_card_sprout(painter: &egui::Painter, card_center: egui::Pos2, tilt: CardTilt) {
+    draw_projected_rect(
+        painter,
+        card_center,
+        tilt,
+        egui::Rect::from_min_max(egui::pos2(-3.0, -94.0), egui::pos2(3.0, -66.0)),
+        28.0,
+        SAGE_ACCENT,
+        egui::Stroke::NONE,
+    );
+    draw_projected_rect(
+        painter,
+        card_center,
+        tilt,
+        egui::Rect::from_min_max(egui::pos2(-29.0, -104.0), egui::pos2(-5.0, -90.0)),
+        32.0,
         Color32::from_rgb(104, 158, 98),
+        egui::Stroke::NONE,
     );
-    painter.rect_filled(
-        right_leaf,
-        egui::CornerRadius::same(0),
+    draw_projected_rect(
+        painter,
+        card_center,
+        tilt,
+        egui::Rect::from_min_max(egui::pos2(5.0, -108.0), egui::pos2(29.0, -94.0)),
+        34.0,
         Color32::from_rgb(129, 189, 122),
+        egui::Stroke::NONE,
     );
-
-    let soil = egui::Rect::from_center_size(
-        egui::pos2(center.x, rect.bottom() - 5.0),
-        egui::vec2(46.0, 8.0),
-    );
-    painter.rect_filled(
-        soil,
-        egui::CornerRadius::same(0),
+    draw_projected_rect(
+        painter,
+        card_center,
+        tilt,
+        egui::Rect::from_min_max(egui::pos2(-25.0, -67.0), egui::pos2(25.0, -59.0)),
+        26.0,
         Color32::from_rgb(112, 78, 50),
+        egui::Stroke::NONE,
     );
-    painter.rect_stroke(
-        rect.shrink(1.0),
-        egui::CornerRadius::same(0),
+    draw_projected_rect(
+        painter,
+        card_center,
+        tilt,
+        egui::Rect::from_min_max(egui::pos2(-34.0, -113.0), egui::pos2(34.0, -55.0)),
+        25.0,
+        Color32::TRANSPARENT,
         egui::Stroke::new(1.0, FLOWER_ACCENT),
-        egui::StrokeKind::Inside,
     );
+}
+
+fn draw_center_card_glare(painter: &egui::Painter, card_center: egui::Pos2, tilt: CardTilt) {
+    let distance = tilt.pointer_offset.length().clamp(0.0, 1.0);
+    let alpha = (26.0 + distance * 34.0) as u8;
+    let glare_x = -70.0 + tilt.pointer_offset.x * 115.0;
+    let glare_points = [
+        egui::vec2(glare_x - 19.0, -95.0),
+        egui::vec2(glare_x + 13.0, -95.0),
+        egui::vec2(glare_x + 58.0, 95.0),
+        egui::vec2(glare_x + 26.0, 95.0),
+    ]
+    .into_iter()
+    .map(|point| tilt.project(card_center, point, 36.0))
+    .collect();
+
+    painter.add(egui::Shape::convex_polygon(
+        glare_points,
+        Color32::from_rgba_unmultiplied(255, 242, 172, alpha),
+        egui::Stroke::NONE,
+    ));
+}
+
+fn projected_rect_points(
+    card_center: egui::Pos2,
+    tilt: CardTilt,
+    rect: egui::Rect,
+    z: f32,
+) -> Vec<egui::Pos2> {
+    [
+        egui::vec2(rect.left(), rect.top()),
+        egui::vec2(rect.right(), rect.top()),
+        egui::vec2(rect.right(), rect.bottom()),
+        egui::vec2(rect.left(), rect.bottom()),
+    ]
+    .into_iter()
+    .map(|point| tilt.project(card_center, point, z))
+    .collect()
+}
+
+fn draw_projected_rect(
+    painter: &egui::Painter,
+    card_center: egui::Pos2,
+    tilt: CardTilt,
+    rect: egui::Rect,
+    z: f32,
+    fill: Color32,
+    stroke: egui::Stroke,
+) {
+    painter.add(egui::Shape::convex_polygon(
+        projected_rect_points(card_center, tilt, rect, z),
+        fill,
+        stroke,
+    ));
 }
 
 fn draw_tool_panel(
