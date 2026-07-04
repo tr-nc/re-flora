@@ -519,6 +519,21 @@ impl App {
 
     fn reset_fertilizing_stroke_tracking(&mut self) {
         self.player_tools.last_fertilizing_center = None;
+        self.player_tools.active_fertilizer_stroke_seed = None;
+    }
+
+    fn active_fertilizer_stroke_seed(&mut self) -> u32 {
+        if let Some(seed) = self.player_tools.active_fertilizer_stroke_seed {
+            return seed;
+        }
+
+        let seed = self.player_tools.next_fertilizer_stroke_seed.max(1);
+        self.player_tools.next_fertilizer_stroke_seed = seed
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223)
+            .max(1);
+        self.player_tools.active_fertilizer_stroke_seed = Some(seed);
+        seed
     }
 
     fn reset_tilling_stroke_tracking(&mut self) {
@@ -1380,7 +1395,8 @@ impl App {
                     self.reset_fertilizing_stroke_tracking();
                     return;
                 }
-                if let Err(err) = self.add_fertilizer_brush_fertility(edit) {
+                let stroke_seed = self.active_fertilizer_stroke_seed();
+                if let Err(err) = self.add_fertilizer_brush_fertility(edit, stroke_seed) {
                     log::error!("Failed to apply fertilizer brush: {}", err);
                     self.reset_fertilizing_stroke_tracking();
                     return;

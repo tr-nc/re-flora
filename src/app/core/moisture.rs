@@ -233,12 +233,17 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn add_fertilizer_brush_fertility(&mut self, edit: TerrainBrushEdit) -> Result<()> {
+    pub(super) fn add_fertilizer_brush_fertility(
+        &mut self,
+        edit: TerrainBrushEdit,
+        stroke_seed: u32,
+    ) -> Result<()> {
         self.plain_builder.apply_terrain_fertility_brush(
             edit.start,
             edit.end,
             edit.radius,
             FERTILIZER_BRUSH_FERTILITY_PER_DAB,
+            stroke_seed,
         )?;
         Ok(())
     }

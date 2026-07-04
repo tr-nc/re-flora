@@ -902,11 +902,12 @@ impl PlainBuilder {
     }
 
     fn prepare_terrain_fertility_brush(
-        &mut self,
+        &self,
         start: Vec3,
         end: Vec3,
         radius_world: f32,
         amount: f32,
+        dither_seed: u32,
     ) -> Option<(TerrainMoistureBrushPushConstants, UVec3, UAabb3)> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let start_vox = start * 256.0;
@@ -938,12 +939,7 @@ impl PlainBuilder {
 
         let offset = clamped_min.as_uvec3();
         let dim = (clamped_max - clamped_min).as_uvec3();
-        let dither_seed = self.next_fertility_dither_seed;
-        self.next_fertility_dither_seed = self
-            .next_fertility_dither_seed
-            .wrapping_mul(1_664_525)
-            .wrapping_add(1_013_904_223)
-            .max(1);
+        let dither_seed = dither_seed.max(1);
         let push_constants = TerrainMoistureBrushPushConstants {
             offset: [offset.x, offset.y, offset.z, dither_seed],
             dim: [dim.x, dim.y, dim.z, 0],
@@ -975,9 +971,10 @@ impl PlainBuilder {
         end: Vec3,
         radius_world: f32,
         amount: f32,
+        dither_seed: u32,
     ) -> Result<Option<UAabb3>> {
         let Some((push_constants, dim, changed_bound)) =
-            self.prepare_terrain_fertility_brush(start, end, radius_world, amount)
+            self.prepare_terrain_fertility_brush(start, end, radius_world, amount, dither_seed)
         else {
             return Ok(None);
         };
