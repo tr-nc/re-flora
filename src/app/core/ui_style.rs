@@ -644,11 +644,8 @@ fn draw_tool_panel_contents(
         if slot.category != previous_category {
             if previous_category.is_some() {
                 match orientation {
-                    ToolPanelOrientation::Horizontal => ui.add_space(2.0),
+                    ToolPanelOrientation::Horizontal => ui.add_space(5.0),
                 }
-            }
-            if let Some(category) = slot.category {
-                draw_tool_panel_category(ui, category, orientation, theme);
             }
             previous_category = slot.category;
         }
@@ -666,37 +663,14 @@ fn draw_tool_panel_contents(
     }
 }
 
-fn draw_tool_panel_category(
-    ui: &mut egui::Ui,
-    label: &'static str,
-    orientation: ToolPanelOrientation,
-    theme: ToolPanelTheme,
-) {
-    match orientation {
-        ToolPanelOrientation::Horizontal => {
-            let marker_size = egui::vec2(20.0, theme.slot_size.y);
-            let (rect, _) = ui.allocate_exact_size(marker_size, egui::Sense::hover());
-            let painter = ui.painter_at(rect);
-            painter.rect_filled(rect, egui::CornerRadius::same(0), PANEL_DARK);
-            painter.rect_stroke(
-                rect,
-                egui::CornerRadius::same(0),
-                egui::Stroke::new(1.0, SAGE_ACCENT),
-                egui::StrokeKind::Inside,
-            );
-            let text = label
-                .chars()
-                .map(|character| character.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                text,
-                egui::TextStyle::Small.resolve(ui.style()),
-                SAGE_ACCENT,
-            );
-        }
+fn tool_panel_category_fill(category: Option<&'static str>) -> Color32 {
+    match category {
+        Some("FREE") => Color32::from_rgb(43, 52, 49),
+        Some("TOOLS") => Color32::from_rgb(54, 49, 42),
+        Some("CARE") => Color32::from_rgb(42, 55, 52),
+        Some("SCAN") => Color32::from_rgb(53, 50, 62),
+        Some("ITEMS") => Color32::from_rgb(50, 45, 40),
+        _ => PANEL_LIGHT,
     }
 }
 
@@ -718,12 +692,13 @@ fn draw_tool_panel_slot(
     let clicked = interaction_enabled && response.clicked();
     let painter = ui.painter_at(rect);
 
+    let category_fill = tool_panel_category_fill(slot.category);
     let fill = if selected {
-        Color32::from_rgb(58, 57, 49)
+        category_fill.linear_multiply(1.22)
     } else if hovered {
-        Color32::from_rgb(54, 63, 60)
+        category_fill.linear_multiply(1.12)
     } else {
-        PANEL_LIGHT
+        category_fill
     };
     let accent = if slot.enabled {
         slot.accent
