@@ -322,11 +322,16 @@ pub(crate) fn draw_center_card(ctx: &egui::Context) {
             let tilt = CardTilt::from_pointer(card_center, pointer_pos);
             let painter = ui.painter_at(rect);
 
-            draw_tilted_center_card(&painter, card_center, tilt);
+            draw_tilted_center_card(ctx, &painter, card_center, tilt);
         });
 }
 
-fn draw_tilted_center_card(painter: &egui::Painter, card_center: egui::Pos2, tilt: CardTilt) {
+fn draw_tilted_center_card(
+    ctx: &egui::Context,
+    painter: &egui::Painter,
+    card_center: egui::Pos2,
+    tilt: CardTilt,
+) {
     let half_size = egui::vec2(CENTER_CARD_WIDTH * 0.5, CENTER_CARD_HEIGHT * 0.5);
     let card_points = projected_rect_points(
         card_center,
@@ -365,7 +370,7 @@ fn draw_tilted_center_card(painter: &egui::Painter, card_center: egui::Pos2, til
             egui::pos2(-half_size.x + 13.0, -half_size.y + 13.0),
             egui::pos2(half_size.x - 13.0, half_size.y - 13.0),
         ),
-        2.0,
+        0.0,
         Color32::TRANSPARENT,
         egui::Stroke::new(1.0, SAGE_ACCENT),
     );
@@ -377,27 +382,38 @@ fn draw_tilted_center_card(painter: &egui::Painter, card_center: egui::Pos2, til
             egui::pos2(-half_size.x, -half_size.y),
             egui::pos2(half_size.x, -half_size.y + 8.0),
         ),
-        5.0,
+        0.0,
         FLOWER_ACCENT,
         egui::Stroke::NONE,
     );
 
     draw_center_card_sprout(painter, card_center, tilt);
-    draw_center_card_text(painter, card_center, tilt);
+    draw_center_card_text(ctx, painter, card_center, tilt);
     draw_center_card_glare(painter, card_center, tilt);
 }
 
-fn draw_center_card_text(painter: &egui::Painter, card_center: egui::Pos2, tilt: CardTilt) {
-    painter.text(
-        tilt.project(card_center, egui::vec2(0.0, -38.0), 24.0),
-        egui::Align2::CENTER_CENTER,
+fn draw_center_card_text(
+    ctx: &egui::Context,
+    painter: &egui::Painter,
+    card_center: egui::Pos2,
+    tilt: CardTilt,
+) {
+    draw_projected_text(
+        ctx,
+        painter,
+        card_center,
+        tilt,
+        egui::vec2(0.0, -38.0),
         "Seed Card",
         egui::FontId::monospace(22.0),
         GOLD_ACCENT,
     );
-    painter.text(
-        tilt.project(card_center, egui::vec2(0.0, -11.0), 18.0),
-        egui::Align2::CENTER_CENTER,
+    draw_projected_text(
+        ctx,
+        painter,
+        card_center,
+        tilt,
+        egui::vec2(0.0, -11.0),
         "a pocket note from the garden",
         egui::FontId::monospace(12.0),
         FLOWER_ACCENT,
@@ -411,26 +427,74 @@ fn draw_center_card_text(painter: &egui::Painter, card_center: egui::Pos2, tilt:
     .iter()
     .enumerate()
     {
-        painter.text(
-            tilt.project(
-                card_center,
-                egui::vec2(0.0, 27.0 + line_index as f32 * 17.0),
-                14.0,
-            ),
-            egui::Align2::CENTER_CENTER,
-            *line,
+        draw_projected_text(
+            ctx,
+            painter,
+            card_center,
+            tilt,
+            egui::vec2(0.0, 27.0 + line_index as f32 * 17.0),
+            line,
             egui::FontId::proportional(14.0),
             TEXT_COLOR,
         );
     }
 
-    painter.text(
-        tilt.project(card_center, egui::vec2(0.0, 86.0), 12.0),
-        egui::Align2::CENTER_CENTER,
+    draw_projected_text(
+        ctx,
+        painter,
+        card_center,
+        tilt,
+        egui::vec2(0.0, 86.0),
         "press C to tuck it away",
         egui::FontId::monospace(11.0),
         SAGE_ACCENT,
     );
+}
+
+fn draw_projected_text(
+    ctx: &egui::Context,
+    painter: &egui::Painter,
+    card_center: egui::Pos2,
+    tilt: CardTilt,
+    local_center: egui::Vec2,
+    text: &str,
+    font_id: egui::FontId,
+    color: Color32,
+) {
+    let text_mesh = ctx.fonts_mut(|fonts| {
+        let galley = fonts.layout_no_wrap(text.to_owned(), font_id, color);
+        let [font_width, font_height] = fonts.font_image_size();
+        let uv_normalizer = egui::vec2(
+            1.0 / font_width.max(1) as f32,
+            1.0 / font_height.max(1) as f32,
+        );
+        let galley_origin = local_center - galley.rect.center().to_vec2();
+        let mut mesh = egui::Mesh::with_texture(egui::TextureId::default());
+
+        for row in &galley.rows {
+            let index_offset = mesh.vertices.len() as u32;
+            mesh.indices.extend(
+                row.visuals
+                    .mesh
+                    .indices
+                    .iter()
+                    .map(|index| index + index_offset),
+            );
+            mesh.vertices
+                .extend(row.visuals.mesh.vertices.iter().map(|vertex| {
+                    let local = galley_origin + row.pos.to_vec2() + vertex.pos.to_vec2();
+                    egui::epaint::Vertex {
+                        pos: tilt.project(card_center, local, 0.0),
+                        uv: (vertex.uv.to_vec2() * uv_normalizer).to_pos2(),
+                        color: vertex.color,
+                    }
+                }));
+        }
+
+        mesh
+    });
+
+    painter.add(egui::Shape::mesh(text_mesh));
 }
 
 fn draw_center_card_sprout(painter: &egui::Painter, card_center: egui::Pos2, tilt: CardTilt) {
@@ -439,7 +503,7 @@ fn draw_center_card_sprout(painter: &egui::Painter, card_center: egui::Pos2, til
         card_center,
         tilt,
         egui::Rect::from_min_max(egui::pos2(-3.0, -94.0), egui::pos2(3.0, -66.0)),
-        28.0,
+        0.0,
         SAGE_ACCENT,
         egui::Stroke::NONE,
     );
@@ -448,7 +512,7 @@ fn draw_center_card_sprout(painter: &egui::Painter, card_center: egui::Pos2, til
         card_center,
         tilt,
         egui::Rect::from_min_max(egui::pos2(-29.0, -104.0), egui::pos2(-5.0, -90.0)),
-        32.0,
+        0.0,
         Color32::from_rgb(104, 158, 98),
         egui::Stroke::NONE,
     );
@@ -457,7 +521,7 @@ fn draw_center_card_sprout(painter: &egui::Painter, card_center: egui::Pos2, til
         card_center,
         tilt,
         egui::Rect::from_min_max(egui::pos2(5.0, -108.0), egui::pos2(29.0, -94.0)),
-        34.0,
+        0.0,
         Color32::from_rgb(129, 189, 122),
         egui::Stroke::NONE,
     );
@@ -466,7 +530,7 @@ fn draw_center_card_sprout(painter: &egui::Painter, card_center: egui::Pos2, til
         card_center,
         tilt,
         egui::Rect::from_min_max(egui::pos2(-25.0, -67.0), egui::pos2(25.0, -59.0)),
-        26.0,
+        0.0,
         Color32::from_rgb(112, 78, 50),
         egui::Stroke::NONE,
     );
@@ -475,7 +539,7 @@ fn draw_center_card_sprout(painter: &egui::Painter, card_center: egui::Pos2, til
         card_center,
         tilt,
         egui::Rect::from_min_max(egui::pos2(-34.0, -113.0), egui::pos2(34.0, -55.0)),
-        25.0,
+        0.0,
         Color32::TRANSPARENT,
         egui::Stroke::new(1.0, FLOWER_ACCENT),
     );
@@ -492,7 +556,7 @@ fn draw_center_card_glare(painter: &egui::Painter, card_center: egui::Pos2, tilt
         egui::vec2(glare_x + 26.0, 95.0),
     ]
     .into_iter()
-    .map(|point| tilt.project(card_center, point, 36.0))
+    .map(|point| tilt.project(card_center, point, 0.0))
     .collect();
 
     painter.add(egui::Shape::convex_polygon(
