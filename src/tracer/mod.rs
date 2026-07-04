@@ -86,7 +86,7 @@ const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
 const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
 const DEFAULT_CAMERA_DISTANCE_SCALE: f32 = 0.7;
 const DEFAULT_CAMERA_DISTANCE_PADDING: f32 = 0.65;
-const DEFAULT_CAMERA_HEIGHT_SCALE: f32 = 1.0;
+const DEFAULT_CAMERA_HEIGHT: f32 = 1.0;
 
 #[derive(Debug, Clone)]
 pub struct WindGuiParams {
@@ -236,6 +236,7 @@ struct TreeRenderInstanceData {
 
 pub struct TracerDesc {
     pub scaling_factor: f32,
+    pub default_camera_look_at: Vec3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -289,17 +290,22 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
-    fn default_camera_pose_for_bound(chunk_bound: UAabb3) -> (Vec3, f32, f32) {
+    fn default_camera_pose_for_bound(
+        chunk_bound: UAabb3,
+        default_camera_look_at: Vec3,
+    ) -> (Vec3, f32, f32) {
         let min = chunk_bound.min().as_vec3();
         let max = chunk_bound.max().as_vec3();
         let extent = max - min;
-        let center = (min + max) * 0.5;
         let horizontal_extent = extent.x.max(extent.z).max(1.0);
         let camera_distance =
             horizontal_extent * DEFAULT_CAMERA_DISTANCE_SCALE + DEFAULT_CAMERA_DISTANCE_PADDING;
-        let camera_height = extent.y.max(1.0) * DEFAULT_CAMERA_HEIGHT_SCALE;
-        let camera_position = center + Vec3::new(0.0, camera_height, camera_distance);
-        let look_direction = (center - camera_position).normalize();
+        let camera_position = Vec3::new(
+            default_camera_look_at.x,
+            DEFAULT_CAMERA_HEIGHT,
+            default_camera_look_at.z + camera_distance,
+        );
+        let look_direction = (default_camera_look_at - camera_position).normalize();
         let yaw_deg = look_direction.x.atan2(-look_direction.z).to_degrees();
         let horizontal_len = Vec2::new(look_direction.x, look_direction.z).length();
         let pitch_deg = look_direction.y.atan2(horizontal_len).to_degrees();
@@ -321,7 +327,7 @@ impl Tracer {
     ) -> Result<Self> {
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
         let (camera_position, camera_yaw_deg, camera_pitch_deg) =
-            Self::default_camera_pose_for_bound(chunk_bound);
+            Self::default_camera_pose_for_bound(chunk_bound, desc.default_camera_look_at);
 
         let camera = Camera::new(
             camera_position,

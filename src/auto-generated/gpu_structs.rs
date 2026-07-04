@@ -105,7 +105,7 @@ pub struct NodeOffsetForLevels {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OccupancyToInstancesResult {
-    pub flora_instance_len: [u32; 4],
+    pub flora_instance_len: [u32; 5],
     pub has_growing_flora: u32,
 }
 

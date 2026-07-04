@@ -43,8 +43,7 @@ use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
-    SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX,
-    VOXEL_TYPE_CHERRY_WOOD,
+    SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -74,9 +73,9 @@ use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_item_panel, draw_placeable_panel, draw_voxel_palette, ItemPanelSlot,
     PlaceablePanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
-    FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT, GOLD_ACCENT, HOE_SLOT_INDEX,
-    HOE_TOOL_ACCENT, ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH, ITEM_PANEL_FERTILIZER_ICON_PATH,
-    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
+    FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT, GOLD_ACCENT, HAND_SLOT_INDEX,
+    HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH,
+    ITEM_PANEL_FERTILIZER_ICON_PATH, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
@@ -175,6 +174,7 @@ pub struct App {
     flora_tick: u32,
     flora_tick_accumulator: f32,
     moisture_dry_chunk_cursor: u32,
+    moisture_spread_chunk_cursor: u32,
     flora_paint_dab_serial: u32,
     growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
@@ -490,7 +490,7 @@ impl WorldBuildBackend for App {
 }
 
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
-pub(super) const CHUNK_DIM: UVec3 = UVec3::new(3, 2, 3);
+pub(super) const CHUNK_DIM: UVec3 = UVec3::new(2, 2, 2);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
 const MAX_FRAMES_IN_FLIGHT: usize = 1;
 const GPU_PROFILER_MAX_SCOPES_PER_FRAME: usize = 64;
@@ -498,7 +498,9 @@ const TERRAIN_EDIT_DEFAULT_RADIUS: f32 = 0.08;
 const TERRAIN_EDIT_RADIUS_MIN: f32 = 0.03;
 const TERRAIN_EDIT_RADIUS_MAX: f32 = 0.36;
 const TERRAIN_EDIT_RADIUS_SCROLL_STEP: f32 = 0.01;
-const ORBIT_CAMERA_DEFAULT_FOCUS: Vec3 = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
+const ORBIT_CAMERA_DEFAULT_FOCUS_HEIGHT: f32 = 0.5;
+const ORBIT_CAMERA_DEFAULT_FOCUS: Vec3 =
+    INITIAL_EDITABLE_TERRAIN_BOUNDS.center_at_height(ORBIT_CAMERA_DEFAULT_FOCUS_HEIGHT);
 const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.2;
 const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
 const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
@@ -523,8 +525,6 @@ const ITEM_PANEL_SCROLL_SFX_PATH: &str =
     "assets/sfx/MECHSwtch_Game Boy Advance SP, B Button, On 05_SARM_BTNS.wav";
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
-const DEBUG_AUDIO_WALL_MIN: Vec3 = Vec3::new(300.0, 0.0, 512.0);
-const DEBUG_AUDIO_WALL_MAX: Vec3 = Vec3::new(320.0, 256.0, 600.0);
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;
 const FLORA_GROWTH_SPEED_DIVISOR: u32 = 10;
 // Trimmed grasses should read as clipped, not newly sprouted: the shader's floor-based
@@ -586,20 +586,29 @@ impl ActiveVoxelType {
 }
 
 impl App {
-    fn apply_debug_audio_wall(&mut self) -> Result<()> {
-        let wall = Cuboid::from_min_max(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
-        let wall_aabb = Aabb3::new(DEBUG_AUDIO_WALL_MIN, DEBUG_AUDIO_WALL_MAX);
-        let bvh_nodes = build_bvh(&[wall_aabb], &[0]).map_err(anyhow::Error::msg)?;
+    fn debug_startup_block_bounds() -> (Vec3, Vec3) {
+        // Temporary synthetic obstacle. Bounds are derived from the atlas dimensions so changing
+        // CHUNK_DIM does not require hand-updating debug geometry.
+        let atlas_dim = (CHUNK_DIM * VOXEL_DIM_PER_CHUNK).as_vec3();
+        let min = Vec3::new(atlas_dim.x * 0.58, 0.0, atlas_dim.z * 0.75);
+        let max = (min + Vec3::new(20.0, atlas_dim.y * 0.5, 88.0)).min(atlas_dim);
+        (min, max)
+    }
 
-        let result = self.plain_builder.chunk_modify_cuboids_with_voxel_type(
-            &bvh_nodes,
-            &[wall],
-            VOXEL_TYPE_CHERRY_WOOD,
-        );
-        if result.is_ok() {
-            self.request_vsm_history_reset();
-        }
-        result
+    fn apply_debug_cuboid(&mut self, min: Vec3, max: Vec3, voxel_type: u32) -> Result<()> {
+        let cuboid = Cuboid::from_min_max(min, max);
+        let aabb = Aabb3::new(min, max);
+        let bvh_nodes = build_bvh(&[aabb], &[0]).map_err(anyhow::Error::msg)?;
+        self.plain_builder
+            .chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &[cuboid], voxel_type)
+    }
+
+    fn apply_debug_startup_materials(&mut self) -> Result<()> {
+        let (block_min, block_max) = Self::debug_startup_block_bounds();
+        self.apply_debug_cuboid(block_min, block_max, VOXEL_TYPE_DIRT)?;
+
+        self.request_vsm_history_reset();
+        Ok(())
     }
 
     fn master_volume_gain_db(master_volume_db: f32, mute_audio_output: bool) -> f32 {
@@ -851,6 +860,7 @@ impl App {
             plain_builder.get_resources(),
             TracerDesc {
                 scaling_factor: 0.5,
+                default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
             },
             spatial_sound_manager.clone(),
         )?;
@@ -879,7 +889,8 @@ impl App {
         };
         let camera_snapshot_draft_name = camera_snapshots.unique_name("snapshot");
 
-        let debug_tree_pos = Vec3::new(2.0, 0.2, 2.0);
+        let editable_center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
+        let debug_tree_pos = Vec3::new(editable_center.x, 0.2, editable_center.z);
         let gui_config = GuiConfigLoader::load();
         let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
         let wind_sources = crate::app::wind_sources_from_config(&gui_config);
@@ -1082,6 +1093,7 @@ impl App {
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
             moisture_dry_chunk_cursor: 0,
+            moisture_spread_chunk_cursor: 0,
             flora_paint_dab_serial: 0,
             growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
@@ -1593,14 +1605,17 @@ impl App {
                         self.select_item_panel_slot(slot_idx);
                     }
 
+                    if event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
+                        self.clear_selected_tool();
+                    }
+
                     let target_placeable_slot = match event.physical_key {
                         PhysicalKey::Code(KeyCode::KeyZ) => Some(TREE_PLACEABLE_SLOT_INDEX),
                         PhysicalKey::Code(KeyCode::KeyX) => Some(SPRINKLER_PLACEABLE_SLOT_INDEX),
                         _ => None,
                     };
                     if let Some(slot_idx) = target_placeable_slot {
-                        self.select_placeable_panel_slot(slot_idx);
-                        self.select_item_panel_slot(TREE_SLOT_INDEX);
+                        self.select_placeable_tool(slot_idx);
                     }
                 }
 
@@ -1811,7 +1826,7 @@ impl App {
                     format!("Grow brush: {}", self.current_flora_paint_selection_label())
                 };
                 let placeable_hint = format!(
-                    "Place: {} (Z/X) · Water: 6 + LMB · Soil: 7 · Fert: 8 + LMB · sprinklers {}",
+                    "Place: {} (Z/X or side bar) · Water: 6 + LMB · Soil: 7 · Fert: 8 + LMB · sprinklers {}",
                     self.current_placeable_label(),
                     self.sprinkler_records.len()
                 );
@@ -2016,9 +2031,17 @@ impl App {
 
                         let item_panel_slots = [
                             ItemPanelSlot {
+                                index: HAND_SLOT_INDEX,
+                                label: "Hand",
+                                key_hint: "1",
+                                icon: None,
+                                accent: SAGE_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
                                 index: STAFF_SLOT_INDEX,
                                 label: "Grow",
-                                key_hint: "1",
+                                key_hint: "2",
                                 icon: item_panel_staff_icon.as_ref(),
                                 accent: STAFF_TOOL_ACCENT,
                                 enabled: true,
@@ -2026,7 +2049,7 @@ impl App {
                             ItemPanelSlot {
                                 index: SHOVEL_SLOT_INDEX,
                                 label: "Dig",
-                                key_hint: "2",
+                                key_hint: "3",
                                 icon: item_panel_shovel_icon.as_ref(),
                                 accent: SHOVEL_TOOL_ACCENT,
                                 enabled: true,
@@ -2034,7 +2057,7 @@ impl App {
                             ItemPanelSlot {
                                 index: SMOOTH_SLOT_INDEX,
                                 label: "Smooth",
-                                key_hint: "3",
+                                key_hint: "4",
                                 icon: item_panel_smooth_icon.as_ref(),
                                 accent: SMOOTH_TOOL_ACCENT,
                                 enabled: true,
@@ -2042,17 +2065,9 @@ impl App {
                             ItemPanelSlot {
                                 index: HOE_SLOT_INDEX,
                                 label: "Trim",
-                                key_hint: "4",
+                                key_hint: "5",
                                 icon: item_panel_hoe_icon.as_ref(),
                                 accent: HOE_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
-                                index: TREE_SLOT_INDEX,
-                                label: "Place",
-                                key_hint: "5",
-                                icon: item_panel_tree_icon.as_ref(),
-                                accent: TREE_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
@@ -2083,7 +2098,7 @@ impl App {
                         let item_panel_response = draw_item_panel(
                             ctx,
                             &item_panel_slots,
-                            selected_item_panel_slot,
+                            selected_item_panel_slot.or(Some(HAND_SLOT_INDEX)),
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
@@ -2110,7 +2125,7 @@ impl App {
                             ctx,
                             &placeable_panel_slots,
                             selected_placeable_panel_slot,
-                            selected_item_panel_slot == TREE_SLOT_INDEX,
+                            selected_item_panel_slot == Some(TREE_SLOT_INDEX),
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_placeable_panel_slot = placeable_panel_response.clicked_slot;
@@ -2258,8 +2273,7 @@ impl App {
                     self.select_item_panel_slot(slot_idx);
                 }
                 if let Some(slot_idx) = clicked_placeable_panel_slot {
-                    self.select_placeable_panel_slot(slot_idx);
-                    self.select_item_panel_slot(TREE_SLOT_INDEX);
+                    self.select_placeable_tool(slot_idx);
                 }
                 if self.gui_wants_keyboard_input() {
                     self.reset_camera_movement_input();
@@ -2401,6 +2415,29 @@ impl App {
                         });
                     self.record_sprinkler_moisture(cmdbuf, frame_delta_time);
                     if let Some(scope) = sprinkler_moisture_gpu_scope {
+                        if let Some(profiler) = self.gpu_profiler.as_mut() {
+                            profiler.end_scope(
+                                frame_slot,
+                                cmdbuf,
+                                scope,
+                                PipelineStage::COMPUTE_SHADER,
+                            );
+                        }
+                    }
+                }
+
+                if self.has_terrain_moisture_spread_chunks() {
+                    let moisture_spread_gpu_scope =
+                        self.gpu_profiler.as_mut().and_then(|profiler| {
+                            profiler.begin_scope(
+                                frame_slot,
+                                cmdbuf,
+                                "moisture_spread.pass",
+                                PipelineStage::COMPUTE_SHADER,
+                            )
+                        });
+                    self.record_terrain_moisture_spread_chunks(cmdbuf);
+                    if let Some(scope) = moisture_spread_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
                             profiler.end_scope(
                                 frame_slot,

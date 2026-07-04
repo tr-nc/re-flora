@@ -37,7 +37,7 @@ impl LoadingState {
 
 impl App {
     pub(super) fn process_loading_step(&mut self) {
-        let mut should_apply_debug_audio_wall = false;
+        let mut should_apply_debug_startup_materials = false;
         let loading = match &mut self.loading_state {
             Some(loading) => loading,
             None => return,
@@ -65,7 +65,7 @@ impl App {
 
                 loading.current += 1;
                 if loading.current >= total {
-                    should_apply_debug_audio_wall = true;
+                    should_apply_debug_startup_materials = true;
                     loading.current = 0;
                     loading.phase = LoadingPhase::Building;
                 }
@@ -120,9 +120,9 @@ impl App {
             }
         }
 
-        if should_apply_debug_audio_wall {
-            if let Err(err) = self.apply_debug_audio_wall() {
-                log::error!("Failed to apply debug audio wall: {err}");
+        if should_apply_debug_startup_materials {
+            if let Err(err) = self.apply_debug_startup_materials() {
+                log::error!("Failed to apply debug startup materials: {err}");
             }
         }
     }

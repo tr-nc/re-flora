@@ -12,6 +12,7 @@ const float short_grass_height_mean_voxels  = 3.0;
 const float short_grass_height_stddev_voxels = 0.6;
 
 #include "./flora_wind_motion.glsl"
+#include "./flora_species_profile.glsl"
 
 float sample_standard_normal(uint seed) {
     uint state_a = wellons_hash(seed ^ 0xA511E9B3u);
@@ -96,15 +97,20 @@ void prepaverdarium_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_
     float flora_bend_height_t = is_grass ? grass_rooted_height_t : wind_gradient;
     float flora_bend_weight = flora_bend_height_factor(flora_bend_height_t);
     float wind_bend_weight = is_surface_flora ? flora_bend_weight : wind_gradient * wind_gradient;
-    vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_bend_weight;
+    float species_wind_affect = is_surface_flora ? flora_species_voxel_wind_affect_multiplier(
+                                                       instance_ty, vox_local_pos, wind_gradient) :
+                                                   1.0;
+    vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_bend_weight * species_wind_affect;
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
     if (is_surface_flora) {
         float natural_bend_height = is_grass ? float(grass_height_voxels) : max(float(max_length), 1.0);
         float natural_bend_t = is_grass ? grass_rooted_height_t : wind_gradient;
-        wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height);
+        wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height) *
+                       species_wind_affect;
         wind_offset += flora_wind_vibration(wind_vec, flora_bend_height_t, instance_seed,
-                                            vox_local_pos, wind_motion_time);
+                                            vox_local_pos, wind_motion_time) *
+                       species_wind_affect;
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
         wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
                                           gradient_origin, wind_motion_time);

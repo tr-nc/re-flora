@@ -48,15 +48,16 @@ pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str =
 pub(crate) const ITEM_PANEL_TREE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/8_Wooden_Axe.PNG";
 pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 8;
-pub(crate) const STAFF_SLOT_INDEX: usize = 0;
-pub(crate) const SHOVEL_SLOT_INDEX: usize = 1;
-pub(crate) const SMOOTH_SLOT_INDEX: usize = 2;
-pub(crate) const HOE_SLOT_INDEX: usize = 3;
-pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = 4;
-pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
+pub(crate) const HAND_SLOT_INDEX: usize = 0;
+pub(crate) const STAFF_SLOT_INDEX: usize = 1;
+pub(crate) const SHOVEL_SLOT_INDEX: usize = 2;
+pub(crate) const SMOOTH_SLOT_INDEX: usize = 3;
+pub(crate) const HOE_SLOT_INDEX: usize = 4;
 pub(crate) const WATERING_SLOT_INDEX: usize = 5;
 pub(crate) const SOIL_INSPECTOR_SLOT_INDEX: usize = 6;
 pub(crate) const FERTILIZER_SLOT_INDEX: usize = 7;
+pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = ITEM_PANEL_SLOT_COUNT;
+pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
 pub(crate) const PLACEABLE_PANEL_SLOT_COUNT: usize = 2;
 pub(crate) const TREE_PLACEABLE_SLOT_INDEX: usize = 0;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
@@ -192,7 +193,7 @@ struct ToolPanelSpec {
 pub(crate) fn draw_item_panel(
     ctx: &egui::Context,
     slots: &[ItemPanelSlot<'_>],
-    selected_slot_idx: usize,
+    selected_slot_idx: Option<usize>,
     interaction_enabled: bool,
 ) -> ItemPanelResponse {
     draw_tool_panel(
@@ -223,7 +224,7 @@ pub(crate) fn draw_placeable_panel(
     draw_tool_panel(
         ctx,
         slots,
-        selected_slot_idx,
+        Some(selected_slot_idx),
         interaction_enabled,
         ToolPanelSpec {
             area_id: "placeable_panel",
@@ -247,7 +248,7 @@ pub(crate) fn draw_placeable_panel(
             header: Some(ToolPanelHeader {
                 active: placement_tool_active,
                 active_text: "Place",
-                inactive_text: "Place · 5",
+                inactive_text: "Place",
             }),
         },
     )
@@ -256,7 +257,7 @@ pub(crate) fn draw_placeable_panel(
 fn draw_tool_panel(
     ctx: &egui::Context,
     slots: &[ToolPanelSlot<'_>],
-    selected_slot_idx: usize,
+    selected_slot_idx: Option<usize>,
     interaction_enabled: bool,
     spec: ToolPanelSpec,
 ) -> ToolPanelResponse {
@@ -324,7 +325,7 @@ fn draw_tool_panel(
 fn draw_tool_panel_contents(
     ui: &mut egui::Ui,
     slots: &[ToolPanelSlot<'_>],
-    selected_slot_idx: usize,
+    selected_slot_idx: Option<usize>,
     interaction_enabled: bool,
     theme: ToolPanelTheme,
     header: Option<ToolPanelHeader>,
@@ -353,7 +354,7 @@ fn draw_tool_panel_contents(
         let clicked = draw_tool_panel_slot(
             ui,
             slot,
-            slot.index == selected_slot_idx,
+            selected_slot_idx == Some(slot.index),
             interaction_enabled && slot.enabled,
             theme,
         );
@@ -440,13 +441,32 @@ fn draw_tool_panel_slot(
             .fit_to_exact_size(theme.icon_size)
             .paint_at(ui, icon_rect);
     } else {
-        painter.line_segment(
-            [icon_rect.left_top(), icon_rect.right_bottom()],
-            egui::Stroke::new(1.0, accent),
+        let palm = egui::Rect::from_center_size(
+            egui::pos2(icon_rect.center().x, icon_rect.center().y + 5.0),
+            egui::vec2(15.0, 13.0),
         );
+        painter.rect_stroke(
+            palm,
+            egui::CornerRadius::same(3),
+            egui::Stroke::new(1.3, accent),
+            egui::StrokeKind::Inside,
+        );
+        for x_offset in [-6.0, -2.0, 2.0, 6.0] {
+            let x = icon_rect.center().x + x_offset;
+            painter.line_segment(
+                [
+                    egui::pos2(x, icon_rect.center().y + 1.0),
+                    egui::pos2(x, icon_rect.top() + 4.0),
+                ],
+                egui::Stroke::new(1.3, accent),
+            );
+        }
         painter.line_segment(
-            [icon_rect.right_top(), icon_rect.left_bottom()],
-            egui::Stroke::new(1.0, accent),
+            [
+                egui::pos2(palm.left() + 1.0, palm.center().y),
+                egui::pos2(icon_rect.left() + 3.0, icon_rect.center().y + 1.0),
+            ],
+            egui::Stroke::new(1.3, accent),
         );
     }
 

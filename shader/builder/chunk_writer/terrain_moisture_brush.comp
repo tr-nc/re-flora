@@ -29,21 +29,32 @@ uint load_atlas_voxel_type(ivec3 p) {
     return voxel_type_from_atlas_data(imageLoad(chunk_atlas, p).r);
 }
 
-bool is_surface_moisture_voxel(ivec3 p, uint voxel_type) {
+float near_surface_absorption_factor(ivec3 p, uint voxel_type) {
     if (!is_moisture_voxel(voxel_type)) {
-        return false;
+        return 0.0;
     }
 
+    const int WATERING_SURFACE_SEARCH_STEPS = 5;
     const ivec3 neighbours_to_check[6] = {
         ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
         ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
     };
+    int best_depth = WATERING_SURFACE_SEARCH_STEPS;
     for (int i = 0; i < 6; i++) {
-        if (load_atlas_voxel_type(p + neighbours_to_check[i]) == VOXEL_TYPE_EMPTY) {
-            return true;
+        for (int step_idx = 1; step_idx <= WATERING_SURFACE_SEARCH_STEPS; step_idx++) {
+            if (load_atlas_voxel_type(p + neighbours_to_check[i] * step_idx) == VOXEL_TYPE_EMPTY) {
+                best_depth = min(best_depth, step_idx - 1);
+                break;
+            }
         }
     }
-    return false;
+    if (best_depth >= WATERING_SURFACE_SEARCH_STEPS) {
+        return 0.0;
+    }
+
+    float depth_t = float(best_depth) / float(WATERING_SURFACE_SEARCH_STEPS);
+    float factor = clamp(1.0 - depth_t, 0.0, 1.0);
+    return factor * factor;
 }
 
 float distance_to_segment(vec3 point, vec3 start, vec3 end) {
@@ -95,7 +106,8 @@ void main() {
 
     uint old_data = imageLoad(chunk_atlas, ivec3(atlas_u)).r;
     uint voxel_type = voxel_type_from_atlas_data(old_data);
-    if (!is_surface_moisture_voxel(ivec3(atlas_u), voxel_type)) {
+    float absorption_factor = near_surface_absorption_factor(ivec3(atlas_u), voxel_type);
+    if (absorption_factor <= 0.0) {
         return;
     }
 
@@ -106,7 +118,7 @@ void main() {
     float fine_noise = moisture_hash01(atlas_u, dither_seed);
     float coarse_noise = moisture_hash01(atlas_u / 4u, dither_seed ^ 0xA511E9B3u);
     float noisy_falloff = clamp(falloff + (mix(fine_noise, coarse_noise, 0.35) - 0.5) * 0.28, 0.0, 1.0);
-    float continuous_add = amount * noisy_falloff * float(VOXEL_MOISTURE_MAX);
+    float continuous_add = amount * noisy_falloff * absorption_factor * float(VOXEL_MOISTURE_MAX);
     uint add_moisture = uint(floor(continuous_add));
     if (moisture_hash01(atlas_u, dither_seed ^ 0x68BC21EBu) < fract(continuous_add)) {
         add_moisture += 1u;

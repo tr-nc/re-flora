@@ -24,9 +24,15 @@ impl EditableTerrainBounds {
     }
 
     pub(crate) const fn center(self) -> Vec3 {
+        self.center_at_height(
+            self.chunk_min.y as f32 + (self.chunk_max_exclusive.y - self.chunk_min.y) as f32 * 0.5,
+        )
+    }
+
+    pub(crate) const fn center_at_height(self, height: f32) -> Vec3 {
         Vec3::new(
             self.chunk_min.x as f32 + (self.chunk_max_exclusive.x - self.chunk_min.x) as f32 * 0.5,
-            self.chunk_min.y as f32 + (self.chunk_max_exclusive.y - self.chunk_min.y) as f32 * 0.5,
+            height,
             self.chunk_min.z as f32 + (self.chunk_max_exclusive.z - self.chunk_min.z) as f32 * 0.5,
         )
     }
@@ -60,21 +66,44 @@ impl EditableTerrainBounds {
 #[cfg(test)]
 mod tests {
     use super::INITIAL_EDITABLE_TERRAIN_BOUNDS;
+    use crate::app::core::CHUNK_DIM;
     use crate::app::world_edits::TerrainBrushEdit;
     use glam::Vec3;
 
     #[test]
     fn initial_editable_area_accepts_points_in_unlocked_chunks_xz() {
-        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(1.5, 0.5, 1.5)));
-        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(0.0, 0.5, 0.0)));
-        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(2.99, 0.5, 1.5)));
+        let max_x = CHUNK_DIM.x as f32;
+        let center_z = CHUNK_DIM.z as f32 * 0.5;
 
-        assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(-0.01, 0.5, 1.5)));
-        assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(3.0, 0.5, 1.5)));
+        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(
+            max_x * 0.5,
+            0.5,
+            center_z
+        )));
+        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(0.0, 0.5, 0.0)));
+        assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(
+            max_x - f32::EPSILON,
+            0.5,
+            center_z
+        )));
+
+        assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(-0.01, 0.5, center_z)));
+        assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(max_x, 0.5, center_z)));
+    }
+
+    #[test]
+    fn center_at_height_preserves_center_xz() {
+        let center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
+        assert_eq!(
+            INITIAL_EDITABLE_TERRAIN_BOUNDS.center_at_height(0.5),
+            Vec3::new(center.x, 0.5, center.z)
+        );
     }
 
     #[test]
     fn editable_area_checks_only_brush_endpoint_xz() {
+        let outside_x = CHUNK_DIM.x as f32;
+        let center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
         assert!(
             INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(TerrainBrushEdit {
                 start: Vec3::new(-1.0, 0.5, -1.0),
@@ -84,8 +113,8 @@ mod tests {
         );
         assert!(
             !INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(TerrainBrushEdit {
-                start: Vec3::new(1.5, 0.5, 1.5),
-                end: Vec3::new(3.0, 0.5, 1.5),
+                start: center,
+                end: Vec3::new(outside_x, center.y, center.z),
                 radius: 0.1,
             })
         );
