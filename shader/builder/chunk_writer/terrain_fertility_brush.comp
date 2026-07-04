@@ -70,6 +70,24 @@ float fertility_hash01(uvec3 p, uint seed) {
     return float(h & 0x00FFFFFFu) * (1.0 / 16777216.0);
 }
 
+bool is_fertilizer_granule_peak(ivec3 p, uint seed) {
+    float center_hash = fertility_hash01(uvec3(p), seed);
+    const ivec3 neighbours_to_check[6] = {
+        ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
+        ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
+    };
+    for (int i = 0; i < 6; i++) {
+        ivec3 neighbour = p + neighbours_to_check[i];
+        if (any(lessThan(neighbour, ivec3(0)))) {
+            continue;
+        }
+        if (fertility_hash01(uvec3(neighbour), seed) >= center_hash) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void main() {
     uvec3 local = gl_GlobalInvocationID.xyz;
     uvec3 dim   = pc.dim.xyz;
@@ -99,21 +117,26 @@ void main() {
         return;
     }
 
-    // Keep fertilizer visibly granular: a stroke seed chooses a stable subset of surface
-    // voxels inside the brush. Unselected soil is untouched until a later click uses a new seed.
+    // Keep fertilizer visibly granular: a stroke seed chooses sparse local maxima on the
+    // surface, then boosts only those granules strongly. The soil between granules is
+    // untouched until a later click uses a new seed.
     float falloff = clamp(1.0 - dist / max(radius_vox, 0.0001), 0.0, 1.0);
-    const float EDGE_GRANULE_COVERAGE = 0.12;
-    const float CENTER_GRANULE_COVERAGE = 0.78;
+    if (!is_fertilizer_granule_peak(ivec3(atlas_u), dither_seed ^ 0xB5297A4Du)) {
+        return;
+    }
+
+    const float EDGE_GRANULE_COVERAGE = 0.06;
+    const float CENTER_GRANULE_COVERAGE = 0.92;
     float granule_probability = clamp(
         amount * mix(EDGE_GRANULE_COVERAGE, CENTER_GRANULE_COVERAGE, falloff * falloff),
         0.0,
         1.0
     );
-    if (fertility_hash01(atlas_u, dither_seed ^ 0xB5297A4Du) >= granule_probability) {
+    if (fertility_hash01(atlas_u, dither_seed ^ 0x68BC21EBu) >= granule_probability) {
         return;
     }
 
-    uint add_fertility = 1u;
+    uint add_fertility = 2u;
 
     uint old_fertility = voxel_fertility_from_atlas_data(old_data);
     uint new_fertility = min(VOXEL_FERTILITY_MAX, old_fertility + add_fertility);
