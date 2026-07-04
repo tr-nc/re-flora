@@ -260,7 +260,7 @@ struct TerrainSmoothMboResultGpu {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
-struct TerrainMoistureBrushPushConstants {
+struct TerrainSoilBrushPushConstants {
     offset: [u32; 4],
     dim: [u32; 4],
     start_radius: [f32; 4],
@@ -333,7 +333,7 @@ pub struct PlainBuilder {
     terrain_smooth_mbo_apply_ppl: ComputePipeline,
     terrain_moisture_brush_ppl: ComputePipeline,
     terrain_fertility_brush_ppl: ComputePipeline,
-    terrain_fertility_mix_ppl: ComputePipeline,
+    terrain_soil_mix_ppl: ComputePipeline,
     terrain_moisture_dry_ppl: ComputePipeline,
     terrain_moisture_spread_ppl: ComputePipeline,
     voxel_property_sample_ppl: ComputePipeline,
@@ -349,7 +349,7 @@ pub struct PlainBuilder {
     build_cmdbuf: CommandBuffer,
     next_edit_sample_seed: u32,
     next_moisture_dither_seed: u32,
-    next_fertility_dither_seed: u32,
+    next_soil_mix_dither_seed: u32,
     #[allow(dead_code)]
     chunk_atlas_readback_buffer: Option<Buffer>,
 }
@@ -483,10 +483,10 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
-        let terrain_fertility_mix_sm = ShaderModule::from_glsl(
+        let terrain_soil_mix_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
-            "shader/builder/chunk_writer/terrain_fertility_mix.comp",
+            "shader/builder/chunk_writer/terrain_soil_mix.comp",
             "main",
         )
         .unwrap();
@@ -561,8 +561,8 @@ impl PlainBuilder {
             ComputePipeline::new(device, &terrain_moisture_brush_sm, &pool, &[&resources]);
         let terrain_fertility_brush_ppl =
             ComputePipeline::new(device, &terrain_fertility_brush_sm, &pool, &[&resources]);
-        let terrain_fertility_mix_ppl =
-            ComputePipeline::new(device, &terrain_fertility_mix_sm, &pool, &[&resources]);
+        let terrain_soil_mix_ppl =
+            ComputePipeline::new(device, &terrain_soil_mix_sm, &pool, &[&resources]);
         let terrain_moisture_dry_ppl =
             ComputePipeline::new(device, &terrain_moisture_dry_sm, &pool, &[&resources]);
         let terrain_moisture_spread_ppl =
@@ -605,7 +605,7 @@ impl PlainBuilder {
             terrain_smooth_mbo_apply_ppl,
             terrain_moisture_brush_ppl,
             terrain_fertility_brush_ppl,
-            terrain_fertility_mix_ppl,
+            terrain_soil_mix_ppl,
             terrain_moisture_dry_ppl,
             terrain_moisture_spread_ppl,
             voxel_property_sample_ppl,
@@ -617,7 +617,7 @@ impl PlainBuilder {
             build_cmdbuf,
             next_edit_sample_seed: 1,
             next_moisture_dither_seed: 1,
-            next_fertility_dither_seed: 1,
+            next_soil_mix_dither_seed: 1,
             chunk_atlas_readback_buffer: None,
         };
 
@@ -798,7 +798,7 @@ impl PlainBuilder {
         end: Vec3,
         radius_world: f32,
         amount: f32,
-    ) -> Option<(TerrainMoistureBrushPushConstants, UVec3, UAabb3)> {
+    ) -> Option<(TerrainSoilBrushPushConstants, UVec3, UAabb3)> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let start_vox = start * 256.0;
         let end_vox = end * 256.0;
@@ -837,7 +837,7 @@ impl PlainBuilder {
             .wrapping_mul(1_664_525)
             .wrapping_add(1_013_904_223)
             .max(1);
-        let push_constants = TerrainMoistureBrushPushConstants {
+        let push_constants = TerrainSoilBrushPushConstants {
             offset: [offset.x, offset.y, offset.z, dither_seed],
             dim: [dim.x, dim.y, dim.z, 0],
             start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
@@ -850,7 +850,7 @@ impl PlainBuilder {
     fn record_prepared_terrain_moisture_brush(
         &self,
         cmdbuf: &CommandBuffer,
-        push_constants: &TerrainMoistureBrushPushConstants,
+        push_constants: &TerrainSoilBrushPushConstants,
         dim: UVec3,
     ) {
         self.terrain_moisture_brush_ppl.record(
@@ -908,7 +908,7 @@ impl PlainBuilder {
         radius_world: f32,
         amount: f32,
         dither_seed: u32,
-    ) -> Option<(TerrainMoistureBrushPushConstants, UVec3, UAabb3)> {
+    ) -> Option<(TerrainSoilBrushPushConstants, UVec3, UAabb3)> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let start_vox = start * 256.0;
         let end_vox = end * 256.0;
@@ -940,7 +940,7 @@ impl PlainBuilder {
         let offset = clamped_min.as_uvec3();
         let dim = (clamped_max - clamped_min).as_uvec3();
         let dither_seed = dither_seed.max(1);
-        let push_constants = TerrainMoistureBrushPushConstants {
+        let push_constants = TerrainSoilBrushPushConstants {
             offset: [offset.x, offset.y, offset.z, dither_seed],
             dim: [dim.x, dim.y, dim.z, 0],
             start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
@@ -953,7 +953,7 @@ impl PlainBuilder {
     fn record_prepared_terrain_fertility_brush(
         &self,
         cmdbuf: &CommandBuffer,
-        push_constants: &TerrainMoistureBrushPushConstants,
+        push_constants: &TerrainSoilBrushPushConstants,
         dim: UVec3,
     ) {
         self.terrain_fertility_brush_ppl.record(
@@ -991,13 +991,13 @@ impl PlainBuilder {
         Ok(Some(changed_bound))
     }
 
-    fn prepare_terrain_fertility_mix(
+    fn prepare_terrain_soil_mix(
         &mut self,
         start: Vec3,
         end: Vec3,
         radius_world: f32,
         strength: f32,
-    ) -> Option<(TerrainMoistureBrushPushConstants, UVec3, UAabb3)> {
+    ) -> Option<(TerrainSoilBrushPushConstants, UVec3, UAabb3)> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let start_vox = start * 256.0;
         let end_vox = end * 256.0;
@@ -1028,13 +1028,13 @@ impl PlainBuilder {
 
         let offset = clamped_min.as_uvec3();
         let dim = (clamped_max - clamped_min).as_uvec3();
-        let dither_seed = self.next_fertility_dither_seed;
-        self.next_fertility_dither_seed = self
-            .next_fertility_dither_seed
+        let dither_seed = self.next_soil_mix_dither_seed;
+        self.next_soil_mix_dither_seed = self
+            .next_soil_mix_dither_seed
             .wrapping_mul(1_664_525)
             .wrapping_add(1_013_904_223)
             .max(1);
-        let push_constants = TerrainMoistureBrushPushConstants {
+        let push_constants = TerrainSoilBrushPushConstants {
             offset: [offset.x, offset.y, offset.z, dither_seed],
             dim: [dim.x, dim.y, dim.z, 0],
             start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
@@ -1044,17 +1044,17 @@ impl PlainBuilder {
         Some((push_constants, dim, changed_bound))
     }
 
-    fn record_prepared_terrain_fertility_mix(
+    fn record_prepared_terrain_soil_mix(
         &self,
         cmdbuf: &CommandBuffer,
-        push_constants: &TerrainMoistureBrushPushConstants,
+        push_constants: &TerrainSoilBrushPushConstants,
         dim: UVec3,
     ) {
         let mut phase_push_constants = *push_constants;
         for axis in 0..3 {
             for pair_parity in 0..2 {
                 phase_push_constants.dim[3] = axis | (pair_parity << 2);
-                self.terrain_fertility_mix_ppl.record(
+                self.terrain_soil_mix_ppl.record(
                     cmdbuf,
                     Extent3D::new(dim.x, dim.y, dim.z),
                     Some(bytemuck::bytes_of(&phase_push_constants)),
@@ -1066,7 +1066,7 @@ impl PlainBuilder {
     }
 
     #[allow(dead_code)]
-    pub fn apply_terrain_fertility_mix(
+    pub fn apply_terrain_soil_mix(
         &mut self,
         start: Vec3,
         end: Vec3,
@@ -1074,7 +1074,7 @@ impl PlainBuilder {
         strength: f32,
     ) -> Result<Option<UAabb3>> {
         let Some((push_constants, dim, changed_bound)) =
-            self.prepare_terrain_fertility_mix(start, end, radius_world, strength)
+            self.prepare_terrain_soil_mix(start, end, radius_world, strength)
         else {
             return Ok(None);
         };
@@ -1084,7 +1084,7 @@ impl PlainBuilder {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                self.record_prepared_terrain_fertility_mix(cmdbuf, &push_constants, dim);
+                self.record_prepared_terrain_soil_mix(cmdbuf, &push_constants, dim);
             },
         );
 
