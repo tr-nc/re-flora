@@ -42,6 +42,32 @@ uint load_atlas_voxel_type(ivec3 p) {
     return voxel_type_from_atlas_data(imageLoad(chunk_atlas, p).r);
 }
 
+uint load_atlas_moisture(ivec3 p) {
+    ivec3 atlas_size = imageSize(chunk_atlas).xyz;
+    if (any(lessThan(p, ivec3(0))) || any(greaterThanEqual(p, atlas_size))) {
+        return 0u;
+    }
+    uint atlas_data = imageLoad(chunk_atlas, p).r;
+    uint voxel_type = voxel_type_from_atlas_data(atlas_data);
+    if (!is_moisture_voxel(voxel_type)) {
+        return 0u;
+    }
+    return voxel_moisture_from_atlas_data(atlas_data);
+}
+
+bool has_wetter_moisture_neighbor(ivec3 p, uint moisture) {
+    const ivec3 neighbours_to_check[6] = {
+        ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
+        ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
+    };
+    for (int i = 0; i < 6; i++) {
+        if (load_atlas_moisture(p + neighbours_to_check[i]) > moisture) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool sun_ray_is_occluded(vec3 origin_vox, vec3 sun_dir) {
     const int SUN_SHADOW_RAY_MAX_STEPS = 768;
     const float SUN_SHADOW_RAY_STEP_VOX = 1.0;
@@ -131,10 +157,10 @@ void main() {
     if (exposure.sunlit) {
         dry_probability *= sunlit_probability_multiplier;
     }
-    // A level-1 voxel represents a thin residual film. Let it evaporate faster than wetter
-    // soil so the quantized moisture simulation does not leave visible single-voxel speckles
-    // random-walking after the main wet patch has dried.
-    if (old_moisture == 1u) {
+    // A level-1 voxel can either be the natural feathered edge of fresh watering or an
+    // isolated residual film. Preserve the edge while it touches wetter soil; only accelerate
+    // evaporation once it has detached into residual speckles after the main patch dries.
+    if (old_moisture == 1u && !has_wetter_moisture_neighbor(ivec3(atlas_u), old_moisture)) {
         dry_probability *= residual_probability_multiplier;
     }
     dry_probability = clamp(dry_probability, 0.0, 1.0);
