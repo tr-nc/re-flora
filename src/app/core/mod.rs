@@ -72,11 +72,12 @@ use std::collections::HashMap;
 
 use std::time::{Duration, Instant};
 use ui_style::{
-    apply_gui_style, draw_item_panel, draw_placeable_panel, draw_voxel_palette, ItemPanelSlot,
-    PlaceablePanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
-    FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT, GOLD_ACCENT, HAND_SLOT_INDEX,
-    HOE_SLOT_INDEX, HOE_TOOL_ACCENT, ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH,
-    ITEM_PANEL_FERTILIZER_ICON_PATH, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
+    apply_gui_style, draw_center_card, draw_item_panel, draw_placeable_panel, draw_voxel_palette,
+    ItemPanelSlot, PlaceablePanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME,
+    CUSTOM_GUI_FONT_PATH, FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT,
+    GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
+    ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH, ITEM_PANEL_FERTILIZER_ICON_PATH,
+    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
@@ -161,6 +162,7 @@ pub struct App {
     camera_snapshot_status: Option<String>,
     frame_timing_panel_visible: bool,
     frame_timing_snapshot: FrameTimingSnapshot,
+    card_display_visible: bool,
     is_fly_mode: bool,
     item_panel_shovel_icon: Option<TextureHandle>,
     item_panel_smooth_icon: Option<TextureHandle>,
@@ -1136,6 +1138,7 @@ impl App {
             camera_snapshot_status: None,
             frame_timing_panel_visible: options.perf,
             frame_timing_snapshot: FrameTimingSnapshot::default(),
+            card_display_visible: false,
             is_fly_mode: true,
             item_panel_shovel_icon: None,
             item_panel_smooth_icon: None,
@@ -1633,6 +1636,14 @@ impl App {
 
             if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyM {
                 self.toggle_audio_output_mute();
+                return;
+            }
+
+            if event.state == ElementState::Pressed
+                && !event.repeat
+                && event.physical_key == KeyCode::KeyC
+            {
+                self.card_display_visible = !self.card_display_visible;
                 return;
             }
         }
@@ -2318,6 +2329,10 @@ impl App {
                                 self.gpu_profiler_latest_results.as_ref(),
                                 self.perf_logging,
                             );
+                        }
+
+                        if self.card_display_visible {
+                            draw_center_card(ctx);
                         }
 
                         // FPS counter in bottom right
