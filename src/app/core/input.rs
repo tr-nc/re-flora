@@ -2,7 +2,8 @@ use super::placeables::PlaceableKind;
 use super::ui_style::{
     FERTILIZER_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT,
     PLACEABLE_PANEL_SLOT_COUNT, PLACE_TOOL_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX,
-    SOIL_INSPECTOR_SLOT_INDEX, STAFF_SLOT_INDEX, TILLER_SLOT_INDEX, TREE_SLOT_INDEX,
+    SOIL_INSPECTOR_SLOT_INDEX, SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX,
+    STAFF_SLOT_INDEX, TILLER_SLOT_INDEX, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX,
     WATERING_SLOT_INDEX,
 };
 use super::App;
@@ -572,7 +573,11 @@ impl App {
     }
 
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
-        if slot_idx == HAND_SLOT_INDEX
+        if slot_idx == TREE_SLOT_INDEX {
+            self.select_placeable_tool(TREE_PLACEABLE_SLOT_INDEX);
+        } else if slot_idx == SPRINKLER_SLOT_INDEX {
+            self.select_placeable_tool(SPRINKLER_PLACEABLE_SLOT_INDEX);
+        } else if slot_idx == HAND_SLOT_INDEX
             || Some(slot_idx) == self.player_tools.selected_item_panel_slot
         {
             self.clear_selected_tool();
