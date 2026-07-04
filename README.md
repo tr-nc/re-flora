@@ -30,12 +30,12 @@ The first build takes a while — shaders compile from source.
 
 Basic controls:
 
-- **WASD** to move.
-- **Space** to jump.
-- **Shift** to sprint.
+- **WASD** or **arrow keys** to move the edit camera.
+- **Q/E** to lower/raise the edit camera.
+- **MMB drag** to pan, **RMB drag** to rotate, and **mouse wheel** to zoom.
 - **G** to toggle walk/fly mode.
-- **E** to toggle the config panel.
-- **Q** to quit.
+- **R** to toggle the config panel.
+- **Ctrl+Q** to quit.
 
 Most values can be tuned live from the config panel. Runtime defaults are stored in [`config/gui.toml`](./config/gui.toml).
 

@@ -128,7 +128,6 @@ pub struct App {
     camera_control_mode: CameraControlMode,
     orbit_camera_focus: Vec3,
     orbit_keyboard_pan_input: OrbitKeyboardPanInput,
-    orbit_space_pan_held: bool,
     orbit_mouse_drag_held: bool,
     orbit_mouse_drag_button: Option<MouseButton>,
     orbit_mouse_drag_pan_active: bool,
@@ -274,6 +273,8 @@ struct OrbitKeyboardPanInput {
     backward: bool,
     left: bool,
     right: bool,
+    up: bool,
+    down: bool,
 }
 
 impl OrbitKeyboardPanInput {
@@ -283,27 +284,35 @@ impl OrbitKeyboardPanInput {
 
     fn handle_key(&mut self, code: KeyCode, pressed: bool) {
         match code {
-            KeyCode::KeyW => self.forward = pressed,
-            KeyCode::KeyS => self.backward = pressed,
-            KeyCode::KeyA => self.left = pressed,
-            KeyCode::KeyD => self.right = pressed,
+            KeyCode::KeyW | KeyCode::ArrowUp => self.forward = pressed,
+            KeyCode::KeyS | KeyCode::ArrowDown => self.backward = pressed,
+            KeyCode::KeyA | KeyCode::ArrowLeft => self.left = pressed,
+            KeyCode::KeyD | KeyCode::ArrowRight => self.right = pressed,
+            KeyCode::KeyE => self.up = pressed,
+            KeyCode::KeyQ => self.down = pressed,
             _ => {}
         }
     }
 
-    fn input_vector(self) -> Vec2 {
-        let mut input = Vec2::ZERO;
+    fn input_vector(self) -> Vec3 {
+        let mut input = Vec3::ZERO;
         if self.forward {
-            input.y += 1.0;
+            input.z += 1.0;
         }
         if self.backward {
-            input.y -= 1.0;
+            input.z -= 1.0;
         }
         if self.left {
             input.x -= 1.0;
         }
         if self.right {
             input.x += 1.0;
+        }
+        if self.up {
+            input.y += 1.0;
+        }
+        if self.down {
+            input.y -= 1.0;
         }
         input.normalize_or_zero()
     }
@@ -1037,7 +1046,6 @@ impl App {
             camera_control_mode: CameraControlMode::default(),
             orbit_camera_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
             orbit_keyboard_pan_input: OrbitKeyboardPanInput::default(),
-            orbit_space_pan_held: false,
             orbit_mouse_drag_held: false,
             orbit_mouse_drag_button: None,
             orbit_mouse_drag_pan_active: false,
@@ -1472,7 +1480,7 @@ impl App {
         let gui_wanted_keyboard_before_event = self.gui_wants_keyboard_input();
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
-            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyE {
+            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyR {
                 self.config_panel_visible = !self.config_panel_visible;
                 self.sync_cursor_with_panels();
                 return;
@@ -1537,7 +1545,10 @@ impl App {
         }
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
-            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyQ {
+            if event.state == ElementState::Pressed
+                && event.physical_key == KeyCode::KeyQ
+                && self.modifiers.control_key()
+            {
                 self.on_terminate(event_loop);
                 return;
             }
@@ -2981,7 +2992,7 @@ mod tests {
         let direction = input.input_vector();
         assert!((direction.length() - 1.0).abs() <= 0.0001);
         assert!(direction.x > 0.0);
-        assert!(direction.y > 0.0);
+        assert!(direction.z > 0.0);
     }
 
     #[test]
