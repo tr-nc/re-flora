@@ -91,10 +91,14 @@ vec3 apply_terrain_fertility_level(vec3 base_color, uint voxel_type, uint fertil
         return base_color;
     }
 
-    vec3 fertile_orange = vec3(0.95, 0.28, 0.08);
-    float tint = level == 2u ? 0.22 : 0.42;
-    float warmth = level == 2u ? 1.05 : 1.12;
-    return clamp(mix(base_color * warmth, fertile_orange, tint), vec3(0.0), vec3(1.0));
+    // Fertilized soil should read as soft compost/light-brown, not bright yellow/orange.
+    // Constants are pre-linearized from approximate sRGB #8F7355 and #9C7A58.
+    vec3 light_compost_brown = vec3(0.275, 0.171, 0.091);
+    vec3 rich_compost_brown = vec3(0.332, 0.195, 0.098);
+    vec3 compost_color = level == 2u ? light_compost_brown : rich_compost_brown;
+    float tint = level == 2u ? 0.18 : 0.34;
+    vec3 material_warmth = level == 2u ? vec3(1.03, 1.00, 0.94) : vec3(1.05, 1.01, 0.91);
+    return clamp(mix(base_color * material_warmth, compost_color, tint), vec3(0.0), vec3(1.0));
 }
 
 #endif // VOXEL_COLORS_GLSL
