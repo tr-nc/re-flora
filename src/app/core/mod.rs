@@ -1940,20 +1940,15 @@ impl App {
                                     .sample_soil_fertility_sphere(hover.center, radius),
                             ) {
                                 (Ok(moisture), Ok(fertility)) if moisture.count > 0 => format!(
-                                    "moist avg {:.2}/{}  min {} max {}\nfert avg {:.2}/{}  min {} max {}\n{} soil voxels",
+                                    "avg humidity {:.2}/{}\navg fertility {:.2}/{}",
                                     moisture.average().unwrap_or(0.0),
                                     VOXEL_MOISTURE_MAX,
-                                    moisture.min,
-                                    moisture.max,
                                     fertility.average().unwrap_or(0.0),
-                                    VOXEL_FERTILITY_MAX,
-                                    fertility.min,
-                                    fertility.max,
-                                    moisture.count
+                                    VOXEL_FERTILITY_MAX
                                 ),
-                                (Ok(_), Ok(_)) => "no soil in range".to_string(),
+                                (Ok(_), Ok(_)) => "nothing to inspect".to_string(),
                                 (Err(err), _) | (_, Err(err)) => {
-                                    log::error!("Soil inspector sample failed: {}", err);
+                                    log::error!("Inspector sample failed: {}", err);
                                     "sample failed".to_string()
                                 }
                             }
@@ -2278,7 +2273,7 @@ impl App {
                                     inspector_frame.show(ui, |ui| {
                                         ui.set_min_width(150.0);
                                         ui.label(
-                                            RichText::new("Soil Inspector")
+                                            RichText::new("Inspector")
                                                 .color(GOLD_ACCENT)
                                                 .monospace()
                                                 .size(12.0),

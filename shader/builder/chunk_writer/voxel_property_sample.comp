@@ -18,7 +18,7 @@ voxel_property_sample_info;
 layout(set = 0, binding = 1, r8ui) readonly uniform uimage3D chunk_atlas;
 
 layout(set = 0, binding = 2) buffer B_VoxelPropertySampleResult {
-    // x: matching voxel count, y: property sum, z: property min, w: property max.
+    // x: matching voxel count, y: property sum, z/w reserved.
     uvec4 stats;
     // Reserved for future multi-property or histogram readback.
     uvec4 extra;
@@ -30,12 +30,8 @@ voxel_property_sample_result;
 
 const uint VOXEL_PROPERTY_MOISTURE = 1u;
 const uint VOXEL_PROPERTY_FERTILITY = 2u;
-const uint UINT_MAX_VALUE = 0xffffffffu;
-
 shared uint workgroup_count;
 shared uint workgroup_sum;
-shared uint workgroup_min;
-shared uint workgroup_max;
 
 bool target_mask_contains(uint voxel_type, uint target_mask) {
     return voxel_type < 32u && ((target_mask & (1u << voxel_type)) != 0u);
@@ -59,8 +55,6 @@ void main() {
     if (gl_LocalInvocationIndex == 0u) {
         workgroup_count = 0u;
         workgroup_sum = 0u;
-        workgroup_min = UINT_MAX_VALUE;
-        workgroup_max = 0u;
     }
     barrier();
 
@@ -83,8 +77,6 @@ void main() {
                 if (sample_voxel_property(atlas_data, property_id, property_value)) {
                     atomicAdd(workgroup_count, 1u);
                     atomicAdd(workgroup_sum, property_value);
-                    atomicMin(workgroup_min, property_value);
-                    atomicMax(workgroup_max, property_value);
                 }
             }
         }
@@ -94,7 +86,5 @@ void main() {
     if (gl_LocalInvocationIndex == 0u && workgroup_count > 0u) {
         atomicAdd(voxel_property_sample_result.stats.x, workgroup_count);
         atomicAdd(voxel_property_sample_result.stats.y, workgroup_sum);
-        atomicMin(voxel_property_sample_result.stats.z, workgroup_min);
-        atomicMax(voxel_property_sample_result.stats.w, workgroup_max);
     }
 }

@@ -299,8 +299,6 @@ impl VoxelPropertySampleRequest {
 pub struct VoxelPropertySampleStats {
     pub count: u32,
     pub sum: u32,
-    pub min: u32,
-    pub max: u32,
 }
 
 impl VoxelPropertySampleStats {
@@ -1261,12 +1259,6 @@ impl PlainBuilder {
             self.resources.voxel_property_sample_result.get_size_bytes(),
             0,
         );
-        self.resources.voxel_property_sample_result.record_fill(
-            &command_buffer,
-            2 * std::mem::size_of::<u32>() as u64,
-            std::mem::size_of::<u32>() as u64,
-            u32::MAX,
-        );
         transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
         self.voxel_property_sample_ppl.record(
             &command_buffer,
@@ -1288,8 +1280,6 @@ impl PlainBuilder {
         Ok(VoxelPropertySampleStats {
             count,
             sum: result.stats[1],
-            min: if count > 0 { result.stats[2] } else { 0 },
-            max: if count > 0 { result.stats[3] } else { 0 },
         })
     }
 
