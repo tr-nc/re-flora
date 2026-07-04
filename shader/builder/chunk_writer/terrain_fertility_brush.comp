@@ -99,20 +99,21 @@ void main() {
         return;
     }
 
-    // Four discrete fertility states are stored in two bits. Match the watering brush's
-    // falloff + dither so fertilizer strokes blend softly instead of drawing hard rings.
+    // Keep fertilizer visibly granular: a stroke seed chooses a stable subset of surface
+    // voxels inside the brush. Unselected soil is untouched until a later click uses a new seed.
     float falloff = clamp(1.0 - dist / max(radius_vox, 0.0001), 0.0, 1.0);
-    float fine_noise = fertility_hash01(atlas_u, dither_seed);
-    float coarse_noise = fertility_hash01(atlas_u / 4u, dither_seed ^ 0xA511E9B3u);
-    float noisy_falloff = clamp(falloff + (mix(fine_noise, coarse_noise, 0.35) - 0.5) * 0.28, 0.0, 1.0);
-    float continuous_add = amount * noisy_falloff * float(VOXEL_FERTILITY_MAX);
-    uint add_fertility = uint(floor(continuous_add));
-    if (fertility_hash01(atlas_u, dither_seed ^ 0x68BC21EBu) < fract(continuous_add)) {
-        add_fertility += 1u;
-    }
-    if (add_fertility == 0u) {
+    const float EDGE_GRANULE_COVERAGE = 0.12;
+    const float CENTER_GRANULE_COVERAGE = 0.78;
+    float granule_probability = clamp(
+        amount * mix(EDGE_GRANULE_COVERAGE, CENTER_GRANULE_COVERAGE, falloff * falloff),
+        0.0,
+        1.0
+    );
+    if (fertility_hash01(atlas_u, dither_seed ^ 0xB5297A4Du) >= granule_probability) {
         return;
     }
+
+    uint add_fertility = 1u;
 
     uint old_fertility = voxel_fertility_from_atlas_data(old_data);
     uint new_fertility = min(VOXEL_FERTILITY_MAX, old_fertility + add_fertility);
