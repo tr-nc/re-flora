@@ -35,7 +35,7 @@ Basic controls:
 - **MMB drag** to pan, **RMB drag** to rotate, and **mouse wheel** to zoom.
 - **G** to toggle walk/fly mode.
 - **R** to toggle the config panel.
-- **Ctrl+Q** to quit.
+- **Esc** to quit.
 
 Most values can be tuned live from the config panel. Runtime defaults are stored in [`config/gui.toml`](./config/gui.toml).
 

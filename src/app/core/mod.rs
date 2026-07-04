@@ -1480,6 +1480,11 @@ impl App {
         let gui_wanted_keyboard_before_event = self.gui_wants_keyboard_input();
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
+            if event.state == ElementState::Pressed && event.physical_key == KeyCode::Escape {
+                self.on_terminate(event_loop);
+                return;
+            }
+
             if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyR {
                 self.config_panel_visible = !self.config_panel_visible;
                 self.sync_cursor_with_panels();
@@ -1545,14 +1550,6 @@ impl App {
         }
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
-            if event.state == ElementState::Pressed
-                && event.physical_key == KeyCode::KeyQ
-                && self.modifiers.control_key()
-            {
-                self.on_terminate(event_loop);
-                return;
-            }
-
             if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyP {
                 self.frame_timing_panel_visible = !self.frame_timing_panel_visible;
                 return;
@@ -1615,10 +1612,6 @@ impl App {
 
                     if let Some(slot_idx) = target_slot {
                         self.select_item_panel_slot(slot_idx);
-                    }
-
-                    if event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
-                        self.clear_selected_tool();
                     }
 
                     let target_placeable_slot = match event.physical_key {
