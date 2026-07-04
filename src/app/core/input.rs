@@ -133,7 +133,6 @@ impl App {
     pub(super) fn reset_camera_movement_input(&mut self) {
         self.tracer.reset_camera_input();
         self.orbit_keyboard_pan_input.reset();
-        self.orbit_space_pan_held = false;
         self.reset_orbit_mouse_drag();
         self.mouse_wheel_dolly.reset();
     }
@@ -226,10 +225,6 @@ impl App {
         state: ElementState,
     ) {
         let pressed = state == ElementState::Pressed;
-        if code == KeyCode::Space {
-            self.orbit_space_pan_held = pressed;
-            return;
-        }
         self.orbit_keyboard_pan_input.handle_key(code, pressed);
     }
 
@@ -255,8 +250,9 @@ impl App {
                 super::ORBIT_CAMERA_MAX_DISTANCE,
             );
         let speed = distance * super::ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE;
-        let pan_delta =
-            (planar_right * input.x + planar_front * input.y) * speed * frame_delta_time;
+        let pan_delta = (planar_right * input.x + Vec3::Y * input.y + planar_front * input.z)
+            * speed
+            * frame_delta_time;
         if pan_delta.length_squared() > f32::EPSILON {
             self.translate_orbit_camera(pan_delta);
         }
@@ -308,30 +304,24 @@ impl App {
             ElementState::Pressed
                 if self.orbit_mouse_drag_available() && button == MouseButton::Middle =>
             {
-                self.orbit_mouse_drag_held = true;
-                self.orbit_mouse_drag_button = Some(button);
-                self.orbit_mouse_drag_pan_active = self.modifiers.shift_key();
-                if self.orbit_mouse_drag_pan_active {
-                    self.orbit_mouse_drag_anchor = self.orbit_mouse_pan_anchor();
-                } else {
-                    self.orbit_mouse_drag_anchor = None;
-                    self.acquire_orbit_focus_from_screen_center();
-                }
-                self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
-                true
-            }
-            ElementState::Pressed
-                if self.orbit_mouse_drag_available()
-                    && button == MouseButton::Left
-                    && self.orbit_space_pan_held =>
-            {
-                self.player_tools.left_mouse_held = false;
-                self.player_tools.shovel_dig_held = false;
                 self.stop_terrain_edit_loop_sound();
                 self.orbit_mouse_drag_held = true;
                 self.orbit_mouse_drag_button = Some(button);
                 self.orbit_mouse_drag_pan_active = true;
                 self.orbit_mouse_drag_anchor = self.orbit_mouse_pan_anchor();
+                self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
+                true
+            }
+            ElementState::Pressed
+                if self.orbit_mouse_drag_available() && button == MouseButton::Right =>
+            {
+                self.player_tools.right_mouse_held = false;
+                self.stop_terrain_edit_loop_sound();
+                self.orbit_mouse_drag_held = true;
+                self.orbit_mouse_drag_button = Some(button);
+                self.orbit_mouse_drag_pan_active = false;
+                self.orbit_mouse_drag_anchor = None;
+                self.acquire_orbit_focus_from_screen_center();
                 self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
                 true
             }

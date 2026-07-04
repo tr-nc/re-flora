@@ -128,7 +128,6 @@ pub struct App {
     camera_control_mode: CameraControlMode,
     orbit_camera_focus: Vec3,
     orbit_keyboard_pan_input: OrbitKeyboardPanInput,
-    orbit_space_pan_held: bool,
     orbit_mouse_drag_held: bool,
     orbit_mouse_drag_button: Option<MouseButton>,
     orbit_mouse_drag_pan_active: bool,
@@ -274,6 +273,8 @@ struct OrbitKeyboardPanInput {
     backward: bool,
     left: bool,
     right: bool,
+    up: bool,
+    down: bool,
 }
 
 impl OrbitKeyboardPanInput {
@@ -283,27 +284,35 @@ impl OrbitKeyboardPanInput {
 
     fn handle_key(&mut self, code: KeyCode, pressed: bool) {
         match code {
-            KeyCode::KeyW => self.forward = pressed,
-            KeyCode::KeyS => self.backward = pressed,
-            KeyCode::KeyA => self.left = pressed,
-            KeyCode::KeyD => self.right = pressed,
+            KeyCode::KeyW | KeyCode::ArrowUp => self.forward = pressed,
+            KeyCode::KeyS | KeyCode::ArrowDown => self.backward = pressed,
+            KeyCode::KeyA | KeyCode::ArrowLeft => self.left = pressed,
+            KeyCode::KeyD | KeyCode::ArrowRight => self.right = pressed,
+            KeyCode::KeyE => self.up = pressed,
+            KeyCode::KeyQ => self.down = pressed,
             _ => {}
         }
     }
 
-    fn input_vector(self) -> Vec2 {
-        let mut input = Vec2::ZERO;
+    fn input_vector(self) -> Vec3 {
+        let mut input = Vec3::ZERO;
         if self.forward {
-            input.y += 1.0;
+            input.z += 1.0;
         }
         if self.backward {
-            input.y -= 1.0;
+            input.z -= 1.0;
         }
         if self.left {
             input.x -= 1.0;
         }
         if self.right {
             input.x += 1.0;
+        }
+        if self.up {
+            input.y += 1.0;
+        }
+        if self.down {
+            input.y -= 1.0;
         }
         input.normalize_or_zero()
     }
@@ -508,6 +517,9 @@ const ORBIT_CAMERA_FOCUS_RAY_QUERY_DISTANCE: f32 = 10.0;
 const ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL: f32 = 0.005;
 const ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE: f32 = 0.001;
 const ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE: f32 = 0.45;
+const CENTER_CROSS_MARK_ARM_LENGTH: f32 = 8.0;
+const CENTER_CROSS_MARK_GAP: f32 = 3.0;
+const CENTER_CROSS_MARK_STROKE_WIDTH: f32 = 1.5;
 const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
 const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
 const MOUSE_WHEEL_DOLLY_SNAP_LINES: f32 = 0.001;
@@ -583,6 +595,47 @@ impl ActiveVoxelType {
             ActiveVoxelType::OakWood => Color32::from_rgb(159, 110, 70),
             ActiveVoxelType::Rock => Color32::from_rgb(168, 176, 190),
         }
+    }
+}
+
+fn draw_center_cross_mark(ctx: &egui::Context) {
+    let center = ctx.content_rect().center();
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("center_cross_mark"),
+    ));
+    let shadow_stroke = egui::Stroke::new(
+        CENTER_CROSS_MARK_STROKE_WIDTH + 1.5,
+        Color32::from_black_alpha(150),
+    );
+    let foreground_stroke = egui::Stroke::new(
+        CENTER_CROSS_MARK_STROKE_WIDTH,
+        Color32::from_white_alpha(230),
+    );
+    let segments = [
+        (
+            egui::pos2(center.x - CENTER_CROSS_MARK_ARM_LENGTH, center.y),
+            egui::pos2(center.x - CENTER_CROSS_MARK_GAP, center.y),
+        ),
+        (
+            egui::pos2(center.x + CENTER_CROSS_MARK_GAP, center.y),
+            egui::pos2(center.x + CENTER_CROSS_MARK_ARM_LENGTH, center.y),
+        ),
+        (
+            egui::pos2(center.x, center.y - CENTER_CROSS_MARK_ARM_LENGTH),
+            egui::pos2(center.x, center.y - CENTER_CROSS_MARK_GAP),
+        ),
+        (
+            egui::pos2(center.x, center.y + CENTER_CROSS_MARK_GAP),
+            egui::pos2(center.x, center.y + CENTER_CROSS_MARK_ARM_LENGTH),
+        ),
+    ];
+
+    for (start, end) in segments {
+        painter.line_segment([start, end], shadow_stroke);
+    }
+    for (start, end) in segments {
+        painter.line_segment([start, end], foreground_stroke);
     }
 }
 
@@ -1037,7 +1090,6 @@ impl App {
             camera_control_mode: CameraControlMode::default(),
             orbit_camera_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
             orbit_keyboard_pan_input: OrbitKeyboardPanInput::default(),
-            orbit_space_pan_held: false,
             orbit_mouse_drag_held: false,
             orbit_mouse_drag_button: None,
             orbit_mouse_drag_pan_active: false,
@@ -1472,7 +1524,12 @@ impl App {
         let gui_wanted_keyboard_before_event = self.gui_wants_keyboard_input();
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
-            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyE {
+            if event.state == ElementState::Pressed && event.physical_key == KeyCode::Escape {
+                self.on_terminate(event_loop);
+                return;
+            }
+
+            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyR {
                 self.config_panel_visible = !self.config_panel_visible;
                 self.sync_cursor_with_panels();
                 return;
@@ -1537,11 +1594,6 @@ impl App {
         }
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
-            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyQ {
-                self.on_terminate(event_loop);
-                return;
-            }
-
             if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyP {
                 self.frame_timing_panel_visible = !self.frame_timing_panel_visible;
                 return;
@@ -1604,10 +1656,6 @@ impl App {
 
                     if let Some(slot_idx) = target_slot {
                         self.select_item_panel_slot(slot_idx);
-                    }
-
-                    if event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
-                        self.clear_selected_tool();
                     }
 
                     let target_placeable_slot = match event.physical_key {
@@ -2267,6 +2315,8 @@ impl App {
                                     );
                                 });
                             });
+
+                        draw_center_cross_mark(ctx);
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
                 self.sync_cursor_with_panels();
@@ -2981,7 +3031,7 @@ mod tests {
         let direction = input.input_vector();
         assert!((direction.length() - 1.0).abs() <= 0.0001);
         assert!(direction.x > 0.0);
-        assert!(direction.y > 0.0);
+        assert!(direction.z > 0.0);
     }
 
     #[test]
