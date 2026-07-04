@@ -2638,6 +2638,7 @@ impl App {
                         self.gui_adjustables.debug_float.value,
                         self.gui_adjustables.debug_bool.value,
                         self.gui_adjustables.debug_uint.value,
+                        self.gui_adjustables.terrain_shadow_use_vsm.value,
                         Vec3::new(
                             self.gui_adjustables.flora_instance_hue_offset.value,
                             self.gui_adjustables.flora_instance_saturation_offset.value,

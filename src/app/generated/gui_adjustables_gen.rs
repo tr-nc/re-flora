@@ -548,6 +548,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Shadow",
+        id: "terrain_shadow_use_vsm",
+        kind: "bool",
+        label: "Terrain Shadow Use VSM",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
         id: "vsm_blur_radius",
         kind: "uint",
         label: "VSM Blur Radius (texels)",
@@ -1447,6 +1453,7 @@ pub struct GuiAdjustables {
     pub glass_refraction_strength: crate::gui_adjustables::FloatParam,
     pub glass_alpha: crate::gui_adjustables::FloatParam,
     pub glass_glint_strength: crate::gui_adjustables::FloatParam,
+    pub terrain_shadow_use_vsm: crate::gui_adjustables::BoolParam,
     pub vsm_blur_radius: crate::gui_adjustables::UintParam,
     pub vsm_temporal_alpha: crate::gui_adjustables::FloatParam,
     pub leaf_shadow_fragment_opacity: crate::gui_adjustables::FloatParam,
@@ -1682,6 +1689,7 @@ impl GuiAdjustables {
         let mut glass_refraction_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_glint_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut terrain_shadow_use_vsm_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut vsm_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_shadow_fragment_opacity_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2396,6 +2404,11 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             glass_glint_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "terrain_shadow_use_vsm" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            terrain_shadow_use_vsm_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "vsm_blur_radius" => {
@@ -3396,6 +3409,7 @@ impl GuiAdjustables {
             glass_refraction_strength: glass_refraction_strength_field.expect("Missing parameter: glass_refraction_strength"),
             glass_alpha: glass_alpha_field.expect("Missing parameter: glass_alpha"),
             glass_glint_strength: glass_glint_strength_field.expect("Missing parameter: glass_glint_strength"),
+            terrain_shadow_use_vsm: terrain_shadow_use_vsm_field.expect("Missing parameter: terrain_shadow_use_vsm"),
             vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
             vsm_temporal_alpha: vsm_temporal_alpha_field.expect("Missing parameter: vsm_temporal_alpha"),
             leaf_shadow_fragment_opacity: leaf_shadow_fragment_opacity_field.expect("Missing parameter: leaf_shadow_fragment_opacity"),
@@ -3770,6 +3784,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "audio_ray_tracing_enabled" => Some(&adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&adjustables.glass_per_voxel_reflection),
+        "terrain_shadow_use_vsm" => Some(&adjustables.terrain_shadow_use_vsm),
         "is_changing_lum_phi" => Some(&adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&adjustables.is_spatial_denoising_enabled),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
@@ -4039,6 +4054,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "audio_ray_tracing_enabled" => Some(&mut adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&mut adjustables.glass_per_voxel_reflection),
+        "terrain_shadow_use_vsm" => Some(&mut adjustables.terrain_shadow_use_vsm),
         "is_changing_lum_phi" => Some(&mut adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&mut adjustables.is_spatial_denoising_enabled),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
