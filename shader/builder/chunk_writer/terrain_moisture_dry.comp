@@ -13,9 +13,25 @@ layout(push_constant) uniform PC {
 pc;
 
 layout(set = 0, binding = 1, r8ui) uniform uimage3D chunk_atlas;
+layout(set = 0, binding = 2) uniform U_ManualShadowCameraInfo {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+manual_shadow_camera_info;
+layout(set = 0, binding = 3) uniform sampler2D manual_shadow_map_tex_for_vsm_ping;
 
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
+#define shadow_camera_info manual_shadow_camera_info
+#define shadow_map_tex_for_vsm_ping manual_shadow_map_tex_for_vsm_ping
+#include "../../include/vsm.glsl"
+#undef shadow_map_tex_for_vsm_ping
+#undef shadow_camera_info
 
 float moisture_hash01(uvec3 p, uint seed) {
     uint h = seed ^ 0x9E3779B9u;
@@ -86,15 +102,34 @@ bool sun_ray_is_occluded(vec3 origin_vox, vec3 sun_dir) {
     return false;
 }
 
+float terrain_shadow_vsm_exposure(vec3 world_pos) {
+    vec4 light_space = manual_shadow_camera_info.view_proj_mat * vec4(world_pos, 1.0);
+    if (abs(light_space.w) <= 1.0e-6) {
+        return -1.0;
+    }
+    vec3 ndc = light_space.xyz / light_space.w;
+    vec2 uv = ndc.xy * 0.5 + 0.5;
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
+        return -1.0;
+    }
+    return clamp(get_shadow_weight_vsm_from_map(
+                     manual_shadow_map_tex_for_vsm_ping,
+                     manual_shadow_camera_info.view_proj_mat,
+                     vec4(world_pos, 1.0)),
+                 0.0, 1.0);
+}
+
 struct MoistureDryExposure {
     bool exposed;
-    bool sunlit;
+    float sun_exposure;
 };
 
-MoistureDryExposure moisture_dry_exposure(ivec3 p, uint voxel_type, vec3 sun_dir) {
+MoistureDryExposure moisture_dry_exposure(ivec3 p, uint voxel_type, vec3 sun_dir,
+                                           float voxels_per_world_unit,
+                                           bool terrain_shadow_vsm_ready) {
     MoistureDryExposure exposure;
     exposure.exposed = false;
-    exposure.sunlit = false;
+    exposure.sun_exposure = 0.0;
     if (!is_moisture_voxel(voxel_type)) {
         return exposure;
     }
@@ -119,7 +154,14 @@ MoistureDryExposure moisture_dry_exposure(ivec3 p, uint voxel_type, vec3 sun_dir
         vec3 face_normal = vec3(best_air_dir);
         if (dot(face_normal, sun_dir) > 0.05) {
             vec3 face_origin = vec3(p) + vec3(0.5) + face_normal * 0.51;
-            exposure.sunlit = !sun_ray_is_occluded(face_origin, sun_dir);
+            if (terrain_shadow_vsm_ready) {
+                float vsm_exposure = terrain_shadow_vsm_exposure(face_origin / voxels_per_world_unit);
+                if (vsm_exposure >= 0.0) {
+                    exposure.sun_exposure = vsm_exposure;
+                    return exposure;
+                }
+            }
+            exposure.sun_exposure = !sun_ray_is_occluded(face_origin, sun_dir) ? 1.0 : 0.0;
         }
     }
     return exposure;
@@ -136,6 +178,8 @@ void main() {
     uint seed = pc.offset.w;
     float dry_probability = clamp(pc.dry_params.x, 0.0, 1.0);
     float residual_probability_multiplier = max(pc.dry_params.y, 1.0);
+    float voxels_per_world_unit = max(pc.dry_params.z, 1.0);
+    bool terrain_shadow_vsm_ready = pc.dry_params.w > 0.5;
     float sun_dir_len_sq = dot(pc.sun_dir_params.xyz, pc.sun_dir_params.xyz);
     vec3 sun_dir = sun_dir_len_sq > 0.0 ? pc.sun_dir_params.xyz * inversesqrt(sun_dir_len_sq) : vec3(0.0);
     float sunlit_probability_multiplier = max(pc.sun_dir_params.w, 1.0);
@@ -150,13 +194,12 @@ void main() {
     }
 
     uint voxel_type = voxel_type_from_atlas_data(old_data);
-    MoistureDryExposure exposure = moisture_dry_exposure(ivec3(atlas_u), voxel_type, sun_dir);
+    MoistureDryExposure exposure = moisture_dry_exposure(
+        ivec3(atlas_u), voxel_type, sun_dir, voxels_per_world_unit, terrain_shadow_vsm_ready);
     if (!exposure.exposed) {
         return;
     }
-    if (exposure.sunlit) {
-        dry_probability *= sunlit_probability_multiplier;
-    }
+    dry_probability *= mix(1.0, sunlit_probability_multiplier, exposure.sun_exposure);
     dry_probability = clamp(dry_probability, 0.0, 1.0);
     float dry_roll = moisture_hash01(atlas_u, seed);
     bool should_dry = dry_roll < dry_probability;

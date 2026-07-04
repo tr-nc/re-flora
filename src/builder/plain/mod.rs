@@ -30,9 +30,11 @@ use verdarium_vkn::GpuJobToken;
 use verdarium_vkn::MemoryLocation;
 use verdarium_vkn::PipelineBarrier;
 use verdarium_vkn::ShaderModule;
+use verdarium_vkn::Texture;
 use verdarium_vkn::TextureLayout;
 use verdarium_vkn::TextureRegion;
 use verdarium_vkn::VulkanContext;
+use verdarium_vkn::WriteDescriptorSet;
 
 pub const VOXEL_TYPE_CHERRY_WOOD: u32 = 5;
 pub const VOXEL_TYPE_OAK_WOOD: u32 = 6;
@@ -1091,6 +1093,26 @@ impl PlainBuilder {
         Ok(Some(changed_bound))
     }
 
+    pub fn bind_terrain_moisture_dry_shadow_resources(
+        &self,
+        shadow_camera_info: &Buffer,
+        shadow_map_tex_for_vsm_ping: &Texture,
+    ) {
+        self.terrain_moisture_dry_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(2, shadow_camera_info),
+        );
+        self.terrain_moisture_dry_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_texture_write(
+                3,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                shadow_map_tex_for_vsm_ping,
+                TextureLayout::SHADER_READ_ONLY,
+            ),
+        );
+    }
+
     pub fn record_terrain_moisture_dry_region(
         &mut self,
         cmdbuf: &CommandBuffer,
@@ -1100,6 +1122,8 @@ impl PlainBuilder {
         sun_dir: Vec3,
         sunlit_probability_multiplier: f32,
         residual_probability_multiplier: f32,
+        voxels_per_world_unit: f32,
+        terrain_shadow_vsm_ready: bool,
     ) -> bool {
         let chunk_atlas_dim = chunk_atlas_dim(&self.resources);
         let dry_probability = dry_probability.clamp(0.0, 1.0);
@@ -1139,7 +1163,12 @@ impl PlainBuilder {
         let push_constants = TerrainMoistureDryPushConstants {
             offset: [atlas_offset.x, atlas_offset.y, atlas_offset.z, dither_seed],
             dim: [atlas_dim.x, atlas_dim.y, atlas_dim.z, 0],
-            dry_params: [dry_probability, residual_probability_multiplier, 0.0, 0.0],
+            dry_params: [
+                dry_probability,
+                residual_probability_multiplier,
+                voxels_per_world_unit.max(1.0),
+                if terrain_shadow_vsm_ready { 1.0 } else { 0.0 },
+            ],
             sun_dir_params: [
                 sun_dir.x,
                 sun_dir.y,

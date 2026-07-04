@@ -87,6 +87,7 @@ impl App {
         &mut self,
         cmdbuf: &CommandBuffer,
         sun_dir: Vec3,
+        terrain_shadow_vsm_ready: bool,
     ) -> usize {
         let mut recorded_count = 0;
         for _ in 0..TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME {
@@ -103,6 +104,8 @@ impl App {
                 sun_dir,
                 TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
                 TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
+                VOXEL_DIM_PER_CHUNK.x as f32,
+                terrain_shadow_vsm_ready,
             ) {
                 continue;
             }
@@ -114,13 +117,14 @@ impl App {
                     .unwrap()
                     .record("terrain_moisture_dry_record", dry_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} sunlit_multiplier={:.2} residual_multiplier={:.2} sun_dir={:?} next_cursor={} record_ms={:.3}",
+                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} sunlit_multiplier={:.2} residual_multiplier={:.2} vsm_ready={} sun_dir={:?} next_cursor={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
                     TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
                     TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
                     TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
+                    terrain_shadow_vsm_ready,
                     sun_dir,
                     self.moisture_dry_chunk_cursor,
                     dry_record_elapsed.as_secs_f64() * 1000.0,

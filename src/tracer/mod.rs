@@ -58,7 +58,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use verdarium_vkn::vk;
 use verdarium_vkn::{
-    execute_one_time_gpu_job, Allocator, ClearValue, ColorClearValue, CommandBuffer,
+    execute_one_time_gpu_job, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
     ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
     GpuProfiler, GraphicsPipeline, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage,
     PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
@@ -301,6 +301,11 @@ pub enum LodState {
     Lod1,
 }
 
+pub struct TerrainShadowVsmResources<'a> {
+    pub shadow_camera_info: &'a Buffer,
+    pub shadow_map_tex_for_vsm_ping: &'a Texture,
+}
+
 pub struct Tracer {
     vulkan_ctx: VulkanContext,
 
@@ -346,6 +351,17 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
+    pub fn terrain_shadow_vsm_resources(&self) -> TerrainShadowVsmResources<'_> {
+        TerrainShadowVsmResources {
+            shadow_camera_info: &self.resources.shadow.shadow_camera_info,
+            shadow_map_tex_for_vsm_ping: &self.resources.shadow.shadow_map_tex_for_vsm_ping,
+        }
+    }
+
+    pub fn terrain_shadow_vsm_ready(&self) -> bool {
+        self.shadow_camera_initialized && self.shadow_map_history_valid
+    }
+
     fn default_camera_pose_for_bound(
         chunk_bound: UAabb3,
         default_camera_look_at: Vec3,

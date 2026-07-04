@@ -923,6 +923,13 @@ impl App {
             },
             spatial_sound_manager.clone(),
         )?;
+        {
+            let shadow = tracer.terrain_shadow_vsm_resources();
+            plain_builder.bind_terrain_moisture_dry_shadow_resources(
+                shadow.shadow_camera_info,
+                shadow.shadow_map_tex_for_vsm_ping,
+            );
+        }
 
         let camera_snapshots = match CameraSnapshotLibrary::load_default() {
             Ok(library) => {
@@ -2576,7 +2583,12 @@ impl App {
                             PipelineStage::COMPUTE_SHADER,
                         )
                     });
-                    self.record_terrain_moisture_dry_chunks(cmdbuf, sun_dir);
+                    let terrain_shadow_vsm_ready = self.tracer.terrain_shadow_vsm_ready();
+                    self.record_terrain_moisture_dry_chunks(
+                        cmdbuf,
+                        sun_dir,
+                        terrain_shadow_vsm_ready,
+                    );
                     if let Some(scope) = moisture_dry_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
                             profiler.end_scope(
