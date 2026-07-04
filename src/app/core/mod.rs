@@ -72,11 +72,10 @@ use std::collections::HashMap;
 
 use std::time::{Duration, Instant};
 use ui_style::{
-    apply_gui_style, draw_center_card, draw_item_panel, draw_placeable_panel, draw_voxel_palette,
-    ItemPanelSlot, PlaceablePanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME,
-    CUSTOM_GUI_FONT_PATH, FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT,
-    GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
-    ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH, ITEM_PANEL_FERTILIZER_ICON_PATH,
+    apply_gui_style, draw_center_card, draw_item_panel, draw_voxel_palette, ItemPanelSlot,
+    VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FERTILIZER_SLOT_INDEX,
+    FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT, GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX,
+    HOE_TOOL_ACCENT, ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH, ITEM_PANEL_FERTILIZER_ICON_PATH,
     ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
@@ -87,9 +86,9 @@ use ui_style::{
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
     SMOOTH_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT,
-    SPRINKLER_PLACEABLE_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, TILLER_SLOT_INDEX,
-    TILLER_TOOL_ACCENT, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, TREE_TOOL_ACCENT,
-    WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
+    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT,
+    TILLER_SLOT_INDEX, TILLER_TOOL_ACCENT, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX,
+    TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use verdarium_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -1911,7 +1910,6 @@ impl App {
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
-                let mut clicked_placeable_panel_slot = None;
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_hover = self.terrain_edit_hover();
@@ -1927,7 +1925,7 @@ impl App {
                     format!("Grow brush: {}", self.current_flora_paint_selection_label())
                 };
                 let placeable_hint = format!(
-                    "Place: {} (Z/X or side bar) · Water: 6 + LMB · Soil: 7 · Fert: 8 + LMB · Till: 9 + LMB · sprinklers {}",
+                    "Place: {} (Z/X or bottom bar) · Water: 6 + LMB · Inspector: 7 · Fert: 8 + LMB · Till: 9 + LMB · sprinklers {}",
                     self.current_placeable_label(),
                     self.sprinkler_records.len()
                 );
@@ -2135,6 +2133,7 @@ impl App {
                                 index: HAND_SLOT_INDEX,
                                 label: "Hand",
                                 key_hint: "1",
+                                category: Some("FREE"),
                                 icon: None,
                                 accent: SAGE_ACCENT,
                                 enabled: true,
@@ -2143,6 +2142,7 @@ impl App {
                                 index: STAFF_SLOT_INDEX,
                                 label: "Grow",
                                 key_hint: "2",
+                                category: Some("TOOLS"),
                                 icon: item_panel_staff_icon.as_ref(),
                                 accent: STAFF_TOOL_ACCENT,
                                 enabled: true,
@@ -2151,6 +2151,7 @@ impl App {
                                 index: SHOVEL_SLOT_INDEX,
                                 label: "Dig",
                                 key_hint: "3",
+                                category: Some("TOOLS"),
                                 icon: item_panel_shovel_icon.as_ref(),
                                 accent: SHOVEL_TOOL_ACCENT,
                                 enabled: true,
@@ -2159,6 +2160,7 @@ impl App {
                                 index: SMOOTH_SLOT_INDEX,
                                 label: "Smooth",
                                 key_hint: "4",
+                                category: Some("TOOLS"),
                                 icon: item_panel_smooth_icon.as_ref(),
                                 accent: SMOOTH_TOOL_ACCENT,
                                 enabled: true,
@@ -2167,6 +2169,7 @@ impl App {
                                 index: HOE_SLOT_INDEX,
                                 label: "Trim",
                                 key_hint: "5",
+                                category: Some("TOOLS"),
                                 icon: item_panel_hoe_icon.as_ref(),
                                 accent: HOE_TOOL_ACCENT,
                                 enabled: true,
@@ -2175,22 +2178,16 @@ impl App {
                                 index: WATERING_SLOT_INDEX,
                                 label: "Water",
                                 key_hint: "6",
+                                category: Some("CARE"),
                                 icon: item_panel_water_icon.as_ref(),
                                 accent: WATER_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
-                                index: SOIL_INSPECTOR_SLOT_INDEX,
-                                label: "Soil",
-                                key_hint: "7",
-                                icon: item_panel_soil_inspector_icon.as_ref(),
-                                accent: SOIL_INSPECTOR_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: FERTILIZER_SLOT_INDEX,
                                 label: "Fert",
                                 key_hint: "8",
+                                category: Some("CARE"),
                                 icon: item_panel_fertilizer_icon.as_ref(),
                                 accent: FERTILIZER_TOOL_ACCENT,
                                 enabled: true,
@@ -2199,45 +2196,54 @@ impl App {
                                 index: TILLER_SLOT_INDEX,
                                 label: "Till",
                                 key_hint: "9",
+                                category: Some("CARE"),
                                 icon: item_panel_tiller_icon.as_ref(),
                                 accent: TILLER_TOOL_ACCENT,
                                 enabled: true,
                             },
-                        ];
-                        let item_panel_response = draw_item_panel(
-                            ctx,
-                            &item_panel_slots,
-                            selected_item_panel_slot.or(Some(HAND_SLOT_INDEX)),
-                            self.window_state.is_cursor_visible(),
-                        );
-                        clicked_item_panel_slot = item_panel_response.clicked_slot;
-
-                        let placeable_panel_slots = [
-                            PlaceablePanelSlot {
-                                index: TREE_PLACEABLE_SLOT_INDEX,
+                            ItemPanelSlot {
+                                index: SOIL_INSPECTOR_SLOT_INDEX,
+                                label: "Inspector",
+                                key_hint: "7",
+                                category: Some("SCAN"),
+                                icon: item_panel_soil_inspector_icon.as_ref(),
+                                accent: SOIL_INSPECTOR_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: TREE_SLOT_INDEX,
                                 label: "Tree",
                                 key_hint: "Z",
+                                category: Some("ITEMS"),
                                 icon: item_panel_tree_icon.as_ref(),
                                 accent: TREE_TOOL_ACCENT,
                                 enabled: true,
                             },
-                            PlaceablePanelSlot {
-                                index: SPRINKLER_PLACEABLE_SLOT_INDEX,
+                            ItemPanelSlot {
+                                index: SPRINKLER_SLOT_INDEX,
                                 label: "Spray",
                                 key_hint: "X",
+                                category: Some("ITEMS"),
                                 icon: item_panel_water_icon.as_ref(),
                                 accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
                         ];
-                        let placeable_panel_response = draw_placeable_panel(
+                        let selected_item_panel_display_slot = if selected_item_panel_slot
+                            == Some(TREE_SLOT_INDEX)
+                            && selected_placeable_panel_slot == SPRINKLER_PLACEABLE_SLOT_INDEX
+                        {
+                            Some(SPRINKLER_SLOT_INDEX)
+                        } else {
+                            selected_item_panel_slot.or(Some(HAND_SLOT_INDEX))
+                        };
+                        let item_panel_response = draw_item_panel(
                             ctx,
-                            &placeable_panel_slots,
-                            selected_placeable_panel_slot,
-                            selected_item_panel_slot == Some(TREE_SLOT_INDEX),
+                            &item_panel_slots,
+                            selected_item_panel_display_slot,
                             self.window_state.is_cursor_visible(),
                         );
-                        clicked_placeable_panel_slot = placeable_panel_response.clicked_slot;
+                        clicked_item_panel_slot = item_panel_response.clicked_slot;
 
                         let voxel_palette_response =
                             draw_voxel_palette(ctx, &voxel_palette_entries, false);
@@ -2272,7 +2278,7 @@ impl App {
                                     inspector_frame.show(ui, |ui| {
                                         ui.set_min_width(150.0);
                                         ui.label(
-                                            RichText::new("Soil Moisture")
+                                            RichText::new("Soil Inspector")
                                                 .color(GOLD_ACCENT)
                                                 .monospace()
                                                 .size(12.0),
@@ -2386,9 +2392,6 @@ impl App {
                 self.sync_cursor_with_panels();
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);
-                }
-                if let Some(slot_idx) = clicked_placeable_panel_slot {
-                    self.select_placeable_tool(slot_idx);
                 }
                 if self.gui_wants_keyboard_input() {
                     self.reset_camera_movement_input();

@@ -51,7 +51,7 @@ pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/1_Tree_Log.PNG";
 pub(crate) const ITEM_PANEL_TREE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/8_Wooden_Axe.PNG";
-pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 9;
+pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 11;
 pub(crate) const HAND_SLOT_INDEX: usize = 0;
 pub(crate) const STAFF_SLOT_INDEX: usize = 1;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 2;
@@ -61,8 +61,9 @@ pub(crate) const WATERING_SLOT_INDEX: usize = 5;
 pub(crate) const SOIL_INSPECTOR_SLOT_INDEX: usize = 6;
 pub(crate) const FERTILIZER_SLOT_INDEX: usize = 7;
 pub(crate) const TILLER_SLOT_INDEX: usize = 8;
-pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = ITEM_PANEL_SLOT_COUNT;
+pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = 9;
 pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
+pub(crate) const SPRINKLER_SLOT_INDEX: usize = 10;
 pub(crate) const PLACEABLE_PANEL_SLOT_COUNT: usize = 2;
 pub(crate) const TREE_PLACEABLE_SLOT_INDEX: usize = 0;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
@@ -81,13 +82,13 @@ pub(crate) struct ToolPanelSlot<'a> {
     pub index: usize,
     pub label: &'static str,
     pub key_hint: &'static str,
+    pub category: Option<&'static str>,
     pub icon: Option<&'a TextureHandle>,
     pub accent: Color32,
     pub enabled: bool,
 }
 
 pub(crate) type ItemPanelSlot<'a> = ToolPanelSlot<'a>;
-pub(crate) type PlaceablePanelSlot<'a> = ToolPanelSlot<'a>;
 
 #[derive(Default)]
 pub(crate) struct ToolPanelResponse {
@@ -95,12 +96,10 @@ pub(crate) struct ToolPanelResponse {
 }
 
 pub(crate) type ItemPanelResponse = ToolPanelResponse;
-pub(crate) type PlaceablePanelResponse = ToolPanelResponse;
 
 #[derive(Clone, Copy)]
 enum ToolPanelOrientation {
     Horizontal,
-    Vertical,
 }
 
 #[derive(Clone, Copy)]
@@ -162,25 +161,13 @@ impl ToolPanelTheme {
 
     fn tool_bar() -> Self {
         Self::new(
-            egui::Vec2::new(66.0, 62.0),
-            egui::Vec2::new(31.0, 31.0),
-            7.0,
+            egui::Vec2::new(60.0, 60.0),
+            egui::Vec2::new(28.0, 28.0),
+            5.0,
             egui::Vec2::new(12.0, 10.0),
             3.0,
             egui::Vec2::new(16.0, 14.0),
             [4, 4],
-        )
-    }
-
-    fn placeable_bar() -> Self {
-        Self::new(
-            egui::Vec2::new(60.0, 56.0),
-            egui::Vec2::new(28.0, 28.0),
-            6.0,
-            egui::Vec2::new(10.0, 8.0),
-            0.0,
-            egui::Vec2::new(18.0, 14.0),
-            [3, 3],
         )
     }
 }
@@ -216,46 +203,6 @@ pub(crate) fn draw_item_panel(
             fill: PANEL_DARK,
             stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
             header: None,
-        },
-    )
-}
-
-pub(crate) fn draw_placeable_panel(
-    ctx: &egui::Context,
-    slots: &[PlaceablePanelSlot<'_>],
-    selected_slot_idx: usize,
-    placement_tool_active: bool,
-    interaction_enabled: bool,
-) -> PlaceablePanelResponse {
-    draw_tool_panel(
-        ctx,
-        slots,
-        Some(selected_slot_idx),
-        interaction_enabled,
-        ToolPanelSpec {
-            area_id: "placeable_panel",
-            anchor: egui::Align2::RIGHT_CENTER,
-            offset: egui::Vec2::new(-16.0, 0.0),
-            orientation: ToolPanelOrientation::Vertical,
-            theme: ToolPanelTheme::placeable_bar(),
-            fill: if placement_tool_active {
-                PANEL_DARK
-            } else {
-                PANEL_DARK.linear_multiply(0.82)
-            },
-            stroke: egui::Stroke::new(
-                2.0,
-                if placement_tool_active {
-                    GOLD_ACCENT
-                } else {
-                    SAGE_ACCENT
-                },
-            ),
-            header: Some(ToolPanelHeader {
-                active: placement_tool_active,
-                active_text: "Place",
-                inactive_text: "Place",
-            }),
         },
     )
 }
@@ -647,35 +594,19 @@ fn draw_tool_panel(
                 ..Default::default()
             };
 
-            panel_frame.show(ui, |ui| match spec.orientation {
-                ToolPanelOrientation::Horizontal => {
-                    ui.horizontal(|ui| {
-                        draw_tool_panel_contents(
-                            ui,
-                            slots,
-                            selected_slot_idx,
-                            interaction_enabled,
-                            theme,
-                            spec.header,
-                            ToolPanelOrientation::Horizontal,
-                            &mut panel_response,
-                        );
-                    });
-                }
-                ToolPanelOrientation::Vertical => {
-                    ui.vertical_centered(|ui| {
-                        draw_tool_panel_contents(
-                            ui,
-                            slots,
-                            selected_slot_idx,
-                            interaction_enabled,
-                            theme,
-                            spec.header,
-                            ToolPanelOrientation::Vertical,
-                            &mut panel_response,
-                        );
-                    });
-                }
+            panel_frame.show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    draw_tool_panel_contents(
+                        ui,
+                        slots,
+                        selected_slot_idx,
+                        interaction_enabled,
+                        theme,
+                        spec.header,
+                        spec.orientation,
+                        &mut panel_response,
+                    );
+                });
             });
         });
 
@@ -701,16 +632,27 @@ fn draw_tool_panel_contents(
         );
         match orientation {
             ToolPanelOrientation::Horizontal => ui.add_space(3.0),
-            ToolPanelOrientation::Vertical => ui.add_space(2.0),
         }
     }
 
     match orientation {
         ToolPanelOrientation::Horizontal => ui.spacing_mut().item_spacing.x = theme.slot_gap,
-        ToolPanelOrientation::Vertical => ui.spacing_mut().item_spacing.y = theme.slot_gap,
     }
 
+    let mut previous_category = None;
     for slot in slots {
+        if slot.category != previous_category {
+            if previous_category.is_some() {
+                match orientation {
+                    ToolPanelOrientation::Horizontal => ui.add_space(2.0),
+                }
+            }
+            if let Some(category) = slot.category {
+                draw_tool_panel_category(ui, category, orientation, theme);
+            }
+            previous_category = slot.category;
+        }
+
         let clicked = draw_tool_panel_slot(
             ui,
             slot,
@@ -720,6 +662,40 @@ fn draw_tool_panel_contents(
         );
         if clicked {
             panel_response.clicked_slot = Some(slot.index);
+        }
+    }
+}
+
+fn draw_tool_panel_category(
+    ui: &mut egui::Ui,
+    label: &'static str,
+    orientation: ToolPanelOrientation,
+    theme: ToolPanelTheme,
+) {
+    match orientation {
+        ToolPanelOrientation::Horizontal => {
+            let marker_size = egui::vec2(20.0, theme.slot_size.y);
+            let (rect, _) = ui.allocate_exact_size(marker_size, egui::Sense::hover());
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect, egui::CornerRadius::same(0), PANEL_DARK);
+            painter.rect_stroke(
+                rect,
+                egui::CornerRadius::same(0),
+                egui::Stroke::new(1.0, SAGE_ACCENT),
+                egui::StrokeKind::Inside,
+            );
+            let text = label
+                .chars()
+                .map(|character| character.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                text,
+                egui::TextStyle::Small.resolve(ui.style()),
+                SAGE_ACCENT,
+            );
         }
     }
 }
