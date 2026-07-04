@@ -157,14 +157,25 @@ void main() {
     if (exposure.sunlit) {
         dry_probability *= sunlit_probability_multiplier;
     }
+    dry_probability = clamp(dry_probability, 0.0, 1.0);
+    float dry_roll = moisture_hash01(atlas_u, seed);
+    bool should_dry = dry_roll < dry_probability;
+
     // A level-1 voxel can either be the natural feathered edge of fresh watering or an
     // isolated residual film. Preserve the edge while it touches wetter soil; only accelerate
     // evaporation once it has detached into residual speckles after the main patch dries.
-    if (old_moisture == 1u && !has_wetter_moisture_neighbor(ivec3(atlas_u), old_moisture)) {
-        dry_probability *= residual_probability_multiplier;
+    // Check neighbors only for rolls that need the residual fast-path, not for every edge voxel.
+    if (!should_dry && old_moisture == 1u) {
+        float residual_dry_probability = clamp(
+            dry_probability * residual_probability_multiplier,
+            0.0,
+            1.0
+        );
+        if (dry_roll < residual_dry_probability) {
+            should_dry = !has_wetter_moisture_neighbor(ivec3(atlas_u), old_moisture);
+        }
     }
-    dry_probability = clamp(dry_probability, 0.0, 1.0);
-    if (moisture_hash01(atlas_u, seed) >= dry_probability) {
+    if (!should_dry) {
         return;
     }
 
