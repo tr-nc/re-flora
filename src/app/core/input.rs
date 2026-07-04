@@ -1458,7 +1458,7 @@ impl App {
                     self.reset_tilling_stroke_tracking();
                     return;
                 }
-                if let Err(err) = self.mix_tiller_brush_fertility(edit) {
+                if let Err(err) = self.mix_tiller_brush_soil(edit) {
                     log::error!("Failed to apply tiller brush: {}", err);
                     self.reset_tilling_stroke_tracking();
                     return;

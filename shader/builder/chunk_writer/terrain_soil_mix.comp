@@ -18,7 +18,7 @@ layout(set = 0, binding = 1, r8ui) uniform uimage3D chunk_atlas;
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 
-bool is_fertility_voxel(uint voxel_type) {
+bool is_soil_mix_voxel(uint voxel_type) {
     return voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND;
 }
 
@@ -33,7 +33,7 @@ float distance_to_segment(vec3 point, vec3 start, vec3 end) {
     return length(point - closest);
 }
 
-float fertility_hash01(uvec3 p, uint seed) {
+float soil_mix_hash01(uvec3 p, uint seed) {
     uint h = seed ^ 0x9E3779B9u;
     h ^= p.x * 0x85EBCA6Bu;
     h ^= p.y * 0xC2B2AE35u;
@@ -78,6 +78,38 @@ bool is_inside_till_brush(uvec3 atlas_u, vec3 start_vox, vec3 end_vox, float rad
     return true;
 }
 
+bool transfer_soil_level(inout uint a_level, inout uint b_level, uint max_level,
+                         float mix_strength, float pair_falloff, uvec3 pair_key,
+                         uint seed) {
+    if (a_level == b_level) {
+        return false;
+    }
+
+    uint difference = a_level > b_level ? a_level - b_level : b_level - a_level;
+    float transfer_probability = clamp(
+        mix_strength * pair_falloff * (float(difference) / float(max_level)),
+        0.0,
+        1.0
+    );
+    if (soil_mix_hash01(pair_key, seed) >= transfer_probability) {
+        return false;
+    }
+
+    if (a_level > b_level) {
+        a_level -= 1u;
+        b_level += 1u;
+    } else {
+        a_level += 1u;
+        b_level -= 1u;
+    }
+    return true;
+}
+
+uint pack_voxel_atlas_soil_state(uint old_voxel_data, uint moisture, uint fertility) {
+    uint packed = pack_voxel_atlas_moisture_preserve_state(old_voxel_data, moisture);
+    return pack_voxel_atlas_fertility_preserve_state(packed, fertility);
+}
+
 void main() {
     uvec3 local = gl_GlobalInvocationID.xyz;
     uvec3 dim = pc.dim.xyz;
@@ -119,43 +151,47 @@ void main() {
     uint b_data = imageLoad(chunk_atlas, ivec3(neighbour_u)).r;
     uint a_type = voxel_type_from_atlas_data(a_data);
     uint b_type = voxel_type_from_atlas_data(b_data);
-    if (!is_fertility_voxel(a_type) || !is_fertility_voxel(b_type)) {
+    if (!is_soil_mix_voxel(a_type) || !is_soil_mix_voxel(b_type)) {
         return;
     }
 
+    uint a_moisture = voxel_moisture_from_atlas_data(a_data);
+    uint b_moisture = voxel_moisture_from_atlas_data(b_data);
     uint a_fertility = voxel_fertility_from_atlas_data(a_data);
     uint b_fertility = voxel_fertility_from_atlas_data(b_data);
-    if (a_fertility == b_fertility) {
-        return;
-    }
 
-    uint difference = a_fertility > b_fertility ? a_fertility - b_fertility : b_fertility - a_fertility;
     float pair_falloff = min(a_falloff, b_falloff);
-    float transfer_probability = clamp(
-        mix_strength * pair_falloff * (float(difference) / float(VOXEL_FERTILITY_MAX)),
-        0.0,
-        1.0
+    uvec3 pair_key = atlas_u ^ (neighbour_u * 1664525u);
+    bool moisture_changed = transfer_soil_level(
+        a_moisture,
+        b_moisture,
+        VOXEL_MOISTURE_MAX,
+        mix_strength,
+        pair_falloff,
+        pair_key,
+        dither_seed ^ phase ^ 0xA24BAED5u
     );
-    if (fertility_hash01(atlas_u ^ (neighbour_u * 1664525u), dither_seed ^ phase) >= transfer_probability) {
+    bool fertility_changed = transfer_soil_level(
+        a_fertility,
+        b_fertility,
+        VOXEL_FERTILITY_MAX,
+        mix_strength,
+        pair_falloff,
+        pair_key,
+        dither_seed ^ phase ^ 0x9FB21C65u
+    );
+    if (!moisture_changed && !fertility_changed) {
         return;
-    }
-
-    if (a_fertility > b_fertility) {
-        a_fertility -= 1u;
-        b_fertility += 1u;
-    } else {
-        a_fertility += 1u;
-        b_fertility -= 1u;
     }
 
     imageStore(
         chunk_atlas,
         ivec3(atlas_u),
-        uvec4(pack_voxel_atlas_fertility_preserve_state(a_data, a_fertility), 0u, 0u, 0u)
+        uvec4(pack_voxel_atlas_soil_state(a_data, a_moisture, a_fertility), 0u, 0u, 0u)
     );
     imageStore(
         chunk_atlas,
         ivec3(neighbour_u),
-        uvec4(pack_voxel_atlas_fertility_preserve_state(b_data, b_fertility), 0u, 0u, 0u)
+        uvec4(pack_voxel_atlas_soil_state(b_data, b_moisture, b_fertility), 0u, 0u, 0u)
     );
 }
