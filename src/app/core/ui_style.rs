@@ -43,11 +43,15 @@ pub(crate) const ITEM_PANEL_FERTILIZER_ICON_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/16_Copper_Bar.PNG";
 pub(crate) const ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/46_Gold_Bar.PNG";
+pub(crate) const ITEM_PANEL_TILLER_ICON_PATH: &str =
+    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/26_Copper_Hoe.PNG";
+pub(crate) const ITEM_PANEL_TILLER_ICON_FALLBACK_PATH: &str =
+    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG";
 pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/1_Tree_Log.PNG";
 pub(crate) const ITEM_PANEL_TREE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/8_Wooden_Axe.PNG";
-pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 8;
+pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 9;
 pub(crate) const HAND_SLOT_INDEX: usize = 0;
 pub(crate) const STAFF_SLOT_INDEX: usize = 1;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 2;
@@ -56,6 +60,7 @@ pub(crate) const HOE_SLOT_INDEX: usize = 4;
 pub(crate) const WATERING_SLOT_INDEX: usize = 5;
 pub(crate) const SOIL_INSPECTOR_SLOT_INDEX: usize = 6;
 pub(crate) const FERTILIZER_SLOT_INDEX: usize = 7;
+pub(crate) const TILLER_SLOT_INDEX: usize = 8;
 pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = ITEM_PANEL_SLOT_COUNT;
 pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
 pub(crate) const PLACEABLE_PANEL_SLOT_COUNT: usize = 2;
@@ -70,6 +75,7 @@ pub(crate) const TREE_TOOL_ACCENT: Color32 = Color32::from_rgb(82, 154, 90);
 pub(crate) const WATER_TOOL_ACCENT: Color32 = Color32::from_rgb(96, 171, 218);
 pub(crate) const SOIL_INSPECTOR_TOOL_ACCENT: Color32 = Color32::from_rgb(166, 132, 88);
 pub(crate) const FERTILIZER_TOOL_ACCENT: Color32 = Color32::from_rgb(220, 96, 54);
+pub(crate) const TILLER_TOOL_ACCENT: Color32 = Color32::from_rgb(151, 113, 76);
 
 pub(crate) struct ToolPanelSlot<'a> {
     pub index: usize,

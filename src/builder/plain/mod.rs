@@ -333,6 +333,7 @@ pub struct PlainBuilder {
     terrain_smooth_mbo_apply_ppl: ComputePipeline,
     terrain_moisture_brush_ppl: ComputePipeline,
     terrain_fertility_brush_ppl: ComputePipeline,
+    terrain_fertility_mix_ppl: ComputePipeline,
     terrain_moisture_dry_ppl: ComputePipeline,
     terrain_moisture_spread_ppl: ComputePipeline,
     voxel_property_sample_ppl: ComputePipeline,
@@ -482,6 +483,13 @@ impl PlainBuilder {
             "main",
         )
         .unwrap();
+        let terrain_fertility_mix_sm = ShaderModule::from_glsl(
+            device,
+            shader_compiler,
+            "shader/builder/chunk_writer/terrain_fertility_mix.comp",
+            "main",
+        )
+        .unwrap();
         let terrain_moisture_dry_sm = ShaderModule::from_glsl(
             device,
             shader_compiler,
@@ -553,6 +561,8 @@ impl PlainBuilder {
             ComputePipeline::new(device, &terrain_moisture_brush_sm, &pool, &[&resources]);
         let terrain_fertility_brush_ppl =
             ComputePipeline::new(device, &terrain_fertility_brush_sm, &pool, &[&resources]);
+        let terrain_fertility_mix_ppl =
+            ComputePipeline::new(device, &terrain_fertility_mix_sm, &pool, &[&resources]);
         let terrain_moisture_dry_ppl =
             ComputePipeline::new(device, &terrain_moisture_dry_sm, &pool, &[&resources]);
         let terrain_moisture_spread_ppl =
@@ -595,6 +605,7 @@ impl PlainBuilder {
             terrain_smooth_mbo_apply_ppl,
             terrain_moisture_brush_ppl,
             terrain_fertility_brush_ppl,
+            terrain_fertility_mix_ppl,
             terrain_moisture_dry_ppl,
             terrain_moisture_spread_ppl,
             voxel_property_sample_ppl,
@@ -977,6 +988,106 @@ impl PlainBuilder {
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
                 self.record_prepared_terrain_fertility_brush(cmdbuf, &push_constants, dim);
+            },
+        );
+
+        Ok(Some(changed_bound))
+    }
+
+    fn prepare_terrain_fertility_mix(
+        &mut self,
+        start: Vec3,
+        end: Vec3,
+        radius_world: f32,
+        strength: f32,
+    ) -> Option<(TerrainMoistureBrushPushConstants, UVec3, UAabb3)> {
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let start_vox = start * 256.0;
+        let end_vox = end * 256.0;
+        let radius_vox = (radius_world * 256.0).max(0.0);
+        let strength = strength.clamp(0.0, 1.0);
+        if radius_vox <= 0.0 || strength <= 0.0 || !start_vox.is_finite() || !end_vox.is_finite() {
+            return None;
+        }
+
+        let atlas_dim_i = atlas_dim.as_ivec3();
+        let min_vox = start_vox.min(end_vox);
+        let max_vox = start_vox.max(end_vox);
+        let min = IVec3::new(
+            (min_vox.x - radius_vox).floor() as i32,
+            (min_vox.y - radius_vox).floor() as i32,
+            (min_vox.z - radius_vox).floor() as i32,
+        );
+        let max_exclusive = IVec3::new(
+            (max_vox.x + radius_vox).ceil() as i32,
+            (max_vox.y + radius_vox).ceil() as i32,
+            (max_vox.z + radius_vox).ceil() as i32,
+        );
+        let clamped_min = min.clamp(IVec3::ZERO, atlas_dim_i);
+        let clamped_max = max_exclusive.clamp(IVec3::ZERO, atlas_dim_i);
+        if any_ivec3_less_equal(clamped_max, clamped_min) {
+            return None;
+        }
+
+        let offset = clamped_min.as_uvec3();
+        let dim = (clamped_max - clamped_min).as_uvec3();
+        let dither_seed = self.next_fertility_dither_seed;
+        self.next_fertility_dither_seed = self
+            .next_fertility_dither_seed
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223)
+            .max(1);
+        let push_constants = TerrainMoistureBrushPushConstants {
+            offset: [offset.x, offset.y, offset.z, dither_seed],
+            dim: [dim.x, dim.y, dim.z, 0],
+            start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
+            end_amount: [end_vox.x, end_vox.y, end_vox.z, strength],
+        };
+        let changed_bound = UAabb3::new(offset, offset + dim - UVec3::ONE);
+        Some((push_constants, dim, changed_bound))
+    }
+
+    fn record_prepared_terrain_fertility_mix(
+        &self,
+        cmdbuf: &CommandBuffer,
+        push_constants: &TerrainMoistureBrushPushConstants,
+        dim: UVec3,
+    ) {
+        let mut phase_push_constants = *push_constants;
+        for axis in 0..3 {
+            for pair_parity in 0..2 {
+                phase_push_constants.dim[3] = axis | (pair_parity << 2);
+                self.terrain_fertility_mix_ppl.record(
+                    cmdbuf,
+                    Extent3D::new(dim.x, dim.y, dim.z),
+                    Some(bytemuck::bytes_of(&phase_push_constants)),
+                );
+                PipelineBarrier::compute_shader_access()
+                    .record_insert(self.vulkan_ctx.device(), cmdbuf);
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn apply_terrain_fertility_mix(
+        &mut self,
+        start: Vec3,
+        end: Vec3,
+        radius_world: f32,
+        strength: f32,
+    ) -> Result<Option<UAabb3>> {
+        let Some((push_constants, dim, changed_bound)) =
+            self.prepare_terrain_fertility_mix(start, end, radius_world, strength)
+        else {
+            return Ok(None);
+        };
+
+        execute_one_time_command(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.record_prepared_terrain_fertility_mix(cmdbuf, &push_constants, dim);
             },
         );
 

@@ -255,7 +255,7 @@ void parse_trace_result(out vec3 albedo, out vec3 next_tracing_pos, MarchingResu
     uint moisture_level = voxel_moisture_from_atlas_data(atlas_data);
     uint fertility_level = voxel_fertility_from_atlas_data(atlas_data);
     albedo = apply_terrain_moisture_level(albedo, res.voxel_type, moisture_level);
-    albedo = apply_terrain_fertility_level(albedo, res.voxel_type, fertility_level);
+    albedo = apply_terrain_fertility_level(albedo, res.voxel_type, fertility_level, res.center_pos);
     // albedo = offset_color(albedo, res.center_pos);
     next_tracing_pos = get_next_tracing_pos(res.center_pos, res.normal);
 }

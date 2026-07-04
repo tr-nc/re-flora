@@ -10,6 +10,7 @@ const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
 const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;
 const WATERING_BRUSH_MOISTURE_PER_DAB: f32 = 0.68;
 const FERTILIZER_BRUSH_FERTILITY_PER_DAB: f32 = 0.68;
+const TILLER_BRUSH_FERTILITY_MIX_STRENGTH: f32 = 0.82;
 const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.002;
 const TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER: f32 = 12.0;
 const TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER: f32 = 8.0;
@@ -238,6 +239,16 @@ impl App {
             edit.end,
             edit.radius,
             FERTILIZER_BRUSH_FERTILITY_PER_DAB,
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn mix_tiller_brush_fertility(&mut self, edit: TerrainBrushEdit) -> Result<()> {
+        self.plain_builder.apply_terrain_fertility_mix(
+            edit.start,
+            edit.end,
+            edit.radius,
+            TILLER_BRUSH_FERTILITY_MIX_STRENGTH,
         )?;
         Ok(())
     }

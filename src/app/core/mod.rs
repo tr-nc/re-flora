@@ -81,12 +81,14 @@ use ui_style::{
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
     ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
+    ITEM_PANEL_TILLER_ICON_FALLBACK_PATH, ITEM_PANEL_TILLER_ICON_PATH,
     ITEM_PANEL_TREE_ICON_FALLBACK_PATH, ITEM_PANEL_TREE_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
     SMOOTH_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT,
-    SPRINKLER_PLACEABLE_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, TREE_PLACEABLE_SLOT_INDEX,
-    TREE_SLOT_INDEX, TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
+    SPRINKLER_PLACEABLE_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT, TILLER_SLOT_INDEX,
+    TILLER_TOOL_ACCENT, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, TREE_TOOL_ACCENT,
+    WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use verdarium_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -168,6 +170,7 @@ pub struct App {
     item_panel_water_icon: Option<TextureHandle>,
     item_panel_soil_inspector_icon: Option<TextureHandle>,
     item_panel_fertilizer_icon: Option<TextureHandle>,
+    item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolState,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
@@ -1142,6 +1145,7 @@ impl App {
             item_panel_water_icon: None,
             item_panel_soil_inspector_icon: None,
             item_panel_fertilizer_icon: None,
+            item_panel_tiller_icon: None,
             player_tools: PlayerToolState::default(),
             water_particle_handoff_main_thread_ms: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
@@ -1480,6 +1484,33 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_fertilizer_icon = Some(fertilizer_texture);
+
+        let tiller_path = if std::path::Path::new(ITEM_PANEL_TILLER_ICON_PATH).exists() {
+            ITEM_PANEL_TILLER_ICON_PATH
+        } else {
+            log::warn!(
+                "Item panel icon not found at {}. Falling back to {}",
+                ITEM_PANEL_TILLER_ICON_PATH,
+                ITEM_PANEL_TILLER_ICON_FALLBACK_PATH
+            );
+            ITEM_PANEL_TILLER_ICON_FALLBACK_PATH
+        };
+
+        let tiller_bytes = std::fs::read(tiller_path)
+            .with_context(|| format!("Failed to read item panel icon from {tiller_path}"))?;
+        let tiller_rgba = image::load_from_memory(&tiller_bytes)
+            .with_context(|| format!("Failed to decode item panel icon from {tiller_path}"))?
+            .to_rgba8();
+        let tiller_size = [tiller_rgba.width() as usize, tiller_rgba.height() as usize];
+        let tiller_pixels = tiller_rgba.into_raw();
+        let tiller_image = ColorImage::from_rgba_unmultiplied(tiller_size, &tiller_pixels);
+
+        let tiller_texture = self.egui_renderer.context().load_texture(
+            "item_panel_tiller",
+            tiller_image,
+            egui::TextureOptions::NEAREST,
+        );
+        self.item_panel_tiller_icon = Some(tiller_texture);
         Ok(())
     }
 
@@ -1652,6 +1683,7 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit6) => Some(5),
                         PhysicalKey::Code(KeyCode::Digit7) => Some(6),
                         PhysicalKey::Code(KeyCode::Digit8) => Some(7),
+                        PhysicalKey::Code(KeyCode::Digit9) => Some(8),
                         _ => None,
                     };
 
@@ -1717,6 +1749,10 @@ impl App {
                                 self.player_tools.shovel_dig_held = true;
                                 self.player_tools.last_fertilizing_time = None;
                                 self.try_fertilizer_brush(now);
+                            } else if self.is_tiller_selected() && button == MouseButton::Left {
+                                self.player_tools.shovel_dig_held = true;
+                                self.player_tools.last_tilling_time = None;
+                                self.try_tiller_brush(now);
                             } else if self.is_place_tool_selected() && button == MouseButton::Left {
                                 self.stop_terrain_edit_loop_sound();
                                 self.try_placeable_placement();
@@ -1787,6 +1823,8 @@ impl App {
                         self.try_watering_brush(now);
                     } else if self.is_fertilizer_selected() && self.player_tools.left_mouse_held {
                         self.try_fertilizer_brush(now);
+                    } else if self.is_tiller_selected() && self.player_tools.left_mouse_held {
+                        self.try_tiller_brush(now);
                     } else {
                         self.stop_terrain_edit_loop_sound();
                     }
@@ -1844,6 +1882,7 @@ impl App {
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
                 let item_panel_fertilizer_icon = self.item_panel_fertilizer_icon.clone();
+                let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
                 let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
                 let selected_placeable_panel_slot = self.player_tools.selected_placeable_panel_slot;
                 let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
@@ -1876,7 +1915,7 @@ impl App {
                     format!("Grow brush: {}", self.current_flora_paint_selection_label())
                 };
                 let placeable_hint = format!(
-                    "Place: {} (Z/X or side bar) · Water: 6 + LMB · Soil: 7 · Fert: 8 + LMB · sprinklers {}",
+                    "Place: {} (Z/X or side bar) · Water: 6 + LMB · Soil: 7 · Fert: 8 + LMB · Till: 9 + LMB · sprinklers {}",
                     self.current_placeable_label(),
                     self.sprinkler_records.len()
                 );
@@ -2142,6 +2181,14 @@ impl App {
                                 key_hint: "8",
                                 icon: item_panel_fertilizer_icon.as_ref(),
                                 accent: FERTILIZER_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: TILLER_SLOT_INDEX,
+                                label: "Till",
+                                key_hint: "9",
+                                icon: item_panel_tiller_icon.as_ref(),
+                                accent: TILLER_TOOL_ACCENT,
                                 enabled: true,
                             },
                         ];

@@ -2,7 +2,8 @@ use super::placeables::PlaceableKind;
 use super::ui_style::{
     FERTILIZER_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT,
     PLACEABLE_PANEL_SLOT_COUNT, PLACE_TOOL_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX,
-    SOIL_INSPECTOR_SLOT_INDEX, STAFF_SLOT_INDEX, TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
+    SOIL_INSPECTOR_SLOT_INDEX, STAFF_SLOT_INDEX, TILLER_SLOT_INDEX, TREE_SLOT_INDEX,
+    WATERING_SLOT_INDEX,
 };
 use super::App;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
@@ -520,12 +521,17 @@ impl App {
         self.player_tools.last_fertilizing_center = None;
     }
 
+    fn reset_tilling_stroke_tracking(&mut self) {
+        self.player_tools.last_tilling_center = None;
+    }
+
     pub(super) fn clear_selected_tool(&mut self) {
         if self.player_tools.selected_item_panel_slot.is_some() {
             self.player_tools.selected_item_panel_slot = None;
             self.reset_staff_stroke_tracking();
             self.reset_watering_stroke_tracking();
             self.reset_fertilizing_stroke_tracking();
+            self.reset_tilling_stroke_tracking();
             self.player_tools.shovel_dig_held = false;
             self.stop_terrain_edit_loop_sound();
             self.play_item_panel_scroll_sound();
@@ -545,6 +551,7 @@ impl App {
             self.reset_staff_stroke_tracking();
             self.reset_watering_stroke_tracking();
             self.reset_fertilizing_stroke_tracking();
+            self.reset_tilling_stroke_tracking();
             self.play_item_panel_scroll_sound();
         }
     }
@@ -664,6 +671,7 @@ impl App {
             || self.is_watering_selected()
             || self.is_soil_inspector_selected()
             || self.is_fertilizer_selected()
+            || self.is_tiller_selected()
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
@@ -709,6 +717,10 @@ impl App {
 
     pub(super) fn is_fertilizer_selected(&self) -> bool {
         self.player_tools.selected_item_panel_slot == Some(FERTILIZER_SLOT_INDEX)
+    }
+
+    pub(super) fn is_tiller_selected(&self) -> bool {
+        self.player_tools.selected_item_panel_slot == Some(TILLER_SLOT_INDEX)
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {
@@ -1387,6 +1399,60 @@ impl App {
                     "Fertilizer brush attempt failed during terrain query: {}",
                     err
                 );
+            }
+        }
+    }
+
+    pub(super) fn try_tiller_brush(&mut self, now: Instant) {
+        if !self.terrain_edit_pointer_available() || !self.is_tiller_selected() {
+            self.stop_terrain_edit_loop_sound();
+            self.reset_tilling_stroke_tracking();
+            return;
+        }
+
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) => {
+                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_tilling_time = Some(now);
+                    self.reset_tilling_stroke_tracking();
+                    return;
+                }
+                self.start_terrain_edit_loop_sound(center);
+
+                if let Some(last_till) = self.player_tools.last_tilling_time {
+                    if now.duration_since(last_till) < super::SHOVEL_DIG_INTERVAL {
+                        return;
+                    }
+                }
+
+                let edit = TerrainBrushEdit::from_previous_center(
+                    self.player_tools.last_tilling_center,
+                    center,
+                    self.player_tools.terrain_edit_radius,
+                );
+                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                    self.stop_terrain_edit_loop_sound();
+                    self.player_tools.last_tilling_time = Some(now);
+                    self.reset_tilling_stroke_tracking();
+                    return;
+                }
+                if let Err(err) = self.mix_tiller_brush_fertility(edit) {
+                    log::error!("Failed to apply tiller brush: {}", err);
+                    self.reset_tilling_stroke_tracking();
+                    return;
+                }
+                self.player_tools.last_tilling_time = Some(now);
+                self.player_tools.last_tilling_center = Some(center);
+            }
+            Ok(None) => {
+                self.stop_terrain_edit_loop_sound();
+                self.player_tools.last_tilling_time = Some(now);
+                self.reset_tilling_stroke_tracking();
+            }
+            Err(err) => {
+                self.reset_tilling_stroke_tracking();
+                log::error!("Tiller brush attempt failed during terrain query: {}", err);
             }
         }
     }

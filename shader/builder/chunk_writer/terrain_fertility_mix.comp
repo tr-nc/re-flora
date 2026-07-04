@@ -1,0 +1,161 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(push_constant) uniform PC {
+    uvec4 offset;
+    // dim.w packs phase: axis in bits 0..1, pair parity in bit 2.
+    uvec4 dim;
+    vec4 start_radius;
+    vec4 end_amount;
+}
+pc;
+
+layout(set = 0, binding = 1, r8ui) uniform uimage3D chunk_atlas;
+
+#include "../../include/voxel_data.glsl"
+#include "../../include/voxel_types.glsl"
+
+bool is_fertility_voxel(uint voxel_type) {
+    return voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND;
+}
+
+float distance_to_segment(vec3 point, vec3 start, vec3 end) {
+    vec3 ab = end - start;
+    float len_sq = dot(ab, ab);
+    if (len_sq <= 1.0e-5) {
+        return length(point - start);
+    }
+    float t = clamp(dot(point - start, ab) / len_sq, 0.0, 1.0);
+    vec3 closest = start + ab * t;
+    return length(point - closest);
+}
+
+float fertility_hash01(uvec3 p, uint seed) {
+    uint h = seed ^ 0x9E3779B9u;
+    h ^= p.x * 0x85EBCA6Bu;
+    h ^= p.y * 0xC2B2AE35u;
+    h ^= p.z * 0x27D4EB2Fu;
+    h ^= h >> 16u;
+    h *= 0x7FEB352Du;
+    h ^= h >> 15u;
+    h *= 0x846CA68Bu;
+    h ^= h >> 16u;
+    return float(h & 0x00FFFFFFu) * (1.0 / 16777216.0);
+}
+
+uvec3 axis_offset(uint axis) {
+    if (axis == 0u) {
+        return uvec3(1u, 0u, 0u);
+    }
+    if (axis == 1u) {
+        return uvec3(0u, 1u, 0u);
+    }
+    return uvec3(0u, 0u, 1u);
+}
+
+uint axis_coord(uvec3 p, uint axis) {
+    if (axis == 0u) {
+        return p.x;
+    }
+    if (axis == 1u) {
+        return p.y;
+    }
+    return p.z;
+}
+
+bool is_inside_till_brush(uvec3 atlas_u, vec3 start_vox, vec3 end_vox, float radius_vox,
+                          out float falloff) {
+    vec3 voxel_center = vec3(atlas_u) + vec3(0.5);
+    float dist = distance_to_segment(voxel_center, start_vox, end_vox);
+    if (dist > radius_vox) {
+        falloff = 0.0;
+        return false;
+    }
+    falloff = clamp(1.0 - dist / max(radius_vox, 0.0001), 0.0, 1.0);
+    return true;
+}
+
+void main() {
+    uvec3 local = gl_GlobalInvocationID.xyz;
+    uvec3 dim = pc.dim.xyz;
+    if (any(greaterThanEqual(local, dim))) {
+        return;
+    }
+
+    uvec3 atlas_u = pc.offset.xyz + local;
+    uint dither_seed = pc.offset.w;
+    vec3 start_vox = pc.start_radius.xyz;
+    float radius_vox = max(pc.start_radius.w, 0.0);
+    vec3 end_vox = pc.end_amount.xyz;
+    float mix_strength = clamp(pc.end_amount.w, 0.0, 1.0);
+    if (radius_vox <= 0.0 || mix_strength <= 0.0) {
+        return;
+    }
+
+    uint phase = pc.dim.w;
+    uint axis = min(phase & 0x3u, 2u);
+    uint pair_parity = (phase >> 2u) & 1u;
+    if ((axis_coord(atlas_u, axis) & 1u) != pair_parity) {
+        return;
+    }
+
+    uvec3 neighbour_u = atlas_u + axis_offset(axis);
+    uvec3 atlas_size = uvec3(imageSize(chunk_atlas).xyz);
+    if (any(greaterThanEqual(neighbour_u, atlas_size))) {
+        return;
+    }
+
+    float a_falloff;
+    float b_falloff;
+    if (!is_inside_till_brush(atlas_u, start_vox, end_vox, radius_vox, a_falloff) ||
+        !is_inside_till_brush(neighbour_u, start_vox, end_vox, radius_vox, b_falloff)) {
+        return;
+    }
+
+    uint a_data = imageLoad(chunk_atlas, ivec3(atlas_u)).r;
+    uint b_data = imageLoad(chunk_atlas, ivec3(neighbour_u)).r;
+    uint a_type = voxel_type_from_atlas_data(a_data);
+    uint b_type = voxel_type_from_atlas_data(b_data);
+    if (!is_fertility_voxel(a_type) || !is_fertility_voxel(b_type)) {
+        return;
+    }
+
+    uint a_fertility = voxel_fertility_from_atlas_data(a_data);
+    uint b_fertility = voxel_fertility_from_atlas_data(b_data);
+    if (a_fertility == b_fertility) {
+        return;
+    }
+
+    uint difference = a_fertility > b_fertility ? a_fertility - b_fertility : b_fertility - a_fertility;
+    float pair_falloff = min(a_falloff, b_falloff);
+    float transfer_probability = clamp(
+        mix_strength * pair_falloff * (float(difference) / float(VOXEL_FERTILITY_MAX)),
+        0.0,
+        1.0
+    );
+    if (fertility_hash01(atlas_u ^ (neighbour_u * 1664525u), dither_seed ^ phase) >= transfer_probability) {
+        return;
+    }
+
+    if (a_fertility > b_fertility) {
+        a_fertility -= 1u;
+        b_fertility += 1u;
+    } else {
+        a_fertility += 1u;
+        b_fertility -= 1u;
+    }
+
+    imageStore(
+        chunk_atlas,
+        ivec3(atlas_u),
+        uvec4(pack_voxel_atlas_fertility_preserve_state(a_data, a_fertility), 0u, 0u, 0u)
+    );
+    imageStore(
+        chunk_atlas,
+        ivec3(neighbour_u),
+        uvec4(pack_voxel_atlas_fertility_preserve_state(b_data, b_fertility), 0u, 0u, 0u)
+    );
+}
