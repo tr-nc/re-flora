@@ -1318,25 +1318,42 @@ impl App {
         max_delta: f32,
         deadband: f32,
     ) -> Result<()> {
-        let Some(rebuild_bound) = self
+        let flora_brush_edit = TerrainBrushEdit {
+            start: center,
+            end: center,
+            radius,
+        };
+        let flora_rebuild_bound =
+            TerrainSurfaceRemovalService::compile_surface_brush(flora_brush_edit)
+                .map(|compiled| compiled.rebuild_bound);
+        let flora_edit = world_ops::FloraBrushEdit {
+            start: center,
+            end: center,
+            radius,
+            tick: self.flora_tick,
+        };
+
+        let terrain_rebuild_bound = self
             .plain_builder
-            .smooth_terrain_dirt(center, radius, strength, max_delta, deadband)?
-        else {
+            .smooth_terrain_dirt(center, radius, strength, max_delta, deadband)?;
+
+        if let Some(flora_rebuild_bound) = flora_rebuild_bound {
+            world_ops::mesh_remove_flora_for_brush_edit(
+                &mut self.surface_builder,
+                super::VOXEL_DIM_PER_CHUNK,
+                flora_rebuild_bound,
+                flora_edit,
+            )?;
+        }
+
+        let Some(rebuild_bound) = terrain_rebuild_bound else {
             return Ok(());
         };
 
         self.request_vsm_history_reset();
         let rebuild_chunk_ids =
             world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
-        self.enqueue_deferred_flora_preserving_chunk_rebuilds(
-            &rebuild_chunk_ids,
-            world_ops::FloraBrushEdit {
-                start: center,
-                end: center,
-                radius,
-                tick: self.flora_tick,
-            },
-        );
+        self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
         Ok(())
     }
 
