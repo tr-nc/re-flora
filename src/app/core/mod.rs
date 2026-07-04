@@ -43,8 +43,7 @@ use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
-    SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX,
-    VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT,
+    SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -499,7 +498,9 @@ const TERRAIN_EDIT_DEFAULT_RADIUS: f32 = 0.08;
 const TERRAIN_EDIT_RADIUS_MIN: f32 = 0.03;
 const TERRAIN_EDIT_RADIUS_MAX: f32 = 0.36;
 const TERRAIN_EDIT_RADIUS_SCROLL_STEP: f32 = 0.01;
-const ORBIT_CAMERA_DEFAULT_FOCUS: Vec3 = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
+const ORBIT_CAMERA_DEFAULT_FOCUS_HEIGHT: f32 = 0.5;
+const ORBIT_CAMERA_DEFAULT_FOCUS: Vec3 =
+    INITIAL_EDITABLE_TERRAIN_BOUNDS.center_at_height(ORBIT_CAMERA_DEFAULT_FOCUS_HEIGHT);
 const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.2;
 const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
 const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
@@ -585,40 +586,12 @@ impl ActiveVoxelType {
 }
 
 impl App {
-    fn debug_audio_wall_bounds() -> (Vec3, Vec3) {
-        // Temporary synthetic obstacle for spatial-audio experiments. Bounds are derived from the
-        // atlas dimensions so changing CHUNK_DIM does not require hand-updating debug geometry.
+    fn debug_startup_block_bounds() -> (Vec3, Vec3) {
+        // Temporary synthetic obstacle. Bounds are derived from the atlas dimensions so changing
+        // CHUNK_DIM does not require hand-updating debug geometry.
         let atlas_dim = (CHUNK_DIM * VOXEL_DIM_PER_CHUNK).as_vec3();
         let min = Vec3::new(atlas_dim.x * 0.58, 0.0, atlas_dim.z * 0.75);
         let max = (min + Vec3::new(20.0, atlas_dim.y * 0.5, 88.0)).min(atlas_dim);
-        (min, max)
-    }
-
-    fn debug_soil_percolation_block_bounds() -> (Vec3, Vec3) {
-        // Dirt test block for moisture experiments: a 30x30 voxel column placed near the
-        // synthetic wood obstacle. The top is chosen to sit roughly 50 voxels above the local
-        // generated terrain, leaving a visible face while the lower portion stays embedded in soil.
-        const FOOTPRINT_VOXELS: f32 = 30.0;
-        const BASE_Y_VOXELS: f32 = 80.0;
-        const TOP_Y_VOXELS: f32 = 200.0;
-
-        let atlas_dim = (CHUNK_DIM * VOXEL_DIM_PER_CHUNK).as_vec3();
-        let half_footprint = (FOOTPRINT_VOXELS * 0.5)
-            .min(atlas_dim.x * 0.5)
-            .min(atlas_dim.z * 0.5);
-        let center_xz = Vec3::new(atlas_dim.x * 0.68, 0.0, atlas_dim.z * 0.84);
-        let top_y = TOP_Y_VOXELS.min(atlas_dim.y).max(1.0);
-        let base_y = BASE_Y_VOXELS.min(top_y - 1.0).max(0.0);
-        let min = Vec3::new(
-            (center_xz.x - half_footprint).max(0.0),
-            base_y,
-            (center_xz.z - half_footprint).max(0.0),
-        );
-        let max = Vec3::new(
-            (center_xz.x + half_footprint).min(atlas_dim.x),
-            top_y,
-            (center_xz.z + half_footprint).min(atlas_dim.z),
-        );
         (min, max)
     }
 
@@ -631,11 +604,8 @@ impl App {
     }
 
     fn apply_debug_startup_materials(&mut self) -> Result<()> {
-        let (wall_min, wall_max) = Self::debug_audio_wall_bounds();
-        self.apply_debug_cuboid(wall_min, wall_max, VOXEL_TYPE_CHERRY_WOOD)?;
-
-        let (soil_min, soil_max) = Self::debug_soil_percolation_block_bounds();
-        self.apply_debug_cuboid(soil_min, soil_max, VOXEL_TYPE_DIRT)?;
+        let (block_min, block_max) = Self::debug_startup_block_bounds();
+        self.apply_debug_cuboid(block_min, block_max, VOXEL_TYPE_DIRT)?;
 
         self.request_vsm_history_reset();
         Ok(())
@@ -890,6 +860,7 @@ impl App {
             plain_builder.get_resources(),
             TracerDesc {
                 scaling_factor: 0.5,
+                default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
             },
             spatial_sound_manager.clone(),
         )?;

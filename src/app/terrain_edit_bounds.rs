@@ -24,9 +24,15 @@ impl EditableTerrainBounds {
     }
 
     pub(crate) const fn center(self) -> Vec3 {
+        self.center_at_height(
+            self.chunk_min.y as f32 + (self.chunk_max_exclusive.y - self.chunk_min.y) as f32 * 0.5,
+        )
+    }
+
+    pub(crate) const fn center_at_height(self, height: f32) -> Vec3 {
         Vec3::new(
             self.chunk_min.x as f32 + (self.chunk_max_exclusive.x - self.chunk_min.x) as f32 * 0.5,
-            self.chunk_min.y as f32 + (self.chunk_max_exclusive.y - self.chunk_min.y) as f32 * 0.5,
+            height,
             self.chunk_min.z as f32 + (self.chunk_max_exclusive.z - self.chunk_min.z) as f32 * 0.5,
         )
     }
@@ -83,6 +89,15 @@ mod tests {
 
         assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(-0.01, 0.5, center_z)));
         assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(max_x, 0.5, center_z)));
+    }
+
+    #[test]
+    fn center_at_height_preserves_center_xz() {
+        let center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
+        assert_eq!(
+            INITIAL_EDITABLE_TERRAIN_BOUNDS.center_at_height(0.5),
+            Vec3::new(center.x, 0.5, center.z)
+        );
     }
 
     #[test]
