@@ -1,4 +1,6 @@
-use crate::tracer::{voxel_encoding::append_indexed_cube_data, Vertex};
+use crate::tracer::voxel_encoding::{
+    append_indexed_cube_data, append_indexed_cube_data_with_info, FloraMeshData, FloraVoxelInfo,
+};
 use anyhow::Result;
 use glam::{IVec3, Vec3};
 use noise::{NoiseFn, Perlin};
@@ -15,17 +17,17 @@ pub struct LeafVoxelShape {
 }
 
 fn push_voxel(
-    vertices: &mut Vec<Vertex>,
-    indices: &mut Vec<u32>,
+    mesh: &mut FloraMeshData,
     pos: IVec3,
     origin: IVec3,
     max_length: u32,
     is_lod_used: bool,
 ) -> Result<()> {
-    let vertex_offset = vertices.len() as u32;
+    let vertex_offset = mesh.vertices.len() as u32;
     append_indexed_cube_data(
-        vertices,
-        indices,
+        &mut mesh.vertices,
+        &mut mesh.indices,
+        &mut mesh.voxel_infos,
         pos,
         vertex_offset,
         origin,
@@ -131,61 +133,43 @@ pub fn generate_indexed_voxel_leaves(
     inner_radius: f32,
     outer_radius: f32,
     is_lod_used: bool,
-) -> Result<(Vec<Vertex>, Vec<u32>)> {
+) -> Result<FloraMeshData> {
     let shape =
         generate_voxel_leaf_shape(inner_density, outer_density, inner_radius, outer_radius)?;
-
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
     let origin = IVec3::ZERO;
+    let mut mesh = FloraMeshData::new(shape.max_length);
 
     for pos in shape.offsets {
-        push_voxel(
-            &mut vertices,
-            &mut indices,
-            pos,
-            origin,
-            shape.max_length,
-            is_lod_used,
-        )?;
+        push_voxel(&mut mesh, pos, origin, shape.max_length, is_lod_used)?;
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }
 
 /// Generates a one-voxel mesh for per-leaf-voxel tree rendering.
 pub fn generate_indexed_single_voxel_leaf(
     max_length: u32,
     is_lod_used: bool,
-) -> Result<(Vec<Vertex>, Vec<u32>)> {
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
-    push_voxel(
-        &mut vertices,
-        &mut indices,
-        IVec3::ZERO,
-        IVec3::ZERO,
-        max_length.max(1),
-        is_lod_used,
-    )?;
+) -> Result<FloraMeshData> {
+    let max_length = max_length.max(1);
+    let mut mesh = FloraMeshData::new(max_length);
+    push_voxel(&mut mesh, IVec3::ZERO, IVec3::ZERO, max_length, is_lod_used)?;
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }
 
 /// Generates a compact 4-voxel-diameter apple mesh centered on the instance anchor.
 ///
 /// The apple is intentionally render-only: tree placement creates instances for
 /// this mesh instead of stamping fruit into the terrain voxel field.
-pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
-    const ORIGIN: IVec3 = IVec3::ZERO;
+pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<FloraMeshData> {
     const MAX_LENGTH: u32 = 2;
     const BODY_RADIUS_XZ: f32 = 2.0;
     const BODY_RADIUS_Y: f32 = 2.0;
     const MIN_VOXEL: i32 = -2;
     const MAX_VOXEL: i32 = 1;
 
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut mesh = FloraMeshData::new(MAX_LENGTH);
 
     for x in MIN_VOXEL..=MAX_VOXEL {
         for y in MIN_VOXEL..=MAX_VOXEL {
@@ -198,12 +182,18 @@ pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, V
                 let shape = p.length_squared();
 
                 if shape <= 1.0 {
-                    push_voxel(
-                        &mut vertices,
-                        &mut indices,
-                        IVec3::new(x, y, z),
-                        ORIGIN,
-                        MAX_LENGTH,
+                    let pos = IVec3::new(x, y, z);
+                    let vertex_offset = mesh.vertices.len() as u32;
+                    let color_gradient = ((y + MAX_LENGTH as i32) as f32
+                        / (MAX_LENGTH as f32 * 2.0).max(1.0))
+                    .clamp(0.0, 1.0);
+                    append_indexed_cube_data_with_info(
+                        &mut mesh.vertices,
+                        &mut mesh.indices,
+                        &mut mesh.voxel_infos,
+                        pos,
+                        vertex_offset,
+                        FloraVoxelInfo::new(color_gradient, 1.0, color_gradient, 0),
                         is_lod_used,
                     )?;
                 }
@@ -211,5 +201,5 @@ pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<(Vec<Vertex>, V
         }
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }

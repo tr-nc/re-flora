@@ -3206,22 +3206,20 @@ impl Tracer {
             self.resources.meshes.flora_meshes_lod.len()
         );
 
-        let (vertices_data, indices_data) = gen_tomato_with_branching_desc(branching_desc, false)?;
-        let (vertices_data_lod, indices_data_lod) =
-            gen_tomato_with_branching_desc(branching_desc, true)?;
+        let mesh_data = gen_tomato_with_branching_desc(branching_desc, false)?;
+        let lookup_type_data = FloraVoxelLookupTypeData::from_mesh_data(&mesh_data);
+        let mesh_data_lod = gen_tomato_with_branching_desc(branching_desc, true)?;
         let device = self.vulkan_ctx.device();
-        self.resources.meshes.flora_meshes[species_idx] = FloraMeshResources::from_data(
+        self.resources.meshes.flora_meshes[species_idx] =
+            FloraMeshResources::from_mesh_data(device.clone(), self.allocator.clone(), mesh_data);
+        self.resources.meshes.flora_meshes_lod[species_idx] = FloraMeshResources::from_mesh_data(
             device.clone(),
             self.allocator.clone(),
-            vertices_data,
-            indices_data,
+            mesh_data_lod,
         );
-        self.resources.meshes.flora_meshes_lod[species_idx] = FloraMeshResources::from_data(
-            device.clone(),
-            self.allocator.clone(),
-            vertices_data_lod,
-            indices_data_lod,
-        );
+        self.resources
+            .flora_voxel_lookup
+            .update_type(species_idx, lookup_type_data)?;
         Ok(())
     }
 
@@ -3258,6 +3256,10 @@ impl Tracer {
             outer_radius,
             true,
         );
+        self.resources.flora_voxel_lookup.update_type(
+            LEAF_INSTANCE_TYPE as usize,
+            FloraVoxelLookupTypeData::from_leaf_shape(&shape),
+        )?;
         self.leaf_voxel_offsets = shape.offsets;
         Ok(())
     }

@@ -1,7 +1,7 @@
 use crate::flora::construct::{
     gen_carrot, gen_ember_bloom, gen_lavender, gen_short_grass, gen_tall_grass, gen_tomato,
 };
-use crate::tracer::Vertex;
+use crate::tracer::voxel_encoding::FloraMeshData;
 use anyhow::Result;
 
 pub const MAX_FLORA_SPECIES: usize = 6;
@@ -17,7 +17,7 @@ pub const AUTHORED_PLANT_SPECIES_INDICES: [u32; 4] = [
 ];
 pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
 
-pub type MeshGeneratorFn = fn(bool) -> Result<(Vec<Vertex>, Vec<u32>)>;
+pub type MeshGeneratorFn = fn(bool) -> Result<FloraMeshData>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct FloraPaintBrushSettings {

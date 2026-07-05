@@ -6,7 +6,7 @@
 #include "./flora_push_constant.glsl"
 
 // these are vertex-rate attributes
-layout(location = 0) in uvec2 in_packed_data;
+layout(location = 0) in uint in_packed_data;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -82,6 +82,7 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "./grass_band_color.glsl"
 #include "./palette.glsl"
 #include "./unpacker.glsl"
+#include "./flora_voxel_lookup.glsl"
 #include "./flora_common.glsl"
 
 layout(set = 1, binding = 0) readonly buffer B_ManualFloraInstances { Instance data[]; }
@@ -90,10 +91,7 @@ manual_flora_instances;
 void main() {
     ivec3 vox_local_pos;
     uvec3 vert_offset_in_vox;
-    ivec3 gradient_origin;
-    uint max_length;
-    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, gradient_origin, max_length,
-                       in_packed_data);
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, in_packed_data);
 
     bool is_grass;
     float color_gradient;
@@ -106,9 +104,10 @@ void main() {
     uvec3 instance_pos = get_instance_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
     uint instance_seed = get_instance_seed(instance_pos);
     uint instance_growth_progress = unpack_instance_growth_progress(in_instance_packed_local_pos);
-    prepaverdarium_vertex(vox_local_pos, gradient_origin, max_length, instance_pos,
-                          pc.instance_ty, instance_seed, instance_growth_progress, is_grass,
-                          color_gradient, voxel_pos, anchor_pos, shadow_weight, should_trim_voxel);
+    uint voxel_info = lookup_flora_voxel_info(pc.instance_ty, vox_local_pos);
+    prepaverdarium_vertex(vox_local_pos, voxel_info, instance_pos, pc.instance_ty, instance_seed,
+                          instance_growth_progress, is_grass, color_gradient, voxel_pos,
+                          anchor_pos, shadow_weight, should_trim_voxel);
     vec3 vert_pos    = anchor_pos + vec3(vert_offset_in_vox) * scaling_factor;
 
     if (should_trim_voxel) {
@@ -123,7 +122,7 @@ void main() {
 
     vec3 base_color_linear =
         sample_flora_base_color(is_grass, pc.instance_ty, instance_seed, vox_local_pos,
-                                instance_pos, color_gradient);
+                                instance_pos, color_gradient, voxel_info);
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);
     vec3 sun_light      = sun_info.sun_color * sun_luminance;

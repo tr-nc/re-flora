@@ -1,24 +1,23 @@
 use crate::branch_skeleton::{generate_branch_skeleton, BranchingDesc};
-use crate::tracer::voxel_encoding::append_indexed_cube_data;
-use crate::tracer::Vertex;
+use crate::tracer::voxel_encoding::{append_indexed_cube_data, FloraMeshData};
 use anyhow::Result;
 use glam::{IVec3, Vec3};
 use std::{collections::HashSet, f32::consts::PI};
 
-fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<FloraMeshData> {
     const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
     let max_length = voxel_count - 1;
 
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut mesh = FloraMeshData::new(max_length);
 
     for i in 0..voxel_count {
-        let vertex_offset = vertices.len() as u32;
+        let vertex_offset = mesh.vertices.len() as u32;
         let base_pos = IVec3::new(0, i as i32, 0);
 
         append_indexed_cube_data(
-            &mut vertices,
-            &mut indices,
+            &mut mesh.vertices,
+            &mut mesh.indices,
+            &mut mesh.voxel_infos,
             base_pos,
             vertex_offset,
             ORIGIN,
@@ -27,26 +26,25 @@ fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<(Vec<Vertex>,
         )?;
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }
 
-pub fn gen_tall_grass(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_tall_grass(is_lod_used: bool) -> Result<FloraMeshData> {
     gen_grass_column(8, is_lod_used)
 }
 
-pub fn gen_short_grass(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_short_grass(is_lod_used: bool) -> Result<FloraMeshData> {
     gen_grass_column(4, is_lod_used)
 }
 
-pub fn gen_carrot(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_carrot(is_lod_used: bool) -> Result<FloraMeshData> {
     const BURIED_TIP_Y: i32 = -4;
     const ORIGIN: IVec3 = IVec3::new(0, BURIED_TIP_Y, 0);
     const LEAF_BASE_Y: i32 = 2;
     const LEAF_HEIGHT: i32 = 4;
     const MAX_LENGTH: u32 = 9;
 
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut mesh = FloraMeshData::new(MAX_LENGTH);
 
     // Ten voxels tall from buried tip y=-4 to leaf tip y=5. Most orange root voxels sit below
     // the soil; y=0..1 leaves a small carrot shoulder visible above ground.
@@ -57,10 +55,11 @@ pub fn gen_carrot(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
                 if x.abs() + z.abs() > radius + 1 {
                     continue;
                 }
-                let vertex_offset = vertices.len() as u32;
+                let vertex_offset = mesh.vertices.len() as u32;
                 append_indexed_cube_data(
-                    &mut vertices,
-                    &mut indices,
+                    &mut mesh.vertices,
+                    &mut mesh.indices,
+                    &mut mesh.voxel_infos,
                     IVec3::new(x, y, z),
                     vertex_offset,
                     ORIGIN,
@@ -77,10 +76,11 @@ pub fn gen_carrot(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
         for y in 0..LEAF_HEIGHT {
             let lean_x = base_x * y / 3;
             let lean_z = base_z * y / 3;
-            let vertex_offset = vertices.len() as u32;
+            let vertex_offset = mesh.vertices.len() as u32;
             append_indexed_cube_data(
-                &mut vertices,
-                &mut indices,
+                &mut mesh.vertices,
+                &mut mesh.indices,
+                &mut mesh.voxel_infos,
                 IVec3::new(base_x + lean_x, LEAF_BASE_Y + y, base_z + lean_z),
                 vertex_offset,
                 ORIGIN,
@@ -90,7 +90,7 @@ pub fn gen_carrot(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
         }
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }
 
 type TomatoVoxelSet = HashSet<(i32, i32, i32)>;
@@ -183,19 +183,19 @@ fn tomato_max_length(voxels: &[IVec3], origin: IVec3) -> u32 {
 pub fn gen_tomato_with_branching_desc(
     branching_desc: &BranchingDesc,
     is_lod_used: bool,
-) -> Result<(Vec<Vertex>, Vec<u32>)> {
+) -> Result<FloraMeshData> {
     const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
 
     let voxels = tomato_vine_voxels(branching_desc);
     let max_length = tomato_max_length(&voxels, ORIGIN);
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut mesh = FloraMeshData::new(max_length);
 
     for pos in voxels {
-        let vertex_offset = vertices.len() as u32;
+        let vertex_offset = mesh.vertices.len() as u32;
         append_indexed_cube_data(
-            &mut vertices,
-            &mut indices,
+            &mut mesh.vertices,
+            &mut mesh.indices,
+            &mut mesh.voxel_infos,
             pos,
             vertex_offset,
             ORIGIN,
@@ -204,10 +204,10 @@ pub fn gen_tomato_with_branching_desc(
         )?;
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }
 
-pub fn gen_tomato(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_tomato(is_lod_used: bool) -> Result<FloraMeshData> {
     gen_tomato_with_branching_desc(&default_tomato_branching_desc(), is_lod_used)
 }
 
@@ -235,7 +235,7 @@ mod tests {
     }
 }
 
-pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_lavender(is_lod_used: bool) -> Result<FloraMeshData> {
     const STEM_VOXEL_COUNT: u32 = 6;
     const LEAF_BALL_RADIUS: f32 = 1.5;
     const LEAF_BALL_BOUNDARY: i32 = LEAF_BALL_RADIUS as i32;
@@ -247,18 +247,18 @@ pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
         .ceil()
         .max(1.0) as u32;
 
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut mesh = FloraMeshData::new(max_length);
 
     // draw the stem
     let total_stem_voxel_count = STEM_VOXEL_COUNT - LEAF_BALL_BOUNDARY as u32;
     for i in 0..total_stem_voxel_count {
-        let vertex_offset = vertices.len() as u32;
+        let vertex_offset = mesh.vertices.len() as u32;
         let base_pos = IVec3::new(0, i as i32, 0);
 
         append_indexed_cube_data(
-            &mut vertices,
-            &mut indices,
+            &mut mesh.vertices,
+            &mut mesh.indices,
+            &mut mesh.voxel_infos,
             base_pos,
             vertex_offset,
             ORIGIN,
@@ -275,12 +275,13 @@ pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
                     continue;
                 }
 
-                let vertex_offset = vertices.len() as u32;
+                let vertex_offset = mesh.vertices.len() as u32;
                 let base_pos = IVec3::new(i, j, k) + IVec3::new(0, STEM_VOXEL_COUNT as i32, 0);
 
                 append_indexed_cube_data(
-                    &mut vertices,
-                    &mut indices,
+                    &mut mesh.vertices,
+                    &mut mesh.indices,
+                    &mut mesh.voxel_infos,
                     base_pos,
                     vertex_offset,
                     ORIGIN,
@@ -291,10 +292,10 @@ pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
         }
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }
 
-pub fn gen_ember_bloom(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_ember_bloom(is_lod_used: bool) -> Result<FloraMeshData> {
     const HEIGHT: i32 = 12;
     // Width Configuration: How wide the plant swells
     const MAX_RADIUS: f32 = 2.0;
@@ -306,8 +307,7 @@ pub fn gen_ember_bloom(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
         .ceil()
         .max(1.0) as u32;
 
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut mesh = FloraMeshData::new(max_length);
 
     for y in 0..HEIGHT {
         // Normalized height (0.0 at bottom, 1.0 at top)
@@ -345,14 +345,15 @@ pub fn gen_ember_bloom(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
                 // We fill everything inside the calculated radius.
                 // This guarantees the shape is symmetrical and has no holes.
                 if dist <= radius_limit {
-                    let vertex_offset = vertices.len() as u32;
+                    let vertex_offset = mesh.vertices.len() as u32;
 
                     // No stem sway, just straight up for symmetry
                     let pos = IVec3::new(x, y, z);
 
                     append_indexed_cube_data(
-                        &mut vertices,
-                        &mut indices,
+                        &mut mesh.vertices,
+                        &mut mesh.indices,
+                        &mut mesh.voxel_infos,
                         pos,
                         vertex_offset,
                         ORIGIN,
@@ -364,5 +365,5 @@ pub fn gen_ember_bloom(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
         }
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }
