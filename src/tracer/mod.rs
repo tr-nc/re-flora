@@ -41,10 +41,12 @@ pub const FLORA_HEIGHT_COLOR_TABLE_LEN: usize = 12;
 pub type FloraHeightColorTables = [[u32; FLORA_HEIGHT_COLOR_TABLE_LEN]; 2];
 
 use crate::audio::SpatialSoundManager;
+
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
+use crate::flora::construct::{gen_tomato_with_desc, TomatoVineDesc};
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
 };
@@ -3251,6 +3253,38 @@ impl Tracer {
         Ok(())
     }
 
+    pub fn regenerate_tomato_mesh(&mut self, desc: &TomatoVineDesc) -> Result<()> {
+        let species_idx = crate::flora::species::TOMATO_SPECIES_INDEX as usize;
+        anyhow::ensure!(
+            species_idx < self.resources.meshes.flora_meshes.len(),
+            "tomato species index {} exceeds flora mesh count {}",
+            species_idx,
+            self.resources.meshes.flora_meshes.len()
+        );
+        anyhow::ensure!(
+            species_idx < self.resources.meshes.flora_meshes_lod.len(),
+            "tomato species index {} exceeds flora LOD mesh count {}",
+            species_idx,
+            self.resources.meshes.flora_meshes_lod.len()
+        );
+
+        let mesh_data = gen_tomato_with_desc(desc, false)?;
+        let lookup_type_data = FloraVoxelLookupTypeData::from_mesh_data(&mesh_data);
+        let mesh_data_lod = gen_tomato_with_desc(desc, true)?;
+        let device = self.vulkan_ctx.device();
+        self.resources.meshes.flora_meshes[species_idx] =
+            FloraMeshResources::from_mesh_data(device.clone(), self.allocator.clone(), mesh_data);
+        self.resources.meshes.flora_meshes_lod[species_idx] = FloraMeshResources::from_mesh_data(
+            device.clone(),
+            self.allocator.clone(),
+            mesh_data_lod,
+        );
+        self.resources
+            .flora_voxel_lookup
+            .update_type(species_idx, lookup_type_data)?;
+        Ok(())
+    }
+
     pub fn regenerate_leaves(
         &mut self,
         inner_density: f32,
@@ -3284,6 +3318,10 @@ impl Tracer {
             outer_radius,
             true,
         );
+        self.resources.flora_voxel_lookup.update_type(
+            LEAF_INSTANCE_TYPE as usize,
+            FloraVoxelLookupTypeData::from_leaf_shape(&shape),
+        )?;
         self.leaf_voxel_offsets = shape.offsets;
         Ok(())
     }

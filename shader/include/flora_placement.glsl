@@ -39,7 +39,7 @@ void calculate_flora_density_placement(ivec3 world_pos, out bool o_allow_any_flo
 
 bool flora_species_uses_sparse_paint_density(uint species_idx) {
     return species_idx == FLORA_SPECIES_LAVENDER || species_idx == FLORA_SPECIES_EMBER_BLOOM ||
-           species_idx == FLORA_SPECIES_CARROT;
+           species_idx == FLORA_SPECIES_CARROT || species_idx == FLORA_SPECIES_TOMATO;
 }
 
 float flora_sparse_species_rng(ivec3 world_pos) {
@@ -58,6 +58,10 @@ bool flora_sparse_species_mask_allows(uint species_idx, ivec3 world_pos) {
     }
 
     if (species_idx == FLORA_SPECIES_CARROT) {
+        return species_rng < FLORA_GRASS_DECREASED_SPARSE_THRESHOLD;
+    }
+
+    if (species_idx == FLORA_SPECIES_TOMATO) {
         return species_rng < FLORA_GRASS_DECREASED_SPARSE_THRESHOLD;
     }
 
@@ -179,6 +183,11 @@ bool flora_sparse_paint_selection_allows(uint paint_selection, ivec3 world_pos,
     if (paint_selection == FLORA_SPECIES_CARROT) {
         return flora_layered_sparse_paint_mask_allows(
             paint_config, vec2(19.0, 131.0), world_pos);
+    }
+
+    if (paint_selection == FLORA_SPECIES_TOMATO) {
+        return flora_layered_sparse_paint_mask_allows(
+            paint_config, vec2(-101.0, 23.0), world_pos);
     }
 
     return true;

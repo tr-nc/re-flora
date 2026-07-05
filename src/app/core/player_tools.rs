@@ -41,7 +41,7 @@ pub(super) struct PlayerToolState {
 impl Default for PlayerToolState {
     fn default() -> Self {
         Self {
-            selected_item_panel_slot: None,
+            selected_item_panel_slot: Some(super::ui_style::STAFF_SLOT_INDEX),
             selected_placeable_panel_slot: super::ui_style::TREE_PLACEABLE_SLOT_INDEX,
             left_mouse_held: false,
             right_mouse_held: false,

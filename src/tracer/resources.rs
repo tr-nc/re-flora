@@ -6,18 +6,23 @@ use crate::{
     tracer::{
         leaves_construct::{
             generate_indexed_single_voxel_leaf, generate_indexed_voxel_apple,
-            generate_voxel_leaf_shape, DEFAULT_LEAF_INNER_DENSITY, DEFAULT_LEAF_INNER_RADIUS,
-            DEFAULT_LEAF_OUTER_DENSITY, DEFAULT_LEAF_OUTER_RADIUS,
+            generate_voxel_leaf_shape, LeafVoxelShape, DEFAULT_LEAF_INNER_DENSITY,
+            DEFAULT_LEAF_INNER_RADIUS, DEFAULT_LEAF_OUTER_DENSITY, DEFAULT_LEAF_OUTER_RADIUS,
         },
-        load_butterfly_and_remap, ButterflyPalettePreset, DenoiserResources,
-        ExtentDependentResources, ParticleTextureLayout, Vertex, WIND_VOLUME_BUCKET_COUNT,
+        load_butterfly_and_remap,
+        voxel_encoding::{
+            encode_lookup_pos_key, FloraMeshData, FloraVoxelInfo, FloraVoxelInfoEntry,
+            FLORA_VOXEL_LOOKUP_EMPTY_KEY,
+        },
+        ButterflyPalettePreset, DenoiserResources, ExtentDependentResources, ParticleTextureLayout,
+        Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3, Vec3};
 use resource_container_derive::ResourceContainer;
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 use verdarium_vkn::vk;
 use verdarium_vkn::{
     Allocator, Buffer, BufferUsage, CurrentPrevious, Device, Extent2D, Extent3D, ImageDesc,
@@ -25,7 +30,7 @@ use verdarium_vkn::{
     VulkanContext,
 };
 
-type MeshGenerator = fn(bool) -> anyhow::Result<(Vec<Vertex>, Vec<u32>)>;
+type MeshGenerator = fn(bool) -> anyhow::Result<FloraMeshData>;
 
 pub const WIND_VOLUME_TEXELS_PER_CHUNK: UVec3 = UVec3::splat(10);
 
@@ -43,7 +48,20 @@ impl FloraMeshResources {
         is_lod_used: bool,
         generator: MeshGenerator,
     ) -> Self {
-        let (vertices_data, indices_data) = generator(is_lod_used).unwrap();
+        let mesh_data = generator(is_lod_used).unwrap();
+        Self::from_mesh_data(device, allocator, mesh_data)
+    }
+
+    pub fn from_mesh_data(device: Device, allocator: Allocator, mesh_data: FloraMeshData) -> Self {
+        Self::from_data(device, allocator, mesh_data.vertices, mesh_data.indices)
+    }
+
+    pub fn from_data(
+        device: Device,
+        allocator: Allocator,
+        vertices_data: Vec<Vertex>,
+        indices_data: Vec<u32>,
+    ) -> Self {
         let indices_len = indices_data.len() as u32;
 
         let vertices = Buffer::new_sized(
@@ -70,6 +88,221 @@ impl FloraMeshResources {
             indices_len,
         }
     }
+}
+
+const FLORA_VOXEL_LOOKUP_TYPE_COUNT: usize = species::APPLE_RENDER_SPECIES_INDEX as usize + 1;
+const FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY: usize = 1 << 21;
+const FLORA_VOXEL_LOOKUP_MAX_PROBES: u32 = 64;
+const FLORA_VOXEL_LOOKUP_LOAD_FACTOR: usize = 4;
+
+#[derive(Clone, Debug)]
+pub struct FloraVoxelLookupTypeData {
+    pub entries: Vec<FloraVoxelInfoEntry>,
+    pub max_length: u32,
+    pub fallback_info: FloraVoxelInfo,
+}
+
+impl FloraVoxelLookupTypeData {
+    pub fn new(entries: Vec<FloraVoxelInfoEntry>, max_length: u32) -> Self {
+        Self {
+            entries,
+            max_length: max_length.max(1),
+            fallback_info: FloraVoxelInfo::fallback(),
+        }
+    }
+
+    pub fn from_mesh_data(mesh_data: &FloraMeshData) -> Self {
+        Self::new(mesh_data.voxel_infos.clone(), mesh_data.max_length)
+    }
+
+    pub fn from_leaf_shape(shape: &LeafVoxelShape) -> Self {
+        let max_length = shape.max_length.max(1);
+        let entries = shape
+            .offsets
+            .iter()
+            .copied()
+            .map(|pos| {
+                let gradient = (pos.as_vec3().length() / max_length as f32).clamp(0.0, 1.0);
+                FloraVoxelInfoEntry {
+                    pos,
+                    info: FloraVoxelInfo::gradient(gradient),
+                }
+            })
+            .collect();
+        Self::new(entries, max_length)
+    }
+}
+
+#[derive(ResourceContainer)]
+pub struct FloraVoxelLookupResources {
+    pub flora_voxel_table_descs: Resource<Buffer>,
+    pub flora_voxel_infos: Resource<Buffer>,
+    type_data: Vec<FloraVoxelLookupTypeData>,
+}
+
+impl FloraVoxelLookupResources {
+    fn new(device: Device, allocator: Allocator) -> Self {
+        let flora_voxel_table_descs = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<[u32; 4]>() * FLORA_VOXEL_LOOKUP_TYPE_COUNT) as u64,
+        );
+        let flora_voxel_infos = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<[u32; 2]>() * FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY) as u64,
+        );
+        let mut resources = Self {
+            flora_voxel_table_descs: Resource::new(flora_voxel_table_descs),
+            flora_voxel_infos: Resource::new(flora_voxel_infos),
+            type_data: Self::default_type_data().unwrap(),
+        };
+        resources.upload().unwrap();
+        resources
+    }
+
+    pub fn update_type(
+        &mut self,
+        type_index: usize,
+        type_data: FloraVoxelLookupTypeData,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            type_index < self.type_data.len(),
+            "flora voxel lookup type index {} exceeds type count {}",
+            type_index,
+            self.type_data.len()
+        );
+        self.type_data[type_index] = type_data;
+        self.upload()
+    }
+
+    fn default_type_data() -> anyhow::Result<Vec<FloraVoxelLookupTypeData>> {
+        let mut data =
+            vec![FloraVoxelLookupTypeData::new(Vec::new(), 1); FLORA_VOXEL_LOOKUP_TYPE_COUNT];
+        for (species_index, desc) in species::species().iter().enumerate() {
+            let mesh_data = (desc.mesh_generator)(false)?;
+            data[species_index] = FloraVoxelLookupTypeData::from_mesh_data(&mesh_data);
+        }
+
+        let leaf_shape = generate_voxel_leaf_shape(
+            DEFAULT_LEAF_INNER_DENSITY,
+            DEFAULT_LEAF_OUTER_DENSITY,
+            DEFAULT_LEAF_INNER_RADIUS,
+            DEFAULT_LEAF_OUTER_RADIUS,
+        )?;
+        data[species::TREE_LEAF_RENDER_SPECIES_INDEX as usize] =
+            FloraVoxelLookupTypeData::from_leaf_shape(&leaf_shape);
+
+        let apple_mesh = generate_indexed_voxel_apple(false)?;
+        data[species::APPLE_RENDER_SPECIES_INDEX as usize] =
+            FloraVoxelLookupTypeData::from_mesh_data(&apple_mesh);
+
+        Ok(data)
+    }
+
+    fn upload(&mut self) -> anyhow::Result<()> {
+        let mut descs = vec![[0_u32; 4]; FLORA_VOXEL_LOOKUP_TYPE_COUNT];
+        let mut entries = vec![
+            [
+                FLORA_VOXEL_LOOKUP_EMPTY_KEY,
+                FloraVoxelInfo::fallback().packed
+            ];
+            FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY
+        ];
+        let mut next_offset = 0_usize;
+
+        for (type_index, type_data) in self.type_data.iter().enumerate() {
+            let table = build_lookup_table(type_data)?;
+            anyhow::ensure!(
+                next_offset + table.len() <= FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY,
+                "flora voxel lookup tables need {} entries, but capacity is {}",
+                next_offset + table.len(),
+                FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY
+            );
+
+            let offset = next_offset;
+            let capacity = table.len();
+            if capacity > 0 {
+                entries[offset..offset + capacity].copy_from_slice(&table);
+            }
+            descs[type_index] = [
+                offset as u32,
+                capacity as u32,
+                type_data.fallback_info.packed,
+                type_data.max_length.max(1),
+            ];
+            next_offset += capacity;
+        }
+
+        self.flora_voxel_table_descs.fill(&descs)?;
+        self.flora_voxel_infos.fill(&entries)?;
+        Ok(())
+    }
+}
+
+fn build_lookup_table(type_data: &FloraVoxelLookupTypeData) -> anyhow::Result<Vec<[u32; 2]>> {
+    let mut unique = HashMap::<u32, u32>::new();
+    for entry in &type_data.entries {
+        let key = encode_lookup_pos_key(entry.pos)?;
+        unique.insert(key, entry.info.packed);
+    }
+
+    let unique_len = unique.len();
+    let mut capacity = unique_len
+        .saturating_mul(FLORA_VOXEL_LOOKUP_LOAD_FACTOR)
+        .max(1)
+        .next_power_of_two();
+
+    loop {
+        let mut table = vec![
+            [
+                FLORA_VOXEL_LOOKUP_EMPTY_KEY,
+                FloraVoxelInfo::fallback().packed
+            ];
+            capacity
+        ];
+        let mask = capacity as u32 - 1;
+        let mut max_probe = 0_u32;
+        let mut failed_probe_budget = false;
+
+        for (&key, &info) in &unique {
+            let start_slot = flora_lookup_hash(key) & mask;
+            let mut inserted = false;
+            for probe in 0..FLORA_VOXEL_LOOKUP_MAX_PROBES {
+                let slot = ((start_slot + probe) & mask) as usize;
+                if table[slot][0] == FLORA_VOXEL_LOOKUP_EMPTY_KEY || table[slot][0] == key {
+                    table[slot] = [key, info];
+                    max_probe = max_probe.max(probe);
+                    inserted = true;
+                    break;
+                }
+            }
+            if !inserted {
+                failed_probe_budget = true;
+                break;
+            }
+        }
+
+        if !failed_probe_budget && max_probe < FLORA_VOXEL_LOOKUP_MAX_PROBES {
+            return Ok(table);
+        }
+        capacity = capacity
+            .checked_mul(2)
+            .ok_or_else(|| anyhow::anyhow!("flora voxel lookup table capacity overflow"))?;
+    }
+}
+
+fn flora_lookup_hash(key: u32) -> u32 {
+    let mut x = key ^ 0x9E37_79B9;
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7FEB_352D);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846C_A68B);
+    x ^ (x >> 16)
 }
 
 #[derive(ResourceContainer)]
@@ -108,14 +341,12 @@ impl LeavesResources {
         let shape =
             generate_voxel_leaf_shape(inner_density, outer_density, inner_radius, outer_radius)
                 .unwrap();
-        let (mut vertices_data, mut indices_data) =
-            generate_indexed_single_voxel_leaf(shape.max_length, is_lod_used).unwrap();
+        let mesh_data = generate_indexed_single_voxel_leaf(shape.max_length, is_lod_used).unwrap();
+        let (mut vertices_data, mut indices_data) = mesh_data.into_render_data();
 
         // guard against empty data - create minimal buffers to avoid Vulkan validation errors
         if vertices_data.is_empty() {
-            vertices_data.push(Vertex {
-                packed_data: [0; 2],
-            }); // Dummy vertex
+            vertices_data.push(Vertex { packed_data: 0 }); // Dummy vertex
         }
         if indices_data.is_empty() {
             indices_data.push(0); // Dummy index
@@ -548,9 +779,11 @@ impl ParticleRendererResources {
 
         let mut vertices_data = Vec::new();
         let mut indices_data = Vec::new();
+        let mut voxel_infos = Vec::new();
         append_indexed_cube_data(
             &mut vertices_data,
             &mut indices_data,
+            &mut voxel_infos,
             IVec3::ZERO,
             0,
             IVec3::ZERO,
@@ -1058,6 +1291,7 @@ pub struct TracerResources {
     pub uniforms: TracerUniformResources,
     pub shadow: ShadowResources,
     pub wind: WindResources,
+    pub flora_voxel_lookup: FloraVoxelLookupResources,
     pub terrain_query: TerrainQueryResources,
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,
@@ -1114,6 +1348,7 @@ impl TracerResources {
                 flora_vert_sm,
                 chunk_bound,
             ),
+            flora_voxel_lookup: FloraVoxelLookupResources::new(device.clone(), allocator.clone()),
             terrain_query: TerrainQueryResources::new(
                 device.clone(),
                 allocator.clone(),

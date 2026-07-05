@@ -1153,6 +1153,120 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Tip Color",
     },
     GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_seed_offset",
+        kind: "uint",
+        label: "Seed Offset",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_iterations",
+        kind: "uint",
+        label: "Iterations",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_initial_length",
+        kind: "float",
+        label: "Initial Length",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_overall_scale",
+        kind: "float",
+        label: "Overall Scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_base_diameter_voxels",
+        kind: "uint",
+        label: "Base Diameter (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_thickness_taper_power",
+        kind: "float",
+        label: "Thickness Taper Power",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_length_dropoff",
+        kind: "float",
+        label: "Length Dropoff",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_spread",
+        kind: "float",
+        label: "Spread",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_randomness",
+        kind: "float",
+        label: "Randomness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_vertical_tendency",
+        kind: "float",
+        label: "Vertical Tendency",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_branch_angle_min_degrees",
+        kind: "float",
+        label: "Branch Angle Min (deg)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_branch_angle_max_degrees",
+        kind: "float",
+        label: "Branch Angle Max (deg)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_branch_probability",
+        kind: "float",
+        label: "Branch Probability",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_branch_count_min",
+        kind: "uint",
+        label: "Branch Count Min",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_branch_count_max",
+        kind: "uint",
+        label: "Branch Count Max",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_segment_length_variation",
+        kind: "float",
+        label: "Segment Length Variation",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_fruit_count",
+        kind: "uint",
+        label: "Fruit Count",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_fruit_radius",
+        kind: "float",
+        label: "Fruit Radius (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tomato Vine Structure",
+        id: "tomato_fruit_min_height_fraction",
+        kind: "float",
+        label: "Fruit Min Height Fraction",
+    },
+    GeneratedGuiParamDescriptor {
         section: "FloraVariation",
         id: "flora_instance_hue_offset",
         kind: "float",
@@ -1548,6 +1662,25 @@ pub struct GuiAdjustables {
     pub water_terrain_tangent_damping: crate::gui_adjustables::FloatParam,
     pub ember_bloom_bottom_color: crate::gui_adjustables::ColorParam,
     pub ember_bloom_tip_color: crate::gui_adjustables::ColorParam,
+    pub tomato_seed_offset: crate::gui_adjustables::UintParam,
+    pub tomato_iterations: crate::gui_adjustables::UintParam,
+    pub tomato_initial_length: crate::gui_adjustables::FloatParam,
+    pub tomato_overall_scale: crate::gui_adjustables::FloatParam,
+    pub tomato_base_diameter_voxels: crate::gui_adjustables::UintParam,
+    pub tomato_thickness_taper_power: crate::gui_adjustables::FloatParam,
+    pub tomato_length_dropoff: crate::gui_adjustables::FloatParam,
+    pub tomato_spread: crate::gui_adjustables::FloatParam,
+    pub tomato_randomness: crate::gui_adjustables::FloatParam,
+    pub tomato_vertical_tendency: crate::gui_adjustables::FloatParam,
+    pub tomato_branch_angle_min_degrees: crate::gui_adjustables::FloatParam,
+    pub tomato_branch_angle_max_degrees: crate::gui_adjustables::FloatParam,
+    pub tomato_branch_probability: crate::gui_adjustables::FloatParam,
+    pub tomato_branch_count_min: crate::gui_adjustables::UintParam,
+    pub tomato_branch_count_max: crate::gui_adjustables::UintParam,
+    pub tomato_segment_length_variation: crate::gui_adjustables::FloatParam,
+    pub tomato_fruit_count: crate::gui_adjustables::UintParam,
+    pub tomato_fruit_radius: crate::gui_adjustables::FloatParam,
+    pub tomato_fruit_min_height_fraction: crate::gui_adjustables::FloatParam,
     pub flora_instance_hue_offset: crate::gui_adjustables::FloatParam,
     pub flora_instance_saturation_offset: crate::gui_adjustables::FloatParam,
     pub flora_instance_value_offset: crate::gui_adjustables::FloatParam,
@@ -1783,6 +1916,25 @@ impl GuiAdjustables {
         let mut water_terrain_tangent_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ember_bloom_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut ember_bloom_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut tomato_seed_offset_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut tomato_iterations_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut tomato_initial_length_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_overall_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_base_diameter_voxels_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut tomato_thickness_taper_power_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_length_dropoff_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_spread_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_randomness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_vertical_tendency_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_branch_angle_min_degrees_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_branch_angle_max_degrees_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_branch_probability_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_branch_count_min_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut tomato_branch_count_max_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut tomato_segment_length_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_fruit_count_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut tomato_fruit_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tomato_fruit_min_height_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3083,6 +3235,139 @@ impl GuiAdjustables {
                             ember_bloom_tip_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "tomato_seed_offset" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            tomato_seed_offset_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_iterations" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            tomato_iterations_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_initial_length" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_initial_length_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_overall_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_overall_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_base_diameter_voxels" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            tomato_base_diameter_voxels_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_thickness_taper_power" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_thickness_taper_power_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_length_dropoff" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_length_dropoff_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_spread" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_spread_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_randomness" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_randomness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_vertical_tendency" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_vertical_tendency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_branch_angle_min_degrees" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_branch_angle_min_degrees_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_branch_angle_max_degrees" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_branch_angle_max_degrees_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_branch_probability" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_branch_probability_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_branch_count_min" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            tomato_branch_count_min_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_branch_count_max" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            tomato_branch_count_max_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_segment_length_variation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_segment_length_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_fruit_count" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            tomato_fruit_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_fruit_radius" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_fruit_radius_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tomato_fruit_min_height_fraction" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tomato_fruit_min_height_fraction_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "flora_instance_hue_offset" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3497,6 +3782,25 @@ impl GuiAdjustables {
             water_terrain_tangent_damping: water_terrain_tangent_damping_field.expect("Missing parameter: water_terrain_tangent_damping"),
             ember_bloom_bottom_color: ember_bloom_bottom_color_field.expect("Missing parameter: ember_bloom_bottom_color"),
             ember_bloom_tip_color: ember_bloom_tip_color_field.expect("Missing parameter: ember_bloom_tip_color"),
+            tomato_seed_offset: tomato_seed_offset_field.expect("Missing parameter: tomato_seed_offset"),
+            tomato_iterations: tomato_iterations_field.expect("Missing parameter: tomato_iterations"),
+            tomato_initial_length: tomato_initial_length_field.expect("Missing parameter: tomato_initial_length"),
+            tomato_overall_scale: tomato_overall_scale_field.expect("Missing parameter: tomato_overall_scale"),
+            tomato_base_diameter_voxels: tomato_base_diameter_voxels_field.expect("Missing parameter: tomato_base_diameter_voxels"),
+            tomato_thickness_taper_power: tomato_thickness_taper_power_field.expect("Missing parameter: tomato_thickness_taper_power"),
+            tomato_length_dropoff: tomato_length_dropoff_field.expect("Missing parameter: tomato_length_dropoff"),
+            tomato_spread: tomato_spread_field.expect("Missing parameter: tomato_spread"),
+            tomato_randomness: tomato_randomness_field.expect("Missing parameter: tomato_randomness"),
+            tomato_vertical_tendency: tomato_vertical_tendency_field.expect("Missing parameter: tomato_vertical_tendency"),
+            tomato_branch_angle_min_degrees: tomato_branch_angle_min_degrees_field.expect("Missing parameter: tomato_branch_angle_min_degrees"),
+            tomato_branch_angle_max_degrees: tomato_branch_angle_max_degrees_field.expect("Missing parameter: tomato_branch_angle_max_degrees"),
+            tomato_branch_probability: tomato_branch_probability_field.expect("Missing parameter: tomato_branch_probability"),
+            tomato_branch_count_min: tomato_branch_count_min_field.expect("Missing parameter: tomato_branch_count_min"),
+            tomato_branch_count_max: tomato_branch_count_max_field.expect("Missing parameter: tomato_branch_count_max"),
+            tomato_segment_length_variation: tomato_segment_length_variation_field.expect("Missing parameter: tomato_segment_length_variation"),
+            tomato_fruit_count: tomato_fruit_count_field.expect("Missing parameter: tomato_fruit_count"),
+            tomato_fruit_radius: tomato_fruit_radius_field.expect("Missing parameter: tomato_fruit_radius"),
+            tomato_fruit_min_height_fraction: tomato_fruit_min_height_fraction_field.expect("Missing parameter: tomato_fruit_min_height_fraction"),
             flora_instance_hue_offset: flora_instance_hue_offset_field.expect("Missing parameter: flora_instance_hue_offset"),
             flora_instance_saturation_offset: flora_instance_saturation_offset_field.expect("Missing parameter: flora_instance_saturation_offset"),
             flora_instance_value_offset: flora_instance_value_offset_field.expect("Missing parameter: flora_instance_value_offset"),
@@ -3680,6 +3984,19 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "water_j_min" => Some(&adjustables.water_j_min),
         "water_wall_damping" => Some(&adjustables.water_wall_damping),
         "water_terrain_tangent_damping" => Some(&adjustables.water_terrain_tangent_damping),
+        "tomato_initial_length" => Some(&adjustables.tomato_initial_length),
+        "tomato_overall_scale" => Some(&adjustables.tomato_overall_scale),
+        "tomato_thickness_taper_power" => Some(&adjustables.tomato_thickness_taper_power),
+        "tomato_length_dropoff" => Some(&adjustables.tomato_length_dropoff),
+        "tomato_spread" => Some(&adjustables.tomato_spread),
+        "tomato_randomness" => Some(&adjustables.tomato_randomness),
+        "tomato_vertical_tendency" => Some(&adjustables.tomato_vertical_tendency),
+        "tomato_branch_angle_min_degrees" => Some(&adjustables.tomato_branch_angle_min_degrees),
+        "tomato_branch_angle_max_degrees" => Some(&adjustables.tomato_branch_angle_max_degrees),
+        "tomato_branch_probability" => Some(&adjustables.tomato_branch_probability),
+        "tomato_segment_length_variation" => Some(&adjustables.tomato_segment_length_variation),
+        "tomato_fruit_radius" => Some(&adjustables.tomato_fruit_radius),
+        "tomato_fruit_min_height_fraction" => Some(&adjustables.tomato_fruit_min_height_fraction),
         "flora_instance_hue_offset" => Some(&adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&adjustables.flora_instance_value_offset),
@@ -3738,6 +4055,12 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "cloud_primary_steps" => Some(&adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&adjustables.cloud_shadow_steps),
+        "tomato_seed_offset" => Some(&adjustables.tomato_seed_offset),
+        "tomato_iterations" => Some(&adjustables.tomato_iterations),
+        "tomato_base_diameter_voxels" => Some(&adjustables.tomato_base_diameter_voxels),
+        "tomato_branch_count_min" => Some(&adjustables.tomato_branch_count_min),
+        "tomato_branch_count_max" => Some(&adjustables.tomato_branch_count_max),
+        "tomato_fruit_count" => Some(&adjustables.tomato_fruit_count),
         _ => None,
     }
 }
@@ -3949,6 +4272,19 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "water_j_min" => Some(&mut adjustables.water_j_min),
         "water_wall_damping" => Some(&mut adjustables.water_wall_damping),
         "water_terrain_tangent_damping" => Some(&mut adjustables.water_terrain_tangent_damping),
+        "tomato_initial_length" => Some(&mut adjustables.tomato_initial_length),
+        "tomato_overall_scale" => Some(&mut adjustables.tomato_overall_scale),
+        "tomato_thickness_taper_power" => Some(&mut adjustables.tomato_thickness_taper_power),
+        "tomato_length_dropoff" => Some(&mut adjustables.tomato_length_dropoff),
+        "tomato_spread" => Some(&mut adjustables.tomato_spread),
+        "tomato_randomness" => Some(&mut adjustables.tomato_randomness),
+        "tomato_vertical_tendency" => Some(&mut adjustables.tomato_vertical_tendency),
+        "tomato_branch_angle_min_degrees" => Some(&mut adjustables.tomato_branch_angle_min_degrees),
+        "tomato_branch_angle_max_degrees" => Some(&mut adjustables.tomato_branch_angle_max_degrees),
+        "tomato_branch_probability" => Some(&mut adjustables.tomato_branch_probability),
+        "tomato_segment_length_variation" => Some(&mut adjustables.tomato_segment_length_variation),
+        "tomato_fruit_radius" => Some(&mut adjustables.tomato_fruit_radius),
+        "tomato_fruit_min_height_fraction" => Some(&mut adjustables.tomato_fruit_min_height_fraction),
         "flora_instance_hue_offset" => Some(&mut adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&mut adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&mut adjustables.flora_instance_value_offset),
@@ -4007,6 +4343,12 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "cloud_primary_steps" => Some(&mut adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&mut adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&mut adjustables.cloud_shadow_steps),
+        "tomato_seed_offset" => Some(&mut adjustables.tomato_seed_offset),
+        "tomato_iterations" => Some(&mut adjustables.tomato_iterations),
+        "tomato_base_diameter_voxels" => Some(&mut adjustables.tomato_base_diameter_voxels),
+        "tomato_branch_count_min" => Some(&mut adjustables.tomato_branch_count_min),
+        "tomato_branch_count_max" => Some(&mut adjustables.tomato_branch_count_max),
+        "tomato_fruit_count" => Some(&mut adjustables.tomato_fruit_count),
         _ => None,
     }
 }

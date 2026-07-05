@@ -41,11 +41,15 @@ use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldBuildBackend, WorldEdit
 use crate::app::world_ops;
 use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
+use crate::branch_skeleton::BranchingDesc;
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
-use crate::flora::species;
+use crate::flora::{
+    construct::{default_tomato_branching_desc, TomatoVineDesc},
+    species,
+};
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
@@ -789,6 +793,56 @@ impl App {
         }
     }
 
+    fn tomato_vine_desc(gui_adjustables: &GuiAdjustables) -> TomatoVineDesc {
+        let default_desc = default_tomato_branching_desc();
+        let branch_count_min = gui_adjustables.tomato_branch_count_min.value.max(1);
+        let branch_count_max = gui_adjustables
+            .tomato_branch_count_max
+            .value
+            .max(branch_count_min);
+        let branch_angle_min_degrees = gui_adjustables.tomato_branch_angle_min_degrees.value;
+        let branch_angle_max_degrees = gui_adjustables
+            .tomato_branch_angle_max_degrees
+            .value
+            .max(branch_angle_min_degrees);
+
+        let branching = BranchingDesc {
+            seed: default_desc
+                .seed
+                .wrapping_add(gui_adjustables.tomato_seed_offset.value as u64),
+            iterations: gui_adjustables.tomato_iterations.value.max(1),
+            initial_length: gui_adjustables.tomato_initial_length.value.max(0.1),
+            length_dropoff: gui_adjustables.tomato_length_dropoff.value.clamp(0.1, 1.0),
+            spread: gui_adjustables.tomato_spread.value.max(0.0),
+            randomness: gui_adjustables.tomato_randomness.value.max(0.0),
+            vertical_tendency: gui_adjustables.tomato_vertical_tendency.value,
+            branch_angle_min: branch_angle_min_degrees.to_radians(),
+            branch_angle_max: branch_angle_max_degrees.to_radians(),
+            branch_probability: gui_adjustables
+                .tomato_branch_probability
+                .value
+                .clamp(0.0, 1.0),
+            branch_count_min,
+            branch_count_max,
+            segment_length_variation: gui_adjustables
+                .tomato_segment_length_variation
+                .value
+                .max(0.0),
+        };
+        TomatoVineDesc {
+            branching,
+            overall_scale: gui_adjustables.tomato_overall_scale.value.max(0.1),
+            base_diameter_voxels: gui_adjustables.tomato_base_diameter_voxels.value.max(1),
+            thickness_taper_power: gui_adjustables.tomato_thickness_taper_power.value.max(0.05),
+            fruit_count: gui_adjustables.tomato_fruit_count.value,
+            fruit_radius: gui_adjustables.tomato_fruit_radius.value.max(0.0),
+            fruit_min_height_fraction: gui_adjustables
+                .tomato_fruit_min_height_fraction
+                .value
+                .clamp(0.0, 1.0),
+        }
+    }
+
     fn wind_gui_params(wind_sources: &[WindSourceGuiValues]) -> WindGuiParams {
         WindGuiParams {
             sources: GuiAdjustables::active_wind_sources(wind_sources),
@@ -910,7 +964,7 @@ impl App {
             options.audio_output_device.clone(),
         )?;
 
-        let tracer = Tracer::new(
+        let mut tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -969,6 +1023,9 @@ impl App {
         let debug_tree_pos = Vec3::new(editable_center.x, 0.2, editable_center.z);
         let gui_config = GuiConfigLoader::load();
         let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
+        if let Err(err) = tracer.regenerate_tomato_mesh(&Self::tomato_vine_desc(&gui_adjustables)) {
+            log::error!("Failed to apply tomato vine GUI parameters at startup: {err}");
+        }
         let wind_sources = crate::app::wind_sources_from_config(&gui_config);
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
@@ -1902,6 +1959,7 @@ impl App {
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.gui_adjustables.time_of_day.value;
                 let vsm_blur_radius_before_gui = self.gui_adjustables.vsm_blur_radius.value;
+                let tomato_vine_desc_before_gui = Self::tomato_vine_desc(&self.gui_adjustables);
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_smooth_icon = self.item_panel_smooth_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
@@ -2428,6 +2486,17 @@ impl App {
                 }
                 if let Some(snapshot) = camera_snapshot_to_apply {
                     self.apply_camera_snapshot(&snapshot);
+                }
+
+                let tomato_vine_desc_after_gui = Self::tomato_vine_desc(&self.gui_adjustables);
+                if tomato_vine_desc_after_gui != tomato_vine_desc_before_gui {
+                    match self
+                        .tracer
+                        .regenerate_tomato_mesh(&tomato_vine_desc_after_gui)
+                    {
+                        Ok(()) => log::info!("Regenerated tomato vine mesh from GUI sliders"),
+                        Err(err) => log::error!("Failed to regenerate tomato vine mesh: {err}"),
+                    }
                 }
 
                 self.apply_effective_master_volume_gain("Failed to apply master volume");

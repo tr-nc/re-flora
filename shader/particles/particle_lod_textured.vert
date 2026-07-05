@@ -8,7 +8,7 @@
 #include "../include/depth_offset.glsl"
 #include "../include/sunlight.glsl"
 
-layout(location = 0) in uvec2 in_packed_data;
+layout(location = 0) in uint in_packed_data;
 layout(location = 1) in vec3 in_instance_pos;
 layout(location = 2) in float in_instance_size;
 layout(location = 3) in vec4 in_instance_color;
@@ -80,10 +80,7 @@ float get_shadow_weight(ivec3 vox_local_pos) {
 void main() {
     ivec3 vox_local_pos;
     uvec3 vert_offset_in_vox;
-    ivec3 gradient_origin;
-    uint max_length;
-    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, gradient_origin, max_length,
-                       in_packed_data);
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, in_packed_data);
 
     float scale       = max(in_instance_size, 0.001) * 1.25;
     vec3 instance_pos = in_instance_pos;

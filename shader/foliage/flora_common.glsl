@@ -53,23 +53,17 @@ float get_shadow_weight(ivec3 vox_local_pos) {
     return shadow_weight;
 }
 
-void prepaverdarium_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_length,
-                           uvec3 instance_pos_voxels, uint instance_ty, uint instance_seed,
-                           uint in_instance_growth_progress, out bool is_grass,
-                           out float color_gradient, out vec3 voxel_pos, out vec3 anchor_pos,
-                           out float shadow_weight, out bool should_trim_voxel) {
+void prepaverdarium_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_pos_voxels,
+                           uint instance_ty, uint instance_seed, uint in_instance_growth_progress,
+                           out bool is_grass, out float color_gradient, out vec3 voxel_pos,
+                           out vec3 anchor_pos, out float shadow_weight,
+                           out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
     bool is_surface_flora = instance_ty < FLORA_SPECIES_COUNT;
     bool is_apple = instance_ty == FLORA_SPECIES_APPLE;
 
-    bool is_short_grass = instance_ty == FLORA_SPECIES_SHORT_GRASS;
-    uint gradient_length = is_short_grass ? tall_grass_height_voxels : max_length;
-    float wind_gradient = is_apple ? 1.0 : compute_gradient(vox_local_pos, gradient_origin, gradient_length);
-    color_gradient = is_apple
-                         ? clamp((float(vox_local_pos.y) + float(max_length)) /
-                                     max(1.0, float(max_length) * 2.0),
-                                 0.0, 1.0)
-                         : wind_gradient;
+    float wind_gradient = is_apple ? 1.0 : flora_voxel_wind_gradient(voxel_info);
+    color_gradient = flora_voxel_color_gradient(voxel_info);
 
     uint grass_height_voxels =
         is_grass ? sample_grass_height(instance_ty, instance_seed) : tall_grass_height_voxels;
@@ -83,9 +77,7 @@ void prepaverdarium_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_
         if (growth_factor <= 0.0) {
             should_trim_voxel = true;
         } else {
-            float grown_length = float(max_length) * growth_factor;
-            float voxel_length = length(vec3(vox_local_pos - gradient_origin));
-            should_trim_voxel  = voxel_length > grown_length;
+            should_trim_voxel = flora_voxel_growth_gradient(voxel_info) > growth_factor;
         }
     }
 
@@ -107,7 +99,8 @@ void prepaverdarium_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
     if (is_surface_flora) {
-        float natural_bend_height = is_grass ? float(grass_height_voxels) : max(float(max_length), 1.0);
+        float natural_bend_height = is_grass ? float(grass_height_voxels) :
+                                               flora_voxel_lookup_max_length(instance_ty);
         float natural_bend_t = is_grass ? grass_rooted_height_t : wind_gradient;
         wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height) *
                        species_wind_affect;
@@ -116,7 +109,7 @@ void prepaverdarium_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_
                        species_wind_affect;
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
         wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
-                                          gradient_origin, wind_motion_time);
+                                          ivec3(0), wind_motion_time);
     } else if (is_apple) {
         wind_offset += apple_wind_swing(wind_vec, instance_seed, wind_motion_time);
     }
@@ -149,7 +142,12 @@ vec3 unpack_linear_rgb10(uint packed_color) {
 
 vec3 sample_flora_base_color(bool is_grass, uint instance_ty, uint instance_seed,
                              ivec3 vox_local_pos, uvec3 instance_pos_voxels,
-                             float color_gradient) {
+                             float color_gradient, uint voxel_info) {
+    uint material_id = flora_voxel_material_id(voxel_info);
+    if (instance_ty == FLORA_SPECIES_TOMATO && material_id == FLORA_VOXEL_MATERIAL_TOMATO_FRUIT) {
+        return srgb_to_linear(vec3(0.92, 0.05, 0.025));
+    }
+
     uint color_row = flora_height_color_row(color_gradient);
     uint dark_height_color_rgb10 = pc.height_dark_color_rgb10[color_row];
     if (instance_ty == FLORA_SPECIES_LAVENDER) {

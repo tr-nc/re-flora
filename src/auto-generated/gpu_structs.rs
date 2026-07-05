@@ -63,6 +63,20 @@ pub struct EditStats {
     pub added_counts: [u32; 8],
 }
 
+/// Auto-generated from `B_FloraVoxelInfos` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct FloraVoxelInfos {
+    pub entries: [u32; 0],
+}
+
+/// Auto-generated from `B_FloraVoxelTableDescs` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct FloraVoxelTableDescs {
+    pub descs: [u32; 32],
+}
+
 /// Auto-generated from `B_LevelDispatchIndirect` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -105,7 +119,7 @@ pub struct NodeOffsetForLevels {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OccupancyToInstancesResult {
-    pub flora_instance_len: [u32; 5],
+    pub flora_instance_len: [u32; 6],
     pub has_growing_flora: u32,
 }
 
