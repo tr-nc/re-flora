@@ -724,10 +724,19 @@ impl App {
         (self.consume_next_flora_paint_dab_serial(now), true)
     }
 
-    pub(super) fn cycle_flora_paint_selection(&mut self) {
+    pub(super) fn select_flora_paint_selection_index(&mut self, selection_idx: usize) {
         let selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
-        self.player_tools.flora_paint_selection_index =
-            (self.player_tools.flora_paint_selection_index + 1) % selection_count;
+        if selection_idx >= selection_count {
+            return;
+        }
+
+        let current_selection_idx = self.player_tools.flora_paint_selection_index % selection_count;
+        if selection_idx == current_selection_idx {
+            self.player_tools.flora_paint_selection_index = selection_idx;
+            return;
+        }
+
+        self.player_tools.flora_paint_selection_index = selection_idx;
         self.player_tools.last_staff_regen_time = None;
         self.reset_staff_regen_stroke_tracking();
         self.play_item_panel_scroll_sound();
@@ -735,6 +744,16 @@ impl App {
             "Grow brush flora selection: {}",
             self.current_flora_paint_selection_label()
         );
+    }
+
+    pub(super) fn cycle_flora_paint_selection(&mut self) {
+        let selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
+        if selection_count == 0 {
+            return;
+        }
+
+        let current_selection_idx = self.player_tools.flora_paint_selection_index % selection_count;
+        self.select_flora_paint_selection_index((current_selection_idx + 1) % selection_count);
     }
 
     pub(super) fn is_shovel_selected(&self) -> bool {

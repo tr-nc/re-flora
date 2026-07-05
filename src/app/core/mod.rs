@@ -72,10 +72,11 @@ use std::collections::HashMap;
 
 use std::time::{Duration, Instant};
 use ui_style::{
-    apply_gui_style, draw_center_card, draw_item_panel, draw_voxel_palette, ItemPanelSlot,
-    VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH, FERTILIZER_SLOT_INDEX,
-    FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT, GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX,
-    HOE_TOOL_ACCENT, ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH, ITEM_PANEL_FERTILIZER_ICON_PATH,
+    apply_gui_style, draw_center_card, draw_flora_paint_panel, draw_item_panel, draw_voxel_palette,
+    FloraPaintPanelEntry, ItemPanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME,
+    CUSTOM_GUI_FONT_PATH, FERTILIZER_SLOT_INDEX, FERTILIZER_TOOL_ACCENT, FLOWER_ACCENT,
+    GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
+    ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH, ITEM_PANEL_FERTILIZER_ICON_PATH,
     ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
@@ -1918,23 +1919,33 @@ impl App {
                         selected: false,
                     })
                     .collect();
+                let flora_paint_selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
+                let current_flora_paint_selection_index = if flora_paint_selection_count == 0 {
+                    0
+                } else {
+                    self.player_tools.flora_paint_selection_index % flora_paint_selection_count
+                };
+                let flora_paint_panel_entries: Vec<FloraPaintPanelEntry> =
+                    species::PLAYER_FLORA_PAINT_SELECTIONS
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .map(|(index, selection)| FloraPaintPanelEntry {
+                            index,
+                            label: species::flora_paint_selection_label(selection),
+                            selected: index == current_flora_paint_selection_index,
+                        })
+                        .collect();
                 let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
+                let mut clicked_flora_paint_selection_index = None;
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_hover = self.terrain_edit_hover();
                 let water_status_text = self
                     .water_sim
                     .status_text(self.water_particle_handoff_main_thread_ms);
-                let grow_brush_hint = if self.is_staff_selected() {
-                    format!(
-                        "Grow brush: {} (Tab to cycle)",
-                        self.current_flora_paint_selection_label()
-                    )
-                } else {
-                    format!("Grow brush: {}", self.current_flora_paint_selection_label())
-                };
                 let placeable_hint = format!(
                     "Place: {} (Z/X or bottom bar) · Water: 6 + LMB · Inspector: 7 · Fert: 8 + LMB · Till: 9 + LMB · sprinklers {}",
                     self.current_placeable_label(),
@@ -1982,10 +1993,7 @@ impl App {
                     let scale_factor = self.window_state.window().scale_factor() as f32;
                     egui::pos2(cursor.x / scale_factor + 18.0, cursor.y / scale_factor)
                 });
-                let status_bar_text = format!(
-                    "{}\n{}\n{}",
-                    water_status_text, grow_brush_hint, placeable_hint
-                );
+                let status_bar_text = format!("{}\n{}", water_status_text, placeable_hint);
                 let terrain_edit_preview_center = terrain_edit_hover.map(|hover| hover.center);
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
                 let terrain_edit_preview_color = self.terrain_edit_preview_color(
@@ -2251,6 +2259,14 @@ impl App {
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
 
+                        let flora_paint_panel_response = draw_flora_paint_panel(
+                            ctx,
+                            &flora_paint_panel_entries,
+                            self.window_state.is_cursor_visible(),
+                        );
+                        clicked_flora_paint_selection_index =
+                            flora_paint_panel_response.clicked_selection_index;
+
                         let voxel_palette_response =
                             draw_voxel_palette(ctx, &voxel_palette_entries, false);
                         self.player_tools.backpack_summary_panel_screen_pos =
@@ -2398,6 +2414,9 @@ impl App {
                 self.sync_cursor_with_panels();
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);
+                }
+                if let Some(selection_idx) = clicked_flora_paint_selection_index {
+                    self.select_flora_paint_selection_index(selection_idx);
                 }
                 if self.gui_wants_keyboard_input() {
                     self.reset_camera_movement_input();
