@@ -95,7 +95,10 @@ impl App {
                 return recorded_count;
             };
             let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
-            let surface_leaf_count = self.contree_builder.surface_leaf_count(chunk_id);
+            let Some(surface_leaf_info) = self.contree_builder.surface_leaf_dry_info(chunk_id)
+            else {
+                continue;
+            };
             let dry_record_start = self.perf_logging.then(Instant::now);
             if !self.plain_builder.record_terrain_moisture_dry_region(
                 cmdbuf,
@@ -107,7 +110,8 @@ impl App {
                 TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
                 VOXEL_DIM_PER_CHUNK.x as f32,
                 terrain_shadow_vsm_ready,
-                surface_leaf_count,
+                surface_leaf_info.leaf_count,
+                surface_leaf_info.chunk_info_index,
             ) {
                 continue;
             }
@@ -119,11 +123,12 @@ impl App {
                     .unwrap()
                     .record("terrain_moisture_dry_record", dry_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} surface_leaf_count={} probability={:.3} sunlit_multiplier={:.2} residual_multiplier={:.2} vsm_ready={} sun_dir={:?} next_cursor={} record_ms={:.3}",
+                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} surface_leaf_count={} surface_leaf_chunk_info_index={} probability={:.3} sunlit_multiplier={:.2} residual_multiplier={:.2} vsm_ready={} sun_dir={:?} next_cursor={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
-                    surface_leaf_count,
+                    surface_leaf_info.leaf_count,
+                    surface_leaf_info.chunk_info_index,
                     TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
                     TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
                     TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,

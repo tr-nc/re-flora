@@ -1140,6 +1140,7 @@ impl PlainBuilder {
         voxels_per_world_unit: f32,
         terrain_shadow_vsm_ready: bool,
         surface_leaf_count: u32,
+        surface_leaf_chunk_info_index: u32,
     ) -> bool {
         let chunk_atlas_dim = chunk_atlas_dim(&self.resources);
         let dry_probability = dry_probability.clamp(0.0, 1.0);
@@ -1166,11 +1167,6 @@ impl PlainBuilder {
             return false;
         }
 
-        let chunk_grid_dim = chunk_atlas_dim / atlas_dim;
-        let chunk_id = atlas_offset / atlas_dim;
-        let chunk_linear_index =
-            (chunk_id.x * chunk_grid_dim.y + chunk_id.y) * chunk_grid_dim.z + chunk_id.z;
-
         let sun_dir = if sun_dir.is_finite() && sun_dir.length_squared() > 0.0 {
             sun_dir.normalize()
         } else {
@@ -1187,7 +1183,7 @@ impl PlainBuilder {
             .max(1);
         let push_constants = TerrainMoistureDryPushConstants {
             offset: [atlas_offset.x, atlas_offset.y, atlas_offset.z, dither_seed],
-            dim: [surface_leaf_count, chunk_linear_index, 0, 0],
+            dim: [surface_leaf_count, surface_leaf_chunk_info_index, 0, 0],
             dry_params: [
                 dry_probability,
                 residual_probability_multiplier,

@@ -211,6 +211,12 @@ pub struct ContreeBuildResult {
     pub leaf_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct SurfaceLeafDryInfo {
+    pub chunk_info_index: u32,
+    pub leaf_count: u32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
 struct SurfaceLeafChunkInfo {
@@ -1025,17 +1031,21 @@ impl ContreeBuilder {
         &self.resources
     }
 
-    pub fn surface_leaf_count(&self, chunk_idx: UVec3) -> u32 {
-        if chunk_idx.cmplt(self.chunk_dim).any() {
-            let info = self.surface_leaf_chunk_infos[self.scene_chunk_flat_index(chunk_idx)];
-            if info.valid != 0 {
-                info.leaf_count
-            } else {
-                0
-            }
-        } else {
-            0
+    pub fn surface_leaf_dry_info(&self, chunk_idx: UVec3) -> Option<SurfaceLeafDryInfo> {
+        if chunk_idx.cmpge(self.chunk_dim).any() {
+            return None;
         }
+
+        let chunk_info_index = self.scene_chunk_flat_index(chunk_idx);
+        let info = self.surface_leaf_chunk_infos[chunk_info_index];
+        if info.valid == 0 || info.leaf_count == 0 {
+            return None;
+        }
+
+        Some(SurfaceLeafDryInfo {
+            chunk_info_index: chunk_info_index as u32,
+            leaf_count: info.leaf_count,
+        })
     }
 
     fn set_surface_leaf_chunk_info(&mut self, chunk_idx: UVec3, info: SurfaceLeafChunkInfo) {
