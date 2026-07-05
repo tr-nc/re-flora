@@ -110,6 +110,45 @@ fn orbit_anchored_pan_delta(anchor: Vec3, ray_origin: Vec3, ray_direction: Vec3)
     Some(Vec3::new(delta_xz.x, 0.0, delta_xz.y))
 }
 
+fn orbit_focus_from_view_ray(
+    ray_origin: Vec3,
+    ray_direction: Vec3,
+    terrain_hit: Option<Vec3>,
+    previous_focus: Vec3,
+) -> Option<Vec3> {
+    if !ray_origin.is_finite()
+        || !ray_direction.is_finite()
+        || ray_direction.length_squared() <= f32::EPSILON
+    {
+        return None;
+    }
+
+    let ray_direction = ray_direction.normalize();
+    if let Some(hit) = terrain_hit {
+        let hit_offset = hit - ray_origin;
+        if hit.is_finite()
+            && hit_offset.is_finite()
+            && hit_offset.length() <= super::ORBIT_CAMERA_FOCUS_RAY_QUERY_DISTANCE
+            && hit_offset.dot(ray_direction) > 0.0
+        {
+            return Some(hit);
+        }
+    }
+
+    let previous_distance = (previous_focus - ray_origin).length();
+    let fallback_distance = if previous_distance.is_finite() && previous_distance > f32::EPSILON {
+        previous_distance
+    } else {
+        1.0
+    }
+    .clamp(
+        super::ORBIT_CAMERA_MIN_DISTANCE,
+        super::ORBIT_CAMERA_MAX_DISTANCE,
+    );
+
+    Some(ray_origin + ray_direction * fallback_distance)
+}
+
 impl App {
     fn blocking_panel_open(&self) -> bool {
         self.config_panel_visible || self.card_display_visible
@@ -160,9 +199,33 @@ impl App {
         self.reset_camera_movement_input();
 
         if self.is_orbit_edit_camera_mode() {
-            self.look_at_orbit_focus_from_current_position();
+            self.sync_orbit_focus_from_current_view();
         }
         self.sync_cursor_with_panels();
+    }
+
+    fn current_view_center_ray(&self) -> Option<(Vec3, Vec3)> {
+        self.screen_center_camera_ray().or_else(|| {
+            let origin = self.tracer.camera_position();
+            let direction = self.tracer.camera_front();
+            (origin.is_finite()
+                && direction.is_finite()
+                && direction.length_squared() > f32::EPSILON)
+                .then_some((origin, direction))
+        })
+    }
+
+    fn sync_orbit_focus_from_current_view(&mut self) {
+        let Some((origin, direction)) = self.current_view_center_ray() else {
+            return;
+        };
+
+        let terrain_hit = self.query_terrain_ray_cpu(origin, direction);
+        if let Some(focus) =
+            orbit_focus_from_view_ray(origin, direction, terrain_hit, self.orbit_camera_focus)
+        {
+            self.orbit_camera_focus = focus;
+        }
     }
 
     fn look_at_orbit_focus_from_current_position(&mut self) {
@@ -1536,7 +1599,10 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{orbit_anchored_pan_delta, orbit_focus_pan_delta, orbit_offset_to_spherical};
+    use super::{
+        orbit_anchored_pan_delta, orbit_focus_from_view_ray, orbit_focus_pan_delta,
+        orbit_offset_to_spherical,
+    };
     use glam::{Vec2, Vec3};
 
     fn assert_near(actual: f32, expected: f32) {
@@ -1599,5 +1665,35 @@ mod tests {
         );
 
         assert!(delta.is_none());
+    }
+
+    #[test]
+    fn orbit_focus_from_view_ray_prefers_center_terrain_hit() {
+        let origin = Vec3::new(0.0, 1.0, 0.0);
+        let direction = Vec3::new(0.0, -0.5, -1.0).normalize();
+        let hit = origin + direction * 1.75;
+        let previous_focus = Vec3::new(1.0, 0.5, 1.0);
+
+        let focus =
+            orbit_focus_from_view_ray(origin, direction, Some(hit), previous_focus).unwrap();
+
+        assert_near(focus.x, hit.x);
+        assert_near(focus.y, hit.y);
+        assert_near(focus.z, hit.z);
+    }
+
+    #[test]
+    fn orbit_focus_from_view_ray_falls_back_along_current_view() {
+        let origin = Vec3::new(0.0, 1.0, 0.0);
+        let direction = Vec3::new(1.0, -0.25, 0.5).normalize();
+        let previous_focus = origin + Vec3::Z * 2.0;
+
+        let focus = orbit_focus_from_view_ray(origin, direction, None, previous_focus).unwrap();
+        let focus_direction = (focus - origin).normalize();
+
+        assert_near(focus_direction.x, direction.x);
+        assert_near(focus_direction.y, direction.y);
+        assert_near(focus_direction.z, direction.z);
+        assert_near((focus - origin).length(), 2.0);
     }
 }
