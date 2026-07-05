@@ -8,6 +8,7 @@ use crate::util::FirstFitAllocator;
 use crate::util::ShaderCompiler;
 use crate::util::{ChunkPopMode, LatestChunkQueue};
 use anyhow::Result;
+use bytemuck::{Pod, Zeroable};
 use glam::{UVec3, Vec2, Vec3};
 use petalsonic::{
     math::Vec3 as PetalVec3, AcousticHit, AcousticMaterial, AcousticRay, BatchedAnyHitRayTracer,
@@ -86,6 +87,7 @@ pub struct ContreeBuilder {
     chunk_dim: UVec3,
     voxel_dim_per_chunk: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
+    surface_leaf_chunk_infos: Vec<SurfaceLeafChunkInfo>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
     cpu_chunk_cache_queue: LatestChunkQueue<CpuChunkCacheBuildSource>,
     cpu_chunk_source_revisions: HashMap<UVec3, u64>,
@@ -207,6 +209,15 @@ pub struct ContreeBuildResult {
     pub total_ms: f64,
     pub node_bytes: u64,
     pub leaf_bytes: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+struct SurfaceLeafChunkInfo {
+    leaf_offset: u32,
+    leaf_count: u32,
+    valid: u32,
+    _pad: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -731,6 +742,7 @@ impl ContreeBuilder {
         let resources = ContreeBuilderResources::new(
             device.clone(),
             allocator.clone(),
+            chunk_dim,
             voxel_dim_per_chunk,
             node_pool_size_in_bytes,
             leaf_pool_size_in_bytes,
@@ -858,6 +870,10 @@ impl ContreeBuilder {
             chunk_dim,
             voxel_dim_per_chunk,
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
+            surface_leaf_chunk_infos: vec![
+                SurfaceLeafChunkInfo::default();
+                (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize
+            ],
             cpu_chunk_caches: HashMap::new(),
             cpu_chunk_cache_queue: LatestChunkQueue::default(),
             cpu_chunk_source_revisions: HashMap::new(),
@@ -1007,6 +1023,45 @@ impl ContreeBuilder {
 
     pub fn get_resources(&self) -> &ContreeBuilderResources {
         &self.resources
+    }
+
+    pub fn surface_leaf_count(&self, chunk_idx: UVec3) -> u32 {
+        if chunk_idx.cmplt(self.chunk_dim).any() {
+            let info = self.surface_leaf_chunk_infos[self.scene_chunk_flat_index(chunk_idx)];
+            if info.valid != 0 {
+                info.leaf_count
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+    }
+
+    fn set_surface_leaf_chunk_info(&mut self, chunk_idx: UVec3, info: SurfaceLeafChunkInfo) {
+        if chunk_idx.cmpge(self.chunk_dim).any() {
+            log::warn!(
+                "Ignoring surface leaf chunk info outside chunk grid: chunk={:?} grid={:?}",
+                chunk_idx,
+                self.chunk_dim,
+            );
+            return;
+        }
+
+        let index = self.scene_chunk_flat_index(chunk_idx);
+        self.surface_leaf_chunk_infos[index] = info;
+        let byte_offset = (index * std::mem::size_of::<SurfaceLeafChunkInfo>()) as u64;
+        if let Err(err) = self
+            .resources
+            .surface_leaf_chunk_info
+            .fill_range_with_raw_u8(byte_offset, bytemuck::bytes_of(&info))
+        {
+            log::error!(
+                "Failed to update surface leaf chunk info for {:?}: {}",
+                chunk_idx,
+                err,
+            );
+        }
     }
 
     pub fn cpu_cached_chunk_count(&self) -> usize {
@@ -1388,6 +1443,16 @@ impl ContreeBuilder {
             node_size_in_bytes: confirmed_node_buffer_size_in_bytes,
             leaf_size_in_bytes: confirmed_leaf_buffer_size_in_bytes,
         };
+        let leaf_count = (confirmed_leaf_buffer_size_in_bytes / SIZE_OF_LEAF_ELEMENT) as u32;
+        self.set_surface_leaf_chunk_info(
+            job.chunk_idx,
+            SurfaceLeafChunkInfo {
+                leaf_offset: job.leaf_alloc_offset as u32,
+                leaf_count,
+                valid: 1,
+                _pad: 0,
+            },
+        );
         self.queue_chunk_cpu_cache_rebuild(job.chunk_idx, cpu_cache_source);
         self.set_scene_chunk(job.chunk_idx, Some(job.chunk_idx));
         let total_elapsed = job.total_start.elapsed();
@@ -1608,6 +1673,7 @@ impl ContreeBuilder {
         self.remove_shared_chunk_cache(chunk_idx);
         self.cpu_chunk_cache_queue.clear(chunk_idx);
         self.set_scene_chunk(chunk_idx, None);
+        self.set_surface_leaf_chunk_info(chunk_idx, SurfaceLeafChunkInfo::default());
         let source_revision = self.record_cpu_chunk_source_update(chunk_idx, false);
         self.deallocate_chunk_allocation(atlas_offset);
         source_revision

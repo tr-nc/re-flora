@@ -2,7 +2,7 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(push_constant) uniform PC {
     uvec4 offset;
@@ -24,7 +24,15 @@ layout(set = 0, binding = 2) uniform U_ManualShadowCameraInfo {
 }
 manual_shadow_camera_info;
 layout(set = 0, binding = 3) uniform sampler2D manual_shadow_map_tex_for_vsm_ping;
+layout(set = 0, binding = 4) readonly buffer B_ManualContreeLeafData { uint data[]; }
+manual_contree_leaf_data;
+layout(set = 0, binding = 5) readonly buffer B_ManualSurfaceLeafCoords { uint data[]; }
+manual_surface_leaf_coords;
+layout(set = 0, binding = 6) readonly buffer B_ManualSurfaceLeafChunkInfo { uvec4 data[]; }
+manual_surface_leaf_chunk_info;
 
+#include "../../include/core/aabb.glsl"
+#include "../../include/core/packer.glsl"
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 #define shadow_camera_info manual_shadow_camera_info
@@ -119,63 +127,58 @@ float terrain_shadow_vsm_exposure(vec3 world_pos) {
                  0.0, 1.0);
 }
 
-struct MoistureDryExposure {
-    bool exposed;
-    float sun_exposure;
-};
+ivec3 unpack_surface_leaf_local_coord(uint packed_coord) {
+    return ivec3(
+        int(packed_coord & 0x3FFu),
+        int((packed_coord >> 10u) & 0x3FFu),
+        int((packed_coord >> 20u) & 0x3FFu)
+    );
+}
 
-MoistureDryExposure moisture_dry_exposure(ivec3 p, uint voxel_type, vec3 sun_dir,
-                                           float voxels_per_world_unit,
-                                           bool terrain_shadow_vsm_ready) {
-    MoistureDryExposure exposure;
-    exposure.exposed = false;
-    exposure.sun_exposure = 0.0;
-    if (!is_moisture_voxel(voxel_type)) {
-        return exposure;
+vec3 surface_shadow_sample_pos(vec3 voxel_center_world, vec3 normal, float voxels_per_world_unit) {
+    vec2 t = slabs(vec3(-1.0), vec3(1.0), vec3(0.0), 1.0 / normal);
+    float half_voxel_size = 0.5 / voxels_per_world_unit;
+    return voxel_center_world + normal * (t.y * half_voxel_size + 0.005);
+}
+
+float surface_sun_exposure(vec3 sample_world_pos, vec3 normal, vec3 sun_dir,
+                           float voxels_per_world_unit, bool terrain_shadow_vsm_ready) {
+    if (sun_dir.y <= 0.0 || dot(normal, sun_dir) <= 0.05) {
+        return 0.0;
     }
-
-    const ivec3 neighbours_to_check[6] = {
-        ivec3(1, 0, 0),  ivec3(-1, 0, 0), ivec3(0, 1, 0),
-        ivec3(0, -1, 0), ivec3(0, 0, 1),  ivec3(0, 0, -1),
-    };
-    ivec3 best_air_dir = ivec3(0);
-    for (int i = 0; i < 6; i++) {
-        if (load_atlas_voxel_type(p + neighbours_to_check[i]) == VOXEL_TYPE_EMPTY) {
-            exposure.exposed = true;
-            best_air_dir = neighbours_to_check[i];
-            break;
+    if (terrain_shadow_vsm_ready) {
+        float vsm_exposure = terrain_shadow_vsm_exposure(sample_world_pos);
+        if (vsm_exposure >= 0.0) {
+            return vsm_exposure;
         }
     }
-    if (!exposure.exposed) {
-        return exposure;
-    }
-
-    if (sun_dir.y > 0.0) {
-        vec3 face_normal = vec3(best_air_dir);
-        if (dot(face_normal, sun_dir) > 0.05) {
-            vec3 face_origin = vec3(p) + vec3(0.5) + face_normal * 0.51;
-            if (terrain_shadow_vsm_ready) {
-                float vsm_exposure = terrain_shadow_vsm_exposure(face_origin / voxels_per_world_unit);
-                if (vsm_exposure >= 0.0) {
-                    exposure.sun_exposure = vsm_exposure;
-                    return exposure;
-                }
-            }
-            exposure.sun_exposure = !sun_ray_is_occluded(face_origin, sun_dir) ? 1.0 : 0.0;
-        }
-    }
-    return exposure;
+    return !sun_ray_is_occluded(sample_world_pos * voxels_per_world_unit, sun_dir) ? 1.0 : 0.0;
 }
 
 void main() {
-    uvec3 local = gl_GlobalInvocationID.xyz;
-    uvec3 dim = pc.dim.xyz;
-    if (any(greaterThanEqual(local, dim))) {
+    uint surface_leaf_local_idx = gl_GlobalInvocationID.x;
+    uint surface_leaf_count = pc.dim.x;
+    uint chunk_info_idx = pc.dim.y;
+    if (surface_leaf_local_idx >= surface_leaf_count) {
         return;
     }
 
-    uvec3 atlas_u = pc.offset.xyz + local;
-    uint seed = pc.offset.w;
+    uvec4 chunk_info = manual_surface_leaf_chunk_info.data[chunk_info_idx];
+    uint leaf_offset = chunk_info.x;
+    uint leaf_count_from_info = chunk_info.y;
+    bool chunk_surface_ready = chunk_info.z != 0u;
+    if (!chunk_surface_ready || surface_leaf_local_idx >= leaf_count_from_info) {
+        return;
+    }
+
+    uint global_leaf_idx = leaf_offset + surface_leaf_local_idx;
+    ivec3 local_coord = unpack_surface_leaf_local_coord(manual_surface_leaf_coords.data[global_leaf_idx]);
+    ivec3 atlas_coord = ivec3(pc.offset.xyz) + local_coord;
+    ivec3 atlas_size = imageSize(chunk_atlas).xyz;
+    if (any(lessThan(atlas_coord, ivec3(0))) || any(greaterThanEqual(atlas_coord, atlas_size))) {
+        return;
+    }
+
     float dry_probability = clamp(pc.dry_params.x, 0.0, 1.0);
     float residual_probability_multiplier = max(pc.dry_params.y, 1.0);
     float voxels_per_world_unit = max(pc.dry_params.z, 1.0);
@@ -187,20 +190,35 @@ void main() {
         return;
     }
 
-    uint old_data = imageLoad(chunk_atlas, ivec3(atlas_u)).r;
+    uint old_data = imageLoad(chunk_atlas, atlas_coord).r;
     uint old_moisture = voxel_moisture_from_atlas_data(old_data);
     if (old_moisture == 0u) {
         return;
     }
 
     uint voxel_type = voxel_type_from_atlas_data(old_data);
-    MoistureDryExposure exposure = moisture_dry_exposure(
-        ivec3(atlas_u), voxel_type, sun_dir, voxels_per_world_unit, terrain_shadow_vsm_ready);
-    if (!exposure.exposed) {
+    if (!is_moisture_voxel(voxel_type)) {
         return;
     }
-    dry_probability *= mix(1.0, sunlit_probability_multiplier, exposure.sun_exposure);
-    dry_probability = clamp(dry_probability, 0.0, 1.0);
+
+    uint surface_data = manual_contree_leaf_data.data[global_leaf_idx];
+    if (voxel_normal_valid_from_data(surface_data)) {
+        vec3 normal = normalize(unpack_normal_v2(voxel_normal_bits_from_data(surface_data)));
+        vec3 voxel_center_world = (vec3(atlas_coord) + vec3(0.5)) / voxels_per_world_unit;
+        vec3 sample_world_pos = surface_shadow_sample_pos(voxel_center_world, normal, voxels_per_world_unit);
+        float sun_exposure = surface_sun_exposure(
+            sample_world_pos,
+            normal,
+            sun_dir,
+            voxels_per_world_unit,
+            terrain_shadow_vsm_ready
+        );
+        dry_probability *= mix(1.0, sunlit_probability_multiplier, sun_exposure);
+        dry_probability = clamp(dry_probability, 0.0, 1.0);
+    }
+
+    uvec3 atlas_u = uvec3(atlas_coord);
+    uint seed = pc.offset.w;
     float dry_roll = moisture_hash01(atlas_u, seed);
     bool should_dry = dry_roll < dry_probability;
 
@@ -215,7 +233,7 @@ void main() {
             1.0
         );
         if (dry_roll < residual_dry_probability) {
-            should_dry = !has_wetter_moisture_neighbor(ivec3(atlas_u), old_moisture);
+            should_dry = !has_wetter_moisture_neighbor(atlas_coord, old_moisture);
         }
     }
     if (!should_dry) {
@@ -225,7 +243,7 @@ void main() {
     uint new_moisture = old_moisture - 1u;
     imageStore(
         chunk_atlas,
-        ivec3(atlas_u),
+        atlas_coord,
         uvec4(pack_voxel_atlas_moisture_preserve_state(old_data, new_moisture), 0u, 0u, 0u)
     );
 }

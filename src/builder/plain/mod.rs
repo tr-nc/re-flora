@@ -1093,10 +1093,13 @@ impl PlainBuilder {
         Ok(Some(changed_bound))
     }
 
-    pub fn bind_terrain_moisture_dry_shadow_resources(
+    pub fn bind_terrain_moisture_dry_resources(
         &self,
         shadow_camera_info: &Buffer,
         shadow_map_tex_for_vsm_ping: &Texture,
+        contree_leaf_data: &Buffer,
+        surface_leaf_coords: &Buffer,
+        surface_leaf_chunk_info: &Buffer,
     ) {
         self.terrain_moisture_dry_ppl.write_descriptor_set(
             0,
@@ -1111,6 +1114,18 @@ impl PlainBuilder {
                 TextureLayout::SHADER_READ_ONLY,
             ),
         );
+        self.terrain_moisture_dry_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(4, contree_leaf_data),
+        );
+        self.terrain_moisture_dry_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(5, surface_leaf_coords),
+        );
+        self.terrain_moisture_dry_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(6, surface_leaf_chunk_info),
+        );
     }
 
     pub fn record_terrain_moisture_dry_region(
@@ -1124,10 +1139,15 @@ impl PlainBuilder {
         residual_probability_multiplier: f32,
         voxels_per_world_unit: f32,
         terrain_shadow_vsm_ready: bool,
+        surface_leaf_count: u32,
     ) -> bool {
         let chunk_atlas_dim = chunk_atlas_dim(&self.resources);
         let dry_probability = dry_probability.clamp(0.0, 1.0);
-        if dry_probability <= 0.0 || atlas_dim == UVec3::ZERO || chunk_atlas_dim == UVec3::ZERO {
+        if dry_probability <= 0.0
+            || surface_leaf_count == 0
+            || atlas_dim == UVec3::ZERO
+            || chunk_atlas_dim == UVec3::ZERO
+        {
             return false;
         }
         if atlas_offset.x > chunk_atlas_dim.x
@@ -1146,6 +1166,11 @@ impl PlainBuilder {
             return false;
         }
 
+        let chunk_grid_dim = chunk_atlas_dim / atlas_dim;
+        let chunk_id = atlas_offset / atlas_dim;
+        let chunk_linear_index =
+            (chunk_id.x * chunk_grid_dim.y + chunk_id.y) * chunk_grid_dim.z + chunk_id.z;
+
         let sun_dir = if sun_dir.is_finite() && sun_dir.length_squared() > 0.0 {
             sun_dir.normalize()
         } else {
@@ -1162,7 +1187,7 @@ impl PlainBuilder {
             .max(1);
         let push_constants = TerrainMoistureDryPushConstants {
             offset: [atlas_offset.x, atlas_offset.y, atlas_offset.z, dither_seed],
-            dim: [atlas_dim.x, atlas_dim.y, atlas_dim.z, 0],
+            dim: [surface_leaf_count, chunk_linear_index, 0, 0],
             dry_params: [
                 dry_probability,
                 residual_probability_multiplier,
@@ -1179,7 +1204,7 @@ impl PlainBuilder {
 
         self.terrain_moisture_dry_ppl.record(
             cmdbuf,
-            Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
+            Extent3D::new(surface_leaf_count, 1, 1),
             Some(bytemuck::bytes_of(&push_constants)),
         );
         PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);

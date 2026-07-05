@@ -925,9 +925,13 @@ impl App {
         )?;
         {
             let shadow = tracer.terrain_shadow_vsm_resources();
-            plain_builder.bind_terrain_moisture_dry_shadow_resources(
+            let contree_resources = contree_builder.get_resources();
+            plain_builder.bind_terrain_moisture_dry_resources(
                 shadow.shadow_camera_info,
                 shadow.shadow_map_tex_for_vsm_ping,
+                &contree_resources.contree_leaf_data,
+                &contree_resources.surface_leaf_coords,
+                &contree_resources.surface_leaf_chunk_info,
             );
         }
 

@@ -17,6 +17,8 @@ pub struct ContreeBuilderResources {
 
     pub contree_leaf_data: Resource<Buffer>,
     pub contree_node_data: Resource<Buffer>,
+    pub surface_leaf_coords: Resource<Buffer>,
+    pub surface_leaf_chunk_info: Resource<Buffer>,
     pub contree_build_result: Resource<Buffer>,
 }
 
@@ -25,6 +27,7 @@ impl ContreeBuilderResources {
     pub fn new(
         device: Device,
         allocator: Allocator,
+        chunk_dim: UVec3,
         max_voxel_dim_per_chunk: UVec3,
         node_pool_size_in_bytes: u64,
         leaf_pool_size_in_bytes: u64,
@@ -147,6 +150,29 @@ impl ContreeBuilderResources {
             node_pool_size_in_bytes,
         );
 
+        let surface_leaf_coords = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::GpuOnly,
+            leaf_pool_size_in_bytes,
+        );
+
+        let surface_leaf_chunk_info_len = chunk_dim.x as u64
+            * chunk_dim.y as u64
+            * chunk_dim.z as u64
+            * std::mem::size_of::<[u32; 4]>() as u64;
+        let surface_leaf_chunk_info = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            surface_leaf_chunk_info_len,
+        );
+        surface_leaf_chunk_info
+            .fill_with_raw_u8(&vec![0; surface_leaf_chunk_info_len as usize])
+            .unwrap();
+
         let contree_build_result_layout = contree_buffer_setup_sm
             .get_buffer_layout("B_ContreeBuildResult")
             .unwrap();
@@ -169,6 +195,8 @@ impl ContreeBuilderResources {
             dense_nodes: Resource::new(dense_nodes),
             contree_leaf_data: Resource::new(leaf_data),
             contree_node_data: Resource::new(node_data),
+            surface_leaf_coords: Resource::new(surface_leaf_coords),
+            surface_leaf_chunk_info: Resource::new(surface_leaf_chunk_info),
             contree_build_result: Resource::new(contree_build_result),
         }
     }
