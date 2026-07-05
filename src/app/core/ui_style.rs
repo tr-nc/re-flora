@@ -97,6 +97,17 @@ pub(crate) struct ToolPanelResponse {
 
 pub(crate) type ItemPanelResponse = ToolPanelResponse;
 
+pub(crate) struct FloraPaintPanelEntry {
+    pub index: usize,
+    pub label: &'static str,
+    pub selected: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct FloraPaintPanelResponse {
+    pub clicked_selection_index: Option<usize>,
+}
+
 #[derive(Clone, Copy)]
 enum ToolPanelOrientation {
     Horizontal,
@@ -205,6 +216,127 @@ pub(crate) fn draw_item_panel(
             header: None,
         },
     )
+}
+
+const FLORA_PAINT_PANEL_WIDTH: f32 = 190.0;
+const FLORA_PAINT_BUTTON_HEIGHT: f32 = 34.0;
+
+pub(crate) fn draw_flora_paint_panel(
+    ctx: &egui::Context,
+    entries: &[FloraPaintPanelEntry],
+    interaction_enabled: bool,
+) -> FloraPaintPanelResponse {
+    let mut panel_response = FloraPaintPanelResponse::default();
+    let selected_stroke = if entries.iter().any(|entry| entry.selected) {
+        GOLD_ACCENT
+    } else {
+        SAGE_ACCENT
+    };
+
+    egui::Area::new("flora_paint_panel".into())
+        .order(egui::Order::Foreground)
+        .anchor(egui::Align2::RIGHT_CENTER, egui::Vec2::new(-16.0, -18.0))
+        .show(ctx, |ui| {
+            let panel_frame = egui::containers::Frame {
+                fill: PANEL_DARK,
+                inner_margin: egui::Margin::symmetric(12, 10),
+                corner_radius: egui::CornerRadius::same(0),
+                shadow: egui::epaint::Shadow {
+                    offset: [4, 4],
+                    blur: 0,
+                    spread: 0,
+                    color: SHADOW_COLOR,
+                },
+                stroke: egui::Stroke::new(2.0, selected_stroke),
+                ..Default::default()
+            };
+
+            panel_frame.show(ui, |ui| {
+                ui.set_width(FLORA_PAINT_PANEL_WIDTH);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Plant Brush")
+                            .color(GOLD_ACCENT)
+                            .size(12.0)
+                            .strong(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new("GROW")
+                                .color(SAGE_ACCENT)
+                                .monospace()
+                                .strong(),
+                        );
+                    });
+                });
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                for entry in entries {
+                    if draw_flora_paint_panel_entry(ui, entry, interaction_enabled) {
+                        panel_response.clicked_selection_index = Some(entry.index);
+                    }
+                    ui.add_space(4.0);
+                }
+            });
+        });
+
+    panel_response
+}
+
+fn draw_flora_paint_panel_entry(
+    ui: &mut egui::Ui,
+    entry: &FloraPaintPanelEntry,
+    interaction_enabled: bool,
+) -> bool {
+    let sense = if interaction_enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let desired_size = egui::vec2(ui.available_width(), FLORA_PAINT_BUTTON_HEIGHT);
+    let (rect, response) = ui.allocate_exact_size(desired_size, sense);
+    let response = response.on_hover_text(entry.label);
+    let hovered = interaction_enabled && response.hovered();
+    let clicked = interaction_enabled && response.clicked();
+    let painter = ui.painter_at(rect);
+
+    let fill = if entry.selected {
+        Color32::from_rgb(58, 57, 49)
+    } else if hovered {
+        Color32::from_rgb(54, 63, 60)
+    } else {
+        PANEL_LIGHT
+    };
+    let border = if entry.selected {
+        egui::Stroke::new(2.0, GOLD_ACCENT)
+    } else if hovered {
+        egui::Stroke::new(1.5, FLOWER_ACCENT)
+    } else {
+        egui::Stroke::new(1.0, SAGE_ACCENT)
+    };
+
+    painter.rect_filled(rect, egui::CornerRadius::same(0), fill);
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(0),
+        border,
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        entry.label,
+        egui::TextStyle::Body.resolve(ui.style()),
+        if entry.selected {
+            GOLD_ACCENT
+        } else {
+            TEXT_COLOR
+        },
+    );
+
+    clicked
 }
 
 const CENTER_CARD_WIDTH: f32 = 340.0;

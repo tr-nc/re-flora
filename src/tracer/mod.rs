@@ -33,8 +33,8 @@ use buffer_updater::*;
 use glam::{IVec3, Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
-const LEAF_INSTANCE_TYPE: u32 = 4;
-const APPLE_INSTANCE_TYPE: u32 = 5;
+const LEAF_INSTANCE_TYPE: u32 = crate::flora::species::TREE_LEAF_RENDER_SPECIES_INDEX;
+const APPLE_INSTANCE_TYPE: u32 = crate::flora::species::APPLE_RENDER_SPECIES_INDEX;
 const APPLE_BOTTOM_COLOR: Vec3 = Vec3::new(0.48, 0.025, 0.018);
 const APPLE_TIP_COLOR: Vec3 = Vec3::new(0.95, 0.06, 0.035);
 pub const FLORA_HEIGHT_COLOR_TABLE_LEN: usize = 12;
