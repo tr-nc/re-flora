@@ -155,24 +155,24 @@ fn push_tomato_line(
 
 pub fn gen_tomato(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
     const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
-    const MAX_LENGTH: u32 = 24;
-    const MAIN_STEM_TOP_Y: i32 = 18;
+    const MAX_LENGTH: u32 = 14;
+    const MAIN_STEM_TOP_Y: i32 = 9;
     const BRANCHES: &[(IVec3, IVec3)] = &[
-        (IVec3::new(0, 5, 0), IVec3::new(-5, 9, -1)),
-        (IVec3::new(0, 7, 0), IVec3::new(5, 11, 1)),
-        (IVec3::new(0, 9, 0), IVec3::new(-7, 14, 2)),
-        (IVec3::new(0, 11, 0), IVec3::new(7, 15, -2)),
-        (IVec3::new(0, 14, 0), IVec3::new(-4, 20, 0)),
-        (IVec3::new(0, 15, 0), IVec3::new(4, 21, 2)),
-        (IVec3::new(0, 18, 0), IVec3::new(0, 23, 1)),
+        (IVec3::new(0, 3, 0), IVec3::new(-5, 5, -1)),
+        (IVec3::new(0, 4, 0), IVec3::new(5, 6, 1)),
+        (IVec3::new(0, 5, 0), IVec3::new(-7, 7, 2)),
+        (IVec3::new(0, 6, 0), IVec3::new(7, 8, -2)),
+        (IVec3::new(0, 7, 0), IVec3::new(-4, 10, 0)),
+        (IVec3::new(0, 8, 0), IVec3::new(4, 11, 2)),
+        (IVec3::new(0, 9, 0), IVec3::new(0, 12, 1)),
     ];
     const SECONDARY_BRANCHES: &[(IVec3, IVec3)] = &[
-        (IVec3::new(-4, 8, -1), IVec3::new(-7, 10, -2)),
-        (IVec3::new(4, 10, 1), IVec3::new(8, 12, 1)),
-        (IVec3::new(-5, 13, 2), IVec3::new(-9, 15, 3)),
-        (IVec3::new(5, 14, -2), IVec3::new(9, 16, -3)),
-        (IVec3::new(-3, 19, 0), IVec3::new(-6, 22, 1)),
-        (IVec3::new(3, 20, 2), IVec3::new(6, 23, 2)),
+        (IVec3::new(-4, 4, -1), IVec3::new(-7, 5, -2)),
+        (IVec3::new(4, 5, 1), IVec3::new(8, 6, 1)),
+        (IVec3::new(-5, 7, 2), IVec3::new(-9, 8, 3)),
+        (IVec3::new(5, 7, -2), IVec3::new(9, 8, -3)),
+        (IVec3::new(-3, 10, 0), IVec3::new(-6, 11, 1)),
+        (IVec3::new(3, 10, 2), IVec3::new(6, 12, 2)),
     ];
 
     let mut vertices = Vec::new();
