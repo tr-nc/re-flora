@@ -13,6 +13,7 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float debug_float;
     uint debug_bool;
     uint debug_uint;
+    uint terrain_shadow_use_vsm;
     vec3 flora_instance_hsv_offset_max;
     vec3 flora_voxel_hsv_offset_max;
     vec3 grass_bottom_dark;

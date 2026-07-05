@@ -13,7 +13,7 @@ const FERTILIZER_BRUSH_FERTILITY_PER_DAB: f32 = 0.68;
 const TILLER_BRUSH_SOIL_MIX_STRENGTH: f32 = 0.82;
 const TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT: f32 = 0.002;
 const TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER: f32 = 12.0;
-const TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER: f32 = 8.0;
+const TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER: f32 = 64.0;
 const TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME: usize = 1;
 const TERRAIN_MOISTURE_SPREAD_PROBABILITY_PER_PAIR_VISIT: f32 = 0.45;
 const TERRAIN_MOISTURE_SPREAD_MOBILITY_EXPONENT: f32 = 2.0;
@@ -87,6 +87,7 @@ impl App {
         &mut self,
         cmdbuf: &CommandBuffer,
         sun_dir: Vec3,
+        terrain_shadow_vsm_ready: bool,
     ) -> usize {
         let mut recorded_count = 0;
         for _ in 0..TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME {
@@ -94,6 +95,10 @@ impl App {
                 return recorded_count;
             };
             let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
+            let Some(surface_leaf_info) = self.contree_builder.surface_leaf_dry_info(chunk_id)
+            else {
+                continue;
+            };
             let dry_record_start = self.perf_logging.then(Instant::now);
             if !self.plain_builder.record_terrain_moisture_dry_region(
                 cmdbuf,
@@ -103,6 +108,10 @@ impl App {
                 sun_dir,
                 TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
                 TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
+                VOXEL_DIM_PER_CHUNK.x as f32,
+                terrain_shadow_vsm_ready,
+                surface_leaf_info.leaf_count,
+                surface_leaf_info.chunk_info_index,
             ) {
                 continue;
             }
@@ -114,13 +123,16 @@ impl App {
                     .unwrap()
                     .record("terrain_moisture_dry_record", dry_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} probability={:.3} sunlit_multiplier={:.2} residual_multiplier={:.2} sun_dir={:?} next_cursor={} record_ms={:.3}",
+                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} surface_leaf_count={} surface_leaf_chunk_info_index={} probability={:.3} sunlit_multiplier={:.2} residual_multiplier={:.2} vsm_ready={} sun_dir={:?} next_cursor={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
+                    surface_leaf_info.leaf_count,
+                    surface_leaf_info.chunk_info_index,
                     TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
                     TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
                     TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
+                    terrain_shadow_vsm_ready,
                     sun_dir,
                     self.moisture_dry_chunk_cursor,
                     dry_record_elapsed.as_secs_f64() * 1000.0,

@@ -923,6 +923,17 @@ impl App {
             },
             spatial_sound_manager.clone(),
         )?;
+        {
+            let shadow = tracer.terrain_shadow_vsm_resources();
+            let contree_resources = contree_builder.get_resources();
+            plain_builder.bind_terrain_moisture_dry_resources(
+                shadow.shadow_camera_info,
+                shadow.shadow_map_tex_for_vsm_ping,
+                &contree_resources.contree_leaf_data,
+                &contree_resources.surface_leaf_coords,
+                &contree_resources.surface_leaf_chunk_info,
+            );
+        }
 
         let camera_snapshots = match CameraSnapshotLibrary::load_default() {
             Ok(library) => {
@@ -2571,7 +2582,12 @@ impl App {
                             PipelineStage::COMPUTE_SHADER,
                         )
                     });
-                    self.record_terrain_moisture_dry_chunks(cmdbuf, sun_dir);
+                    let terrain_shadow_vsm_ready = self.tracer.terrain_shadow_vsm_ready();
+                    self.record_terrain_moisture_dry_chunks(
+                        cmdbuf,
+                        sun_dir,
+                        terrain_shadow_vsm_ready,
+                    );
                     if let Some(scope) = moisture_dry_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
                             profiler.end_scope(
@@ -2621,6 +2637,7 @@ impl App {
                         self.gui_adjustables.debug_float.value,
                         self.gui_adjustables.debug_bool.value,
                         self.gui_adjustables.debug_uint.value,
+                        self.gui_adjustables.terrain_shadow_use_vsm.value,
                         Vec3::new(
                             self.gui_adjustables.flora_instance_hue_offset.value,
                             self.gui_adjustables.flora_instance_saturation_offset.value,

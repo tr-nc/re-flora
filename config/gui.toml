@@ -947,6 +947,15 @@ max = 3
 name = "Shadow"
 
 [[section.param]]
+id = "terrain_shadow_use_vsm"
+kind = "bool"
+label = "Terrain Shadow Use VSM"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "vsm_blur_radius"
 kind = "uint"
 label = "VSM Blur Radius (texels)"
