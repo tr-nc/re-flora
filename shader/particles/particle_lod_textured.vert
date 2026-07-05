@@ -58,10 +58,12 @@ shadow_camera_info;
 
 layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
 layout(set = 0, binding = 7) uniform sampler2D cloud_shadow_tex;
+layout(set = 0, binding = 9) uniform sampler2D leaf_shadow_opacity_blended_tex;
+layout(set = 0, binding = 10) uniform sampler2D leaf_shadow_mask_tex;
 
-#define ENABLE_TEMPORAL_VSM
-#include "../include/vsm.glsl"
-#include "../include/cloud_shadow.glsl"
+#define DIRECT_SUN_SHADOW_ENABLE_LEAF
+#define DIRECT_SUN_SHADOW_ENABLE_CLOUD
+#include "../include/direct_sun_shadow.glsl"
 
 const uint SPRITE_FLIP_BIT = 0x80000000u;
 
@@ -91,8 +93,15 @@ void main() {
     gl_Position =
         apply_depth_offset(vertex_pos, in_instance_pos, camera_info.view_mat, camera_info.proj_mat);
 
-    float shadow_weight = get_shadow_weight_vsm_temporal(vec4(instance_pos, 1.0));
-    shadow_weight *= get_cloud_shadow_transmittance(vec4(instance_pos, 1.0));
+    DirectSunShadowReceiver shadow_receiver = direct_sun_shadow_receiver(
+        vec4(instance_pos, 1.0),
+        ivec3(0),
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_TERRAIN_SHADOW_VSM,
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE
+    );
+    float shadow_weight = get_direct_sun_shadow_transmittance(shadow_receiver);
     shadow_weight *= get_shadow_weight(vox_local_pos);
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);

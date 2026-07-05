@@ -1016,12 +1016,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Clouds",
-        id: "cloud_shadow_debug_overlay",
-        kind: "bool",
-        label: "Show Cloud Shadow Map",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Clouds",
         id: "cloud_shadow_strength",
         kind: "float",
         label: "Cloud Shadow Strength",
@@ -1531,7 +1525,6 @@ pub struct GuiAdjustables {
     pub cloud_silver_intensity: crate::gui_adjustables::FloatParam,
     pub cloud_max_distance: crate::gui_adjustables::FloatParam,
     pub cloud_shadows_enabled: crate::gui_adjustables::BoolParam,
-    pub cloud_shadow_debug_overlay: crate::gui_adjustables::BoolParam,
     pub cloud_shadow_strength: crate::gui_adjustables::FloatParam,
     pub cloud_shadow_min_transmittance: crate::gui_adjustables::FloatParam,
     pub cloud_shadow_steps: crate::gui_adjustables::UintParam,
@@ -1767,7 +1760,6 @@ impl GuiAdjustables {
         let mut cloud_silver_intensity_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_max_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_shadows_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut cloud_shadow_debug_overlay_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut cloud_shadow_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_shadow_min_transmittance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_shadow_steps_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2934,11 +2926,6 @@ impl GuiAdjustables {
                             cloud_shadows_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
-                    "cloud_shadow_debug_overlay" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            cloud_shadow_debug_overlay_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "cloud_shadow_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3487,7 +3474,6 @@ impl GuiAdjustables {
             cloud_silver_intensity: cloud_silver_intensity_field.expect("Missing parameter: cloud_silver_intensity"),
             cloud_max_distance: cloud_max_distance_field.expect("Missing parameter: cloud_max_distance"),
             cloud_shadows_enabled: cloud_shadows_enabled_field.expect("Missing parameter: cloud_shadows_enabled"),
-            cloud_shadow_debug_overlay: cloud_shadow_debug_overlay_field.expect("Missing parameter: cloud_shadow_debug_overlay"),
             cloud_shadow_strength: cloud_shadow_strength_field.expect("Missing parameter: cloud_shadow_strength"),
             cloud_shadow_min_transmittance: cloud_shadow_min_transmittance_field.expect("Missing parameter: cloud_shadow_min_transmittance"),
             cloud_shadow_steps: cloud_shadow_steps_field.expect("Missing parameter: cloud_shadow_steps"),
@@ -3789,7 +3775,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "is_spatial_denoising_enabled" => Some(&adjustables.is_spatial_denoising_enabled),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
-        "cloud_shadow_debug_overlay" => Some(&adjustables.cloud_shadow_debug_overlay),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         _ => None,
@@ -4059,7 +4044,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "is_spatial_denoising_enabled" => Some(&mut adjustables.is_spatial_denoising_enabled),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
-        "cloud_shadow_debug_overlay" => Some(&mut adjustables.cloud_shadow_debug_overlay),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         _ => None,

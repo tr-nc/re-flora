@@ -2619,7 +2619,6 @@ impl App {
                     max_distance: self.gui_adjustables.cloud_max_distance.value,
                     // Disabled for now; restore original expression to re-enable.
                     shadows_enabled: false,
-                    shadow_debug_overlay: self.gui_adjustables.cloud_shadow_debug_overlay.value,
                     shadow_strength: self.gui_adjustables.cloud_shadow_strength.value,
                     shadow_min_transmittance: self
                         .gui_adjustables

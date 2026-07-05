@@ -78,7 +78,6 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float cloud_silver_intensity;
     float cloud_max_distance;
     uint cloud_shadows_enabled;
-    uint cloud_shadow_debug_overlay;
     float cloud_shadow_strength;
     float cloud_shadow_min_transmittance;
     uint cloud_shadow_steps;

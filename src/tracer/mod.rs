@@ -145,7 +145,6 @@ pub struct CloudGuiParams {
     pub silver_intensity: f32,
     pub max_distance: f32,
     pub shadows_enabled: bool,
-    pub shadow_debug_overlay: bool,
     pub shadow_strength: f32,
     pub shadow_min_transmittance: f32,
     pub shadow_steps: u32,

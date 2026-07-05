@@ -491,10 +491,10 @@ pub struct GuiInput {
     pub cloud_silver_intensity: f32,
     pub cloud_max_distance: f32,
     pub cloud_shadows_enabled: u32,
-    pub cloud_shadow_debug_overlay: u32,
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
+    pub _pad6: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).
