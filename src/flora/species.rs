@@ -161,8 +161,8 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
     FloraSpeciesDesc::new(
         "tomato",
         "Tomato",
-        [50, 126, 45],
-        [224, 55, 20],
+        [44, 109, 41],
+        [110, 174, 63],
         gen_tomato,
         TOMATO_PAINT_BRUSH_SETTINGS,
     ),

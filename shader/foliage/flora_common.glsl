@@ -138,70 +138,9 @@ vec3 unpack_linear_rgb10(uint packed_color) {
                 float((packed_color >> 20) & 0x3FFu)) * inv_max_channel;
 }
 
-const int TOMATO_FRUIT_CENTER_COUNT = 9;
-const ivec3 TOMATO_FRUIT_CENTERS[TOMATO_FRUIT_CENTER_COUNT] = ivec3[](
-    ivec3(-5, 7, -1), ivec3(-2, 10, 2), ivec3(4, 8, 1), ivec3(7, 11, 2),
-    ivec3(-7, 14, 2), ivec3(3, 14, -3), ivec3(6, 16, -1), ivec3(-3, 18, 1),
-    ivec3(1, 19, 3));
-
-bool tomato_fruit_sample(ivec3 vox_local_pos, out vec3 fruit_rel, out float fruit_metric) {
-    const float fruit_radius_xz = 2.15;
-    const float fruit_radius_y  = 2.05;
-
-    for (int i = 0; i < TOMATO_FRUIT_CENTER_COUNT; ++i) {
-        fruit_rel = vec3(vox_local_pos - TOMATO_FRUIT_CENTERS[i]);
-        vec3 p = vec3(fruit_rel.x / fruit_radius_xz, fruit_rel.y / fruit_radius_y,
-                      fruit_rel.z / fruit_radius_xz);
-        fruit_metric = dot(p, p);
-        if (fruit_metric <= 1.0) {
-            return true;
-        }
-    }
-
-    fruit_rel    = vec3(0.0);
-    fruit_metric = 1.0;
-    return false;
-}
-
-vec3 sample_tomato_base_color(ivec3 vox_local_pos) {
-    vec3 fruit_rel;
-    float fruit_metric;
-    if (tomato_fruit_sample(vox_local_pos, fruit_rel, fruit_metric)) {
-        float top_t = clamp((fruit_rel.y + 2.05) / 4.10, 0.0, 1.0);
-        vec3 lower_red_srgb = vec3(174.0, 34.0, 11.0) / 255.0;
-        vec3 ripe_red_srgb  = vec3(236.0, 66.0, 22.0) / 255.0;
-        vec3 warm_top_srgb  = vec3(255.0, 105.0, 36.0) / 255.0;
-        vec3 color_srgb     = mix(lower_red_srgb, ripe_red_srgb, 0.55 + top_t * 0.25);
-        color_srgb          = mix(color_srgb, warm_top_srgb, smoothstep(0.55, 1.0, top_t) * 0.25);
-
-        vec3 fruit_normal = normalize(fruit_rel + vec3(0.001));
-        float highlight = smoothstep(0.72, 0.98,
-                                     dot(fruit_normal, normalize(vec3(-0.55, 0.62, -0.35))));
-        highlight *= 1.0 - smoothstep(0.22, 0.92, fruit_metric);
-        color_srgb = mix(color_srgb, vec3(1.0, 0.62, 0.26), highlight * 0.30);
-        return srgb_to_linear(color_srgb);
-    }
-
-    float height_t = clamp(float(vox_local_pos.y) / 23.0, 0.0, 1.0);
-    float outer_leaf_t = smoothstep(1.2, 7.5, length(vec2(vox_local_pos.x, vox_local_pos.z)));
-    vec3 stem_srgb = mix(vec3(45.0, 111.0, 42.0), vec3(78.0, 148.0, 55.0), height_t) / 255.0;
-    vec3 leaf_srgb = mix(vec3(32.0, 104.0, 43.0), vec3(119.0, 191.0, 45.0), height_t) / 255.0;
-    vec3 color_srgb = mix(stem_srgb, leaf_srgb, outer_leaf_t);
-
-    // A fixed, authored vein-like modulation gives the leaf clusters detail while keeping every
-    // tomato plant identical.
-    float vein = 0.035 * cos(float(vox_local_pos.x * 2 + vox_local_pos.z * 3 - vox_local_pos.y));
-    color_srgb = clamp(color_srgb + vec3(vein), vec3(0.0), vec3(1.0));
-    return srgb_to_linear(color_srgb);
-}
-
 vec3 sample_flora_base_color(bool is_grass, uint instance_ty, uint instance_seed,
                              ivec3 vox_local_pos, uvec3 instance_pos_voxels,
                              float color_gradient) {
-    if (instance_ty == FLORA_SPECIES_TOMATO) {
-        return sample_tomato_base_color(vox_local_pos);
-    }
-
     uint color_row = flora_height_color_row(color_gradient);
     uint dark_height_color_rgb10 = pc.height_dark_color_rgb10[color_row];
     if (instance_ty == FLORA_SPECIES_LAVENDER) {
