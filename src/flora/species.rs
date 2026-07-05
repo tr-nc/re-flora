@@ -151,6 +151,9 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
     ),
 ];
 
+pub const TREE_LEAF_RENDER_SPECIES_INDEX: u32 = FLORA_SPECIES.len() as u32;
+pub const APPLE_RENDER_SPECIES_INDEX: u32 = TREE_LEAF_RENDER_SPECIES_INDEX + 1;
+
 pub fn species() -> &'static [FloraSpeciesDesc] {
     FLORA_SPECIES
 }
@@ -220,4 +223,41 @@ pub fn assert_species_limit() {
         species_count(),
         MAX_FLORA_SPECIES
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn flora_registry_glsl_const(name: &str) -> u32 {
+        let registry = include_str!("../../shader/include/flora_registry.glsl");
+        let line = registry
+            .lines()
+            .find(|line| line.contains(&format!("const uint {name}")))
+            .unwrap_or_else(|| panic!("missing {name} in flora_registry.glsl"));
+        let (_, value) = line
+            .split_once('=')
+            .unwrap_or_else(|| panic!("missing '=' for {name} in flora_registry.glsl"));
+        value
+            .trim()
+            .trim_end_matches(';')
+            .parse()
+            .unwrap_or_else(|err| panic!("failed to parse {name} from flora_registry.glsl: {err}"))
+    }
+
+    #[test]
+    fn render_only_species_indices_match_shader_registry() {
+        assert_eq!(
+            species_count() as u32,
+            flora_registry_glsl_const("FLORA_SPECIES_COUNT")
+        );
+        assert_eq!(
+            TREE_LEAF_RENDER_SPECIES_INDEX,
+            flora_registry_glsl_const("FLORA_SPECIES_TREE_LEAF")
+        );
+        assert_eq!(
+            APPLE_RENDER_SPECIES_INDEX,
+            flora_registry_glsl_const("FLORA_SPECIES_APPLE")
+        );
+    }
 }
