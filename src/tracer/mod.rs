@@ -41,12 +41,12 @@ pub const FLORA_HEIGHT_COLOR_TABLE_LEN: usize = 12;
 pub type FloraHeightColorTables = [[u32; FLORA_HEIGHT_COLOR_TABLE_LEN]; 2];
 
 use crate::audio::SpatialSoundManager;
-use crate::branch_skeleton::BranchingDesc;
+
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
-use crate::flora::construct::gen_tomato_with_branching_desc;
+use crate::flora::construct::{gen_tomato_with_desc, TomatoVineDesc};
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
 };
@@ -3191,7 +3191,7 @@ impl Tracer {
         Ok(())
     }
 
-    pub fn regenerate_tomato_mesh(&mut self, branching_desc: &BranchingDesc) -> Result<()> {
+    pub fn regenerate_tomato_mesh(&mut self, desc: &TomatoVineDesc) -> Result<()> {
         let species_idx = crate::flora::species::TOMATO_SPECIES_INDEX as usize;
         anyhow::ensure!(
             species_idx < self.resources.meshes.flora_meshes.len(),
@@ -3206,9 +3206,9 @@ impl Tracer {
             self.resources.meshes.flora_meshes_lod.len()
         );
 
-        let mesh_data = gen_tomato_with_branching_desc(branching_desc, false)?;
+        let mesh_data = gen_tomato_with_desc(desc, false)?;
         let lookup_type_data = FloraVoxelLookupTypeData::from_mesh_data(&mesh_data);
-        let mesh_data_lod = gen_tomato_with_branching_desc(branching_desc, true)?;
+        let mesh_data_lod = gen_tomato_with_desc(desc, true)?;
         let device = self.vulkan_ctx.device();
         self.resources.meshes.flora_meshes[species_idx] =
             FloraMeshResources::from_mesh_data(device.clone(), self.allocator.clone(), mesh_data);

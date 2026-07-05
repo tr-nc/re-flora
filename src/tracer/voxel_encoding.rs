@@ -13,6 +13,7 @@ const LOOKUP_BITS_PER_AXIS: u32 = 10;
 pub const FLORA_VOXEL_LOOKUP_EMPTY_KEY: u32 = u32::MAX;
 
 pub const FLORA_VOXEL_MATERIAL_GRADIENT: u8 = 0;
+pub const FLORA_VOXEL_MATERIAL_TOMATO_FRUIT: u8 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FloraVoxelInfo {

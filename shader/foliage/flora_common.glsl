@@ -134,6 +134,11 @@ vec3 unpack_linear_rgb10(uint packed_color) {
 vec3 sample_flora_base_color(bool is_grass, uint instance_ty, uint instance_seed,
                              ivec3 vox_local_pos, uvec3 instance_pos_voxels,
                              float color_gradient, uint voxel_info) {
+    uint material_id = flora_voxel_material_id(voxel_info);
+    if (instance_ty == FLORA_SPECIES_TOMATO && material_id == FLORA_VOXEL_MATERIAL_TOMATO_FRUIT) {
+        return srgb_to_linear(vec3(0.92, 0.05, 0.025));
+    }
+
     uint color_row = flora_height_color_row(color_gradient);
     uint dark_height_color_rgb10 = pc.height_dark_color_rgb10[color_row];
     if (instance_ty == FLORA_SPECIES_LAVENDER) {

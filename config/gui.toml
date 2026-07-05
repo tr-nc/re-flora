@@ -2105,6 +2105,39 @@ min = 1
 max = 8
 
 [[section.param]]
+id = "tomato_overall_scale"
+kind = "float"
+label = "Overall Scale"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.5
+max = 2
+
+[[section.param]]
+id = "tomato_base_diameter_voxels"
+kind = "uint"
+label = "Base Diameter (voxels)"
+type = "Uint"
+
+[section.param.data]
+value = 2
+min = 1
+max = 6
+
+[[section.param]]
+id = "tomato_thickness_taper_power"
+kind = "float"
+label = "Thickness Taper Power"
+type = "Float"
+
+[section.param.data]
+value = 1.15
+min = 0.2
+max = 4
+
+[[section.param]]
 id = "tomato_length_dropoff"
 kind = "float"
 label = "Length Dropoff"
@@ -2213,6 +2246,39 @@ type = "Float"
 value = 0.1
 min = 0
 max = 0.5
+
+[[section.param]]
+id = "tomato_fruit_count"
+kind = "uint"
+label = "Fruit Count"
+type = "Uint"
+
+[section.param.data]
+value = 6
+min = 0
+max = 16
+
+[[section.param]]
+id = "tomato_fruit_radius"
+kind = "float"
+label = "Fruit Radius (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 1.25
+min = 0
+max = 3
+
+[[section.param]]
+id = "tomato_fruit_min_height_fraction"
+kind = "float"
+label = "Fruit Min Height Fraction"
+type = "Float"
+
+[section.param.data]
+value = 0.35
+min = 0
+max = 1
 
 [[section]]
 name = "FloraVariation"
