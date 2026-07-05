@@ -1,3 +1,4 @@
+use crate::branch_skeleton::{generate_branch_skeleton_with_rng, BranchingDesc};
 use crate::geom::RoundCone;
 use glam::Vec3;
 use rand::rngs::StdRng;
@@ -274,30 +275,63 @@ impl Tree {
         numerator / denominator
     }
 
+    fn branching_desc(desc: &TreeDesc, initial_length: f32) -> BranchingDesc {
+        BranchingDesc {
+            seed: desc.seed,
+            iterations: desc.iterations,
+            initial_length,
+            length_dropoff: desc.length_dropoff,
+            spread: desc.spread,
+            randomness: desc.randomness,
+            vertical_tendency: desc.vertical_tendency,
+            branch_angle_min: desc.branch_angle_min,
+            branch_angle_max: desc.branch_angle_max,
+            branch_probability: desc.branch_probability,
+            branch_count_min: desc.branch_count_min,
+            branch_count_max: desc.branch_count_max,
+            segment_length_variation: desc.segment_length_variation,
+        }
+    }
+
+    fn thickness_at_level(desc: &TreeDesc, base_thickness: f32, level: u32) -> f32 {
+        let mut thickness = base_thickness;
+        for current_level in 0..level {
+            thickness = if desc.thickness_reduction > 0.0 {
+                thickness * desc.thickness_reduction
+            } else {
+                thickness * 0.1_f32.powf((current_level + 1) as f32)
+            };
+        }
+        thickness
+    }
+
     fn build(desc: &TreeDesc) -> BuiltObjects {
         let mut rng = StdRng::seed_from_u64(desc.seed);
-        let mut initial_trunks = Vec::new();
-        let mut leaf_positions = Vec::new();
-
         let base_length = Self::initial_segment_length(desc);
         let base_thickness = desc.trunk_thickness * desc.size;
+        let branching_desc = Self::branching_desc(desc, base_length);
+        let skeleton = generate_branch_skeleton_with_rng(&branching_desc, &mut rng);
 
-        recurse(
-            Vec3::ZERO,
-            Vec3::Y,
-            0,
-            desc,
-            base_length,
-            base_thickness,
-            &mut initial_trunks,
-            &mut leaf_positions,
-            &mut rng,
-        );
+        let leaf_level = desc.iterations.saturating_sub(desc.leaf_offset);
+        let leaf_positions = skeleton
+            .nodes
+            .iter()
+            .filter(|node| node.level == leaf_level)
+            .map(|node| node.pos)
+            .collect();
 
         let mut trunks = Vec::new();
-        for (cone, level) in &initial_trunks {
+        for segment in &skeleton.segments {
+            let thickness_start = Self::thickness_at_level(desc, base_thickness, segment.level);
+            let thickness_end = Self::thickness_at_level(desc, base_thickness, segment.level + 1);
+            let cone = RoundCone::new(
+                thickness_start.max(desc.trunk_thickness_min),
+                segment.start,
+                thickness_end.max(desc.trunk_thickness_min),
+                segment.end,
+            );
             // subdivision now respects the toggle
-            let subdivided_cones = subdivide_trunk_segment(cone, desc, *level, &mut rng);
+            let subdivided_cones = subdivide_trunk_segment(&cone, desc, segment.level, &mut rng);
             trunks.extend(subdivided_cones);
         }
 
@@ -412,140 +446,4 @@ fn subdivide_trunk_segment(
     }
 
     subdivided_trunks
-}
-
-#[allow(clippy::too_many_arguments)]
-fn recurse(
-    pos: Vec3,
-    dir: Vec3,
-    level: u32,
-    desc: &TreeDesc,
-    length: f32,
-    thickness: f32,
-    trunks: &mut Vec<(RoundCone, u32)>,
-    leaf_positions: &mut Vec<Vec3>,
-    rng: &mut StdRng,
-) {
-    if level >= desc.iterations {
-        return;
-    }
-
-    // leaf placement: place leaves at (iterations - leaf_offset) levels from the end
-    if level == desc.iterations.saturating_sub(desc.leaf_offset) {
-        leaf_positions.push(pos);
-    }
-
-    let length_variation_factor = {
-        let random_factor = rng.random_range(-1.0..=1.0); // Always generate a random value
-        1.0 + random_factor * desc.segment_length_variation // Scale by variation amount
-    };
-
-    let segment_length = length * length_variation_factor;
-    let thickness_start = thickness;
-    let natural_thickness_end = if desc.thickness_reduction > 0.0 {
-        thickness * desc.thickness_reduction
-    } else {
-        thickness * 0.1_f32.powf((level + 1) as f32)
-    };
-    let thickness_end = natural_thickness_end;
-
-    let level_factor = (level as f32) / (desc.iterations as f32);
-    let vertical_influence = desc.vertical_tendency * level_factor;
-    let adjusted_dir = (dir + Vec3::new(0.0, vertical_influence, 0.0)).normalize_or_zero();
-
-    let end_pos = pos + adjusted_dir * segment_length;
-
-    trunks.push((
-        RoundCone::new(
-            thickness_start.max(desc.trunk_thickness_min),
-            pos,
-            thickness_end.max(desc.trunk_thickness_min),
-            end_pos,
-        ),
-        level,
-    ));
-
-    let should_branch = level < desc.iterations - 1
-        && (level == 0 || rng.random::<f32>() < desc.branch_probability);
-
-    if should_branch {
-        let branch_count = if desc.branch_count_min == desc.branch_count_max {
-            desc.branch_count_min
-        } else {
-            rng.random_range(desc.branch_count_min..=desc.branch_count_max)
-        };
-
-        for i in 0..branch_count {
-            let new_dir =
-                calculate_branch_direction(adjusted_dir, i, branch_count, level, desc, rng);
-
-            if new_dir != Vec3::ZERO {
-                recurse(
-                    end_pos,
-                    new_dir,
-                    level + 1,
-                    desc,
-                    length * desc.length_dropoff,
-                    thickness_end,
-                    trunks,
-                    leaf_positions,
-                    rng,
-                );
-            }
-        }
-    } else {
-        let new_dir = add_direction_variation(adjusted_dir, desc.randomness * 0.2, rng);
-        recurse(
-            end_pos,
-            new_dir,
-            level + 1,
-            desc,
-            length * desc.length_dropoff,
-            thickness_end,
-            trunks,
-            leaf_positions,
-            rng,
-        );
-    }
-}
-
-fn calculate_branch_direction(
-    parent_dir: Vec3,
-    branch_index: u32,
-    total_branches: u32,
-    level: u32,
-    desc: &TreeDesc,
-    rng: &mut StdRng,
-) -> Vec3 {
-    let golden_angle = 2.4;
-    let around_angle = if total_branches > 1 {
-        (branch_index as f32) * (2.0 * PI) / (total_branches as f32) + (level as f32) * golden_angle
-    } else {
-        rng.random::<f32>() * 2.0 * PI
-    };
-    let away_angle =
-        rng.random_range(desc.branch_angle_min..=desc.branch_angle_max) * (1.0 + desc.spread);
-
-    let up = if parent_dir.y.abs() < 0.9 {
-        Vec3::Y
-    } else {
-        Vec3::X
-    };
-    let right = parent_dir.cross(up).normalize_or_zero();
-    let forward = parent_dir.cross(right).normalize_or_zero();
-
-    let branch_dir = {
-        let rotated_perp = right * around_angle.cos() + forward * around_angle.sin();
-        let base_dir = parent_dir * away_angle.cos() + rotated_perp * away_angle.sin();
-        base_dir.normalize_or_zero()
-    };
-
-    add_direction_variation(branch_dir, desc.randomness, rng)
-}
-
-fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut StdRng) -> Vec3 {
-    let rand_x = rng.random_range(-variation..=variation);
-    let rand_y = rng.random_range(-variation..=variation);
-    let rand_z = rng.random_range(-variation..=variation);
-    (dir + Vec3::new(rand_x, rand_y, rand_z)).normalize_or_zero()
 }

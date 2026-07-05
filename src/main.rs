@@ -1,5 +1,6 @@
 mod app;
 mod audio;
+mod branch_skeleton;
 mod builder;
 mod cli;
 mod egui_renderer;
