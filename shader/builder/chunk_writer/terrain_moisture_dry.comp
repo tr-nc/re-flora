@@ -9,8 +9,13 @@ layout(push_constant) uniform PC {
     uvec4 dim;
     vec4 dry_params;
     vec4 sun_dir_params;
+    uvec4 shadow_params;
 }
 pc;
+
+#define GUI_INPUT_BINDING 0
+#define GUI_INPUT_NAME manual_gui_input
+#include "../../include/gui_input.glsl"
 
 layout(set = 0, binding = 1, r8ui) uniform uimage3D chunk_atlas;
 layout(set = 0, binding = 2) uniform U_ManualShadowCameraInfo {
@@ -30,6 +35,9 @@ layout(set = 0, binding = 5) readonly buffer B_ManualSurfaceLeafCoords { uint da
 manual_surface_leaf_coords;
 layout(set = 0, binding = 6) readonly buffer B_ManualSurfaceLeafChunkInfo { uvec4 data[]; }
 manual_surface_leaf_chunk_info;
+layout(set = 0, binding = 7) uniform sampler2D manual_leaf_shadow_opacity_blended_tex;
+layout(set = 0, binding = 8) uniform sampler2D manual_leaf_shadow_mask_tex;
+layout(set = 0, binding = 9) uniform sampler2D manual_cloud_shadow_tex;
 
 #include "../../include/core/aabb.glsl"
 #include "../../include/core/packer.glsl"
@@ -37,7 +45,17 @@ manual_surface_leaf_chunk_info;
 #include "../../include/voxel_types.glsl"
 #define shadow_camera_info manual_shadow_camera_info
 #define shadow_map_tex_for_vsm_ping manual_shadow_map_tex_for_vsm_ping
-#include "../../include/vsm.glsl"
+#define leaf_shadow_opacity_blended_tex manual_leaf_shadow_opacity_blended_tex
+#define leaf_shadow_mask_tex manual_leaf_shadow_mask_tex
+#define cloud_shadow_tex manual_cloud_shadow_tex
+#define gui_input manual_gui_input
+#define DIRECT_SUN_SHADOW_ENABLE_LEAF
+#define DIRECT_SUN_SHADOW_ENABLE_CLOUD
+#include "../../include/direct_sun_shadow.glsl"
+#undef gui_input
+#undef cloud_shadow_tex
+#undef leaf_shadow_mask_tex
+#undef leaf_shadow_opacity_blended_tex
 #undef shadow_map_tex_for_vsm_ping
 #undef shadow_camera_info
 
@@ -110,21 +128,26 @@ bool sun_ray_is_occluded(vec3 origin_vox, vec3 sun_dir) {
     return false;
 }
 
-float terrain_shadow_vsm_exposure(vec3 world_pos) {
+bool shadow_camera_contains(vec3 world_pos) {
     vec4 light_space = manual_shadow_camera_info.view_proj_mat * vec4(world_pos, 1.0);
     if (abs(light_space.w) <= 1.0e-6) {
-        return -1.0;
+        return false;
     }
     vec3 ndc = light_space.xyz / light_space.w;
     vec2 uv = ndc.xy * 0.5 + 0.5;
-    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
-        return -1.0;
-    }
-    return clamp(get_shadow_weight_vsm_from_map(
-                     manual_shadow_map_tex_for_vsm_ping,
-                     manual_shadow_camera_info.view_proj_mat,
-                     vec4(world_pos, 1.0)),
-                 0.0, 1.0);
+    return !any(lessThan(uv, vec2(0.0))) && !any(greaterThan(uv, vec2(1.0)));
+}
+
+float direct_shadow_exposure(vec3 world_pos, uint source_mask, uint available_mask) {
+    DirectSunShadowReceiver shadow_receiver = direct_sun_shadow_receiver(
+        vec4(world_pos, 1.0),
+        ivec3(0),
+        source_mask,
+        DIRECT_TERRAIN_SHADOW_VSM,
+        available_mask,
+        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE
+    );
+    return get_direct_sun_shadow_transmittance(shadow_receiver);
 }
 
 ivec3 unpack_surface_leaf_local_coord(uint packed_coord) {
@@ -142,17 +165,28 @@ vec3 surface_shadow_sample_pos(vec3 voxel_center_world, vec3 normal, float voxel
 }
 
 float surface_sun_exposure(vec3 sample_world_pos, vec3 normal, vec3 sun_dir,
-                           float voxels_per_world_unit, bool terrain_shadow_vsm_ready) {
+                           float voxels_per_world_unit, uint source_mask,
+                           uint available_mask) {
     if (sun_dir.y <= 0.0 || dot(normal, sun_dir) <= 0.05) {
         return 0.0;
     }
-    if (terrain_shadow_vsm_ready) {
-        float vsm_exposure = terrain_shadow_vsm_exposure(sample_world_pos);
-        if (vsm_exposure >= 0.0) {
-            return vsm_exposure;
-        }
+
+    uint direct_source_mask = source_mask;
+    float terrain_visibility = 1.0;
+    bool wants_terrain = (source_mask & DIRECT_SUN_SHADOW_SOURCE_TERRAIN) != 0u;
+    bool terrain_vsm_available = wants_terrain &&
+                                 (available_mask & DIRECT_SUN_SHADOW_SOURCE_TERRAIN) != 0u &&
+                                 shadow_camera_contains(sample_world_pos);
+    if (wants_terrain && !terrain_vsm_available) {
+        direct_source_mask &= ~DIRECT_SUN_SHADOW_SOURCE_TERRAIN;
+        terrain_visibility = !sun_ray_is_occluded(sample_world_pos * voxels_per_world_unit,
+                                                  sun_dir)
+                                 ? 1.0
+                                 : 0.0;
     }
-    return !sun_ray_is_occluded(sample_world_pos * voxels_per_world_unit, sun_dir) ? 1.0 : 0.0;
+
+    return terrain_visibility * direct_shadow_exposure(sample_world_pos, direct_source_mask,
+                                                       available_mask);
 }
 
 void main() {
@@ -182,7 +216,8 @@ void main() {
     float dry_probability = clamp(pc.dry_params.x, 0.0, 1.0);
     float residual_probability_multiplier = max(pc.dry_params.y, 1.0);
     float voxels_per_world_unit = max(pc.dry_params.z, 1.0);
-    bool terrain_shadow_vsm_ready = pc.dry_params.w > 0.5;
+    uint shadow_source_mask = pc.shadow_params.x;
+    uint shadow_available_mask = pc.shadow_params.y;
     float sun_dir_len_sq = dot(pc.sun_dir_params.xyz, pc.sun_dir_params.xyz);
     vec3 sun_dir = sun_dir_len_sq > 0.0 ? pc.sun_dir_params.xyz * inversesqrt(sun_dir_len_sq) : vec3(0.0);
     float sunlit_probability_multiplier = max(pc.sun_dir_params.w, 1.0);
@@ -211,7 +246,8 @@ void main() {
             normal,
             sun_dir,
             voxels_per_world_unit,
-            terrain_shadow_vsm_ready
+            shadow_source_mask,
+            shadow_available_mask
         );
         dry_probability *= mix(1.0, sunlit_probability_multiplier, sun_exposure);
         dry_probability = clamp(dry_probability, 0.0, 1.0);

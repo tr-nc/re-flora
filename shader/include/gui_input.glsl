@@ -9,6 +9,10 @@
 #define GUI_INPUT_BINDING 0
 #endif
 
+#ifndef GUI_INPUT_NAME
+#define GUI_INPUT_NAME gui_input
+#endif
+
 layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float debug_float;
     uint debug_bool;
@@ -79,6 +83,6 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float cloud_shadow_min_transmittance;
     uint cloud_shadow_steps;
 }
-gui_input;
+GUI_INPUT_NAME;
 
 #endif // GUI_INPUT_GLSL

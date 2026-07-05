@@ -97,11 +97,10 @@ layout(set = 3, binding = 10, r8ui) uniform uimage2D denoiser_hit_tex;
 // #include "../include/core/shader_clock.glsl" // enable for GPU-side timing on supported devices
 #include "../include/core/viridis.glsl"
 #include "../include/marching_result.glsl"
-#include "../include/pcss.glsl"
-#define ENABLE_TEMPORAL_VSM
-#include "../include/vsm.glsl"
-#include "../include/leaf_shadow.glsl"
-#include "../include/cloud_shadow.glsl"
+#define DIRECT_SUN_SHADOW_ENABLE_PCSS
+#define DIRECT_SUN_SHADOW_ENABLE_LEAF
+#define DIRECT_SUN_SHADOW_ENABLE_CLOUD
+#include "../include/direct_sun_shadow.glsl"
 #include "../include/ray.glsl"
 #include "../include/skylight.glsl"
 #include "../include/voxel_data.glsl"
@@ -155,13 +154,16 @@ vec3 sample_sun_disk(ivec3 seed, float sun_size, vec3 sun_dir) {
 /// If the ray hits the scene, no light, otherwise sunlight
 vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
     float sun_above_horizon = step(0.0, sun_info.sun_dir.y);
-    float terrain_shadow = gui_input.terrain_shadow_use_vsm != 0u
-                               ? get_shadow_weight_vsm_temporal(vec4(ray.origin, 1.0))
-                               : get_shadow_weight_pcss(ray.origin, seed);
-    float leaf_shadow = get_leaf_shadow_transmittance(vec4(ray.origin, 1.0), true, true);
-    float cloud_shadow = get_cloud_shadow_transmittance(vec4(ray.origin, 1.0));
-    return terrain_shadow * leaf_shadow * cloud_shadow * sun_info.sun_color * sun_info.sun_luminance *
-           sun_above_horizon;
+    DirectSunShadowReceiver shadow_receiver = direct_sun_shadow_receiver(
+        vec4(ray.origin, 1.0),
+        seed,
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_TERRAIN_SHADOW_GUI,
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE
+    );
+    float direct_sun_shadow = get_direct_sun_shadow_transmittance(shadow_receiver);
+    return direct_sun_shadow * sun_info.sun_color * sun_info.sun_luminance * sun_above_horizon;
 }
 
 vec3 choose_random_normal(ivec3 seed);

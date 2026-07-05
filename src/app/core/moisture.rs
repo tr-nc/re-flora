@@ -87,7 +87,8 @@ impl App {
         &mut self,
         cmdbuf: &CommandBuffer,
         sun_dir: Vec3,
-        terrain_shadow_vsm_ready: bool,
+        direct_shadow_source_mask: u32,
+        direct_shadow_available_mask: u32,
     ) -> usize {
         let mut recorded_count = 0;
         for _ in 0..TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME {
@@ -109,7 +110,8 @@ impl App {
                 TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
                 TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
                 VOXEL_DIM_PER_CHUNK.x as f32,
-                terrain_shadow_vsm_ready,
+                direct_shadow_source_mask,
+                direct_shadow_available_mask,
                 surface_leaf_info.leaf_count,
                 surface_leaf_info.chunk_info_index,
             ) {
@@ -123,7 +125,7 @@ impl App {
                     .unwrap()
                     .record("terrain_moisture_dry_record", dry_record_elapsed);
                 log::info!(
-                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} surface_leaf_count={} surface_leaf_chunk_info_index={} probability={:.3} sunlit_multiplier={:.2} residual_multiplier={:.2} vsm_ready={} sun_dir={:?} next_cursor={} record_ms={:.3}",
+                    "[PERF][MOISTURE_DRY] chunk={:?} atlas_offset={:?} atlas_dim={:?} surface_leaf_count={} surface_leaf_chunk_info_index={} probability={:.3} sunlit_multiplier={:.2} residual_multiplier={:.2} shadow_source_mask={:#x} shadow_available_mask={:#x} sun_dir={:?} next_cursor={} record_ms={:.3}",
                     chunk_id,
                     atlas_offset,
                     VOXEL_DIM_PER_CHUNK,
@@ -132,7 +134,8 @@ impl App {
                     TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
                     TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
                     TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
-                    terrain_shadow_vsm_ready,
+                    direct_shadow_source_mask,
+                    direct_shadow_available_mask,
                     sun_dir,
                     self.moisture_dry_chunk_cursor,
                     dry_record_elapsed.as_secs_f64() * 1000.0,

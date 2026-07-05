@@ -54,6 +54,7 @@ use crate::particles::{
 use crate::tracer::{
     grass_flora_height_color_tables, solid_flora_height_color_tables, CloudGuiParams,
     GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
+    DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
@@ -924,11 +925,15 @@ impl App {
             spatial_sound_manager.clone(),
         )?;
         {
-            let shadow = tracer.terrain_shadow_vsm_resources();
+            let shadow = tracer.direct_sun_shadow_resources();
             let contree_resources = contree_builder.get_resources();
             plain_builder.bind_terrain_moisture_dry_resources(
+                shadow.gui_input,
                 shadow.shadow_camera_info,
                 shadow.shadow_map_tex_for_vsm_ping,
+                shadow.leaf_shadow_opacity_blended_tex,
+                shadow.leaf_shadow_mask_tex,
+                shadow.cloud_shadow_tex,
                 &contree_resources.contree_leaf_data,
                 &contree_resources.surface_leaf_coords,
                 &contree_resources.surface_leaf_chunk_info,
@@ -2573,33 +2578,6 @@ impl App {
                     }
                 }
 
-                if self.has_terrain_moisture_dry_chunks() {
-                    let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
-                        profiler.begin_scope(
-                            frame_slot,
-                            cmdbuf,
-                            "moisture_dry.pass",
-                            PipelineStage::COMPUTE_SHADER,
-                        )
-                    });
-                    let terrain_shadow_vsm_ready = self.tracer.terrain_shadow_vsm_ready();
-                    self.record_terrain_moisture_dry_chunks(
-                        cmdbuf,
-                        sun_dir,
-                        terrain_shadow_vsm_ready,
-                    );
-                    if let Some(scope) = moisture_dry_gpu_scope {
-                        if let Some(profiler) = self.gpu_profiler.as_mut() {
-                            profiler.end_scope(
-                                frame_slot,
-                                cmdbuf,
-                                scope,
-                                PipelineStage::COMPUTE_SHADER,
-                            );
-                        }
-                    }
-                }
-
                 let update_shadow_map = self.render_flags.enable_shadows;
                 let wind_gui_params = Self::wind_gui_params(&self.wind_sources);
                 let cloud_gui_params = CloudGuiParams {
@@ -2883,6 +2861,69 @@ impl App {
                     self.gui_adjustables.leaf_shadow_temporal_alpha.value,
                     frame_delta_time,
                 );
+                let mut gpu_profiler_for_shadow = self.gpu_profiler.take();
+                let shadow_prepass_gpu_scope =
+                    gpu_profiler_for_shadow.as_mut().and_then(|profiler| {
+                        profiler.begin_scope(
+                            frame_slot,
+                            cmdbuf,
+                            "tracer.shadow_prepass",
+                            PipelineStage::ALL_COMMANDS,
+                        )
+                    });
+                self.tracer
+                    .record_shadow_prepass(
+                        cmdbuf,
+                        self.surface_builder.get_resources(),
+                        self.time_info.time_since_start(),
+                        leaf_color_tables,
+                        &self.render_flags,
+                        update_shadow_map,
+                        self.gui_adjustables.vsm_blur_radius.value,
+                        vsm_temporal_alpha,
+                        leaf_shadow_temporal_alpha,
+                        reset_vsm_history,
+                        gpu_profiler_for_shadow.as_mut(),
+                        frame_slot,
+                    )
+                    .unwrap();
+                if let Some(scope) = shadow_prepass_gpu_scope {
+                    if let Some(profiler) = gpu_profiler_for_shadow.as_mut() {
+                        profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
+                    }
+                }
+                self.gpu_profiler = gpu_profiler_for_shadow;
+                if update_shadow_map {
+                    self.vsm_history_reset_pending = false;
+                }
+
+                if self.has_terrain_moisture_dry_chunks() {
+                    let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
+                        profiler.begin_scope(
+                            frame_slot,
+                            cmdbuf,
+                            "moisture_dry.pass",
+                            PipelineStage::COMPUTE_SHADER,
+                        )
+                    });
+                    self.record_terrain_moisture_dry_chunks(
+                        cmdbuf,
+                        sun_dir,
+                        DIRECT_SUN_SHADOW_SOURCE_ALL,
+                        self.tracer.direct_sun_shadow_available_mask(),
+                    );
+                    if let Some(scope) = moisture_dry_gpu_scope {
+                        if let Some(profiler) = self.gpu_profiler.as_mut() {
+                            profiler.end_scope(
+                                frame_slot,
+                                cmdbuf,
+                                scope,
+                                PipelineStage::COMPUTE_SHADER,
+                            );
+                        }
+                    }
+                }
+
                 let tracer_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                     profiler.begin_scope(
                         frame_slot,
@@ -2893,7 +2934,7 @@ impl App {
                 });
                 let mut gpu_profiler_for_trace = self.gpu_profiler.take();
                 self.tracer
-                    .record_trace(
+                    .record_trace_after_shadow_prepass(
                         cmdbuf,
                         self.surface_builder.get_resources(),
                         self.gui_adjustables.lod_distance.value,
@@ -2903,11 +2944,6 @@ impl App {
                         flora_color_tables,
                         leaf_color_tables,
                         &self.render_flags,
-                        update_shadow_map,
-                        self.gui_adjustables.vsm_blur_radius.value,
-                        vsm_temporal_alpha,
-                        leaf_shadow_temporal_alpha,
-                        reset_vsm_history,
                         gpu_profiler_for_trace.as_mut(),
                         frame_slot,
                     )
@@ -2918,9 +2954,6 @@ impl App {
                     }
                 }
                 self.gpu_profiler = gpu_profiler_for_trace;
-                if update_shadow_map {
-                    self.vsm_history_reset_pending = false;
-                }
 
                 self.swapchain.record_blit(
                     self.tracer.get_screen_output_tex().get_image(),

@@ -65,6 +65,7 @@ struct TerrainMoistureDryPushConstants {
     dim: [u32; 4],
     dry_params: [f32; 4],
     sun_dir_params: [f32; 4],
+    shadow_params: [u32; 4],
 }
 
 #[repr(C)]
@@ -1093,12 +1094,18 @@ impl PlainBuilder {
 
     pub fn bind_terrain_moisture_dry_resources(
         &self,
+        gui_input: &Buffer,
         shadow_camera_info: &Buffer,
         shadow_map_tex_for_vsm_ping: &Texture,
+        leaf_shadow_opacity_blended_tex: &Texture,
+        leaf_shadow_mask_tex: &Texture,
+        cloud_shadow_tex: &Texture,
         contree_leaf_data: &Buffer,
         surface_leaf_coords: &Buffer,
         surface_leaf_chunk_info: &Buffer,
     ) {
+        self.terrain_moisture_dry_ppl
+            .write_descriptor_set(0, WriteDescriptorSet::new_buffer_write(0, gui_input));
         self.terrain_moisture_dry_ppl.write_descriptor_set(
             0,
             WriteDescriptorSet::new_buffer_write(2, shadow_camera_info),
@@ -1124,6 +1131,33 @@ impl PlainBuilder {
             0,
             WriteDescriptorSet::new_buffer_write(6, surface_leaf_chunk_info),
         );
+        self.terrain_moisture_dry_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_texture_write(
+                7,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                leaf_shadow_opacity_blended_tex,
+                TextureLayout::SHADER_READ_ONLY,
+            ),
+        );
+        self.terrain_moisture_dry_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_texture_write(
+                8,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                leaf_shadow_mask_tex,
+                TextureLayout::SHADER_READ_ONLY,
+            ),
+        );
+        self.terrain_moisture_dry_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_texture_write(
+                9,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                cloud_shadow_tex,
+                TextureLayout::SHADER_READ_ONLY,
+            ),
+        );
     }
 
     pub fn record_terrain_moisture_dry_region(
@@ -1136,7 +1170,8 @@ impl PlainBuilder {
         sunlit_probability_multiplier: f32,
         residual_probability_multiplier: f32,
         voxels_per_world_unit: f32,
-        terrain_shadow_vsm_ready: bool,
+        direct_shadow_source_mask: u32,
+        direct_shadow_available_mask: u32,
         surface_leaf_count: u32,
         surface_leaf_chunk_info_index: u32,
     ) -> bool {
@@ -1186,13 +1221,19 @@ impl PlainBuilder {
                 dry_probability,
                 residual_probability_multiplier,
                 voxels_per_world_unit.max(1.0),
-                if terrain_shadow_vsm_ready { 1.0 } else { 0.0 },
+                0.0,
             ],
             sun_dir_params: [
                 sun_dir.x,
                 sun_dir.y,
                 sun_dir.z,
                 sunlit_probability_multiplier,
+            ],
+            shadow_params: [
+                direct_shadow_source_mask,
+                direct_shadow_available_mask,
+                0,
+                0,
             ],
         };
 

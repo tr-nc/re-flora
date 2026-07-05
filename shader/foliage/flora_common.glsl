@@ -13,6 +13,9 @@ const float short_grass_height_stddev_voxels = 0.6;
 
 #include "./flora_wind_motion.glsl"
 #include "./flora_species_profile.glsl"
+#define DIRECT_SUN_SHADOW_ENABLE_LEAF
+#define DIRECT_SUN_SHADOW_ENABLE_CLOUD
+#include "../include/direct_sun_shadow.glsl"
 
 float sample_standard_normal(uint seed) {
     uint state_a = wellons_hash(seed ^ 0xA511E9B3u);
@@ -120,9 +123,15 @@ void prepaverdarium_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_
     anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos;
     voxel_pos         = anchor_pos + vec3(0.5) * scaling_factor;
 
-    shadow_weight = get_shadow_weight_vsm_temporal(vec4(voxel_pos, 1.0));
-    shadow_weight *= get_leaf_shadow_transmittance(vec4(voxel_pos, 1.0), true, true);
-    shadow_weight *= get_cloud_shadow_transmittance(vec4(voxel_pos, 1.0));
+    DirectSunShadowReceiver shadow_receiver = direct_sun_shadow_receiver(
+        vec4(voxel_pos, 1.0),
+        ivec3(0),
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_TERRAIN_SHADOW_VSM,
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE
+    );
+    shadow_weight = get_direct_sun_shadow_transmittance(shadow_receiver);
     shadow_weight *= get_shadow_weight(vox_local_pos);
 }
 

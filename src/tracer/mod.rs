@@ -301,9 +301,20 @@ pub enum LodState {
     Lod1,
 }
 
-pub struct TerrainShadowVsmResources<'a> {
+pub const DIRECT_SUN_SHADOW_SOURCE_TERRAIN: u32 = 1 << 0;
+pub const DIRECT_SUN_SHADOW_SOURCE_LEAF: u32 = 1 << 1;
+pub const DIRECT_SUN_SHADOW_SOURCE_CLOUD: u32 = 1 << 2;
+pub const DIRECT_SUN_SHADOW_SOURCE_ALL: u32 = DIRECT_SUN_SHADOW_SOURCE_TERRAIN
+    | DIRECT_SUN_SHADOW_SOURCE_LEAF
+    | DIRECT_SUN_SHADOW_SOURCE_CLOUD;
+
+pub struct DirectSunShadowResources<'a> {
+    pub gui_input: &'a Buffer,
     pub shadow_camera_info: &'a Buffer,
     pub shadow_map_tex_for_vsm_ping: &'a Texture,
+    pub leaf_shadow_opacity_blended_tex: &'a Texture,
+    pub leaf_shadow_mask_tex: &'a Texture,
+    pub cloud_shadow_tex: &'a Texture,
 }
 
 pub struct Tracer {
@@ -351,11 +362,29 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
-    pub fn terrain_shadow_vsm_resources(&self) -> TerrainShadowVsmResources<'_> {
-        TerrainShadowVsmResources {
+    pub fn direct_sun_shadow_resources(&self) -> DirectSunShadowResources<'_> {
+        DirectSunShadowResources {
+            gui_input: &self.resources.uniforms.gui_input,
             shadow_camera_info: &self.resources.shadow.shadow_camera_info,
             shadow_map_tex_for_vsm_ping: &self.resources.shadow.shadow_map_tex_for_vsm_ping,
+            leaf_shadow_opacity_blended_tex: &self.resources.shadow.leaf_shadow_opacity_blended_tex,
+            leaf_shadow_mask_tex: &self.resources.shadow.leaf_shadow_mask_tex,
+            cloud_shadow_tex: &self.resources.shadow.cloud_shadow_tex,
         }
+    }
+
+    pub fn direct_sun_shadow_available_mask(&self) -> u32 {
+        let mut mask = 0;
+        if self.terrain_shadow_vsm_ready() {
+            mask |= DIRECT_SUN_SHADOW_SOURCE_TERRAIN;
+        }
+        if self.leaf_shadow_history_valid {
+            mask |= DIRECT_SUN_SHADOW_SOURCE_LEAF;
+        }
+        if self.cloud_shadow_history_valid {
+            mask |= DIRECT_SUN_SHADOW_SOURCE_CLOUD;
+        }
+        mask
     }
 
     pub fn terrain_shadow_vsm_ready(&self) -> bool {
@@ -1162,15 +1191,11 @@ impl Tracer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn record_trace(
+    pub fn record_shadow_prepass(
         &mut self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
-        lod_distance: f32,
-        flora_draw_distance: f32,
-        grass_render_mode: u32,
         time: f32,
-        flora_color_tables: &[FloraHeightColorTables],
         leaf_color_tables: FloraHeightColorTables,
         render_flags: &crate::RenderFlags,
         update_shadow_map: bool,
@@ -1191,10 +1216,6 @@ impl Tracer {
         // barrier is not enough and causes close grass shadow flicker on macOS.
         let compute_to_graphics_barrier = PipelineBarrier::shader_access(
             PipelineStage::COMPUTE_SHADER,
-            PipelineStage::VERTEX_SHADER,
-        );
-        let frag_to_vert_barrier = PipelineBarrier::shader_access(
-            PipelineStage::FRAGMENT_SHADER,
             PipelineStage::VERTEX_SHADER,
         );
         let color_to_compute_barrier = PipelineBarrier::new(
@@ -1230,10 +1251,6 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
-        // Terrarium glass is composited analytically in composition.comp so it can refract the
-        // already-combined scene and depth-test against ray-traced terrain. Keep it out of the
-        // raster graphics pass to avoid transparent-layer accumulation and coplanar edge shimmer.
-        let enable_glass = false;
         let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
 
         if render_flags.enable_flora {
@@ -1357,6 +1374,52 @@ impl Tracer {
             );
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_trace_after_shadow_prepass(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        surface_resources: &SurfaceResources,
+        lod_distance: f32,
+        flora_draw_distance: f32,
+        grass_render_mode: u32,
+        time: f32,
+        flora_color_tables: &[FloraHeightColorTables],
+        leaf_color_tables: FloraHeightColorTables,
+        render_flags: &crate::RenderFlags,
+        mut gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
+    ) -> Result<()> {
+        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
+        let frag_to_vert_barrier = PipelineBarrier::shader_access(
+            PipelineStage::FRAGMENT_SHADER,
+            PipelineStage::VERTEX_SHADER,
+        );
+        let compute_to_transfer_barrier = PipelineBarrier::new(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::TRANSFER,
+            [MemoryBarrier::new(
+                MemoryAccess::SHADER_WRITE,
+                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
+            )],
+        );
+        let transfer_to_compute_barrier = PipelineBarrier::new(
+            PipelineStage::TRANSFER,
+            PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
+                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            )],
+        );
+
+        // Terrarium glass is composited analytically in composition.comp so it can refract the
+        // already-combined scene and depth-test against ray-traced terrain. Keep it out of the
+        // raster graphics pass to avoid transparent-layer accumulation and coplanar edge shimmer.
+        let enable_glass = false;
+        let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
 
         if render_flags.enable_flora {
             assert_eq!(
