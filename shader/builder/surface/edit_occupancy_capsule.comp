@@ -49,7 +49,7 @@ uint flora_paint_priority(uint selection) {
     // priority. Authored plants/crops share the higher paint priority so they can replace grass
     // without overwriting each other.
     if (selection == FLORA_SPECIES_LAVENDER || selection == FLORA_SPECIES_EMBER_BLOOM ||
-        selection == FLORA_SPECIES_CARROT) {
+        selection == FLORA_SPECIES_CARROT || selection == FLORA_SPECIES_TOMATO) {
         return 1u;
     }
 
