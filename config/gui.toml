@@ -2069,6 +2069,152 @@ type = "Color"
 value = "#FFB5FF"
 
 [[section]]
+name = "Tomato Vine Structure"
+
+[[section.param]]
+id = "tomato_seed_offset"
+kind = "uint"
+label = "Seed Offset"
+type = "Uint"
+
+[section.param.data]
+value = 0
+min = 0
+max = 10000
+
+[[section.param]]
+id = "tomato_iterations"
+kind = "uint"
+label = "Iterations"
+type = "Uint"
+
+[section.param.data]
+value = 5
+min = 1
+max = 7
+
+[[section.param]]
+id = "tomato_initial_length"
+kind = "float"
+label = "Initial Length"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 1
+max = 8
+
+[[section.param]]
+id = "tomato_length_dropoff"
+kind = "float"
+label = "Length Dropoff"
+type = "Float"
+
+[section.param.data]
+value = 0.76
+min = 0.4
+max = 0.9
+
+[[section.param]]
+id = "tomato_spread"
+kind = "float"
+label = "Spread"
+type = "Float"
+
+[section.param.data]
+value = 0.08
+min = 0
+max = 1
+
+[[section.param]]
+id = "tomato_randomness"
+kind = "float"
+label = "Randomness"
+type = "Float"
+
+[section.param.data]
+value = 0.18
+min = 0
+max = 0.6
+
+[[section.param]]
+id = "tomato_vertical_tendency"
+kind = "float"
+label = "Vertical Tendency"
+type = "Float"
+
+[section.param.data]
+value = 0.48
+min = -0.5
+max = 1
+
+[[section.param]]
+id = "tomato_branch_angle_min_degrees"
+kind = "float"
+label = "Branch Angle Min (deg)"
+type = "Float"
+
+[section.param.data]
+value = 30
+min = 0
+max = 90
+
+[[section.param]]
+id = "tomato_branch_angle_max_degrees"
+kind = "float"
+label = "Branch Angle Max (deg)"
+type = "Float"
+
+[section.param.data]
+value = 58
+min = 0
+max = 100
+
+[[section.param]]
+id = "tomato_branch_probability"
+kind = "float"
+label = "Branch Probability"
+type = "Float"
+
+[section.param.data]
+value = 0.92
+min = 0
+max = 1
+
+[[section.param]]
+id = "tomato_branch_count_min"
+kind = "uint"
+label = "Branch Count Min"
+type = "Uint"
+
+[section.param.data]
+value = 2
+min = 1
+max = 4
+
+[[section.param]]
+id = "tomato_branch_count_max"
+kind = "uint"
+label = "Branch Count Max"
+type = "Uint"
+
+[section.param.data]
+value = 3
+min = 1
+max = 5
+
+[[section.param]]
+id = "tomato_segment_length_variation"
+kind = "float"
+label = "Segment Length Variation"
+type = "Float"
+
+[section.param.data]
+value = 0.1
+min = 0
+max = 0.5
+
+[[section]]
 name = "FloraVariation"
 
 [[section.param]]

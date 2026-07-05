@@ -41,10 +41,12 @@ pub const FLORA_HEIGHT_COLOR_TABLE_LEN: usize = 12;
 pub type FloraHeightColorTables = [[u32; FLORA_HEIGHT_COLOR_TABLE_LEN]; 2];
 
 use crate::audio::SpatialSoundManager;
+use crate::branch_skeleton::BranchingDesc;
 use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
+use crate::flora::construct::gen_tomato_with_branching_desc;
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
 };
@@ -3186,6 +3188,40 @@ impl Tracer {
             ),
             (None, None) => log::warn!("Attempted to remove non-existent tree {}", tree_id),
         }
+        Ok(())
+    }
+
+    pub fn regenerate_tomato_mesh(&mut self, branching_desc: &BranchingDesc) -> Result<()> {
+        let species_idx = crate::flora::species::TOMATO_SPECIES_INDEX as usize;
+        anyhow::ensure!(
+            species_idx < self.resources.meshes.flora_meshes.len(),
+            "tomato species index {} exceeds flora mesh count {}",
+            species_idx,
+            self.resources.meshes.flora_meshes.len()
+        );
+        anyhow::ensure!(
+            species_idx < self.resources.meshes.flora_meshes_lod.len(),
+            "tomato species index {} exceeds flora LOD mesh count {}",
+            species_idx,
+            self.resources.meshes.flora_meshes_lod.len()
+        );
+
+        let (vertices_data, indices_data) = gen_tomato_with_branching_desc(branching_desc, false)?;
+        let (vertices_data_lod, indices_data_lod) =
+            gen_tomato_with_branching_desc(branching_desc, true)?;
+        let device = self.vulkan_ctx.device();
+        self.resources.meshes.flora_meshes[species_idx] = FloraMeshResources::from_data(
+            device.clone(),
+            self.allocator.clone(),
+            vertices_data,
+            indices_data,
+        );
+        self.resources.meshes.flora_meshes_lod[species_idx] = FloraMeshResources::from_data(
+            device.clone(),
+            self.allocator.clone(),
+            vertices_data_lod,
+            indices_data_lod,
+        );
         Ok(())
     }
 

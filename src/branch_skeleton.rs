@@ -3,7 +3,7 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use std::f32::consts::PI;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BranchingDesc {
     pub seed: u64,
     pub iterations: u32,

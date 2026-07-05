@@ -44,6 +44,15 @@ impl FloraMeshResources {
         generator: MeshGenerator,
     ) -> Self {
         let (vertices_data, indices_data) = generator(is_lod_used).unwrap();
+        Self::from_data(device, allocator, vertices_data, indices_data)
+    }
+
+    pub fn from_data(
+        device: Device,
+        allocator: Allocator,
+        vertices_data: Vec<Vertex>,
+        indices_data: Vec<u32>,
+    ) -> Self {
         let indices_len = indices_data.len() as u32;
 
         let vertices = Buffer::new_sized(

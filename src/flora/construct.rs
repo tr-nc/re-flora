@@ -129,11 +129,14 @@ fn round_vec3_to_ivec3(pos: Vec3) -> IVec3 {
     )
 }
 
-fn tomato_branching_desc() -> BranchingDesc {
+pub const TOMATO_BRANCHING_SEED_HIGH_BITS: u64 = 0x746f_0000_0000;
+pub const TOMATO_BRANCHING_SEED_LOW_BITS: u32 = 0x6d61_746f;
+
+pub fn default_tomato_branching_desc() -> BranchingDesc {
     BranchingDesc {
         // Fixed species-level seed: the authored tomato has procedural shape, but every placed
         // instance still shares this exact mesh until we intentionally add per-instance variants.
-        seed: 0x746f_6d61_746f,
+        seed: TOMATO_BRANCHING_SEED_HIGH_BITS | TOMATO_BRANCHING_SEED_LOW_BITS as u64,
         iterations: 5,
         initial_length: 4.0,
         length_dropoff: 0.76,
@@ -149,8 +152,8 @@ fn tomato_branching_desc() -> BranchingDesc {
     }
 }
 
-fn tomato_vine_voxels() -> Vec<IVec3> {
-    let skeleton = generate_branch_skeleton(&tomato_branching_desc());
+fn tomato_vine_voxels(branching_desc: &BranchingDesc) -> Vec<IVec3> {
+    let skeleton = generate_branch_skeleton(branching_desc);
     let mut voxels = Vec::new();
     let mut occupied = TomatoVoxelSet::new();
 
@@ -177,10 +180,13 @@ fn tomato_max_length(voxels: &[IVec3], origin: IVec3) -> u32 {
         .max(1)
 }
 
-pub fn gen_tomato(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_tomato_with_branching_desc(
+    branching_desc: &BranchingDesc,
+    is_lod_used: bool,
+) -> Result<(Vec<Vertex>, Vec<u32>)> {
     const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
 
-    let voxels = tomato_vine_voxels();
+    let voxels = tomato_vine_voxels(branching_desc);
     let max_length = tomato_max_length(&voxels, ORIGIN);
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
@@ -201,13 +207,18 @@ pub fn gen_tomato(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
     Ok((vertices, indices))
 }
 
+pub fn gen_tomato(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+    gen_tomato_with_branching_desc(&default_tomato_branching_desc(), is_lod_used)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn tomato_vine_has_one_ground_voxel() {
-        let voxels = tomato_vine_voxels();
+        let desc = default_tomato_branching_desc();
+        let voxels = tomato_vine_voxels(&desc);
 
         assert!(voxels.contains(&IVec3::ZERO));
         assert_eq!(voxels.iter().filter(|pos| pos.y == 0).count(), 1);
@@ -216,7 +227,8 @@ mod tests {
 
     #[test]
     fn tomato_vine_stays_in_half_height_scale() {
-        let voxels = tomato_vine_voxels();
+        let desc = default_tomato_branching_desc();
+        let voxels = tomato_vine_voxels(&desc);
         let max_y = voxels.iter().map(|pos| pos.y).max().unwrap_or(0);
 
         assert!((7..=13).contains(&max_y), "max_y was {max_y}");
