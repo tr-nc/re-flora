@@ -1,7 +1,8 @@
+use crate::branch_skeleton::{generate_branch_skeleton, BranchingDesc};
 use crate::tracer::voxel_encoding::append_indexed_cube_data;
 use crate::tracer::Vertex;
 use anyhow::Result;
-use glam::IVec3;
+use glam::{IVec3, Vec3};
 use std::{collections::HashSet, f32::consts::PI};
 
 fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
@@ -94,41 +95,18 @@ pub fn gen_carrot(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
 
 type TomatoVoxelSet = HashSet<(i32, i32, i32)>;
 
-fn append_unique_tomato_voxel(
-    vertices: &mut Vec<Vertex>,
-    indices: &mut Vec<u32>,
-    occupied: &mut TomatoVoxelSet,
-    pos: IVec3,
-    origin: IVec3,
-    max_length: u32,
-    is_lod_used: bool,
-) -> Result<()> {
-    if !occupied.insert((pos.x, pos.y, pos.z)) {
-        return Ok(());
+fn push_unique_tomato_voxel(voxels: &mut Vec<IVec3>, occupied: &mut TomatoVoxelSet, pos: IVec3) {
+    if occupied.insert((pos.x, pos.y, pos.z)) {
+        voxels.push(pos);
     }
-
-    let vertex_offset = vertices.len() as u32;
-    append_indexed_cube_data(
-        vertices,
-        indices,
-        pos,
-        vertex_offset,
-        origin,
-        max_length,
-        is_lod_used,
-    )
 }
 
 fn push_tomato_line(
-    vertices: &mut Vec<Vertex>,
-    indices: &mut Vec<u32>,
+    voxels: &mut Vec<IVec3>,
     occupied: &mut TomatoVoxelSet,
     start: IVec3,
     end: IVec3,
-    origin: IVec3,
-    max_length: u32,
-    is_lod_used: bool,
-) -> Result<()> {
+) {
     let delta = end - start;
     let steps = delta.x.abs().max(delta.y.abs()).max(delta.z.abs()).max(1);
 
@@ -139,74 +117,110 @@ fn push_tomato_line(
             (start.y as f32 + delta.y as f32 * t).round() as i32,
             (start.z as f32 + delta.z as f32 * t).round() as i32,
         );
-        append_unique_tomato_voxel(
-            vertices,
-            indices,
-            occupied,
+        push_unique_tomato_voxel(voxels, occupied, pos);
+    }
+}
+
+fn round_vec3_to_ivec3(pos: Vec3) -> IVec3 {
+    IVec3::new(
+        pos.x.round() as i32,
+        pos.y.round() as i32,
+        pos.z.round() as i32,
+    )
+}
+
+fn tomato_branching_desc() -> BranchingDesc {
+    BranchingDesc {
+        // Fixed species-level seed: the authored tomato has procedural shape, but every placed
+        // instance still shares this exact mesh until we intentionally add per-instance variants.
+        seed: 0x746f_6d61_746f,
+        iterations: 5,
+        initial_length: 4.0,
+        length_dropoff: 0.76,
+        spread: 0.08,
+        randomness: 0.18,
+        vertical_tendency: 0.48,
+        branch_angle_min: 30.0_f32.to_radians(),
+        branch_angle_max: 58.0_f32.to_radians(),
+        branch_probability: 0.92,
+        branch_count_min: 2,
+        branch_count_max: 3,
+        segment_length_variation: 0.10,
+    }
+}
+
+fn tomato_vine_voxels() -> Vec<IVec3> {
+    let skeleton = generate_branch_skeleton(&tomato_branching_desc());
+    let mut voxels = Vec::new();
+    let mut occupied = TomatoVoxelSet::new();
+
+    // First pass: only the vine skeleton. Keep the root and every branch one voxel thick so the
+    // silhouette is easy to tune before adding leaves or fruit in later passes.
+    for segment in skeleton.segments {
+        push_tomato_line(
+            &mut voxels,
+            &mut occupied,
+            round_vec3_to_ivec3(segment.start),
+            round_vec3_to_ivec3(segment.end),
+        );
+    }
+
+    voxels
+}
+
+fn tomato_max_length(voxels: &[IVec3], origin: IVec3) -> u32 {
+    voxels
+        .iter()
+        .map(|pos| (*pos - origin).as_vec3().length().ceil() as u32)
+        .max()
+        .unwrap_or(1)
+        .max(1)
+}
+
+pub fn gen_tomato(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+    const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
+
+    let voxels = tomato_vine_voxels();
+    let max_length = tomato_max_length(&voxels, ORIGIN);
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    for pos in voxels {
+        let vertex_offset = vertices.len() as u32;
+        append_indexed_cube_data(
+            &mut vertices,
+            &mut indices,
             pos,
-            origin,
+            vertex_offset,
+            ORIGIN,
             max_length,
             is_lod_used,
         )?;
     }
 
-    Ok(())
+    Ok((vertices, indices))
 }
 
-pub fn gen_tomato(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
-    const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
-    const MAX_LENGTH: u32 = 14;
-    const MAIN_STEM_TOP_Y: i32 = 9;
-    const BRANCHES: &[(IVec3, IVec3)] = &[
-        (IVec3::new(0, 3, 0), IVec3::new(-5, 5, -1)),
-        (IVec3::new(0, 4, 0), IVec3::new(5, 6, 1)),
-        (IVec3::new(0, 5, 0), IVec3::new(-7, 7, 2)),
-        (IVec3::new(0, 6, 0), IVec3::new(7, 8, -2)),
-        (IVec3::new(0, 7, 0), IVec3::new(-4, 10, 0)),
-        (IVec3::new(0, 8, 0), IVec3::new(4, 11, 2)),
-        (IVec3::new(0, 9, 0), IVec3::new(0, 12, 1)),
-    ];
-    const SECONDARY_BRANCHES: &[(IVec3, IVec3)] = &[
-        (IVec3::new(-4, 4, -1), IVec3::new(-7, 5, -2)),
-        (IVec3::new(4, 5, 1), IVec3::new(8, 6, 1)),
-        (IVec3::new(-5, 7, 2), IVec3::new(-9, 8, 3)),
-        (IVec3::new(5, 7, -2), IVec3::new(9, 8, -3)),
-        (IVec3::new(-3, 10, 0), IVec3::new(-6, 11, 1)),
-        (IVec3::new(3, 10, 2), IVec3::new(6, 12, 2)),
-    ];
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
-    let mut occupied = TomatoVoxelSet::new();
+    #[test]
+    fn tomato_vine_has_one_ground_voxel() {
+        let voxels = tomato_vine_voxels();
 
-    // First pass: only the vine skeleton. Keep the root and every branch one voxel thick so the
-    // silhouette is easy to tune before adding leaves or fruit in later passes.
-    for y in 0..=MAIN_STEM_TOP_Y {
-        append_unique_tomato_voxel(
-            &mut vertices,
-            &mut indices,
-            &mut occupied,
-            IVec3::new(0, y, 0),
-            ORIGIN,
-            MAX_LENGTH,
-            is_lod_used,
-        )?;
+        assert!(voxels.contains(&IVec3::ZERO));
+        assert_eq!(voxels.iter().filter(|pos| pos.y == 0).count(), 1);
+        assert!(voxels.iter().all(|pos| pos.y >= 0));
     }
 
-    for &(start, end) in BRANCHES.iter().chain(SECONDARY_BRANCHES.iter()) {
-        push_tomato_line(
-            &mut vertices,
-            &mut indices,
-            &mut occupied,
-            start,
-            end,
-            ORIGIN,
-            MAX_LENGTH,
-            is_lod_used,
-        )?;
-    }
+    #[test]
+    fn tomato_vine_stays_in_half_height_scale() {
+        let voxels = tomato_vine_voxels();
+        let max_y = voxels.iter().map(|pos| pos.y).max().unwrap_or(0);
 
-    Ok((vertices, indices))
+        assert!((7..=13).contains(&max_y), "max_y was {max_y}");
+    }
 }
 
 pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
