@@ -39,7 +39,7 @@ pub(super) struct TreeVariationConfig {
     pub branch_probability_variance: f32,
     pub leaves_size_level_variance: f32,
     pub iterations_variance: f32,
-    pub tree_height_variance: f32,
+    pub initial_length_variance: f32,
     pub length_dropoff_variance: f32,
     pub thickness_reduction_variance: f32,
 }
@@ -56,7 +56,7 @@ impl Default for TreeVariationConfig {
             branch_probability_variance: 0.0,
             leaves_size_level_variance: 0.0,
             iterations_variance: 0.0,
-            tree_height_variance: 0.0,
+            initial_length_variance: 0.0,
             length_dropoff_variance: 0.0,
             thickness_reduction_variance: 0.0,
         }
@@ -97,8 +97,8 @@ impl TreeVariationConfig {
 
         changed |= ui
             .add(
-                egui::Slider::new(&mut self.tree_height_variance, 0.0..=1.0)
-                    .text("Height Variance"),
+                egui::Slider::new(&mut self.initial_length_variance, 0.0..=1.0)
+                    .text("Initial Length Variance"),
             )
             .changed();
         changed |= ui
@@ -511,7 +511,7 @@ impl TreePlacementService {
             tree_desc.trunk_thickness,
             tree_desc.trunk_thickness_min,
             tree_desc.thickness_reduction,
-            tree_desc.iterations,
+            tree_desc.branching.iterations,
             radius_min,
             radius_max,
             length_min,
@@ -542,8 +542,11 @@ impl TreePlacementService {
             positions.sort_by_key(|pos| (pos.x, pos.y, pos.z));
             positions
         };
-        let quantized_apple_positions =
-            quantized_apple_positions(tree_desc.seed, tree_pos * 256.0, &quantized_leaf_positions);
+        let quantized_apple_positions = quantized_apple_positions(
+            tree_desc.branching.seed,
+            tree_pos * 256.0,
+            &quantized_leaf_positions,
+        );
 
         CompiledTreePlacement {
             trunk_voxel_edit: VoxelEdit::StampRoundCones {
@@ -750,7 +753,7 @@ impl App {
 
         for tree_pos in tree_positions_3d.iter() {
             let mut tree_desc = self.debug_tree_desc.clone();
-            tree_desc.seed = rng.random_range(1..10000);
+            tree_desc.branching.seed = rng.random_range(1..10000);
 
             self.apply_tree_variations(&mut tree_desc, &mut rng);
             self.apply_tree_placement(TreePlacementEdit {
@@ -982,18 +985,18 @@ impl App {
         }
 
         if config.spread_variance > 0.0 {
-            tree_desc.spread *=
+            tree_desc.branching.spread *=
                 1.0 + rng.random_range(-config.spread_variance..=config.spread_variance);
         }
 
         if config.randomness_variance > 0.0 {
-            tree_desc.randomness = (tree_desc.randomness
+            tree_desc.branching.randomness = (tree_desc.branching.randomness
                 + rng.random_range(-config.randomness_variance..=config.randomness_variance))
             .clamp(0.0, 1.0);
         }
 
         if config.vertical_tendency_variance > 0.0 {
-            tree_desc.vertical_tendency = (tree_desc.vertical_tendency
+            tree_desc.branching.vertical_tendency = (tree_desc.branching.vertical_tendency
                 + rng.random_range(
                     -config.vertical_tendency_variance..=config.vertical_tendency_variance,
                 ))
@@ -1001,20 +1004,21 @@ impl App {
         }
 
         if config.branch_probability_variance > 0.0 {
-            tree_desc.branch_probability = (tree_desc.branch_probability
+            tree_desc.branching.branch_probability = (tree_desc.branching.branch_probability
                 + rng.random_range(
                     -config.branch_probability_variance..=config.branch_probability_variance,
                 ))
             .clamp(0.0, 1.0);
         }
 
-        if config.tree_height_variance > 0.0 {
-            tree_desc.tree_height *=
-                1.0 + rng.random_range(-config.tree_height_variance..=config.tree_height_variance);
+        if config.initial_length_variance > 0.0 {
+            tree_desc.branching.initial_length *= 1.0
+                + rng
+                    .random_range(-config.initial_length_variance..=config.initial_length_variance);
         }
 
         if config.length_dropoff_variance > 0.0 {
-            tree_desc.length_dropoff = (tree_desc.length_dropoff
+            tree_desc.branching.length_dropoff = (tree_desc.branching.length_dropoff
                 + rng.random_range(
                     -config.length_dropoff_variance..=config.length_dropoff_variance,
                 ))
@@ -1032,8 +1036,8 @@ impl App {
         if config.iterations_variance > 0.0 {
             let variation =
                 rng.random_range(-config.iterations_variance..=config.iterations_variance);
-            tree_desc.iterations =
-                ((tree_desc.iterations as f32 + variation).round() as u32).clamp(1, 12);
+            tree_desc.branching.iterations =
+                ((tree_desc.branching.iterations as f32 + variation).round() as u32).clamp(1, 12);
         }
 
         if config.leaves_size_level_variance > 0.0 {

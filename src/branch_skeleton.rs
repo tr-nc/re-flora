@@ -30,6 +30,34 @@ pub struct BranchingDesc {
     pub continue_main_axis: bool,
 }
 
+impl BranchingDesc {
+    pub fn normalize(&mut self) {
+        self.iterations = self.iterations.max(1);
+        self.branch_start_fraction = self.branch_start_fraction.clamp(0.0, 1.0);
+        self.branch_end_fraction = self
+            .branch_end_fraction
+            .clamp(self.branch_start_fraction, 1.0);
+        self.initial_length = self.initial_length.max(0.0);
+        self.length_dropoff = self.length_dropoff.max(0.0);
+        self.spread = self.spread.max(0.0);
+        self.randomness = self.randomness.max(0.0);
+        self.branch_probability = self.branch_probability.clamp(0.0, 1.0);
+        if self.branch_count_min > self.branch_count_max {
+            self.branch_count_max = self.branch_count_min;
+        }
+        self.segment_length_variation = self.segment_length_variation.max(0.0);
+        if self.branch_angle_min > self.branch_angle_max {
+            self.branch_angle_max = self.branch_angle_min;
+        }
+    }
+
+    pub fn normalized(&self) -> Self {
+        let mut desc = self.clone();
+        desc.normalize();
+        desc
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BranchSegmentRole {
     MainAxis,
@@ -65,12 +93,13 @@ pub fn generate_branch_skeleton_with_rng(
     desc: &BranchingDesc,
     rng: &mut impl RngExt,
 ) -> BranchSkeleton {
+    let desc = desc.normalized();
     let mut skeleton = BranchSkeleton::default();
     recurse(
         Vec3::ZERO,
         Vec3::Y,
         0,
-        desc,
+        &desc,
         desc.initial_length,
         &mut skeleton,
         rng,

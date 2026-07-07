@@ -465,7 +465,7 @@ Options:
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
-  --tree-bench-min-thickness  Sweep Min Trunk Thickness instead of Tree Height
+  --tree-bench-min-thickness  Sweep Min Trunk Thickness instead of branch initial length
   --tree-bench-rapid          Do not wait for deferred rebuilds between samples
   --authored-flora-bench      Run authored special-flora paint benchmark and exit
   --authored-flora-bench-samples <N>

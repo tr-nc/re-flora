@@ -6,7 +6,10 @@ use crate::app::curve_preview::{
     draw_curve_preview, smoothstep_variant_response, CurvePreviewMarker,
 };
 use crate::app::gui_config_loader::GuiConfigLoader;
-use crate::app::gui_config_model::{GuiConfigFile, GuiParamKind, GuiParamValue};
+use crate::app::gui_config_model::{GuiConfigFile, GuiParam, GuiParamKind, GuiParamValue};
+use crate::branch_skeleton::BranchingDesc;
+use crate::branching_gui::{edit_branching_desc, BranchingGuiSpec};
+use crate::flora::construct::default_tomato_branching_desc;
 use crate::wind::WindSource;
 use egui::Color32;
 
@@ -836,14 +839,261 @@ fn render_wind_sources_gui(
     adjustables.wind_source_count.value = wind_sources.len() as u32;
 }
 
+const TOMATO_BRANCHING_PARAM_IDS: &[&str] = &[
+    "tomato_seed_offset",
+    "tomato_iterations",
+    "tomato_branch_start_fraction",
+    "tomato_branch_end_fraction",
+    "tomato_initial_length",
+    "tomato_length_dropoff",
+    "tomato_spread",
+    "tomato_randomness",
+    "tomato_vertical_tendency",
+    "tomato_branch_angle_min_degrees",
+    "tomato_branch_angle_max_degrees",
+    "tomato_branch_probability",
+    "tomato_branch_count_min",
+    "tomato_branch_count_max",
+    "tomato_segment_length_variation",
+    "tomato_continue_main_axis",
+];
+
+fn is_tomato_branching_param_id(id: &str) -> bool {
+    TOMATO_BRANCHING_PARAM_IDS.contains(&id)
+}
+
+fn tomato_branching_gui_spec() -> BranchingGuiSpec {
+    let default_desc = default_tomato_branching_desc();
+    BranchingGuiSpec {
+        iterations_min: 1,
+        iterations_max: 7,
+        initial_length_min: 1.0,
+        initial_length_max: 8.0,
+        length_dropoff_min: 0.4,
+        length_dropoff_max: 0.9,
+        segment_length_variation_min: 0.0,
+        segment_length_variation_max: 0.5,
+        spread_min: 0.0,
+        spread_max: 1.0,
+        randomness_min: 0.0,
+        randomness_max: 0.6,
+        vertical_tendency_min: -0.5,
+        vertical_tendency_max: 1.0,
+        branch_count_min_min: 1,
+        branch_count_min_max: 4,
+        branch_count_max_min: 1,
+        branch_count_max_max: 5,
+        branch_angle_min_degrees_max: 90.0,
+        branch_angle_max_degrees_max: 100.0,
+        seed_base: default_desc.seed,
+        seed_offset_max: Some(10_000),
+        seed_label: "Seed Offset",
+    }
+}
+
+pub(crate) fn tomato_branching_desc_from_adjustables(
+    adjustables: &GuiAdjustables,
+) -> BranchingDesc {
+    let default_desc = default_tomato_branching_desc();
+    let branch_count_min = adjustables.tomato_branch_count_min.value.max(1);
+    let branch_count_max = adjustables
+        .tomato_branch_count_max
+        .value
+        .max(branch_count_min);
+    let branch_angle_min_degrees = adjustables.tomato_branch_angle_min_degrees.value;
+    let branch_angle_max_degrees = adjustables
+        .tomato_branch_angle_max_degrees
+        .value
+        .max(branch_angle_min_degrees);
+    let branch_start_fraction = adjustables
+        .tomato_branch_start_fraction
+        .value
+        .clamp(0.0, 1.0);
+    let branch_end_fraction = adjustables
+        .tomato_branch_end_fraction
+        .value
+        .clamp(branch_start_fraction, 1.0);
+
+    let mut branching = BranchingDesc {
+        seed: default_desc
+            .seed
+            .wrapping_add(adjustables.tomato_seed_offset.value as u64),
+        iterations: adjustables.tomato_iterations.value.max(1),
+        branch_start_fraction,
+        branch_end_fraction,
+        initial_length: adjustables.tomato_initial_length.value.max(0.1),
+        length_dropoff: adjustables.tomato_length_dropoff.value.clamp(0.1, 1.0),
+        spread: adjustables.tomato_spread.value.max(0.0),
+        randomness: adjustables.tomato_randomness.value.max(0.0),
+        vertical_tendency: adjustables.tomato_vertical_tendency.value,
+        branch_angle_min: branch_angle_min_degrees.to_radians(),
+        branch_angle_max: branch_angle_max_degrees.to_radians(),
+        branch_probability: adjustables.tomato_branch_probability.value.clamp(0.0, 1.0),
+        branch_count_min,
+        branch_count_max,
+        segment_length_variation: adjustables.tomato_segment_length_variation.value.max(0.0),
+        continue_main_axis: adjustables.tomato_continue_main_axis.value,
+    };
+    branching.normalize();
+    branching
+}
+
+fn write_tomato_branching_desc_to_adjustables(
+    desc: &BranchingDesc,
+    adjustables: &mut GuiAdjustables,
+) {
+    let desc = desc.normalized();
+    let default_desc = default_tomato_branching_desc();
+    adjustables.tomato_seed_offset.value =
+        desc.seed.saturating_sub(default_desc.seed).min(10_000) as u32;
+    adjustables.tomato_iterations.value = desc.iterations.clamp(1, 7);
+    adjustables.tomato_branch_start_fraction.value = desc.branch_start_fraction.clamp(0.0, 1.0);
+    adjustables.tomato_branch_end_fraction.value = desc
+        .branch_end_fraction
+        .clamp(adjustables.tomato_branch_start_fraction.value, 1.0);
+    adjustables.tomato_initial_length.value = desc.initial_length.clamp(1.0, 8.0);
+    adjustables.tomato_length_dropoff.value = desc.length_dropoff.clamp(0.4, 0.9);
+    adjustables.tomato_spread.value = desc.spread.clamp(0.0, 1.0);
+    adjustables.tomato_randomness.value = desc.randomness.clamp(0.0, 0.6);
+    adjustables.tomato_vertical_tendency.value = desc.vertical_tendency.clamp(-0.5, 1.0);
+    adjustables.tomato_branch_angle_min_degrees.value =
+        desc.branch_angle_min.to_degrees().clamp(0.0, 90.0);
+    adjustables.tomato_branch_angle_max_degrees.value = desc
+        .branch_angle_max
+        .to_degrees()
+        .clamp(adjustables.tomato_branch_angle_min_degrees.value, 100.0);
+    adjustables.tomato_branch_probability.value = desc.branch_probability.clamp(0.0, 1.0);
+    adjustables.tomato_branch_count_min.value = desc.branch_count_min.clamp(1, 4);
+    adjustables.tomato_branch_count_max.value = desc
+        .branch_count_max
+        .clamp(adjustables.tomato_branch_count_min.value, 5);
+    adjustables.tomato_segment_length_variation.value =
+        desc.segment_length_variation.clamp(0.0, 0.5);
+    adjustables.tomato_continue_main_axis.value = desc.continue_main_axis;
+}
+
+fn render_gui_param_from_config(
+    ui: &mut egui::Ui,
+    param: &GuiParam,
+    section_name: &str,
+    adjustables: &mut GuiAdjustables,
+) {
+    match (&param.kind, &param.value) {
+        (GuiParamKind::Float, GuiParamValue::Float { min, max, .. }) => {
+            let field = GuiAdjustables::get_float_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing FloatParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            let range = min.unwrap_or(0.0)..=max.unwrap_or(1.0);
+            ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
+        }
+        (GuiParamKind::Int, GuiParamValue::Int { min, max, .. }) => {
+            let field = GuiAdjustables::get_int_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing IntParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            let range = min.unwrap_or(0)..=max.unwrap_or(100);
+            ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
+        }
+        (GuiParamKind::Uint, GuiParamValue::Uint { min, max, .. }) => {
+            let field = GuiAdjustables::get_uint_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing UintParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            let range = min.unwrap_or(0)..=max.unwrap_or(100);
+            ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
+        }
+        (GuiParamKind::Choice, GuiParamValue::Choice { options, .. }) => {
+            let field = GuiAdjustables::get_choice_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing ChoiceParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            let selected_text = options
+                .get(field.value as usize)
+                .map(String::as_str)
+                .unwrap_or("Invalid choice");
+            egui::ComboBox::from_label(&param.label)
+                .selected_text(selected_text)
+                .show_ui(ui, |ui| {
+                    for (index, option) in options.iter().enumerate() {
+                        ui.selectable_value(&mut field.value, index as u32, option);
+                    }
+                });
+        }
+        (GuiParamKind::String, GuiParamValue::String { .. }) => {
+            let field = GuiAdjustables::get_string_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing StringParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            ui.horizontal(|ui| {
+                ui.label(&param.label);
+                ui.text_edit_singleline(&mut field.value);
+            });
+        }
+        (GuiParamKind::Bool, GuiParamValue::Bool { .. }) => {
+            let field = GuiAdjustables::get_bool_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing BoolParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            ui.checkbox(&mut field.value, &param.label);
+        }
+        (GuiParamKind::Color, GuiParamValue::Color { .. }) => {
+            let field = GuiAdjustables::get_color_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing ColorParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            ui.horizontal(|ui| {
+                ui.label(&param.label);
+                ui.color_edit_button_srgba(&mut field.value);
+            });
+        }
+        _ => unreachable!(
+            "GUI param '{}' (section '{}') has kind that is not supported by the GUI renderer",
+            param.id, section_name
+        ),
+    }
+}
+
+fn render_tomato_vine_structure_gui(
+    ui: &mut egui::Ui,
+    section_params: &[GuiParam],
+    adjustables: &mut GuiAdjustables,
+) {
+    let mut branching = tomato_branching_desc_from_adjustables(adjustables);
+    if edit_branching_desc(ui, &mut branching, &tomato_branching_gui_spec()) {
+        write_tomato_branching_desc_to_adjustables(&branching, adjustables);
+    }
+
+    ui.separator();
+    ui.heading("Tomato Stem / Fruit");
+    for param in section_params {
+        if is_tomato_branching_param_id(&param.id) {
+            continue;
+        }
+        render_gui_param_from_config(ui, param, "Tomato Vine Structure", adjustables);
+    }
+}
+
 pub fn render_gui_from_config(
     ui: &mut egui::Ui,
     config: &GuiConfigFile,
     adjustables: &mut GuiAdjustables,
     wind_sources: &mut Vec<WindSourceGuiValues>,
 ) {
-    use crate::app::gui_config_model::GuiParamKind;
-
     for section in &config.section {
         ui.collapsing(&section.name, |ui| {
             if section.name == "Wind" {
@@ -854,106 +1104,14 @@ pub fn render_gui_from_config(
                 render_flora_gui(ui, adjustables);
                 return;
             }
-
-            for param in &section.param {
-                match (&param.kind, &param.value) {
-                    (GuiParamKind::Float, GuiParamValue::Float { min, max, .. }) => {
-                        let field = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing FloatParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        let range = min.unwrap_or(0.0)..=max.unwrap_or(1.0);
-                        ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
-                    }
-                    (GuiParamKind::Int, GuiParamValue::Int { min, max, .. }) => {
-                        let field = GuiAdjustables::get_int_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing IntParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        let range = min.unwrap_or(0)..=max.unwrap_or(100);
-                        ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
-                    }
-                    (GuiParamKind::Uint, GuiParamValue::Uint { min, max, .. }) => {
-                        let field = GuiAdjustables::get_uint_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing UintParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        let range = min.unwrap_or(0)..=max.unwrap_or(100);
-                        ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
-                    }
-                    (GuiParamKind::Choice, GuiParamValue::Choice { options, .. }) => {
-                        let field = GuiAdjustables::get_choice_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing ChoiceParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        let selected_text = options
-                            .get(field.value as usize)
-                            .map(String::as_str)
-                            .unwrap_or("Invalid choice");
-                        egui::ComboBox::from_label(&param.label)
-                            .selected_text(selected_text)
-                            .show_ui(ui, |ui| {
-                                for (index, option) in options.iter().enumerate() {
-                                    ui.selectable_value(&mut field.value, index as u32, option);
-                                }
-                            });
-                    }
-                    (GuiParamKind::String, GuiParamValue::String { .. }) => {
-                        let field = GuiAdjustables::get_string_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing StringParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        ui.horizontal(|ui| {
-                            ui.label(&param.label);
-                            ui.text_edit_singleline(&mut field.value);
-                        });
-                    }
-                    (GuiParamKind::Bool, GuiParamValue::Bool { .. }) => {
-                        let field = GuiAdjustables::get_bool_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing BoolParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        ui.checkbox(&mut field.value, &param.label);
-                    }
-                    (GuiParamKind::Color, GuiParamValue::Color { .. }) => {
-                        let field = GuiAdjustables::get_color_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing ColorParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        ui.horizontal(|ui| {
-                            ui.label(&param.label);
-                            ui.color_edit_button_srgba(&mut field.value);
-                        });
-                    }
-                    _ => unreachable!(
-                        "GUI param '{}' (section '{}') has kind that is not supported by the GUI renderer",
-                        param.id,
-                        section.name
-                    ),
-                }
+            if section.name == "Tomato Vine Structure" {
+                render_tomato_vine_structure_gui(ui, &section.param, adjustables);
+                return;
             }
 
+            for param in &section.param {
+                render_gui_param_from_config(ui, param, &section.name, adjustables);
+            }
         });
     }
 }

@@ -1,4 +1,5 @@
 use crate::branch_skeleton::{generate_branch_skeleton_with_rng, BranchingDesc};
+use crate::branching_gui::{edit_branching_desc, BranchingGuiSpec};
 use crate::geom::RoundCone;
 use glam::Vec3;
 use rand::rngs::StdRng;
@@ -7,28 +8,13 @@ use std::f32::consts::PI;
 
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
+    pub branching: BranchingDesc,
     pub size: f32,
     pub trunk_thickness: f32,
     pub trunk_thickness_min: f32,
-    pub spread: f32,
-    pub randomness: f32,
-    pub vertical_tendency: f32,
-    pub branch_angle_min: f32,
-    pub branch_angle_max: f32,
-    pub branch_probability: f32,
-    pub branch_count_min: u32,
-    pub branch_count_max: u32,
-    pub branch_start_fraction: f32,
-    pub branch_end_fraction: f32,
-    pub continue_main_axis: bool,
+    pub thickness_reduction: f32,
     pub leaves_size_level: u32,
     pub leaf_offset: u32,
-    pub iterations: u32,
-    pub segment_length_variation: f32,
-    pub tree_height: f32,
-    pub length_dropoff: f32,
-    pub thickness_reduction: f32,
-    pub seed: u64,
     pub enable_subdivision: bool,
     pub subdivision_count_min: u32,
     pub subdivision_count_max: u32,
@@ -36,47 +22,42 @@ pub struct TreeDesc {
     pub subdivision_randomness_progression: f32,
 }
 
+pub fn default_tree_branching_desc() -> BranchingDesc {
+    BranchingDesc {
+        seed: 122,
+        iterations: 7,
+        branch_start_fraction: 1.0 / 6.0,
+        branch_end_fraction: 1.0,
+        initial_length: 48.0,
+        length_dropoff: 0.78,
+        spread: 0.0,
+        randomness: 0.33,
+        vertical_tendency: 0.47,
+        branch_angle_min: 24.0 * PI / 180.0,
+        branch_angle_max: 48.0 * PI / 180.0,
+        branch_probability: 0.82,
+        branch_count_min: 2,
+        branch_count_max: 3,
+        segment_length_variation: 0.12,
+        continue_main_axis: false,
+    }
+}
+
 impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
-            // Basic Properties
+            branching: default_tree_branching_desc(),
             size: 30.0,
             trunk_thickness: 0.40,
             trunk_thickness_min: 1.05,
-            iterations: 7,
-
-            // Tree Shape
-            tree_height: 6.0,
-            spread: 0.0,
-            vertical_tendency: 0.47,
-            segment_length_variation: 0.12,
-            length_dropoff: 0.78,
             thickness_reduction: 0.61,
-
-            // Branching Control
-            branch_probability: 0.82,
-            branch_count_min: 2,
-            branch_count_max: 3,
-            branch_start_fraction: 1.0 / 6.0,
-            branch_end_fraction: 1.0,
-            continue_main_axis: false,
-            branch_angle_min: 24.0 * PI / 180.0,
-            branch_angle_max: 48.0 * PI / 180.0,
-
-            // Subdivision
+            leaves_size_level: 5,
+            leaf_offset: 1,
             enable_subdivision: true,
             subdivision_count_min: 6,
             subdivision_count_max: 9,
             subdivision_randomness: 2.6,
             subdivision_randomness_progression: 3.0,
-
-            // Variation
-            randomness: 0.33,
-            leaves_size_level: 5,
-            leaf_offset: 1,
-
-            // Seed
-            seed: 122,
         }
     }
 }
@@ -86,7 +67,7 @@ impl TreeDesc {
     pub fn edit_by_gui(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
 
-        ui.heading("Basic Properties");
+        ui.heading("Tree Renderer");
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.size, 0.1..=50.0)
@@ -104,37 +85,6 @@ impl TreeDesc {
             )
             .changed();
         changed |= ui
-            .add(egui::Slider::new(&mut self.iterations, 1..=12).text("Iterations"))
-            .changed();
-
-        ui.separator();
-        ui.heading("Tree Shape");
-
-        changed |= ui
-            .add(egui::Slider::new(&mut self.tree_height, 0.5..=50.0).text("Tree Height"))
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut self.spread, 0.0..=2.0).text("Spread"))
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.vertical_tendency, -1.0..=1.0)
-                    .text("Vertical Tendency (upward/downward)"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.segment_length_variation, 0.0..=1.0)
-                    .text("Segment Length Variation"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.length_dropoff, 0.1..=1.0)
-                    .text("Length Dropoff per Level"),
-            )
-            .changed();
-        changed |= ui
             .add(
                 egui::Slider::new(&mut self.thickness_reduction, 0.0..=1.0)
                     .text("Thickness Reduction"),
@@ -142,68 +92,13 @@ impl TreeDesc {
             .changed();
 
         ui.separator();
-        ui.heading("Branching Control");
-
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.branch_probability, 0.0..=1.0)
-                    .text("Branch Probability"),
-            )
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut self.branch_count_min, 1..=5).text("Min Branches"))
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut self.branch_count_max, 1..=8).text("Max Branches"))
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.branch_start_fraction, 0.0..=1.0)
-                    .text("Branch Start Fraction"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.branch_end_fraction, 0.0..=1.0)
-                    .text("Branch End Fraction"),
-            )
-            .changed();
-        changed |= ui
-            .checkbox(&mut self.continue_main_axis, "Continue Main Axis")
-            .changed();
-
-        let mut angle_min_deg = self.branch_angle_min.to_degrees();
-        let mut angle_max_deg = self.branch_angle_max.to_degrees();
-
-        changed |= ui
-            .add(egui::Slider::new(&mut angle_min_deg, 0.0..=90.0).text("Min Branch Angle (deg)"))
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut angle_max_deg, 0.0..=120.0).text("Max Branch Angle (deg)"))
-            .changed();
-
-        if changed {
-            self.branch_angle_min = angle_min_deg.to_radians();
-            self.branch_angle_max = angle_max_deg.to_radians();
-            if self.branch_angle_min > self.branch_angle_max {
-                self.branch_angle_max = self.branch_angle_min;
-            }
-            if self.branch_count_min > self.branch_count_max {
-                self.branch_count_max = self.branch_count_min;
-            }
-            if self.branch_start_fraction > self.branch_end_fraction {
-                self.branch_end_fraction = self.branch_start_fraction;
-            }
-        }
+        changed |= edit_branching_desc(ui, &mut self.branching, &BranchingGuiSpec::default());
 
         ui.separator();
         ui.heading("Subdivision");
-
-        // nEW: subdivision toggle
         changed |= ui
             .checkbox(&mut self.enable_subdivision, "Enable Subdivision")
             .changed();
-
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.subdivision_count_min, 1..=10).text("Min Subdivisions"),
@@ -232,11 +127,7 @@ impl TreeDesc {
         }
 
         ui.separator();
-        ui.heading("Variation");
-
-        changed |= ui
-            .add(egui::Slider::new(&mut self.randomness, 0.0..=1.0).text("Randomness"))
-            .changed();
+        ui.heading("Leaves");
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.leaves_size_level, 0..=8)
@@ -245,15 +136,8 @@ impl TreeDesc {
             .changed();
         changed |= ui
             .add(
-                egui::Slider::new(&mut self.leaf_offset, 0..=self.iterations.max(1))
+                egui::Slider::new(&mut self.leaf_offset, 0..=self.branching.iterations.max(1))
                     .text("Leaf Offset (levels from end)"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::DragValue::new(&mut self.seed)
-                    .speed(1.0)
-                    .prefix("Seed: "),
             )
             .changed();
 
@@ -287,39 +171,6 @@ impl Tree {
         &self.built_objects.leaf_positions
     }
 
-    fn initial_segment_length(desc: &TreeDesc) -> f32 {
-        let d = desc.length_dropoff;
-        // if d is almost 1.0, fall back to the old average-per-level method
-        if (1.0 - d).abs() < 1e-5 {
-            return desc.tree_height * desc.size / (desc.iterations as f32).max(1.0);
-        }
-        let iterations_f = desc.iterations as f32;
-        let numerator = desc.tree_height * desc.size * (1.0 - d);
-        let denominator = 1.0 - d.powf(iterations_f);
-        numerator / denominator
-    }
-
-    fn branching_desc(desc: &TreeDesc, initial_length: f32) -> BranchingDesc {
-        BranchingDesc {
-            seed: desc.seed,
-            iterations: desc.iterations,
-            initial_length,
-            length_dropoff: desc.length_dropoff,
-            spread: desc.spread,
-            randomness: desc.randomness,
-            vertical_tendency: desc.vertical_tendency,
-            branch_angle_min: desc.branch_angle_min,
-            branch_angle_max: desc.branch_angle_max,
-            branch_probability: desc.branch_probability,
-            branch_count_min: desc.branch_count_min,
-            branch_count_max: desc.branch_count_max,
-            segment_length_variation: desc.segment_length_variation,
-            branch_start_fraction: desc.branch_start_fraction,
-            branch_end_fraction: desc.branch_end_fraction,
-            continue_main_axis: desc.continue_main_axis,
-        }
-    }
-
     fn thickness_at_level(desc: &TreeDesc, base_thickness: f32, level: u32) -> f32 {
         let mut thickness = base_thickness;
         for current_level in 0..level {
@@ -333,13 +184,12 @@ impl Tree {
     }
 
     fn build(desc: &TreeDesc) -> BuiltObjects {
-        let mut rng = StdRng::seed_from_u64(desc.seed);
-        let base_length = Self::initial_segment_length(desc);
+        let branching_desc = desc.branching.normalized();
+        let mut rng = StdRng::seed_from_u64(branching_desc.seed);
         let base_thickness = desc.trunk_thickness * desc.size;
-        let branching_desc = Self::branching_desc(desc, base_length);
         let skeleton = generate_branch_skeleton_with_rng(&branching_desc, &mut rng);
 
-        let leaf_level = desc.iterations.saturating_sub(desc.leaf_offset);
+        let leaf_level = branching_desc.iterations.saturating_sub(desc.leaf_offset);
         let leaf_positions = skeleton
             .nodes
             .iter()
@@ -390,7 +240,7 @@ fn subdivide_trunk_segment(
     }
 
     // 0.0 at root, 1.0 at the deepest level
-    let t = (level as f32) / (desc.iterations as f32).max(1.0);
+    let t = (level as f32) / (desc.branching.iterations as f32).max(1.0);
 
     // Shape the curve with an exponent:
     //  - 1.0 => roughly linear

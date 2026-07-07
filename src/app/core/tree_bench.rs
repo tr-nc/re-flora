@@ -21,7 +21,7 @@ pub(super) enum TreeBenchMode {
 struct TreeBenchActiveSample {
     sample: u32,
     start: Instant,
-    tree_height: f32,
+    initial_length: f32,
     min_trunk_thickness: f32,
     seed: u64,
 }
@@ -60,11 +60,11 @@ impl TreeBench {
             let elapsed_ms = active.start.elapsed().as_secs_f32() * 1000.0;
             self.results.push(elapsed_ms);
             log::info!(
-                "[PERF][TREE_BENCH] sample {}/{} replace_deferred_total {:.2}ms tree_height {:.2} min_trunk_thickness {:.3} seed {}",
+                "[PERF][TREE_BENCH] sample {}/{} replace_deferred_total {:.2}ms initial_length {:.2} min_trunk_thickness {:.3} seed {}",
                 active.sample,
                 self.samples,
                 elapsed_ms,
-                active.tree_height,
+                active.initial_length,
                 active.min_trunk_thickness,
                 active.seed,
             );
@@ -89,13 +89,13 @@ impl TreeBench {
         };
         match self.mode {
             TreeBenchMode::TreeHeight => {
-                tree_desc.tree_height = 4.0 + t * 8.0;
+                tree_desc.branching.initial_length = 32.0 + t * 64.0;
             }
             TreeBenchMode::MinTrunkThickness => {
                 tree_desc.trunk_thickness_min = 1.05 + t * 0.95;
             }
         }
-        tree_desc.seed = 122;
+        tree_desc.branching.seed = 122;
         app.debug_tree_desc = tree_desc;
 
         let start = Instant::now();
@@ -103,13 +103,13 @@ impl TreeBench {
             Ok(()) => {
                 let enqueue_elapsed_ms = start.elapsed().as_secs_f32() * 1000.0;
                 log::info!(
-                    "[PERF][TREE_BENCH] sample {}/{} enqueue {:.2}ms tree_height {:.2} min_trunk_thickness {:.3} seed {}",
+                    "[PERF][TREE_BENCH] sample {}/{} enqueue {:.2}ms initial_length {:.2} min_trunk_thickness {:.3} seed {}",
                     sample,
                     self.samples,
                     enqueue_elapsed_ms,
-                    app.debug_tree_desc.tree_height,
+                    app.debug_tree_desc.branching.initial_length,
                     app.debug_tree_desc.trunk_thickness_min,
-                    app.debug_tree_desc.seed,
+                    app.debug_tree_desc.branching.seed,
                 );
                 if self.rapid {
                     self.results.push(enqueue_elapsed_ms);
@@ -117,9 +117,9 @@ impl TreeBench {
                     self.active_sample = Some(TreeBenchActiveSample {
                         sample,
                         start,
-                        tree_height: app.debug_tree_desc.tree_height,
+                        initial_length: app.debug_tree_desc.branching.initial_length,
                         min_trunk_thickness: app.debug_tree_desc.trunk_thickness_min,
-                        seed: app.debug_tree_desc.seed,
+                        seed: app.debug_tree_desc.branching.seed,
                     });
                 }
             }

@@ -41,15 +41,11 @@ use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldBuildBackend, WorldEdit
 use crate::app::world_ops;
 use crate::app::{GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
-use crate::branch_skeleton::BranchingDesc;
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
-use crate::flora::{
-    construct::{default_tomato_branching_desc, TomatoVineDesc},
-    species,
-};
+use crate::flora::{construct::TomatoVineDesc, species};
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
@@ -794,54 +790,8 @@ impl App {
     }
 
     fn tomato_vine_desc(gui_adjustables: &GuiAdjustables) -> TomatoVineDesc {
-        let default_desc = default_tomato_branching_desc();
-        let branch_count_min = gui_adjustables.tomato_branch_count_min.value.max(1);
-        let branch_count_max = gui_adjustables
-            .tomato_branch_count_max
-            .value
-            .max(branch_count_min);
-        let branch_angle_min_degrees = gui_adjustables.tomato_branch_angle_min_degrees.value;
-        let branch_angle_max_degrees = gui_adjustables
-            .tomato_branch_angle_max_degrees
-            .value
-            .max(branch_angle_min_degrees);
-        let branch_start_fraction = gui_adjustables
-            .tomato_branch_start_fraction
-            .value
-            .clamp(0.0, 1.0);
-        let branch_end_fraction = gui_adjustables
-            .tomato_branch_end_fraction
-            .value
-            .clamp(branch_start_fraction, 1.0);
-
-        let branching = BranchingDesc {
-            seed: default_desc
-                .seed
-                .wrapping_add(gui_adjustables.tomato_seed_offset.value as u64),
-            iterations: gui_adjustables.tomato_iterations.value.max(1),
-            branch_start_fraction,
-            branch_end_fraction,
-            initial_length: gui_adjustables.tomato_initial_length.value.max(0.1),
-            length_dropoff: gui_adjustables.tomato_length_dropoff.value.clamp(0.1, 1.0),
-            spread: gui_adjustables.tomato_spread.value.max(0.0),
-            randomness: gui_adjustables.tomato_randomness.value.max(0.0),
-            vertical_tendency: gui_adjustables.tomato_vertical_tendency.value,
-            branch_angle_min: branch_angle_min_degrees.to_radians(),
-            branch_angle_max: branch_angle_max_degrees.to_radians(),
-            branch_probability: gui_adjustables
-                .tomato_branch_probability
-                .value
-                .clamp(0.0, 1.0),
-            branch_count_min,
-            branch_count_max,
-            segment_length_variation: gui_adjustables
-                .tomato_segment_length_variation
-                .value
-                .max(0.0),
-            continue_main_axis: gui_adjustables.tomato_continue_main_axis.value,
-        };
         TomatoVineDesc {
-            branching,
+            branching: super::gui_config::tomato_branching_desc_from_adjustables(gui_adjustables),
             overall_scale: gui_adjustables.tomato_overall_scale.value.max(0.1),
             base_diameter_voxels: gui_adjustables.tomato_base_diameter_voxels.value.max(1),
             thickness_taper_power: gui_adjustables.tomato_thickness_taper_power.value.max(0.05),
