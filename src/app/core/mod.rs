@@ -811,6 +811,7 @@ impl App {
                 .seed
                 .wrapping_add(gui_adjustables.tomato_seed_offset.value as u64),
             iterations: gui_adjustables.tomato_iterations.value.max(1),
+            first_branch_level: gui_adjustables.tomato_first_branch_level.value,
             initial_length: gui_adjustables.tomato_initial_length.value.max(0.1),
             length_dropoff: gui_adjustables.tomato_length_dropoff.value.clamp(0.1, 1.0),
             spread: gui_adjustables.tomato_spread.value.max(0.0),
@@ -828,6 +829,7 @@ impl App {
                 .tomato_segment_length_variation
                 .value
                 .max(0.0),
+            continue_main_axis: gui_adjustables.tomato_continue_main_axis.value,
         };
         TomatoVineDesc {
             branching,

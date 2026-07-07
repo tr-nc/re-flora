@@ -127,6 +127,10 @@ fn tomato_voxel_key(pos: IVec3) -> TomatoVoxelKey {
 }
 
 fn insert_tomato_voxel(voxels: &mut TomatoVoxelMap, pos: IVec3, material: TomatoMaterial) {
+    if pos.y < 0 {
+        return;
+    }
+
     let key = tomato_voxel_key(pos);
     match (voxels.get(&key).copied(), material) {
         (Some(TomatoMaterial::Fruit), TomatoMaterial::Stem) => {}
@@ -291,6 +295,7 @@ pub fn default_tomato_branching_desc() -> BranchingDesc {
         // instance still shares this exact mesh until we intentionally add per-instance variants.
         seed: TOMATO_BRANCHING_SEED_HIGH_BITS | TOMATO_BRANCHING_SEED_LOW_BITS as u64,
         iterations: 5,
+        first_branch_level: 0,
         initial_length: 4.0,
         length_dropoff: 0.76,
         spread: 0.08,
@@ -302,6 +307,7 @@ pub fn default_tomato_branching_desc() -> BranchingDesc {
         branch_count_min: 2,
         branch_count_max: 3,
         segment_length_variation: 0.10,
+        continue_main_axis: true,
     }
 }
 
@@ -309,9 +315,9 @@ pub fn default_tomato_vine_desc() -> TomatoVineDesc {
     TomatoVineDesc {
         branching: default_tomato_branching_desc(),
         overall_scale: 1.0,
-        base_diameter_voxels: 2,
+        base_diameter_voxels: 1,
         thickness_taper_power: 1.15,
-        fruit_count: 6,
+        fruit_count: 0,
         fruit_radius: 1.25,
         fruit_min_height_fraction: 0.35,
     }
@@ -406,16 +412,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tomato_vine_has_configurable_ground_footprint() {
+    fn tomato_vine_keeps_single_voxel_stems() {
         let desc = default_tomato_vine_desc();
         let voxels = tomato_vine_voxels(&desc);
 
         assert!(voxels.iter().any(|voxel| voxel.pos == IVec3::ZERO));
-        assert!(
-            voxels.iter().filter(|voxel| voxel.pos.y == 0).count() >= 4,
-            "default base diameter should create a wider root footprint"
-        );
         assert!(voxels.iter().all(|voxel| voxel.pos.y >= 0));
+        assert!(voxels
+            .iter()
+            .all(|voxel| voxel.material == TomatoMaterial::Stem));
     }
 
     #[test]
@@ -428,8 +433,11 @@ mod tests {
     }
 
     #[test]
-    fn tomato_vine_can_emit_fruit_voxels() {
-        let desc = default_tomato_vine_desc();
+    fn tomato_vine_can_emit_fruit_voxels_when_configured() {
+        let desc = TomatoVineDesc {
+            fruit_count: 1,
+            ..default_tomato_vine_desc()
+        };
         let voxels = tomato_vine_voxels(&desc);
 
         assert!(voxels

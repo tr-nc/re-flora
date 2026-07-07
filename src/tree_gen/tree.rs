@@ -18,6 +18,8 @@ pub struct TreeDesc {
     pub branch_probability: f32,
     pub branch_count_min: u32,
     pub branch_count_max: u32,
+    pub first_branch_level: u32,
+    pub continue_main_axis: bool,
     pub leaves_size_level: u32,
     pub leaf_offset: u32,
     pub iterations: u32,
@@ -54,6 +56,8 @@ impl Default for TreeDesc {
             branch_probability: 0.82,
             branch_count_min: 2,
             branch_count_max: 3,
+            first_branch_level: 1,
+            continue_main_axis: false,
             branch_angle_min: 24.0 * PI / 180.0,
             branch_angle_max: 48.0 * PI / 180.0,
 
@@ -149,6 +153,15 @@ impl TreeDesc {
             .changed();
         changed |= ui
             .add(egui::Slider::new(&mut self.branch_count_max, 1..=8).text("Max Branches"))
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.first_branch_level, 0..=self.iterations.max(1))
+                    .text("First Branch Level"),
+            )
+            .changed();
+        changed |= ui
+            .checkbox(&mut self.continue_main_axis, "Continue Main Axis")
             .changed();
 
         let mut angle_min_deg = self.branch_angle_min.to_degrees();
@@ -290,6 +303,8 @@ impl Tree {
             branch_count_min: desc.branch_count_min,
             branch_count_max: desc.branch_count_max,
             segment_length_variation: desc.segment_length_variation,
+            first_branch_level: desc.first_branch_level,
+            continue_main_axis: desc.continue_main_axis,
         }
     }
 

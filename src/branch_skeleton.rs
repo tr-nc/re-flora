@@ -7,6 +7,11 @@ use std::f32::consts::PI;
 pub struct BranchingDesc {
     pub seed: u64,
     pub iterations: u32,
+    /// First segment level that may emit lateral branches.
+    ///
+    /// A value of 0 branches immediately from the root node. A value of 1 keeps one
+    /// branchless base/trunk segment before the first fork, matching the legacy behavior.
+    pub first_branch_level: u32,
     pub initial_length: f32,
     pub length_dropoff: f32,
     pub spread: f32,
@@ -18,6 +23,9 @@ pub struct BranchingDesc {
     pub branch_count_min: u32,
     pub branch_count_max: u32,
     pub segment_length_variation: f32,
+    /// When true, branching emits lateral children while also continuing the parent axis.
+    /// This lets a trunk/vine keep growing and branch again at later positions.
+    pub continue_main_axis: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -76,16 +84,79 @@ fn recurse(
 
     skeleton.nodes.push(BranchNode { pos, level });
 
-    let length_variation_factor = {
-        let random_factor = rng.random_range(-1.0..=1.0);
-        1.0 + random_factor * desc.segment_length_variation
-    };
+    let axis_dir = adjusted_axis_direction(dir, level, desc);
+    let should_branch = should_emit_lateral_branches(level, desc, rng);
 
-    let segment_length = length * length_variation_factor;
-    let level_factor = (level as f32) / (desc.iterations as f32);
+    if should_branch {
+        let branch_count = sample_branch_count(desc, rng);
+
+        if desc.continue_main_axis {
+            let continuation_dir = add_direction_variation(axis_dir, desc.randomness * 0.2, rng);
+            grow_segment(pos, continuation_dir, level, desc, length, skeleton, rng);
+        }
+
+        for branch_index in 0..branch_count {
+            let new_dir =
+                calculate_branch_direction(axis_dir, branch_index, branch_count, level, desc, rng);
+
+            grow_segment(pos, new_dir, level, desc, length, skeleton, rng);
+        }
+
+        if branch_count == 0 && !desc.continue_main_axis {
+            let continuation_dir = add_direction_variation(axis_dir, desc.randomness * 0.2, rng);
+            grow_segment(pos, continuation_dir, level, desc, length, skeleton, rng);
+        }
+    } else {
+        let continuation_dir = add_direction_variation(axis_dir, desc.randomness * 0.2, rng);
+        grow_segment(pos, continuation_dir, level, desc, length, skeleton, rng);
+    }
+}
+
+fn adjusted_axis_direction(dir: Vec3, level: u32, desc: &BranchingDesc) -> Vec3 {
+    let level_factor = (level as f32) / (desc.iterations as f32).max(1.0);
     let vertical_influence = desc.vertical_tendency * level_factor;
-    let adjusted_dir = (dir + Vec3::new(0.0, vertical_influence, 0.0)).normalize_or_zero();
-    let end_pos = pos + adjusted_dir * segment_length;
+    (dir + Vec3::new(0.0, vertical_influence, 0.0)).normalize_or_zero()
+}
+
+fn should_emit_lateral_branches(level: u32, desc: &BranchingDesc, rng: &mut impl RngExt) -> bool {
+    if level < desc.first_branch_level {
+        return false;
+    }
+
+    level == desc.first_branch_level || rng.random::<f32>() < desc.branch_probability
+}
+
+fn sample_branch_count(desc: &BranchingDesc, rng: &mut impl RngExt) -> u32 {
+    let min = desc.branch_count_min.min(desc.branch_count_max);
+    let max = desc.branch_count_min.max(desc.branch_count_max);
+    if min == max {
+        min
+    } else {
+        rng.random_range(min..=max)
+    }
+}
+
+fn varied_segment_length(length: f32, desc: &BranchingDesc, rng: &mut impl RngExt) -> f32 {
+    let random_factor = rng.random_range(-1.0..=1.0);
+    let variation = desc.segment_length_variation.max(0.0);
+    length * (1.0 + random_factor * variation).max(0.0)
+}
+
+fn grow_segment(
+    pos: Vec3,
+    dir: Vec3,
+    level: u32,
+    desc: &BranchingDesc,
+    length: f32,
+    skeleton: &mut BranchSkeleton,
+    rng: &mut impl RngExt,
+) {
+    if dir == Vec3::ZERO {
+        return;
+    }
+
+    let segment_length = varied_segment_length(length, desc, rng);
+    let end_pos = pos + dir * segment_length;
 
     skeleton.segments.push(BranchSegment {
         start: pos,
@@ -93,44 +164,15 @@ fn recurse(
         level,
     });
 
-    let should_branch = level < desc.iterations - 1
-        && (level == 0 || rng.random::<f32>() < desc.branch_probability);
-
-    if should_branch {
-        let branch_count = if desc.branch_count_min == desc.branch_count_max {
-            desc.branch_count_min
-        } else {
-            rng.random_range(desc.branch_count_min..=desc.branch_count_max)
-        };
-
-        for i in 0..branch_count {
-            let new_dir =
-                calculate_branch_direction(adjusted_dir, i, branch_count, level, desc, rng);
-
-            if new_dir != Vec3::ZERO {
-                recurse(
-                    end_pos,
-                    new_dir,
-                    level + 1,
-                    desc,
-                    length * desc.length_dropoff,
-                    skeleton,
-                    rng,
-                );
-            }
-        }
-    } else {
-        let new_dir = add_direction_variation(adjusted_dir, desc.randomness * 0.2, rng);
-        recurse(
-            end_pos,
-            new_dir,
-            level + 1,
-            desc,
-            length * desc.length_dropoff,
-            skeleton,
-            rng,
-        );
-    }
+    recurse(
+        end_pos,
+        dir,
+        level + 1,
+        desc,
+        length * desc.length_dropoff,
+        skeleton,
+        rng,
+    );
 }
 
 fn calculate_branch_direction(
@@ -172,4 +214,102 @@ fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut impl RngExt) -> 
     let rand_y = rng.random_range(-variation..=variation);
     let rand_z = rng.random_range(-variation..=variation);
     (dir + Vec3::new(rand_x, rand_y, rand_z)).normalize_or_zero()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_desc() -> BranchingDesc {
+        BranchingDesc {
+            seed: 7,
+            iterations: 3,
+            first_branch_level: 1,
+            initial_length: 4.0,
+            length_dropoff: 0.5,
+            spread: 0.0,
+            randomness: 0.0,
+            vertical_tendency: 0.0,
+            branch_angle_min: 45.0_f32.to_radians(),
+            branch_angle_max: 45.0_f32.to_radians(),
+            branch_probability: 1.0,
+            branch_count_min: 2,
+            branch_count_max: 2,
+            segment_length_variation: 0.0,
+            continue_main_axis: false,
+        }
+    }
+
+    #[test]
+    fn first_branch_level_zero_branches_from_root() {
+        let desc = BranchingDesc {
+            first_branch_level: 0,
+            ..test_desc()
+        };
+        let skeleton = generate_branch_skeleton(&desc);
+
+        let level_zero_segments = skeleton
+            .segments
+            .iter()
+            .filter(|segment| segment.level == 0)
+            .collect::<Vec<_>>();
+
+        assert_eq!(level_zero_segments.len(), 2);
+        assert!(level_zero_segments
+            .iter()
+            .all(|segment| segment.start == Vec3::ZERO));
+    }
+
+    #[test]
+    fn later_first_branch_level_keeps_branchless_base_segment() {
+        let desc = test_desc();
+        let skeleton = generate_branch_skeleton(&desc);
+
+        let level_zero_segments = skeleton
+            .segments
+            .iter()
+            .filter(|segment| segment.level == 0)
+            .collect::<Vec<_>>();
+        assert_eq!(level_zero_segments.len(), 1);
+        assert_eq!(level_zero_segments[0].start, Vec3::ZERO);
+
+        let first_branch_pos = level_zero_segments[0].end;
+        assert_eq!(
+            skeleton
+                .segments
+                .iter()
+                .filter(|segment| segment.level == 1 && segment.start == first_branch_pos)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn continuing_main_axis_keeps_parent_after_lateral_branching() {
+        let desc = BranchingDesc {
+            continue_main_axis: true,
+            branch_count_min: 1,
+            branch_count_max: 1,
+            ..test_desc()
+        };
+        let skeleton = generate_branch_skeleton(&desc);
+        let first_branch_pos = skeleton
+            .segments
+            .iter()
+            .find(|segment| segment.level == 0)
+            .map(|segment| segment.end)
+            .unwrap();
+
+        let child_segments = skeleton
+            .segments
+            .iter()
+            .filter(|segment| segment.level == 1 && segment.start == first_branch_pos)
+            .collect::<Vec<_>>();
+
+        assert_eq!(child_segments.len(), 2);
+        assert!(child_segments.iter().any(|segment| {
+            let dir = (segment.end - segment.start).normalize_or_zero();
+            dir.dot(Vec3::Y) > 0.99
+        }));
+    }
 }
