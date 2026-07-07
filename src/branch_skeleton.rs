@@ -30,11 +30,18 @@ pub struct BranchingDesc {
     pub continue_main_axis: bool,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BranchSegmentRole {
+    MainAxis,
+    Lateral,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BranchSegment {
     pub start: Vec3,
     pub end: Vec3,
     pub level: u32,
+    pub role: BranchSegmentRole,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -94,23 +101,59 @@ fn recurse(
 
         if desc.continue_main_axis {
             let continuation_dir = add_direction_variation(axis_dir, desc.randomness * 0.2, rng);
-            grow_segment(pos, continuation_dir, level, desc, length, skeleton, rng);
+            grow_segment(
+                pos,
+                continuation_dir,
+                level,
+                BranchSegmentRole::MainAxis,
+                desc,
+                length,
+                skeleton,
+                rng,
+            );
         }
 
         for branch_index in 0..branch_count {
             let new_dir =
                 calculate_branch_direction(axis_dir, branch_index, branch_count, level, desc, rng);
 
-            grow_segment(pos, new_dir, level, desc, length, skeleton, rng);
+            grow_segment(
+                pos,
+                new_dir,
+                level,
+                BranchSegmentRole::Lateral,
+                desc,
+                length,
+                skeleton,
+                rng,
+            );
         }
 
         if branch_count == 0 && !desc.continue_main_axis {
             let continuation_dir = add_direction_variation(axis_dir, desc.randomness * 0.2, rng);
-            grow_segment(pos, continuation_dir, level, desc, length, skeleton, rng);
+            grow_segment(
+                pos,
+                continuation_dir,
+                level,
+                BranchSegmentRole::MainAxis,
+                desc,
+                length,
+                skeleton,
+                rng,
+            );
         }
     } else {
         let continuation_dir = add_direction_variation(axis_dir, desc.randomness * 0.2, rng);
-        grow_segment(pos, continuation_dir, level, desc, length, skeleton, rng);
+        grow_segment(
+            pos,
+            continuation_dir,
+            level,
+            BranchSegmentRole::MainAxis,
+            desc,
+            length,
+            skeleton,
+            rng,
+        );
     }
 }
 
@@ -173,6 +216,7 @@ fn grow_segment(
     pos: Vec3,
     dir: Vec3,
     level: u32,
+    role: BranchSegmentRole,
     desc: &BranchingDesc,
     length: f32,
     skeleton: &mut BranchSkeleton,
@@ -189,6 +233,7 @@ fn grow_segment(
         start: pos,
         end: end_pos,
         level,
+        role,
     });
 
     recurse(
@@ -286,6 +331,9 @@ mod tests {
         assert!(level_zero_segments
             .iter()
             .all(|segment| segment.start == Vec3::ZERO));
+        assert!(level_zero_segments
+            .iter()
+            .all(|segment| segment.role == BranchSegmentRole::Lateral));
     }
 
     #[test]
@@ -300,16 +348,18 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(level_zero_segments.len(), 1);
         assert_eq!(level_zero_segments[0].start, Vec3::ZERO);
+        assert_eq!(level_zero_segments[0].role, BranchSegmentRole::MainAxis);
 
         let first_branch_pos = level_zero_segments[0].end;
-        assert_eq!(
-            skeleton
-                .segments
-                .iter()
-                .filter(|segment| segment.level == 1 && segment.start == first_branch_pos)
-                .count(),
-            2
-        );
+        let first_branch_segments = skeleton
+            .segments
+            .iter()
+            .filter(|segment| segment.level == 1 && segment.start == first_branch_pos)
+            .collect::<Vec<_>>();
+        assert_eq!(first_branch_segments.len(), 2);
+        assert!(first_branch_segments
+            .iter()
+            .all(|segment| segment.role == BranchSegmentRole::Lateral));
     }
 
     #[test]
@@ -363,6 +413,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(child_segments.len(), 2);
+        assert!(child_segments
+            .iter()
+            .any(|segment| segment.role == BranchSegmentRole::MainAxis));
+        assert!(child_segments
+            .iter()
+            .any(|segment| segment.role == BranchSegmentRole::Lateral));
         assert!(child_segments.iter().any(|segment| {
             let dir = (segment.end - segment.start).normalize_or_zero();
             dir.dot(Vec3::Y) > 0.99
