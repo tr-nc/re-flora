@@ -3271,6 +3271,7 @@ impl Tracer {
         let mesh_data = gen_tomato_with_desc(desc, false)?;
         let lookup_type_data = FloraVoxelLookupTypeData::from_mesh_data(&mesh_data);
         let mesh_data_lod = gen_tomato_with_desc(desc, true)?;
+        self.vulkan_ctx.device().wait_idle();
         let device = self.vulkan_ctx.device();
         self.resources.meshes.flora_meshes[species_idx] =
             FloraMeshResources::from_mesh_data(device.clone(), self.allocator.clone(), mesh_data);
