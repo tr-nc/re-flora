@@ -805,13 +805,22 @@ impl App {
             .tomato_branch_angle_max_degrees
             .value
             .max(branch_angle_min_degrees);
+        let branch_start_fraction = gui_adjustables
+            .tomato_branch_start_fraction
+            .value
+            .clamp(0.0, 1.0);
+        let branch_end_fraction = gui_adjustables
+            .tomato_branch_end_fraction
+            .value
+            .clamp(branch_start_fraction, 1.0);
 
         let branching = BranchingDesc {
             seed: default_desc
                 .seed
                 .wrapping_add(gui_adjustables.tomato_seed_offset.value as u64),
             iterations: gui_adjustables.tomato_iterations.value.max(1),
-            first_branch_level: gui_adjustables.tomato_first_branch_level.value,
+            branch_start_fraction,
+            branch_end_fraction,
             initial_length: gui_adjustables.tomato_initial_length.value.max(0.1),
             length_dropoff: gui_adjustables.tomato_length_dropoff.value.clamp(0.1, 1.0),
             spread: gui_adjustables.tomato_spread.value.max(0.0),

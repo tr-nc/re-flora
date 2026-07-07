@@ -295,7 +295,8 @@ pub fn default_tomato_branching_desc() -> BranchingDesc {
         // instance still shares this exact mesh until we intentionally add per-instance variants.
         seed: TOMATO_BRANCHING_SEED_HIGH_BITS | TOMATO_BRANCHING_SEED_LOW_BITS as u64,
         iterations: 5,
-        first_branch_level: 0,
+        branch_start_fraction: 0.0,
+        branch_end_fraction: 1.0,
         initial_length: 4.0,
         length_dropoff: 0.76,
         spread: 0.08,

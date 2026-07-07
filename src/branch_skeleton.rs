@@ -7,11 +7,13 @@ use std::f32::consts::PI;
 pub struct BranchingDesc {
     pub seed: u64,
     pub iterations: u32,
-    /// First segment level that may emit lateral branches.
+    /// Normalized position on each recursive axis where lateral branches may start.
     ///
-    /// A value of 0 branches immediately from the root node. A value of 1 keeps one
-    /// branchless base/trunk segment before the first fork, matching the legacy behavior.
-    pub first_branch_level: u32,
+    /// This mirrors Weber-Penn/BaseSize-style controls: 0.0 branches from the root,
+    /// while values near 1.0 leave most of the trunk/axis bare before the first branch.
+    pub branch_start_fraction: f32,
+    /// Normalized position on each recursive axis after which lateral branches stop.
+    pub branch_end_fraction: f32,
     pub initial_length: f32,
     pub length_dropoff: f32,
     pub spread: f32,
@@ -119,11 +121,36 @@ fn adjusted_axis_direction(dir: Vec3, level: u32, desc: &BranchingDesc) -> Vec3 
 }
 
 fn should_emit_lateral_branches(level: u32, desc: &BranchingDesc, rng: &mut impl RngExt) -> bool {
-    if level < desc.first_branch_level {
+    if !branch_window_contains_level(level, desc) {
         return false;
     }
 
-    level == desc.first_branch_level || rng.random::<f32>() < desc.branch_probability
+    level == first_branch_level(desc) || rng.random::<f32>() < desc.branch_probability
+}
+
+fn branch_level_fraction(level: u32, iterations: u32) -> f32 {
+    if iterations <= 1 {
+        0.0
+    } else {
+        level as f32 / iterations.saturating_sub(1) as f32
+    }
+}
+
+fn normalized_branch_window(desc: &BranchingDesc) -> (f32, f32) {
+    let start = desc.branch_start_fraction.clamp(0.0, 1.0);
+    let end = desc.branch_end_fraction.clamp(start, 1.0);
+    (start, end)
+}
+
+fn first_branch_level(desc: &BranchingDesc) -> u32 {
+    let (start, _) = normalized_branch_window(desc);
+    (start * desc.iterations.saturating_sub(1) as f32).ceil() as u32
+}
+
+fn branch_window_contains_level(level: u32, desc: &BranchingDesc) -> bool {
+    let t = branch_level_fraction(level, desc.iterations);
+    let (start, end) = normalized_branch_window(desc);
+    t >= start && t <= end
 }
 
 fn sample_branch_count(desc: &BranchingDesc, rng: &mut impl RngExt) -> u32 {
@@ -224,7 +251,8 @@ mod tests {
         BranchingDesc {
             seed: 7,
             iterations: 3,
-            first_branch_level: 1,
+            branch_start_fraction: 0.5,
+            branch_end_fraction: 1.0,
             initial_length: 4.0,
             length_dropoff: 0.5,
             spread: 0.0,
@@ -241,9 +269,9 @@ mod tests {
     }
 
     #[test]
-    fn first_branch_level_zero_branches_from_root() {
+    fn branch_start_fraction_zero_branches_from_root() {
         let desc = BranchingDesc {
-            first_branch_level: 0,
+            branch_start_fraction: 0.0,
             ..test_desc()
         };
         let skeleton = generate_branch_skeleton(&desc);
@@ -261,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn later_first_branch_level_keeps_branchless_base_segment() {
+    fn later_branch_start_fraction_keeps_branchless_base_segment() {
         let desc = test_desc();
         let skeleton = generate_branch_skeleton(&desc);
 
@@ -279,6 +307,34 @@ mod tests {
                 .segments
                 .iter()
                 .filter(|segment| segment.level == 1 && segment.start == first_branch_pos)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn branch_end_fraction_limits_late_lateral_branches() {
+        let desc = BranchingDesc {
+            branch_start_fraction: 0.0,
+            branch_end_fraction: 0.0,
+            iterations: 4,
+            ..test_desc()
+        };
+        let skeleton = generate_branch_skeleton(&desc);
+
+        assert_eq!(
+            skeleton
+                .segments
+                .iter()
+                .filter(|segment| segment.level == 0)
+                .count(),
+            2
+        );
+        assert_eq!(
+            skeleton
+                .segments
+                .iter()
+                .filter(|segment| segment.level == 1)
                 .count(),
             2
         );

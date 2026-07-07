@@ -18,7 +18,8 @@ pub struct TreeDesc {
     pub branch_probability: f32,
     pub branch_count_min: u32,
     pub branch_count_max: u32,
-    pub first_branch_level: u32,
+    pub branch_start_fraction: f32,
+    pub branch_end_fraction: f32,
     pub continue_main_axis: bool,
     pub leaves_size_level: u32,
     pub leaf_offset: u32,
@@ -56,7 +57,8 @@ impl Default for TreeDesc {
             branch_probability: 0.82,
             branch_count_min: 2,
             branch_count_max: 3,
-            first_branch_level: 1,
+            branch_start_fraction: 1.0 / 6.0,
+            branch_end_fraction: 1.0,
             continue_main_axis: false,
             branch_angle_min: 24.0 * PI / 180.0,
             branch_angle_max: 48.0 * PI / 180.0,
@@ -156,8 +158,14 @@ impl TreeDesc {
             .changed();
         changed |= ui
             .add(
-                egui::Slider::new(&mut self.first_branch_level, 0..=self.iterations.max(1))
-                    .text("First Branch Level"),
+                egui::Slider::new(&mut self.branch_start_fraction, 0.0..=1.0)
+                    .text("Branch Start Fraction"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.branch_end_fraction, 0.0..=1.0)
+                    .text("Branch End Fraction"),
             )
             .changed();
         changed |= ui
@@ -182,6 +190,9 @@ impl TreeDesc {
             }
             if self.branch_count_min > self.branch_count_max {
                 self.branch_count_max = self.branch_count_min;
+            }
+            if self.branch_start_fraction > self.branch_end_fraction {
+                self.branch_end_fraction = self.branch_start_fraction;
             }
         }
 
@@ -303,7 +314,8 @@ impl Tree {
             branch_count_min: desc.branch_count_min,
             branch_count_max: desc.branch_count_max,
             segment_length_variation: desc.segment_length_variation,
-            first_branch_level: desc.first_branch_level,
+            branch_start_fraction: desc.branch_start_fraction,
+            branch_end_fraction: desc.branch_end_fraction,
             continue_main_axis: desc.continue_main_axis,
         }
     }
