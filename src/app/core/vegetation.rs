@@ -819,6 +819,30 @@ impl App {
         chunk_ids
     }
 
+    fn current_tuned_tree_terrain_position(&self) -> Vec3 {
+        let xz = Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z);
+        Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y)
+    }
+
+    pub(super) fn plant_startup_tuned_tree(&mut self) -> Result<()> {
+        self.debug_tree_pos = self.current_tuned_tree_terrain_position();
+        self.replace_tuned_tree_with_rebuild_mode(false)?;
+        log::info!("Planted startup tuning tree at {:?}", self.debug_tree_pos);
+        Ok(())
+    }
+
+    pub(super) fn update_tuned_tree_from_gui(&mut self) -> Result<()> {
+        self.replace_tuned_tree_with_rebuild_mode(true)
+    }
+
+    fn replace_tuned_tree_with_rebuild_mode(&mut self, defer_rebuild: bool) -> Result<()> {
+        self.replace_single_tree_with_rebuild_mode(
+            self.debug_tree_desc.clone(),
+            self.debug_tree_pos,
+            defer_rebuild,
+        )
+    }
+
     #[allow(dead_code)]
     pub(super) fn replace_single_tree_deferred(
         &mut self,
@@ -828,7 +852,6 @@ impl App {
         self.replace_single_tree_with_rebuild_mode(tree_desc, tree_pos, true)
     }
 
-    #[allow(dead_code)]
     #[allow(dead_code)]
     pub(super) fn replace_single_tree(
         &mut self,

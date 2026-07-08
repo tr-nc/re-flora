@@ -2127,7 +2127,7 @@ impl App {
                                             ui.add_space(8.0);
                                             ui.separator();
                                             ui.add_space(8.0);
-                                            ui.collapsing("Test Tree", |ui| {
+                                            ui.collapsing("Tree", |ui| {
                                                 tree_desc_changed |=
                                                     self.debug_tree_desc.edit_by_gui(ui);
                                             });
@@ -2447,6 +2447,14 @@ impl App {
                 }
                 if let Some(snapshot) = camera_snapshot_to_apply {
                     self.apply_camera_snapshot(&snapshot);
+                }
+                if tree_desc_changed {
+                    match self.update_tuned_tree_from_gui() {
+                        Ok(()) => log::info!("Updated tuning tree from GUI sliders"),
+                        Err(err) => {
+                            log::error!("Failed to update tuning tree from GUI sliders: {}", err)
+                        }
+                    }
                 }
 
                 let tomato_vine_desc_after_gui = Self::tomato_vine_desc(&self.gui_adjustables);

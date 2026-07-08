@@ -314,6 +314,10 @@ impl App {
             log::error!("Failed to regenerate leaves: {}", err);
         }
 
+        if let Err(err) = self.plant_startup_tuned_tree() {
+            log::error!("Failed to plant startup tuning tree: {}", err);
+        }
+
         if let Err(err) = self.spatial_sound_manager.start() {
             log::error!("Failed to start audio engine: {}", err);
         }
