@@ -118,6 +118,7 @@ fn recurse(
     rng: &mut impl RngExt,
 ) {
     if level >= desc.iterations {
+        skeleton.nodes.push(BranchNode { pos, level });
         return;
     }
 
@@ -291,18 +292,36 @@ fn calculate_branch_direction(
     } else {
         rng.random::<f32>() * 2.0 * PI
     };
-    let away_angle =
-        rng.random_range(desc.branch_angle_min..=desc.branch_angle_max) * (1.0 + desc.spread);
+    let around_angle = add_azimuth_variation(around_angle, desc.randomness, rng);
+    let branch_angle = rng.random_range(desc.branch_angle_min..=desc.branch_angle_max);
+    let away_angle = spread_adjusted_branch_angle(branch_angle, desc.spread);
 
     let (right, forward) = stable_perpendicular_basis(parent_dir);
+    let rotated_perp = right * around_angle.cos() + forward * around_angle.sin();
+    let base_dir = parent_dir * away_angle.cos() + rotated_perp * away_angle.sin();
+    base_dir.normalize_or_zero()
+}
 
-    let branch_dir = {
-        let rotated_perp = right * around_angle.cos() + forward * around_angle.sin();
-        let base_dir = parent_dir * away_angle.cos() + rotated_perp * away_angle.sin();
-        base_dir.normalize_or_zero()
-    };
+fn spread_adjusted_branch_angle(branch_angle: f32, spread: f32) -> f32 {
+    // Spread should widen narrow branch angles smoothly, not multiply the authored angle past
+    // horizontal. That keeps a 90° branch angle exactly perpendicular for the whole spread range.
+    const TREE_SPREAD_FULL_HORIZONTAL: f32 = 2.0;
+    let horizontal_angle = PI * 0.5;
+    if branch_angle >= horizontal_angle {
+        return branch_angle;
+    }
 
-    add_direction_variation(branch_dir, desc.randomness, rng)
+    let spread_factor = (spread / TREE_SPREAD_FULL_HORIZONTAL).clamp(0.0, 1.0);
+    branch_angle + (horizontal_angle - branch_angle) * spread_factor
+}
+
+fn add_azimuth_variation(around_angle: f32, randomness: f32, rng: &mut impl RngExt) -> f32 {
+    let randomness = randomness.clamp(0.0, 1.0);
+    if randomness <= 0.0 {
+        return around_angle;
+    }
+
+    around_angle + rng.random_range(-PI..=PI) * randomness
 }
 
 fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut impl RngExt) -> Vec3 {
@@ -431,6 +450,44 @@ mod tests {
         let above_dir = calculate_branch_direction(above, 0, 2, 0, &desc, &mut above_rng);
 
         assert!(below_dir.dot(above_dir) > 0.99);
+    }
+
+    #[test]
+    fn ninety_degree_branch_angle_stays_perpendicular_with_randomness_and_spread() {
+        let desc = BranchingDesc {
+            branch_angle_min: 90.0_f32.to_radians(),
+            branch_angle_max: 90.0_f32.to_radians(),
+            randomness: 0.33,
+            spread: 2.0,
+            ..test_desc()
+        };
+        let parent_dir = Vec3::Y;
+        let mut rng = StdRng::seed_from_u64(11);
+
+        let branch_dir = calculate_branch_direction(parent_dir, 0, 2, 0, &desc, &mut rng);
+
+        assert!(branch_dir.dot(parent_dir).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn terminal_nodes_include_final_branch_tips() {
+        let desc = BranchingDesc {
+            iterations: 1,
+            branch_start_fraction: 0.0,
+            branch_count_min: 2,
+            branch_count_max: 2,
+            ..test_desc()
+        };
+        let skeleton = generate_branch_skeleton(&desc);
+
+        assert_eq!(
+            skeleton
+                .nodes
+                .iter()
+                .filter(|node| node.level == desc.iterations)
+                .count(),
+            2
+        );
     }
 
     #[test]

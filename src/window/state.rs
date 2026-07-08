@@ -2,7 +2,7 @@ use crate::MonitorScorePreference;
 use std::sync::Arc;
 use verdarium_vkn::Extent2D;
 use winit::{
-    dpi::{LogicalPosition, LogicalSize, PhysicalSize},
+    dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
     event_loop::ActiveEventLoop,
     monitor::MonitorHandle,
     window::{Fullscreen, Window},
@@ -373,6 +373,22 @@ impl WindowState {
     pub fn window_extent(&self) -> Extent2D {
         let size = self.window().inner_size();
         Extent2D::new(size.width, size.height)
+    }
+
+    pub fn center_cursor(&self) -> Option<(f32, f32)> {
+        if !self.desc.visible {
+            return None;
+        }
+
+        let extent = self.window_extent();
+        let center = PhysicalPosition::new(extent.width as f64 * 0.5, extent.height as f64 * 0.5);
+        match self.window.set_cursor_position(center) {
+            Ok(()) => Some((center.x as f32, center.y as f32)),
+            Err(err) => {
+                log::warn!("Failed to center cursor: {:?}", err);
+                None
+            }
+        }
     }
 
     pub fn is_minimized(&self) -> bool {

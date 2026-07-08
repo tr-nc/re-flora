@@ -313,3 +313,30 @@ fn subdivide_trunk_segment(
 
     subdivided_trunks
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leaf_offset_zero_places_leaves_on_terminal_branch_tips() {
+        let desc = TreeDesc {
+            branching: BranchingDesc {
+                iterations: 1,
+                branch_start_fraction: 0.0,
+                branch_count_min: 2,
+                branch_count_max: 2,
+                randomness: 0.0,
+                segment_length_variation: 0.0,
+                ..default_tree_branching_desc()
+            },
+            leaf_offset: 0,
+            enable_subdivision: false,
+            ..TreeDesc::default()
+        };
+
+        let tree = Tree::new(desc);
+
+        assert_eq!(tree.relative_leaf_positions().len(), 2);
+    }
+}

@@ -179,8 +179,15 @@ impl App {
     }
 
     pub(super) fn sync_cursor_with_panels(&mut self) {
+        let was_cursor_visible = self.window_state.is_cursor_visible();
         let cursor_visible = self.blocking_panel_open() || self.is_orbit_edit_camera_mode();
         self.window_state.set_cursor_grab(!cursor_visible);
+        if cursor_visible && !was_cursor_visible {
+            if let Some((x, y)) = self.window_state.center_cursor() {
+                self.cursor_position_physical = Some(Vec2::new(x, y));
+                self.sync_orbit_mouse_drag_position(Vec2::new(x, y));
+            }
+        }
         if self.blocking_panel_open() {
             self.player_tools.shovel_dig_held = false;
             self.stop_terrain_edit_loop_sound();
