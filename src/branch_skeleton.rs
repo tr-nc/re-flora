@@ -1,3 +1,4 @@
+use crate::util::stable_perpendicular_basis;
 use glam::Vec3;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
@@ -293,13 +294,7 @@ fn calculate_branch_direction(
     let away_angle =
         rng.random_range(desc.branch_angle_min..=desc.branch_angle_max) * (1.0 + desc.spread);
 
-    let up = if parent_dir.y.abs() < 0.9 {
-        Vec3::Y
-    } else {
-        Vec3::X
-    };
-    let right = parent_dir.cross(up).normalize_or_zero();
-    let forward = parent_dir.cross(right).normalize_or_zero();
+    let (right, forward) = stable_perpendicular_basis(parent_dir);
 
     let branch_dir = {
         let rotated_perp = right * around_angle.cos() + forward * around_angle.sin();
@@ -417,6 +412,25 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn branch_direction_is_continuous_across_near_vertical_parent_dirs() {
+        let desc = BranchingDesc {
+            branch_angle_min: 45.0_f32.to_radians(),
+            branch_angle_max: 45.0_f32.to_radians(),
+            randomness: 0.0,
+            ..test_desc()
+        };
+        let below = Vec3::new((1.0_f32 - 0.899 * 0.899).sqrt(), 0.899, 0.0);
+        let above = Vec3::new((1.0_f32 - 0.901 * 0.901).sqrt(), 0.901, 0.0);
+        let mut below_rng = StdRng::seed_from_u64(11);
+        let mut above_rng = StdRng::seed_from_u64(11);
+
+        let below_dir = calculate_branch_direction(below, 0, 2, 0, &desc, &mut below_rng);
+        let above_dir = calculate_branch_direction(above, 0, 2, 0, &desc, &mut above_rng);
+
+        assert!(below_dir.dot(above_dir) > 0.99);
     }
 
     #[test]

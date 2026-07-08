@@ -8,7 +8,7 @@ use crate::builder::{ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_OAK
 use crate::flora::species;
 use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
-use crate::tree_gen::{Tree, TreeDesc};
+use crate::tree_gen::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
 use crate::util::cluster_positions;
 use anyhow::Result;
 use glam::{UVec3, Vec2, Vec3};
@@ -32,7 +32,6 @@ struct SpecialFloraDistributionParams {
 pub(super) struct TreeVariationConfig {
     pub size_variance: f32,
     pub trunk_thickness_variance: f32,
-    pub trunk_thickness_min_variance: f32,
     pub spread_variance: f32,
     pub randomness_variance: f32,
     pub vertical_tendency_variance: f32,
@@ -49,7 +48,6 @@ impl Default for TreeVariationConfig {
         TreeVariationConfig {
             size_variance: 0.0,
             trunk_thickness_variance: 0.0,
-            trunk_thickness_min_variance: 0.0,
             spread_variance: 0.0,
             randomness_variance: 0.0,
             vertical_tendency_variance: 0.0,
@@ -77,12 +75,6 @@ impl TreeVariationConfig {
             .add(
                 egui::Slider::new(&mut self.trunk_thickness_variance, 0.0..=1.0)
                     .text("Thickness Variance"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.trunk_thickness_min_variance, 0.0..=1.0)
-                    .text("Min Thickness Variance"),
             )
             .changed();
         changed |= ui
@@ -509,7 +501,7 @@ impl TreePlacementService {
             tree.relative_leaf_positions().len(),
             tree_desc.size,
             tree_desc.trunk_thickness,
-            tree_desc.trunk_thickness_min,
+            TREE_MIN_TRUNK_THICKNESS,
             tree_desc.thickness_reduction,
             tree_desc.branching.iterations,
             radius_min,
@@ -997,13 +989,6 @@ impl App {
             tree_desc.trunk_thickness *= 1.0
                 + rng.random_range(
                     -config.trunk_thickness_variance..=config.trunk_thickness_variance,
-                );
-        }
-
-        if config.trunk_thickness_min_variance > 0.0 {
-            tree_desc.trunk_thickness_min *= 1.0
-                + rng.random_range(
-                    -config.trunk_thickness_min_variance..=config.trunk_thickness_min_variance,
                 );
         }
 

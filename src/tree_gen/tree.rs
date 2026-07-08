@@ -1,17 +1,19 @@
 use crate::branch_skeleton::{generate_branch_skeleton_with_rng, BranchingDesc};
 use crate::branching_gui::{edit_branching_desc, BranchingGuiSpec};
 use crate::geom::RoundCone;
+use crate::util::stable_perpendicular_basis;
 use glam::Vec3;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use std::f32::consts::PI;
+
+pub const TREE_MIN_TRUNK_THICKNESS: f32 = 1.05;
 
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
     pub branching: BranchingDesc,
     pub size: f32,
     pub trunk_thickness: f32,
-    pub trunk_thickness_min: f32,
     pub thickness_reduction: f32,
     pub leaves_size_level: u32,
     pub leaf_offset: u32,
@@ -49,7 +51,6 @@ impl Default for TreeDesc {
             branching: default_tree_branching_desc(),
             size: 30.0,
             trunk_thickness: 0.40,
-            trunk_thickness_min: 1.05,
             thickness_reduction: 0.61,
             leaves_size_level: 5,
             leaf_offset: 1,
@@ -77,12 +78,6 @@ impl TreeDesc {
             .changed();
         changed |= ui
             .add(egui::Slider::new(&mut self.trunk_thickness, 0.01..=5.0).text("Trunk Thickness"))
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.trunk_thickness_min, 0.001..=2.0)
-                    .text("Min Trunk Thickness"),
-            )
             .changed();
         changed |= ui
             .add(
@@ -202,9 +197,9 @@ impl Tree {
             let thickness_start = Self::thickness_at_level(desc, base_thickness, segment.level);
             let thickness_end = Self::thickness_at_level(desc, base_thickness, segment.level + 1);
             let cone = RoundCone::new(
-                thickness_start.max(desc.trunk_thickness_min),
+                thickness_start.max(TREE_MIN_TRUNK_THICKNESS),
                 segment.start,
-                thickness_end.max(desc.trunk_thickness_min),
+                thickness_end.max(TREE_MIN_TRUNK_THICKNESS),
                 segment.end,
             );
             // subdivision now respects the toggle
@@ -273,13 +268,7 @@ fn subdivide_trunk_segment(
     let mut current_pos = cone.center_a();
     let segment_vec = axis / num_segments as f32;
 
-    let up = if axis.normalize_or_zero().y.abs() < 0.9 {
-        Vec3::Y
-    } else {
-        Vec3::X
-    };
-    let perp1 = axis.cross(up).normalize_or_zero();
-    let perp2 = axis.cross(perp1).normalize_or_zero();
+    let (perp1, perp2) = stable_perpendicular_basis(axis);
 
     let root_radius = desc.trunk_thickness * desc.size;
 
@@ -313,9 +302,9 @@ fn subdivide_trunk_segment(
         }
 
         subdivided_trunks.push(RoundCone::new(
-            segment_start_radius.max(desc.trunk_thickness_min),
+            segment_start_radius.max(TREE_MIN_TRUNK_THICKNESS),
             current_pos,
-            segment_end_radius.max(desc.trunk_thickness_min),
+            segment_end_radius.max(TREE_MIN_TRUNK_THICKNESS),
             next_pos,
         ));
 

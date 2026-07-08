@@ -29,7 +29,7 @@ use self::particles::TreeLeafEmitter;
 use self::placeables::{SprinklerEmitter, SprinklerRecord};
 use self::player_tools::PlayerToolState;
 use self::terrain_rebuild::{ChunkRebuildRequest, TerrainChunkRebuildInFlight};
-use self::tree_bench::{TreeBench, TreeBenchMode};
+use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRecord, TreeVariationConfig};
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::cpu_solid_voxels::CpuSolidVoxelStore;
@@ -1232,14 +1232,9 @@ impl App {
             screenshot_delay: options.screenshot_delay,
             screenshot_taken: false,
             auto_exit_delay: options.auto_exit_delay,
-            tree_bench: options.tree_bench.then(|| {
-                let mode = if options.tree_bench_min_thickness {
-                    TreeBenchMode::MinTrunkThickness
-                } else {
-                    TreeBenchMode::TreeHeight
-                };
-                TreeBench::new(options.tree_bench_samples, mode, options.tree_bench_rapid)
-            }),
+            tree_bench: options
+                .tree_bench
+                .then(|| TreeBench::new(options.tree_bench_samples, options.tree_bench_rapid)),
             authored_flora_bench: options
                 .authored_flora_bench
                 .then(|| AuthoredFloraBench::new(options.authored_flora_bench_samples)),
@@ -2104,11 +2099,23 @@ impl App {
                                     egui::ScrollArea::vertical().auto_shrink([false; 2]).show(
                                         ui,
                                         |ui| {
+                                            let gui_config = &self.gui_config;
+                                            let gui_adjustables = &mut self.gui_adjustables;
+                                            let wind_sources = &mut self.wind_sources;
+                                            let debug_tree_desc = &mut self.debug_tree_desc;
                                             crate::app::render_gui_from_config(
                                                 ui,
-                                                &self.gui_config,
-                                                &mut self.gui_adjustables,
-                                                &mut self.wind_sources,
+                                                gui_config,
+                                                gui_adjustables,
+                                                wind_sources,
+                                                |section_name, ui| {
+                                                    if section_name == "Debug" {
+                                                        ui.collapsing("Tree", |ui| {
+                                                            tree_desc_changed |=
+                                                                debug_tree_desc.edit_by_gui(ui);
+                                                        });
+                                                    }
+                                                },
                                             );
 
                                             ui.add_space(8.0);
@@ -2123,14 +2130,6 @@ impl App {
                                                 current_camera_pose,
                                                 self.is_fly_mode,
                                             );
-
-                                            ui.add_space(8.0);
-                                            ui.separator();
-                                            ui.add_space(8.0);
-                                            ui.collapsing("Tree", |ui| {
-                                                tree_desc_changed |=
-                                                    self.debug_tree_desc.edit_by_gui(ui);
-                                            });
 
                                             ui.add_space(8.0);
                                             ui.separator();

@@ -5,16 +5,9 @@ use std::time::Instant;
 pub(super) struct TreeBench {
     samples: u32,
     next_sample: u32,
-    mode: TreeBenchMode,
     rapid: bool,
     active_sample: Option<TreeBenchActiveSample>,
     results: Vec<f32>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) enum TreeBenchMode {
-    TreeHeight,
-    MinTrunkThickness,
 }
 
 #[derive(Debug)]
@@ -22,16 +15,14 @@ struct TreeBenchActiveSample {
     sample: u32,
     start: Instant,
     initial_length: f32,
-    min_trunk_thickness: f32,
     seed: u64,
 }
 
 impl TreeBench {
-    pub(super) fn new(samples: u32, mode: TreeBenchMode, rapid: bool) -> Self {
+    pub(super) fn new(samples: u32, rapid: bool) -> Self {
         Self {
             samples: samples.max(1),
             next_sample: 0,
-            mode,
             rapid,
             active_sample: None,
             results: Vec::new(),
@@ -60,12 +51,11 @@ impl TreeBench {
             let elapsed_ms = active.start.elapsed().as_secs_f32() * 1000.0;
             self.results.push(elapsed_ms);
             log::info!(
-                "[PERF][TREE_BENCH] sample {}/{} replace_deferred_total {:.2}ms initial_length {:.2} min_trunk_thickness {:.3} seed {}",
+                "[PERF][TREE_BENCH] sample {}/{} replace_deferred_total {:.2}ms initial_length {:.2} seed {}",
                 active.sample,
                 self.samples,
                 elapsed_ms,
                 active.initial_length,
-                active.min_trunk_thickness,
                 active.seed,
             );
         }
@@ -87,14 +77,7 @@ impl TreeBench {
         } else {
             (sample - 1) as f32 / (self.samples - 1) as f32
         };
-        match self.mode {
-            TreeBenchMode::TreeHeight => {
-                tree_desc.branching.initial_length = 32.0 + t * 64.0;
-            }
-            TreeBenchMode::MinTrunkThickness => {
-                tree_desc.trunk_thickness_min = 1.05 + t * 0.95;
-            }
-        }
+        tree_desc.branching.initial_length = 32.0 + t * 64.0;
         tree_desc.branching.seed = 122;
         app.debug_tree_desc = tree_desc;
 
@@ -103,12 +86,11 @@ impl TreeBench {
             Ok(()) => {
                 let enqueue_elapsed_ms = start.elapsed().as_secs_f32() * 1000.0;
                 log::info!(
-                    "[PERF][TREE_BENCH] sample {}/{} enqueue {:.2}ms initial_length {:.2} min_trunk_thickness {:.3} seed {}",
+                    "[PERF][TREE_BENCH] sample {}/{} enqueue {:.2}ms initial_length {:.2} seed {}",
                     sample,
                     self.samples,
                     enqueue_elapsed_ms,
                     app.debug_tree_desc.branching.initial_length,
-                    app.debug_tree_desc.trunk_thickness_min,
                     app.debug_tree_desc.branching.seed,
                 );
                 if self.rapid {
@@ -118,7 +100,6 @@ impl TreeBench {
                         sample,
                         start,
                         initial_length: app.debug_tree_desc.branching.initial_length,
-                        min_trunk_thickness: app.debug_tree_desc.trunk_thickness_min,
                         seed: app.debug_tree_desc.branching.seed,
                     });
                 }

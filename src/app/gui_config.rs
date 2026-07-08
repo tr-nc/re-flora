@@ -1093,6 +1093,7 @@ pub fn render_gui_from_config(
     config: &GuiConfigFile,
     adjustables: &mut GuiAdjustables,
     wind_sources: &mut Vec<WindSourceGuiValues>,
+    mut after_section: impl FnMut(&str, &mut egui::Ui),
 ) {
     for section in &config.section {
         ui.collapsing(&section.name, |ui| {
@@ -1113,5 +1114,6 @@ pub fn render_gui_from_config(
                 render_gui_param_from_config(ui, param, &section.name, adjustables);
             }
         });
+        after_section(&section.name, ui);
     }
 }
