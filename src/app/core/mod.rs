@@ -665,13 +665,10 @@ fn draw_center_cross_mark(ctx: &egui::Context) {
 impl App {
     fn debug_startup_block_bounds() -> (Vec3, Vec3) {
         // Temporary synthetic obstacle. Bounds are derived from the atlas dimensions so changing
-        // CHUNK_DIM does not require hand-updating debug geometry. Keep the top one voxel below
-        // the vertical chunk seam: flora occupancy stores the stem one voxel above the surface,
-        // and same-chunk brush edits reject a stem that would land exactly in the next chunk.
+        // CHUNK_DIM does not require hand-updating debug geometry.
         let atlas_dim = (CHUNK_DIM * VOXEL_DIM_PER_CHUNK).as_vec3();
         let min = Vec3::new(atlas_dim.x * 0.58, 0.0, atlas_dim.z * 0.75);
-        let half_height_below_chunk_seam = (atlas_dim.y * 0.5 - 1.0).max(1.0);
-        let max = (min + Vec3::new(20.0, half_height_below_chunk_seam, 88.0)).min(atlas_dim);
+        let max = (min + Vec3::new(20.0, atlas_dim.y * 0.5, 88.0)).min(atlas_dim);
         (min, max)
     }
 
@@ -3227,10 +3224,10 @@ mod tests {
     }
 
     #[test]
-    fn debug_startup_block_top_leaves_room_for_flora_stem() {
+    fn debug_startup_block_top_reaches_chunk_seam() {
         let (min, max) = App::debug_startup_block_bounds();
         assert!(max.y > min.y);
-        assert!(max.y < super::VOXEL_DIM_PER_CHUNK.y as f32);
+        assert_eq!(max.y, super::VOXEL_DIM_PER_CHUNK.y as f32);
     }
 
     #[test]

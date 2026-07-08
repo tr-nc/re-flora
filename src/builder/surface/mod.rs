@@ -313,7 +313,7 @@ const FLORA_GROWTH_TIMING_PASSES: [SurfacePassTimingPass; 1] = [SurfacePassTimin
 #[derive(Clone, Copy, Debug)]
 pub struct AuthoredFloraInstance {
     pub species_index: u32,
-    pub stem_world_vox: UVec3,
+    pub base_world_vox: UVec3,
     pub growth_progress: u32,
     #[allow(dead_code)]
     pub seed: u32,
@@ -837,20 +837,20 @@ impl SurfaceBuilder {
         })
     }
 
-    pub fn authored_flora_stem_positions_for_species(&self, species_index: u32) -> Vec<UVec3> {
+    pub fn authored_flora_base_positions_for_species(&self, species_index: u32) -> Vec<UVec3> {
         self.authored_flora
             .instances_by_chunk
             .values()
             .flat_map(|instances| instances.iter())
             .filter(|instance| instance.species_index == species_index)
-            .map(|instance| instance.stem_world_vox)
+            .map(|instance| instance.base_world_vox)
             .collect()
     }
 
     pub fn try_add_authored_flora_instance_deferred(
         &mut self,
         species_index: u32,
-        stem_world_vox: UVec3,
+        base_world_vox: UVec3,
         growth_progress: u32,
         seed: u32,
         dirty_chunks: &mut Vec<UVec3>,
@@ -858,26 +858,26 @@ impl SurfaceBuilder {
         if !species::is_authored_plant_species_index(species_index) {
             return false;
         }
-        let chunk_id = self.chunk_id_for_world_voxel(stem_world_vox);
+        let chunk_id = self.chunk_id_for_world_voxel(base_world_vox);
         if !self.chunk_bound.in_bound(chunk_id) {
             return false;
         }
         let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
-        let local_pos = stem_world_vox - chunk_world_offset;
+        let local_pos = base_world_vox - chunk_world_offset;
         if local_pos.cmpge(self.voxel_dim_per_chunk).any() {
             return false;
         }
 
         let chunk_instances = self.authored_flora.instances_for_chunk_mut(chunk_id);
         if chunk_instances.iter().any(|instance| {
-            instance.species_index == species_index && instance.stem_world_vox == stem_world_vox
+            instance.species_index == species_index && instance.base_world_vox == base_world_vox
         }) {
             return false;
         }
 
         chunk_instances.push(AuthoredFloraInstance {
             species_index,
-            stem_world_vox,
+            base_world_vox,
             growth_progress: growth_progress.min(0xff),
             seed,
         });
@@ -916,9 +916,9 @@ impl SurfaceBuilder {
         let before = chunk_instances.len();
         chunk_instances.retain(|instance| {
             let base_center_vox = Vec3::new(
-                instance.stem_world_vox.x as f32 + 0.5,
-                instance.stem_world_vox.y as f32 - 0.5,
-                instance.stem_world_vox.z as f32 + 0.5,
+                instance.base_world_vox.x as f32 + 0.5,
+                instance.base_world_vox.y as f32 + 0.5,
+                instance.base_world_vox.z as f32 + 0.5,
             );
             distance_sq_to_segment(base_center_vox, edit_start_vox, edit_end_vox) > radius_sq
         });
@@ -945,7 +945,7 @@ impl SurfaceBuilder {
                 .iter()
                 .filter(|instance| instance.species_index == species_index)
             {
-                let local_pos = instance.stem_world_vox - chunk_world_offset;
+                let local_pos = instance.base_world_vox - chunk_world_offset;
                 if local_pos.cmpge(self.voxel_dim_per_chunk).any() {
                     continue;
                 }

@@ -26,12 +26,18 @@ uint set_instance_growth_progress(uint packed_local_pos, uint growth_progress) {
     return (packed_local_pos & 0x00ffffffu) | ((growth_progress & 0xffu) << 24u);
 }
 
+// Surface flora instances store the plantable base voxel so the top layer of a chunk can own
+// flora whose visible stem starts in the neighboring chunk's coordinate range.
 uvec3 get_instance_world_pos(Instance instance, uvec3 chunk_world_offset) {
     return chunk_world_offset + unpack_instance_local_pos(instance.packed_local_pos);
 }
 
 uvec3 get_instance_world_pos(uint packed_local_pos, uvec3 chunk_world_offset) {
     return chunk_world_offset + unpack_instance_local_pos(packed_local_pos);
+}
+
+uvec3 get_surface_flora_stem_world_pos(uint packed_local_pos, uvec3 chunk_world_offset) {
+    return get_instance_world_pos(packed_local_pos, chunk_world_offset) + uvec3(0u, 1u, 0u);
 }
 
 uint get_instance_seed(uvec3 instance_pos_voxels) {

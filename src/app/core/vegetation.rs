@@ -576,11 +576,11 @@ fn authored_flora_candidate_seed(
     authored_flora_hash(seed)
 }
 
-fn authored_flora_base_center_from_stem(stem_world_vox: UVec3) -> Vec3 {
+fn authored_flora_base_center(base_world_vox: UVec3) -> Vec3 {
     Vec3::new(
-        stem_world_vox.x as f32 + 0.5,
-        stem_world_vox.y as f32 - 0.5,
-        stem_world_vox.z as f32 + 0.5,
+        base_world_vox.x as f32 + 0.5,
+        base_world_vox.y as f32 + 0.5,
+        base_world_vox.z as f32 + 0.5,
     )
 }
 
@@ -1463,9 +1463,9 @@ impl App {
 
         let existing_base_centers_vox = self
             .surface_builder
-            .authored_flora_stem_positions_for_species(species_index)
+            .authored_flora_base_positions_for_species(species_index)
             .into_iter()
-            .map(authored_flora_base_center_from_stem)
+            .map(authored_flora_base_center)
             .collect::<Vec<_>>();
         let mut placed_base_centers_vox = Vec::new();
         let mut dirty_chunks = Vec::new();
@@ -1511,7 +1511,7 @@ impl App {
                 let pos_xz = Vec2::new((x_vox as f32 + 0.5) / 256.0, (z_vox as f32 + 0.5) / 256.0);
                 let terrain_height = self.query_terrain_height_cpu(pos_xz);
                 let base_y = (terrain_height * 256.0).floor().max(0.0) as u32;
-                if base_y + 1 >= world_dim.y {
+                if base_y >= world_dim.y {
                     continue;
                 }
 
@@ -1538,21 +1538,21 @@ impl App {
                 {
                     best_candidate = Some((
                         score,
-                        UVec3::new(x_vox, base_y + 1, z_vox),
+                        UVec3::new(x_vox, base_y, z_vox),
                         base_center_vox,
                         seed,
                     ));
                 }
             }
 
-            let Some((_, stem_world_vox, base_center_vox, seed)) = best_candidate else {
+            let Some((_, base_world_vox, base_center_vox, seed)) = best_candidate else {
                 continue;
             };
             if self
                 .surface_builder
                 .try_add_authored_flora_instance_deferred(
                     species_index,
-                    stem_world_vox,
+                    base_world_vox,
                     AUTHORED_FLORA_GROWTH_MATURE,
                     seed,
                     &mut dirty_chunks,

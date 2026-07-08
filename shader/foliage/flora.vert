@@ -101,7 +101,8 @@ void main() {
     bool should_trim_voxel;
     uint in_instance_packed_local_pos =
         manual_flora_instances.data[gl_InstanceIndex].packed_local_pos;
-    uvec3 instance_pos = get_instance_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
+    uvec3 instance_pos = get_surface_flora_stem_world_pos(in_instance_packed_local_pos,
+                                                          pc.chunk_world_offset);
     uint instance_seed = get_instance_seed(instance_pos);
     uint instance_growth_progress = unpack_instance_growth_progress(in_instance_packed_local_pos);
     uint voxel_info = lookup_flora_voxel_info(pc.instance_ty, vox_local_pos);
