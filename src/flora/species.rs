@@ -204,7 +204,6 @@ impl FloraPaintSelection {
 
 pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
     FloraPaintSelection::GrassMix,
-    FloraPaintSelection::Species(CARROT_SPECIES_INDEX),
     FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX),
     FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX),
     FloraPaintSelection::Species(TOMATO_SPECIES_INDEX),
@@ -261,6 +260,16 @@ mod tests {
             .trim_end_matches(';')
             .parse()
             .unwrap_or_else(|err| panic!("failed to parse {name} from flora_registry.glsl: {err}"))
+    }
+
+    #[test]
+    fn player_paint_selections_do_not_include_carrot() {
+        assert!(!PLAYER_FLORA_PAINT_SELECTIONS
+            .iter()
+            .any(|selection| matches!(
+                selection,
+                FloraPaintSelection::Species(CARROT_SPECIES_INDEX)
+            )));
     }
 
     #[test]
