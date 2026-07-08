@@ -218,18 +218,18 @@ impl App {
     pub(super) fn sync_cursor_with_panels(&mut self) {
         let was_cursor_visible = self.window_state.is_cursor_visible();
         let cursor_visible = self.blocking_panel_open() || self.is_orbit_edit_camera_mode();
-        self.window_state.set_cursor_grab(!cursor_visible);
 
         if cursor_visible && !was_cursor_visible {
+            // Wayland rejects cursor warps after the pointer is unlocked. Center while still in
+            // the locked free-look state, then release and ignore stale CursorMoved events for a
+            // few frames so logical UI/terrain rays remain centered during the transition.
+            self.center_logical_cursor();
             self.cursor_recenter_frames_remaining = super::CURSOR_RECENTER_RETRY_FRAMES;
         } else if !cursor_visible {
             self.cursor_recenter_frames_remaining = 0;
         }
 
-        if cursor_visible && self.cursor_recenter_frames_remaining > 0 {
-            self.center_logical_cursor();
-            self.cursor_recenter_frames_remaining -= 1;
-        }
+        self.window_state.set_cursor_grab(!cursor_visible);
 
         if self.blocking_panel_open() {
             self.player_tools.shovel_dig_held = false;
