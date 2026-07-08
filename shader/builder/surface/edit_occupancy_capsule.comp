@@ -46,10 +46,10 @@ bool is_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIR
 
 uint flora_paint_priority(uint selection) {
     // Grass, including mixed grass and existing tall/short grass instances, is the lowest
-    // priority. Authored plants/crops share the higher paint priority so they can replace grass
+    // priority. Authored plants share the higher paint priority so they can replace grass
     // without overwriting each other.
     if (selection == FLORA_SPECIES_LAVENDER || selection == FLORA_SPECIES_EMBER_BLOOM ||
-        selection == FLORA_SPECIES_CARROT || selection == FLORA_SPECIES_TOMATO) {
+        selection == FLORA_SPECIES_TOMATO) {
         return 1u;
     }
 

@@ -74,7 +74,7 @@ pub struct FloraVoxelInfos {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FloraVoxelTableDescs {
-    pub descs: [u32; 32],
+    pub descs: [u32; 28],
 }
 
 /// Auto-generated from `B_LevelDispatchIndirect` (GLSL source of truth).
@@ -119,7 +119,7 @@ pub struct NodeOffsetForLevels {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OccupancyToInstancesResult {
-    pub flora_instance_len: [u32; 6],
+    pub flora_instance_len: [u32; 5],
     pub has_growing_flora: u32,
 }
 

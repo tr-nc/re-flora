@@ -1,18 +1,16 @@
 use crate::flora::construct::{
-    gen_carrot, gen_ember_bloom, gen_lavender, gen_short_grass, gen_tall_grass, gen_tomato,
+    gen_ember_bloom, gen_lavender, gen_short_grass, gen_tall_grass, gen_tomato,
 };
 use crate::tracer::voxel_encoding::FloraMeshData;
 use anyhow::Result;
 
-pub const MAX_FLORA_SPECIES: usize = 6;
+pub const MAX_FLORA_SPECIES: usize = 5;
 pub const LAVENDER_SPECIES_INDEX: u32 = 2;
 pub const EMBER_BLOOM_SPECIES_INDEX: u32 = 3;
-pub const CARROT_SPECIES_INDEX: u32 = 4;
-pub const TOMATO_SPECIES_INDEX: u32 = 5;
-pub const AUTHORED_PLANT_SPECIES_INDICES: [u32; 4] = [
+pub const TOMATO_SPECIES_INDEX: u32 = 4;
+pub const AUTHORED_PLANT_SPECIES_INDICES: [u32; 3] = [
     LAVENDER_SPECIES_INDEX,
     EMBER_BLOOM_SPECIES_INDEX,
-    CARROT_SPECIES_INDEX,
     TOMATO_SPECIES_INDEX,
 ];
 pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
@@ -69,13 +67,6 @@ pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaint
     SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS,
-    1,
-);
-
-pub const CARROT_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
-    SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
-    SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
-    14,
     1,
 );
 
@@ -149,14 +140,6 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [255, 141, 78],
         gen_ember_bloom,
         EMBER_BLOOM_PAINT_BRUSH_SETTINGS,
-    ),
-    FloraSpeciesDesc::new(
-        "carrot",
-        "Carrot",
-        [232, 106, 35],
-        [64, 185, 66],
-        gen_carrot,
-        CARROT_PAINT_BRUSH_SETTINGS,
     ),
     FloraSpeciesDesc::new(
         "tomato",
@@ -263,13 +246,17 @@ mod tests {
     }
 
     #[test]
-    fn player_paint_selections_do_not_include_carrot() {
-        assert!(!PLAYER_FLORA_PAINT_SELECTIONS
-            .iter()
-            .any(|selection| matches!(
+    fn carrot_species_is_not_registered() {
+        assert!(!species().iter().any(|species| species.key == "carrot"));
+        assert!(!PLAYER_FLORA_PAINT_SELECTIONS.iter().any(|selection| {
+            matches!(
                 selection,
-                FloraPaintSelection::Species(CARROT_SPECIES_INDEX)
-            )));
+                FloraPaintSelection::Species(species_idx)
+                    if species()
+                        .get(*species_idx as usize)
+                        .is_some_and(|species| species.key == "carrot")
+            )
+        }));
     }
 
     #[test]

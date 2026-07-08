@@ -224,7 +224,7 @@ void main() {
     // occupancy. Rebuilding instances should preserve those accumulated paint choices instead of
     // reapplying a fixed world-space sparse mask.
     if (paint_selection != FLORA_SPECIES_LAVENDER && paint_selection != FLORA_SPECIES_EMBER_BLOOM &&
-        paint_selection != FLORA_SPECIES_CARROT && paint_selection != FLORA_SPECIES_TOMATO &&
+        paint_selection != FLORA_SPECIES_TOMATO &&
         !(allow_any_flora || allow_tall_grass || allow_short_grass)) {
         return;
     }

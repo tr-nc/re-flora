@@ -40,62 +40,6 @@ pub fn gen_short_grass(is_lod_used: bool) -> Result<FloraMeshData> {
     gen_grass_column(4, is_lod_used)
 }
 
-pub fn gen_carrot(is_lod_used: bool) -> Result<FloraMeshData> {
-    const BURIED_TIP_Y: i32 = -4;
-    const ORIGIN: IVec3 = IVec3::new(0, BURIED_TIP_Y, 0);
-    const LEAF_BASE_Y: i32 = 2;
-    const LEAF_HEIGHT: i32 = 4;
-    const MAX_LENGTH: u32 = 9;
-
-    let mut mesh = FloraMeshData::new(MAX_LENGTH);
-
-    // Ten voxels tall from buried tip y=-4 to leaf tip y=5. Most orange root voxels sit below
-    // the soil; y=0..1 leaves a small carrot shoulder visible above ground.
-    const ROOT_LAYERS: &[(i32, i32)] = &[(-4, 0), (-3, 0), (-2, 1), (-1, 1), (0, 1), (1, 0)];
-    for &(y, radius) in ROOT_LAYERS {
-        for x in -radius..=radius {
-            for z in -radius..=radius {
-                if x.abs() + z.abs() > radius + 1 {
-                    continue;
-                }
-                let vertex_offset = mesh.vertices.len() as u32;
-                append_indexed_cube_data(
-                    &mut mesh.vertices,
-                    &mut mesh.indices,
-                    &mut mesh.voxel_infos,
-                    IVec3::new(x, y, z),
-                    vertex_offset,
-                    ORIGIN,
-                    MAX_LENGTH,
-                    is_lod_used,
-                )?;
-            }
-        }
-    }
-
-    // Leafy tufts start above the exposed orange shoulder and reach up to y=5.
-    const LEAF_TUFTS: &[(i32, i32)] = &[(0, 0), (-1, 0), (1, 1), (0, -1)];
-    for &(base_x, base_z) in LEAF_TUFTS {
-        for y in 0..LEAF_HEIGHT {
-            let lean_x = base_x * y / 3;
-            let lean_z = base_z * y / 3;
-            let vertex_offset = mesh.vertices.len() as u32;
-            append_indexed_cube_data(
-                &mut mesh.vertices,
-                &mut mesh.indices,
-                &mut mesh.voxel_infos,
-                IVec3::new(base_x + lean_x, LEAF_BASE_Y + y, base_z + lean_z),
-                vertex_offset,
-                ORIGIN,
-                MAX_LENGTH,
-                is_lod_used,
-            )?;
-        }
-    }
-
-    Ok(mesh)
-}
-
 type TomatoVoxelKey = (i32, i32, i32);
 type TomatoVoxelMap = HashMap<TomatoVoxelKey, TomatoMaterial>;
 
