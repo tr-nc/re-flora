@@ -106,7 +106,6 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
-const CURSOR_RECENTER_RETRY_FRAMES: u8 = 3;
 // Muted runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
 const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
@@ -131,7 +130,6 @@ pub struct App {
     accumulated_mouse_delta: Vec2,
     smoothed_mouse_delta: Vec2,
     cursor_position_physical: Option<Vec2>,
-    cursor_recenter_frames_remaining: u8,
     camera_control_mode: CameraControlMode,
     orbit_camera_focus: Vec3,
     orbit_keyboard_pan_input: OrbitKeyboardPanInput,
@@ -1148,7 +1146,6 @@ impl App {
             accumulated_mouse_delta: Vec2::ZERO,
             smoothed_mouse_delta: Vec2::ZERO,
             cursor_position_physical: None,
-            cursor_recenter_frames_remaining: 0,
             camera_control_mode: CameraControlMode::default(),
             orbit_camera_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
             orbit_keyboard_pan_input: OrbitKeyboardPanInput::default(),
@@ -1621,7 +1618,7 @@ impl App {
             }
         }
         if let WindowEvent::CursorMoved { position, .. } = &event {
-            self.handle_cursor_moved_position(Vec2::new(position.x as f32, position.y as f32));
+            self.cursor_position_physical = Some(Vec2::new(position.x as f32, position.y as f32));
         }
         if let WindowEvent::ModifiersChanged(modifiers) = &event {
             self.modifiers = modifiers.state();
@@ -1660,12 +1657,10 @@ impl App {
 
             if consumed && !is_keyboard_event {
                 if let WindowEvent::CursorMoved { position, .. } = &event {
-                    if !self.cursor_recenter_pending() {
-                        self.sync_orbit_mouse_drag_position(Vec2::new(
-                            position.x as f32,
-                            position.y as f32,
-                        ));
-                    }
+                    self.sync_orbit_mouse_drag_position(Vec2::new(
+                        position.x as f32,
+                        position.y as f32,
+                    ));
                 }
                 if let WindowEvent::MouseInput { state, button, .. } = &event {
                     if *state == ElementState::Released {

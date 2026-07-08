@@ -204,29 +204,14 @@ impl App {
         let _ = self.window_state.center_cursor();
     }
 
-    pub(super) fn cursor_recenter_pending(&self) -> bool {
-        self.cursor_recenter_frames_remaining > 0
-    }
-
-    pub(super) fn handle_cursor_moved_position(&mut self, position_physical: Vec2) {
-        if self.cursor_recenter_pending() {
-            return;
-        }
-        self.cursor_position_physical = Some(position_physical);
-    }
-
     pub(super) fn sync_cursor_with_panels(&mut self) {
         let was_cursor_visible = self.window_state.is_cursor_visible();
         let cursor_visible = self.blocking_panel_open() || self.is_orbit_edit_camera_mode();
 
         if cursor_visible && !was_cursor_visible {
-            // Wayland rejects cursor warps after the pointer is unlocked. Center while still in
-            // the locked free-look state, then release and ignore stale CursorMoved events for a
-            // few frames so logical UI/terrain rays remain centered during the transition.
+            // Wayland rejects cursor warps after the pointer is unlocked, so center while still
+            // locked and only then release the cursor for visible UI/orbit modes.
             self.center_logical_cursor();
-            self.cursor_recenter_frames_remaining = super::CURSOR_RECENTER_RETRY_FRAMES;
-        } else if !cursor_visible {
-            self.cursor_recenter_frames_remaining = 0;
         }
 
         self.window_state.set_cursor_grab(!cursor_visible);
