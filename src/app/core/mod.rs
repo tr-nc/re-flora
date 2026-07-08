@@ -164,7 +164,6 @@ pub struct App {
     frame_timing_panel_visible: bool,
     frame_timing_snapshot: FrameTimingSnapshot,
     card_display_visible: bool,
-    is_fly_mode: bool,
     item_panel_shovel_icon: Option<TextureHandle>,
     item_panel_smooth_icon: Option<TextureHandle>,
     item_panel_staff_icon: Option<TextureHandle>,
@@ -254,7 +253,8 @@ pub struct App {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CameraControlMode {
-    FreeLook,
+    FreeFly,
+    Walk,
     OrbitEdit,
 }
 
@@ -266,11 +266,27 @@ impl Default for CameraControlMode {
 
 impl CameraControlMode {
     fn is_free_look(self) -> bool {
-        matches!(self, Self::FreeLook)
+        matches!(self, Self::FreeFly | Self::Walk)
+    }
+
+    fn is_free_fly(self) -> bool {
+        matches!(self, Self::FreeFly)
+    }
+
+    fn is_walk(self) -> bool {
+        matches!(self, Self::Walk)
     }
 
     fn is_orbit_edit(self) -> bool {
         matches!(self, Self::OrbitEdit)
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::OrbitEdit => Self::FreeFly,
+            Self::FreeFly => Self::Walk,
+            Self::Walk => Self::OrbitEdit,
+        }
     }
 }
 
@@ -649,10 +665,13 @@ fn draw_center_cross_mark(ctx: &egui::Context) {
 impl App {
     fn debug_startup_block_bounds() -> (Vec3, Vec3) {
         // Temporary synthetic obstacle. Bounds are derived from the atlas dimensions so changing
-        // CHUNK_DIM does not require hand-updating debug geometry.
+        // CHUNK_DIM does not require hand-updating debug geometry. Keep the top one voxel below
+        // the vertical chunk seam: flora occupancy stores the stem one voxel above the surface,
+        // and same-chunk brush edits reject a stem that would land exactly in the next chunk.
         let atlas_dim = (CHUNK_DIM * VOXEL_DIM_PER_CHUNK).as_vec3();
         let min = Vec3::new(atlas_dim.x * 0.58, 0.0, atlas_dim.z * 0.75);
-        let max = (min + Vec3::new(20.0, atlas_dim.y * 0.5, 88.0)).min(atlas_dim);
+        let half_height_below_chunk_seam = (atlas_dim.y * 0.5 - 1.0).max(1.0);
+        let max = (min + Vec3::new(20.0, half_height_below_chunk_seam, 88.0)).min(atlas_dim);
         (min, max)
     }
 
@@ -1173,7 +1192,6 @@ impl App {
             frame_timing_panel_visible: options.perf,
             frame_timing_snapshot: FrameTimingSnapshot::default(),
             card_display_visible: false,
-            is_fly_mode: true,
             item_panel_shovel_icon: None,
             item_panel_smooth_icon: None,
             item_panel_staff_icon: None,
@@ -2020,6 +2038,7 @@ impl App {
                         .map(|hover| hover.is_editable)
                         .unwrap_or(true),
                 );
+                let current_camera_is_free_fly = self.is_free_fly_camera_mode();
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -2128,7 +2147,7 @@ impl App {
                                                 &mut self.camera_snapshot_draft_description,
                                                 &mut self.camera_snapshot_status,
                                                 current_camera_pose,
-                                                self.is_fly_mode,
+                                                current_camera_is_free_fly,
                                             );
 
                                             ui.add_space(8.0);
@@ -3164,7 +3183,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{App, MouseWheelDollySmoother, OrbitKeyboardPanInput};
+    use super::{App, CameraControlMode, MouseWheelDollySmoother, OrbitKeyboardPanInput};
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
     use winit::keyboard::KeyCode;
 
@@ -3195,6 +3214,23 @@ mod tests {
         assert_eq!(normal_default_gain_db, 0.0);
         assert!(muted_gain_db <= normal_min_gain_db);
         assert!(normal_default_gain_db < normal_max_gain_db);
+    }
+
+    #[test]
+    fn camera_control_mode_cycles_through_orbit_fly_and_walk() {
+        assert_eq!(
+            CameraControlMode::OrbitEdit.next(),
+            CameraControlMode::FreeFly
+        );
+        assert_eq!(CameraControlMode::FreeFly.next(), CameraControlMode::Walk);
+        assert_eq!(CameraControlMode::Walk.next(), CameraControlMode::OrbitEdit);
+    }
+
+    #[test]
+    fn debug_startup_block_top_leaves_room_for_flora_stem() {
+        let (min, max) = App::debug_startup_block_bounds();
+        assert!(max.y > min.y);
+        assert!(max.y < super::VOXEL_DIM_PER_CHUNK.y as f32);
     }
 
     #[test]

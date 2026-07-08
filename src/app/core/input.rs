@@ -13,7 +13,7 @@ use crate::app::world_edits::{
 };
 use crate::builder::ChunkModifyStats;
 use crate::flora::species;
-use crate::tracer::TerrainEditPreviewShape;
+use crate::tracer::{PlayerCollisionResult, TerrainEditPreviewShape};
 use glam::{Vec2, Vec3};
 use rand::RngExt;
 use std::time::{Duration, Instant};
@@ -150,12 +150,26 @@ fn orbit_focus_from_view_ray(
 }
 
 impl App {
+    const PLAYER_COLLISION_RAY_DISTANCE: f32 = 2.0;
+    const PLAYER_COLLISION_RING_RAY_COUNT: usize = 32;
+    const PLAYER_COLLISION_RAY_HALF_KERNEL_SIZE: i32 = 1;
+    const PLAYER_COLLISION_RAY_OFFSET: f32 = 1.0 / 256.0;
+    const PLAYER_COLLISION_GROUND_MISS_DISTANCE: f32 = 1.0e10;
+
     fn blocking_panel_open(&self) -> bool {
         self.config_panel_visible || self.card_display_visible
     }
 
     pub(super) fn is_free_look_camera_mode(&self) -> bool {
         self.camera_control_mode.is_free_look()
+    }
+
+    pub(super) fn is_free_fly_camera_mode(&self) -> bool {
+        self.camera_control_mode.is_free_fly()
+    }
+
+    pub(super) fn is_walk_camera_mode(&self) -> bool {
+        self.camera_control_mode.is_walk()
     }
 
     pub(super) fn is_orbit_edit_camera_mode(&self) -> bool {
@@ -196,14 +210,11 @@ impl App {
     }
 
     pub(super) fn toggle_camera_control_mode(&mut self) {
-        self.camera_control_mode = if self.is_orbit_edit_camera_mode() {
-            super::CameraControlMode::FreeLook
-        } else {
-            super::CameraControlMode::OrbitEdit
-        };
+        self.camera_control_mode = self.camera_control_mode.next();
         self.player_tools.shovel_dig_held = false;
         self.stop_terrain_edit_loop_sound();
         self.reset_camera_movement_input();
+        self.tracer.reset_camera_velocity();
 
         if self.is_orbit_edit_camera_mode() {
             self.sync_orbit_focus_from_current_view();
@@ -252,9 +263,12 @@ impl App {
     }
 
     pub(super) fn update_camera_for_current_mode(&mut self, frame_delta_time: f32) {
-        if self.is_free_look_camera_mode() {
+        if self.is_free_fly_camera_mode() {
+            self.tracer.update_camera(frame_delta_time, true, None);
+        } else if self.is_walk_camera_mode() {
+            let player_collision = self.query_player_collision_cpu();
             self.tracer
-                .update_camera(frame_delta_time, self.is_fly_mode);
+                .update_camera(frame_delta_time, false, Some(player_collision));
         } else {
             self.update_orbit_keyboard_camera_pan(frame_delta_time);
         }
@@ -1021,6 +1035,79 @@ impl App {
             .filter(|hit| (*hit - origin).length() <= max_distance))
     }
 
+    pub(super) fn query_player_collision_cpu(&self) -> PlayerCollisionResult {
+        let player_pos = self.tracer.camera_position();
+        let camera_front = self.tracer.camera_front();
+        let flattened_front = Vec3::new(camera_front.x, 0.0, camera_front.z).normalize_or_zero();
+        let horizontal_front = if flattened_front.length_squared() <= f32::EPSILON {
+            Vec3::Z
+        } else {
+            flattened_front
+        };
+        let right = horizontal_front.cross(Vec3::Y).normalize_or_zero();
+
+        let kernel_radius = Self::PLAYER_COLLISION_RAY_HALF_KERNEL_SIZE;
+        let mut weighted_sum = 0.0;
+        let mut sum_of_weights = 0.0;
+        let mut ceiling_distance = Self::PLAYER_COLLISION_RAY_DISTANCE;
+
+        for x in -kernel_radius..=kernel_radius {
+            for y in -kernel_radius..=kernel_radius {
+                let offset = Vec2::new(x as f32, y as f32) * Self::PLAYER_COLLISION_RAY_OFFSET;
+                let ray_origin = player_pos + Vec3::new(offset.x, 0.0, offset.y);
+
+                let ground_distance = self
+                    .query_terrain_ray_cpu(ray_origin, Vec3::NEG_Y)
+                    .map(|hit| (hit - ray_origin).length())
+                    .unwrap_or(Self::PLAYER_COLLISION_GROUND_MISS_DISTANCE);
+                let weight = Self::player_collision_gaussian_weight(x, y);
+                weighted_sum += ground_distance * weight;
+                sum_of_weights += weight;
+
+                let ceiling_hit_distance = self
+                    .query_terrain_ray_cpu(ray_origin, Vec3::Y)
+                    .map(|hit| (hit - ray_origin).length())
+                    .unwrap_or(Self::PLAYER_COLLISION_RAY_DISTANCE)
+                    .min(Self::PLAYER_COLLISION_RAY_DISTANCE);
+                ceiling_distance = ceiling_distance.min(ceiling_hit_distance);
+            }
+        }
+
+        let mut ring_distances = Vec::with_capacity(Self::PLAYER_COLLISION_RING_RAY_COUNT);
+        ring_distances.push(
+            self.query_player_collision_ring_distance(player_pos, horizontal_front)
+                .min(Self::PLAYER_COLLISION_RAY_DISTANCE),
+        );
+
+        for ring_index in 1..Self::PLAYER_COLLISION_RING_RAY_COUNT {
+            let angle = 2.0 * std::f32::consts::PI * (ring_index - 1) as f32
+                / (Self::PLAYER_COLLISION_RING_RAY_COUNT - 1) as f32;
+            let direction =
+                (horizontal_front * angle.cos() + right * angle.sin()).normalize_or_zero();
+            let direction = if direction.length_squared() <= f32::EPSILON {
+                horizontal_front
+            } else {
+                direction
+            };
+            ring_distances.push(
+                self.query_player_collision_ring_distance(player_pos, direction)
+                    .min(Self::PLAYER_COLLISION_RAY_DISTANCE),
+            );
+        }
+
+        PlayerCollisionResult {
+            ground_distance: weighted_sum / sum_of_weights.max(1e-8),
+            ceiling_distance,
+            ring_distances,
+        }
+    }
+
+    fn query_player_collision_ring_distance(&self, origin: Vec3, direction: Vec3) -> f32 {
+        self.query_terrain_ray_cpu(origin, direction)
+            .map(|hit| (hit - origin).length())
+            .unwrap_or(Self::PLAYER_COLLISION_RAY_DISTANCE)
+    }
+
     pub(super) fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
         self.contree_builder
             .query_terrain_ray_cpu(origin, direction)
@@ -1030,6 +1117,12 @@ impl App {
         self.query_terrain_ray_cpu(Vec3::new(pos_xz.x, 10.0, pos_xz.y), Vec3::NEG_Y)
             .map(|hit| hit.y)
             .unwrap_or(0.0)
+    }
+
+    fn player_collision_gaussian_weight(x: i32, y: i32) -> f32 {
+        let sigma = Self::PLAYER_COLLISION_RAY_HALF_KERNEL_SIZE as f32 * 0.5 + 0.5;
+        let sigma2 = sigma * sigma;
+        (-(x * x + y * y) as f32 / (2.0 * sigma2)).exp()
     }
 
     pub(super) fn try_shovel_dig(&mut self, now: Instant) {

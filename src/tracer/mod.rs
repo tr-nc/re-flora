@@ -302,6 +302,13 @@ pub enum LodState {
     Lod1,
 }
 
+#[derive(Debug, Clone)]
+pub struct PlayerCollisionResult {
+    pub ground_distance: f32,
+    pub ceiling_distance: f32,
+    pub ring_distances: Vec<f32>,
+}
+
 pub const DIRECT_SUN_SHADOW_SOURCE_TERRAIN: u32 = 1 << 0;
 pub const DIRECT_SUN_SHADOW_SOURCE_LEAF: u32 = 1 << 1;
 pub const DIRECT_SUN_SHADOW_SOURCE_CLOUD: u32 = 1 << 2;
@@ -2938,8 +2945,24 @@ impl Tracer {
         self.camera.set_footstep_volume_gain(volume_gain);
     }
 
-    pub fn update_camera(&mut self, frame_delta_time: f32, _is_fly_mode: bool) {
-        self.camera.update_transform(frame_delta_time);
+    pub fn update_camera(
+        &mut self,
+        frame_delta_time: f32,
+        is_fly_mode: bool,
+        collision_result: Option<PlayerCollisionResult>,
+    ) {
+        if is_fly_mode {
+            self.camera.update_transform_fly_mode(frame_delta_time);
+        } else {
+            self.camera.update_transform_walk_mode(
+                frame_delta_time,
+                collision_result.unwrap_or_else(|| PlayerCollisionResult {
+                    ground_distance: f32::INFINITY,
+                    ceiling_distance: f32::INFINITY,
+                    ring_distances: Vec::new(),
+                }),
+            );
+        }
 
         self.spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
