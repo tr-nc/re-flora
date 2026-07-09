@@ -260,7 +260,7 @@ enum CameraControlMode {
 
 impl Default for CameraControlMode {
     fn default() -> Self {
-        Self::OrbitEdit
+        Self::FreeFly
     }
 }
 
@@ -1269,6 +1269,7 @@ impl App {
         app.apply_effective_master_volume_gain("Failed to apply initial master volume");
 
         app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
+        app.sync_cursor_with_panels();
 
         app.configure_gui_font()?;
         app.load_item_panel_icons()?;
@@ -3213,6 +3214,11 @@ mod tests {
         assert_eq!(normal_default_gain_db, 0.0);
         assert!(muted_gain_db <= normal_min_gain_db);
         assert!(normal_default_gain_db < normal_max_gain_db);
+    }
+
+    #[test]
+    fn camera_control_mode_defaults_to_free_fly() {
+        assert_eq!(CameraControlMode::default(), CameraControlMode::FreeFly);
     }
 
     #[test]
