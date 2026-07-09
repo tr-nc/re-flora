@@ -8,6 +8,7 @@ use rand::{RngExt, SeedableRng};
 use std::f32::consts::PI;
 
 pub const TREE_MIN_TRUNK_THICKNESS: f32 = 1.05;
+const TREE_DEFAULT_SIZE: f32 = 30.0;
 
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
@@ -49,7 +50,7 @@ impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
             branching: default_tree_branching_desc(),
-            size: 30.0,
+            size: TREE_DEFAULT_SIZE,
             trunk_thickness: 0.40,
             thickness_reduction: 0.61,
             leaves_size_level: 5,
@@ -179,7 +180,9 @@ impl Tree {
     }
 
     fn build(desc: &TreeDesc) -> BuiltObjects {
-        let branching_desc = desc.branching.normalized();
+        let mut branching_desc = desc.branching.normalized();
+        let length_scale = (desc.size / TREE_DEFAULT_SIZE).max(0.0);
+        branching_desc.initial_length *= length_scale;
         let mut rng = StdRng::seed_from_u64(branching_desc.seed);
         let base_thickness = desc.trunk_thickness * desc.size;
         let skeleton = generate_branch_skeleton_with_rng(&branching_desc, &mut rng);
@@ -338,5 +341,37 @@ mod tests {
         let tree = Tree::new(desc);
 
         assert_eq!(tree.relative_leaf_positions().len(), 2);
+    }
+
+    #[test]
+    fn tree_size_scales_branch_length() {
+        let desc = TreeDesc {
+            branching: BranchingDesc {
+                seed: 1,
+                iterations: 1,
+                randomness: 0.0,
+                segment_length_variation: 0.0,
+                ..default_tree_branching_desc()
+            },
+            enable_subdivision: false,
+            size: TREE_DEFAULT_SIZE,
+            ..TreeDesc::default()
+        };
+        let mut half_size_desc = desc.clone();
+        half_size_desc.size = TREE_DEFAULT_SIZE * 0.5;
+
+        let default_tree = Tree::new(desc);
+        let half_size_tree = Tree::new(half_size_desc);
+        let default_segment = &default_tree.trunks()[0];
+        let half_size_segment = &half_size_tree.trunks()[0];
+
+        let default_length = default_segment
+            .center_b()
+            .distance(default_segment.center_a());
+        let half_size_length = half_size_segment
+            .center_b()
+            .distance(half_size_segment.center_a());
+
+        assert!((half_size_length - default_length * 0.5).abs() < 0.001);
     }
 }
