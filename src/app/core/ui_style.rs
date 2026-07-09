@@ -1107,6 +1107,8 @@ fn draw_voxel_palette_entry(
 pub(crate) fn apply_gui_style(style: &mut egui::Style) {
     style.visuals.override_text_color = Some(TEXT_COLOR);
     style.visuals.hyperlink_color = GOLD_ACCENT;
+    style.interaction.selectable_labels = false;
+    style.interaction.multi_widget_text_select = false;
 
     style.visuals.selection.bg_fill = FLOWER_ACCENT.linear_multiply(0.4);
     style.visuals.selection.stroke = egui::Stroke::new(1.0, GOLD_ACCENT);

@@ -2112,9 +2112,12 @@ impl App {
                                     ui.separator();
                                     ui.add_space(4.0);
 
-                                    egui::ScrollArea::vertical().auto_shrink([false; 2]).show(
-                                        ui,
-                                        |ui| {
+                                    egui::ScrollArea::vertical()
+                                        .auto_shrink([false; 2])
+                                        .scroll_source(
+                                            egui::containers::scroll_area::ScrollSource::MOUSE_WHEEL,
+                                        )
+                                        .show(ui, |ui| {
                                             let gui_config = &self.gui_config;
                                             let gui_adjustables = &mut self.gui_adjustables;
                                             let wind_sources = &mut self.wind_sources;
@@ -2175,8 +2178,7 @@ impl App {
                                                     .value,
                                                 "Enable Audio Ray Tracing",
                                             );
-                                        },
-                                    );
+                                        });
                                 });
                         }
                         self.config_panel_visible = config_panel_open;
