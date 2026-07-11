@@ -4,6 +4,7 @@
 
 - Keep changes small and focused.
 - Commit each validated step before starting the next one.
+- After completing and validating a requested feature or fix, commit it automatically; do not wait for the user to ask for a commit.
 - Prefer measuring before guessing on performance work.
 - For performance work, release-mode app benchmarks are authoritative; debug builds and unit tests are not performance evidence.
 - Run `cargo check` after shader or Rust changes. It also regenerates shader-derived Rust structs.
