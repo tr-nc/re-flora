@@ -2,7 +2,7 @@
 
 ## Goal
 
-Move image layout/resource-state transition policy toward `verdarium-vkn` so game/render code declares resource use while `vkn` records the needed barriers.
+Move image layout/resource-state transition policy toward `re-flora-vkn` so game/render code declares resource use while `vkn` records the needed barriers.
 
 Done means:
 
@@ -16,13 +16,13 @@ Done means:
 Known from inspection:
 
 - Branch: `agent/vkn-layout-transitions`.
-- `crates/verdarium-vkn/src/memory/texture/image.rs` tracks current image layout per array layer and records `vkCmdPipelineBarrier` through `record_transition_barrier`.
-- `crates/verdarium-vkn/src/sync/barrier.rs` maps `TextureLayout` to source/destination stage/access masks via `TextureTransition`.
+- `crates/re-flora-vkn/src/memory/texture/image.rs` tracks current image layout per array layer and records `vkCmdPipelineBarrier` through `record_transition_barrier`.
+- `crates/re-flora-vkn/src/sync/barrier.rs` maps `TextureLayout` to source/destination stage/access masks via `TextureTransition`.
 - Some `vkn` helpers already transition internally:
   - `Image::fill_with_raw_u8`
   - `Image::record_clear`
   - `Image::record_copy_to`
-  - swapchain blit/readback paths in `crates/verdarium-vkn/src/swapchain.rs`
+  - swapchain blit/readback paths in `crates/re-flora-vkn/src/swapchain.rs`
 - Game/render `record_transition(...)` call sites have been migrated out; explicit image transitions now mostly live inside `vkn` helpers such as clears, uploads, copies, swapchain paths, render-target tracking, and pipeline texture-use tracking.
 - Descriptor writes are not transitions. `auto_update_descriptor_sets` now writes sampled descriptors with `SHADER_READ_ONLY` and storage-image descriptors with `GENERAL`; actual barriers still come from resource-state tracking. Pipeline-level manual texture writes are tracked as declared texture use, while raw `DescriptorSet::perform_writes` remains an escape hatch.
 - Texture-backed render targets update tracked attachment initial/final layouts at render-pass begin/end. Raw swapchain framebuffer paths still use explicit swapchain handling.

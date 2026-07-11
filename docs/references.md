@@ -1,6 +1,6 @@
 # References
 
-Technical references used while building Verdarium.
+Technical references used while building Re: Flora.
 
 ## Vulkan
 

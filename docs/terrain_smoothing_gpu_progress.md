@@ -16,8 +16,8 @@ Done means:
 
 - Work branch/worktree:
   - Branch: `agent/gpu-mbo-smoothing`
-  - Worktree: `/home/terence/code/verdarium`
-  - Previous smoothing worker worktree `/home/terence/code/verdarium-agent-smoothing` has been merged and removed.
+  - Worktree: `/home/terence/code/re-flora`
+  - Previous smoothing worker worktree `/home/terence/code/re-flora-agent-smoothing` has been merged and removed.
   - `main` was fast-forwarded to include the prior CPU smoothing optimization and progress doc before this branch was created.
 - Current implemented work:
   - CPU-side 3D smoother remains as a fallback for oversized GPU sample volumes.
@@ -121,7 +121,7 @@ Additional verification needed before GPU smoother is considered done:
   - Roughness/exposed-surface metric improves on representative synthetic and real terrain cases.
   - Material types remain valid terrain/empty types.
 - Manual validation:
-  - Visible `cargo run` from `/home/terence/code/verdarium` on `agent/gpu-mbo-smoothing`, only when requested.
+  - Visible `cargo run` from `/home/terence/code/re-flora` on `agent/gpu-mbo-smoothing`, only when requested.
   - Try held smoothing strokes on rough terrain, slope, cliff/overhang, and large radius.
 
 Verification gap:
@@ -130,7 +130,7 @@ Verification gap:
 
 ## Progress Log
 
-- Created dedicated branch/worktree for smoothing work: `agent/smoothing-tool-optimization` at `/home/terence/code/verdarium-agent-smoothing`.
+- Created dedicated branch/worktree for smoothing work: `agent/smoothing-tool-optimization` at `/home/terence/code/re-flora-agent-smoothing`.
 - Moved the existing uncommitted smoothing changes off `main`; main worktree remains clean.
 - Inspected current CPU 3D smoothing implementation in `src/builder/plain/mod.rs` and related tool call sites.
 - Validated the current branch with `cargo check` and a hidden muted release run.
@@ -142,7 +142,7 @@ Verification gap:
   - Allen-Cahn/phase-field smoothing as another stencil-friendly but more parameter-heavy option.
 - Decision so far: prefer a GPU volume-preserving MBO/threshold-dynamics path as the next implementation direction because it preserves the current binary/material voxel representation while removing CPU readback and full sort from the interaction path.
 - Created this progress document: `docs/terrain_smoothing_gpu_progress.md`.
-- Fast-forward merged `agent/smoothing-tool-optimization` into `main`, then removed `/home/terence/code/verdarium-agent-smoothing`.
+- Fast-forward merged `agent/smoothing-tool-optimization` into `main`, then removed `/home/terence/code/re-flora-agent-smoothing`.
 - Created `agent/gpu-mbo-smoothing` from the merged main worktree.
 - Implemented first GPU MBO prototype:
   - Added MBO init/diffuse/score/apply compute shaders and shared GLSL helpers.

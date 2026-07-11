@@ -1,7 +1,7 @@
-use verdarium_vkn::PresentMode;
+use re_flora_vkn::PresentMode;
 
 pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
-    "Run `verdarium --list-camera-snapshots` to list available camera snapshots.";
+    "Run `re-flora --list-camera-snapshots` to list available camera snapshots.";
 
 const SCREENSHOT_USAGE: &str = "Expected `--screenshot <preset> <path> --screenshot-delay <sec>`.";
 
@@ -418,7 +418,7 @@ fn parse_required_screenshot_delay(args: &[String]) -> Result<f32, String> {
 pub fn print_help() {
     println!(
         r#"Usage:
-  verdarium [options]
+  re-flora [options]
 
 Options:
   --windowed                  Run in windowed mode (default: borderless fullscreen)
@@ -472,25 +472,25 @@ Options:
   -h, --help                  Show this help and exit
 
 Examples:
-  verdarium --windowed
-  verdarium --hidden --mute --auto-exit 20 --perf
-  verdarium --audio-output-device KA3
-  verdarium --list-audio-output-devices
-  verdarium --hidden --mute --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4
-  verdarium --present-mode fifo
-  verdarium --monitor-score lowest
-  verdarium --swapchain-images 2
-  verdarium --no-shadows --no-denoise
-  verdarium --hidden --mute --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
-  verdarium --list-camera-snapshots
-  verdarium --auto-exit 10 --perf
-  verdarium --hidden --mute --auto-exit 4 --perf --water-profile performance
-  verdarium --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
-  verdarium --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
-  verdarium --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
-  verdarium --latest-log
-  verdarium --tail-latest-log 120
-  verdarium --windowed --tree-bench --tree-bench-samples 10"#
+  re-flora --windowed
+  re-flora --hidden --mute --auto-exit 20 --perf
+  re-flora --audio-output-device KA3
+  re-flora --list-audio-output-devices
+  re-flora --hidden --mute --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4
+  re-flora --present-mode fifo
+  re-flora --monitor-score lowest
+  re-flora --swapchain-images 2
+  re-flora --no-shadows --no-denoise
+  re-flora --hidden --mute --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
+  re-flora --list-camera-snapshots
+  re-flora --auto-exit 10 --perf
+  re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance
+  re-flora --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
+  re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
+  re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
+  re-flora --latest-log
+  re-flora --tail-latest-log 120
+  re-flora --windowed --tree-bench --tree-bench-samples 10"#
     );
 }
 
@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn defaults_match_runtime_expectations() {
-        let options = parse(&["verdarium"]);
+        let options = parse(&["re-flora"]);
 
         assert!(!options.windowed);
         assert!(!options.hidden);
@@ -560,7 +560,7 @@ mod tests {
     #[test]
     fn parses_authored_flora_bench_options() {
         let options = parse(&[
-            "verdarium",
+            "re-flora",
             "--authored-flora-bench",
             "--authored-flora-bench-samples",
             "7",
@@ -573,7 +573,7 @@ mod tests {
     #[test]
     fn parses_common_perf_and_water_options() {
         let options = parse(&[
-            "verdarium",
+            "re-flora",
             "--hidden",
             "--mute",
             "--auto-exit",
@@ -631,7 +631,7 @@ mod tests {
     #[test]
     fn clamps_numeric_options_like_runtime_parser() {
         let options = parse(&[
-            "verdarium",
+            "re-flora",
             "--water-particle-edge-len",
             "0",
             "--water-grid",
@@ -663,7 +663,7 @@ mod tests {
     #[test]
     fn parses_log_query_options() {
         let options = parse(&[
-            "verdarium",
+            "re-flora",
             "--print-log-dir",
             "--latest-log",
             "--tail-latest-log",
@@ -677,14 +677,14 @@ mod tests {
 
     #[test]
     fn parses_audio_output_device_query_option() {
-        let options = parse(&["verdarium", "--list-audio-output-devices"]);
+        let options = parse(&["re-flora", "--list-audio-output-devices"]);
         assert!(options.list_audio_output_devices);
     }
 
     #[test]
     fn parses_camera_snapshot_options() {
         let options = parse(&[
-            "verdarium",
+            "re-flora",
             "--camera-snapshot",
             "tree-closeup",
             "--list-camera-snapshots",
@@ -699,7 +699,7 @@ mod tests {
     #[test]
     fn parses_screenshot_preset_path_and_required_delay() {
         let options = parse(&[
-            "verdarium",
+            "re-flora",
             "--hidden",
             "--screenshot",
             "tree-closeup",
@@ -717,7 +717,7 @@ mod tests {
     #[test]
     fn screenshot_requires_delay() {
         let panic = std::panic::catch_unwind(|| {
-            parse(&["verdarium", "--screenshot", "tree-closeup", "out.png"])
+            parse(&["re-flora", "--screenshot", "tree-closeup", "out.png"])
         })
         .expect_err("missing screenshot delay should panic");
         let message = panic_message(panic);
@@ -729,7 +729,7 @@ mod tests {
     fn screenshot_rejects_separate_camera_snapshot_flag() {
         let panic = std::panic::catch_unwind(|| {
             parse(&[
-                "verdarium",
+                "re-flora",
                 "--screenshot",
                 "tree-closeup",
                 "out.png",
@@ -747,13 +747,13 @@ mod tests {
 
     #[test]
     fn tail_latest_log_defaults_to_200_without_value() {
-        let options = parse(&["verdarium", "--tail-latest-log"]);
+        let options = parse(&["re-flora", "--tail-latest-log"]);
         assert_eq!(options.tail_latest_log, Some(200));
     }
 
     #[test]
     fn unsupported_present_mode_panics_with_helpful_message() {
-        let panic = std::panic::catch_unwind(|| parse(&["verdarium", "--present-mode", "bad"]))
+        let panic = std::panic::catch_unwind(|| parse(&["re-flora", "--present-mode", "bad"]))
             .expect_err("unsupported present mode should panic");
         let message = panic_message(panic);
         assert!(message.contains("Unsupported --present-mode"));
@@ -762,14 +762,14 @@ mod tests {
 
     #[test]
     fn missing_water_profile_panics_with_helpful_message() {
-        let panic = std::panic::catch_unwind(|| parse(&["verdarium", "--water-profile"]))
+        let panic = std::panic::catch_unwind(|| parse(&["re-flora", "--water-profile"]))
             .expect_err("missing water profile should panic");
         assert!(panic_message(panic).contains("Missing value for --water-profile"));
     }
 
     #[test]
     fn missing_audio_output_device_panics_with_helpful_message() {
-        let panic = std::panic::catch_unwind(|| parse(&["verdarium", "--audio-output-device"]))
+        let panic = std::panic::catch_unwind(|| parse(&["re-flora", "--audio-output-device"]))
             .expect_err("missing audio output device should panic");
         assert!(panic_message(panic).contains("Missing value for --audio-output-device"));
     }

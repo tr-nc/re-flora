@@ -3,8 +3,8 @@ use crate::resource::ResourceContainer;
 use crate::tracer::TracerResources;
 use crate::util::ShaderCompiler;
 use anyhow::Result;
-use verdarium_vkn::vk;
-use verdarium_vkn::{
+use re_flora_vkn::vk;
+use re_flora_vkn::{
     AttachmentDescOuter, AttachmentType, ComputePipeline, DescriptorPool, GraphicsPipeline,
     GraphicsPipelineDesc, RenderPass, ShaderModule, Texture, TextureLayout, VulkanContext,
 };

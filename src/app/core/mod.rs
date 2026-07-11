@@ -71,6 +71,12 @@ use glam::{UVec3, Vec2, Vec3, Vec4};
 use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 use std::collections::HashMap;
 
+use re_flora_vkn::{
+    Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
+    SwapchainFrameError, SwapchainFrameManager,
+};
+use re_flora_vkn::{Swapchain, VulkanContext};
+use re_flora_water::PondWaterConfig;
 use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_center_card, draw_flora_paint_panel, draw_item_panel, draw_voxel_palette,
@@ -92,12 +98,6 @@ use ui_style::{
     TILLER_SLOT_INDEX, TILLER_TOOL_ACCENT, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX,
     TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
-use verdarium_vkn::{
-    Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
-    SwapchainFrameError, SwapchainFrameManager,
-};
-use verdarium_vkn::{Swapchain, VulkanContext};
-use verdarium_water::PondWaterConfig;
 use winit::{
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,

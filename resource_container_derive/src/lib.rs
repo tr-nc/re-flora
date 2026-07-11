@@ -61,14 +61,14 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
     // generate match arms for direct Resource<Buffer> fields
     let buffer_match_arms = resource_idents.iter().map(|ident| {
         quote! {
-            stringify!(#ident) => self.#ident.as_any().downcast_ref::<verdarium_vkn::Buffer>(),
+            stringify!(#ident) => self.#ident.as_any().downcast_ref::<re_flora_vkn::Buffer>(),
         }
     });
 
     // generate match arms for direct Resource<Texture> fields
     let texture_match_arms = resource_idents.iter().map(|ident| {
         quote! {
-            stringify!(#ident) => self.#ident.as_any().downcast_ref::<verdarium_vkn::Texture>(),
+            stringify!(#ident) => self.#ident.as_any().downcast_ref::<re_flora_vkn::Texture>(),
         }
     });
 
@@ -140,8 +140,8 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
-        impl verdarium_vkn::ResourceContainer for #struct_name {
-            fn get_buffer(&self, name: &str) -> Option<&verdarium_vkn::Buffer> {
+        impl re_flora_vkn::ResourceContainer for #struct_name {
+            fn get_buffer(&self, name: &str) -> Option<&re_flora_vkn::Buffer> {
                 #runtime_checks
                 match name {
                     // direct Resource<Buffer> fields take priority
@@ -154,7 +154,7 @@ pub fn derive_resource_container(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn get_texture(&self, name: &str) -> Option<&verdarium_vkn::Texture> {
+            fn get_texture(&self, name: &str) -> Option<&re_flora_vkn::Texture> {
                 match name {
                     // direct Resource<Texture> fields take priority
                     #(#texture_match_arms)*

@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-20.
 
-This document is the running baseline for CPU water simulation performance. Update it whenever an optimization changes `crates/verdarium-water` or the water worker path.
+This document is the running baseline for CPU water simulation performance. Update it whenever an optimization changes `crates/re-flora-water` or the water worker path.
 
 For the current terrain-boundary density correction design, see `docs/water_boundary_density.md`.
 
@@ -49,7 +49,7 @@ Measured after moving simulation to the worker thread, using release hidden runs
 | 50,000 | 6 | 13.02 | 0.64x | 1.56 | behind |
 | 100,000 | 31 | 26.09 | 0.32x | 3.13 | behind |
 
-Long 100k run source: `target/verdarium-logs/verdarium-20260520-130805.933-28187.log`.
+Long 100k run source: `target/re-flora-logs/re-flora-20260520-130805.933-28187.log`.
 
 ### 100k breakdown
 
@@ -103,10 +103,10 @@ cargo run --release -- --hidden --auto-exit 8 --perf --water-particles <count>
 
 Sweep sources:
 
-- `target/verdarium-logs/verdarium-20260520-133342.981-69858.log` (`10k`)
-- `target/verdarium-logs/verdarium-20260520-133355.263-70302.log` (`25k`)
-- `target/verdarium-logs/verdarium-20260520-133407.420-70506.log` (`50k`)
-- `target/verdarium-logs/verdarium-20260520-133639.546-74696.log` (`100k`, rerun after moving affine scale inside the gather timer)
+- `target/re-flora-logs/re-flora-20260520-133342.981-69858.log` (`10k`)
+- `target/re-flora-logs/re-flora-20260520-133355.263-70302.log` (`25k`)
+- `target/re-flora-logs/re-flora-20260520-133407.420-70506.log` (`50k`)
+- `target/re-flora-logs/re-flora-20260520-133639.546-74696.log` (`100k`, rerun after moving affine scale inside the gather timer)
 
 100k after-change breakdown, normalized per substep:
 
@@ -137,7 +137,7 @@ Long 100k confirmation command:
 cargo run --release -- --hidden --auto-exit 35 --perf --water-particles 100000
 ```
 
-Source: `target/verdarium-logs/verdarium-20260520-140236.405-30357.log`.
+Source: `target/re-flora-logs/re-flora-20260520-140236.405-30357.log`.
 
 | reference | windows | avg ms/substep | delta vs original baseline |
 | --- | ---: | ---: | ---: |

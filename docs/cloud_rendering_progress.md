@@ -25,7 +25,7 @@ Known research/decision:
 
 Relevant project systems/files:
 
-- Worktree/branch for this task: `/home/terence/code/verdarium-agent-clouds` on `agent/clouds`.
+- Worktree/branch for this task: `/home/terence/code/re-flora-agent-clouds` on `agent/clouds`.
 - Existing sky/sun composition:
   - `shader/tracer/composition.comp`
   - `shader/include/skylight.glsl`
@@ -137,7 +137,7 @@ If verification is not yet possible, the missing pieces are: actual cloud shader
 
 ## Progress Log
 
-- 2026-06-07: Created task worktree `/home/terence/code/verdarium-agent-clouds` on branch `agent/clouds` from `main`.
+- 2026-06-07: Created task worktree `/home/terence/code/re-flora-agent-clouds` on branch `agent/clouds` from `main`.
 - 2026-06-07: Researched mature real-time procedural cloud approaches. Chose the Horizon/Nubis family because it is widely used, procedural, sun-responsive, and explicitly optimized for game budgets.
 - 2026-06-07: Clarified that Horizon 2015 and Nubis 2017 are related, not competing: Horizon provides the core rendering algorithm; Nubis is the later production/authoring system. Decision: implement a Horizon-style MVP first and borrow only the cheap Nubis improvements.
 - 2026-06-07: Added this progress document. No cloud implementation has been started.

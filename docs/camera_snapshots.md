@@ -45,4 +45,4 @@ Use a saved snapshot:
 cargo run --release -- --hidden --screenshot tree-closeup screenshots/tree-closeup.png --screenshot-delay 2 --auto-exit 4
 ```
 
-Screenshot runs must name exactly one preset and provide an explicit `--screenshot-delay <sec>`. If syntax is wrong or the preset does not exist, the CLI tells you to run `verdarium --list-camera-snapshots`.
+Screenshot runs must name exactly one preset and provide an explicit `--screenshot-delay <sec>`. If syntax is wrong or the preset does not exist, the CLI tells you to run `re-flora --list-camera-snapshots`.

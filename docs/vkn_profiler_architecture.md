@@ -1,10 +1,10 @@
 # VKN sync and GPU profiler architecture
 
-This document summarizes the current `verdarium-vkn` synchronization/profiler foundation. It replaces the older phase-by-phase sync and profiler plans.
+This document summarizes the current `re-flora-vkn` synchronization/profiler foundation. It replaces the older phase-by-phase sync and profiler plans.
 
 ## Current foundation
 
-`verdarium-vkn` owns the Vulkan synchronization mechanics for normal rendering and off-frame GPU work:
+`re-flora-vkn` owns the Vulkan synchronization mechanics for normal rendering and off-frame GPU work:
 
 - swapchain frame acquire/submit/present lifecycle;
 - frame semaphores, fences, and images-in-flight tracking;

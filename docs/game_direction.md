@@ -1,13 +1,13 @@
-# Verdarium Game Direction
+# Re: Flora Game Direction
 
 Status: canonical, global, continuously maintained  
 Last updated: 2026-06-26
 
-This is the single source of truth for Verdarium's game direction. Other planning docs may describe schedules, experiments, platform-specific pitches, or technical work, but they should reference this document instead of redefining the game's core direction.
+This is the single source of truth for Re: Flora's game direction. Other planning docs may describe schedules, experiments, platform-specific pitches, or technical work, but they should reference this document instead of redefining the game's core direction.
 
 ## North Star
 
-Verdarium is a relaxing, third-person voxel garden where players grow, shape, observe, and gently automate a living terrarium-like outdoor space.
+Re: Flora is a relaxing, third-person voxel garden where players grow, shape, observe, and gently automate a living terrarium-like outdoor space.
 
 The desired player feeling is:
 
@@ -30,7 +30,7 @@ This is closer to a cozy plant laboratory and personal garden than an industrial
 
 ## Garden-Scale Direction
 
-Verdarium should grow beyond a tiny closed ecosystem box into a small garden the player can inhabit and manage. The key expansion is not bigger maps for their own sake; it is giving the player a readable place where their authored terrain, plants, devices, and home all belong together.
+Re: Flora should grow beyond a tiny closed ecosystem box into a small garden the player can inhabit and manage. The key expansion is not bigger maps for their own sake; it is giving the player a readable place where their authored terrain, plants, devices, and home all belong together.
 
 Good long-term garden-scale features:
 
@@ -149,7 +149,7 @@ The world should be relaxing, but not bland. It can include quiet mystery:
 
 ## Environmental Response Direction
 
-Verdarium should prioritize local, readable plant responses over global resource balancing.
+Re: Flora should prioritize local, readable plant responses over global resource balancing.
 
 Implement only a few readable local factors first:
 
@@ -227,11 +227,11 @@ If the answer is mostly no, defer it.
 
 The Chinese book the project is referencing is **《通关！游戏设计之道》** by **Scott Rogers**. Its English title is **_Level Up! The Guide to Great Video Game Design_**.
 
-Useful Verdarium takeaways, adapted from Rogers' practical design framing:
+Useful Re: Flora takeaways, adapted from Rogers' practical design framing:
 
 ### Establish the Three Cs early
 
-Rogers emphasizes the importance of the **Three Cs**: **Character, Camera, and Control**. For Verdarium this means:
+Rogers emphasizes the importance of the **Three Cs**: **Character, Camera, and Control**. For Re: Flora this means:
 
 - Character: define the player fantasy as caretaker-tinkerer, not warrior, tycoon, or survivalist.
 - Camera: make the small terrarium readable, cozy, and pleasant to inspect.

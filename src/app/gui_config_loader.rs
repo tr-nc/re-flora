@@ -50,7 +50,7 @@ impl GuiConfigLoader {
     }
 
     pub fn config_path() -> std::path::PathBuf {
-        verdarium_vkn::project_root()
+        re_flora_vkn::project_root()
             .join("config")
             .join(CONFIG_FILE_NAME)
     }

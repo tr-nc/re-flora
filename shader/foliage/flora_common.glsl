@@ -54,7 +54,7 @@ float get_shadow_weight(ivec3 vox_local_pos) {
     return shadow_weight;
 }
 
-void prepaverdarium_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_pos_voxels,
+void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_pos_voxels,
                            uint instance_ty, uint instance_seed, uint in_instance_growth_progress,
                            uint instance_spawn_start_ms, out bool is_grass,
                            out float color_gradient, out vec3 voxel_pos,

@@ -15,7 +15,7 @@ Done means:
 
 ## Current State
 
-Known verdarium audio path:
+Known re-flora audio path:
 
 - `src/audio/tree_audio_manager.rs` now registers procedural tree rustle factories instead of a hardcoded rustle WAV loop.
 - `TreeAudioManager` spawns looping procedural spatial sources through `SpatialSoundManager::add_procedural_looping_spatial_source()`.
@@ -26,7 +26,7 @@ Known verdarium audio path:
 
 Known PetalSonic path:
 
-- Local crate is at `/Users/bytedance/code/petalsonic`; verdarium now uses it through `petalsonic = { path = "../petalsonic/petalsonic" }`.
+- Local crate is at `/Users/bytedance/code/petalsonic`; re-flora now uses it through `petalsonic = { path = "../petalsonic/petalsonic" }`.
 - Relevant files include `petalsonic/src/procedural.rs`, `petalsonic/src/world.rs`, `petalsonic/src/playback.rs`, `petalsonic/src/mixer.rs`, `petalsonic/src/spatial/processor.rs`, and `petalsonic/src/engine.rs`.
 - PetalSonic now supports `ProceduralAudioFactory` / `ProceduralAudioSource`, `register_procedural()`, and a static-or-procedural playback content path.
 - Procedural sources render mono at the world sample rate and feed the existing non-spatial or spatial processing paths.
@@ -86,7 +86,7 @@ For static WAV loops, `shuffle_phase` avoids starting identical clips at the sam
 
 ### Phase 1 - Finalize runtime architecture
 
-- Objective: Decide exact PetalSonic procedural source API and verdarium ownership boundaries.
+- Objective: Decide exact PetalSonic procedural source API and re-flora ownership boundaries.
 - Expected output: agreed API sketch for `register_procedural` / procedural playback content / tree-rustle control handle.
 - Dependencies/blockers: Need inspect PetalSonic internals enough to avoid fighting its mixer/spatial processor design.
 - Status: done.
@@ -102,10 +102,10 @@ For static WAV loops, `shuffle_phase` avoids starting identical clips at the sam
 
 - Objective: Move the tuned Python model into Rust as the authoritative generator.
 - Expected output: Rust `TreeRustleVoice`/params/control implementation that renders mono blocks, with deterministic seeds and no per-sample allocations.
-- Dependencies/blockers: PetalSonic procedural source API, plus decision whether DSP lives in `src/audio/` or a small crate such as `crates/verdarium-tree-rustle`.
+- Dependencies/blockers: PetalSonic procedural source API, plus decision whether DSP lives in `src/audio/` or a small crate such as `crates/re-flora-tree-rustle`.
 - Status: done.
 
-### Phase 4 - Integrate procedural rustle into verdarium tree audio
+### Phase 4 - Integrate procedural rustle into re-flora tree audio
 
 - Objective: Replace hardcoded WAV tree sources with procedural spatial sources driven by sampled wind.
 - Expected output: `TreeAudioManager`/`TreeAudioSource` register procedural rustle sources, update per-source wind controls, and remove dependency on the static rustle WAV path.
@@ -135,7 +135,7 @@ cd /Users/bytedance/code/petalsonic
 cargo test -p petalsonic
 ```
 
-verdarium validation after using the local PetalSonic crate:
+re-flora validation after using the local PetalSonic crate:
 
 ```bash
 cargo fmt --check
@@ -176,19 +176,19 @@ Verification gaps:
 - Decided the final game path should not use a generated or replacement WAV asset.
 - Identified that current in-game tree audio uses a hardcoded static WAV loop and wind-driven volume only.
 - Confirmed PetalSonic is an owned local crate at `/Users/bytedance/code/petalsonic`, so adding a proper procedural source API there is acceptable.
-- Chose source-level procedural audio as the likely PetalSonic design, rather than a global fill callback or verdarium-only audio hack.
+- Chose source-level procedural audio as the likely PetalSonic design, rather than a global fill callback or re-flora-only audio hack.
 - Chose shared lightweight per-source controls as the likely way to update wind without per-frame playback command spam.
 - Identified source-count risk: current fine leaf clustering can create dozens of audio sources for one tree, so runtime synth needs LOD/culling.
 - Created this progress document to track the runtime migration plan before implementation.
 - Added source-level procedural playback support to local PetalSonic and committed it there as `fee59b5 add procedural playback sources`.
-- Switched verdarium to the local PetalSonic path dependency while this work is in flight.
+- Switched re-flora to the local PetalSonic path dependency while this work is in flight.
 - Added `src/audio/tree_rustle.rs` with a deterministic mono tree rustle generator, shared atomic wind/crackle controls, block-rate coefficient updates, bounded grains/creaks, and unit checks for wind-driven energy/brightness.
 - Replaced tree rustle WAV spawning with procedural spatial source registration and per-source `TreeRustleControl` updates from sampled wind.
 - Changed tree audio volume handling so wind drives synthesis timbre/activity, while PetalSonic source volume acts as master/cluster gain with a silence gate.
 - Added a first-pass cap of `8` procedural audio clusters per tree to avoid one synth per fine leaf cluster.
 - Added an ignored release microbenchmark for the Rust DSP path: `cargo test --release render_perf_eight_voices -- --ignored --nocapture`.
 - Measured capped Rust DSP cost at about `340us` per 1024-frame block for all `8` voices (`43us` per voice/block, `1.60%` realtime CPU for 8 voices) on the Apple M4 Pro test machine.
-- Validated verdarium with `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo run --release -- --hidden --auto-exit 0.5`; latest hidden run exited successfully with no new audio errors or underruns in the inspected log.
+- Validated re-flora with `cargo fmt --check`, `cargo check`, `cargo test`, and `cargo run --release -- --hidden --auto-exit 0.5`; latest hidden run exited successfully with no new audio errors or underruns in the inspected log.
 
 ## Open Questions / Risks
 

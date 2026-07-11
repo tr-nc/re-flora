@@ -13,11 +13,11 @@
 
 ## Release Versioning
 
-Use the main worktree (`/home/terence/code/verdarium`) on a clean, up-to-date `main` branch for releases. Do not release from worker worktrees.
+Use the main worktree (`/home/terence/code/re-flora`) on a clean, up-to-date `main` branch for releases. Do not release from worker worktrees.
 
 - First check and update: `git status --short --branch` then `git pull --ff-only`.
 - Patch release: run `scripts/release_tag.py --bump-patch -y`. The helper bumps `Cargo.toml` and `Cargo.lock`, commits `bump version to X.Y.Z`, pushes `main`, creates annotated tag `vX.Y.Z`, and pushes the tag to trigger `.github/workflows/itch-builds.yml`.
-- Minor release: compute the next `X.(Y+1).0`, update only the root `verdarium` version in `Cargo.toml` and its matching `Cargo.lock` package block, commit `bump version to X.(Y+1).0`, push `main`, then run `scripts/release_tag.py X.(Y+1).0 -y` to create and push the release tag. Do not use `--allow-version-mismatch` for normal releases.
+- Minor release: compute the next `X.(Y+1).0`, update only the root `re-flora` version in `Cargo.toml` and its matching `Cargo.lock` package block, commit `bump version to X.(Y+1).0`, push `main`, then run `scripts/release_tag.py X.(Y+1).0 -y` to create and push the release tag. Do not use `--allow-version-mismatch` for normal releases.
 - After triggering a release, confirm CI with `gh run list --workflow itch-builds.yml --limit 3`; use `gh run watch <run-id>` if the user asks to wait for packages.
 
 ## Parallel Agent Workflow
@@ -31,15 +31,15 @@ Use git worktrees to keep parallel coding agents isolated. Do not run multiple a
 - Avoid unrelated cleanup in worker branches; it increases merge conflict risk.
 - Generated files remain tracked for now. Do not hand-edit them; resolve the shader/config source first, regenerate with `cargo check`, and include generated diffs only when they follow from source changes.
 - Runtime GUI config isolation is not implemented yet. Treat `config/gui.toml` diffs after app runs as suspicious unless the task intentionally changes defaults.
-- Run logs are stored per worktree under `target/verdarium-logs`; use `--latest-log` and `--tail-latest-log` from the same worker worktree that produced the run.
+- Run logs are stored per worktree under `target/re-flora-logs`; use `--latest-log` and `--tail-latest-log` from the same worker worktree that produced the run.
 
 ### Worktree Convention
 
-Use the existing `/home/terence/code/verdarium` checkout as the integration worktree by default. Start each parallel worker from a sibling worktree and a dedicated branch:
+Use the existing `/home/terence/code/re-flora` checkout as the integration worktree by default. Start each parallel worker from a sibling worktree and a dedicated branch:
 
 ```bash
-git worktree add ../verdarium-agent-water -b agent/water mlsmpm
-cd ../verdarium-agent-water
+git worktree add ../re-flora-agent-water -b agent/water mlsmpm
+cd ../re-flora-agent-water
 pi
 ```
 

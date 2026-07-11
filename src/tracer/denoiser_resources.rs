@@ -1,8 +1,8 @@
+use re_flora_vkn::vk;
 use resource_container_derive::ResourceContainer;
-use verdarium_vkn::vk;
 
 use crate::resource::Resource;
-use verdarium_vkn::{
+use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, CurrentPrevious, Device, Extent2D, ImageDesc, MemoryLocation,
     PingPong, ShaderModule, Texture, TextureLayout,
 };

@@ -7,7 +7,7 @@ The poor particle-related performance is not caused by the app-level visual part
 A hidden perf run with additional breakdown logging was captured at:
 
 ```text
-/tmp/verdarium-logs/verdarium-20260516-222738.348-107743.log
+/tmp/re-flora-logs/re-flora-20260516-222738.348-107743.log
 ```
 
 ## Visual particle path

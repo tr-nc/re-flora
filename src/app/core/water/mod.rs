@@ -8,15 +8,15 @@ use crate::app::GuiAdjustables;
 use crate::builder::{ChunkSolidSampleJob, ChunkSolidSampleResult, VOXEL_TYPE_ROCK};
 use crate::util::ChunkPopMode;
 use glam::{IVec3, UVec3, Vec2, Vec3};
+use re_flora_terrain_collider::signed_distance_from_solid_samples;
+use re_flora_water::{
+    build_terrain_grid_cache_patch, PondWaterConfig, WaterTerrainCacheBuildRequest,
+    WaterTerrainCachePatch, WaterTerrainColliderChunk,
+};
 use std::{
     sync::mpsc,
     thread,
     time::{Duration, Instant},
-};
-use verdarium_terrain_collider::signed_distance_from_solid_samples;
-use verdarium_water::{
-    build_terrain_grid_cache_patch, PondWaterConfig, WaterTerrainCacheBuildRequest,
-    WaterTerrainCachePatch, WaterTerrainColliderChunk,
 };
 
 const TERRAIN_SDF_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);

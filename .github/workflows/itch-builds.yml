@@ -105,7 +105,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v6
         with:
-          name: verdarium-${{ steps.version.outputs.version }}-${{ matrix.channel }}
+          name: re-flora-${{ steps.version.outputs.version }}-${{ matrix.channel }}
           path: ${{ steps.package.outputs.archive }}
           if-no-files-found: error
           retention-days: 90
@@ -186,7 +186,7 @@ jobs:
               python3 scripts/package_release.py --version "$PACKAGE_VERSION" --channel fedora
               chown -R "$HOST_UID:$HOST_GID" target dist
             '
-          archive="$(find dist -maxdepth 1 -name 'verdarium-*-fedora.zip' -print -quit)"
+          archive="$(find dist -maxdepth 1 -name 're-flora-*-fedora.zip' -print -quit)"
           if [ -z "${archive:-}" ]; then
             echo "Fedora package archive was not created" >&2
             exit 1
@@ -202,7 +202,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v6
         with:
-          name: verdarium-${{ steps.version.outputs.version }}-fedora
+          name: re-flora-${{ steps.version.outputs.version }}-fedora
           path: ${{ steps.package.outputs.archive }}
           if-no-files-found: error
           retention-days: 90
@@ -224,7 +224,7 @@ jobs:
           set -euo pipefail
           gh run download "$GITHUB_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern 'verdarium-*' \
+            --pattern 're-flora-*' \
             --dir dist/release-assets
 
       - name: Publish GitHub release assets
@@ -242,7 +242,7 @@ jobs:
           fi
 
           tag="${GITHUB_REF_NAME}"
-          title="Verdarium ${tag#v}"
+          title="Re: Flora ${tag#v}"
           notes="Automated package build for ${tag}."
 
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then

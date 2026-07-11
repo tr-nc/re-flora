@@ -21,14 +21,14 @@ use crate::{
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3, Vec3};
-use resource_container_derive::ResourceContainer;
-use std::{collections::HashMap, path::Path};
-use verdarium_vkn::vk;
-use verdarium_vkn::{
+use re_flora_vkn::vk;
+use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, CurrentPrevious, Device, Extent2D, Extent3D, ImageDesc,
     MemoryLocation, SamplerDesc, ShaderModule, Texture, TextureLayout, TextureRegion,
     VulkanContext,
 };
+use resource_container_derive::ResourceContainer;
+use std::{collections::HashMap, path::Path};
 
 type MeshGenerator = fn(bool) -> anyhow::Result<FloraMeshData>;
 
@@ -890,12 +890,12 @@ pub struct TracerMeshResources {
     pub glass: GlassMeshResources,
 }
 
-impl verdarium_vkn::ResourceContainer for TracerMeshResources {
-    fn get_buffer(&self, _name: &str) -> Option<&verdarium_vkn::Buffer> {
+impl re_flora_vkn::ResourceContainer for TracerMeshResources {
+    fn get_buffer(&self, _name: &str) -> Option<&re_flora_vkn::Buffer> {
         None
     }
 
-    fn get_texture(&self, _name: &str) -> Option<&verdarium_vkn::Texture> {
+    fn get_texture(&self, _name: &str) -> Option<&re_flora_vkn::Texture> {
         None
     }
 

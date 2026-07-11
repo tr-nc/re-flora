@@ -102,7 +102,7 @@ void main() {
     uint instance_growth_progress = unpack_instance_growth_progress(in_instance_packed_local_pos);
     uint instance_spawn_start_ms = manual_flora_instances.data[gl_InstanceIndex].spawn_start_ms;
     uint voxel_info = lookup_flora_voxel_info(pc.instance_ty, vox_local_pos);
-    prepaverdarium_vertex(vox_local_pos, voxel_info, instance_pos, pc.instance_ty, instance_seed,
+    prepare_flora_vertex(vox_local_pos, voxel_info, instance_pos, pc.instance_ty, instance_seed,
                           instance_growth_progress, instance_spawn_start_ms, is_grass,
                           color_gradient, voxel_pos,
                           anchor_pos, shadow_weight, should_trim_voxel);

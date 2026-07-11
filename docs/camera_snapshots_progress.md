@@ -17,7 +17,7 @@ Done means:
 
 Known systems and files:
 
-- Worktree: `/home/terence/code/verdarium-agent-camera-snapshots`
+- Worktree: `/home/terence/code/re-flora-agent-camera-snapshots`
 - Branch: `agent/camera-snapshots`, based on `main`.
 - Camera input/state is centered around:
   - `src/gameplay/camera/controller.rs`
@@ -158,7 +158,7 @@ Manual validation still recommended:
 - 2026-06-03: Decided not to add new shortcuts. Snapshot management should be integrated into the existing menu UI.
 - 2026-06-03: Decided snapshot names should follow normalized kebab-case (`foo-bar`) and be made unique automatically.
 - 2026-06-03: Initially decided screenshots should use a fixed internal temporal-warmup delay.
-- 2026-06-03: Created isolated worktree `/home/terence/code/verdarium-agent-camera-snapshots` on branch `agent/camera-snapshots` from `main`.
+- 2026-06-03: Created isolated worktree `/home/terence/code/re-flora-agent-camera-snapshots` on branch `agent/camera-snapshots` from `main`.
 - 2026-06-03: Created this progress document. No implementation changes made.
 - 2026-06-03: Implemented snapshot persistence at `config/camera_snapshots.toml` with readable TOML, normalized unique kebab-case names, and unit tests.
 - 2026-06-03: Added camera pose get/apply methods and reset camera movement/input/history when applying snapshots.

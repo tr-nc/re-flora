@@ -1,8 +1,8 @@
 use crate::resource::Resource;
 use glam::UVec3;
+use re_flora_vkn::vk;
+use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation, ShaderModule};
 use resource_container_derive::ResourceContainer;
-use verdarium_vkn::vk;
-use verdarium_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation, ShaderModule};
 
 #[derive(ResourceContainer)]
 pub struct ContreeBuilderResources {

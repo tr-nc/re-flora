@@ -3,8 +3,8 @@ use crate::app::world_edits::TerrainBrushEdit;
 use crate::util::BENCH;
 use anyhow::Result;
 use glam::{UVec3, Vec3};
+use re_flora_vkn::CommandBuffer;
 use std::time::Instant;
-use verdarium_vkn::CommandBuffer;
 
 const SPRINKLER_MOISTURE_RADIUS: f32 = 0.30;
 const SPRINKLER_MOISTURE_PER_SECOND: f32 = 1.35;

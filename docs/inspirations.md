@@ -1,6 +1,6 @@
 # Inspirations
 
-Creative and technical inspirations for Verdarium.
+Creative and technical inspirations for Re: Flora.
 
 ## Procedural Generation
 

@@ -1,11 +1,11 @@
 use crate::resource::Resource;
 use glam::UVec3;
-use resource_container_derive::ResourceContainer;
-use verdarium_vkn::vk;
-use verdarium_vkn::{
+use re_flora_vkn::vk;
+use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ShaderModule,
     Texture, TextureLayout,
 };
+use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]
 pub struct PlainBuilderResources {

@@ -1,7 +1,7 @@
 use crate::{geom::UAabb3, resource::Resource};
+use re_flora_vkn::vk;
+use re_flora_vkn::{Allocator, Buffer, Device, ImageDesc, ShaderModule, Texture, TextureLayout};
 use resource_container_derive::ResourceContainer;
-use verdarium_vkn::vk;
-use verdarium_vkn::{Allocator, Buffer, Device, ImageDesc, ShaderModule, Texture, TextureLayout};
 
 #[derive(ResourceContainer)]
 pub struct SceneAccelBuilderResources {

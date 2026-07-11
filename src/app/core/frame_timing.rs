@@ -1,7 +1,7 @@
 use super::ui_style::{GOLD_ACCENT, PANEL_DARK, SAGE_ACCENT, SHADOW_COLOR};
 use egui::{Color32, RichText};
+use re_flora_vkn::GpuProfilerFrameResults;
 use std::time::Instant;
-use verdarium_vkn::GpuProfilerFrameResults;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FrameCpuScope {

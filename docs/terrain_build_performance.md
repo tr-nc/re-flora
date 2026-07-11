@@ -16,7 +16,7 @@ The tested 8-chunk tree rebuild improved from roughly `30.17ms` before the contr
 Representative final log:
 
 ```text
-target/verdarium-logs/verdarium-20260521-174411.058-38643.log
+target/re-flora-logs/re-flora-20260521-174411.058-38643.log
 ```
 
 ## Contree changes kept

@@ -28,9 +28,9 @@ Known:
 
 Relevant files:
 
-- `crates/verdarium-vkn/src/resource.rs`
+- `crates/re-flora-vkn/src/resource.rs`
 - `resource_container_derive/src/lib.rs`
-- `crates/verdarium-vkn/src/pipeline/descriptor_set_utils.rs`
+- `crates/re-flora-vkn/src/pipeline/descriptor_set_utils.rs`
 - `src/tracer/resources.rs`
 - `src/tracer/extent_dependent_resources.rs`
 - `src/tracer/denoiser_resources.rs`

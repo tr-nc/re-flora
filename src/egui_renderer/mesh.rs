@@ -1,7 +1,7 @@
 use egui::epaint::{Primitive, Vertex};
 use egui::ClippedPrimitive;
+use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use std::mem::size_of;
-use verdarium_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 
 /// Vertex and index buffer resources for one frame in flight.
 pub struct Mesh {

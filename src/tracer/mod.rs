@@ -56,15 +56,15 @@ use crate::resource::ResourceContainer;
 use crate::util::{ShaderCompiler, TimeInfo};
 use crate::wind::WindSource;
 use anyhow::Result;
-use std::collections::HashMap;
-use verdarium_vkn::vk;
-use verdarium_vkn::{
+use re_flora_vkn::vk;
+use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, ClearValue,
     ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue, DescriptorPool,
     Extent2D, Extent3D, Framebuffer, GpuProfiler, GraphicsPipeline, MemoryAccess, MemoryBarrier,
     PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget, Texture,
     TextureLayout, Viewport, VulkanContext,
 };
+use std::collections::HashMap;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;

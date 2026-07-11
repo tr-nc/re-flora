@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn missing_snapshot_file_loads_empty_library() {
         let path = std::env::temp_dir().join(format!(
-            "verdarium-missing-camera-snapshots-{}.toml",
+            "re-flora-missing-camera-snapshots-{}.toml",
             uuid::Uuid::new_v4()
         ));
         let library = CameraSnapshotLibrary::load(&path).unwrap();

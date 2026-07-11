@@ -34,7 +34,7 @@ impl App {
             .cloned()
             .ok_or_else(|| {
                 anyhow!(
-                    "camera snapshot '{}' not found. Available snapshots: {}. Run `verdarium --list-camera-snapshots` to list available camera snapshots.",
+                    "camera snapshot '{}' not found. Available snapshots: {}. Run `re-flora --list-camera-snapshots` to list available camera snapshots.",
                     requested_name,
                     self.camera_snapshots.names_for_cli().join(", ")
                 )

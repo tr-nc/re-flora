@@ -7,7 +7,7 @@ use crate::util::BENCH;
 use crate::window::{select_monitor_by_score, WindowMode, WindowState, WindowStateDesc};
 use anyhow::Result;
 use glam::UVec3;
-use verdarium_vkn::{VulkanContext, VulkanContextDesc};
+use re_flora_vkn::{VulkanContext, VulkanContextDesc};
 use winit::event_loop::ActiveEventLoop;
 
 impl App {
@@ -43,8 +43,8 @@ impl App {
         event_loop: &ActiveEventLoop,
         options: &crate::AppOptions,
     ) -> WindowState {
-        const WINDOW_TITLE_DEBUG: &str = "Verdarium - debug build";
-        const WINDOW_TITLE_RELEASE: &str = "Verdarium - release build";
+        const WINDOW_TITLE_DEBUG: &str = "Re: Flora - debug build";
+        const WINDOW_TITLE_RELEASE: &str = "Re: Flora - release build";
         let using_mode = if cfg!(debug_assertions) {
             WINDOW_TITLE_DEBUG
         } else {
@@ -113,7 +113,7 @@ impl App {
         VulkanContext::new(
             &window_state.window(),
             VulkanContextDesc {
-                name: "Verdarium".into(),
+                name: "Re: Flora".into(),
             },
         )
     }

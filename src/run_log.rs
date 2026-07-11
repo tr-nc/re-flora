@@ -4,8 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const RUN_LOG_DIR_NAME: &str = "verdarium-logs";
-const RUN_LOG_FILE_PREFIX: &str = "verdarium-";
+const RUN_LOG_DIR_NAME: &str = "re-flora-logs";
+const RUN_LOG_FILE_PREFIX: &str = "re-flora-";
 const RUN_LOG_FILE_SUFFIX: &str = ".log";
 const RUN_LOG_LATEST_POINTER_FILE_NAME: &str = "latest-run-log.txt";
 const MAX_RUN_LOG_FILES: usize = 10;
@@ -42,7 +42,7 @@ impl Write for TeeLogWriter {
 }
 
 pub(crate) fn run_log_dir() -> PathBuf {
-    verdarium_vkn::project_root()
+    re_flora_vkn::project_root()
         .join("target")
         .join(RUN_LOG_DIR_NAME)
 }
@@ -225,7 +225,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "verdarium-run-log-test-{test_name}-{}-{unique}",
+            "re-flora-run-log-test-{test_name}-{}-{unique}",
             std::process::id()
         ))
     }
@@ -233,22 +233,22 @@ mod tests {
     #[test]
     fn run_log_file_filter_matches_only_expected_names() {
         assert!(is_run_log_file(Path::new(
-            "verdarium-20260601-010203.456-1.log"
+            "re-flora-20260601-010203.456-1.log"
         )));
         assert!(!is_run_log_file(Path::new("latest-run-log.txt")));
         assert!(!is_run_log_file(Path::new(
-            "verdarium-20260601-010203.456-1.txt"
+            "re-flora-20260601-010203.456-1.txt"
         )));
-        assert!(!is_run_log_file(Path::new("other-verdarium-20260601.log")));
+        assert!(!is_run_log_file(Path::new("other-re-flora-20260601.log")));
     }
 
     #[test]
     fn latest_path_prefers_valid_pointer_then_falls_back_to_scan() {
         let dir = temp_log_dir("latest");
         fs::create_dir_all(&dir).unwrap();
-        let old_log = dir.join("verdarium-20260601-010000.000-1.log");
-        let new_log = dir.join("verdarium-20260601-020000.000-1.log");
-        let pointed_log = dir.join("verdarium-20260601-030000.000-1.log");
+        let old_log = dir.join("re-flora-20260601-010000.000-1.log");
+        let new_log = dir.join("re-flora-20260601-020000.000-1.log");
+        let pointed_log = dir.join("re-flora-20260601-030000.000-1.log");
         fs::write(&old_log, "old").unwrap();
         fs::write(&new_log, "new").unwrap();
         fs::write(&pointed_log, "pointed").unwrap();
@@ -265,7 +265,7 @@ mod tests {
 
         fs::write(
             latest_run_log_pointer_path(&dir),
-            "/missing/verdarium-missing.log\n",
+            "/missing/re-flora-missing.log\n",
         )
         .unwrap();
         assert_eq!(latest_run_log_path_in_dir(&dir).unwrap(), Some(pointed_log));
@@ -277,7 +277,7 @@ mod tests {
     fn tail_log_file_writes_requested_suffix() {
         let dir = temp_log_dir("tail");
         fs::create_dir_all(&dir).unwrap();
-        let log = dir.join("verdarium-20260601-010000.000-1.log");
+        let log = dir.join("re-flora-20260601-010000.000-1.log");
         fs::write(&log, "a\nb\nc\nd\n").unwrap();
 
         let mut output = Vec::new();
@@ -292,7 +292,7 @@ mod tests {
         let dir = temp_log_dir("create");
         fs::create_dir_all(&dir).unwrap();
         for idx in 0..MAX_RUN_LOG_FILES {
-            let path = dir.join(format!("verdarium-20260601-0100{idx:02}.000-1.log"));
+            let path = dir.join(format!("re-flora-20260601-0100{idx:02}.000-1.log"));
             fs::write(path, "old").unwrap();
         }
 

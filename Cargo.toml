@@ -1,14 +1,14 @@
 [package]
-name = "verdarium"
+name = "re-flora"
 version = "0.1.0"
 edition = "2021"
-default-run = "verdarium"
+default-run = "re-flora"
 
 [dependencies]
 resource_container_derive = { path = "./resource_container_derive" }
-verdarium-vkn = { path = "crates/verdarium-vkn" }
-verdarium-water = { path = "crates/verdarium-water" }
-verdarium-terrain-collider = { path = "crates/verdarium-terrain-collider" }
+re-flora-vkn = { path = "crates/re-flora-vkn" }
+re-flora-water = { path = "crates/re-flora-water" }
+re-flora-terrain-collider = { path = "crates/re-flora-terrain-collider" }
 winit = { version = "0.30", features = ["rwh_05"] }
 chrono = { version = "0.4", features = ["clock"] }
 # only enable debug assert for glam during debug builds
@@ -48,8 +48,8 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 
 [features]
 default = []
-no_validation_layer = ["verdarium-vkn/no_validation_layer"]
-sync_diagnostics = ["verdarium-vkn/sync_diagnostics"]
+no_validation_layer = ["re-flora-vkn/no_validation_layer"]
+sync_diagnostics = ["re-flora-vkn/sync_diagnostics"]
 
 [profile.test]
 # uncomment this line to use release build for tests
@@ -59,12 +59,12 @@ sync_diagnostics = ["verdarium-vkn/sync_diagnostics"]
 # solver like hot-path code. The water crate exists specifically for this split:
 # debug app iteration stays fast enough, while P2G/G2P transfer loops avoid the
 # huge slowdown from unoptimized debug code and debug math assertions.
-[profile.dev.package.verdarium-water]
+[profile.dev.package.re-flora-water]
 opt-level = 3
 debug-assertions = false
 overflow-checks = false
 
-[profile.dev.package.verdarium-terrain-collider]
+[profile.dev.package.re-flora-terrain-collider]
 opt-level = 3
 debug-assertions = false
 overflow-checks = false

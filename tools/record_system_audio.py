@@ -151,7 +151,7 @@ def record_system_audio(
         f"--rate={sample_rate}",
         f"--channels={channels}",
         f"--device={device}",
-        "--client-name=verdarium-system-audio-recorder",
+        "--client-name=re-flora-system-audio-recorder",
         "--stream-name=system playback capture",
     ]
 

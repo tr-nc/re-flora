@@ -1,7 +1,7 @@
 use crate::resource::Resource;
+use re_flora_vkn::vk;
+use re_flora_vkn::{Allocator, Device, Extent2D, ImageDesc, SamplerDesc, Texture, TextureLayout};
 use resource_container_derive::ResourceContainer;
-use verdarium_vkn::vk;
-use verdarium_vkn::{Allocator, Device, Extent2D, ImageDesc, SamplerDesc, Texture, TextureLayout};
 
 #[derive(ResourceContainer)]
 pub struct ExtentDependentResources {

@@ -34,7 +34,7 @@ The helper creates an annotated `v*` tag and pushes it to `origin`, which starts
 Manual fallback:
 
 ```bash
-git tag -a v0.2.8 -m "Verdarium 0.2.8"
+git tag -a v0.2.8 -m "Re: Flora 0.2.8"
 git push origin v0.2.8
 ```
 
@@ -45,7 +45,7 @@ Download the finished packages from the workflow run's **Artifacts** section. Ta
 Each package contains the executable plus runtime data directories:
 
 ```text
-verdarium(.exe)
+re-flora(.exe)
 assets/
 config/
 shader/
@@ -57,7 +57,7 @@ BUILD_INFO.txt
 
 Release packages also bundle non-system native libraries needed by the binary:
 
-- Windows: `phonon.dll` next to `verdarium.exe`.
+- Windows: `phonon.dll` next to `re-flora.exe`.
 - macOS: `lib/libphonon.dylib`, `lib/libshaderc_shared*.dylib`, `lib/libvulkan.1.dylib`, `lib/libMoltenVK.dylib`, and `vulkan/icd.d/MoltenVK_icd.json`.
 - Fedora/Linux: `lib/libphonon.so` and `lib/libshaderc_shared.so*` with the executable rpath set to `$ORIGIN/lib`.
 
@@ -65,4 +65,4 @@ The CI release build uses `--features no_validation_layer`, so players do not ne
 
 Users still need a Vulkan-capable GPU and a working GPU driver. Windows and Linux drivers normally provide the Vulkan driver/ICD. macOS packages include MoltenVK for Vulkan-on-Metal.
 
-The executable resolves resources from `VERDARIUM_ROOT`, the current directory, or the executable's package directory, so unpacked itch downloads can run outside the source checkout.
+The executable resolves resources from `RE_FLORA_ROOT`, the current directory, or the executable's package directory, so unpacked itch downloads can run outside the source checkout.

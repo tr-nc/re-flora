@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize Verdarium perf logs into compact tables.
+"""Summarize Re: Flora perf logs into compact tables.
 
 Default output is Markdown for easy pasting into docs or issue comments. Use
 ``--format json`` or ``--format csv`` when feeding the summary into another tool.
@@ -20,7 +20,7 @@ from typing import Iterable, Optional, TextIO
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG_DIR = ROOT / "target" / "verdarium-logs"
+LOG_DIR = ROOT / "target" / "re-flora-logs"
 LATEST_POINTER_FILE = "latest-run-log.txt"
 
 FRAME_DETAIL_RE = re.compile(r"\[PERF\]\[FRAME\] frame (\d+) ")
@@ -484,7 +484,7 @@ def write_csv(summary: PerfSummary, out: TextIO = sys.stdout) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("log", nargs="?", type=Path, help="log path; defaults to latest target/verdarium-logs/*.log")
+    parser.add_argument("log", nargs="?", type=Path, help="log path; defaults to latest target/re-flora-logs/*.log")
     parser.add_argument(
         "--format",
         choices=("markdown", "json", "csv"),

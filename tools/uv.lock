@@ -589,7 +589,7 @@ wheels = [
 ]
 
 [[package]]
-name = "verdarium-tools"
+name = "re-flora-tools"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

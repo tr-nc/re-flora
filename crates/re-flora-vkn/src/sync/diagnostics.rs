@@ -257,7 +257,7 @@ pub(crate) fn record_texture_transition(
     };
     if TEXTURE_TRANSITION_LOGGING_ENABLED.load(Ordering::Relaxed) {
         log::trace!(
-            target: "verdarium_vkn::sync::texture_transition",
+            target: "re_flora_vkn::sync::texture_transition",
             "image={:?} aspect={:?} layers={}..{} {:?}->{:?}",
             transition.image,
             transition.aspect_mask,

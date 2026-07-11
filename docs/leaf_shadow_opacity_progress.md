@@ -176,7 +176,7 @@ Validation notes:
 - 2026-06-02: Confirmed current grass/flora VSM sampling is per voxel world position, not one shared blade position.
 - 2026-06-02: Discussed that exact moving leaves in the main VSM cause high-frequency instability, blur/light bleeding, and temporal ghosting.
 - 2026-06-02: Decided to pursue a separate moving-leaf opacity/transmittance shadow path instead of forcing PCSS on all receivers or freezing shadow casters.
-- 2026-06-02: Created worker worktree `/Users/bytedance/code/verdarium-agent-leaf-shadow` on branch `agent/leaf-opacity-shadow` for this task.
+- 2026-06-02: Created worker worktree `/Users/bytedance/code/re-flora-agent-leaf-shadow` on branch `agent/leaf-opacity-shadow` for this task.
 - 2026-06-02: Added this progress document; no implementation changes yet.
 
 ## Open Questions / Risks

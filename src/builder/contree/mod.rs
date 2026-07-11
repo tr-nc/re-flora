@@ -16,6 +16,21 @@ use petalsonic::{
     math::Vec3 as PetalVec3, AcousticHit, AcousticMaterial, AcousticRay, BatchedAnyHitRayTracer,
     BatchedClosestHitRayTracer,
 };
+use re_flora_vkn::vk;
+use re_flora_vkn::Allocator;
+use re_flora_vkn::Buffer;
+use re_flora_vkn::BufferUsage;
+use re_flora_vkn::CommandBuffer;
+use re_flora_vkn::ComputePipeline;
+use re_flora_vkn::DescriptorPool;
+use re_flora_vkn::Extent3D;
+use re_flora_vkn::GpuJobToken;
+use re_flora_vkn::MemoryLocation;
+use re_flora_vkn::PipelineBarrier;
+use re_flora_vkn::PipelineStage;
+use re_flora_vkn::ShaderModule;
+use re_flora_vkn::TimestampQueryPool;
+use re_flora_vkn::VulkanContext;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -23,21 +38,6 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
-use verdarium_vkn::vk;
-use verdarium_vkn::Allocator;
-use verdarium_vkn::Buffer;
-use verdarium_vkn::BufferUsage;
-use verdarium_vkn::CommandBuffer;
-use verdarium_vkn::ComputePipeline;
-use verdarium_vkn::DescriptorPool;
-use verdarium_vkn::Extent3D;
-use verdarium_vkn::GpuJobToken;
-use verdarium_vkn::MemoryLocation;
-use verdarium_vkn::PipelineBarrier;
-use verdarium_vkn::PipelineStage;
-use verdarium_vkn::ShaderModule;
-use verdarium_vkn::TimestampQueryPool;
-use verdarium_vkn::VulkanContext;
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
@@ -475,7 +475,7 @@ fn contree_level_node_offset(level: u32) -> u64 {
 }
 
 fn record_clear_sparse_leaf_nodes(
-    device: &verdarium_vkn::Device,
+    device: &re_flora_vkn::Device,
     cmdbuf: &CommandBuffer,
     sparse_nodes: &Buffer,
     total_levels: u32,
@@ -1849,7 +1849,7 @@ impl ContreeBuilder {
 
 impl CpuChunkReadbackBuffers {
     fn new(
-        device: verdarium_vkn::Device,
+        device: re_flora_vkn::Device,
         allocator: Allocator,
         max_node_buffer_size_in_bytes: u64,
     ) -> Self {

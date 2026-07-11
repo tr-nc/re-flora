@@ -1,1 +1,1 @@
-pub use verdarium_vkn::{Resource, ResourceContainer};
+pub use re_flora_vkn::{Resource, ResourceContainer};

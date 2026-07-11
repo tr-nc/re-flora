@@ -1,9 +1,9 @@
 use super::App;
 use anyhow::{Context, Result};
-use std::{borrow::Cow, path::Path, time::Instant};
-use verdarium_vkn::{
+use re_flora_vkn::{
     Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, MemoryLocation,
 };
+use std::{borrow::Cow, path::Path, time::Instant};
 
 pub(super) enum ScreenshotDestination {
     File(String),

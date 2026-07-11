@@ -12,15 +12,15 @@ use crate::{
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{UVec3, Vec3};
+use re_flora_vkn::{
+    Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
+    GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineBarrier, PipelineStage, QueueLane,
+    ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
+};
 pub use resources::*;
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
-};
-use verdarium_vkn::{
-    Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-    GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineBarrier, PipelineStage, QueueLane,
-    ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
 };
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -254,8 +254,8 @@ const SURFACE_BUILD_TIMING_PASSES_WITH_FLORA: [SurfacePassTimingPass; 6] = [
         bench_key: "surface_pass_make_surface_sparse_gpu",
     },
     SurfacePassTimingPass {
-        label: "prepaverdarium_dispatch",
-        bench_key: "surface_pass_prepaverdarium_dispatch_gpu",
+        label: "prepare_flora_dispatch",
+        bench_key: "surface_pass_prepare_flora_dispatch_gpu",
     },
     SurfacePassTimingPass {
         label: "active_surface_to_flora",
@@ -366,7 +366,7 @@ pub struct SurfaceBuilder {
 impl SurfaceBuilder {
     pub fn new(
         vulkan_ctx: VulkanContext,
-        allocator: verdarium_vkn::Allocator,
+        allocator: re_flora_vkn::Allocator,
         shader_compiler: &ShaderCompiler,
         plain_builder_resources: &PlainBuilderResources,
         voxel_dim_per_chunk: UVec3,
@@ -1373,19 +1373,19 @@ fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
     point.distance_squared(closest)
 }
 
-fn record_compute_barrier(device: &verdarium_vkn::Device, cmdbuf: &CommandBuffer) {
+fn record_compute_barrier(device: &re_flora_vkn::Device, cmdbuf: &CommandBuffer) {
     PipelineBarrier::compute_shader_access().record_insert(device, cmdbuf);
 }
 
 fn record_compute_to_indirect_and_shader_barrier(
-    device: &verdarium_vkn::Device,
+    device: &re_flora_vkn::Device,
     cmdbuf: &CommandBuffer,
 ) {
     PipelineBarrier::compute_to_indirect_and_shader_access().record_insert(device, cmdbuf);
 }
 
 fn record_clear_buffer_for_compute(
-    device: &verdarium_vkn::Device,
+    device: &re_flora_vkn::Device,
     cmdbuf: &CommandBuffer,
     buffer: &Buffer,
 ) {
