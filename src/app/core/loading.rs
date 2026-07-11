@@ -305,15 +305,6 @@ impl App {
 
         self.ensure_map_butterfly_emitter();
 
-        if let Err(err) = self.tracer.regenerate_leaves(
-            self.gui_adjustables.leaves_inner_density.value,
-            self.gui_adjustables.leaves_outer_density.value,
-            self.gui_adjustables.leaves_inner_radius.value,
-            self.gui_adjustables.leaves_outer_radius.value,
-        ) {
-            log::error!("Failed to regenerate leaves: {}", err);
-        }
-
         if let Err(err) = self.plant_startup_tuned_tree() {
             log::error!("Failed to plant startup tuning tree: {}", err);
         }

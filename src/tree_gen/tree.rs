@@ -18,6 +18,10 @@ pub struct TreeDesc {
     pub thickness_reduction: f32,
     pub leaves_size_level: u32,
     pub leaf_offset: u32,
+    pub leaf_density: f32,
+    pub leaf_spray_width_ratio: f32,
+    pub leaf_spray_thickness_ratio: f32,
+    pub leaf_spray_tip_offset_ratio: f32,
     pub enable_subdivision: bool,
     pub subdivision_count_min: u32,
     pub subdivision_count_max: u32,
@@ -55,6 +59,10 @@ impl Default for TreeDesc {
             thickness_reduction: 0.61,
             leaves_size_level: 5,
             leaf_offset: 1,
+            leaf_density: 0.055,
+            leaf_spray_width_ratio: 0.65,
+            leaf_spray_thickness_ratio: 0.35,
+            leaf_spray_tip_offset_ratio: 0.25,
             enable_subdivision: true,
             subdivision_count_min: 6,
             subdivision_count_max: 9,
@@ -147,15 +155,45 @@ impl TreeDesc {
                     .text("Leaf Offset (levels from end)"),
             )
             .changed();
+        changed |= ui
+            .add(egui::Slider::new(&mut self.leaf_density, 0.005..=0.2).text("Leaf Density"))
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.leaf_spray_width_ratio, 0.1..=1.5)
+                    .text("Leaf Spray Width"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.leaf_spray_thickness_ratio, 0.05..=1.0)
+                    .text("Leaf Spray Thickness"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.leaf_spray_tip_offset_ratio, -0.5..=1.0)
+                    .text("Leaf Spray Tip Offset"),
+            )
+            .changed();
 
         changed
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LeafPlacement {
+    /// Leaf voxel position relative to the tree origin.
+    pub position: Vec3,
+    /// Twig attachment point used to keep wind motion coherent within a spray.
+    pub anchor: Vec3,
 }
 
 #[derive(Debug)]
 struct BuiltObjects {
     trunks: Vec<RoundCone>,
     leaf_positions: Vec<Vec3>,
+    leaf_placements: Vec<LeafPlacement>,
 }
 
 #[derive(Debug)]
@@ -176,6 +214,11 @@ impl Tree {
     /// Obtain the leaf positions relative to the tree position.
     pub fn relative_leaf_positions(&self) -> &[Vec3] {
         &self.built_objects.leaf_positions
+    }
+
+    /// Obtain independently placeable leaf voxels relative to the tree position.
+    pub fn relative_leaf_placements(&self) -> &[LeafPlacement] {
+        &self.built_objects.leaf_placements
     }
 
     fn thickness_at_level(desc: &TreeDesc, base_thickness: f32, level: u32) -> f32 {
@@ -199,12 +242,17 @@ impl Tree {
         let skeleton = generate_branch_skeleton_with_rng(&branching_desc, &mut rng);
 
         let leaf_level = branching_desc.iterations.saturating_sub(desc.leaf_offset);
-        let leaf_positions = skeleton
-            .nodes
+        let leaf_anchors = skeleton
+            .segments
             .iter()
-            .filter(|node| node.level == leaf_level)
-            .map(|node| node.pos)
-            .collect();
+            .filter(|segment| segment.level.saturating_add(1) == leaf_level)
+            .map(|segment| {
+                let direction = (segment.end - segment.start).normalize_or_zero();
+                (segment.end, direction)
+            })
+            .collect::<Vec<_>>();
+        let leaf_positions = leaf_anchors.iter().map(|(position, _)| *position).collect();
+        let leaf_placements = generate_leaf_sprays(desc, &leaf_anchors, &mut rng);
 
         let mut trunks = Vec::new();
         for segment in &skeleton.segments {
@@ -224,8 +272,59 @@ impl Tree {
         BuiltObjects {
             trunks,
             leaf_positions,
+            leaf_placements,
         }
     }
+}
+
+fn generate_leaf_sprays(
+    desc: &TreeDesc,
+    anchors: &[(Vec3, Vec3)],
+    rng: &mut StdRng,
+) -> Vec<LeafPlacement> {
+    let diameter = 2.0_f32.powi(desc.leaves_size_level.min(8) as i32);
+    let along_radius = (diameter * 0.5).max(1.0);
+    let width_radius = (along_radius * desc.leaf_spray_width_ratio.max(0.05)).max(1.0);
+    let thickness_radius = (along_radius * desc.leaf_spray_thickness_ratio.max(0.05)).max(1.0);
+    let spray_volume = 4.0 / 3.0 * PI * along_radius * width_radius * thickness_radius;
+    let leaves_per_spray = (spray_volume * desc.leaf_density.max(0.0)).round() as usize;
+    let mut placements = Vec::with_capacity(anchors.len().saturating_mul(leaves_per_spray));
+
+    for &(anchor, branch_direction) in anchors {
+        let axis = if branch_direction.length_squared() > 0.0 {
+            branch_direction
+        } else {
+            Vec3::Y
+        };
+        let (side, vertical) = stable_perpendicular_basis(axis);
+        let spray_center = anchor + axis * along_radius * desc.leaf_spray_tip_offset_ratio;
+        let mut emitted = 0;
+        let mut attempts = 0;
+        let max_attempts = leaves_per_spray.saturating_mul(8).max(8);
+
+        while emitted < leaves_per_spray && attempts < max_attempts {
+            attempts += 1;
+            let sample = Vec3::new(
+                rng.random_range(-1.0..=1.0),
+                rng.random_range(-1.0..=1.0),
+                rng.random_range(-1.0..=1.0),
+            );
+            if sample.length_squared() > 1.0 {
+                continue;
+            }
+
+            // A branch-oriented ellipsoid creates a readable spray instead of another
+            // world-aligned ball. Individual positions remain independent render instances.
+            let position = spray_center
+                + axis * (sample.x * along_radius)
+                + side * (sample.y * width_radius)
+                + vertical * (sample.z * thickness_radius);
+            placements.push(LeafPlacement { position, anchor });
+            emitted += 1;
+        }
+    }
+
+    placements
 }
 
 /// Subdivides a single RoundCone into multiple, smaller, slightly perturbed cones.
@@ -352,6 +451,43 @@ mod tests {
         let tree = Tree::new(desc);
 
         assert_eq!(tree.relative_leaf_positions().len(), 2);
+    }
+
+    #[test]
+    fn leaf_sprays_are_deterministic_independent_placements() {
+        let desc = TreeDesc {
+            branching: BranchingDesc {
+                seed: 7,
+                iterations: 2,
+                branch_count_min: 2,
+                branch_count_max: 2,
+                ..default_tree_branching_desc()
+            },
+            leaves_size_level: 3,
+            leaf_offset: 0,
+            ..TreeDesc::default()
+        };
+
+        let first = Tree::new(desc.clone());
+        let second = Tree::new(desc);
+
+        assert!(!first.relative_leaf_positions().is_empty());
+        assert!(
+            first.relative_leaf_placements().len() > first.relative_leaf_positions().len(),
+            "each foliage anchor should expand into independently placed leaf voxels"
+        );
+        assert_eq!(
+            first
+                .relative_leaf_placements()
+                .iter()
+                .map(|leaf| (leaf.position, leaf.anchor))
+                .collect::<Vec<_>>(),
+            second
+                .relative_leaf_placements()
+                .iter()
+                .map(|leaf| (leaf.position, leaf.anchor))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -48,6 +48,11 @@ uint lookup_flora_voxel_info(uint instance_ty, ivec3 vox_local_pos) {
         return 0u;
     }
     uvec4 desc = flora_voxel_table_descs.descs[instance_ty];
+    if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
+        float gradient = clamp(length(vec3(vox_local_pos)) / max(float(desc.w), 1.0), 0.0, 1.0);
+        uint gradient_u8 = uint(round(gradient * 255.0));
+        return gradient_u8 | (gradient_u8 << 8u) | (gradient_u8 << 16u);
+    }
     uint offset = desc.x;
     uint capacity = desc.y;
     uint fallback_info = desc.z;

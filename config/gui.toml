@@ -2208,50 +2208,6 @@ max = 1
 name = "Leaves"
 
 [[section.param]]
-id = "leaves_inner_density"
-kind = "float"
-label = "Inner Density"
-type = "Float"
-
-[section.param.data]
-value = 0.38
-min = 0
-max = 1
-
-[[section.param]]
-id = "leaves_outer_density"
-kind = "float"
-label = "Outer Density"
-type = "Float"
-
-[section.param.data]
-value = 0.45
-min = 0
-max = 1
-
-[[section.param]]
-id = "leaves_inner_radius"
-kind = "float"
-label = "Inner Radius"
-type = "Float"
-
-[section.param.data]
-value = 12
-min = 1
-max = 64
-
-[[section.param]]
-id = "leaves_outer_radius"
-kind = "float"
-label = "Outer Radius"
-type = "Float"
-
-[section.param.data]
-value = 17
-min = 1
-max = 64
-
-[[section.param]]
 id = "leaves_bottom_color"
 kind = "color"
 label = "Bottom Color"

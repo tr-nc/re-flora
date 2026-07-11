@@ -390,7 +390,6 @@ pub struct Tracer {
     initialized_wind_volume_bucket_count: u32,
     wind_source_buffer_capacity: usize,
     spatial_sound_manager: SpatialSoundManager,
-    leaf_voxel_offsets: Vec<IVec3>,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
 
@@ -585,13 +584,6 @@ impl Tracer {
         let render_target_gui = RenderTarget::new(gui_render_pass, vec![framebuffer_gui]);
 
         let particle_capacity = PARTICLE_CAPACITY;
-        let leaf_voxel_offsets = leaves_construct::generate_voxel_leaf_shape(
-            leaves_construct::DEFAULT_LEAF_INNER_DENSITY,
-            leaves_construct::DEFAULT_LEAF_OUTER_DENSITY,
-            leaves_construct::DEFAULT_LEAF_INNER_RADIUS,
-            leaves_construct::DEFAULT_LEAF_OUTER_RADIUS,
-        )?
-        .offsets;
 
         Ok(Self {
             vulkan_ctx,
@@ -622,7 +614,6 @@ impl Tracer {
             initialized_wind_volume_bucket_count: 0,
             wind_source_buffer_capacity: 1,
             spatial_sound_manager,
-            leaf_voxel_offsets,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
     }
@@ -3176,39 +3167,6 @@ impl Tracer {
         Ok(encode(local_pos.x) | (encode(local_pos.y) << 10) | (encode(local_pos.z) << 20))
     }
 
-    fn add_signed_leaf_offset(center: UVec3, offset: IVec3) -> Option<UVec3> {
-        let x = i64::from(center.x) + i64::from(offset.x);
-        let y = i64::from(center.y) + i64::from(offset.y);
-        let z = i64::from(center.z) + i64::from(offset.z);
-        let upper = i64::from(u32::MAX);
-        if x < 0 || y < 0 || z < 0 || x > upper || y > upper || z > upper {
-            return None;
-        }
-        Some(UVec3::new(x as u32, y as u32, z as u32))
-    }
-
-    fn expand_tree_leaf_render_instances(
-        &self,
-        leaf_positions: &[UVec3],
-    ) -> Vec<TreeRenderInstanceData> {
-        let mut instances = Vec::with_capacity(
-            leaf_positions
-                .len()
-                .saturating_mul(self.leaf_voxel_offsets.len()),
-        );
-        for leaf_center in leaf_positions.iter().copied() {
-            for leaf_local_pos in self.leaf_voxel_offsets.iter().copied() {
-                if let Some(world_pos) = Self::add_signed_leaf_offset(leaf_center, leaf_local_pos) {
-                    instances.push(TreeRenderInstanceData {
-                        world_pos,
-                        leaf_local_pos,
-                    });
-                }
-            }
-        }
-        instances
-    }
-
     fn build_tree_render_instances(
         &self,
         tree_id: u32,
@@ -3291,8 +3249,21 @@ impl Tracer {
         surface_resources: &mut SurfaceResources,
         tree_id: u32,
         leaf_positions: &[UVec3],
+        leaf_local_positions: &[IVec3],
     ) -> Result<()> {
-        let leaf_voxel_instances = self.expand_tree_leaf_render_instances(leaf_positions);
+        anyhow::ensure!(
+            leaf_positions.len() == leaf_local_positions.len(),
+            "tree leaf position and anchor metadata lengths differ"
+        );
+        let leaf_voxel_instances = leaf_positions
+            .iter()
+            .copied()
+            .zip(leaf_local_positions.iter().copied())
+            .map(|(world_pos, leaf_local_pos)| TreeRenderInstanceData {
+                world_pos,
+                leaf_local_pos,
+            })
+            .collect::<Vec<_>>();
         let tree_leaves_instance =
             self.build_tree_render_instances(tree_id, &leaf_voxel_instances, 0.2, "tree leaf")?;
         surface_resources
@@ -3358,47 +3329,6 @@ impl Tracer {
             ),
             (None, None) => log::warn!("Attempted to remove non-existent tree {}", tree_id),
         }
-        Ok(())
-    }
-
-    pub fn regenerate_leaves(
-        &mut self,
-        inner_density: f32,
-        outer_density: f32,
-        inner_radius: f32,
-        outer_radius: f32,
-    ) -> Result<()> {
-        let shape = leaves_construct::generate_voxel_leaf_shape(
-            inner_density,
-            outer_density,
-            inner_radius,
-            outer_radius,
-        )?;
-        let device = self.vulkan_ctx.device();
-        self.resources.meshes.leaves_resources = LeavesResources::new_with_params(
-            device.clone(),
-            self.allocator.clone(),
-            inner_density,
-            outer_density,
-            inner_radius,
-            outer_radius,
-            false,
-        );
-
-        self.resources.meshes.leaves_resources_lod = LeavesResources::new_with_params(
-            device.clone(),
-            self.allocator.clone(),
-            inner_density,
-            outer_density,
-            inner_radius,
-            outer_radius,
-            true,
-        );
-        self.resources.flora_voxel_lookup.update_type(
-            LEAF_INSTANCE_TYPE as usize,
-            FloraVoxelLookupTypeData::from_leaf_shape(&shape),
-        )?;
-        self.leaf_voxel_offsets = shape.offsets;
         Ok(())
     }
 

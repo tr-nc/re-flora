@@ -165,21 +165,6 @@ impl FloraVoxelLookupResources {
         resources
     }
 
-    pub fn update_type(
-        &mut self,
-        type_index: usize,
-        type_data: FloraVoxelLookupTypeData,
-    ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            type_index < self.type_data.len(),
-            "flora voxel lookup type index {} exceeds type count {}",
-            type_index,
-            self.type_data.len()
-        );
-        self.type_data[type_index] = type_data;
-        self.upload()
-    }
-
     fn default_type_data() -> anyhow::Result<Vec<FloraVoxelLookupTypeData>> {
         let mut data =
             vec![FloraVoxelLookupTypeData::new(Vec::new(), 1); FLORA_VOXEL_LOOKUP_TYPE_COUNT];

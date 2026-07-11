@@ -11,7 +11,7 @@ use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tree_gen::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
 use crate::util::cluster_positions;
 use anyhow::Result;
-use glam::{UVec3, Vec2, Vec3};
+use glam::{IVec3, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
 use std::collections::HashSet;
 use std::time::Instant;
@@ -360,6 +360,8 @@ struct CompiledTreePlacement {
     tree_pos: Vec3,
     this_bound: UAabb3,
     quantized_leaf_positions: Vec<UVec3>,
+    quantized_leaf_render_positions: Vec<UVec3>,
+    leaf_render_local_positions: Vec<IVec3>,
     quantized_apple_positions: Vec<UVec3>,
     world_leaf_positions: Vec<Vec3>,
 }
@@ -496,9 +498,10 @@ impl TreePlacementService {
 
         let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
         log::info!(
-            "[TREE_DEBUG] compile trunks={} leaves={} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
+            "[TREE_DEBUG] compile trunks={} leaf_anchors={} leaf_instances={} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
             round_cones.len(),
             tree.relative_leaf_positions().len(),
+            tree.relative_leaf_placements().len(),
             tree_desc.size,
             tree_desc.trunk_thickness,
             TREE_MIN_TRUNK_THICKNESS,
@@ -534,6 +537,19 @@ impl TreePlacementService {
             positions.sort_by_key(|pos| (pos.x, pos.y, pos.z));
             positions
         };
+        let mut quantized_leaf_render_data = tree
+            .relative_leaf_placements()
+            .iter()
+            .map(|placement| {
+                let world_pos = (placement.position + tree_pos * 256.0).as_uvec3();
+                let world_anchor = (placement.anchor + tree_pos * 256.0).as_ivec3();
+                (world_pos, world_pos.as_ivec3() - world_anchor)
+            })
+            .collect::<Vec<_>>();
+        quantized_leaf_render_data.sort_by_key(|(pos, _)| (pos.x, pos.y, pos.z));
+        quantized_leaf_render_data.dedup_by_key(|(pos, _)| *pos);
+        let (quantized_leaf_render_positions, leaf_render_local_positions) =
+            quantized_leaf_render_data.into_iter().unzip();
         let quantized_apple_positions = quantized_apple_positions(
             tree_desc.branching.seed,
             tree_pos * 256.0,
@@ -550,6 +566,8 @@ impl TreePlacementService {
             tree_pos,
             this_bound,
             quantized_leaf_positions,
+            quantized_leaf_render_positions,
+            leaf_render_local_positions,
             quantized_apple_positions,
             world_leaf_positions,
         }
@@ -933,6 +951,8 @@ impl App {
             compiled.rebuild_bound,
             rebuild_chunk_ids.len(),
             &compiled.quantized_leaf_positions,
+            &compiled.quantized_leaf_render_positions,
+            &compiled.leaf_render_local_positions,
             &compiled.quantized_apple_positions,
             &compiled.world_leaf_positions,
             total_start,
@@ -1644,6 +1664,8 @@ impl App {
         rebuild_bound: UAabb3,
         rebuild_chunk_count: usize,
         quantized_leaf_positions: &[UVec3],
+        quantized_leaf_render_positions: &[UVec3],
+        leaf_render_local_positions: &[IVec3],
         quantized_apple_positions: &[UVec3],
         world_leaf_positions: &[Vec3],
         total_start: Instant,
@@ -1657,7 +1679,8 @@ impl App {
         self.tracer.add_tree_leaves(
             &mut self.surface_builder.resources,
             tree_id,
-            quantized_leaf_positions,
+            quantized_leaf_render_positions,
+            leaf_render_local_positions,
         )?;
         self.tracer.add_tree_apples(
             &mut self.surface_builder.resources,
@@ -1719,7 +1742,7 @@ impl App {
                 .record("tree_gui_leaf_emitter", emitter_elapsed);
 
             log::info!(
-                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaves {} apples {} clusters {} rebuild_chunks {} bound {:?}",
+                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} clusters {} rebuild_chunks {} bound {:?}",
                 total_start.elapsed().as_secs_f32() * 1000.0,
                 compile_elapsed.as_secs_f32() * 1000.0,
                 trunk_elapsed.as_secs_f32() * 1000.0,
@@ -1730,6 +1753,7 @@ impl App {
                 emitter_elapsed.as_secs_f32() * 1000.0,
                 trunk_count,
                 quantized_leaf_positions.len(),
+                quantized_leaf_render_positions.len(),
                 quantized_apple_positions.len(),
                 leaf_clusters.len(),
                 rebuild_chunk_count,
@@ -1812,6 +1836,8 @@ impl App {
             )
             .len(),
             &compiled.quantized_leaf_positions,
+            &compiled.quantized_leaf_render_positions,
+            &compiled.leaf_render_local_positions,
             &compiled.quantized_apple_positions,
             &compiled.world_leaf_positions,
             total_start,

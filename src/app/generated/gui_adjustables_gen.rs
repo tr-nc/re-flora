@@ -1232,30 +1232,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Leaves",
-        id: "leaves_inner_density",
-        kind: "float",
-        label: "Inner Density",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
-        id: "leaves_outer_density",
-        kind: "float",
-        label: "Outer Density",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
-        id: "leaves_inner_radius",
-        kind: "float",
-        label: "Inner Radius",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
-        id: "leaves_outer_radius",
-        kind: "float",
-        label: "Outer Radius",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
         id: "leaves_bottom_color",
         kind: "color",
         label: "Bottom Color",
@@ -1603,10 +1579,6 @@ pub struct GuiAdjustables {
     pub flora_voxel_hue_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_saturation_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_value_offset: crate::gui_adjustables::FloatParam,
-    pub leaves_inner_density: crate::gui_adjustables::FloatParam,
-    pub leaves_outer_density: crate::gui_adjustables::FloatParam,
-    pub leaves_inner_radius: crate::gui_adjustables::FloatParam,
-    pub leaves_outer_radius: crate::gui_adjustables::FloatParam,
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
@@ -1845,10 +1817,6 @@ impl GuiAdjustables {
         let mut flora_voxel_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaves_inner_density_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaves_outer_density_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaves_inner_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaves_outer_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -3226,34 +3194,6 @@ impl GuiAdjustables {
                             flora_voxel_value_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "leaves_inner_density" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaves_inner_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaves_outer_density" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaves_outer_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaves_inner_radius" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaves_inner_radius_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaves_outer_radius" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaves_outer_radius_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "leaves_bottom_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             leaves_bottom_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
@@ -3611,10 +3551,6 @@ impl GuiAdjustables {
             flora_voxel_hue_offset: flora_voxel_hue_offset_field.expect("Missing parameter: flora_voxel_hue_offset"),
             flora_voxel_saturation_offset: flora_voxel_saturation_offset_field.expect("Missing parameter: flora_voxel_saturation_offset"),
             flora_voxel_value_offset: flora_voxel_value_offset_field.expect("Missing parameter: flora_voxel_value_offset"),
-            leaves_inner_density: leaves_inner_density_field.expect("Missing parameter: leaves_inner_density"),
-            leaves_outer_density: leaves_outer_density_field.expect("Missing parameter: leaves_outer_density"),
-            leaves_inner_radius: leaves_inner_radius_field.expect("Missing parameter: leaves_inner_radius"),
-            leaves_outer_radius: leaves_outer_radius_field.expect("Missing parameter: leaves_outer_radius"),
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
@@ -3799,10 +3735,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flora_voxel_hue_offset" => Some(&adjustables.flora_voxel_hue_offset),
         "flora_voxel_saturation_offset" => Some(&adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&adjustables.flora_voxel_value_offset),
-        "leaves_inner_density" => Some(&adjustables.leaves_inner_density),
-        "leaves_outer_density" => Some(&adjustables.leaves_outer_density),
-        "leaves_inner_radius" => Some(&adjustables.leaves_inner_radius),
-        "leaves_outer_radius" => Some(&adjustables.leaves_outer_radius),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
         "butterflies_per_chunk" => Some(&adjustables.butterflies_per_chunk),
         "butterfly_height_offset_min" => Some(&adjustables.butterfly_height_offset_min),
@@ -4075,10 +4007,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flora_voxel_hue_offset" => Some(&mut adjustables.flora_voxel_hue_offset),
         "flora_voxel_saturation_offset" => Some(&mut adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&mut adjustables.flora_voxel_value_offset),
-        "leaves_inner_density" => Some(&mut adjustables.leaves_inner_density),
-        "leaves_outer_density" => Some(&mut adjustables.leaves_outer_density),
-        "leaves_inner_radius" => Some(&mut adjustables.leaves_inner_radius),
-        "leaves_outer_radius" => Some(&mut adjustables.leaves_outer_radius),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
         "butterflies_per_chunk" => Some(&mut adjustables.butterflies_per_chunk),
         "butterfly_height_offset_min" => Some(&mut adjustables.butterfly_height_offset_min),
