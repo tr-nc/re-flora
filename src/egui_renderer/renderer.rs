@@ -182,7 +182,7 @@ impl EguiRenderer {
             } else {
                 let tex_desc = ImageDesc {
                     extent,
-                    format: vk::Format::B8G8R8A8_SRGB,
+                    format: vk::Format::R8G8B8A8_SRGB,
                     usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
                     initial_layout: TextureLayout::UNDEFINED,
                     aspect: vk::ImageAspectFlags::COLOR,
