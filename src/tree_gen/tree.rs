@@ -67,6 +67,14 @@ impl Default for TreeDesc {
 impl TreeDesc {
     #[allow(dead_code)]
     pub fn edit_by_gui(&mut self, ui: &mut egui::Ui) -> bool {
+        self.edit_by_gui_with_leaves_toggle(ui, None)
+    }
+
+    pub fn edit_by_gui_with_leaves_toggle(
+        &mut self,
+        ui: &mut egui::Ui,
+        render_leaves: Option<&mut bool>,
+    ) -> bool {
         let mut changed = false;
 
         ui.heading("Tree Renderer");
@@ -124,6 +132,9 @@ impl TreeDesc {
 
         ui.separator();
         ui.heading("Leaves");
+        if let Some(render_leaves) = render_leaves {
+            ui.checkbox(render_leaves, "Render Leaves");
+        }
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.leaves_size_level, 0..=8)

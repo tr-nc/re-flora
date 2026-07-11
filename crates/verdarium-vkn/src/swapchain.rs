@@ -222,7 +222,13 @@ impl Swapchain {
 
     /// Blits the source image to the destination image.
     /// The layout of src_img is transferred to GENERAL.
-    pub fn record_blit(&self, src_img: &Image, cmdbuf: &CommandBuffer, image_idx: u32) {
+    pub fn record_blit(
+        &self,
+        src_img: &Image,
+        cmdbuf: &CommandBuffer,
+        image_idx: u32,
+        dst_extent: Extent2D,
+    ) {
         // the swapchain image is not wrapped because it is handled by the swapchain
         let dst_raw_img = self.get_image(image_idx);
         let device = self.vulkan_context.device();
@@ -247,12 +253,22 @@ impl Swapchain {
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 dst_raw_img,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[src_img.get_blit_region()],
+                &[vk::ImageBlit {
+                    dst_offsets: [
+                        vk::Offset3D::default(),
+                        vk::Offset3D {
+                            x: dst_extent.width as i32,
+                            y: dst_extent.height as i32,
+                            z: 1,
+                        },
+                    ],
+                    ..src_img.get_blit_region()
+                }],
                 vk::Filter::LINEAR,
             );
         }
 
-        // Transition the swapchain image for the following render pass.
+        // Transition the swapchain image for the following GUI render pass.
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
@@ -309,6 +325,87 @@ impl Swapchain {
         let waits = [PresentWait::new("frame.render_finished", waiting_for_semaphore)];
         let desc = PresentDesc::new("swapchain.present", image_index, &waits);
         self.present_desc(desc).map_err(SwapchainFrameError::from)
+    }
+
+    pub fn record_downscaled_image_readback(
+        &self,
+        cmdbuf: &CommandBuffer,
+        image_idx: u32,
+        dst_image: &Image,
+        readback_buffer: &Buffer,
+        source_width: u32,
+        source_height: u32,
+    ) {
+        let device = self.vulkan_context.device();
+        let swapchain_image = self.get_image(image_idx);
+        let dst_extent = dst_image.get_desc().extent;
+
+        record_image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            TextureTransition::from_layouts(TextureLayout::PRESENT_SRC, TextureLayout::TRANSFER_SRC),
+            swapchain_image,
+            vk::ImageAspectFlags::COLOR,
+            0,
+            1,
+        );
+        dst_image.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_DST);
+
+        let blit = vk::ImageBlit::default()
+            .src_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .src_offsets([
+                vk::Offset3D::default(),
+                vk::Offset3D {
+                    x: source_width as i32,
+                    y: source_height as i32,
+                    z: 1,
+                },
+            ])
+            .dst_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .dst_offsets([
+                vk::Offset3D::default(),
+                vk::Offset3D {
+                    x: dst_extent.width as i32,
+                    y: dst_extent.height as i32,
+                    z: 1,
+                },
+            ]);
+        unsafe {
+            device.cmd_blit_image(
+                cmdbuf.as_raw(),
+                swapchain_image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                dst_image.as_raw(),
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[blit],
+                vk::Filter::LINEAR,
+            );
+        }
+
+        dst_image.record_copy_to_buffer(
+            cmdbuf,
+            readback_buffer,
+            TextureLayout::GENERAL,
+        );
+        record_image_transition_barrier(
+            device.as_raw(),
+            cmdbuf.as_raw(),
+            TextureTransition::from_layouts(TextureLayout::TRANSFER_SRC, TextureLayout::PRESENT_SRC),
+            swapchain_image,
+            vk::ImageAspectFlags::COLOR,
+            0,
+            1,
+        );
     }
 
     pub fn record_image_readback(

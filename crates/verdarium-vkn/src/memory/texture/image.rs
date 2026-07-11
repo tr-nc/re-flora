@@ -169,6 +169,86 @@ impl Image {
         });
     }
 
+    pub fn record_blit_to(&self, cmdbuf: &CommandBuffer, dst_img: &Image, filter: vk::Filter) {
+        self.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_SRC);
+        dst_img.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_DST);
+        let src = self.get_desc().extent;
+        let dst = dst_img.get_desc().extent;
+        let region = vk::ImageBlit::default()
+            .src_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: self.0.desc.get_aspect_mask(),
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .src_offsets([
+                vk::Offset3D::default(),
+                vk::Offset3D {
+                    x: src.width as i32,
+                    y: src.height as i32,
+                    z: src.depth as i32,
+                },
+            ])
+            .dst_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: dst_img.get_desc().get_aspect_mask(),
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .dst_offsets([
+                vk::Offset3D::default(),
+                vk::Offset3D {
+                    x: dst.width as i32,
+                    y: dst.height as i32,
+                    z: dst.depth as i32,
+                },
+            ]);
+        unsafe {
+            self.0.device.cmd_blit_image(
+                cmdbuf.as_raw(),
+                self.as_raw(),
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                dst_img.as_raw(),
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[region],
+                filter,
+            );
+        }
+        self.record_transition_barrier(cmdbuf, 0, TextureLayout::GENERAL);
+        dst_img.record_transition_barrier(cmdbuf, 0, TextureLayout::GENERAL);
+    }
+
+    pub fn record_copy_to_buffer(
+        &self,
+        cmdbuf: &CommandBuffer,
+        buffer: &Buffer,
+        final_layout: TextureLayout,
+    ) {
+        self.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_SRC);
+        let region = vk::BufferImageCopy::default()
+            .image_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: self.0.desc.get_aspect_mask(),
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .image_extent(vk::Extent3D {
+                width: self.0.desc.extent.width,
+                height: self.0.desc.extent.height,
+                depth: self.0.desc.extent.depth,
+            });
+        unsafe {
+            self.0.device.cmd_copy_image_to_buffer(
+                cmdbuf.as_raw(),
+                self.as_raw(),
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                buffer.as_raw(),
+                &[region],
+            );
+        }
+        self.record_transition_barrier(cmdbuf, 0, final_layout);
+    }
+
     pub fn record_copy_to(
         &self,
         cmdbuf: &CommandBuffer,

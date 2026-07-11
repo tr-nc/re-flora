@@ -4009,6 +4009,7 @@ name = "verdarium"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "bytemuck",
  "chrono",
  "comfy-table",
@@ -4026,6 +4027,7 @@ dependencies = [
  "once_cell",
  "ordered-float",
  "petalsonic",
+ "png",
  "rand 0.10.1",
  "resource_container_derive",
  "serde",

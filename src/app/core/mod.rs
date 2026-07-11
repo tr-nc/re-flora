@@ -235,6 +235,7 @@ pub struct App {
     screenshot_path: Option<String>,
     screenshot_delay: Option<f32>,
     screenshot_taken: bool,
+    screenshot_to_clipboard_requested: bool,
     auto_exit_delay: Option<f32>,
     tree_bench: Option<TreeBench>,
     authored_flora_bench: Option<AuthoredFloraBench>,
@@ -1246,6 +1247,7 @@ impl App {
             screenshot_path: options.screenshot_path.clone(),
             screenshot_delay: options.screenshot_delay,
             screenshot_taken: false,
+            screenshot_to_clipboard_requested: false,
             auto_exit_delay: options.auto_exit_delay,
             tree_bench: options
                 .tree_bench
@@ -1674,8 +1676,12 @@ impl App {
         }
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
-            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyP {
-                self.frame_timing_panel_visible = !self.frame_timing_panel_visible;
+            if event.state == ElementState::Pressed
+                && !event.repeat
+                && event.physical_key == KeyCode::KeyP
+            {
+                self.screenshot_to_clipboard_requested = true;
+                log::info!("[SCREENSHOT] P pressed; capturing next frame to clipboard");
                 return;
             }
 
@@ -2123,6 +2129,7 @@ impl App {
                                             let gui_adjustables = &mut self.gui_adjustables;
                                             let wind_sources = &mut self.wind_sources;
                                             let debug_tree_desc = &mut self.debug_tree_desc;
+                                            let render_leaves = &mut self.render_flags.enable_leaves;
                                             crate::app::render_gui_from_config(
                                                 ui,
                                                 gui_config,
@@ -2131,8 +2138,11 @@ impl App {
                                                 |section_name, ui| {
                                                     if section_name == "Debug" {
                                                         ui.collapsing("Tree", |ui| {
-                                                            tree_desc_changed |=
-                                                                debug_tree_desc.edit_by_gui(ui);
+                                                            tree_desc_changed |= debug_tree_desc
+                                                                .edit_by_gui_with_leaves_toggle(
+                                                                    ui,
+                                                                    Some(render_leaves),
+                                                                );
                                                         });
                                                     }
                                                 },
@@ -2653,6 +2663,7 @@ impl App {
                     }
                 }
 
+                self.render_flags.enable_leaves &= self.render_flags.enable_flora;
                 let update_shadow_map = self.render_flags.enable_shadows;
                 let wind_gui_params = Self::wind_gui_params(&self.wind_sources);
                 let cloud_gui_params = CloudGuiParams {
@@ -3029,15 +3040,23 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_trace;
 
-                self.swapchain.record_blit(
-                    self.tracer.get_screen_output_tex().get_image(),
-                    cmdbuf,
-                    image_idx,
-                );
-
                 let render_area = self.window_state.window_extent();
-                let mut screenshot_readback = None;
-                if !self.screenshot_taken {
+                let mut screenshot_readback = if self.screenshot_to_clipboard_requested {
+                    self.screenshot_to_clipboard_requested = false;
+                    match self.prepare_clipboard_screenshot_readback(render_area) {
+                        Ok(readback) => Some(readback),
+                        Err(err) => {
+                            log::error!(
+                                "[SCREENSHOT] Failed to prepare clipboard capture: {}",
+                                err
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                if screenshot_readback.is_none() && !self.screenshot_taken {
                     if let (Some(render_start_time), Some(path), Some(delay)) = (
                         self.render_start_time,
                         self.screenshot_path.clone(),
@@ -3055,6 +3074,12 @@ impl App {
                     }
                 }
 
+                self.swapchain.record_blit(
+                    self.tracer.get_screen_output_tex().get_image(),
+                    cmdbuf,
+                    image_idx,
+                    render_area,
+                );
                 self.swapchain
                     .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
 
@@ -3108,8 +3133,27 @@ impl App {
                 }
 
                 if let Some(readback) = screenshot_readback {
-                    frame.wait_until_complete().unwrap();
-                    Self::write_screenshot_readback(readback);
+                    // Finish the GPU copy before handing CPU processing to a worker. Waiting on
+                    // this frame's fence from the worker raced the frame manager resetting the
+                    // same fence when its slot was reused.
+                    match frame.wait_until_complete() {
+                        Ok(()) => {
+                            std::thread::Builder::new()
+                                .name("screenshot-readback".to_owned())
+                                .spawn(move || Self::write_screenshot_readback(readback))
+                                .unwrap_or_else(|err| {
+                                    log::error!(
+                                        "[SCREENSHOT] Failed to start readback thread: {}",
+                                        err
+                                    );
+                                    panic!("failed to start screenshot readback thread: {err}");
+                                });
+                        }
+                        Err(err) => log::error!(
+                            "[SCREENSHOT] Failed while waiting for GPU readback: {}",
+                            err
+                        ),
+                    }
                 }
 
                 self.tracer.set_footstep_volume_gain(

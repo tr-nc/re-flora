@@ -60,10 +60,11 @@ use anyhow::Result;
 use std::collections::HashMap;
 use verdarium_vkn::vk;
 use verdarium_vkn::{
-    execute_one_time_gpu_job, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
-    ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GpuProfiler, GraphicsPipeline, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage,
-    PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, ClearValue,
+    ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue, DescriptorPool,
+    Extent2D, Extent3D, Framebuffer, GpuProfiler, GraphicsPipeline, MemoryAccess, MemoryBarrier,
+    PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget, Texture,
+    TextureLayout, Viewport, VulkanContext,
 };
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
@@ -351,6 +352,7 @@ pub struct Tracer {
     render_target_color_and_depth: RenderTarget,
     render_target_depth_only: RenderTarget,
     render_target_leaf_shadow_opacity: RenderTarget,
+    render_target_gui: RenderTarget,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -534,6 +536,26 @@ impl Tracer {
             render_passes.render_pass_leaf_shadow_opacity,
             vec![framebuffer_leaf_shadow_opacity],
         );
+        let gui_render_pass = RenderPass::with_attachments(
+            vulkan_ctx.device().clone(),
+            &[AttachmentDescOuter {
+                texture: resources
+                    .extent_dependent_resources
+                    .screenshot_output_tex
+                    .clone(),
+                load_op: vk::AttachmentLoadOp::LOAD,
+                store_op: vk::AttachmentStoreOp::STORE,
+                initial_layout: TextureLayout::GENERAL,
+                final_layout: TextureLayout::GENERAL,
+                ty: AttachmentType::Color,
+            }],
+        );
+        let framebuffer_gui = Self::create_framebuffer_color(
+            &vulkan_ctx,
+            &gui_render_pass,
+            &resources.extent_dependent_resources.screenshot_output_tex,
+        );
+        let render_target_gui = RenderTarget::new(gui_render_pass, vec![framebuffer_gui]);
 
         let particle_capacity = PARTICLE_CAPACITY;
         let leaf_voxel_offsets = leaves_construct::generate_voxel_leaf_shape(
@@ -565,6 +587,7 @@ impl Tracer {
             render_target_color_and_depth,
             render_target_depth_only,
             render_target_leaf_shadow_opacity,
+            render_target_gui,
             pool,
             a_trous_iteration_count: 3,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
@@ -672,6 +695,14 @@ impl Tracer {
             self.render_target_leaf_shadow_opacity.get_render_pass(),
             &self.resources.shadow.leaf_shadow_opacity_tex,
         );
+        let framebuffer_gui = Self::create_framebuffer_color(
+            &self.vulkan_ctx,
+            self.render_target_gui.get_render_pass(),
+            &self
+                .resources
+                .extent_dependent_resources
+                .screenshot_output_tex,
+        );
 
         self.render_target_color_and_depth = RenderTarget::new(
             self.render_target_color_and_depth.get_render_pass().clone(),
@@ -686,6 +717,10 @@ impl Tracer {
                 .get_render_pass()
                 .clone(),
             vec![framebuffer_leaf_shadow_opacity],
+        );
+        self.render_target_gui = RenderTarget::new(
+            self.render_target_gui.get_render_pass().clone(),
+            vec![framebuffer_gui],
         );
 
         self.cloud_history_valid = false;
@@ -1277,7 +1312,11 @@ impl Tracer {
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
-        if render_flags.enable_flora && render_flags.enable_shadows && update_shadow_map {
+        if render_flags.enable_flora
+            && render_flags.enable_leaves
+            && render_flags.enable_shadows
+            && update_shadow_map
+        {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -1456,6 +1495,7 @@ impl Tracer {
                     leaf_color_tables,
                     time,
                     render_flags.enable_flora,
+                    render_flags.enable_leaves,
                     render_flags.enable_particles,
                     enable_glass,
                     Some(profiler),
@@ -1480,6 +1520,7 @@ impl Tracer {
                     leaf_color_tables,
                     time,
                     render_flags.enable_flora,
+                    render_flags.enable_leaves,
                     render_flags.enable_particles,
                     enable_glass,
                     None,
@@ -1840,6 +1881,7 @@ impl Tracer {
         leaf_color_tables: FloraHeightColorTables,
         time: f32,
         enable_flora: bool,
+        enable_leaves: bool,
         enable_particles: bool,
         enable_glass: bool,
         mut gpu_profiler: Option<&mut GpuProfiler>,
@@ -1986,83 +2028,85 @@ impl Tracer {
                 );
             }
 
-            // Draw leaves, both LOD levels
-            let leaves_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
-                profiler.begin_scope(
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "graphics.leaves",
-                    PipelineStage::ALL_COMMANDS,
-                )
-            });
-            let trees_by_lod = self.trees_needs_to_draw_this_frame(
-                &surface_resources.instances.leaves_instances,
-                lod_distance,
-                flora_draw_distance,
-            );
-            for &lod_state in &[LodState::Lod0, LodState::Lod1] {
-                let pipeline = match lod_state {
-                    LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
-                    LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
-                };
-                let (indices_buf, vertices_buf, indices_len) = match lod_state {
-                    LodState::Lod0 => (
-                        &self.resources.meshes.leaves_resources.indices,
-                        &self.resources.meshes.leaves_resources.vertices,
-                        self.resources.meshes.leaves_resources.indices_len,
-                    ),
-                    LodState::Lod1 => (
-                        &self.resources.meshes.leaves_resources_lod.indices,
-                        &self.resources.meshes.leaves_resources_lod.vertices,
-                        self.resources.meshes.leaves_resources_lod.indices_len,
-                    ),
-                };
+            // Draw leaves, both LOD levels.
+            if enable_leaves {
+                let leaves_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                    profiler.begin_scope(
+                        gpu_profiler_frame_slot,
+                        cmdbuf,
+                        "graphics.leaves",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                });
+                let trees_by_lod = self.trees_needs_to_draw_this_frame(
+                    &surface_resources.instances.leaves_instances,
+                    lod_distance,
+                    flora_draw_distance,
+                );
+                for &lod_state in &[LodState::Lod0, LodState::Lod1] {
+                    let pipeline = match lod_state {
+                        LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
+                        LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
+                    };
+                    let (indices_buf, vertices_buf, indices_len) = match lod_state {
+                        LodState::Lod0 => (
+                            &self.resources.meshes.leaves_resources.indices,
+                            &self.resources.meshes.leaves_resources.vertices,
+                            self.resources.meshes.leaves_resources.indices_len,
+                        ),
+                        LodState::Lod1 => (
+                            &self.resources.meshes.leaves_resources_lod.indices,
+                            &self.resources.meshes.leaves_resources_lod.vertices,
+                            self.resources.meshes.leaves_resources_lod.indices_len,
+                        ),
+                    };
 
-                let leaves_instances = &trees_by_lod[&lod_state];
-                if leaves_instances.is_empty() {
-                    continue;
-                }
-
-                pipeline.record_bind(cmdbuf);
-                pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-
-                cmdbuf.bind_index_buffer_u32(indices_buf);
-
-                for tree_instance in leaves_instances.iter() {
-                    if tree_instance.resources.instances_len == 0 {
+                    let leaves_instances = &trees_by_lod[&lod_state];
+                    if leaves_instances.is_empty() {
                         continue;
                     }
-                    let leaf_push = flora_push_constant(
-                        time,
-                        LEAF_INSTANCE_TYPE,
-                        tree_instance.chunk_world_offset,
-                        leaf_color_tables,
-                    );
-                    cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
-                    pipeline.record_indexed_with_manual_buffer(
+
+                    pipeline.record_bind(cmdbuf);
+                    pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+
+                    cmdbuf.bind_index_buffer_u32(indices_buf);
+
+                    for tree_instance in leaves_instances.iter() {
+                        if tree_instance.resources.instances_len == 0 {
+                            continue;
+                        }
+                        let leaf_push = flora_push_constant(
+                            time,
+                            LEAF_INSTANCE_TYPE,
+                            tree_instance.chunk_world_offset,
+                            leaf_color_tables,
+                        );
+                        cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
+                        pipeline.record_indexed_with_manual_buffer(
+                            cmdbuf,
+                            1,
+                            0,
+                            &tree_instance.resources.instances_buf,
+                            indices_len,
+                            tree_instance.resources.instances_len,
+                            0,
+                            0,
+                            0,
+                            Some(&PushConstantInfo {
+                                shader_stage: vk::ShaderStageFlags::VERTEX,
+                                push_constants: bytemuck::bytes_of(&leaf_push).to_vec(),
+                            }),
+                        );
+                    }
+                }
+                if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
+                    profiler.end_scope(
+                        gpu_profiler_frame_slot,
                         cmdbuf,
-                        1,
-                        0,
-                        &tree_instance.resources.instances_buf,
-                        indices_len,
-                        tree_instance.resources.instances_len,
-                        0,
-                        0,
-                        0,
-                        Some(&PushConstantInfo {
-                            shader_stage: vk::ShaderStageFlags::VERTEX,
-                            push_constants: bytemuck::bytes_of(&leaf_push).to_vec(),
-                        }),
+                        scope,
+                        PipelineStage::ALL_COMMANDS,
                     );
                 }
-            }
-            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
-                profiler.end_scope(
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    scope,
-                    PipelineStage::ALL_COMMANDS,
-                );
             }
 
             // Draw apples as render-only tree fruit instances using the same

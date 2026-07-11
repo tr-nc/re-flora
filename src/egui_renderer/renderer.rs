@@ -373,6 +373,16 @@ impl EguiRenderer {
         cmdbuf: &CommandBuffer,
         render_area: Extent2D,
     ) {
+        self.record_command_buffer_scaled(device, cmdbuf, render_area, 1.0);
+    }
+
+    pub fn record_command_buffer_scaled(
+        &mut self,
+        device: &Device,
+        cmdbuf: &CommandBuffer,
+        render_area: Extent2D,
+        output_scale: f32,
+    ) {
         Self::cmd_draw(
             device,
             &mut self.frames,
@@ -381,7 +391,7 @@ impl EguiRenderer {
             &mut self.allocator,
             cmdbuf,
             render_area,
-            self.pixels_per_point.unwrap(),
+            self.pixels_per_point.unwrap() * output_scale,
             self.clipped_primitives.as_ref().unwrap(),
         );
     }

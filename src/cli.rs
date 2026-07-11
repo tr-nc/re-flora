@@ -224,7 +224,7 @@ impl AppOptions {
         let monitor_score =
             match parse_required_string_after("--monitor-score", "one of: highest, lowest")? {
                 Some(value) => parse_monitor_score_preference(&value)?,
-                None => MonitorScorePreference::Lowest,
+                None => MonitorScorePreference::Highest,
             };
 
         let screenshot = parse_screenshot_request(&args)?;
@@ -436,7 +436,7 @@ Options:
   --no-flora                  Disable flora and leaves rendering
   --no-clouds                 Disable procedural cloud rendering
   --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
-  --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: lowest)
+  --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: highest)
   --swapchain-images <N>      Override swapchain image count (default: auto)
   --screenshot <preset> <path>
                               Save one screenshot from exactly one camera snapshot preset
@@ -502,6 +502,7 @@ pub struct RenderFlags {
     pub enable_lens_flare: bool,
     pub enable_tracer: bool,
     pub enable_flora: bool,
+    pub enable_leaves: bool,
     pub enable_particles: bool,
     pub enable_clouds: bool,
 }
@@ -515,6 +516,7 @@ impl From<&AppOptions> for RenderFlags {
             enable_lens_flare: !options.no_lens_flare,
             enable_tracer: !options.no_tracer,
             enable_flora: !options.no_flora,
+            enable_leaves: !options.no_flora,
             enable_particles: !options.no_particles,
             // Disabled for now; infrastructure kept for easy re-enable.
             enable_clouds: false,
@@ -543,7 +545,7 @@ mod tests {
         assert!(options.present_mode.is_none());
         assert!(matches!(
             options.monitor_score,
-            MonitorScorePreference::Lowest
+            MonitorScorePreference::Highest
         ));
         assert!(options.screenshot_path.is_none());
         assert!(options.screenshot_delay.is_none());
