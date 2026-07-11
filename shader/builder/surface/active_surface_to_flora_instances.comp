@@ -42,11 +42,9 @@ manual_flora_instances;
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 
-void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal,
-                         out bool o_is_normal_valid) {
-    o_voxel_type      = voxel_type_from_data(packed);
-    o_is_normal_valid = true;
-    o_normal          = voxel_surface_normal_from_data(packed);
+void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal) {
+    o_voxel_type = voxel_type_from_data(packed);
+    o_normal     = voxel_surface_normal_from_data(packed);
 }
 
 void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_progress) {
@@ -63,9 +61,8 @@ void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_prog
 
 bool is_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }
 
-bool check_surface_plantability(uint voxel_type, vec3 normal, bool is_normal_valid,
-                                ivec3 world_pos) {
-    if (!is_normal_valid || !is_surface_plantable(voxel_type)) {
+bool check_surface_plantability(uint voxel_type, vec3 normal, ivec3 world_pos) {
+    if (!is_surface_plantable(voxel_type)) {
         return false;
     }
 
@@ -187,8 +184,7 @@ void main() {
 
     uint voxel_type;
     vec3 normal;
-    bool is_normal_valid;
-    unpack_surface_data(surface_data, voxel_type, normal, is_normal_valid);
+    unpack_surface_data(surface_data, voxel_type, normal);
 
     ivec3 base_local     = ivec3(base_local_u);
     ivec3 world_base_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + base_local;
@@ -201,7 +197,7 @@ void main() {
         return;
     }
 
-    if (!check_surface_plantability(voxel_type, normal, is_normal_valid, world_base_pos)) {
+    if (!check_surface_plantability(voxel_type, normal, world_base_pos)) {
         return;
     }
 

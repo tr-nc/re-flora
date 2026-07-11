@@ -129,8 +129,7 @@ bool is_occluded(ivec3 workgroup_base, ivec3 uvi) {
     return true;
 }
 
-void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 workgroup_base,
-                      ivec3 uvi) {
+void calculate_normal(out vec3 o_normal, ivec3 workgroup_base, ivec3 uvi) {
     const ivec3 min_bound = ivec3(-2);
     const ivec3 max_bound = ivec3(2);
 
@@ -149,7 +148,6 @@ void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 workg
         }
     }
     float normal_len_sq = dot(normal, normal);
-    o_is_normal_valid = true;
     o_normal = normal_len_sq > EPSILON * EPSILON
                    ? -normal * inversesqrt(normal_len_sq)
                    : vec3(0.0, 1.0, 0.0);
@@ -167,11 +165,10 @@ uint compress_coord(ivec3 coord) {
     return coord_compressed;
 }
 
-uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal, bool is_normal_valid,
-                                    ivec3 world_pos) {
-    uint normal_bits = pack_normal_v2(normal);
+uint compress_voxel_type_and_normal(uint voxel_type, vec3 normal, ivec3 world_pos) {
+    uint normal_bits = pack_normal_oct16(normal);
     uint hash_id     = voxel_hash_bucket_from_blue_noise(world_pos);
-    return pack_voxel_surface_data(voxel_type, normal_bits, is_normal_valid, hash_id);
+    return pack_voxel_surface_data(voxel_type, normal_bits, hash_id);
 }
 
 bool is_surface_top(ivec3 workgroup_base, ivec3 p) {
@@ -207,10 +204,8 @@ void main() {
     ivec3 world_pos = ivec3(make_surface_info.atlas_read_offset) + uvi;
 
     vec3 normal;
-    bool is_normal_valid;
-    calculate_normal(normal, is_normal_valid, workgroup_base, uvi);
-    uint properties =
-        compress_voxel_type_and_normal(voxel_type, normal, is_normal_valid, world_pos);
+    calculate_normal(normal, workgroup_base, uvi);
+    uint properties = compress_voxel_type_and_normal(voxel_type, normal, world_pos);
 
     atomicAdd(make_surface_result.active_voxel_len, 1);
 
