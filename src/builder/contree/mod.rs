@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 mod resources;
 pub use resources::*;
 
@@ -5,9 +7,10 @@ use super::SurfaceResources;
 use crate::generated::gpu_structs::ContreeBuildInfo;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
-use crate::util::LatestChunkQueue;
 use crate::util::ShaderCompiler;
+use crate::util::{ChunkPopMode, LatestChunkQueue};
 use anyhow::Result;
+use bytemuck::{Pod, Zeroable};
 use glam::{UVec3, Vec2, Vec3};
 use petalsonic::{
     math::Vec3 as PetalVec3, AcousticHit, AcousticMaterial, AcousticRay, BatchedAnyHitRayTracer,
@@ -38,7 +41,15 @@ use std::time::{Duration, Instant};
 
 const SIZE_OF_NODE_ELEMENT: u64 = 3 * std::mem::size_of::<u32>() as u64;
 const SIZE_OF_LEAF_ELEMENT: u64 = std::mem::size_of::<u32>() as u64;
-const MAX_NODE_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
+
+// Leaf data is one u32 per active surface voxel, not one ContreeNode.
+// A strict code-level upper bound for a 256^3 chunk is every voxel becoming a
+// leaf entry: 256^3 * 4 bytes = 64 MiB. With the current surface pass, fully
+// occluded voxels are skipped, so a pathological surface-aware estimate is a
+// sponge-like layout where each interior empty voxel exposes up to 6 solids:
+// boundary + interior * 6/7 = (256^3 - 254^3) + 254^3 * 6/7 ≈ 14.44M leaves,
+// or about 55.1 MiB. The 10 MiB cap below is therefore an intentional content
+// budget for normal terrain, not a mathematical worst-case guarantee.
 const MAX_LEAF_BUFFER_SIZE_IN_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_DDA_ITERATION: usize = 256;
 const DDA_EPSILON: f32 = 1e-4;
@@ -73,10 +84,12 @@ pub struct ContreeBuilder {
 
     leaf_allocator: FirstFitAllocator,
     node_allocator: FirstFitAllocator,
+    max_node_buffer_size_in_bytes: u64,
 
     chunk_dim: UVec3,
     voxel_dim_per_chunk: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
+    surface_leaf_chunk_infos: Vec<SurfaceLeafChunkInfo>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
     cpu_chunk_cache_queue: LatestChunkQueue<CpuChunkCacheBuildSource>,
     cpu_chunk_source_revisions: HashMap<UVec3, u64>,
@@ -198,6 +211,21 @@ pub struct ContreeBuildResult {
     pub total_ms: f64,
     pub node_bytes: u64,
     pub leaf_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SurfaceLeafDryInfo {
+    pub chunk_info_index: u32,
+    pub leaf_count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+struct SurfaceLeafChunkInfo {
+    leaf_offset: u32,
+    leaf_count: u32,
+    valid: u32,
+    _pad: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -599,7 +627,60 @@ impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContreePoolSizes {
+    pub node_pool_size_in_bytes: u64,
+    pub leaf_pool_size_in_bytes: u64,
+    pub node_chunk_size_in_bytes: u64,
+    pub leaf_chunk_size_in_bytes: u64,
+}
+
 impl ContreeBuilder {
+    pub fn max_node_buffer_size_in_bytes(voxel_dim_per_chunk: UVec3) -> u64 {
+        assert!(
+            voxel_dim_per_chunk.x == voxel_dim_per_chunk.y
+                && voxel_dim_per_chunk.x == voxel_dim_per_chunk.z,
+            "contree node buffer sizing requires cubic chunks"
+        );
+        assert!(is_power_of_four(voxel_dim_per_chunk.x));
+
+        // Contree node levels are formed by repeatedly grouping 4x4x4 child cells.
+        // For a 256^3 chunk, node dimensions are 64^3 + 16^3 + 4^3 + 1^3.
+        // Each node is a ContreeNode: packed_0 + child_mask_lo + child_mask_hi.
+        let mut level_dim = u64::from(voxel_dim_per_chunk.x / 4);
+        let mut node_count = 0_u64;
+        while level_dim > 0 {
+            node_count = node_count.saturating_add(
+                level_dim
+                    .saturating_mul(level_dim)
+                    .saturating_mul(level_dim),
+            );
+            level_dim /= 4;
+        }
+
+        node_count.saturating_mul(SIZE_OF_NODE_ELEMENT)
+    }
+
+    pub fn pool_sizes_for_chunk_dim(
+        chunk_dim: UVec3,
+        voxel_dim_per_chunk: UVec3,
+    ) -> ContreePoolSizes {
+        let chunk_count = u64::from(chunk_dim.x)
+            .saturating_mul(u64::from(chunk_dim.y))
+            .saturating_mul(u64::from(chunk_dim.z));
+        // One extra slot lets a chunk rebuild preallocate its replacement while
+        // the previous chunk allocation is still resident.
+        let allocation_slots = chunk_count.saturating_add(1);
+        let node_chunk_size_in_bytes = Self::max_node_buffer_size_in_bytes(voxel_dim_per_chunk);
+        let leaf_chunk_size_in_bytes = MAX_LEAF_BUFFER_SIZE_IN_BYTES;
+        ContreePoolSizes {
+            node_pool_size_in_bytes: allocation_slots.saturating_mul(node_chunk_size_in_bytes),
+            leaf_pool_size_in_bytes: allocation_slots.saturating_mul(leaf_chunk_size_in_bytes),
+            node_chunk_size_in_bytes,
+            leaf_chunk_size_in_bytes,
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         vulkan_ctx: VulkanContext,
@@ -617,6 +698,9 @@ impl ContreeBuilder {
             "ContreeBuilder: voxel_dim_per_chunk must be a cube"
         );
         assert!(is_power_of_four(voxel_dim_per_chunk.x));
+
+        let max_node_buffer_size_in_bytes =
+            Self::max_node_buffer_size_in_bytes(voxel_dim_per_chunk);
 
         let device = vulkan_ctx.device();
 
@@ -666,6 +750,7 @@ impl ContreeBuilder {
         let resources = ContreeBuilderResources::new(
             device.clone(),
             allocator.clone(),
+            chunk_dim,
             voxel_dim_per_chunk,
             node_pool_size_in_bytes,
             leaf_pool_size_in_bytes,
@@ -760,6 +845,7 @@ impl ContreeBuilder {
         let cpu_chunk_readback_buffers = Some(CpuChunkReadbackBuffers::new(
             device.clone(),
             allocator.clone(),
+            max_node_buffer_size_in_bytes,
         ));
 
         let shared_ray_query_state = Arc::new(RwLock::new(ContreeRayQueryState {
@@ -788,9 +874,14 @@ impl ContreeBuilder {
             contree_cmdbuf,
             node_allocator,
             leaf_allocator,
+            max_node_buffer_size_in_bytes,
             chunk_dim,
             voxel_dim_per_chunk,
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
+            surface_leaf_chunk_infos: vec![
+                SurfaceLeafChunkInfo::default();
+                (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize
+            ],
             cpu_chunk_caches: HashMap::new(),
             cpu_chunk_cache_queue: LatestChunkQueue::default(),
             cpu_chunk_source_revisions: HashMap::new(),
@@ -940,6 +1031,49 @@ impl ContreeBuilder {
 
     pub fn get_resources(&self) -> &ContreeBuilderResources {
         &self.resources
+    }
+
+    pub fn surface_leaf_dry_info(&self, chunk_idx: UVec3) -> Option<SurfaceLeafDryInfo> {
+        if chunk_idx.cmpge(self.chunk_dim).any() {
+            return None;
+        }
+
+        let chunk_info_index = self.scene_chunk_flat_index(chunk_idx);
+        let info = self.surface_leaf_chunk_infos[chunk_info_index];
+        if info.valid == 0 || info.leaf_count == 0 {
+            return None;
+        }
+
+        Some(SurfaceLeafDryInfo {
+            chunk_info_index: chunk_info_index as u32,
+            leaf_count: info.leaf_count,
+        })
+    }
+
+    fn set_surface_leaf_chunk_info(&mut self, chunk_idx: UVec3, info: SurfaceLeafChunkInfo) {
+        if chunk_idx.cmpge(self.chunk_dim).any() {
+            log::warn!(
+                "Ignoring surface leaf chunk info outside chunk grid: chunk={:?} grid={:?}",
+                chunk_idx,
+                self.chunk_dim,
+            );
+            return;
+        }
+
+        let index = self.scene_chunk_flat_index(chunk_idx);
+        self.surface_leaf_chunk_infos[index] = info;
+        let byte_offset = (index * std::mem::size_of::<SurfaceLeafChunkInfo>()) as u64;
+        if let Err(err) = self
+            .resources
+            .surface_leaf_chunk_info
+            .fill_range_with_raw_u8(byte_offset, bytemuck::bytes_of(&info))
+        {
+            log::error!(
+                "Failed to update surface leaf chunk info for {:?}: {}",
+                chunk_idx,
+                err,
+            );
+        }
     }
 
     pub fn cpu_cached_chunk_count(&self) -> usize {
@@ -1130,7 +1264,7 @@ impl ContreeBuilder {
         let alloc_start = Instant::now();
         let node_allocation = self
             .node_allocator
-            .allocate(MAX_NODE_BUFFER_SIZE_IN_BYTES)
+            .allocate(self.max_node_buffer_size_in_bytes)
             .map_err(|err| anyhow::anyhow!("failed to allocate contree node buffer: {err}"))?;
         let leaf_allocation = self
             .leaf_allocator
@@ -1321,6 +1455,16 @@ impl ContreeBuilder {
             node_size_in_bytes: confirmed_node_buffer_size_in_bytes,
             leaf_size_in_bytes: confirmed_leaf_buffer_size_in_bytes,
         };
+        let leaf_count = (confirmed_leaf_buffer_size_in_bytes / SIZE_OF_LEAF_ELEMENT) as u32;
+        self.set_surface_leaf_chunk_info(
+            job.chunk_idx,
+            SurfaceLeafChunkInfo {
+                leaf_offset: job.leaf_alloc_offset as u32,
+                leaf_count,
+                valid: 1,
+                _pad: 0,
+            },
+        );
         self.queue_chunk_cpu_cache_rebuild(job.chunk_idx, cpu_cache_source);
         self.set_scene_chunk(job.chunk_idx, Some(job.chunk_idx));
         let total_elapsed = job.total_start.elapsed();
@@ -1384,7 +1528,7 @@ impl ContreeBuilder {
         revision: u64,
         source: CpuChunkCacheBuildSource,
     ) {
-        assert!(source.node_size_in_bytes <= MAX_NODE_BUFFER_SIZE_IN_BYTES);
+        assert!(source.node_size_in_bytes <= self.max_node_buffer_size_in_bytes);
         assert!(source.leaf_size_in_bytes <= MAX_LEAF_BUFFER_SIZE_IN_BYTES);
 
         let readback_buffers = self
@@ -1541,6 +1685,7 @@ impl ContreeBuilder {
         self.remove_shared_chunk_cache(chunk_idx);
         self.cpu_chunk_cache_queue.clear(chunk_idx);
         self.set_scene_chunk(chunk_idx, None);
+        self.set_surface_leaf_chunk_info(chunk_idx, SurfaceLeafChunkInfo::default());
         let source_revision = self.record_cpu_chunk_source_update(chunk_idx, false);
         self.deallocate_chunk_allocation(atlas_offset);
         source_revision
@@ -1658,7 +1803,10 @@ impl ContreeBuilder {
 
         if let Some(work) = self
             .cpu_chunk_cache_queue
-            .pop_nearest_to(focus, chunk_extent)
+            .pop(ChunkPopMode::NearestWithAging {
+                focus,
+                chunk_extent,
+            })
         {
             log::debug!(
                 "[QUEUE][CPU_CACHE] pop_nearest chunk {:?} revision {} focus={:?} remaining={}",
@@ -1700,14 +1848,18 @@ impl ContreeBuilder {
 }
 
 impl CpuChunkReadbackBuffers {
-    fn new(device: re_flora_vkn::Device, allocator: Allocator) -> Self {
+    fn new(
+        device: re_flora_vkn::Device,
+        allocator: Allocator,
+        max_node_buffer_size_in_bytes: u64,
+    ) -> Self {
         Self {
             node_readback: Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
                 BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
                 MemoryLocation::GpuToCpu,
-                MAX_NODE_BUFFER_SIZE_IN_BYTES,
+                max_node_buffer_size_in_bytes,
             ),
             leaf_readback: Buffer::new_sized(
                 device,
@@ -1765,6 +1917,33 @@ fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCac
         }),
         readback_buffers: job.readback_buffers,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_node_buffer_size_matches_full_contree_node_levels() {
+        let node_chunk_size = ContreeBuilder::max_node_buffer_size_in_bytes(UVec3::splat(256));
+
+        assert_eq!(
+            node_chunk_size,
+            (64_u64.pow(3) + 16_u64.pow(3) + 4_u64.pow(3) + 1) * 12
+        );
+        assert_eq!(node_chunk_size, 3_195_660);
+    }
+
+    #[test]
+    fn pool_sizes_leave_one_rebuild_scratch_slot() {
+        let pool_sizes =
+            ContreeBuilder::pool_sizes_for_chunk_dim(UVec3::new(3, 2, 3), UVec3::splat(256));
+
+        assert_eq!(pool_sizes.node_chunk_size_in_bytes, 3_195_660);
+        assert_eq!(pool_sizes.leaf_chunk_size_in_bytes, 10 * 1024 * 1024);
+        assert_eq!(pool_sizes.node_pool_size_in_bytes, 19 * 3_195_660);
+        assert_eq!(pool_sizes.leaf_pool_size_in_bytes, 190 * 1024 * 1024);
+    }
 }
 
 fn query_terrain_any_hit(

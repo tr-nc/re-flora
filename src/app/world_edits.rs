@@ -4,18 +4,21 @@ use anyhow::Result;
 use glam::{UVec3, Vec2, Vec3};
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub(crate) enum TreePlacement {
     /// Place the tree at an exact world position (height already resolved).
     World(Vec3),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
+#[allow(dead_code)]
 pub(crate) struct TreeAddOptions {
     pub(crate) clean_before_add: bool,
     pub(crate) assign_new_id: bool,
 }
 
 impl TreeAddOptions {
+    #[allow(dead_code)]
     pub(crate) fn with_new_id(mut self) -> Self {
         self.assign_new_id = true;
         self
@@ -23,6 +26,7 @@ impl TreeAddOptions {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct TreePlacementEdit {
     pub(crate) tree_desc: TreeDesc,
     pub(crate) placement: TreePlacement,
@@ -58,6 +62,27 @@ pub(crate) struct TerrainRemovalEdit {
     pub(crate) radius: f32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TerrainBrushEdit {
+    pub(crate) start: Vec3,
+    pub(crate) end: Vec3,
+    pub(crate) radius: f32,
+}
+
+impl TerrainBrushEdit {
+    pub(crate) fn from_previous_center(
+        previous_center: Option<Vec3>,
+        current_center: Vec3,
+        radius: f32,
+    ) -> Self {
+        Self {
+            start: previous_center.unwrap_or(current_center),
+            end: current_center,
+            radius,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum VoxelEdit {
     StampRoundCones {
@@ -79,10 +104,14 @@ pub(crate) enum VoxelEdit {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum BuildEdit {
     RebuildMesh(UAabb3),
+    RebuildMeshWithoutFlora(UAabb3),
     #[allow(dead_code)]
     RebuildChunks(Vec<UVec3>),
+    #[allow(dead_code)]
+    RebuildChunksWithoutFlora(Vec<UVec3>),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -99,6 +128,7 @@ impl WorldEditPlan {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn with_build(edit: BuildEdit) -> Self {
         Self {
             voxel_edits: vec![],

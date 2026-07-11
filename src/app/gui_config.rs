@@ -6,7 +6,7 @@ use crate::app::curve_preview::{
     draw_curve_preview, smoothstep_variant_response, CurvePreviewMarker,
 };
 use crate::app::gui_config_loader::GuiConfigLoader;
-use crate::app::gui_config_model::{GuiConfigFile, GuiParamKind, GuiParamValue};
+use crate::app::gui_config_model::{GuiConfigFile, GuiParam, GuiParamKind, GuiParamValue};
 use crate::wind::WindSource;
 use egui::Color32;
 
@@ -585,23 +585,6 @@ fn render_flora_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
     );
 
     ui.add_space(4.0);
-    ui.label("Player Push");
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.flora_player_push_radius.value,
-            adjustables.flora_player_push_radius.range.clone(),
-        )
-        .text("Flora Player Push Radius"),
-    );
-    ui.add(
-        egui::Slider::new(
-            &mut adjustables.flora_player_push_strength.value,
-            adjustables.flora_player_push_strength.range.clone(),
-        )
-        .text("Flora Player Push Strength"),
-    );
-
-    ui.add_space(4.0);
     ui.label("Flora Vibration");
     ui.add(
         egui::Slider::new(
@@ -763,9 +746,10 @@ fn render_wind_sources_gui(
     ui.horizontal(|ui| {
         ui.label(format!("Wind Sources: {}", wind_sources.len()));
         if ui.button("+ Wind Source").clicked() {
-            let mut source = WindSourceGuiValues::default();
-            source.name = format!("Wind Source {}", wind_sources.len() + 1);
-            wind_sources.push(source);
+            wind_sources.push(WindSourceGuiValues {
+                name: format!("Wind Source {}", wind_sources.len() + 1),
+                ..WindSourceGuiValues::default()
+            });
         }
     });
 
@@ -853,14 +837,109 @@ fn render_wind_sources_gui(
     adjustables.wind_source_count.value = wind_sources.len() as u32;
 }
 
+fn render_gui_param_from_config(
+    ui: &mut egui::Ui,
+    param: &GuiParam,
+    section_name: &str,
+    adjustables: &mut GuiAdjustables,
+) {
+    match (&param.kind, &param.value) {
+        (GuiParamKind::Float, GuiParamValue::Float { min, max, .. }) => {
+            let field = GuiAdjustables::get_float_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing FloatParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            let range = min.unwrap_or(0.0)..=max.unwrap_or(1.0);
+            ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
+        }
+        (GuiParamKind::Int, GuiParamValue::Int { min, max, .. }) => {
+            let field = GuiAdjustables::get_int_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing IntParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            let range = min.unwrap_or(0)..=max.unwrap_or(100);
+            ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
+        }
+        (GuiParamKind::Uint, GuiParamValue::Uint { min, max, .. }) => {
+            let field = GuiAdjustables::get_uint_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing UintParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            let range = min.unwrap_or(0)..=max.unwrap_or(100);
+            ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
+        }
+        (GuiParamKind::Choice, GuiParamValue::Choice { options, .. }) => {
+            let field = GuiAdjustables::get_choice_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing ChoiceParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            let selected_text = options
+                .get(field.value as usize)
+                .map(String::as_str)
+                .unwrap_or("Invalid choice");
+            egui::ComboBox::from_label(&param.label)
+                .selected_text(selected_text)
+                .show_ui(ui, |ui| {
+                    for (index, option) in options.iter().enumerate() {
+                        ui.selectable_value(&mut field.value, index as u32, option);
+                    }
+                });
+        }
+        (GuiParamKind::String, GuiParamValue::String { .. }) => {
+            let field = GuiAdjustables::get_string_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing StringParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            ui.horizontal(|ui| {
+                ui.label(&param.label);
+                ui.text_edit_singleline(&mut field.value);
+            });
+        }
+        (GuiParamKind::Bool, GuiParamValue::Bool { .. }) => {
+            let field = GuiAdjustables::get_bool_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing BoolParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            ui.checkbox(&mut field.value, &param.label);
+        }
+        (GuiParamKind::Color, GuiParamValue::Color { .. }) => {
+            let field = GuiAdjustables::get_color_param_mut(adjustables, &param.id).unwrap_or_else(|| {
+                panic!(
+                    "GUI param '{}' (section '{}') missing ColorParam in GuiAdjustables; rebuild required",
+                    param.id, section_name
+                )
+            });
+            ui.horizontal(|ui| {
+                ui.label(&param.label);
+                ui.color_edit_button_srgba(&mut field.value);
+            });
+        }
+        _ => unreachable!(
+            "GUI param '{}' (section '{}') has kind that is not supported by the GUI renderer",
+            param.id, section_name
+        ),
+    }
+}
+
 pub fn render_gui_from_config(
     ui: &mut egui::Ui,
     config: &GuiConfigFile,
     adjustables: &mut GuiAdjustables,
     wind_sources: &mut Vec<WindSourceGuiValues>,
+    mut after_section: impl FnMut(&str, &mut egui::Ui),
 ) {
-    use crate::app::gui_config_model::GuiParamKind;
-
     for section in &config.section {
         ui.collapsing(&section.name, |ui| {
             if section.name == "Wind" {
@@ -873,104 +952,9 @@ pub fn render_gui_from_config(
             }
 
             for param in &section.param {
-                match (&param.kind, &param.value) {
-                    (GuiParamKind::Float, GuiParamValue::Float { min, max, .. }) => {
-                        let field = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing FloatParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        let range = min.unwrap_or(0.0)..=max.unwrap_or(1.0);
-                        ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
-                    }
-                    (GuiParamKind::Int, GuiParamValue::Int { min, max, .. }) => {
-                        let field = GuiAdjustables::get_int_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing IntParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        let range = min.unwrap_or(0)..=max.unwrap_or(100);
-                        ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
-                    }
-                    (GuiParamKind::Uint, GuiParamValue::Uint { min, max, .. }) => {
-                        let field = GuiAdjustables::get_uint_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing UintParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        let range = min.unwrap_or(0)..=max.unwrap_or(100);
-                        ui.add(egui::Slider::new(&mut field.value, range).text(&param.label));
-                    }
-                    (GuiParamKind::Choice, GuiParamValue::Choice { options, .. }) => {
-                        let field = GuiAdjustables::get_choice_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing ChoiceParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        let selected_text = options
-                            .get(field.value as usize)
-                            .map(String::as_str)
-                            .unwrap_or("Invalid choice");
-                        egui::ComboBox::from_label(&param.label)
-                            .selected_text(selected_text)
-                            .show_ui(ui, |ui| {
-                                for (index, option) in options.iter().enumerate() {
-                                    ui.selectable_value(&mut field.value, index as u32, option);
-                                }
-                            });
-                    }
-                    (GuiParamKind::String, GuiParamValue::String { .. }) => {
-                        let field = GuiAdjustables::get_string_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing StringParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        ui.horizontal(|ui| {
-                            ui.label(&param.label);
-                            ui.text_edit_singleline(&mut field.value);
-                        });
-                    }
-                    (GuiParamKind::Bool, GuiParamValue::Bool { .. }) => {
-                        let field = GuiAdjustables::get_bool_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing BoolParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        ui.checkbox(&mut field.value, &param.label);
-                    }
-                    (GuiParamKind::Color, GuiParamValue::Color { .. }) => {
-                        let field = GuiAdjustables::get_color_param_mut(adjustables, &param.id)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "GUI param '{}' (section '{}') missing ColorParam in GuiAdjustables; rebuild required",
-                                    param.id, section.name
-                                )
-                            });
-                        ui.horizontal(|ui| {
-                            ui.label(&param.label);
-                            ui.color_edit_button_srgba(&mut field.value);
-                        });
-                    }
-                    _ => unreachable!(
-                        "GUI param '{}' (section '{}') has kind that is not supported by the GUI renderer",
-                        param.id,
-                        section.name
-                    ),
-                }
+                render_gui_param_from_config(ui, param, &section.name, adjustables);
             }
-
         });
+        after_section(&section.name, ui);
     }
 }

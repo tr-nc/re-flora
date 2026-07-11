@@ -30,18 +30,21 @@ use pipeline_builder::*;
 mod buffer_updater;
 use buffer_updater::*;
 
-use glam::{Mat4, UVec3, Vec2, Vec3};
+use glam::{IVec3, Mat4, UVec3, Vec2, Vec3};
 use winit::event::KeyEvent;
 
-const LEAF_INSTANCE_TYPE: u32 = 4;
-const APPLE_INSTANCE_TYPE: u32 = 5;
+const LEAF_INSTANCE_TYPE: u32 = crate::flora::species::TREE_LEAF_RENDER_SPECIES_INDEX;
+const APPLE_INSTANCE_TYPE: u32 = crate::flora::species::APPLE_RENDER_SPECIES_INDEX;
 const APPLE_BOTTOM_COLOR: Vec3 = Vec3::new(0.48, 0.025, 0.018);
 const APPLE_TIP_COLOR: Vec3 = Vec3::new(0.95, 0.06, 0.035);
+pub const FLORA_HEIGHT_COLOR_TABLE_LEN: usize = 12;
+pub type FloraHeightColorTables = [[u32; FLORA_HEIGHT_COLOR_TABLE_LEN]; 2];
 
 use crate::audio::SpatialSoundManager;
+
 use crate::builder::{
-    ContreeBuilderResources, FloraInstanceResources, SceneAccelBuilderResources, SurfaceResources,
-    TreeLeavesInstance,
+    ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
+    SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
@@ -55,10 +58,11 @@ use crate::wind::WindSource;
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    execute_one_time_gpu_job, Allocator, ClearValue, ColorClearValue, CommandBuffer,
-    ComputePipeline, DepthOrStencilClearValue, DescriptorPool, Extent2D, Extent3D, Framebuffer,
-    GpuProfiler, GraphicsPipeline, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage,
-    PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, ClearValue,
+    ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue, DescriptorPool,
+    Extent2D, Extent3D, Framebuffer, GpuProfiler, GraphicsPipeline, MemoryAccess, MemoryBarrier,
+    PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget, Texture,
+    TextureLayout, Viewport, VulkanContext,
 };
 use std::collections::HashMap;
 
@@ -75,9 +79,53 @@ struct WindVolumePushConstants {
     bucket_index: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct GlassPushConstants {
+    box_min_near_alpha: [f32; 4],
+    box_max_far_alpha: [f32; 4],
+}
+
+const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
+const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
+const DEFAULT_CAMERA_DISTANCE_SCALE: f32 = 0.7;
+const DEFAULT_CAMERA_DISTANCE_PADDING: f32 = 0.65;
+const DEFAULT_CAMERA_HEIGHT: f32 = 1.0;
+
 #[derive(Debug, Clone)]
 pub struct WindGuiParams {
     pub sources: Vec<WindSource>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TerrainEditPreviewShape {
+    Sphere,
+    SurfaceCircle,
+    TreeBillboard,
+}
+
+impl TerrainEditPreviewShape {
+    fn as_u32(self) -> u32 {
+        match self {
+            Self::Sphere => 0,
+            Self::SurfaceCircle => 1,
+            Self::TreeBillboard => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GlassGuiParams {
+    pub tint: Vec3,
+    pub reflection_strength: f32,
+    pub ssr_strength: f32,
+    pub ssr_steps: u32,
+    pub per_voxel_reflection: bool,
+    pub ssr_min_hit_thickness_voxels: f32,
+    pub ssr_footprint_pixels: f32,
+    pub refraction_strength: f32,
+    pub alpha: f32,
+    pub glint_strength: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -99,7 +147,6 @@ pub struct CloudGuiParams {
     pub silver_intensity: f32,
     pub max_distance: f32,
     pub shadows_enabled: bool,
-    pub shadow_debug_overlay: bool,
     pub shadow_strength: f32,
     pub shadow_min_transmittance: f32,
     pub shadow_steps: u32,
@@ -167,25 +214,114 @@ pub struct TerrainRayHitSample {
     pub is_valid: bool,
 }
 
+fn srgb_to_linear_channel(channel: f32) -> f32 {
+    if channel <= 0.04045 {
+        channel / 12.92
+    } else {
+        ((channel + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn srgb_to_linear_color(color: Vec3) -> Vec3 {
+    Vec3::new(
+        srgb_to_linear_channel(color.x),
+        srgb_to_linear_channel(color.y),
+        srgb_to_linear_channel(color.z),
+    )
+}
+
+fn pack_linear_rgb10(color: Vec3) -> u32 {
+    let quantize = |channel: f32| -> u32 { (channel.clamp(0.0, 1.0) * 1023.0).round() as u32 };
+    quantize(color.x) | (quantize(color.y) << 10) | (quantize(color.z) << 20)
+}
+
+fn flora_height_color_table(
+    bottom_srgb: Vec3,
+    tip_srgb: Vec3,
+) -> [u32; FLORA_HEIGHT_COLOR_TABLE_LEN] {
+    let bottom_linear = srgb_to_linear_color(bottom_srgb);
+    let tip_linear = srgb_to_linear_color(tip_srgb);
+    let mut table = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
+    for (row, color) in table.iter_mut().enumerate() {
+        let height_t = row as f32 / (FLORA_HEIGHT_COLOR_TABLE_LEN - 1) as f32;
+        *color = pack_linear_rgb10(bottom_linear.lerp(tip_linear, height_t));
+    }
+    table
+}
+
+pub fn solid_flora_height_color_tables(
+    bottom_srgb: Vec3,
+    tip_srgb: Vec3,
+) -> FloraHeightColorTables {
+    let table = flora_height_color_table(bottom_srgb, tip_srgb);
+    [table, table]
+}
+
+pub fn allium_height_color_tables(
+    stem_bottom_srgb: Vec3,
+    stem_top_srgb: Vec3,
+    flower_a_srgb: Vec3,
+    flower_b_srgb: Vec3,
+) -> FloraHeightColorTables {
+    let stem_bottom = srgb_to_linear_color(stem_bottom_srgb);
+    let stem_top = srgb_to_linear_color(stem_top_srgb);
+    let flower_a = srgb_to_linear_color(flower_a_srgb);
+    let flower_b = srgb_to_linear_color(flower_b_srgb);
+    let mut table_a = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
+    let mut table_b = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
+
+    for row in 0..FLORA_HEIGHT_COLOR_TABLE_LEN {
+        let height_t = row as f32 / (FLORA_HEIGHT_COLOR_TABLE_LEN - 1) as f32;
+        if height_t < 0.64 {
+            let stem_color = stem_bottom.lerp(stem_top, height_t / 0.64);
+            table_a[row] = pack_linear_rgb10(stem_color);
+            table_b[row] = pack_linear_rgb10(stem_color);
+        } else {
+            table_a[row] = pack_linear_rgb10(flower_a);
+            table_b[row] = pack_linear_rgb10(flower_b);
+        }
+    }
+
+    [table_a, table_b]
+}
+
+pub fn grass_flora_height_color_tables(
+    bottom_dark_srgb: Vec3,
+    bottom_light_srgb: Vec3,
+    tip_dark_srgb: Vec3,
+    tip_light_srgb: Vec3,
+) -> FloraHeightColorTables {
+    [
+        flora_height_color_table(bottom_dark_srgb, tip_dark_srgb),
+        flora_height_color_table(bottom_light_srgb, tip_light_srgb),
+    ]
+}
+
 fn flora_push_constant(
     time: f32,
     instance_ty: u32,
     chunk_world_offset: UVec3,
-    bottom_color: Vec3,
-    tip_color: Vec3,
+    height_color_tables: FloraHeightColorTables,
 ) -> PushConstantFlora {
     PushConstantFlora {
         time,
         instance_ty,
         chunk_world_offset: chunk_world_offset.to_array(),
-        bottom_color: bottom_color.to_array(),
-        tip_color: tip_color.to_array(),
+        height_dark_color_rgb10: height_color_tables[0],
+        height_light_color_rgb10: height_color_tables[1],
         ..bytemuck::Zeroable::zeroed()
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TreeRenderInstanceData {
+    world_pos: UVec3,
+    leaf_local_pos: IVec3,
+}
+
 pub struct TracerDesc {
     pub scaling_factor: f32,
+    pub default_camera_look_at: Vec3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -199,6 +335,22 @@ pub struct PlayerCollisionResult {
     pub ground_distance: f32,
     pub ceiling_distance: f32,
     pub ring_distances: Vec<f32>,
+}
+
+pub const DIRECT_SUN_SHADOW_SOURCE_TERRAIN: u32 = 1 << 0;
+pub const DIRECT_SUN_SHADOW_SOURCE_LEAF: u32 = 1 << 1;
+pub const DIRECT_SUN_SHADOW_SOURCE_CLOUD: u32 = 1 << 2;
+pub const DIRECT_SUN_SHADOW_SOURCE_ALL: u32 = DIRECT_SUN_SHADOW_SOURCE_TERRAIN
+    | DIRECT_SUN_SHADOW_SOURCE_LEAF
+    | DIRECT_SUN_SHADOW_SOURCE_CLOUD;
+
+pub struct DirectSunShadowResources<'a> {
+    pub gui_input: &'a Buffer,
+    pub shadow_camera_info: &'a Buffer,
+    pub shadow_map_tex_for_vsm_ping: &'a Texture,
+    pub leaf_shadow_opacity_blended_tex: &'a Texture,
+    pub leaf_shadow_mask_tex: &'a Texture,
+    pub cloud_shadow_tex: &'a Texture,
 }
 
 pub struct Tracer {
@@ -227,6 +379,7 @@ pub struct Tracer {
     render_target_color_and_depth: RenderTarget,
     render_target_depth_only: RenderTarget,
     render_target_leaf_shadow_opacity: RenderTarget,
+    render_target_gui: RenderTarget,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -245,6 +398,57 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
+    pub fn direct_sun_shadow_resources(&self) -> DirectSunShadowResources<'_> {
+        DirectSunShadowResources {
+            gui_input: &self.resources.uniforms.gui_input,
+            shadow_camera_info: &self.resources.shadow.shadow_camera_info,
+            shadow_map_tex_for_vsm_ping: &self.resources.shadow.shadow_map_tex_for_vsm_ping,
+            leaf_shadow_opacity_blended_tex: &self.resources.shadow.leaf_shadow_opacity_blended_tex,
+            leaf_shadow_mask_tex: &self.resources.shadow.leaf_shadow_mask_tex,
+            cloud_shadow_tex: &self.resources.shadow.cloud_shadow_tex,
+        }
+    }
+
+    pub fn direct_sun_shadow_available_mask(&self) -> u32 {
+        let mut mask = 0;
+        if self.terrain_shadow_vsm_ready() {
+            mask |= DIRECT_SUN_SHADOW_SOURCE_TERRAIN;
+        }
+        if self.leaf_shadow_history_valid {
+            mask |= DIRECT_SUN_SHADOW_SOURCE_LEAF;
+        }
+        if self.cloud_shadow_history_valid {
+            mask |= DIRECT_SUN_SHADOW_SOURCE_CLOUD;
+        }
+        mask
+    }
+
+    pub fn terrain_shadow_vsm_ready(&self) -> bool {
+        self.shadow_camera_initialized && self.shadow_map_history_valid
+    }
+
+    fn default_camera_pose_for_bound(
+        chunk_bound: UAabb3,
+        default_camera_look_at: Vec3,
+    ) -> (Vec3, f32, f32) {
+        let min = chunk_bound.min().as_vec3();
+        let max = chunk_bound.max().as_vec3();
+        let extent = max - min;
+        let horizontal_extent = extent.x.max(extent.z).max(1.0);
+        let camera_distance =
+            horizontal_extent * DEFAULT_CAMERA_DISTANCE_SCALE + DEFAULT_CAMERA_DISTANCE_PADDING;
+        let camera_position = Vec3::new(
+            default_camera_look_at.x,
+            DEFAULT_CAMERA_HEIGHT,
+            default_camera_look_at.z + camera_distance,
+        );
+        let look_direction = (default_camera_look_at - camera_position).normalize();
+        let yaw_deg = look_direction.x.atan2(-look_direction.z).to_degrees();
+        let horizontal_len = Vec2::new(look_direction.x, look_direction.z).length();
+        let pitch_deg = look_direction.y.atan2(horizontal_len).to_degrees();
+        (camera_position, yaw_deg, pitch_deg)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         vulkan_ctx: VulkanContext,
@@ -254,15 +458,18 @@ impl Tracer {
         screen_extent: Extent2D,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
         desc: TracerDesc,
         spatial_sound_manager: SpatialSoundManager,
     ) -> Result<Self> {
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
+        let (camera_position, camera_yaw_deg, camera_pitch_deg) =
+            Self::default_camera_pose_for_bound(chunk_bound, desc.default_camera_look_at);
 
         let camera = Camera::new(
-            Vec3::new(0.5, 0.8, 0.5),
-            135.0,
-            -5.0,
+            camera_position,
+            camera_yaw_deg,
+            camera_pitch_deg,
             CameraDesc {
                 aspect_ratio: render_extent.get_aspect_ratio(),
                 ..Default::default()
@@ -308,6 +515,7 @@ impl Tracer {
             &resources,
             contree_builder_resources,
             scene_accel_resources,
+            plain_builder_resources,
         );
         let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
@@ -354,6 +562,26 @@ impl Tracer {
             render_passes.render_pass_leaf_shadow_opacity,
             vec![framebuffer_leaf_shadow_opacity],
         );
+        let gui_render_pass = RenderPass::with_attachments(
+            vulkan_ctx.device().clone(),
+            &[AttachmentDescOuter {
+                texture: resources
+                    .extent_dependent_resources
+                    .screenshot_output_tex
+                    .clone(),
+                load_op: vk::AttachmentLoadOp::LOAD,
+                store_op: vk::AttachmentStoreOp::STORE,
+                initial_layout: TextureLayout::GENERAL,
+                final_layout: TextureLayout::GENERAL,
+                ty: AttachmentType::Color,
+            }],
+        );
+        let framebuffer_gui = Self::create_framebuffer_color(
+            &vulkan_ctx,
+            &gui_render_pass,
+            &resources.extent_dependent_resources.screenshot_output_tex,
+        );
+        let render_target_gui = RenderTarget::new(gui_render_pass, vec![framebuffer_gui]);
 
         let particle_capacity = PARTICLE_CAPACITY;
 
@@ -378,6 +606,7 @@ impl Tracer {
             render_target_color_and_depth,
             render_target_depth_only,
             render_target_leaf_shadow_opacity,
+            render_target_gui,
             pool,
             a_trous_iteration_count: 3,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
@@ -454,6 +683,7 @@ impl Tracer {
         screen_extent: Extent2D,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
     ) {
         let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
 
@@ -483,6 +713,14 @@ impl Tracer {
             self.render_target_leaf_shadow_opacity.get_render_pass(),
             &self.resources.shadow.leaf_shadow_opacity_tex,
         );
+        let framebuffer_gui = Self::create_framebuffer_color(
+            &self.vulkan_ctx,
+            self.render_target_gui.get_render_pass(),
+            &self
+                .resources
+                .extent_dependent_resources
+                .screenshot_output_tex,
+        );
 
         self.render_target_color_and_depth = RenderTarget::new(
             self.render_target_color_and_depth.get_render_pass().clone(),
@@ -498,16 +736,25 @@ impl Tracer {
                 .clone(),
             vec![framebuffer_leaf_shadow_opacity],
         );
+        self.render_target_gui = RenderTarget::new(
+            self.render_target_gui.get_render_pass().clone(),
+            vec![framebuffer_gui],
+        );
 
         self.cloud_history_valid = false;
         self.cloud_shadow_history_valid = false;
-        self.update_sets(contree_builder_resources, scene_accel_resources);
+        self.update_sets(
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+        );
     }
 
     fn update_sets(
         &mut self,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
     ) {
         let update_compute_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
             ppl.auto_update_descriptor_sets(resources).unwrap()
@@ -517,8 +764,11 @@ impl Tracer {
             ppl.auto_update_descriptor_sets(resources).unwrap()
         };
 
-        let all_resources =
-            self.all_descriptor_resources(contree_builder_resources, scene_accel_resources);
+        let all_resources = self.all_descriptor_resources(
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+        );
         update_compute_fn(&self.compute_pipelines.tracer_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
@@ -585,11 +835,13 @@ impl Tracer {
         &'a self,
         contree_builder_resources: &'a ContreeBuilderResources,
         scene_accel_resources: &'a SceneAccelBuilderResources,
-    ) -> [&'a dyn ResourceContainer; 3] {
+        plain_builder_resources: &'a PlainBuilderResources,
+    ) -> [&'a dyn ResourceContainer; 4] {
         [
             &self.resources as &dyn ResourceContainer,
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
+            plain_builder_resources as &dyn ResourceContainer,
         ]
     }
 
@@ -633,22 +885,18 @@ impl Tracer {
         debug_float: f32,
         debug_bool: bool,
         debug_uint: u32,
+        terrain_shadow_use_vsm: bool,
         flora_instance_hsv_offset_max: Vec3,
         flora_voxel_hsv_offset_max: Vec3,
         grass_bottom_dark: Vec3,
         grass_bottom_light: Vec3,
         grass_tip_dark: Vec3,
         grass_tip_light: Vec3,
-        ocean_deep_color: Vec3,
-        ocean_shallow_color: Vec3,
-        ocean_normal_amplitude: f32,
-        ocean_noise_frequency: f32,
-        ocean_time_multiplier: f32,
-        ocean_sea_level_shift: f32,
         world_tick_seconds: f32,
         update_shadow_map: bool,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
+        glass_gui_params: GlassGuiParams,
         wind_directional_bias_fraction: f32,
         wind_turbulence_fraction: f32,
         grass_vibration_amplitude_voxels: f32,
@@ -657,8 +905,6 @@ impl Tracer {
         grass_natural_bend_min_voxels: f32,
         grass_natural_bend_max_voxels: f32,
         flora_bend_height_power: f32,
-        flora_player_push_radius: f32,
-        flora_player_push_strength: f32,
         leaf_paddle_amplitude_voxels: f32,
         leaf_paddle_primary_speed: f32,
         leaf_paddle_secondary_speed: f32,
@@ -679,6 +925,12 @@ impl Tracer {
         flora_tick: u32,
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
+        spawn_time_ms: u32,
+        spawn_duration_seconds: f32,
+        spawn_rise_fraction: f32,
+        spawn_overshoot_min_voxels: f32,
+        spawn_overshoot_max_voxels: f32,
+        spawn_stagger_seconds: f32,
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
@@ -719,8 +971,12 @@ impl Tracer {
         voxel_oak_wood_color: Vec3,
         voxel_rock_color: Vec3,
         voxel_color_variance: f32,
+        terrain_edit_preview_center: Option<Vec3>,
+        terrain_edit_preview_radius: f32,
+        terrain_edit_preview_shape: TerrainEditPreviewShape,
+        terrain_edit_preview_color: Vec3,
+        terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
-        // camera info
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
@@ -778,6 +1034,14 @@ impl Tracer {
             voxel_rock_color,
             voxel_color_variance,
         )?;
+        BufferUpdater::update_terrain_edit_preview(
+            &self.resources,
+            terrain_edit_preview_center,
+            terrain_edit_preview_radius,
+            terrain_edit_preview_shape,
+            terrain_edit_preview_color,
+            terrain_edit_preview_alpha,
+        )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
 
@@ -787,20 +1051,16 @@ impl Tracer {
             debug_float,
             debug_bool,
             debug_uint,
+            terrain_shadow_use_vsm,
             flora_instance_hsv_offset_max,
             flora_voxel_hsv_offset_max,
             grass_bottom_dark,
             grass_bottom_light,
             grass_tip_dark,
             grass_tip_light,
-            ocean_deep_color,
-            ocean_shallow_color,
-            ocean_normal_amplitude,
-            ocean_noise_frequency,
-            ocean_time_multiplier,
-            ocean_sea_level_shift,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
+            glass_gui_params,
             wind_directional_bias_fraction,
             wind_turbulence_fraction,
             self.world_tick_seconds,
@@ -810,8 +1070,6 @@ impl Tracer {
             grass_natural_bend_min_voxels,
             grass_natural_bend_max_voxels,
             flora_bend_height_power,
-            flora_player_push_radius,
-            flora_player_push_strength,
             leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed,
@@ -836,6 +1094,12 @@ impl Tracer {
             flora_tick,
             sprout_delay_ticks,
             full_growth_ticks,
+            spawn_time_ms,
+            spawn_duration_seconds,
+            spawn_rise_fraction,
+            spawn_overshoot_min_voxels,
+            spawn_overshoot_max_voxels,
+            spawn_stagger_seconds,
         )?;
 
         BufferUpdater::update_sun_info(
@@ -1000,17 +1264,13 @@ impl Tracer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn record_trace(
+    #[allow(clippy::needless_option_as_deref)]
+    pub fn record_shadow_prepass(
         &mut self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
-        lod_distance: f32,
-        flora_draw_distance: f32,
-        grass_render_mode: u32,
         time: f32,
-        flora_colors: &[(Vec3, Vec3)],
-        leaf_bottom_color: Vec3,
-        leaf_tip_color: Vec3,
+        leaf_color_tables: FloraHeightColorTables,
         render_flags: &crate::RenderFlags,
         update_shadow_map: bool,
         vsm_blur_radius: u32,
@@ -1030,10 +1290,6 @@ impl Tracer {
         // barrier is not enough and causes close grass shadow flicker on macOS.
         let compute_to_graphics_barrier = PipelineBarrier::shader_access(
             PipelineStage::COMPUTE_SHADER,
-            PipelineStage::VERTEX_SHADER,
-        );
-        let frag_to_vert_barrier = PipelineBarrier::shader_access(
-            PipelineStage::FRAGMENT_SHADER,
             PipelineStage::VERTEX_SHADER,
         );
         let color_to_compute_barrier = PipelineBarrier::new(
@@ -1087,7 +1343,11 @@ impl Tracer {
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
-        if render_flags.enable_flora && render_flags.enable_shadows && update_shadow_map {
+        if render_flags.enable_flora
+            && render_flags.enable_leaves
+            && render_flags.enable_shadows
+            && update_shadow_map
+        {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -1097,8 +1357,7 @@ impl Tracer {
                     self.record_leaves_shadow_lod_pass(
                         cmdbuf,
                         surface_resources,
-                        leaf_bottom_color,
-                        leaf_tip_color,
+                        leaf_color_tables,
                         time,
                     )
                 },
@@ -1194,12 +1453,58 @@ impl Tracer {
             b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_trace_after_shadow_prepass(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        surface_resources: &SurfaceResources,
+        lod_distance: f32,
+        flora_draw_distance: f32,
+        grass_render_mode: u32,
+        time: f32,
+        flora_color_tables: &[FloraHeightColorTables],
+        leaf_color_tables: FloraHeightColorTables,
+        render_flags: &crate::RenderFlags,
+        mut gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
+    ) -> Result<()> {
+        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
+        let frag_to_vert_barrier = PipelineBarrier::shader_access(
+            PipelineStage::FRAGMENT_SHADER,
+            PipelineStage::VERTEX_SHADER,
+        );
+        let compute_to_transfer_barrier = PipelineBarrier::new(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::TRANSFER,
+            [MemoryBarrier::new(
+                MemoryAccess::SHADER_WRITE,
+                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
+            )],
+        );
+        let transfer_to_compute_barrier = PipelineBarrier::new(
+            PipelineStage::TRANSFER,
+            PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
+                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            )],
+        );
+
+        // Terrarium glass is composited analytically in composition.comp so it can refract the
+        // already-combined scene and depth-test against ray-traced terrain. Keep it out of the
+        // raster graphics pass to avoid transparent-layer accumulation and coplanar edge shimmer.
+        let enable_glass = false;
+        let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
+
         if render_flags.enable_flora {
             assert_eq!(
-                flora_colors.len(),
+                flora_color_tables.len(),
                 self.resources.meshes.flora_meshes.len(),
-                "Flora color count ({}) must match flora mesh count ({})",
-                flora_colors.len(),
+                "Flora color-table count ({}) must match flora mesh count ({})",
+                flora_color_tables.len(),
                 self.resources.meshes.flora_meshes.len()
             );
         }
@@ -1217,12 +1522,13 @@ impl Tracer {
                     lod_distance,
                     flora_draw_distance,
                     grass_render_mode,
-                    flora_colors,
-                    leaf_bottom_color,
-                    leaf_tip_color,
+                    flora_color_tables,
+                    leaf_color_tables,
                     time,
                     render_flags.enable_flora,
+                    render_flags.enable_leaves,
                     render_flags.enable_particles,
+                    enable_glass,
                     Some(profiler),
                     gpu_profiler_frame_slot,
                 );
@@ -1241,12 +1547,13 @@ impl Tracer {
                     lod_distance,
                     flora_draw_distance,
                     grass_render_mode,
-                    flora_colors,
-                    leaf_bottom_color,
-                    leaf_tip_color,
+                    flora_color_tables,
+                    leaf_color_tables,
                     time,
                     render_flags.enable_flora,
+                    render_flags.enable_leaves,
                     render_flags.enable_particles,
+                    enable_glass,
                     None,
                     gpu_profiler_frame_slot,
                 );
@@ -1594,6 +1901,7 @@ impl Tracer {
     /// overhead on tile-based GPUs (Apple Silicon via MoltenVK) and prevent
     /// the particle pass from clearing the flora output.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::needless_option_as_deref)]
     fn record_all_graphics_passes(
         &self,
         cmdbuf: &CommandBuffer,
@@ -1601,12 +1909,13 @@ impl Tracer {
         lod_distance: f32,
         flora_draw_distance: f32,
         grass_render_mode: u32,
-        flora_colors: &[(Vec3, Vec3)],
-        leaf_bottom_color: Vec3,
-        leaf_tip_color: Vec3,
+        flora_color_tables: &[FloraHeightColorTables],
+        leaf_color_tables: FloraHeightColorTables,
         time: f32,
         enable_flora: bool,
+        enable_leaves: bool,
         enable_particles: bool,
+        enable_glass: bool,
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) {
@@ -1639,6 +1948,11 @@ impl Tracer {
         if enable_particles {
             self.graphics_pipelines
                 .particle_ppl
+                .record_texture_transitions(cmdbuf);
+        }
+        if enable_glass {
+            self.graphics_pipelines
+                .glass_ppl
                 .record_texture_transitions(cmdbuf);
         }
 
@@ -1681,7 +1995,7 @@ impl Tracer {
                 lod_distance,
                 flora_draw_distance,
             );
-            for (species_index, (bottom_color, tip_color)) in flora_colors.iter().enumerate() {
+            for (species_index, height_color_tables) in flora_color_tables.iter().enumerate() {
                 if !should_render_grass_species(species_index, grass_render_mode) {
                     continue;
                 }
@@ -1715,8 +2029,7 @@ impl Tracer {
                             time,
                             species_index as u32,
                             instances.chunk_world_offset,
-                            *bottom_color,
-                            *tip_color,
+                            *height_color_tables,
                         );
 
                         cmdbuf.bind_vertex_buffers(0, &[&mesh.vertices]);
@@ -1747,84 +2060,85 @@ impl Tracer {
                 );
             }
 
-            // Draw leaves, both LOD levels
-            let leaves_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
-                profiler.begin_scope(
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "graphics.leaves",
-                    PipelineStage::ALL_COMMANDS,
-                )
-            });
-            let trees_by_lod = self.trees_needs_to_draw_this_frame(
-                &surface_resources.instances.leaves_instances,
-                lod_distance,
-                flora_draw_distance,
-            );
-            for &lod_state in &[LodState::Lod0, LodState::Lod1] {
-                let pipeline = match lod_state {
-                    LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
-                    LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
-                };
-                let (indices_buf, vertices_buf, indices_len) = match lod_state {
-                    LodState::Lod0 => (
-                        &self.resources.meshes.leaves_resources.indices,
-                        &self.resources.meshes.leaves_resources.vertices,
-                        self.resources.meshes.leaves_resources.indices_len,
-                    ),
-                    LodState::Lod1 => (
-                        &self.resources.meshes.leaves_resources_lod.indices,
-                        &self.resources.meshes.leaves_resources_lod.vertices,
-                        self.resources.meshes.leaves_resources_lod.indices_len,
-                    ),
-                };
+            // Draw leaves, both LOD levels.
+            if enable_leaves {
+                let leaves_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                    profiler.begin_scope(
+                        gpu_profiler_frame_slot,
+                        cmdbuf,
+                        "graphics.leaves",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                });
+                let trees_by_lod = self.trees_needs_to_draw_this_frame(
+                    &surface_resources.instances.leaves_instances,
+                    lod_distance,
+                    flora_draw_distance,
+                );
+                for &lod_state in &[LodState::Lod0, LodState::Lod1] {
+                    let pipeline = match lod_state {
+                        LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
+                        LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
+                    };
+                    let (indices_buf, vertices_buf, indices_len) = match lod_state {
+                        LodState::Lod0 => (
+                            &self.resources.meshes.leaves_resources.indices,
+                            &self.resources.meshes.leaves_resources.vertices,
+                            self.resources.meshes.leaves_resources.indices_len,
+                        ),
+                        LodState::Lod1 => (
+                            &self.resources.meshes.leaves_resources_lod.indices,
+                            &self.resources.meshes.leaves_resources_lod.vertices,
+                            self.resources.meshes.leaves_resources_lod.indices_len,
+                        ),
+                    };
 
-                let leaves_instances = &trees_by_lod[&lod_state];
-                if leaves_instances.is_empty() {
-                    continue;
-                }
-
-                pipeline.record_bind(cmdbuf);
-                pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-
-                cmdbuf.bind_index_buffer_u32(indices_buf);
-
-                for tree_instance in leaves_instances.iter() {
-                    if tree_instance.resources.instances_len == 0 {
+                    let leaves_instances = &trees_by_lod[&lod_state];
+                    if leaves_instances.is_empty() {
                         continue;
                     }
-                    let leaf_push = flora_push_constant(
-                        time,
-                        LEAF_INSTANCE_TYPE,
-                        tree_instance.chunk_world_offset,
-                        leaf_bottom_color,
-                        leaf_tip_color,
-                    );
-                    cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
-                    pipeline.record_indexed_with_manual_buffer(
+
+                    pipeline.record_bind(cmdbuf);
+                    pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+
+                    cmdbuf.bind_index_buffer_u32(indices_buf);
+
+                    for tree_instance in leaves_instances.iter() {
+                        if tree_instance.resources.instances_len == 0 {
+                            continue;
+                        }
+                        let leaf_push = flora_push_constant(
+                            time,
+                            LEAF_INSTANCE_TYPE,
+                            tree_instance.chunk_world_offset,
+                            leaf_color_tables,
+                        );
+                        cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
+                        pipeline.record_indexed_with_manual_buffer(
+                            cmdbuf,
+                            1,
+                            0,
+                            &tree_instance.resources.instances_buf,
+                            indices_len,
+                            tree_instance.resources.instances_len,
+                            0,
+                            0,
+                            0,
+                            Some(&PushConstantInfo {
+                                shader_stage: vk::ShaderStageFlags::VERTEX,
+                                push_constants: bytemuck::bytes_of(&leaf_push).to_vec(),
+                            }),
+                        );
+                    }
+                }
+                if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
+                    profiler.end_scope(
+                        gpu_profiler_frame_slot,
                         cmdbuf,
-                        1,
-                        0,
-                        &tree_instance.resources.instances_buf,
-                        indices_len,
-                        tree_instance.resources.instances_len,
-                        0,
-                        0,
-                        0,
-                        Some(&PushConstantInfo {
-                            shader_stage: vk::ShaderStageFlags::VERTEX,
-                            push_constants: bytemuck::bytes_of(&leaf_push).to_vec(),
-                        }),
+                        scope,
+                        PipelineStage::ALL_COMMANDS,
                     );
                 }
-            }
-            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
-                profiler.end_scope(
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    scope,
-                    PipelineStage::ALL_COMMANDS,
-                );
             }
 
             // Draw apples as render-only tree fruit instances using the same
@@ -1878,8 +2192,7 @@ impl Tracer {
                         time,
                         APPLE_INSTANCE_TYPE,
                         tree_instance.chunk_world_offset,
-                        APPLE_BOTTOM_COLOR,
-                        APPLE_TIP_COLOR,
+                        solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
                     );
                     cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
                     pipeline.record_indexed_with_manual_buffer(
@@ -1954,6 +2267,94 @@ impl Tracer {
             }
         }
 
+        if enable_glass {
+            let glass_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.terrarium_glass",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            let glass = &self.resources.meshes.glass;
+            if glass.indices_len > 0 {
+                let glass_ppl = &self.graphics_pipelines.glass_ppl;
+                glass_ppl.record_bind(cmdbuf);
+                glass_ppl.record_viewport_scissor(cmdbuf, viewport, scissor);
+                cmdbuf.bind_index_buffer_u32(&glass.indices);
+                cmdbuf.bind_vertex_buffers(0, &[&glass.vertices]);
+
+                let box_min = glass.box_min;
+                let box_max = glass.box_max;
+                let push = GlassPushConstants {
+                    box_min_near_alpha: [
+                        box_min.x,
+                        box_min.y,
+                        box_min.z,
+                        TERRARIUM_GLASS_NEAR_ALPHA,
+                    ],
+                    box_max_far_alpha: [box_max.x, box_max.y, box_max.z, TERRARIUM_GLASS_FAR_ALPHA],
+                };
+                let box_center = (box_min + box_max) * 0.5;
+                let face_centers = [
+                    Vec3::new(box_min.x, box_center.y, box_center.z),
+                    Vec3::new(box_max.x, box_center.y, box_center.z),
+                    Vec3::new(box_center.x, box_center.y, box_min.z),
+                    Vec3::new(box_center.x, box_center.y, box_max.z),
+                ];
+                let camera_position = self.camera.position();
+                let mut face_order = [0usize, 1, 2, 3];
+                face_order.sort_by(|left, right| {
+                    let left_dist = face_centers[*left].distance_squared(camera_position);
+                    let right_dist = face_centers[*right].distance_squared(camera_position);
+                    left_dist
+                        .partial_cmp(&right_dist)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                if glass.edge_indices_len > 0 {
+                    glass_ppl.record_indexed(
+                        cmdbuf,
+                        glass.edge_indices_len,
+                        1,
+                        glass.edge_index_start,
+                        0,
+                        0,
+                        Some(&PushConstantInfo {
+                            shader_stage: vk::ShaderStageFlags::VERTEX,
+                            push_constants: bytemuck::bytes_of(&push).to_vec(),
+                        }),
+                    );
+                }
+
+                // Draw the nearest glass panes first while depth writing is enabled. This keeps the
+                // front pane as the single composited transparent layer over ray-traced terrain,
+                // while the separate bevel/rim geometry above provides the visible optical edges.
+                for face_id in face_order {
+                    glass_ppl.record_indexed(
+                        cmdbuf,
+                        glass.pane_index_count,
+                        1,
+                        glass.pane_index_starts[face_id],
+                        0,
+                        0,
+                        Some(&PushConstantInfo {
+                            shader_stage: vk::ShaderStageFlags::VERTEX,
+                            push_constants: bytemuck::bytes_of(&push).to_vec(),
+                        }),
+                    );
+                }
+            }
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), glass_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        }
+
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
             gpu_profiler_frame_slot,
@@ -1967,8 +2368,7 @@ impl Tracer {
         &self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
-        bottom_color: Vec3,
-        tip_color: Vec3,
+        leaf_color_tables: FloraHeightColorTables,
         time: f32,
     ) {
         self.graphics_pipelines
@@ -2014,8 +2414,7 @@ impl Tracer {
                 time,
                 LEAF_INSTANCE_TYPE,
                 tree_instance.chunk_world_offset,
-                bottom_color,
-                tip_color,
+                leaf_color_tables,
             );
 
             cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.leaves_resources_lod.vertices]);
@@ -2048,8 +2447,7 @@ impl Tracer {
                 time,
                 APPLE_INSTANCE_TYPE,
                 tree_instance.chunk_world_offset,
-                APPLE_BOTTOM_COLOR,
-                APPLE_TIP_COLOR,
+                solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
             );
 
             cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.apple_resources_lod.vertices]);
@@ -2520,12 +2918,9 @@ impl Tracer {
         self.camera.handle_mouse(delta);
     }
 
+    #[allow(dead_code)]
     pub fn reset_camera_velocity(&mut self) {
         self.camera.reset_velocity();
-    }
-
-    pub fn set_head_bob_params(&mut self, v: f32, h: f32, r: f32, s: f32) {
-        self.camera.set_head_bob_params(v, h, r, s);
     }
 
     pub fn camera_position(&self) -> Vec3 {
@@ -2558,6 +2953,31 @@ impl Tracer {
 
     pub fn camera_front(&self) -> Vec3 {
         self.camera.front()
+    }
+
+    pub fn camera_ray_from_screen_position(
+        &self,
+        screen_pos_physical: Vec2,
+        screen_extent: Extent2D,
+    ) -> Option<(Vec3, Vec3)> {
+        self.camera
+            .ray_from_screen_position(screen_pos_physical, screen_extent)
+    }
+
+    pub fn set_camera_pose_looking_at(&mut self, position: Vec3, target: Vec3) -> bool {
+        let changed = self.camera.set_pose_looking_at(position, target);
+        if changed {
+            if let Err(err) = self
+                .spatial_sound_manager
+                .update_player_pos(self.camera.position(), self.camera.vectors())
+            {
+                log::warn!(
+                    "Failed to update listener after applying look-at camera pose: {}",
+                    err
+                );
+            }
+        }
+        changed
     }
 
     pub fn project_screen_point_to_world(
@@ -2615,12 +3035,11 @@ impl Tracer {
                 collision_result.unwrap_or_else(|| PlayerCollisionResult {
                     ground_distance: f32::INFINITY,
                     ceiling_distance: f32::INFINITY,
-                    ring_distances: vec![],
+                    ring_distances: Vec::new(),
                 }),
             );
         }
 
-        // update spatial sound manager with camera (listener) position
         self.spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
             .unwrap();
@@ -2734,22 +3153,40 @@ impl Tracer {
         Ok(())
     }
 
+    fn pack_tree_leaf_voxel_local_pos(local_pos: IVec3) -> Result<u32> {
+        const PACKED_MIN: i32 = -512;
+        const PACKED_MAX: i32 = 511;
+        anyhow::ensure!(
+            (PACKED_MIN..=PACKED_MAX).contains(&local_pos.x)
+                && (PACKED_MIN..=PACKED_MAX).contains(&local_pos.y)
+                && (PACKED_MIN..=PACKED_MAX).contains(&local_pos.z),
+            "tree leaf voxel local position {:?} exceeds packed signed 10-bit range",
+            local_pos,
+        );
+        let encode = |value: i32| -> u32 { ((value - PACKED_MIN) as u32) & 0x3ff };
+        Ok(encode(local_pos.x) | (encode(local_pos.y) << 10) | (encode(local_pos.z) << 20))
+    }
+
     fn build_tree_render_instances(
         &self,
         tree_id: u32,
-        positions: &[UVec3],
+        instances: &[TreeRenderInstanceData],
         aabb_margin: f32,
         span_label: &str,
     ) -> Result<TreeLeavesInstance> {
         use crate::builder::TreeLeafInstance;
 
-        let mut instances_data = Vec::with_capacity(positions.len());
-        let chunk_world_offset = positions
+        let mut instances_data = Vec::with_capacity(instances.len());
+        let chunk_world_offset = instances
             .iter()
-            .copied()
+            .map(|instance| instance.world_pos)
             .reduce(UVec3::min)
             .unwrap_or(UVec3::ZERO);
-        if let Some(max_pos) = positions.iter().copied().reduce(UVec3::max) {
+        if let Some(max_pos) = instances
+            .iter()
+            .map(|instance| instance.world_pos)
+            .reduce(UVec3::max)
+        {
             anyhow::ensure!(
                 (max_pos - chunk_world_offset)
                     .cmplt(UVec3::splat(1024))
@@ -2762,16 +3199,19 @@ impl Tracer {
             let local_pos = world_pos - chunk_world_offset;
             (local_pos.x & 0x3ff) | ((local_pos.y & 0x3ff) << 10) | ((local_pos.z & 0x3ff) << 20)
         };
-        for pos in positions.iter() {
+        for instance in instances.iter() {
             instances_data.push(TreeLeafInstance {
-                packed_local_pos: pack_local_pos(*pos),
-                packed_orientation: 0,
+                packed_local_pos: pack_local_pos(instance.world_pos),
+                packed_leaf_local_pos: Self::pack_tree_leaf_voxel_local_pos(
+                    instance.leaf_local_pos,
+                )?,
             });
         }
 
-        let scaled_positions = positions
+        let scaled_positions = instances
             .iter()
-            .map(|pos| {
+            .map(|instance| {
+                let pos = instance.world_pos;
                 Vec3::new(
                     pos.x as f32 / 256.0,
                     pos.y as f32 / 256.0,
@@ -2788,7 +3228,7 @@ impl Tracer {
             chunk_world_offset,
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
-            positions.len() as u64,
+            instances.len() as u64,
         );
 
         if !instances_data.is_empty() {
@@ -2809,9 +3249,23 @@ impl Tracer {
         surface_resources: &mut SurfaceResources,
         tree_id: u32,
         leaf_positions: &[UVec3],
+        leaf_local_positions: &[IVec3],
     ) -> Result<()> {
+        anyhow::ensure!(
+            leaf_positions.len() == leaf_local_positions.len(),
+            "tree leaf position and anchor metadata lengths differ"
+        );
+        let leaf_voxel_instances = leaf_positions
+            .iter()
+            .copied()
+            .zip(leaf_local_positions.iter().copied())
+            .map(|(world_pos, leaf_local_pos)| TreeRenderInstanceData {
+                world_pos,
+                leaf_local_pos,
+            })
+            .collect::<Vec<_>>();
         let tree_leaves_instance =
-            self.build_tree_render_instances(tree_id, leaf_positions, 0.2, "tree leaf")?;
+            self.build_tree_render_instances(tree_id, &leaf_voxel_instances, 0.2, "tree leaf")?;
         surface_resources
             .instances
             .leaves_instances
@@ -2826,8 +3280,16 @@ impl Tracer {
         tree_id: u32,
         apple_positions: &[UVec3],
     ) -> Result<()> {
+        let apple_instances = apple_positions
+            .iter()
+            .copied()
+            .map(|world_pos| TreeRenderInstanceData {
+                world_pos,
+                leaf_local_pos: IVec3::ZERO,
+            })
+            .collect::<Vec<_>>();
         let tree_apple_instance =
-            self.build_tree_render_instances(tree_id, apple_positions, 0.08, "tree apple")?;
+            self.build_tree_render_instances(tree_id, &apple_instances, 0.08, "tree apple")?;
         surface_resources
             .instances
             .apple_instances
@@ -2867,36 +3329,6 @@ impl Tracer {
             ),
             (None, None) => log::warn!("Attempted to remove non-existent tree {}", tree_id),
         }
-        Ok(())
-    }
-
-    pub fn regenerate_leaves(
-        &mut self,
-        inner_density: f32,
-        outer_density: f32,
-        inner_radius: f32,
-        outer_radius: f32,
-    ) -> Result<()> {
-        let device = self.vulkan_ctx.device();
-        self.resources.meshes.leaves_resources = LeavesResources::new_with_params(
-            device.clone(),
-            self.allocator.clone(),
-            inner_density,
-            outer_density,
-            inner_radius,
-            outer_radius,
-            false,
-        );
-
-        self.resources.meshes.leaves_resources_lod = LeavesResources::new_with_params(
-            device.clone(),
-            self.allocator.clone(),
-            inner_density,
-            outer_density,
-            inner_radius,
-            outer_radius,
-            true,
-        );
         Ok(())
     }
 

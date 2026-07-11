@@ -12,6 +12,11 @@ const float short_grass_height_mean_voxels  = 3.0;
 const float short_grass_height_stddev_voxels = 0.6;
 
 #include "./flora_wind_motion.glsl"
+#include "./flora_species_profile.glsl"
+#include "./flora_spawn_animation.glsl"
+#define DIRECT_SUN_SHADOW_ENABLE_LEAF
+#define DIRECT_SUN_SHADOW_ENABLE_CLOUD
+#include "../include/direct_sun_shadow.glsl"
 
 float sample_standard_normal(uint seed) {
     uint state_a = wellons_hash(seed ^ 0xA511E9B3u);
@@ -49,23 +54,18 @@ float get_shadow_weight(ivec3 vox_local_pos) {
     return shadow_weight;
 }
 
-void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_length,
-                           uvec3 instance_pos_voxels, uint instance_ty, uint instance_seed,
-                           uint in_instance_growth_progress, out bool is_grass,
-                           out float color_gradient, out vec3 voxel_pos, out vec3 anchor_pos,
-                           out float shadow_weight, out bool should_trim_voxel) {
+void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_pos_voxels,
+                           uint instance_ty, uint instance_seed, uint in_instance_growth_progress,
+                           uint instance_spawn_start_ms, out bool is_grass,
+                           out float color_gradient, out vec3 voxel_pos,
+                           out vec3 anchor_pos, out float shadow_weight,
+                           out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
     bool is_surface_flora = instance_ty < FLORA_SPECIES_COUNT;
     bool is_apple = instance_ty == FLORA_SPECIES_APPLE;
 
-    bool is_short_grass = instance_ty == FLORA_SPECIES_SHORT_GRASS;
-    uint gradient_length = is_short_grass ? tall_grass_height_voxels : max_length;
-    float wind_gradient = is_apple ? 1.0 : compute_gradient(vox_local_pos, gradient_origin, gradient_length);
-    color_gradient = is_apple
-                         ? clamp((float(vox_local_pos.y) + float(max_length)) /
-                                     max(1.0, float(max_length) * 2.0),
-                                 0.0, 1.0)
-                         : wind_gradient;
+    float wind_gradient = is_apple ? 1.0 : flora_voxel_wind_gradient(voxel_info);
+    color_gradient = flora_voxel_color_gradient(voxel_info);
 
     uint grass_height_voxels =
         is_grass ? sample_grass_height(instance_ty, instance_seed) : tall_grass_height_voxels;
@@ -79,9 +79,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
         if (growth_factor <= 0.0) {
             should_trim_voxel = true;
         } else {
-            float grown_length = float(max_length) * growth_factor;
-            float voxel_length = length(vec3(vox_local_pos - gradient_origin));
-            should_trim_voxel  = voxel_length > grown_length;
+            should_trim_voxel = flora_voxel_growth_gradient(voxel_info) > growth_factor;
         }
     }
 
@@ -96,71 +94,116 @@ void prepare_flora_vertex(ivec3 vox_local_pos, ivec3 gradient_origin, uint max_l
     float flora_bend_height_t = is_grass ? grass_rooted_height_t : wind_gradient;
     float flora_bend_weight = flora_bend_height_factor(flora_bend_height_t);
     float wind_bend_weight = is_surface_flora ? flora_bend_weight : wind_gradient * wind_gradient;
-    vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_bend_weight;
+    float species_wind_affect = is_surface_flora ? flora_species_voxel_wind_affect_multiplier(
+                                                       instance_ty, vox_local_pos, wind_gradient) :
+                                                   1.0;
+    vec3 wind_offset = is_apple ? vec3(0.0) : wind_vec * wind_bend_weight * species_wind_affect;
     float wind_motion_time =
         wind_volume_bucket_update_time(get_wind_volume_bucket_index(wind_seed), pc.time);
     if (is_surface_flora) {
-        float natural_bend_height = is_grass ? float(grass_height_voxels) : max(float(max_length), 1.0);
+        float natural_bend_height = is_grass ? float(grass_height_voxels) :
+                                               flora_voxel_lookup_max_length(instance_ty);
         float natural_bend_t = is_grass ? grass_rooted_height_t : wind_gradient;
-        wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height);
+        wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height) *
+                       species_wind_affect;
         wind_offset += flora_wind_vibration(wind_vec, flora_bend_height_t, instance_seed,
-                                            vox_local_pos, wind_motion_time);
+                                            vox_local_pos, wind_motion_time) *
+                       species_wind_affect;
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
         wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
-                                          gradient_origin, wind_motion_time);
+                                          ivec3(0), wind_motion_time);
     } else if (is_apple) {
         wind_offset += apple_wind_swing(wind_vec, instance_seed, wind_motion_time);
     }
-    float player_push_radius = max(gui_input.flora_player_push_radius, 0.0);
-    float player_push_strength = max(gui_input.flora_player_push_strength, 0.0);
-    vec3 player_delta = instance_pos - camera_info.pos.xyz;
-    float player_dist = length(player_delta);
-    vec2 player_push_delta = player_delta.xz;
-    float player_push_planar_dist = length(player_push_delta);
-    vec2 player_push_dir =
-        player_push_planar_dist > 1e-4 ? player_push_delta / player_push_planar_dist : vec2(0.0);
-    float player_push_falloff =
-        player_push_radius > 1e-4 ? 1.0 - smoothstep(0.0, player_push_radius, player_dist) : 0.0;
-    float player_push_amount = player_push_falloff * flora_bend_weight;
-    vec3 player_push = vec3(player_push_dir.x, 0.0, player_push_dir.y) *
-                       (player_push_strength * player_push_amount);
+    float plant_height_voxels = is_grass ? float(grass_height_voxels) :
+                                            flora_voxel_lookup_max_length(instance_ty) + 1.0;
+    FloraSpawnAnimationPose spawn_pose = is_surface_flora ? sample_flora_spawn_animation(
+                                                               instance_spawn_start_ms,
+                                                               instance_seed,
+                                                               plant_height_voxels) :
+                                                           FloraSpawnAnimationPose(
+                                                               vec3(0.0), vec3(1.0), 1.0);
+    anchor_pos = (vec3(vox_local_pos) + wind_offset + spawn_pose.translation_voxels) *
+                     scaling_factor +
+                 instance_pos;
+    voxel_pos = anchor_pos + vec3(0.5) * scaling_factor;
 
-    anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos + player_push;
-    voxel_pos         = anchor_pos + vec3(0.5) * scaling_factor;
-
-    shadow_weight = get_shadow_weight_vsm_temporal(vec4(voxel_pos, 1.0));
-    shadow_weight *= get_leaf_shadow_transmittance(vec4(voxel_pos, 1.0), true, true);
-    shadow_weight *= get_cloud_shadow_transmittance(vec4(voxel_pos, 1.0));
+    DirectSunShadowReceiver shadow_receiver = direct_sun_shadow_receiver(
+        vec4(voxel_pos, 1.0),
+        ivec3(0),
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_TERRAIN_SHADOW_VSM,
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE
+    );
+    shadow_weight = get_direct_sun_shadow_transmittance(shadow_receiver);
     shadow_weight *= get_shadow_weight(vox_local_pos);
+}
+
+uint flora_height_color_row(float color_gradient) {
+    float row = clamp(color_gradient, 0.0, 1.0) * float(FLORA_HEIGHT_COLOR_TABLE_LEN - 1);
+    return uint(round(row));
+}
+
+vec3 unpack_linear_rgb10(uint packed_color) {
+    const float inv_max_channel = 1.0 / 1023.0;
+    return vec3(float(packed_color & 0x3FFu),
+                float((packed_color >> 10) & 0x3FFu),
+                float((packed_color >> 20) & 0x3FFu)) * inv_max_channel;
 }
 
 vec3 sample_flora_base_color(bool is_grass, uint instance_ty, uint instance_seed,
                              ivec3 vox_local_pos, uvec3 instance_pos_voxels,
-                             float color_gradient) {
-    if (is_grass) {
-        vec3 grass_bottom_color_linear;
-        vec3 grass_tip_color_linear;
-        sample_grass_band_gradient(vec2(float(instance_pos_voxels.x), float(instance_pos_voxels.z)),
-                                   grass_bottom_color_linear, grass_tip_color_linear);
-        return mix(grass_bottom_color_linear, grass_tip_color_linear, color_gradient);
+                             float color_gradient, uint voxel_info) {
+    uint material_id = flora_voxel_material_id(voxel_info);
+    uint color_row = flora_height_color_row(color_gradient);
+    uint dark_height_color_rgb10 = pc.height_dark_color_rgb10[color_row];
+    if (instance_ty == FLORA_SPECIES_LAVENDER) {
+        dark_height_color_rgb10 = sample_lavender_height_palette_rgb10(instance_seed, color_row);
+    }
+    vec3 dark_height_color = unpack_linear_rgb10(dark_height_color_rgb10);
+
+    if (instance_ty == FLORA_SPECIES_EMBER_BLOOM &&
+        material_id == FLORA_VOXEL_MATERIAL_ALLIUM_CORE) {
+        const uint flower_color_row = 8u;
+        vec3 flower_a = unpack_linear_rgb10(pc.height_dark_color_rgb10[flower_color_row]);
+        vec3 flower_b = unpack_linear_rgb10(pc.height_light_color_rgb10[flower_color_row]);
+        float preset_choice = construct_float_01(wellons_hash(instance_seed ^ 0x63D83595u));
+        if (preset_choice >= 0.5) {
+            // Golden seed-head preset: warm yellow through a soft floral white.
+            flower_a = srgb_to_linear(vec3(0.89, 0.72, 0.29));
+            flower_b = srgb_to_linear(vec3(0.98, 0.96, 0.86));
+        }
+
+        // A low-discrepancy lattice sequence gives every voxel its own blend factor.
+        // Unlike unconstrained hash noise, neighboring coordinates take large,
+        // well-distributed steps through [0, 1), which avoids obvious color clumps.
+        float instance_offset = construct_float_01(wellons_hash(instance_seed ^ 0xA511E9B3u));
+        float blend_factor = fract(dot(vec3(vox_local_pos),
+                                       vec3(0.754877666, 0.569840296, 0.438289173)) +
+                                   instance_offset);
+        return mix(flower_a, flower_b, blend_factor);
     }
 
-    uint palette_seed        = combine_color_seed(instance_seed);
-    vec3 bottom_color_linear = srgb_to_linear(pc.bottom_color);
-    vec3 tip_color_linear    = sample_tip_palette(instance_ty, palette_seed, pc.tip_color);
-    if (instance_ty == FLORA_SPECIES_APPLE) {
-        vec3 apple_color = mix(bottom_color_linear, tip_color_linear, color_gradient);
-        float speckle = signed_unit_noise(vec4(vec3(vox_local_pos), float(instance_seed))).x;
-        return apply_hsv_offset(apple_color, vec3(speckle * 0.018, 0.03, speckle * 0.035));
+    if (is_grass) {
+        float grass_band_t = sample_grass_band_interpolation_t(
+            vec2(float(instance_pos_voxels.x), float(instance_pos_voxels.z)));
+        vec3 light_height_color = unpack_linear_rgb10(pc.height_light_color_rgb10[color_row]);
+        return mix(dark_height_color, light_height_color, grass_band_t);
     }
-    vec3 interpolated_color  = mix(bottom_color_linear, tip_color_linear, color_gradient);
+
+    if (instance_ty == FLORA_SPECIES_APPLE) {
+        float speckle = signed_unit_noise(vec4(vec3(vox_local_pos), float(instance_seed))).x;
+        return apply_hsv_offset(dark_height_color, vec3(speckle * 0.018, 0.03, speckle * 0.035));
+    }
+
     vec3 instance_color_variation =
         signed_unit_noise(float(instance_seed)) * gui_input.flora_instance_hsv_offset_max;
     vec3 voxel_color_variation =
         signed_unit_noise(vec4(vec3(vox_local_pos), float(instance_seed))) *
         gui_input.flora_voxel_hsv_offset_max;
     vec3 total_color_variation = instance_color_variation + voxel_color_variation;
-    return apply_hsv_offset(interpolated_color, total_color_variation);
+    return apply_hsv_offset(dark_height_color, total_color_variation);
 }
 
 #endif // FLORA_COMMON_GLSL

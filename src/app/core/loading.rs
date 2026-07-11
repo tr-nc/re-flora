@@ -37,8 +37,7 @@ impl LoadingState {
 
 impl App {
     pub(super) fn process_loading_step(&mut self) {
-        let mut should_apply_debug_audio_wall = false;
-        let mut should_carve_startup_water_pool = false;
+        let mut should_apply_debug_startup_materials = false;
         let loading = match &mut self.loading_state {
             Some(loading) => loading,
             None => return,
@@ -66,8 +65,7 @@ impl App {
 
                 loading.current += 1;
                 if loading.current >= total {
-                    should_carve_startup_water_pool = true;
-                    should_apply_debug_audio_wall = true;
+                    should_apply_debug_startup_materials = true;
                     loading.current = 0;
                     loading.phase = LoadingPhase::Building;
                 }
@@ -77,7 +75,7 @@ impl App {
                 let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
                 loading.step_label = format!("Building {}/{}", current, total);
 
-                let active_voxel_len = match self.surface_builder.build_surface(chunk_id, true) {
+                let active_voxel_len = match self.surface_builder.build_surface(chunk_id, false) {
                     Ok(active_voxel_len) => active_voxel_len,
                     Err(err) => {
                         log::error!("build_surface failed for {chunk_id:?}: {err}");
@@ -122,15 +120,9 @@ impl App {
             }
         }
 
-        if should_carve_startup_water_pool {
-            if let Err(err) = self.apply_startup_water_pool() {
-                log::error!("Failed to carve startup water pool terrain: {err}");
-            }
-        }
-
-        if should_apply_debug_audio_wall {
-            if let Err(err) = self.apply_debug_audio_wall() {
-                log::error!("Failed to apply debug audio wall: {err}");
+        if should_apply_debug_startup_materials {
+            if let Err(err) = self.apply_debug_startup_materials() {
+                log::error!("Failed to apply debug startup materials: {err}");
             }
         }
     }
@@ -313,43 +305,8 @@ impl App {
 
         self.ensure_map_butterfly_emitter();
 
-        self.debug_tree_pos.y =
-            self.query_terrain_height_cpu(Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z));
-
-        if let Err(err) = self.add_tree(
-            self.debug_tree_desc.clone(),
-            TreePlacement::World(self.debug_tree_pos),
-            TreeAddOptions::default(),
-        ) {
-            log::error!("Failed to add debug tree: {}", err);
-        }
-
-        match Self::debug_model_paths() {
-            Ok(paths) => {
-                for (index, path) in paths.iter().enumerate() {
-                    let position = self.debug_model_position(index);
-                    if let Err(err) = self.apply_model_placement(path, position) {
-                        log::error!(
-                            "Failed to place debug model '{}' at {:?}: {}",
-                            path.display(),
-                            position,
-                            err
-                        );
-                    }
-                }
-            }
-            Err(err) => {
-                log::error!("Failed to discover debug model GLBs: {err}");
-            }
-        }
-
-        if let Err(err) = self.tracer.regenerate_leaves(
-            self.gui_adjustables.leaves_inner_density.value,
-            self.gui_adjustables.leaves_outer_density.value,
-            self.gui_adjustables.leaves_inner_radius.value,
-            self.gui_adjustables.leaves_outer_radius.value,
-        ) {
-            log::error!("Failed to regenerate leaves: {}", err);
+        if let Err(err) = self.plant_startup_tuned_tree() {
+            log::error!("Failed to plant startup tuning tree: {}", err);
         }
 
         if let Err(err) = self.spatial_sound_manager.start() {

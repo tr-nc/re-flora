@@ -1,0 +1,57 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly uniform U_TerrainSmoothInfo {
+    uvec3 offset;
+    uint _pad0;
+    uvec3 dim;
+    uint _pad1;
+    vec2 center_xz_vox;
+    float brush_radius_vox;
+    float kernel_radius_vox;
+    float strength;
+    float max_delta_vox;
+    float deadband_vox;
+    float _pad2;
+} terrain_smooth_info;
+
+layout(set = 0, binding = 1) buffer B_TerrainSmoothColumns { vec4 data[]; }
+terrain_smooth_columns;
+layout(set = 0, binding = 2, r8ui) readonly uniform uimage3D chunk_atlas;
+
+#include "../../include/voxel_data.glsl"
+#include "../../include/voxel_types.glsl"
+
+bool is_terrain_voxel(uint voxel_type) {
+    return voxel_type == VOXEL_TYPE_DIRT || voxel_type == VOXEL_TYPE_SAND ||
+           voxel_type == VOXEL_TYPE_ROCK;
+}
+
+uint load_voxel_type(ivec3 p) { return voxel_type_from_atlas_data(imageLoad(chunk_atlas, p).r); }
+
+void main() {
+    uvec2 column = gl_GlobalInvocationID.xy;
+    if (column.x >= terrain_smooth_info.dim.x || column.y >= terrain_smooth_info.dim.z) {
+        return;
+    }
+
+    uint index        = column.x * terrain_smooth_info.dim.z + column.y;
+    uint atlas_x      = terrain_smooth_info.offset.x + column.x;
+    uint atlas_z      = terrain_smooth_info.offset.z + column.y;
+    int atlas_height  = imageSize(chunk_atlas).y;
+    float top_height  = -1.0;
+    float valid       = 0.0;
+
+    for (int y = atlas_height - 1; y >= 0; --y) {
+        uint voxel_type = load_voxel_type(ivec3(int(atlas_x), y, int(atlas_z)));
+        if (is_terrain_voxel(voxel_type)) {
+            top_height = float(y) + 0.5;
+            valid      = 1.0;
+            break;
+        }
+    }
+
+    terrain_smooth_columns.data[index] = vec4(top_height, top_height, valid, 0.0);
+}

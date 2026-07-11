@@ -3,18 +3,10 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../include/core/packer.glsl"
-
-layout(push_constant) uniform PC {
-    float time;
-    uint instance_ty;
-    uvec3 chunk_world_offset;
-    vec3 bottom_color;
-    vec3 tip_color;
-}
-pc;
+#include "./flora_push_constant.glsl"
 
 // these are vertex-rate attributes
-layout(location = 0) in uvec2 in_packed_data;
+layout(location = 0) in uint in_packed_data;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -61,12 +53,7 @@ layout(set = 0, binding = 9) uniform sampler2D leaf_shadow_opacity_blended_tex;
 layout(set = 0, binding = 10) uniform sampler2D leaf_shadow_mask_tex;
 layout(set = 0, binding = 11) uniform sampler2D cloud_shadow_tex;
 
-layout(set = 0, binding = 6) uniform U_FloraGrowthInfo {
-    uint flora_tick;
-    uint sprout_delay_ticks;
-    uint full_growth_ticks;
-}
-flora_growth_info;
+#include "./flora_animation_info.glsl"
 
 layout(set = 0, binding = 7) uniform U_WindVolumeInfo { vec3 world_chunk_extent; }
 wind_volume_info;
@@ -83,11 +70,14 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "../include/vsm.glsl"
 #include "../include/leaf_shadow.glsl"
 #include "../include/cloud_shadow.glsl"
+#define TERRAIN_EDIT_PREVIEW_BINDING 12
+#include "../include/terrain_edit_preview.glsl"
 #include "../include/wind_volume.glsl"
 #include "./color_variation.glsl"
 #include "./grass_band_color.glsl"
 #include "./palette.glsl"
 #include "./unpacker.glsl"
+#include "./flora_voxel_lookup.glsl"
 #include "./flora_common.glsl"
 
 layout(set = 1, binding = 0) readonly buffer B_ManualFloraInstances { Instance data[]; }
@@ -96,10 +86,7 @@ manual_flora_instances;
 void main() {
     ivec3 vox_local_pos;
     uvec3 vert_offset_in_vox;
-    ivec3 gradient_origin;
-    uint max_length;
-    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, gradient_origin, max_length,
-                       in_packed_data);
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, in_packed_data);
 
     bool is_grass;
     float color_gradient;
@@ -109,12 +96,16 @@ void main() {
     bool should_trim_voxel;
     uint in_instance_packed_local_pos =
         manual_flora_instances.data[gl_InstanceIndex].packed_local_pos;
-    uvec3 instance_pos = get_instance_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
+    uvec3 instance_pos = get_surface_flora_stem_world_pos(in_instance_packed_local_pos,
+                                                          pc.chunk_world_offset);
     uint instance_seed = get_instance_seed(instance_pos);
     uint instance_growth_progress = unpack_instance_growth_progress(in_instance_packed_local_pos);
-    prepare_flora_vertex(vox_local_pos, gradient_origin, max_length, instance_pos,
-                          pc.instance_ty, instance_seed, instance_growth_progress, is_grass,
-                          color_gradient, voxel_pos, anchor_pos, shadow_weight, should_trim_voxel);
+    uint instance_spawn_start_ms = manual_flora_instances.data[gl_InstanceIndex].spawn_start_ms;
+    uint voxel_info = lookup_flora_voxel_info(pc.instance_ty, vox_local_pos);
+    prepare_flora_vertex(vox_local_pos, voxel_info, instance_pos, pc.instance_ty, instance_seed,
+                          instance_growth_progress, instance_spawn_start_ms, is_grass,
+                          color_gradient, voxel_pos,
+                          anchor_pos, shadow_weight, should_trim_voxel);
     vec3 vert_pos    = anchor_pos + vec3(vert_offset_in_vox) * scaling_factor;
 
     if (should_trim_voxel) {
@@ -129,9 +120,12 @@ void main() {
 
     vec3 base_color_linear =
         sample_flora_base_color(is_grass, pc.instance_ty, instance_seed, vox_local_pos,
-                                instance_pos, color_gradient);
+                                instance_pos, color_gradient, voxel_info);
 
     float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);
     vec3 sun_light      = sun_info.sun_color * sun_luminance;
-    vert_color = base_color_linear * (sun_light * shadow_weight + shading_info.ambient_light);
+    vec3 lit_color = base_color_linear * (sun_light * shadow_weight + shading_info.ambient_light);
+    // The edit brush is a UI affordance, not foliage material. Match the terrain tracer by
+    // applying the tint after lighting so leaves, grasses, and flowers highlight consistently.
+    vert_color = apply_terrain_edit_preview_tint(lit_color, voxel_pos);
 }

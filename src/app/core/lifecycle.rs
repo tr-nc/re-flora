@@ -26,6 +26,7 @@ impl App {
             window_extent,
             self.contree_builder.get_resources(),
             self.scene_accel_builder.get_resources(),
+            self.plain_builder.get_resources(),
         );
 
         self.egui_renderer

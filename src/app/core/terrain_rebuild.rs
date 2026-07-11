@@ -5,7 +5,7 @@ use super::*;
 pub(super) enum ChunkRebuildRequest {
     #[default]
     Normal,
-    PreserveFlora(world_ops::FloraSphereEdit),
+    PreserveFlora(world_ops::FloraBrushEdit),
 }
 
 pub(super) struct TerrainChunkRebuildInFlight {
@@ -13,7 +13,7 @@ pub(super) struct TerrainChunkRebuildInFlight {
     revision: u64,
     started_at: Instant,
     main_thread_ms: f64,
-    flora_edit: Option<world_ops::FloraSphereEdit>,
+    flora_edit: Option<world_ops::FloraBrushEdit>,
     stage: TerrainChunkRebuildStage,
 }
 
@@ -47,10 +47,18 @@ impl App {
         self.rebuild_visible_chunk_batch_synchronously(chunk_ids);
     }
 
+    pub(super) fn enqueue_deferred_chunk_rebuilds_without_flora(&mut self, chunk_ids: &[UVec3]) {
+        if chunk_ids.is_empty() {
+            return;
+        }
+
+        self.rebuild_visible_chunk_batch_without_flora_synchronously(chunk_ids);
+    }
+
     pub(super) fn enqueue_deferred_flora_preserving_chunk_rebuilds(
         &mut self,
         chunk_ids: &[UVec3],
-        flora_edit: world_ops::FloraSphereEdit,
+        flora_edit: world_ops::FloraBrushEdit,
     ) {
         if chunk_ids.is_empty() {
             return;
@@ -114,10 +122,52 @@ impl App {
         }
     }
 
+    fn rebuild_visible_chunk_batch_without_flora_synchronously(&mut self, chunk_ids: &[UVec3]) {
+        let sync_start = Instant::now();
+        if !self.prepare_visible_sync_rebuild(chunk_ids) {
+            log::error!(
+                "[SYNC_VISIBLE_REBUILD] failed to prepare synchronous no-flora rebuild; leaving visible terrain unchanged for chunks {:?}",
+                chunk_ids,
+            );
+            return;
+        }
+        let result = world_ops::mesh_generate_chunks_without_flora(
+            &mut self.surface_builder,
+            &mut self.contree_builder,
+            &mut self.scene_accel_builder,
+            VOXEL_DIM_PER_CHUNK,
+            chunk_ids.to_vec(),
+        );
+        let elapsed_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
+        match result {
+            Ok(()) => {
+                for &chunk_id in chunk_ids {
+                    self.schedule_terrain_sdf_source_refresh(chunk_id);
+                }
+                self.request_vsm_history_reset();
+                log::info!(
+                    "[PERF][SYNC_VISIBLE_REBUILD] chunks {} total {:.2}ms preserve_flora=false place_flora=false chunk_ids={:?}",
+                    chunk_ids.len(),
+                    elapsed_ms,
+                    chunk_ids,
+                );
+            }
+            Err(err) => {
+                log::error!(
+                    "[PERF][SYNC_VISIBLE_REBUILD] failed chunks {} after {:.2}ms preserve_flora=false place_flora=false chunk_ids={:?}: {}",
+                    chunk_ids.len(),
+                    elapsed_ms,
+                    chunk_ids,
+                    err,
+                );
+            }
+        }
+    }
+
     fn rebuild_visible_flora_preserving_chunk_batch_synchronously(
         &mut self,
         chunk_ids: &[UVec3],
-        flora_edit: world_ops::FloraSphereEdit,
+        flora_edit: world_ops::FloraBrushEdit,
     ) {
         let sync_start = Instant::now();
         if !self.prepare_visible_sync_rebuild(chunk_ids) {
@@ -130,7 +180,7 @@ impl App {
         let mut rebuilt = 0usize;
         let mut failed = false;
         for &chunk_id in chunk_ids {
-            match world_ops::mesh_generate_chunk_preserve_flora_for_sphere_edit(
+            match world_ops::mesh_generate_chunk_preserve_flora_for_brush_edit(
                 &mut self.surface_builder,
                 &mut self.contree_builder,
                 &mut self.scene_accel_builder,
@@ -225,7 +275,10 @@ impl App {
         let player_pos = self.tracer.camera_position();
         let Some(work) = self
             .deferred_chunk_rebuilds
-            .pop_nearest_to(player_pos, VOXEL_DIM_PER_CHUNK)
+            .pop(ChunkPopMode::NearestWithAging {
+                focus: player_pos,
+                chunk_extent: VOXEL_DIM_PER_CHUNK,
+            })
         else {
             return;
         };
@@ -250,7 +303,7 @@ impl App {
         chunk_id: UVec3,
         revision: u64,
         place_flora: bool,
-        flora_edit: Option<world_ops::FloraSphereEdit>,
+        flora_edit: Option<world_ops::FloraBrushEdit>,
     ) {
         let submit_start = Instant::now();
         match self
@@ -410,11 +463,13 @@ impl App {
                 let mut preserve_flora_ms = 0.0;
                 if let Some(flora_edit) = inflight.flora_edit {
                     let flora_start = Instant::now();
-                    match self.surface_builder.edit_flora_instances(
+                    match self.surface_builder.edit_flora_instances_for_brush(
                         inflight.chunk_id,
-                        flora_edit.center,
+                        flora_edit.start,
+                        flora_edit.end,
                         flora_edit.radius,
                         flora_edit.tick,
+                        flora_edit.spawn_time_ms,
                     ) {
                         Ok(()) => {
                             preserve_flora_ms = flora_start.elapsed().as_secs_f64() * 1000.0;

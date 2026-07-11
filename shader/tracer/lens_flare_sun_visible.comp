@@ -35,7 +35,6 @@ layout(set = 0, binding = 5, r32ui) uniform uimage1D lens_flare_visible_count_te
 layout(set = 0, binding = 7) uniform U_EnvInfo { uint frame_serial_idx; }
 env_info;
 
-#include "../include/ocean_depth.glsl"
 #include "../include/ray.glsl"
 
 float sample_sun_alpha(vec2 screen_uv) {
@@ -79,9 +78,7 @@ void main() {
 
     float gfx_depth_01     = texelFetch(gfx_depth_tex, uvi, 0).r;
     float compute_depth_01 = imageLoad(compute_depth_tex, uvi).r;
-    bool hit_ocean         = false;
-    float ocean_depth_01   = ocean_depth_01_from_screen_uv(screen_uv, hit_ocean);
-    if (gfx_depth_01 >= 1.0 && compute_depth_01 >= 1.0 && ocean_depth_01 >= 1.0) {
+    if (gfx_depth_01 >= 1.0 && compute_depth_01 >= 1.0) {
         imageAtomicAdd(lens_flare_visible_count_tex, 0, 1u);
     }
 }

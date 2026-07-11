@@ -48,8 +48,7 @@ bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 
         o_res.is_hit          = true;
         o_res.pos             = contree_res.pos;
         o_res.center_pos      = contree_res.center_pos;
-        o_res.is_normal_valid = voxel_normal_valid_from_data(voxel_data);
-        o_res.normal          = unpack_normal_v2(voxel_normal_bits_from_data(voxel_data));
+        o_res.normal          = voxel_surface_normal_from_data(voxel_data);
         o_res.voxel_type      = voxel_type_from_data(voxel_data);
         o_res.hash_id         = voxel_hash_from_data(voxel_data);
         o_res.voxel_addr      = contree_res.voxel_addr;

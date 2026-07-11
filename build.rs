@@ -686,6 +686,10 @@ const SHADER_FILES: &[(&str, shaderc::ShaderKind)] = &[
         shaderc::ShaderKind::Compute,
     ),
     (
+        "shader/builder/chunk_writer/voxel_property_sample.comp",
+        shaderc::ShaderKind::Compute,
+    ),
+    (
         "shader/builder/chunk_writer/model_voxelize.comp",
         shaderc::ShaderKind::Compute,
     ),
@@ -702,7 +706,7 @@ const SHADER_FILES: &[(&str, shaderc::ShaderKind)] = &[
         shaderc::ShaderKind::Compute,
     ),
     (
-        "shader/builder/surface/edit_occupancy_sphere.comp",
+        "shader/builder/surface/edit_occupancy_capsule.comp",
         shaderc::ShaderKind::Compute,
     ),
     (

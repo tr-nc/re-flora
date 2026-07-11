@@ -3,18 +3,10 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "../include/core/packer.glsl"
-
-layout(push_constant) uniform PC {
-    float time;
-    uint instance_ty;
-    uvec3 chunk_world_offset;
-    vec3 bottom_color;
-    vec3 tip_color;
-}
-pc;
+#include "./flora_push_constant.glsl"
 
 // these are vertex-rate attributes
-layout(location = 0) in uvec2 in_packed_data;
+layout(location = 0) in uint in_packed_data;
 
 #include "../include/gui_input.glsl"
 
@@ -57,6 +49,7 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "./billboard.glsl"
 #include "./palette.glsl"
 #include "./unpacker.glsl"
+#include "./flora_voxel_lookup.glsl"
 #include "./flora_wind_motion.glsl"
 
 layout(set = 1, binding = 0) readonly buffer B_TreeLeafInstances { TreeLeafInstance data[]; }
@@ -69,22 +62,31 @@ const float scaling_factor = 1.0 / 256.0;
 void main() {
     ivec3 vox_local_pos;
     uvec3 vert_offset_in_vox;
-    ivec3 gradient_origin;
-    uint max_length;
-    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, gradient_origin, max_length,
-                       in_packed_data);
+    unpack_vertex_data(vox_local_pos, vert_offset_in_vox, in_packed_data);
 
-    float wind_gradient = compute_gradient(vox_local_pos, gradient_origin, max_length);
+    TreeLeafInstance tree_leaf_instance = manual_tree_leaf_instances.data[gl_InstanceIndex];
+    uvec3 leaf_voxel_world_pos =
+        get_tree_leaf_world_pos(tree_leaf_instance.packed_local_pos, pc.chunk_world_offset);
+    bool is_tree_leaf = pc.instance_ty == FLORA_SPECIES_TREE_LEAF;
+    ivec3 leaf_vox_local_pos = is_tree_leaf
+                                   ? unpack_tree_leaf_voxel_local_pos(
+                                         tree_leaf_instance.packed_leaf_local_pos)
+                                   : vox_local_pos;
+    uint voxel_info = lookup_flora_voxel_info(pc.instance_ty, leaf_vox_local_pos);
+    float wind_gradient = pc.instance_ty == FLORA_SPECIES_APPLE ? 1.0 :
+                                                         flora_voxel_wind_gradient(voxel_info);
 
-    uint in_instance_packed_local_pos =
-        manual_tree_leaf_instances.data[gl_InstanceIndex].packed_local_pos;
-    uvec3 instance_pos_voxels = get_tree_leaf_world_pos(in_instance_packed_local_pos, pc.chunk_world_offset);
+    uvec3 instance_pos_voxels = is_tree_leaf
+                                    ? uvec3(ivec3(leaf_voxel_world_pos) - leaf_vox_local_pos)
+                                    : leaf_voxel_world_pos;
     vec3 instance_pos = instance_pos_voxels * scaling_factor;
 
     uint instance_seed = get_instance_seed(instance_pos_voxels);
     bool is_apple = pc.instance_ty == FLORA_SPECIES_APPLE;
-    vec3 wind_sample_pos = is_apple ? instance_pos : instance_pos + vec3(vox_local_pos) * scaling_factor;
-    uint wind_seed = is_apple ? instance_seed : get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
+    vec3 wind_sample_pos =
+        is_apple ? instance_pos : instance_pos + vec3(leaf_vox_local_pos) * scaling_factor;
+    uint wind_seed = is_apple ? instance_seed
+                              : get_wind_volume_voxel_seed(instance_seed, leaf_vox_local_pos);
     vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
     vec3 wind_offset = wind_vec * wind_gradient * wind_gradient;
     float wind_motion_time =
@@ -92,10 +94,10 @@ void main() {
     if (is_apple) {
         wind_offset = apple_wind_swing(wind_vec, instance_seed, wind_motion_time);
     } else {
-        wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
-                                          gradient_origin, wind_motion_time);
+        wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, leaf_vox_local_pos,
+                                          ivec3(0), wind_motion_time);
     }
-    vec3 anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos;
+    vec3 anchor_pos = (vec3(leaf_vox_local_pos) + wind_offset) * scaling_factor + instance_pos;
     vec3 voxel_pos   = anchor_pos + vec3(0.5) * scaling_factor;
     vec3 vert_pos    = get_vert_pos_with_billboard(shadow_camera_info.view_mat, voxel_pos,
                                                    vert_offset_in_vox, scaling_factor);

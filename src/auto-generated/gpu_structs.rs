@@ -63,6 +63,20 @@ pub struct EditStats {
     pub added_counts: [u32; 8],
 }
 
+/// Auto-generated from `B_FloraVoxelInfos` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct FloraVoxelInfos {
+    pub entries: [u32; 0],
+}
+
+/// Auto-generated from `B_FloraVoxelTableDescs` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct FloraVoxelTableDescs {
+    pub descs: [u32; 24],
+}
+
 /// Auto-generated from `B_LevelDispatchIndirect` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -85,6 +99,7 @@ pub struct MakeSurfaceResult {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ManualFloraInstances {
     pub packed_local_pos: u32,
+    pub spawn_start_ms: u32,
 }
 
 /// Auto-generated from `B_ModelTriangles` (GLSL source of truth).
@@ -186,7 +201,15 @@ pub struct TerrainQueryResult {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TreeLeafInstances {
     pub packed_local_pos: u32,
-    pub packed_orientation: u32,
+    pub packed_leaf_local_pos: u32,
+}
+
+/// Auto-generated from `B_VoxelPropertySampleResult` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct VoxelPropertySampleResult {
+    pub stats: [u32; 4],
+    pub extra: [u32; 4],
 }
 
 /// Auto-generated from `B_WindSources` (GLSL source of truth).
@@ -213,11 +236,9 @@ pub struct PushConstantFlora {
     pub instance_ty: u32,
     pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
-    pub _pad1: [u8; 4],
-    pub bottom_color: [f32; 3],
-    pub _pad2: [u8; 4],
-    pub tip_color: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _padding_after_chunk_world_offset: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantFloraLod` (GLSL source of truth).
@@ -228,11 +249,9 @@ pub struct PushConstantFloraLod {
     pub instance_ty: u32,
     pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
-    pub _pad1: [u8; 4],
-    pub bottom_color: [f32; 3],
-    pub _pad2: [u8; 4],
-    pub tip_color: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _padding_after_chunk_world_offset: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantLeafShadowTemporal` (GLSL source of truth).
@@ -252,11 +271,9 @@ pub struct PushConstantLeavesShadow {
     pub instance_ty: u32,
     pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
-    pub _pad1: [u8; 4],
-    pub bottom_color: [f32; 3],
-    pub _pad2: [u8; 4],
-    pub tip_color: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _padding_after_chunk_world_offset: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantSpatial` (GLSL source of truth).
@@ -372,14 +389,17 @@ pub struct ContreeBuildInfo {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct EditOccupancyInfo {
-    pub edit_center_radius_vox: [f32; 4],
+    pub edit_segment_start_radius_vox: [f32; 4],
+    pub edit_segment_end_radius_vox: [f32; 4],
     pub chunk_world_offset: [u32; 3],
     pub _pad0: [u8; 4],
     pub chunk_dim: [u32; 3],
     pub mode: u32,
     pub flora_tick: u32,
     pub target_age: u32,
-    pub _pad1: [u8; 8],
+    pub paint_selection: u32,
+    pub _pad1: [u8; 4],
+    pub paint_config: [u32; 4],
 }
 
 /// Auto-generated from `U_EnvInfo` (GLSL source of truth).
@@ -397,7 +417,13 @@ pub struct FloraGrowthInfo {
     pub flora_tick: u32,
     pub sprout_delay_ticks: u32,
     pub full_growth_ticks: u32,
-    pub _pad0: [u8; 4],
+    pub spawn_time_ms: u32,
+    pub spawn_duration_seconds: f32,
+    pub spawn_rise_fraction: f32,
+    pub spawn_overshoot_min_voxels: f32,
+    pub spawn_overshoot_max_voxels: f32,
+    pub spawn_stagger_seconds: f32,
+    pub _pad0: [u8; 12],
 }
 
 /// Auto-generated from `U_GodRayInfo` (GLSL source of truth).
@@ -419,26 +445,29 @@ pub struct GuiInput {
     pub debug_float: f32,
     pub debug_bool: u32,
     pub debug_uint: u32,
-    pub _pad0: [u8; 4],
+    pub terrain_shadow_use_vsm: u32,
     pub flora_instance_hsv_offset_max: [f32; 3],
-    pub _pad1: [u8; 4],
+    pub _pad0: [u8; 4],
     pub flora_voxel_hsv_offset_max: [f32; 3],
-    pub _pad2: [u8; 4],
+    pub _pad1: [u8; 4],
     pub grass_bottom_dark: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _pad2: [u8; 4],
     pub grass_bottom_light: [f32; 3],
-    pub _pad4: [u8; 4],
+    pub _pad3: [u8; 4],
     pub grass_tip_dark: [f32; 3],
-    pub _pad5: [u8; 4],
+    pub _pad4: [u8; 4],
     pub grass_tip_light: [f32; 3],
-    pub _pad6: [u8; 4],
-    pub ocean_deep_color: [f32; 3],
-    pub _pad7: [u8; 4],
-    pub ocean_shallow_color: [f32; 3],
-    pub ocean_normal_amplitude: f32,
-    pub ocean_noise_frequency: f32,
-    pub ocean_time_multiplier: f32,
-    pub ocean_sea_level_shift: f32,
+    pub _pad5: [u8; 4],
+    pub glass_tint: [f32; 3],
+    pub glass_reflection_strength: f32,
+    pub glass_ssr_strength: f32,
+    pub glass_ssr_steps: u32,
+    pub glass_per_voxel_reflection: u32,
+    pub glass_ssr_min_hit_thickness_voxels: f32,
+    pub glass_ssr_footprint_pixels: f32,
+    pub glass_refraction_strength: f32,
+    pub glass_alpha: f32,
+    pub glass_glint_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
     pub wind_source_count: u32,
@@ -451,8 +480,6 @@ pub struct GuiInput {
     pub grass_natural_bend_min_voxels: f32,
     pub grass_natural_bend_max_voxels: f32,
     pub flora_bend_height_power: f32,
-    pub flora_player_push_radius: f32,
-    pub flora_player_push_strength: f32,
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,
@@ -485,11 +512,10 @@ pub struct GuiInput {
     pub cloud_silver_intensity: f32,
     pub cloud_max_distance: f32,
     pub cloud_shadows_enabled: u32,
-    pub cloud_shadow_debug_overlay: u32,
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad8: [u8; 12],
+    pub _pad6: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).
@@ -502,7 +528,8 @@ pub struct InstancesToOccupancyInfo {
     pub _pad1: [u8; 4],
     pub species_instance_len: [u32; 4],
     pub tick_delta: u32,
-    pub _pad2: [u8; 12],
+    pub spawn_time_ms: u32,
+    pub _pad2: [u8; 8],
 }
 
 /// Auto-generated from `U_MakeSurfaceInfo` (GLSL source of truth).
@@ -534,7 +561,7 @@ pub struct OccupancyToInstancesInfo {
     pub chunk_world_offset: [u32; 3],
     pub _pad0: [u8; 4],
     pub chunk_dim: [u32; 3],
-    pub _pad1: [u8; 4],
+    pub spawn_time_ms: u32,
 }
 
 /// Auto-generated from `U_PlayerColliderInfo` (GLSL source of truth).
@@ -652,6 +679,19 @@ pub struct TemporalInfo {
     pub _pad0: [u8; 8],
 }
 
+/// Auto-generated from `U_TerrainEditPreview` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TerrainEditPreview {
+    pub center: [f32; 3],
+    pub radius: f32,
+    pub color: [f32; 3],
+    pub strength: f32,
+    pub enabled: u32,
+    pub shape: u32,
+    pub _pad0: [u8; 8],
+}
+
 /// Auto-generated from `U_TerrainQueryCount` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -674,6 +714,16 @@ pub struct VoxelColors {
     pub _pad3: [u8; 4],
     pub rock_color: [f32; 3],
     pub hash_color_variance: f32,
+}
+
+/// Auto-generated from `U_VoxelPropertySampleInfo` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct VoxelPropertySampleInfo {
+    pub atlas_offset_property_id: [u32; 4],
+    pub atlas_dim_target_mask: [u32; 4],
+    pub center_radius: [f32; 4],
+    pub options: [u32; 4],
 }
 
 /// Auto-generated from `U_WindVolumeInfo` (GLSL source of truth).

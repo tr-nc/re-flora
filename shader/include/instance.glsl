@@ -3,8 +3,10 @@
 
 struct Instance {
     uint packed_local_pos;
+    uint spawn_start_ms;
 };
 
+const uint INSTANCE_SPAWN_INACTIVE = 0xffffffffu;
 const uint INSTANCE_GROWTH_PROGRESS_MATURE = 0xffu;
 const uint INSTANCE_GROWTH_PROGRESS_REBIRTH = 0x0au;
 
@@ -26,12 +28,18 @@ uint set_instance_growth_progress(uint packed_local_pos, uint growth_progress) {
     return (packed_local_pos & 0x00ffffffu) | ((growth_progress & 0xffu) << 24u);
 }
 
+// Surface flora instances store the plantable base voxel so the top layer of a chunk can own
+// flora whose visible stem starts in the neighboring chunk's coordinate range.
 uvec3 get_instance_world_pos(Instance instance, uvec3 chunk_world_offset) {
     return chunk_world_offset + unpack_instance_local_pos(instance.packed_local_pos);
 }
 
 uvec3 get_instance_world_pos(uint packed_local_pos, uvec3 chunk_world_offset) {
     return chunk_world_offset + unpack_instance_local_pos(packed_local_pos);
+}
+
+uvec3 get_surface_flora_stem_world_pos(uint packed_local_pos, uvec3 chunk_world_offset) {
+    return get_instance_world_pos(packed_local_pos, chunk_world_offset) + uvec3(0u, 1u, 0u);
 }
 
 uint get_instance_seed(uvec3 instance_pos_voxels) {
@@ -45,6 +53,17 @@ uint get_instance_seed(uvec3 instance_pos_voxels) {
 
 void set_instance_local_pos_growth(inout Instance instance, uvec3 local_pos, uint growth_progress) {
     instance.packed_local_pos = pack_instance_local_pos_growth(local_pos, growth_progress);
+}
+
+void initialize_flora_instance(inout Instance instance, uvec3 local_pos, uint growth_progress,
+                               uint spawn_start_ms) {
+    set_instance_local_pos_growth(instance, local_pos, growth_progress);
+    instance.spawn_start_ms = spawn_start_ms;
+}
+
+uint instance_spawn_age_ms(uint spawn_start_ms, uint now_ms) {
+    return spawn_start_ms == INSTANCE_SPAWN_INACTIVE ? INSTANCE_SPAWN_INACTIVE :
+                                                        now_ms - spawn_start_ms;
 }
 
 #endif // INSTANCE_GLSL

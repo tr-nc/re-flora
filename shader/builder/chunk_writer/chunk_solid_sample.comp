@@ -15,6 +15,7 @@ layout(set = 0, binding = 1, r8ui) readonly uniform uimage3D chunk_atlas;
 layout(set = 0, binding = 2) buffer B_ChunkSolidSamples { uint solid[]; }
 chunk_solid_samples;
 
+#include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 
 uint sample_index(uvec3 p, uvec3 dim) { return (p.z * dim.y + p.y) * dim.x + p.x; }
@@ -24,7 +25,7 @@ uint load_voxel_type(ivec3 p) {
     if (any(lessThan(p, ivec3(0))) || any(greaterThanEqual(p, atlas_size))) {
         return VOXEL_TYPE_EMPTY;
     }
-    return imageLoad(chunk_atlas, p).r;
+    return voxel_type_from_atlas_data(imageLoad(chunk_atlas, p).r);
 }
 
 void main() {

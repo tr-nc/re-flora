@@ -2,7 +2,7 @@ use crate::MonitorScorePreference;
 use re_flora_vkn::Extent2D;
 use std::sync::Arc;
 use winit::{
-    dpi::{LogicalPosition, LogicalSize, PhysicalSize},
+    dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
     event_loop::ActiveEventLoop,
     monitor::MonitorHandle,
     window::{Fullscreen, Window},
@@ -375,6 +375,22 @@ impl WindowState {
         Extent2D::new(size.width, size.height)
     }
 
+    pub fn center_cursor(&self) -> Option<(f32, f32)> {
+        if !self.desc.visible {
+            return None;
+        }
+
+        let extent = self.window_extent();
+        let center = PhysicalPosition::new(extent.width as f64 * 0.5, extent.height as f64 * 0.5);
+        match self.window.set_cursor_position(center) {
+            Ok(()) => Some((center.x as f32, center.y as f32)),
+            Err(err) => {
+                log::warn!("Failed to center cursor: {:?}", err);
+                None
+            }
+        }
+    }
+
     pub fn is_minimized(&self) -> bool {
         self.window.is_minimized().unwrap_or(false)
     }
@@ -391,16 +407,25 @@ impl WindowState {
     }
 
     #[cfg(not(target_os = "macos"))]
-    fn get_cursor_grab_mode(locked: bool) -> CursorGrabMode {
+    fn get_cursor_grab_mode(&self, locked: bool) -> CursorGrabMode {
         if !locked {
             return CursorGrabMode::None;
         }
+
+        #[cfg(target_os = "linux")]
+        if self.window.xdg_toplevel().is_some() {
+            // Wayland only permits cursor warping while the pointer is locked, not merely
+            // confined. Free-look uses relative mouse motion, so locked mode is the better fit
+            // and lets us center the pointer just before releasing it back to visible UI modes.
+            return CursorGrabMode::Locked;
+        }
+
         CursorGrabMode::Confined
     }
 
     #[cfg(not(target_os = "macos"))]
     fn apply_cursor_grab(&mut self) {
-        let mode = Self::get_cursor_grab_mode(self.desc.cursor_locked);
+        let mode = self.get_cursor_grab_mode(self.desc.cursor_locked);
         match self.window.set_cursor_grab(mode) {
             Ok(_) => self.cursor_grab_pending = false,
             Err(e) => {

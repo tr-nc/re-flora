@@ -517,6 +517,7 @@ impl ParticleSystem {
                         vel.y = -target_speed;
                     }
                     MotionMode::Free => {
+                        vel.y -= 3.6 * self.gravity_factors[slot] * sim_dt;
                         *vel *= damping;
                         let max_speed = 3.0;
                         let speed = vel.length();

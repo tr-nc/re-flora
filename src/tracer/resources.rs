@@ -4,14 +4,23 @@ use crate::{
     particles::{BUTTERFLY_ATLAS_ROW_FOR_VIEW, PARTICLE_CAPACITY, PARTICLE_SPRITE_FRAME_DIM},
     resource::Resource,
     tracer::{
-        leaves_construct::{generate_indexed_voxel_apple, generate_indexed_voxel_leaves},
-        load_butterfly_and_remap, ButterflyPalettePreset, DenoiserResources,
-        ExtentDependentResources, ParticleTextureLayout, Vertex, WIND_VOLUME_BUCKET_COUNT,
+        leaves_construct::{
+            generate_indexed_single_voxel_leaf, generate_indexed_voxel_apple,
+            generate_voxel_leaf_shape, LeafVoxelShape, DEFAULT_LEAF_INNER_DENSITY,
+            DEFAULT_LEAF_INNER_RADIUS, DEFAULT_LEAF_OUTER_DENSITY, DEFAULT_LEAF_OUTER_RADIUS,
+        },
+        load_butterfly_and_remap,
+        voxel_encoding::{
+            encode_lookup_pos_key, FloraMeshData, FloraVoxelInfo, FloraVoxelInfoEntry,
+            FLORA_VOXEL_LOOKUP_EMPTY_KEY,
+        },
+        ButterflyPalettePreset, DenoiserResources, ExtentDependentResources, ParticleTextureLayout,
+        Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
 };
 use bytemuck::{Pod, Zeroable};
-use glam::{IVec3, UVec3};
+use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, CurrentPrevious, Device, Extent2D, Extent3D, ImageDesc,
@@ -19,9 +28,9 @@ use re_flora_vkn::{
     VulkanContext,
 };
 use resource_container_derive::ResourceContainer;
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
-type MeshGenerator = fn(bool) -> anyhow::Result<(Vec<Vertex>, Vec<u32>)>;
+type MeshGenerator = fn(bool) -> anyhow::Result<FloraMeshData>;
 
 pub const WIND_VOLUME_TEXELS_PER_CHUNK: UVec3 = UVec3::splat(10);
 
@@ -39,7 +48,20 @@ impl FloraMeshResources {
         is_lod_used: bool,
         generator: MeshGenerator,
     ) -> Self {
-        let (vertices_data, indices_data) = generator(is_lod_used).unwrap();
+        let mesh_data = generator(is_lod_used).unwrap();
+        Self::from_mesh_data(device, allocator, mesh_data)
+    }
+
+    pub fn from_mesh_data(device: Device, allocator: Allocator, mesh_data: FloraMeshData) -> Self {
+        Self::from_data(device, allocator, mesh_data.vertices, mesh_data.indices)
+    }
+
+    pub fn from_data(
+        device: Device,
+        allocator: Allocator,
+        vertices_data: Vec<Vertex>,
+        indices_data: Vec<u32>,
+    ) -> Self {
         let indices_len = indices_data.len() as u32;
 
         let vertices = Buffer::new_sized(
@@ -68,6 +90,206 @@ impl FloraMeshResources {
     }
 }
 
+const FLORA_VOXEL_LOOKUP_TYPE_COUNT: usize = species::APPLE_RENDER_SPECIES_INDEX as usize + 1;
+const FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY: usize = 1 << 21;
+const FLORA_VOXEL_LOOKUP_MAX_PROBES: u32 = 64;
+const FLORA_VOXEL_LOOKUP_LOAD_FACTOR: usize = 4;
+
+#[derive(Clone, Debug)]
+pub struct FloraVoxelLookupTypeData {
+    pub entries: Vec<FloraVoxelInfoEntry>,
+    pub max_length: u32,
+    pub fallback_info: FloraVoxelInfo,
+}
+
+impl FloraVoxelLookupTypeData {
+    pub fn new(entries: Vec<FloraVoxelInfoEntry>, max_length: u32) -> Self {
+        Self {
+            entries,
+            max_length: max_length.max(1),
+            fallback_info: FloraVoxelInfo::fallback(),
+        }
+    }
+
+    pub fn from_mesh_data(mesh_data: &FloraMeshData) -> Self {
+        Self::new(mesh_data.voxel_infos.clone(), mesh_data.max_length)
+    }
+
+    pub fn from_leaf_shape(shape: &LeafVoxelShape) -> Self {
+        let max_length = shape.max_length.max(1);
+        let entries = shape
+            .offsets
+            .iter()
+            .copied()
+            .map(|pos| {
+                let gradient = (pos.as_vec3().length() / max_length as f32).clamp(0.0, 1.0);
+                FloraVoxelInfoEntry {
+                    pos,
+                    info: FloraVoxelInfo::gradient(gradient),
+                }
+            })
+            .collect();
+        Self::new(entries, max_length)
+    }
+}
+
+#[derive(ResourceContainer)]
+pub struct FloraVoxelLookupResources {
+    pub flora_voxel_table_descs: Resource<Buffer>,
+    pub flora_voxel_infos: Resource<Buffer>,
+    type_data: Vec<FloraVoxelLookupTypeData>,
+}
+
+impl FloraVoxelLookupResources {
+    fn new(device: Device, allocator: Allocator) -> Self {
+        let flora_voxel_table_descs = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<[u32; 4]>() * FLORA_VOXEL_LOOKUP_TYPE_COUNT) as u64,
+        );
+        let flora_voxel_infos = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<[u32; 2]>() * FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY) as u64,
+        );
+        let mut resources = Self {
+            flora_voxel_table_descs: Resource::new(flora_voxel_table_descs),
+            flora_voxel_infos: Resource::new(flora_voxel_infos),
+            type_data: Self::default_type_data().unwrap(),
+        };
+        resources.upload().unwrap();
+        resources
+    }
+
+    fn default_type_data() -> anyhow::Result<Vec<FloraVoxelLookupTypeData>> {
+        let mut data =
+            vec![FloraVoxelLookupTypeData::new(Vec::new(), 1); FLORA_VOXEL_LOOKUP_TYPE_COUNT];
+        for (species_index, desc) in species::species().iter().enumerate() {
+            let mesh_data = (desc.mesh_generator)(false)?;
+            data[species_index] = FloraVoxelLookupTypeData::from_mesh_data(&mesh_data);
+        }
+
+        let leaf_shape = generate_voxel_leaf_shape(
+            DEFAULT_LEAF_INNER_DENSITY,
+            DEFAULT_LEAF_OUTER_DENSITY,
+            DEFAULT_LEAF_INNER_RADIUS,
+            DEFAULT_LEAF_OUTER_RADIUS,
+        )?;
+        data[species::TREE_LEAF_RENDER_SPECIES_INDEX as usize] =
+            FloraVoxelLookupTypeData::from_leaf_shape(&leaf_shape);
+
+        let apple_mesh = generate_indexed_voxel_apple(false)?;
+        data[species::APPLE_RENDER_SPECIES_INDEX as usize] =
+            FloraVoxelLookupTypeData::from_mesh_data(&apple_mesh);
+
+        Ok(data)
+    }
+
+    fn upload(&mut self) -> anyhow::Result<()> {
+        let mut descs = vec![[0_u32; 4]; FLORA_VOXEL_LOOKUP_TYPE_COUNT];
+        let mut entries = vec![
+            [
+                FLORA_VOXEL_LOOKUP_EMPTY_KEY,
+                FloraVoxelInfo::fallback().packed
+            ];
+            FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY
+        ];
+        let mut next_offset = 0_usize;
+
+        for (type_index, type_data) in self.type_data.iter().enumerate() {
+            let table = build_lookup_table(type_data)?;
+            anyhow::ensure!(
+                next_offset + table.len() <= FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY,
+                "flora voxel lookup tables need {} entries, but capacity is {}",
+                next_offset + table.len(),
+                FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY
+            );
+
+            let offset = next_offset;
+            let capacity = table.len();
+            if capacity > 0 {
+                entries[offset..offset + capacity].copy_from_slice(&table);
+            }
+            descs[type_index] = [
+                offset as u32,
+                capacity as u32,
+                type_data.fallback_info.packed,
+                type_data.max_length.max(1),
+            ];
+            next_offset += capacity;
+        }
+
+        self.flora_voxel_table_descs.fill(&descs)?;
+        self.flora_voxel_infos.fill(&entries)?;
+        Ok(())
+    }
+}
+
+fn build_lookup_table(type_data: &FloraVoxelLookupTypeData) -> anyhow::Result<Vec<[u32; 2]>> {
+    let mut unique = HashMap::<u32, u32>::new();
+    for entry in &type_data.entries {
+        let key = encode_lookup_pos_key(entry.pos)?;
+        unique.insert(key, entry.info.packed);
+    }
+
+    let unique_len = unique.len();
+    let mut capacity = unique_len
+        .saturating_mul(FLORA_VOXEL_LOOKUP_LOAD_FACTOR)
+        .max(1)
+        .next_power_of_two();
+
+    loop {
+        let mut table = vec![
+            [
+                FLORA_VOXEL_LOOKUP_EMPTY_KEY,
+                FloraVoxelInfo::fallback().packed
+            ];
+            capacity
+        ];
+        let mask = capacity as u32 - 1;
+        let mut max_probe = 0_u32;
+        let mut failed_probe_budget = false;
+
+        for (&key, &info) in &unique {
+            let start_slot = flora_lookup_hash(key) & mask;
+            let mut inserted = false;
+            for probe in 0..FLORA_VOXEL_LOOKUP_MAX_PROBES {
+                let slot = ((start_slot + probe) & mask) as usize;
+                if table[slot][0] == FLORA_VOXEL_LOOKUP_EMPTY_KEY || table[slot][0] == key {
+                    table[slot] = [key, info];
+                    max_probe = max_probe.max(probe);
+                    inserted = true;
+                    break;
+                }
+            }
+            if !inserted {
+                failed_probe_budget = true;
+                break;
+            }
+        }
+
+        if !failed_probe_budget && max_probe < FLORA_VOXEL_LOOKUP_MAX_PROBES {
+            return Ok(table);
+        }
+        capacity = capacity
+            .checked_mul(2)
+            .ok_or_else(|| anyhow::anyhow!("flora voxel lookup table capacity overflow"))?;
+    }
+}
+
+fn flora_lookup_hash(key: u32) -> u32 {
+    let mut x = key ^ 0x9E37_79B9;
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7FEB_352D);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846C_A68B);
+    x ^ (x >> 16)
+}
+
 #[derive(ResourceContainer)]
 pub struct LeavesResources {
     pub vertices: Resource<Buffer>,
@@ -78,7 +300,15 @@ pub struct LeavesResources {
 impl LeavesResources {
     pub fn new(device: Device, allocator: Allocator, is_lod_used: bool) -> Self {
         // use default parameters for initial leaf generation
-        Self::new_with_params(device, allocator, 0.5, 0.25, 8.0, 16.0, is_lod_used)
+        Self::new_with_params(
+            device,
+            allocator,
+            DEFAULT_LEAF_INNER_DENSITY,
+            DEFAULT_LEAF_OUTER_DENSITY,
+            DEFAULT_LEAF_INNER_RADIUS,
+            DEFAULT_LEAF_OUTER_RADIUS,
+            is_lod_used,
+        )
     }
 
     pub fn new_with_params(
@@ -90,21 +320,18 @@ impl LeavesResources {
         outer_radius: f32,
         is_lod_used: bool,
     ) -> Self {
-        // 1. Generate the indexed data for hollow sphere-shaped leaves.
-        let (mut vertices_data, mut indices_data) = generate_indexed_voxel_leaves(
-            inner_density,
-            outer_density,
-            inner_radius,
-            outer_radius,
-            is_lod_used,
-        )
-        .unwrap();
+        // 1. Tree leaves keep the historical hollow-sphere offsets, but those offsets are now
+        // uploaded per voxel as instances. The shared mesh is therefore a single voxel whose
+        // gradient length matches the configured leaf-shell radius.
+        let shape =
+            generate_voxel_leaf_shape(inner_density, outer_density, inner_radius, outer_radius)
+                .unwrap();
+        let mesh_data = generate_indexed_single_voxel_leaf(shape.max_length, is_lod_used).unwrap();
+        let (mut vertices_data, mut indices_data) = mesh_data.into_render_data();
 
         // guard against empty data - create minimal buffers to avoid Vulkan validation errors
         if vertices_data.is_empty() {
-            vertices_data.push(Vertex {
-                packed_data: [0; 2],
-            }); // Dummy vertex
+            vertices_data.push(Vertex { packed_data: 0 }); // Dummy vertex
         }
         if indices_data.is_empty() {
             indices_data.push(0); // Dummy index
@@ -161,6 +388,354 @@ pub struct ParticleRendererResources {
     pub instance_count: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct GlassVertex {
+    pub position_ws: [f32; 3],
+    pub uv: [f32; 2],
+    pub normal_ws: [f32; 3],
+    pub face_id: u32,
+    pub part_kind: u32,
+}
+
+pub struct GlassMeshResources {
+    pub vertices: Resource<Buffer>,
+    pub indices: Resource<Buffer>,
+    pub indices_len: u32,
+    pub pane_index_starts: [u32; 4],
+    pub pane_index_count: u32,
+    pub edge_index_start: u32,
+    pub edge_indices_len: u32,
+    pub box_min: Vec3,
+    pub box_max: Vec3,
+}
+
+pub const TERRARIUM_GLASS_TOP_PADDING_WORLD: f32 = 0.08;
+
+impl GlassMeshResources {
+    const PART_PANE: u32 = 0;
+    const PART_EDGE_BAND: u32 = 1;
+    const PART_RIM: u32 = 2;
+    const PART_CORNER_BEVEL: u32 = 3;
+    const VOXELS_PER_CHUNK_AXIS: f32 = 256.0;
+    const GLASS_THICKNESS_VOXELS: f32 = 2.0;
+
+    pub fn new(device: Device, allocator: Allocator, chunk_bound: UAabb3) -> Self {
+        let extent = chunk_bound.get_extent();
+        let glass_thickness_world = Self::GLASS_THICKNESS_VOXELS / Self::VOXELS_PER_CHUNK_AXIS;
+        let inset = glass_thickness_world;
+        let top_padding = TERRARIUM_GLASS_TOP_PADDING_WORLD;
+        let box_min = Vec3::new(-inset, 0.0, -inset);
+        let box_max = Vec3::new(
+            extent.width as f32 + inset,
+            extent.height as f32 + top_padding,
+            extent.depth as f32 + inset,
+        );
+
+        let mut vertices_data = Vec::with_capacity(160);
+        let mut indices_data = Vec::with_capacity(240);
+        let mut pane_index_starts = [0u32; 4];
+
+        let min = box_min;
+        let max = box_max;
+        let faces = [
+            (
+                0u32,
+                Vec3::new(-1.0, 0.0, 0.0),
+                [
+                    Vec3::new(min.x, min.y, max.z),
+                    Vec3::new(min.x, min.y, min.z),
+                    Vec3::new(min.x, max.y, min.z),
+                    Vec3::new(min.x, max.y, max.z),
+                ],
+            ),
+            (
+                1u32,
+                Vec3::new(1.0, 0.0, 0.0),
+                [
+                    Vec3::new(max.x, min.y, min.z),
+                    Vec3::new(max.x, min.y, max.z),
+                    Vec3::new(max.x, max.y, max.z),
+                    Vec3::new(max.x, max.y, min.z),
+                ],
+            ),
+            (
+                2u32,
+                Vec3::new(0.0, 0.0, -1.0),
+                [
+                    Vec3::new(min.x, min.y, min.z),
+                    Vec3::new(max.x, min.y, min.z),
+                    Vec3::new(max.x, max.y, min.z),
+                    Vec3::new(min.x, max.y, min.z),
+                ],
+            ),
+            (
+                3u32,
+                Vec3::new(0.0, 0.0, 1.0),
+                [
+                    Vec3::new(max.x, min.y, max.z),
+                    Vec3::new(min.x, min.y, max.z),
+                    Vec3::new(min.x, max.y, max.z),
+                    Vec3::new(max.x, max.y, max.z),
+                ],
+            ),
+        ];
+
+        for (face_id, normal, corners) in faces {
+            pane_index_starts[face_id as usize] = indices_data.len() as u32;
+            Self::append_quad(
+                &mut vertices_data,
+                &mut indices_data,
+                face_id,
+                Self::PART_PANE,
+                normal,
+                corners,
+                Self::full_face_uvs(),
+            );
+        }
+
+        let edge_index_start = indices_data.len() as u32;
+        let edge_uv_width = glass_thickness_world / (box_max.x - box_min.x);
+        let bevel_width = glass_thickness_world;
+        for (face_id, normal, corners) in faces {
+            Self::append_face_edge_bands(
+                &mut vertices_data,
+                &mut indices_data,
+                face_id,
+                normal,
+                corners,
+                edge_uv_width,
+            );
+        }
+        Self::append_corner_bevels(
+            &mut vertices_data,
+            &mut indices_data,
+            box_min,
+            box_max,
+            bevel_width,
+        );
+        let edge_indices_len = indices_data.len() as u32 - edge_index_start;
+
+        let vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<GlassVertex>() * vertices_data.len()) as u64,
+        );
+        vertices.fill(&vertices_data).unwrap();
+
+        let indices = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<u32>() * indices_data.len()) as u64,
+        );
+        indices.fill(&indices_data).unwrap();
+
+        Self {
+            vertices: Resource::new(vertices),
+            indices: Resource::new(indices),
+            indices_len: indices_data.len() as u32,
+            pane_index_starts,
+            pane_index_count: 6,
+            edge_index_start,
+            edge_indices_len,
+            box_min,
+            box_max,
+        }
+    }
+
+    fn full_face_uvs() -> [[f32; 2]; 4] {
+        [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+    }
+
+    fn append_quad(
+        vertices_data: &mut Vec<GlassVertex>,
+        indices_data: &mut Vec<u32>,
+        face_id: u32,
+        part_kind: u32,
+        normal: Vec3,
+        corners: [Vec3; 4],
+        uvs: [[f32; 2]; 4],
+    ) {
+        let base = vertices_data.len() as u32;
+        let normal_ws = normal.normalize_or_zero().to_array();
+        for (position_ws, uv) in corners.into_iter().zip(uvs) {
+            vertices_data.push(GlassVertex {
+                position_ws: position_ws.to_array(),
+                uv,
+                normal_ws,
+                face_id,
+                part_kind,
+            });
+        }
+        indices_data.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+
+    fn face_point(corners: [Vec3; 4], u: f32, v: f32) -> Vec3 {
+        let bottom = corners[0].lerp(corners[1], u);
+        let top = corners[3].lerp(corners[2], u);
+        bottom.lerp(top, v)
+    }
+
+    fn append_face_edge_bands(
+        vertices_data: &mut Vec<GlassVertex>,
+        indices_data: &mut Vec<u32>,
+        face_id: u32,
+        normal: Vec3,
+        corners: [Vec3; 4],
+        edge_uv_width: f32,
+    ) {
+        let e = edge_uv_width.clamp(0.0, 0.25);
+        let bands = [
+            (0.0, 0.0, e, 1.0),
+            (1.0 - e, 0.0, 1.0, 1.0),
+            (0.0, 0.0, 1.0, e),
+            (0.0, 1.0 - e, 1.0, 1.0),
+        ];
+        for (u0, v0, u1, v1) in bands {
+            Self::append_quad(
+                vertices_data,
+                indices_data,
+                face_id,
+                Self::PART_EDGE_BAND,
+                normal,
+                [
+                    Self::face_point(corners, u0, v0),
+                    Self::face_point(corners, u1, v0),
+                    Self::face_point(corners, u1, v1),
+                    Self::face_point(corners, u0, v1),
+                ],
+                [[u0, v0], [u1, v0], [u1, v1], [u0, v1]],
+            );
+        }
+    }
+
+    #[allow(dead_code)]
+    fn append_horizontal_rims(
+        vertices_data: &mut Vec<GlassVertex>,
+        indices_data: &mut Vec<u32>,
+        box_min: Vec3,
+        box_max: Vec3,
+        rim_width: f32,
+    ) {
+        let w = rim_width
+            .min((box_max.x - box_min.x) * 0.25)
+            .min((box_max.z - box_min.z) * 0.25);
+        for (y, normal, face_id) in [
+            (box_max.y, Vec3::new(0.0, 1.0, 0.0), 4u32),
+            (box_min.y, Vec3::new(0.0, -1.0, 0.0), 5u32),
+        ] {
+            let strips = [
+                [
+                    Vec3::new(box_min.x, y, box_min.z),
+                    Vec3::new(box_max.x, y, box_min.z),
+                    Vec3::new(box_max.x, y, box_min.z + w),
+                    Vec3::new(box_min.x, y, box_min.z + w),
+                ],
+                [
+                    Vec3::new(box_max.x, y, box_max.z),
+                    Vec3::new(box_min.x, y, box_max.z),
+                    Vec3::new(box_min.x, y, box_max.z - w),
+                    Vec3::new(box_max.x, y, box_max.z - w),
+                ],
+                [
+                    Vec3::new(box_min.x, y, box_max.z),
+                    Vec3::new(box_min.x, y, box_min.z),
+                    Vec3::new(box_min.x + w, y, box_min.z),
+                    Vec3::new(box_min.x + w, y, box_max.z),
+                ],
+                [
+                    Vec3::new(box_max.x, y, box_min.z),
+                    Vec3::new(box_max.x, y, box_max.z),
+                    Vec3::new(box_max.x - w, y, box_max.z),
+                    Vec3::new(box_max.x - w, y, box_min.z),
+                ],
+            ];
+            for corners in strips {
+                Self::append_quad(
+                    vertices_data,
+                    indices_data,
+                    face_id,
+                    Self::PART_RIM,
+                    normal,
+                    corners,
+                    Self::full_face_uvs(),
+                );
+            }
+        }
+    }
+
+    fn append_corner_bevels(
+        vertices_data: &mut Vec<GlassVertex>,
+        indices_data: &mut Vec<u32>,
+        box_min: Vec3,
+        box_max: Vec3,
+        bevel_width: f32,
+    ) {
+        let b = bevel_width
+            .min((box_max.x - box_min.x) * 0.2)
+            .min((box_max.z - box_min.z) * 0.2);
+        let y0 = box_min.y;
+        let y1 = box_max.y;
+        let bevels = [
+            (
+                6u32,
+                Vec3::new(-1.0, 0.0, -1.0),
+                [
+                    Vec3::new(box_min.x, y0, box_min.z + b),
+                    Vec3::new(box_min.x + b, y0, box_min.z),
+                    Vec3::new(box_min.x + b, y1, box_min.z),
+                    Vec3::new(box_min.x, y1, box_min.z + b),
+                ],
+            ),
+            (
+                7u32,
+                Vec3::new(1.0, 0.0, -1.0),
+                [
+                    Vec3::new(box_max.x - b, y0, box_min.z),
+                    Vec3::new(box_max.x, y0, box_min.z + b),
+                    Vec3::new(box_max.x, y1, box_min.z + b),
+                    Vec3::new(box_max.x - b, y1, box_min.z),
+                ],
+            ),
+            (
+                8u32,
+                Vec3::new(1.0, 0.0, 1.0),
+                [
+                    Vec3::new(box_max.x, y0, box_max.z - b),
+                    Vec3::new(box_max.x - b, y0, box_max.z),
+                    Vec3::new(box_max.x - b, y1, box_max.z),
+                    Vec3::new(box_max.x, y1, box_max.z - b),
+                ],
+            ),
+            (
+                9u32,
+                Vec3::new(-1.0, 0.0, 1.0),
+                [
+                    Vec3::new(box_min.x + b, y0, box_max.z),
+                    Vec3::new(box_min.x, y0, box_max.z - b),
+                    Vec3::new(box_min.x, y1, box_max.z - b),
+                    Vec3::new(box_min.x + b, y1, box_max.z),
+                ],
+            ),
+        ];
+        for (face_id, normal, corners) in bevels {
+            Self::append_quad(
+                vertices_data,
+                indices_data,
+                face_id,
+                Self::PART_CORNER_BEVEL,
+                normal,
+                corners,
+                Self::full_face_uvs(),
+            );
+        }
+    }
+}
+
 impl ParticleRendererResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         let instance_capacity = PARTICLE_CAPACITY as u32;
@@ -189,9 +764,11 @@ impl ParticleRendererResources {
 
         let mut vertices_data = Vec::new();
         let mut indices_data = Vec::new();
+        let mut voxel_infos = Vec::new();
         append_indexed_cube_data(
             &mut vertices_data,
             &mut indices_data,
+            &mut voxel_infos,
             IVec3::ZERO,
             0,
             IVec3::ZERO,
@@ -232,6 +809,7 @@ pub struct TracerUniformResources {
     pub env_info: Resource<Buffer>,
     pub starlight_info: Resource<Buffer>,
     pub voxel_colors: Resource<Buffer>,
+    pub terrain_edit_preview: Resource<Buffer>,
     pub flora_growth_info: Resource<Buffer>,
     pub god_ray_info: Resource<Buffer>,
     pub post_processing_info: Resource<Buffer>,
@@ -256,7 +834,10 @@ pub struct ShadowResources {
 
 impl ShadowResources {
     pub fn vsm_history(&self) -> CurrentPrevious<&Resource<Texture>> {
-        CurrentPrevious::new(&self.shadow_map_tex_for_vsm_ping, &self.shadow_map_tex_for_vsm_prev)
+        CurrentPrevious::new(
+            &self.shadow_map_tex_for_vsm_ping,
+            &self.shadow_map_tex_for_vsm_prev,
+        )
     }
 
     pub fn cloud_shadow_history(&self) -> CurrentPrevious<&Resource<Texture>> {
@@ -306,6 +887,7 @@ pub struct TracerMeshResources {
     pub flora_meshes_lod: Vec<FloraMeshResources>,
     pub leaves_resources_lod: LeavesResources,
     pub apple_resources_lod: FloraMeshResources,
+    pub glass: GlassMeshResources,
 }
 
 impl re_flora_vkn::ResourceContainer for TracerMeshResources {
@@ -355,6 +937,7 @@ impl TracerUniformResources {
             env_info: Resource::new(layout_buffer(tracer_sm, "U_EnvInfo")),
             starlight_info: Resource::new(layout_buffer(composition_sm, "U_StarlightInfo")),
             voxel_colors: Resource::new(layout_buffer(tracer_sm, "U_VoxelColors")),
+            terrain_edit_preview: Resource::new(layout_buffer(tracer_sm, "U_TerrainEditPreview")),
             flora_growth_info: Resource::new(layout_buffer(flora_vert_sm, "U_FloraGrowthInfo")),
             god_ray_info: Resource::new(layout_buffer(god_ray_sm, "U_GodRayInfo")),
             post_processing_info: Resource::new(layout_buffer(
@@ -636,7 +1219,7 @@ impl TracerTextureResources {
 }
 
 impl TracerMeshResources {
-    fn new(device: Device, allocator: Allocator) -> Self {
+    fn new(device: Device, allocator: Allocator, chunk_bound: UAabb3) -> Self {
         species::assert_species_limit();
         let flora_meshes = species::species()
             .iter()
@@ -668,8 +1251,13 @@ impl TracerMeshResources {
             })
             .collect::<Vec<_>>();
         let leaves_resources_lod = LeavesResources::new(device.clone(), allocator.clone(), true);
-        let apple_resources_lod =
-            FloraMeshResources::new(device, allocator, true, generate_indexed_voxel_apple);
+        let apple_resources_lod = FloraMeshResources::new(
+            device.clone(),
+            allocator.clone(),
+            true,
+            generate_indexed_voxel_apple,
+        );
+        let glass = GlassMeshResources::new(device, allocator, chunk_bound);
 
         Self {
             flora_meshes,
@@ -678,6 +1266,7 @@ impl TracerMeshResources {
             flora_meshes_lod,
             leaves_resources_lod,
             apple_resources_lod,
+            glass,
         }
     }
 }
@@ -687,6 +1276,7 @@ pub struct TracerResources {
     pub uniforms: TracerUniformResources,
     pub shadow: ShadowResources,
     pub wind: WindResources,
+    pub flora_voxel_lookup: FloraVoxelLookupResources,
     pub terrain_query: TerrainQueryResources,
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,
@@ -743,6 +1333,7 @@ impl TracerResources {
                 flora_vert_sm,
                 chunk_bound,
             ),
+            flora_voxel_lookup: FloraVoxelLookupResources::new(device.clone(), allocator.clone()),
             terrain_query: TerrainQueryResources::new(
                 device.clone(),
                 allocator.clone(),
@@ -751,7 +1342,7 @@ impl TracerResources {
                 max_terrain_queries,
             ),
             textures: TracerTextureResources::new(vulkan_ctx, allocator.clone()),
-            meshes: TracerMeshResources::new(device.clone(), allocator.clone()),
+            meshes: TracerMeshResources::new(device.clone(), allocator.clone(), chunk_bound),
             extent_dependent_resources: ExtentDependentResources::new(
                 device.clone(),
                 allocator.clone(),

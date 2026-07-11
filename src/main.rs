@@ -1,5 +1,7 @@
 mod app;
 mod audio;
+mod branch_skeleton;
+mod branching_gui;
 mod builder;
 mod cli;
 mod egui_renderer;
@@ -11,7 +13,6 @@ mod generated;
 mod geom;
 #[macro_use]
 mod gui_adjustables;
-pub mod model;
 mod particles;
 mod procedual_placer;
 mod resource;

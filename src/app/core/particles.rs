@@ -416,6 +416,12 @@ impl App {
             dt,
             wind_time,
         );
+        Self::drive_emitters(
+            &mut self.sprinkler_emitters,
+            &mut self.particle_system,
+            dt,
+            wind_time,
+        );
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
         let sim_start = Instant::now();
@@ -449,12 +455,13 @@ impl App {
 
         if self.perf_logging {
             log::info!(
-                "[PERF][PARTICLES] alive={} snapshots={} water_debug={} emitters butterflies={} leaves={} tick_step={} dt={:.4} total={:.3}ms setup={:.3} emit={:.3} sim={:.3} collect={:.3} plan={:.3} snapshot={:.3} upload={:.3}",
+                "[PERF][PARTICLES] alive={} snapshots={} water_debug={} emitters butterflies={} leaves={} sprinklers={} tick_step={} dt={:.4} total={:.3}ms setup={:.3} emit={:.3} sim={:.3} collect={:.3} plan={:.3} snapshot={:.3} upload={:.3}",
                 self.particle_system.alive_count(),
                 self.particle_snapshots.len(),
                 self.particle_snapshots.len().saturating_sub(sim_snapshot_count),
                 self.butterfly_emitters.len(),
                 self.leaf_emitters.len(),
+                self.sprinkler_emitters.len(),
                 tick_step.did_step,
                 dt,
                 total_start.elapsed().as_secs_f32() * 1000.0,
@@ -508,8 +515,9 @@ impl App {
         const MAX_SPAWN_XZ_RETRIES: usize = 16;
         const STEP_LEN: f32 = crate::particles::emitters::WORM_STEP_LEN;
         const RAY_EPSILON: f32 = 0.02;
-
+        // Match the terrarium glass box top.
         let map_size = super::CHUNK_DIM.as_vec3();
+        let butterfly_max_y = map_size.y + crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
 
         let mut all_handles: Vec<ParticleHandle> = Vec::new();
         let mut all_positions: Vec<Vec3> = Vec::new();
@@ -659,6 +667,8 @@ impl App {
 
                 let out_of_bounds = next_pos.x < 0.0
                     || next_pos.x > map_size.x
+                    || next_pos.y < 0.0
+                    || next_pos.y > butterfly_max_y
                     || next_pos.z < 0.0
                     || next_pos.z > map_size.z;
 

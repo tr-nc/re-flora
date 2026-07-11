@@ -9,22 +9,31 @@
 #define GUI_INPUT_BINDING 0
 #endif
 
+#ifndef GUI_INPUT_NAME
+#define GUI_INPUT_NAME gui_input
+#endif
+
 layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float debug_float;
     uint debug_bool;
     uint debug_uint;
+    uint terrain_shadow_use_vsm;
     vec3 flora_instance_hsv_offset_max;
     vec3 flora_voxel_hsv_offset_max;
     vec3 grass_bottom_dark;
     vec3 grass_bottom_light;
     vec3 grass_tip_dark;
     vec3 grass_tip_light;
-    vec3 ocean_deep_color;
-    vec3 ocean_shallow_color;
-    float ocean_normal_amplitude;
-    float ocean_noise_frequency;
-    float ocean_time_multiplier;
-    float ocean_sea_level_shift;
+    vec3 glass_tint;
+    float glass_reflection_strength;
+    float glass_ssr_strength;
+    uint glass_ssr_steps;
+    uint glass_per_voxel_reflection;
+    float glass_ssr_min_hit_thickness_voxels;
+    float glass_ssr_footprint_pixels;
+    float glass_refraction_strength;
+    float glass_alpha;
+    float glass_glint_strength;
     float lens_flare_intensity;
     float lens_flare_sun_pixel_scale;
     uint wind_source_count;
@@ -37,8 +46,6 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float grass_natural_bend_min_voxels;
     float grass_natural_bend_max_voxels;
     float flora_bend_height_power;
-    float flora_player_push_radius;
-    float flora_player_push_strength;
     float leaf_paddle_amplitude_voxels;
     float leaf_paddle_primary_speed;
     float leaf_paddle_secondary_speed;
@@ -71,11 +78,10 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float cloud_silver_intensity;
     float cloud_max_distance;
     uint cloud_shadows_enabled;
-    uint cloud_shadow_debug_overlay;
     float cloud_shadow_strength;
     float cloud_shadow_min_transmittance;
     uint cloud_shadow_steps;
 }
-gui_input;
+GUI_INPUT_NAME;
 
 #endif // GUI_INPUT_GLSL

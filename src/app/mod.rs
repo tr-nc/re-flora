@@ -7,6 +7,7 @@ mod environment;
 mod gui_config;
 mod gui_config_loader;
 mod gui_config_model;
+mod terrain_edit_bounds;
 mod world_edits;
 mod world_ops;
 

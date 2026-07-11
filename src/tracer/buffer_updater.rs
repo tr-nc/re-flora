@@ -1,8 +1,12 @@
 use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
-    ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, VoxelColors,
+    ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, TerrainEditPreview,
+    VoxelColors,
 };
-use crate::tracer::{CloudGuiParams, TracerResources, WindGuiParams, WindSourceGpu};
+use crate::tracer::{
+    CloudGuiParams, GlassGuiParams, TerrainEditPreviewShape, TracerResources, WindGuiParams,
+    WindSourceGpu,
+};
 use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{Mat4, Vec3};
@@ -57,11 +61,18 @@ impl BufferUpdater {
             })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_flora_growth_info(
         resources: &TracerResources,
         flora_tick: u32,
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
+        spawn_time_ms: u32,
+        spawn_duration_seconds: f32,
+        spawn_rise_fraction: f32,
+        spawn_overshoot_min_voxels: f32,
+        spawn_overshoot_max_voxels: f32,
+        spawn_stagger_seconds: f32,
     ) -> Result<()> {
         resources
             .uniforms
@@ -70,6 +81,12 @@ impl BufferUpdater {
                 flora_tick,
                 sprout_delay_ticks,
                 full_growth_ticks,
+                spawn_time_ms,
+                spawn_duration_seconds,
+                spawn_rise_fraction,
+                spawn_overshoot_min_voxels,
+                spawn_overshoot_max_voxels,
+                spawn_stagger_seconds,
                 ..FloraGrowthInfo::zeroed()
             })
     }
@@ -214,26 +231,45 @@ impl BufferUpdater {
         })
     }
 
+    pub fn update_terrain_edit_preview(
+        resources: &TracerResources,
+        center: Option<Vec3>,
+        radius: f32,
+        shape: TerrainEditPreviewShape,
+        color: Vec3,
+        alpha: f32,
+    ) -> Result<()> {
+        let enabled = center.is_some() && radius > 0.0;
+        resources
+            .uniforms
+            .terrain_edit_preview
+            .fill_uniform(&TerrainEditPreview {
+                center: center.unwrap_or(Vec3::ZERO).to_array(),
+                radius: radius.max(0.0),
+                color: color.clamp(Vec3::ZERO, Vec3::ONE).to_array(),
+                strength: alpha.clamp(0.0, 1.0),
+                enabled: enabled as u32,
+                shape: shape.as_u32(),
+                ..TerrainEditPreview::zeroed()
+            })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn update_gui_input(
         resources: &TracerResources,
         debug_float: f32,
         debug_bool: bool,
         debug_uint: u32,
+        terrain_shadow_use_vsm: bool,
         flora_instance_hsv_offset_max: Vec3,
         flora_voxel_hsv_offset_max: Vec3,
         grass_bottom_dark: Vec3,
         grass_bottom_light: Vec3,
         grass_tip_dark: Vec3,
         grass_tip_light: Vec3,
-        ocean_deep_color: Vec3,
-        ocean_shallow_color: Vec3,
-        ocean_normal_amplitude: f32,
-        ocean_noise_frequency: f32,
-        ocean_time_multiplier: f32,
-        ocean_sea_level_shift: f32,
         lens_flare_intensity: f32,
         lens_flare_sun_pixel_scale: f32,
+        glass_gui_params: GlassGuiParams,
         wind_directional_bias_fraction: f32,
         wind_turbulence_fraction: f32,
         world_tick_seconds: f32,
@@ -243,8 +279,6 @@ impl BufferUpdater {
         grass_natural_bend_min_voxels: f32,
         grass_natural_bend_max_voxels: f32,
         flora_bend_height_power: f32,
-        flora_player_push_radius: f32,
-        flora_player_push_strength: f32,
         leaf_paddle_amplitude_voxels: f32,
         leaf_paddle_primary_speed: f32,
         leaf_paddle_secondary_speed: f32,
@@ -279,18 +313,23 @@ impl BufferUpdater {
             debug_float,
             debug_bool: debug_bool as u32,
             debug_uint,
+            terrain_shadow_use_vsm: terrain_shadow_use_vsm as u32,
             flora_instance_hsv_offset_max: flora_instance_hsv_offset_max.to_array(),
             flora_voxel_hsv_offset_max: flora_voxel_hsv_offset_max.to_array(),
             grass_bottom_dark: grass_bottom_dark.to_array(),
             grass_bottom_light: grass_bottom_light.to_array(),
             grass_tip_dark: grass_tip_dark.to_array(),
             grass_tip_light: grass_tip_light.to_array(),
-            ocean_deep_color: ocean_deep_color.to_array(),
-            ocean_shallow_color: ocean_shallow_color.to_array(),
-            ocean_normal_amplitude,
-            ocean_noise_frequency,
-            ocean_time_multiplier,
-            ocean_sea_level_shift,
+            glass_tint: glass_gui_params.tint.to_array(),
+            glass_reflection_strength: glass_gui_params.reflection_strength,
+            glass_ssr_strength: glass_gui_params.ssr_strength,
+            glass_ssr_steps: glass_gui_params.ssr_steps,
+            glass_per_voxel_reflection: glass_gui_params.per_voxel_reflection as u32,
+            glass_ssr_min_hit_thickness_voxels: glass_gui_params.ssr_min_hit_thickness_voxels,
+            glass_ssr_footprint_pixels: glass_gui_params.ssr_footprint_pixels,
+            glass_refraction_strength: glass_gui_params.refraction_strength,
+            glass_alpha: glass_gui_params.alpha,
+            glass_glint_strength: glass_gui_params.glint_strength,
             lens_flare_intensity,
             lens_flare_sun_pixel_scale,
             wind_source_count,
@@ -303,8 +342,6 @@ impl BufferUpdater {
             grass_natural_bend_min_voxels,
             grass_natural_bend_max_voxels,
             flora_bend_height_power,
-            flora_player_push_radius,
-            flora_player_push_strength,
             leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed,
@@ -337,7 +374,6 @@ impl BufferUpdater {
             cloud_silver_intensity: cloud_gui_params.silver_intensity,
             cloud_max_distance: cloud_gui_params.max_distance,
             cloud_shadows_enabled: cloud_gui_params.shadows_enabled as u32,
-            cloud_shadow_debug_overlay: cloud_gui_params.shadow_debug_overlay as u32,
             cloud_shadow_strength: cloud_gui_params.shadow_strength,
             cloud_shadow_min_transmittance: cloud_gui_params.shadow_min_transmittance,
             cloud_shadow_steps: cloud_gui_params.shadow_steps,

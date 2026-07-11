@@ -25,7 +25,10 @@ impl DenoiserTemporalTextureSet {
     }
 
     pub fn position_history(&self) -> CurrentPrevious<&Resource<Texture>> {
-        CurrentPrevious::new(&self.denoiser_position_tex, &self.denoiser_position_tex_prev)
+        CurrentPrevious::new(
+            &self.denoiser_position_tex,
+            &self.denoiser_position_tex_prev,
+        )
     }
 
     pub fn vox_id_history(&self) -> CurrentPrevious<&Resource<Texture>> {
@@ -49,7 +52,10 @@ pub struct DenoiserTextureSet {
 
 impl DenoiserTextureSet {
     pub fn spatial_ping_pong(&self) -> PingPong<&Resource<Texture>> {
-        PingPong::new(&self.denoiser_spatial_ping_tex, &self.denoiser_spatial_pong_tex)
+        PingPong::new(
+            &self.denoiser_spatial_ping_tex,
+            &self.denoiser_spatial_pong_tex,
+        )
     }
 }
 

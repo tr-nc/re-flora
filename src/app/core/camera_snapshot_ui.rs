@@ -50,7 +50,12 @@ impl App {
     }
 
     pub(super) fn apply_camera_snapshot(&mut self, snapshot: &CameraSnapshot) {
-        self.is_fly_mode = snapshot.fly_mode;
+        self.camera_control_mode = if snapshot.fly_mode {
+            super::CameraControlMode::FreeFly
+        } else {
+            super::CameraControlMode::Walk
+        };
+        self.sync_cursor_with_panels();
         self.accumulated_mouse_delta = glam::Vec2::ZERO;
         self.smoothed_mouse_delta = glam::Vec2::ZERO;
         self.player_tools.shovel_dig_held = false;

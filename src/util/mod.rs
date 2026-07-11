@@ -28,6 +28,9 @@ pub use sun_dir::*;
 mod clustering;
 pub use clustering::*;
 
+mod basis;
+pub use basis::*;
+
 mod chunk_work_queue;
 pub(crate) use chunk_work_queue::*;
 

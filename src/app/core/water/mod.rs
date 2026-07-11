@@ -6,6 +6,7 @@ use crate::app::cpu_solid_voxels::CpuSolidVoxelChunk;
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::app::GuiAdjustables;
 use crate::builder::{ChunkSolidSampleJob, ChunkSolidSampleResult, VOXEL_TYPE_ROCK};
+use crate::util::ChunkPopMode;
 use glam::{IVec3, UVec3, Vec2, Vec3};
 use re_flora_terrain_collider::signed_distance_from_solid_samples;
 use re_flora_water::{
@@ -395,10 +396,13 @@ impl App {
 
         let focus = self.water_terrain_focus_ws();
         let now = Instant::now();
-        let Some(work) = self
-            .deferred_terrain_sdf_source_refreshes
-            .pop_nearest_to_if_payload(focus, UVec3::ONE, |_, request| request.ready_at <= now)
-        else {
+        let Some(work) = self.deferred_terrain_sdf_source_refreshes.pop_if_payload(
+            ChunkPopMode::NearestWithAging {
+                focus,
+                chunk_extent: UVec3::ONE,
+            },
+            |_, request| request.ready_at <= now,
+        ) else {
             return;
         };
 
@@ -549,9 +553,12 @@ impl App {
         }
 
         let focus = self.water_terrain_focus_ws();
-        let Some(work) = self
-            .deferred_water_terrain_cache_rebuilds
-            .pop_nearest_to(focus, UVec3::ONE)
+        let Some(work) =
+            self.deferred_water_terrain_cache_rebuilds
+                .pop(ChunkPopMode::NearestWithAging {
+                    focus,
+                    chunk_extent: UVec3::ONE,
+                })
         else {
             return;
         };
@@ -839,9 +846,12 @@ impl App {
         }
 
         let focus = self.water_terrain_focus_ws();
-        let Some(work) = self
-            .deferred_terrain_sdf_collider_rebuilds
-            .pop_nearest_to(focus, UVec3::ONE)
+        let Some(work) =
+            self.deferred_terrain_sdf_collider_rebuilds
+                .pop(ChunkPopMode::NearestWithAging {
+                    focus,
+                    chunk_extent: UVec3::ONE,
+                })
         else {
             return;
         };

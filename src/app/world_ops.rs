@@ -3,6 +3,7 @@ use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder,
     VOXEL_TYPE_CHERRY_WOOD,
 };
+use crate::flora::species::{FloraPaintBrushSettings, FloraPaintSelection};
 use crate::geom::UAabb3;
 use crate::util::BENCH;
 use anyhow::Result;
@@ -10,10 +11,12 @@ use glam::{UVec3, Vec3};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct FloraSphereEdit {
-    pub(crate) center: Vec3,
+pub(crate) struct FloraBrushEdit {
+    pub(crate) start: Vec3,
+    pub(crate) end: Vec3,
     pub(crate) radius: f32,
     pub(crate) tick: u32,
+    pub(crate) spawn_time_ms: u32,
 }
 
 struct DirectChunkRebuildRecord {
@@ -166,7 +169,21 @@ pub(crate) fn apply_build_edit(
             voxel_dim_per_chunk,
             bound,
         ),
+        BuildEdit::RebuildMeshWithoutFlora(bound) => mesh_generate_without_flora(
+            surface_builder,
+            contree_builder,
+            scene_accel_builder,
+            voxel_dim_per_chunk,
+            bound,
+        ),
         BuildEdit::RebuildChunks(chunk_ids) => mesh_generate_chunks(
+            surface_builder,
+            contree_builder,
+            scene_accel_builder,
+            voxel_dim_per_chunk,
+            chunk_ids,
+        ),
+        BuildEdit::RebuildChunksWithoutFlora(chunk_ids) => mesh_generate_chunks_without_flora(
             surface_builder,
             contree_builder,
             scene_accel_builder,
@@ -225,12 +242,63 @@ pub(crate) fn mesh_generate(
     )
 }
 
+pub(crate) fn mesh_generate_without_flora(
+    surface_builder: &mut SurfaceBuilder,
+    contree_builder: &mut ContreeBuilder,
+    scene_accel_builder: &mut SceneAccelBuilder,
+    voxel_dim_per_chunk: UVec3,
+    bound: UAabb3,
+) -> Result<()> {
+    mesh_generate_chunks_without_flora(
+        surface_builder,
+        contree_builder,
+        scene_accel_builder,
+        voxel_dim_per_chunk,
+        affected_chunk_indices_for_bound(bound, voxel_dim_per_chunk),
+    )
+}
+
 pub(crate) fn mesh_generate_chunks(
     surface_builder: &mut SurfaceBuilder,
     contree_builder: &mut ContreeBuilder,
     scene_accel_builder: &mut SceneAccelBuilder,
     voxel_dim_per_chunk: UVec3,
     chunk_ids: Vec<UVec3>,
+) -> Result<()> {
+    mesh_generate_chunks_with_flora(
+        surface_builder,
+        contree_builder,
+        scene_accel_builder,
+        voxel_dim_per_chunk,
+        chunk_ids,
+        true,
+    )
+}
+
+pub(crate) fn mesh_generate_chunks_without_flora(
+    surface_builder: &mut SurfaceBuilder,
+    contree_builder: &mut ContreeBuilder,
+    scene_accel_builder: &mut SceneAccelBuilder,
+    voxel_dim_per_chunk: UVec3,
+    chunk_ids: Vec<UVec3>,
+) -> Result<()> {
+    mesh_generate_chunks_with_flora(
+        surface_builder,
+        contree_builder,
+        scene_accel_builder,
+        voxel_dim_per_chunk,
+        chunk_ids,
+        false,
+    )
+}
+
+fn mesh_generate_chunks_with_flora(
+    surface_builder: &mut SurfaceBuilder,
+    contree_builder: &mut ContreeBuilder,
+    scene_accel_builder: &mut SceneAccelBuilder,
+    voxel_dim_per_chunk: UVec3,
+    chunk_ids: Vec<UVec3>,
+    place_flora: bool,
 ) -> Result<()> {
     let rebuild_start = Instant::now();
     let chunk_count = chunk_ids.len();
@@ -251,7 +319,7 @@ pub(crate) fn mesh_generate_chunks(
         let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
         let surface_start = Instant::now();
-        let active_voxel_len = match surface_builder.build_surface(chunk_id, true) {
+        let active_voxel_len = match surface_builder.build_surface(chunk_id, place_flora) {
             Ok(active_voxel_len) => active_voxel_len,
             Err(e) => {
                 finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records);
@@ -345,7 +413,7 @@ pub(crate) fn mesh_generate_chunks(
     });
 
     log::debug!(
-        "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms contree_skipped {}",
+        "[PERF][MESH_REBUILD] chunks {} rebuilt {} total {:.2}ms surface {:.2}ms contree {:.2}ms scene_tex {:.2}ms contree_skipped {} place_flora {}",
         chunk_count,
         rebuilt_chunk_count,
         rebuild_start.elapsed().as_secs_f32() * 1000.0,
@@ -353,32 +421,33 @@ pub(crate) fn mesh_generate_chunks(
         contree_total.as_secs_f32() * 1000.0,
         scene_total.as_secs_f32() * 1000.0,
         contree_skipped_count,
+        place_flora,
     );
 
     Ok(())
 }
 
 #[allow(dead_code)]
-pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
+pub(crate) fn mesh_generate_preserve_flora_for_brush_edit(
     surface_builder: &mut SurfaceBuilder,
     contree_builder: &mut ContreeBuilder,
     scene_accel_builder: &mut SceneAccelBuilder,
     voxel_dim_per_chunk: UVec3,
     bound: UAabb3,
-    flora_edit: FloraSphereEdit,
+    flora_edit: FloraBrushEdit,
 ) -> Result<()> {
     let affected_chunk_indices =
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
     if affected_chunk_indices.len() > 1 {
         log::debug!(
-            "[QUEUE][DIRECT_MULTI_REBUILD] preserve-flora sphere edit rebuilding {} chunks synchronously: {:?}",
+            "[QUEUE][DIRECT_MULTI_REBUILD] preserve-flora brush edit rebuilding {} chunks synchronously: {:?}",
             affected_chunk_indices.len(),
             affected_chunk_indices,
         );
     }
 
     for chunk_id in affected_chunk_indices {
-        mesh_generate_chunk_preserve_flora_for_sphere_edit(
+        mesh_generate_chunk_preserve_flora_for_brush_edit(
             surface_builder,
             contree_builder,
             scene_accel_builder,
@@ -392,13 +461,13 @@ pub(crate) fn mesh_generate_preserve_flora_for_sphere_edit(
 }
 
 #[allow(dead_code)]
-pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
+pub(crate) fn mesh_generate_chunk_preserve_flora_for_brush_edit(
     surface_builder: &mut SurfaceBuilder,
     contree_builder: &mut ContreeBuilder,
     scene_accel_builder: &mut SceneAccelBuilder,
     voxel_dim_per_chunk: UVec3,
     chunk_id: UVec3,
-    flora_edit: FloraSphereEdit,
+    flora_edit: FloraBrushEdit,
 ) -> Result<()> {
     let atlas_offset = chunk_id * voxel_dim_per_chunk;
 
@@ -416,11 +485,13 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
         .unwrap()
         .record("build_surface", surface_elapsed);
 
-    surface_builder.edit_flora_instances(
+    surface_builder.edit_flora_instances_for_brush(
         chunk_id,
-        flora_edit.center,
+        flora_edit.start,
+        flora_edit.end,
         flora_edit.radius,
         flora_edit.tick,
+        flora_edit.spawn_time_ms,
     )?;
 
     let contree_start = Instant::now();
@@ -449,11 +520,14 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_sphere_edit(
     Ok(())
 }
 
-pub(crate) fn mesh_regenerate_flora_for_sphere_edit(
+pub(crate) fn mesh_regenerate_flora_for_brush_edit(
     surface_builder: &mut SurfaceBuilder,
     voxel_dim_per_chunk: UVec3,
     bound: UAabb3,
-    flora_edit: FloraSphereEdit,
+    flora_edit: FloraBrushEdit,
+    paint_selection: FloraPaintSelection,
+    paint_dab_serial: u32,
+    paint_brush: FloraPaintBrushSettings,
 ) -> Result<()> {
     let affected_chunk_indices =
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
@@ -467,22 +541,58 @@ pub(crate) fn mesh_regenerate_flora_for_sphere_edit(
         }
         BENCH.lock().unwrap().record("build_surface", now.elapsed());
 
-        let _regen_stats = surface_builder.regenerate_flora_instances(
+        let _regen_stats = surface_builder.regenerate_flora_instances_for_brush(
             chunk_id,
-            flora_edit.center,
+            flora_edit.start,
+            flora_edit.end,
             flora_edit.radius,
             flora_edit.tick,
+            flora_edit.spawn_time_ms,
+            paint_selection,
+            paint_dab_serial,
+            paint_brush,
         )?;
     }
 
     Ok(())
 }
 
-pub(crate) fn mesh_trim_flora_for_sphere_edit(
+pub(crate) fn mesh_remove_flora_for_brush_edit(
     surface_builder: &mut SurfaceBuilder,
     voxel_dim_per_chunk: UVec3,
     bound: UAabb3,
-    flora_edit: FloraSphereEdit,
+    flora_edit: FloraBrushEdit,
+) -> Result<()> {
+    let affected_chunk_indices =
+        get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
+
+    for chunk_id in affected_chunk_indices {
+        let now = Instant::now();
+        let res = surface_builder.build_surface(chunk_id, false);
+        if let Err(e) = res {
+            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
+            continue;
+        }
+        BENCH.lock().unwrap().record("build_surface", now.elapsed());
+
+        surface_builder.edit_flora_instances_for_brush(
+            chunk_id,
+            flora_edit.start,
+            flora_edit.end,
+            flora_edit.radius,
+            flora_edit.tick,
+            flora_edit.spawn_time_ms,
+        )?;
+    }
+
+    Ok(())
+}
+
+pub(crate) fn mesh_trim_flora_for_brush_edit(
+    surface_builder: &mut SurfaceBuilder,
+    voxel_dim_per_chunk: UVec3,
+    bound: UAabb3,
+    flora_edit: FloraBrushEdit,
     target_age: u32,
 ) -> Result<Vec<UVec3>> {
     let affected_chunk_indices =
@@ -498,11 +608,13 @@ pub(crate) fn mesh_trim_flora_for_sphere_edit(
         }
         BENCH.lock().unwrap().record("build_surface", now.elapsed());
 
-        let regen_stats = surface_builder.trim_flora_instances(
+        let regen_stats = surface_builder.trim_flora_instances_for_brush(
             chunk_id,
-            flora_edit.center,
+            flora_edit.start,
+            flora_edit.end,
             flora_edit.radius,
             flora_edit.tick,
+            flora_edit.spawn_time_ms,
             target_age,
         )?;
         if regen_stats.has_growing_flora {

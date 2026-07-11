@@ -193,6 +193,7 @@ impl TreeAudioManager {
     }
 
     /// Remove every registered tree emitter.
+    #[allow(dead_code)]
     pub fn remove_all(&mut self) {
         let tree_ids: Vec<u32> = self.sources_by_tree.keys().copied().collect();
         for tree_id in tree_ids {

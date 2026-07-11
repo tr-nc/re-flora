@@ -67,6 +67,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "World Tick Time (s)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Tool Overlay",
+        id: "terrain_edit_preview_alpha",
+        kind: "float",
+        label: "Brush Overlay Alpha",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Wind",
         id: "wind_source_count",
         kind: "uint",
@@ -481,6 +487,72 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Day Cycle Duration (Minutes)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_tint",
+        kind: "color",
+        label: "Glass Tint",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_reflection_strength",
+        kind: "float",
+        label: "Reflection Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_ssr_strength",
+        kind: "float",
+        label: "Screen-Space Reflection Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_ssr_steps",
+        kind: "uint",
+        label: "SSR Steps",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_per_voxel_reflection",
+        kind: "bool",
+        label: "Per-Voxel Glass",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_ssr_min_hit_thickness_voxels",
+        kind: "float",
+        label: "SSR Min Hit Thickness (Voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_ssr_footprint_pixels",
+        kind: "float",
+        label: "SSR Footprint (Pixels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_refraction_strength",
+        kind: "float",
+        label: "Refraction Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_alpha",
+        kind: "float",
+        label: "Alpha Multiplier",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_glint_strength",
+        kind: "float",
+        label: "Sun Glint Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
+        id: "terrain_shadow_use_vsm",
+        kind: "bool",
+        label: "Terrain Shadow Use VSM",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Shadow",
         id: "vsm_blur_radius",
         kind: "uint",
@@ -686,6 +758,36 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
+        id: "special_flora_plants_per_release",
+        kind: "uint",
+        label: "Special Flora Plants / Release",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "special_flora_cluster_radius_voxels",
+        kind: "float",
+        label: "Special Flora Cluster Radius (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "special_flora_min_spacing_voxels",
+        kind: "float",
+        label: "Special Flora Min Spacing (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "special_flora_cluster_bias",
+        kind: "float",
+        label: "Special Flora Cluster Bias",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "special_flora_outlier_chance",
+        kind: "float",
+        label: "Special Flora Outlier Chance",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
         id: "grass_natural_bend_min_voxels",
         kind: "float",
         label: "Flora Natural Bend Min (voxels)",
@@ -701,18 +803,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "flora_bend_height_power",
         kind: "float",
         label: "Flora Bend Height Power",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Flora",
-        id: "flora_player_push_radius",
-        kind: "float",
-        label: "Flora Player Push Radius",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Flora",
-        id: "flora_player_push_strength",
-        kind: "float",
-        label: "Flora Player Push Strength",
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
@@ -823,42 +913,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Tip Light",
     },
     GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_deep_color",
-        kind: "color",
-        label: "Deep Ocean Color",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_shallow_color",
-        kind: "color",
-        label: "Shallow Water Color",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_normal_amplitude",
-        kind: "float",
-        label: "Normal Amplitude",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_noise_frequency",
-        kind: "float",
-        label: "Noise Frequency",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_time_multiplier",
-        kind: "float",
-        label: "Time Multiplier",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ocean",
-        id: "ocean_sea_level_shift",
-        kind: "float",
-        label: "Sea Level Y Shift",
-    },
-    GeneratedGuiParamDescriptor {
         section: "Clouds",
         id: "clouds_enabled",
         kind: "bool",
@@ -959,12 +1013,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "cloud_shadows_enabled",
         kind: "bool",
         label: "Enable Cloud Shadows",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Clouds",
-        id: "cloud_shadow_debug_overlay",
-        kind: "bool",
-        label: "Show Cloud Shadow Map",
     },
     GeneratedGuiParamDescriptor {
         section: "Clouds",
@@ -1093,16 +1141,58 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Terrain Tangent Damping (/s)",
     },
     GeneratedGuiParamDescriptor {
-        section: "EmberBloom",
+        section: "Purple Allium",
         id: "ember_bloom_bottom_color",
         kind: "color",
-        label: "Bottom Color",
+        label: "Stem Bottom Color",
     },
     GeneratedGuiParamDescriptor {
-        section: "EmberBloom",
-        id: "ember_bloom_tip_color",
+        section: "Purple Allium",
+        id: "ember_bloom_stem_tip_color",
         kind: "color",
-        label: "Tip Color",
+        label: "Stem Top Color",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Purple Allium",
+        id: "ember_bloom_flower_purple_color",
+        kind: "color",
+        label: "Flower Color A",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Purple Allium",
+        id: "ember_bloom_flower_secondary_color",
+        kind: "color",
+        label: "Flower Color B",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora Spawn Animation",
+        id: "flora_spawn_duration_seconds",
+        kind: "float",
+        label: "Duration (Seconds)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora Spawn Animation",
+        id: "flora_spawn_rise_fraction",
+        kind: "float",
+        label: "Rise Timeline Fraction",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora Spawn Animation",
+        id: "flora_spawn_overshoot_min_voxels",
+        kind: "float",
+        label: "Minimum Overshoot (Voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora Spawn Animation",
+        id: "flora_spawn_overshoot_max_voxels",
+        kind: "float",
+        label: "Maximum Overshoot (Voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora Spawn Animation",
+        id: "flora_spawn_stagger_seconds",
+        kind: "float",
+        label: "Random Stagger (Seconds)",
     },
     GeneratedGuiParamDescriptor {
         section: "FloraVariation",
@@ -1139,30 +1229,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "flora_voxel_value_offset",
         kind: "float",
         label: "Voxel Value Offset Max",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
-        id: "leaves_inner_density",
-        kind: "float",
-        label: "Inner Density",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
-        id: "leaves_outer_density",
-        kind: "float",
-        label: "Outer Density",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
-        id: "leaves_inner_radius",
-        kind: "float",
-        label: "Inner Radius",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Leaves",
-        id: "leaves_outer_radius",
-        kind: "float",
-        label: "Outer Radius",
     },
     GeneratedGuiParamDescriptor {
         section: "Leaves",
@@ -1319,6 +1385,7 @@ pub struct GuiAdjustables {
     pub grass_render_mode: crate::gui_adjustables::UintParam,
     pub debug_bool: crate::gui_adjustables::BoolParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
+    pub terrain_edit_preview_alpha: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_directional_bias_fraction: crate::gui_adjustables::FloatParam,
     pub wind_turbulence_fraction: crate::gui_adjustables::FloatParam,
@@ -1388,6 +1455,17 @@ pub struct GuiAdjustables {
     pub latitude: crate::gui_adjustables::FloatParam,
     pub season: crate::gui_adjustables::FloatParam,
     pub day_cycle_minutes: crate::gui_adjustables::FloatParam,
+    pub glass_tint: crate::gui_adjustables::ColorParam,
+    pub glass_reflection_strength: crate::gui_adjustables::FloatParam,
+    pub glass_ssr_strength: crate::gui_adjustables::FloatParam,
+    pub glass_ssr_steps: crate::gui_adjustables::UintParam,
+    pub glass_per_voxel_reflection: crate::gui_adjustables::BoolParam,
+    pub glass_ssr_min_hit_thickness_voxels: crate::gui_adjustables::FloatParam,
+    pub glass_ssr_footprint_pixels: crate::gui_adjustables::FloatParam,
+    pub glass_refraction_strength: crate::gui_adjustables::FloatParam,
+    pub glass_alpha: crate::gui_adjustables::FloatParam,
+    pub glass_glint_strength: crate::gui_adjustables::FloatParam,
+    pub terrain_shadow_use_vsm: crate::gui_adjustables::BoolParam,
     pub vsm_blur_radius: crate::gui_adjustables::UintParam,
     pub vsm_temporal_alpha: crate::gui_adjustables::FloatParam,
     pub leaf_shadow_fragment_opacity: crate::gui_adjustables::FloatParam,
@@ -1422,11 +1500,14 @@ pub struct GuiAdjustables {
     pub is_changing_lum_phi: crate::gui_adjustables::BoolParam,
     pub is_spatial_denoising_enabled: crate::gui_adjustables::BoolParam,
     pub a_trous_iteration_count: crate::gui_adjustables::UintParam,
+    pub special_flora_plants_per_release: crate::gui_adjustables::UintParam,
+    pub special_flora_cluster_radius_voxels: crate::gui_adjustables::FloatParam,
+    pub special_flora_min_spacing_voxels: crate::gui_adjustables::FloatParam,
+    pub special_flora_cluster_bias: crate::gui_adjustables::FloatParam,
+    pub special_flora_outlier_chance: crate::gui_adjustables::FloatParam,
     pub grass_natural_bend_min_voxels: crate::gui_adjustables::FloatParam,
     pub grass_natural_bend_max_voxels: crate::gui_adjustables::FloatParam,
     pub flora_bend_height_power: crate::gui_adjustables::FloatParam,
-    pub flora_player_push_radius: crate::gui_adjustables::FloatParam,
-    pub flora_player_push_strength: crate::gui_adjustables::FloatParam,
     pub grass_vibration_amplitude_voxels: crate::gui_adjustables::FloatParam,
     pub grass_vibration_primary_speed: crate::gui_adjustables::FloatParam,
     pub grass_vibration_secondary_speed: crate::gui_adjustables::FloatParam,
@@ -1445,12 +1526,6 @@ pub struct GuiAdjustables {
     pub grass_bottom_light_color: crate::gui_adjustables::ColorParam,
     pub grass_tip_dark_color: crate::gui_adjustables::ColorParam,
     pub grass_tip_light_color: crate::gui_adjustables::ColorParam,
-    pub ocean_deep_color: crate::gui_adjustables::ColorParam,
-    pub ocean_shallow_color: crate::gui_adjustables::ColorParam,
-    pub ocean_normal_amplitude: crate::gui_adjustables::FloatParam,
-    pub ocean_noise_frequency: crate::gui_adjustables::FloatParam,
-    pub ocean_time_multiplier: crate::gui_adjustables::FloatParam,
-    pub ocean_sea_level_shift: crate::gui_adjustables::FloatParam,
     pub clouds_enabled: crate::gui_adjustables::BoolParam,
     pub cloud_coverage: crate::gui_adjustables::FloatParam,
     pub cloud_density: crate::gui_adjustables::FloatParam,
@@ -1468,7 +1543,6 @@ pub struct GuiAdjustables {
     pub cloud_silver_intensity: crate::gui_adjustables::FloatParam,
     pub cloud_max_distance: crate::gui_adjustables::FloatParam,
     pub cloud_shadows_enabled: crate::gui_adjustables::BoolParam,
-    pub cloud_shadow_debug_overlay: crate::gui_adjustables::BoolParam,
     pub cloud_shadow_strength: crate::gui_adjustables::FloatParam,
     pub cloud_shadow_min_transmittance: crate::gui_adjustables::FloatParam,
     pub cloud_shadow_steps: crate::gui_adjustables::UintParam,
@@ -1491,17 +1565,20 @@ pub struct GuiAdjustables {
     pub water_wall_damping: crate::gui_adjustables::FloatParam,
     pub water_terrain_tangent_damping: crate::gui_adjustables::FloatParam,
     pub ember_bloom_bottom_color: crate::gui_adjustables::ColorParam,
-    pub ember_bloom_tip_color: crate::gui_adjustables::ColorParam,
+    pub ember_bloom_stem_tip_color: crate::gui_adjustables::ColorParam,
+    pub ember_bloom_flower_purple_color: crate::gui_adjustables::ColorParam,
+    pub ember_bloom_flower_secondary_color: crate::gui_adjustables::ColorParam,
+    pub flora_spawn_duration_seconds: crate::gui_adjustables::FloatParam,
+    pub flora_spawn_rise_fraction: crate::gui_adjustables::FloatParam,
+    pub flora_spawn_overshoot_min_voxels: crate::gui_adjustables::FloatParam,
+    pub flora_spawn_overshoot_max_voxels: crate::gui_adjustables::FloatParam,
+    pub flora_spawn_stagger_seconds: crate::gui_adjustables::FloatParam,
     pub flora_instance_hue_offset: crate::gui_adjustables::FloatParam,
     pub flora_instance_saturation_offset: crate::gui_adjustables::FloatParam,
     pub flora_instance_value_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_hue_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_saturation_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_value_offset: crate::gui_adjustables::FloatParam,
-    pub leaves_inner_density: crate::gui_adjustables::FloatParam,
-    pub leaves_outer_density: crate::gui_adjustables::FloatParam,
-    pub leaves_inner_radius: crate::gui_adjustables::FloatParam,
-    pub leaves_outer_radius: crate::gui_adjustables::FloatParam,
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
@@ -1546,6 +1623,7 @@ impl GuiAdjustables {
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut debug_bool_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut terrain_edit_preview_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_directional_bias_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_turbulence_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1615,6 +1693,17 @@ impl GuiAdjustables {
         let mut latitude_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut season_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut day_cycle_minutes_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_tint_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut glass_reflection_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_ssr_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_ssr_steps_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut glass_per_voxel_reflection_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut glass_ssr_min_hit_thickness_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_ssr_footprint_pixels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_refraction_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut glass_glint_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut terrain_shadow_use_vsm_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut vsm_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_shadow_fragment_opacity_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1649,11 +1738,14 @@ impl GuiAdjustables {
         let mut is_changing_lum_phi_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut is_spatial_denoising_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut a_trous_iteration_count_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut special_flora_plants_per_release_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut special_flora_cluster_radius_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut special_flora_min_spacing_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut special_flora_cluster_bias_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut special_flora_outlier_chance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_natural_bend_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_natural_bend_max_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_bend_height_power_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_player_push_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_player_push_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_vibration_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_vibration_primary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_vibration_secondary_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1672,12 +1764,6 @@ impl GuiAdjustables {
         let mut grass_bottom_light_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_tip_dark_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_tip_light_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ocean_deep_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ocean_shallow_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ocean_normal_amplitude_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut ocean_noise_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut ocean_time_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut ocean_sea_level_shift_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut clouds_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut cloud_coverage_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_density_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1695,7 +1781,6 @@ impl GuiAdjustables {
         let mut cloud_silver_intensity_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_max_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_shadows_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut cloud_shadow_debug_overlay_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut cloud_shadow_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_shadow_min_transmittance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut cloud_shadow_steps_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -1718,17 +1803,20 @@ impl GuiAdjustables {
         let mut water_wall_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_terrain_tangent_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ember_bloom_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ember_bloom_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut ember_bloom_stem_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut ember_bloom_flower_purple_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut ember_bloom_flower_secondary_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut flora_spawn_duration_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut flora_spawn_rise_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut flora_spawn_overshoot_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut flora_spawn_overshoot_max_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut flora_spawn_stagger_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaves_inner_density_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaves_outer_density_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaves_inner_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaves_outer_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1802,6 +1890,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             world_tick_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "terrain_edit_preview_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            terrain_edit_preview_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "wind_source_count" => {
@@ -2261,6 +2356,77 @@ impl GuiAdjustables {
                             day_cycle_minutes_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "glass_tint" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            glass_tint_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "glass_reflection_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_reflection_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_ssr_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_ssr_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_ssr_steps" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            glass_ssr_steps_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_per_voxel_reflection" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            glass_per_voxel_reflection_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "glass_ssr_min_hit_thickness_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_ssr_min_hit_thickness_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_ssr_footprint_pixels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_ssr_footprint_pixels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_refraction_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_refraction_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_alpha" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "glass_glint_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            glass_glint_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "terrain_shadow_use_vsm" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            terrain_shadow_use_vsm_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "vsm_blur_radius" => {
                         if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0);
@@ -2495,6 +2661,41 @@ impl GuiAdjustables {
                             a_trous_iteration_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
+                    "special_flora_plants_per_release" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            special_flora_plants_per_release_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "special_flora_cluster_radius_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            special_flora_cluster_radius_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "special_flora_min_spacing_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            special_flora_min_spacing_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "special_flora_cluster_bias" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            special_flora_cluster_bias_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "special_flora_outlier_chance" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            special_flora_outlier_chance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "grass_natural_bend_min_voxels" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -2514,20 +2715,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             flora_bend_height_power_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "flora_player_push_radius" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_player_push_radius_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "flora_player_push_strength" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_player_push_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "grass_vibration_amplitude_voxels" => {
@@ -2648,44 +2835,6 @@ impl GuiAdjustables {
                             grass_tip_light_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "ocean_deep_color" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ocean_deep_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
-                        }
-                    }
-                    "ocean_shallow_color" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ocean_shallow_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
-                        }
-                    }
-                    "ocean_normal_amplitude" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            ocean_normal_amplitude_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "ocean_noise_frequency" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            ocean_noise_frequency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "ocean_time_multiplier" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            ocean_time_multiplier_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "ocean_sea_level_shift" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            ocean_sea_level_shift_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "clouds_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             clouds_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -2799,11 +2948,6 @@ impl GuiAdjustables {
                     "cloud_shadows_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             cloud_shadows_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "cloud_shadow_debug_overlay" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            cloud_shadow_debug_overlay_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "cloud_shadow_strength" => {
@@ -2958,9 +3102,54 @@ impl GuiAdjustables {
                             ember_bloom_bottom_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "ember_bloom_tip_color" => {
+                    "ember_bloom_stem_tip_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ember_bloom_tip_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                            ember_bloom_stem_tip_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "ember_bloom_flower_purple_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            ember_bloom_flower_purple_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "ember_bloom_flower_secondary_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            ember_bloom_flower_secondary_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "flora_spawn_duration_seconds" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_spawn_duration_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "flora_spawn_rise_fraction" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_spawn_rise_fraction_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "flora_spawn_overshoot_min_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_spawn_overshoot_min_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "flora_spawn_overshoot_max_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_spawn_overshoot_max_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "flora_spawn_stagger_seconds" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_spawn_stagger_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "flora_instance_hue_offset" => {
@@ -3003,34 +3192,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             flora_voxel_value_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaves_inner_density" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaves_inner_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaves_outer_density" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaves_outer_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaves_inner_radius" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaves_inner_radius_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "leaves_outer_radius" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            leaves_outer_radius_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "leaves_bottom_color" => {
@@ -3196,6 +3357,7 @@ impl GuiAdjustables {
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
             debug_bool: debug_bool_field.expect("Missing parameter: debug_bool"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
+            terrain_edit_preview_alpha: terrain_edit_preview_alpha_field.expect("Missing parameter: terrain_edit_preview_alpha"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_directional_bias_fraction: wind_directional_bias_fraction_field.expect("Missing parameter: wind_directional_bias_fraction"),
             wind_turbulence_fraction: wind_turbulence_fraction_field.expect("Missing parameter: wind_turbulence_fraction"),
@@ -3265,6 +3427,17 @@ impl GuiAdjustables {
             latitude: latitude_field.expect("Missing parameter: latitude"),
             season: season_field.expect("Missing parameter: season"),
             day_cycle_minutes: day_cycle_minutes_field.expect("Missing parameter: day_cycle_minutes"),
+            glass_tint: glass_tint_field.expect("Missing parameter: glass_tint"),
+            glass_reflection_strength: glass_reflection_strength_field.expect("Missing parameter: glass_reflection_strength"),
+            glass_ssr_strength: glass_ssr_strength_field.expect("Missing parameter: glass_ssr_strength"),
+            glass_ssr_steps: glass_ssr_steps_field.expect("Missing parameter: glass_ssr_steps"),
+            glass_per_voxel_reflection: glass_per_voxel_reflection_field.expect("Missing parameter: glass_per_voxel_reflection"),
+            glass_ssr_min_hit_thickness_voxels: glass_ssr_min_hit_thickness_voxels_field.expect("Missing parameter: glass_ssr_min_hit_thickness_voxels"),
+            glass_ssr_footprint_pixels: glass_ssr_footprint_pixels_field.expect("Missing parameter: glass_ssr_footprint_pixels"),
+            glass_refraction_strength: glass_refraction_strength_field.expect("Missing parameter: glass_refraction_strength"),
+            glass_alpha: glass_alpha_field.expect("Missing parameter: glass_alpha"),
+            glass_glint_strength: glass_glint_strength_field.expect("Missing parameter: glass_glint_strength"),
+            terrain_shadow_use_vsm: terrain_shadow_use_vsm_field.expect("Missing parameter: terrain_shadow_use_vsm"),
             vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
             vsm_temporal_alpha: vsm_temporal_alpha_field.expect("Missing parameter: vsm_temporal_alpha"),
             leaf_shadow_fragment_opacity: leaf_shadow_fragment_opacity_field.expect("Missing parameter: leaf_shadow_fragment_opacity"),
@@ -3299,11 +3472,14 @@ impl GuiAdjustables {
             is_changing_lum_phi: is_changing_lum_phi_field.expect("Missing parameter: is_changing_lum_phi"),
             is_spatial_denoising_enabled: is_spatial_denoising_enabled_field.expect("Missing parameter: is_spatial_denoising_enabled"),
             a_trous_iteration_count: a_trous_iteration_count_field.expect("Missing parameter: a_trous_iteration_count"),
+            special_flora_plants_per_release: special_flora_plants_per_release_field.expect("Missing parameter: special_flora_plants_per_release"),
+            special_flora_cluster_radius_voxels: special_flora_cluster_radius_voxels_field.expect("Missing parameter: special_flora_cluster_radius_voxels"),
+            special_flora_min_spacing_voxels: special_flora_min_spacing_voxels_field.expect("Missing parameter: special_flora_min_spacing_voxels"),
+            special_flora_cluster_bias: special_flora_cluster_bias_field.expect("Missing parameter: special_flora_cluster_bias"),
+            special_flora_outlier_chance: special_flora_outlier_chance_field.expect("Missing parameter: special_flora_outlier_chance"),
             grass_natural_bend_min_voxels: grass_natural_bend_min_voxels_field.expect("Missing parameter: grass_natural_bend_min_voxels"),
             grass_natural_bend_max_voxels: grass_natural_bend_max_voxels_field.expect("Missing parameter: grass_natural_bend_max_voxels"),
             flora_bend_height_power: flora_bend_height_power_field.expect("Missing parameter: flora_bend_height_power"),
-            flora_player_push_radius: flora_player_push_radius_field.expect("Missing parameter: flora_player_push_radius"),
-            flora_player_push_strength: flora_player_push_strength_field.expect("Missing parameter: flora_player_push_strength"),
             grass_vibration_amplitude_voxels: grass_vibration_amplitude_voxels_field.expect("Missing parameter: grass_vibration_amplitude_voxels"),
             grass_vibration_primary_speed: grass_vibration_primary_speed_field.expect("Missing parameter: grass_vibration_primary_speed"),
             grass_vibration_secondary_speed: grass_vibration_secondary_speed_field.expect("Missing parameter: grass_vibration_secondary_speed"),
@@ -3322,12 +3498,6 @@ impl GuiAdjustables {
             grass_bottom_light_color: grass_bottom_light_color_field.expect("Missing parameter: grass_bottom_light_color"),
             grass_tip_dark_color: grass_tip_dark_color_field.expect("Missing parameter: grass_tip_dark_color"),
             grass_tip_light_color: grass_tip_light_color_field.expect("Missing parameter: grass_tip_light_color"),
-            ocean_deep_color: ocean_deep_color_field.expect("Missing parameter: ocean_deep_color"),
-            ocean_shallow_color: ocean_shallow_color_field.expect("Missing parameter: ocean_shallow_color"),
-            ocean_normal_amplitude: ocean_normal_amplitude_field.expect("Missing parameter: ocean_normal_amplitude"),
-            ocean_noise_frequency: ocean_noise_frequency_field.expect("Missing parameter: ocean_noise_frequency"),
-            ocean_time_multiplier: ocean_time_multiplier_field.expect("Missing parameter: ocean_time_multiplier"),
-            ocean_sea_level_shift: ocean_sea_level_shift_field.expect("Missing parameter: ocean_sea_level_shift"),
             clouds_enabled: clouds_enabled_field.expect("Missing parameter: clouds_enabled"),
             cloud_coverage: cloud_coverage_field.expect("Missing parameter: cloud_coverage"),
             cloud_density: cloud_density_field.expect("Missing parameter: cloud_density"),
@@ -3345,7 +3515,6 @@ impl GuiAdjustables {
             cloud_silver_intensity: cloud_silver_intensity_field.expect("Missing parameter: cloud_silver_intensity"),
             cloud_max_distance: cloud_max_distance_field.expect("Missing parameter: cloud_max_distance"),
             cloud_shadows_enabled: cloud_shadows_enabled_field.expect("Missing parameter: cloud_shadows_enabled"),
-            cloud_shadow_debug_overlay: cloud_shadow_debug_overlay_field.expect("Missing parameter: cloud_shadow_debug_overlay"),
             cloud_shadow_strength: cloud_shadow_strength_field.expect("Missing parameter: cloud_shadow_strength"),
             cloud_shadow_min_transmittance: cloud_shadow_min_transmittance_field.expect("Missing parameter: cloud_shadow_min_transmittance"),
             cloud_shadow_steps: cloud_shadow_steps_field.expect("Missing parameter: cloud_shadow_steps"),
@@ -3368,17 +3537,20 @@ impl GuiAdjustables {
             water_wall_damping: water_wall_damping_field.expect("Missing parameter: water_wall_damping"),
             water_terrain_tangent_damping: water_terrain_tangent_damping_field.expect("Missing parameter: water_terrain_tangent_damping"),
             ember_bloom_bottom_color: ember_bloom_bottom_color_field.expect("Missing parameter: ember_bloom_bottom_color"),
-            ember_bloom_tip_color: ember_bloom_tip_color_field.expect("Missing parameter: ember_bloom_tip_color"),
+            ember_bloom_stem_tip_color: ember_bloom_stem_tip_color_field.expect("Missing parameter: ember_bloom_stem_tip_color"),
+            ember_bloom_flower_purple_color: ember_bloom_flower_purple_color_field.expect("Missing parameter: ember_bloom_flower_purple_color"),
+            ember_bloom_flower_secondary_color: ember_bloom_flower_secondary_color_field.expect("Missing parameter: ember_bloom_flower_secondary_color"),
+            flora_spawn_duration_seconds: flora_spawn_duration_seconds_field.expect("Missing parameter: flora_spawn_duration_seconds"),
+            flora_spawn_rise_fraction: flora_spawn_rise_fraction_field.expect("Missing parameter: flora_spawn_rise_fraction"),
+            flora_spawn_overshoot_min_voxels: flora_spawn_overshoot_min_voxels_field.expect("Missing parameter: flora_spawn_overshoot_min_voxels"),
+            flora_spawn_overshoot_max_voxels: flora_spawn_overshoot_max_voxels_field.expect("Missing parameter: flora_spawn_overshoot_max_voxels"),
+            flora_spawn_stagger_seconds: flora_spawn_stagger_seconds_field.expect("Missing parameter: flora_spawn_stagger_seconds"),
             flora_instance_hue_offset: flora_instance_hue_offset_field.expect("Missing parameter: flora_instance_hue_offset"),
             flora_instance_saturation_offset: flora_instance_saturation_offset_field.expect("Missing parameter: flora_instance_saturation_offset"),
             flora_instance_value_offset: flora_instance_value_offset_field.expect("Missing parameter: flora_instance_value_offset"),
             flora_voxel_hue_offset: flora_voxel_hue_offset_field.expect("Missing parameter: flora_voxel_hue_offset"),
             flora_voxel_saturation_offset: flora_voxel_saturation_offset_field.expect("Missing parameter: flora_voxel_saturation_offset"),
             flora_voxel_value_offset: flora_voxel_value_offset_field.expect("Missing parameter: flora_voxel_value_offset"),
-            leaves_inner_density: leaves_inner_density_field.expect("Missing parameter: leaves_inner_density"),
-            leaves_outer_density: leaves_outer_density_field.expect("Missing parameter: leaves_outer_density"),
-            leaves_inner_radius: leaves_inner_radius_field.expect("Missing parameter: leaves_inner_radius"),
-            leaves_outer_radius: leaves_outer_radius_field.expect("Missing parameter: leaves_outer_radius"),
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
@@ -3414,6 +3586,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "lod_distance" => Some(&adjustables.lod_distance),
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
+        "terrain_edit_preview_alpha" => Some(&adjustables.terrain_edit_preview_alpha),
         "wind_directional_bias_fraction" => Some(&adjustables.wind_directional_bias_fraction),
         "wind_turbulence_fraction" => Some(&adjustables.wind_turbulence_fraction),
         "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
@@ -3463,6 +3636,13 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "latitude" => Some(&adjustables.latitude),
         "season" => Some(&adjustables.season),
         "day_cycle_minutes" => Some(&adjustables.day_cycle_minutes),
+        "glass_reflection_strength" => Some(&adjustables.glass_reflection_strength),
+        "glass_ssr_strength" => Some(&adjustables.glass_ssr_strength),
+        "glass_ssr_min_hit_thickness_voxels" => Some(&adjustables.glass_ssr_min_hit_thickness_voxels),
+        "glass_ssr_footprint_pixels" => Some(&adjustables.glass_ssr_footprint_pixels),
+        "glass_refraction_strength" => Some(&adjustables.glass_refraction_strength),
+        "glass_alpha" => Some(&adjustables.glass_alpha),
+        "glass_glint_strength" => Some(&adjustables.glass_glint_strength),
         "vsm_temporal_alpha" => Some(&adjustables.vsm_temporal_alpha),
         "leaf_shadow_fragment_opacity" => Some(&adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&adjustables.leaf_shadow_strength),
@@ -3490,11 +3670,13 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "min_phi_z" => Some(&adjustables.min_phi_z),
         "max_phi_z" => Some(&adjustables.max_phi_z),
         "phi_z_stable_sample_count" => Some(&adjustables.phi_z_stable_sample_count),
+        "special_flora_cluster_radius_voxels" => Some(&adjustables.special_flora_cluster_radius_voxels),
+        "special_flora_min_spacing_voxels" => Some(&adjustables.special_flora_min_spacing_voxels),
+        "special_flora_cluster_bias" => Some(&adjustables.special_flora_cluster_bias),
+        "special_flora_outlier_chance" => Some(&adjustables.special_flora_outlier_chance),
         "grass_natural_bend_min_voxels" => Some(&adjustables.grass_natural_bend_min_voxels),
         "grass_natural_bend_max_voxels" => Some(&adjustables.grass_natural_bend_max_voxels),
         "flora_bend_height_power" => Some(&adjustables.flora_bend_height_power),
-        "flora_player_push_radius" => Some(&adjustables.flora_player_push_radius),
-        "flora_player_push_strength" => Some(&adjustables.flora_player_push_strength),
         "grass_vibration_amplitude_voxels" => Some(&adjustables.grass_vibration_amplitude_voxels),
         "grass_vibration_primary_speed" => Some(&adjustables.grass_vibration_primary_speed),
         "grass_vibration_secondary_speed" => Some(&adjustables.grass_vibration_secondary_speed),
@@ -3509,10 +3691,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_paddle_frequency_wind_knee_bias" => Some(&adjustables.leaf_paddle_frequency_wind_knee_bias),
         "leaf_paddle_frequency_min_multiplier" => Some(&adjustables.leaf_paddle_frequency_min_multiplier),
         "leaf_paddle_frequency_max_multiplier" => Some(&adjustables.leaf_paddle_frequency_max_multiplier),
-        "ocean_normal_amplitude" => Some(&adjustables.ocean_normal_amplitude),
-        "ocean_noise_frequency" => Some(&adjustables.ocean_noise_frequency),
-        "ocean_time_multiplier" => Some(&adjustables.ocean_time_multiplier),
-        "ocean_sea_level_shift" => Some(&adjustables.ocean_sea_level_shift),
         "cloud_coverage" => Some(&adjustables.cloud_coverage),
         "cloud_density" => Some(&adjustables.cloud_density),
         "cloud_bottom_height" => Some(&adjustables.cloud_bottom_height),
@@ -3546,16 +3724,17 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "water_j_min" => Some(&adjustables.water_j_min),
         "water_wall_damping" => Some(&adjustables.water_wall_damping),
         "water_terrain_tangent_damping" => Some(&adjustables.water_terrain_tangent_damping),
+        "flora_spawn_duration_seconds" => Some(&adjustables.flora_spawn_duration_seconds),
+        "flora_spawn_rise_fraction" => Some(&adjustables.flora_spawn_rise_fraction),
+        "flora_spawn_overshoot_min_voxels" => Some(&adjustables.flora_spawn_overshoot_min_voxels),
+        "flora_spawn_overshoot_max_voxels" => Some(&adjustables.flora_spawn_overshoot_max_voxels),
+        "flora_spawn_stagger_seconds" => Some(&adjustables.flora_spawn_stagger_seconds),
         "flora_instance_hue_offset" => Some(&adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&adjustables.flora_instance_value_offset),
         "flora_voxel_hue_offset" => Some(&adjustables.flora_voxel_hue_offset),
         "flora_voxel_saturation_offset" => Some(&adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&adjustables.flora_voxel_value_offset),
-        "leaves_inner_density" => Some(&adjustables.leaves_inner_density),
-        "leaves_outer_density" => Some(&adjustables.leaves_outer_density),
-        "leaves_inner_radius" => Some(&adjustables.leaves_inner_radius),
-        "leaves_outer_radius" => Some(&adjustables.leaves_outer_radius),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
         "butterflies_per_chunk" => Some(&adjustables.butterflies_per_chunk),
         "butterfly_height_offset_min" => Some(&adjustables.butterfly_height_offset_min),
@@ -3596,9 +3775,11 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_3_octaves" => Some(&adjustables.wind_source_3_octaves),
         "audio_hrtf_backend" => Some(&adjustables.audio_hrtf_backend),
         "audio_ambisonics_backend" => Some(&adjustables.audio_ambisonics_backend),
+        "glass_ssr_steps" => Some(&adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
+        "special_flora_plants_per_release" => Some(&adjustables.special_flora_plants_per_release),
         "cloud_primary_steps" => Some(&adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&adjustables.cloud_shadow_steps),
@@ -3633,11 +3814,12 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "audio_use_ambisonics" => Some(&adjustables.audio_use_ambisonics),
         "audio_ray_tracing_enabled" => Some(&adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
+        "glass_per_voxel_reflection" => Some(&adjustables.glass_per_voxel_reflection),
+        "terrain_shadow_use_vsm" => Some(&adjustables.terrain_shadow_use_vsm),
         "is_changing_lum_phi" => Some(&adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&adjustables.is_spatial_denoising_enabled),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
-        "cloud_shadow_debug_overlay" => Some(&adjustables.cloud_shadow_debug_overlay),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         _ => None,
@@ -3649,14 +3831,15 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
     match id {
         "sun_color" => Some(&adjustables.sun_color),
         "ambient_light" => Some(&adjustables.ambient_light),
+        "glass_tint" => Some(&adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&adjustables.grass_bottom_dark_color),
         "grass_bottom_light_color" => Some(&adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&adjustables.grass_tip_dark_color),
         "grass_tip_light_color" => Some(&adjustables.grass_tip_light_color),
-        "ocean_deep_color" => Some(&adjustables.ocean_deep_color),
-        "ocean_shallow_color" => Some(&adjustables.ocean_shallow_color),
         "ember_bloom_bottom_color" => Some(&adjustables.ember_bloom_bottom_color),
-        "ember_bloom_tip_color" => Some(&adjustables.ember_bloom_tip_color),
+        "ember_bloom_stem_tip_color" => Some(&adjustables.ember_bloom_stem_tip_color),
+        "ember_bloom_flower_purple_color" => Some(&adjustables.ember_bloom_flower_purple_color),
+        "ember_bloom_flower_secondary_color" => Some(&adjustables.ember_bloom_flower_secondary_color),
         "leaves_bottom_color" => Some(&adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&adjustables.voxel_dirt_color),
@@ -3675,6 +3858,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "lod_distance" => Some(&mut adjustables.lod_distance),
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
+        "terrain_edit_preview_alpha" => Some(&mut adjustables.terrain_edit_preview_alpha),
         "wind_directional_bias_fraction" => Some(&mut adjustables.wind_directional_bias_fraction),
         "wind_turbulence_fraction" => Some(&mut adjustables.wind_turbulence_fraction),
         "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
@@ -3724,6 +3908,13 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "latitude" => Some(&mut adjustables.latitude),
         "season" => Some(&mut adjustables.season),
         "day_cycle_minutes" => Some(&mut adjustables.day_cycle_minutes),
+        "glass_reflection_strength" => Some(&mut adjustables.glass_reflection_strength),
+        "glass_ssr_strength" => Some(&mut adjustables.glass_ssr_strength),
+        "glass_ssr_min_hit_thickness_voxels" => Some(&mut adjustables.glass_ssr_min_hit_thickness_voxels),
+        "glass_ssr_footprint_pixels" => Some(&mut adjustables.glass_ssr_footprint_pixels),
+        "glass_refraction_strength" => Some(&mut adjustables.glass_refraction_strength),
+        "glass_alpha" => Some(&mut adjustables.glass_alpha),
+        "glass_glint_strength" => Some(&mut adjustables.glass_glint_strength),
         "vsm_temporal_alpha" => Some(&mut adjustables.vsm_temporal_alpha),
         "leaf_shadow_fragment_opacity" => Some(&mut adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&mut adjustables.leaf_shadow_strength),
@@ -3751,11 +3942,13 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "min_phi_z" => Some(&mut adjustables.min_phi_z),
         "max_phi_z" => Some(&mut adjustables.max_phi_z),
         "phi_z_stable_sample_count" => Some(&mut adjustables.phi_z_stable_sample_count),
+        "special_flora_cluster_radius_voxels" => Some(&mut adjustables.special_flora_cluster_radius_voxels),
+        "special_flora_min_spacing_voxels" => Some(&mut adjustables.special_flora_min_spacing_voxels),
+        "special_flora_cluster_bias" => Some(&mut adjustables.special_flora_cluster_bias),
+        "special_flora_outlier_chance" => Some(&mut adjustables.special_flora_outlier_chance),
         "grass_natural_bend_min_voxels" => Some(&mut adjustables.grass_natural_bend_min_voxels),
         "grass_natural_bend_max_voxels" => Some(&mut adjustables.grass_natural_bend_max_voxels),
         "flora_bend_height_power" => Some(&mut adjustables.flora_bend_height_power),
-        "flora_player_push_radius" => Some(&mut adjustables.flora_player_push_radius),
-        "flora_player_push_strength" => Some(&mut adjustables.flora_player_push_strength),
         "grass_vibration_amplitude_voxels" => Some(&mut adjustables.grass_vibration_amplitude_voxels),
         "grass_vibration_primary_speed" => Some(&mut adjustables.grass_vibration_primary_speed),
         "grass_vibration_secondary_speed" => Some(&mut adjustables.grass_vibration_secondary_speed),
@@ -3770,10 +3963,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_paddle_frequency_wind_knee_bias" => Some(&mut adjustables.leaf_paddle_frequency_wind_knee_bias),
         "leaf_paddle_frequency_min_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_min_multiplier),
         "leaf_paddle_frequency_max_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_max_multiplier),
-        "ocean_normal_amplitude" => Some(&mut adjustables.ocean_normal_amplitude),
-        "ocean_noise_frequency" => Some(&mut adjustables.ocean_noise_frequency),
-        "ocean_time_multiplier" => Some(&mut adjustables.ocean_time_multiplier),
-        "ocean_sea_level_shift" => Some(&mut adjustables.ocean_sea_level_shift),
         "cloud_coverage" => Some(&mut adjustables.cloud_coverage),
         "cloud_density" => Some(&mut adjustables.cloud_density),
         "cloud_bottom_height" => Some(&mut adjustables.cloud_bottom_height),
@@ -3807,16 +3996,17 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "water_j_min" => Some(&mut adjustables.water_j_min),
         "water_wall_damping" => Some(&mut adjustables.water_wall_damping),
         "water_terrain_tangent_damping" => Some(&mut adjustables.water_terrain_tangent_damping),
+        "flora_spawn_duration_seconds" => Some(&mut adjustables.flora_spawn_duration_seconds),
+        "flora_spawn_rise_fraction" => Some(&mut adjustables.flora_spawn_rise_fraction),
+        "flora_spawn_overshoot_min_voxels" => Some(&mut adjustables.flora_spawn_overshoot_min_voxels),
+        "flora_spawn_overshoot_max_voxels" => Some(&mut adjustables.flora_spawn_overshoot_max_voxels),
+        "flora_spawn_stagger_seconds" => Some(&mut adjustables.flora_spawn_stagger_seconds),
         "flora_instance_hue_offset" => Some(&mut adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&mut adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&mut adjustables.flora_instance_value_offset),
         "flora_voxel_hue_offset" => Some(&mut adjustables.flora_voxel_hue_offset),
         "flora_voxel_saturation_offset" => Some(&mut adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&mut adjustables.flora_voxel_value_offset),
-        "leaves_inner_density" => Some(&mut adjustables.leaves_inner_density),
-        "leaves_outer_density" => Some(&mut adjustables.leaves_outer_density),
-        "leaves_inner_radius" => Some(&mut adjustables.leaves_inner_radius),
-        "leaves_outer_radius" => Some(&mut adjustables.leaves_outer_radius),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
         "butterflies_per_chunk" => Some(&mut adjustables.butterflies_per_chunk),
         "butterfly_height_offset_min" => Some(&mut adjustables.butterfly_height_offset_min),
@@ -3857,9 +4047,11 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_3_octaves" => Some(&mut adjustables.wind_source_3_octaves),
         "audio_hrtf_backend" => Some(&mut adjustables.audio_hrtf_backend),
         "audio_ambisonics_backend" => Some(&mut adjustables.audio_ambisonics_backend),
+        "glass_ssr_steps" => Some(&mut adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
+        "special_flora_plants_per_release" => Some(&mut adjustables.special_flora_plants_per_release),
         "cloud_primary_steps" => Some(&mut adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&mut adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&mut adjustables.cloud_shadow_steps),
@@ -3894,11 +4086,12 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "audio_use_ambisonics" => Some(&mut adjustables.audio_use_ambisonics),
         "audio_ray_tracing_enabled" => Some(&mut adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
+        "glass_per_voxel_reflection" => Some(&mut adjustables.glass_per_voxel_reflection),
+        "terrain_shadow_use_vsm" => Some(&mut adjustables.terrain_shadow_use_vsm),
         "is_changing_lum_phi" => Some(&mut adjustables.is_changing_lum_phi),
         "is_spatial_denoising_enabled" => Some(&mut adjustables.is_spatial_denoising_enabled),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
-        "cloud_shadow_debug_overlay" => Some(&mut adjustables.cloud_shadow_debug_overlay),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         _ => None,
@@ -3910,14 +4103,15 @@ pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
     match id {
         "sun_color" => Some(&mut adjustables.sun_color),
         "ambient_light" => Some(&mut adjustables.ambient_light),
+        "glass_tint" => Some(&mut adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&mut adjustables.grass_bottom_dark_color),
         "grass_bottom_light_color" => Some(&mut adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&mut adjustables.grass_tip_dark_color),
         "grass_tip_light_color" => Some(&mut adjustables.grass_tip_light_color),
-        "ocean_deep_color" => Some(&mut adjustables.ocean_deep_color),
-        "ocean_shallow_color" => Some(&mut adjustables.ocean_shallow_color),
         "ember_bloom_bottom_color" => Some(&mut adjustables.ember_bloom_bottom_color),
-        "ember_bloom_tip_color" => Some(&mut adjustables.ember_bloom_tip_color),
+        "ember_bloom_stem_tip_color" => Some(&mut adjustables.ember_bloom_stem_tip_color),
+        "ember_bloom_flower_purple_color" => Some(&mut adjustables.ember_bloom_flower_purple_color),
+        "ember_bloom_flower_secondary_color" => Some(&mut adjustables.ember_bloom_flower_secondary_color),
         "leaves_bottom_color" => Some(&mut adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&mut adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&mut adjustables.voxel_dirt_color),

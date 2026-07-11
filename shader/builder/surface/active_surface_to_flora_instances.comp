@@ -2,15 +2,15 @@
 
 #extension GL_GOOGLE_include_directive : require
 
-#include "../../include/core/gradient_noise.glsl"
-#include "../../include/core/hash.glsl"
 #include "../../include/flora_registry.glsl"
+#include "../../include/flora_placement.glsl"
 
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) readonly uniform U_OccupancyToInstancesInfo {
     uvec3 chunk_world_offset;
     uvec3 chunk_dim;
+    uint spawn_time_ms;
 }
 occupancy_to_instances_info;
 
@@ -42,93 +42,56 @@ manual_flora_instances;
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
 
-void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal,
-                         out bool o_is_normal_valid) {
-    o_voxel_type      = voxel_type_from_data(packed);
-    uint normal_bits  = voxel_normal_bits_from_data(packed);
-    o_is_normal_valid = voxel_normal_valid_from_data(packed);
-    o_normal          = unpack_normal_v2(normal_bits);
+void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal) {
+    o_voxel_type = voxel_type_from_data(packed);
+    o_normal     = voxel_surface_normal_from_data(packed);
 }
 
-float hash(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * .1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
-void add_flora_instance(ivec3 stem_world_pos, ivec3 base_world_pos, uint species_idx,
-                        uint growth_progress) {
+void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_progress) {
     uint write_idx = atomicAdd(occupancy_to_instances_result.flora_instance_len[species_idx], 1u);
     Instance instance;
-    set_instance_local_pos_growth(instance,
-                                  uvec3(stem_world_pos) - occupancy_to_instances_info.chunk_world_offset,
-                                  growth_progress);
+    initialize_flora_instance(
+        instance, uvec3(base_world_pos) - occupancy_to_instances_info.chunk_world_offset,
+        growth_progress, INSTANCE_SPAWN_INACTIVE);
     manual_flora_instances.data[flora_species_instance_offset(species_idx) + write_idx] = instance;
     if (growth_progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
         atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);
     }
 }
 
-void calculate_density_placement(ivec3 world_pos, out bool o_allow_any_flora,
-                                 out bool o_allow_tall_grass,
-                                 out bool o_allow_short_grass) {
-    float rng_any_flora  = hash(vec2(world_pos.x, world_pos.z));
-    float rng_tall_grass = hash(vec2(world_pos.x + 17.0, world_pos.z - 29.0));
-    float rng_short_grass = hash(vec2(world_pos.x - 53.0, world_pos.z + 91.0));
-
-    float density_noise = cnoise_seeded(vec2(float(world_pos.x), float(world_pos.z)) * 5.0, 42u);
-
-    float placement_threshold = (density_noise + 1.0) * 0.5;
-    placement_threshold       = clamp(0.08 + placement_threshold * 0.22, 0.0, 1.0);
-
-    float grass_placement_threshold = clamp(placement_threshold * 1.5, 0.0, 1.0);
-    float tall_grass_threshold      = clamp(grass_placement_threshold * 0.30, 0.0, 1.0);
-    float short_grass_threshold     = clamp(grass_placement_threshold * 0.8, 0.0, 1.0);
-
-    o_allow_any_flora   = rng_any_flora < placement_threshold;
-    o_allow_tall_grass  = rng_tall_grass < tall_grass_threshold;
-    o_allow_short_grass = rng_short_grass < short_grass_threshold;
-}
-
 bool is_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }
 
-bool check_surface_plantability(uint voxel_type, vec3 normal, bool is_normal_valid,
-                                ivec3 world_pos) {
-    if (!is_normal_valid || !is_surface_plantable(voxel_type)) {
+bool check_surface_plantability(uint voxel_type, vec3 normal, ivec3 world_pos) {
+    if (!is_surface_plantable(voxel_type)) {
         return false;
     }
 
     vec3 up                = vec3(0.0, 1.0, 0.0);
     float surface_flatness = dot(normal, up);
     float spawn_chance     = smoothstep(0.5, 1.0, surface_flatness);
-    float rng_stiffness    = hash(vec2(world_pos.x + 123.0, world_pos.z + 456.0));
+    float rng_stiffness    = flora_legacy_hash(vec2(world_pos.x + 123.0, world_pos.z + 456.0));
 
     return rng_stiffness <= spawn_chance;
 }
 
 bool select_flora_biome(ivec3 world_pos, out uint o_flora_type) {
-    float biome_val = cnoise_seeded(vec2(float(world_pos.x), float(world_pos.z)) * 0.02, 1337u);
-
-    float species_rng = hash(vec2(world_pos.x + 42.0, world_pos.z - 15.0));
-
-    const float lavender_sparsity        = 0.10;
-    const float ember_bloom_sparsity     = 0.01;
-    const float grass_decreased_sparsity = 0.45;
+    float biome_val   = cnoise_seeded(vec2(float(world_pos.x), float(world_pos.z)) * 0.02, 1337u);
+    float species_rng = flora_sparse_species_rng(world_pos);
 
     o_flora_type = FLORA_SPECIES_TALL_GRASS;
 
     if (biome_val > 0.3) {
-        if (species_rng < lavender_sparsity) {
+        if (species_rng < FLORA_LAVENDER_SPARSE_THRESHOLD) {
             o_flora_type = FLORA_SPECIES_LAVENDER;
-        } else if (species_rng < grass_decreased_sparsity) {
+        } else if (species_rng < FLORA_GRASS_DECREASED_SPARSE_THRESHOLD) {
             o_flora_type = FLORA_SPECIES_TALL_GRASS;
         } else {
             return false;
         }
     } else if (biome_val < -0.3) {
-        if (species_rng < ember_bloom_sparsity) {
+        if (species_rng < FLORA_EMBER_BLOOM_SPARSE_THRESHOLD) {
             o_flora_type = FLORA_SPECIES_EMBER_BLOOM;
-        } else if (species_rng < grass_decreased_sparsity) {
+        } else if (species_rng < FLORA_GRASS_DECREASED_SPARSE_THRESHOLD) {
             o_flora_type = FLORA_SPECIES_TALL_GRASS;
         } else {
             return false;
@@ -219,30 +182,22 @@ void main() {
         return;
     }
 
-    uvec3 stem_local_u = base_local_u + uvec3(0u, 1u, 0u);
-    if (any(greaterThanEqual(stem_local_u, occupancy_to_instances_info.chunk_dim))) {
-        return;
-    }
-
     uint voxel_type;
     vec3 normal;
-    bool is_normal_valid;
-    unpack_surface_data(surface_data, voxel_type, normal, is_normal_valid);
+    unpack_surface_data(surface_data, voxel_type, normal);
 
     ivec3 base_local     = ivec3(base_local_u);
-    ivec3 stem_local     = ivec3(stem_local_u);
     ivec3 world_base_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + base_local;
-    ivec3 world_stem_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + stem_local;
 
     bool allow_any_flora, allow_tall_grass, allow_short_grass;
-    calculate_density_placement(world_base_pos, allow_any_flora, allow_tall_grass,
-                                allow_short_grass);
+    calculate_flora_density_placement(world_base_pos, allow_any_flora, allow_tall_grass,
+                                      allow_short_grass);
 
     if (!(allow_any_flora || allow_tall_grass || allow_short_grass)) {
         return;
     }
 
-    if (!check_surface_plantability(voxel_type, normal, is_normal_valid, world_base_pos)) {
+    if (!check_surface_plantability(voxel_type, normal, world_base_pos)) {
         return;
     }
 
@@ -252,6 +207,5 @@ void main() {
         return;
     }
 
-    add_flora_instance(world_stem_pos, world_base_pos, flora_type,
-                       INSTANCE_GROWTH_PROGRESS_MATURE);
+    add_flora_instance(world_base_pos, flora_type, INSTANCE_GROWTH_PROGRESS_MATURE);
 }

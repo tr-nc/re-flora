@@ -1,32 +1,44 @@
 use super::App;
 use crate::app::world_edits::{
-    BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainRemovalEdit,
-    TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
+    BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
+    TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
 };
 use crate::app::world_ops;
 use crate::builder::{ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_OAK_WOOD};
+use crate::flora::species;
 use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
-use crate::tree_gen::{Tree, TreeDesc};
+use crate::tree_gen::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
 use crate::util::cluster_positions;
 use anyhow::Result;
-use glam::{UVec3, Vec2, Vec3};
+use glam::{IVec3, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
 use std::collections::HashSet;
 use std::time::Instant;
+
+const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
+const AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT: u32 = 48;
+
+#[derive(Clone, Copy, Debug)]
+struct SpecialFloraDistributionParams {
+    plants_per_release: u32,
+    cluster_radius_voxels: f32,
+    min_spacing_voxels: f32,
+    cluster_bias: f32,
+    outlier_chance: f32,
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct TreeVariationConfig {
     pub size_variance: f32,
     pub trunk_thickness_variance: f32,
-    pub trunk_thickness_min_variance: f32,
     pub spread_variance: f32,
     pub randomness_variance: f32,
     pub vertical_tendency_variance: f32,
     pub branch_probability_variance: f32,
     pub leaves_size_level_variance: f32,
     pub iterations_variance: f32,
-    pub tree_height_variance: f32,
+    pub initial_length_variance: f32,
     pub length_dropoff_variance: f32,
     pub thickness_reduction_variance: f32,
 }
@@ -36,14 +48,13 @@ impl Default for TreeVariationConfig {
         TreeVariationConfig {
             size_variance: 0.0,
             trunk_thickness_variance: 0.0,
-            trunk_thickness_min_variance: 0.0,
             spread_variance: 0.0,
             randomness_variance: 0.0,
             vertical_tendency_variance: 0.0,
             branch_probability_variance: 0.0,
             leaves_size_level_variance: 0.0,
             iterations_variance: 0.0,
-            tree_height_variance: 0.0,
+            initial_length_variance: 0.0,
             length_dropoff_variance: 0.0,
             thickness_reduction_variance: 0.0,
         }
@@ -68,12 +79,6 @@ impl TreeVariationConfig {
             .changed();
         changed |= ui
             .add(
-                egui::Slider::new(&mut self.trunk_thickness_min_variance, 0.0..=1.0)
-                    .text("Min Thickness Variance"),
-            )
-            .changed();
-        changed |= ui
-            .add(
                 egui::Slider::new(&mut self.iterations_variance, 0.0..=5.0)
                     .text("Iterations Variance"),
             )
@@ -84,8 +89,8 @@ impl TreeVariationConfig {
 
         changed |= ui
             .add(
-                egui::Slider::new(&mut self.tree_height_variance, 0.0..=1.0)
-                    .text("Height Variance"),
+                egui::Slider::new(&mut self.initial_length_variance, 0.0..=1.0)
+                    .text("Initial Length Variance"),
             )
             .changed();
         changed |= ui
@@ -147,6 +152,10 @@ struct CompiledFencePlacement {
 
 struct CompiledTerrainSurfaceRemoval {
     voxel_edit: VoxelEdit,
+    rebuild_bound: UAabb3,
+}
+
+struct CompiledTerrainBrushSurfaceEdit {
     rebuild_bound: UAabb3,
 }
 
@@ -253,22 +262,31 @@ impl TerrainSurfaceRemovalService {
             min_f.y.max(0.0).floor() as u32,
             min_f.z.max(0.0).floor() as u32,
         )
-        .min(max_inclusive);
-        let max = UVec3::new(
+        .min(world_dim);
+        let max_exclusive = UVec3::new(
             max_f.x.max(0.0).ceil() as u32,
             max_f.y.max(0.0).ceil() as u32,
             max_f.z.max(0.0).ceil() as u32,
         )
-        .min(max_inclusive);
-        if min.cmpgt(max).any() {
+        .min(world_dim);
+        if min.cmpge(max_exclusive).any() {
             return None;
         }
 
-        let clipped_aabb = crate::geom::Aabb3::new(min.as_vec3(), max.as_vec3());
+        // The voxel modify dispatch treats the BVH AABB max as exclusive. Keep it clipped to
+        // `world_dim` rather than `world_dim - 1`; otherwise the positive atlas edge (voxel 255
+        // in the default 256³ chunk) is never dispatched and cannot be dug away.
+        let clipped_aabb = crate::geom::Aabb3::new(min.as_vec3(), max_exclusive.as_vec3());
         let bvh_nodes = build_bvh(&[clipped_aabb], &[0_u32]).ok()?;
+        let rebuild_max = UVec3::new(
+            max_exclusive.x.saturating_sub(1),
+            max_exclusive.y.saturating_sub(1),
+            max_exclusive.z.saturating_sub(1),
+        )
+        .min(max_inclusive);
         let rebuild_bound = UAabb3::new(
             bvh_nodes[0].aabb.min_uvec3().min(max_inclusive),
-            bvh_nodes[0].aabb.max_uvec3().min(max_inclusive),
+            rebuild_max,
         );
 
         Some(CompiledTerrainSurfaceRemoval {
@@ -280,6 +298,60 @@ impl TerrainSurfaceRemovalService {
             rebuild_bound,
         })
     }
+
+    fn compile_surface_brush(edit: TerrainBrushEdit) -> Option<CompiledTerrainBrushSurfaceEdit> {
+        if edit.radius <= 0.0 {
+            return None;
+        }
+
+        let start_voxel = edit.start * 256.0;
+        let end_voxel = edit.end * 256.0;
+        let radius_voxel = edit.radius * 256.0;
+        let min_f = start_voxel.min(end_voxel) - Vec3::splat(radius_voxel);
+        let max_f = start_voxel.max(end_voxel) + Vec3::splat(radius_voxel);
+        let world_dim = super::VOXEL_DIM_PER_CHUNK * super::CHUNK_DIM;
+        let max_inclusive = world_dim - UVec3::ONE;
+        if max_f.x < 0.0
+            || max_f.y < 0.0
+            || max_f.z < 0.0
+            || min_f.x > max_inclusive.x as f32
+            || min_f.y > max_inclusive.y as f32
+            || min_f.z > max_inclusive.z as f32
+        {
+            return None;
+        }
+
+        let min = UVec3::new(
+            min_f.x.max(0.0).floor() as u32,
+            min_f.y.max(0.0).floor() as u32,
+            min_f.z.max(0.0).floor() as u32,
+        )
+        .min(world_dim);
+        let max_exclusive = UVec3::new(
+            max_f.x.max(0.0).ceil() as u32,
+            max_f.y.max(0.0).ceil() as u32,
+            max_f.z.max(0.0).ceil() as u32,
+        )
+        .min(world_dim);
+        if min.cmpge(max_exclusive).any() {
+            return None;
+        }
+
+        let clipped_aabb = crate::geom::Aabb3::new(min.as_vec3(), max_exclusive.as_vec3());
+        let bvh_nodes = build_bvh(&[clipped_aabb], &[0_u32]).ok()?;
+        let rebuild_max = UVec3::new(
+            max_exclusive.x.saturating_sub(1),
+            max_exclusive.y.saturating_sub(1),
+            max_exclusive.z.saturating_sub(1),
+        )
+        .min(max_inclusive);
+        let rebuild_bound = UAabb3::new(
+            bvh_nodes[0].aabb.min_uvec3().min(max_inclusive),
+            rebuild_max,
+        );
+
+        Some(CompiledTerrainBrushSurfaceEdit { rebuild_bound })
+    }
 }
 
 struct CompiledTreePlacement {
@@ -288,6 +360,8 @@ struct CompiledTreePlacement {
     tree_pos: Vec3,
     this_bound: UAabb3,
     quantized_leaf_positions: Vec<UVec3>,
+    quantized_leaf_render_positions: Vec<UVec3>,
+    leaf_render_local_positions: Vec<IVec3>,
     quantized_apple_positions: Vec<UVec3>,
     world_leaf_positions: Vec<Vec3>,
 }
@@ -424,14 +498,15 @@ impl TreePlacementService {
 
         let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
         log::info!(
-            "[TREE_DEBUG] compile trunks={} leaves={} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
+            "[TREE_DEBUG] compile trunks={} leaf_anchors={} leaf_instances={} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
             round_cones.len(),
             tree.relative_leaf_positions().len(),
+            tree.relative_leaf_placements().len(),
             tree_desc.size,
             tree_desc.trunk_thickness,
-            tree_desc.trunk_thickness_min,
+            TREE_MIN_TRUNK_THICKNESS,
             tree_desc.thickness_reduction,
-            tree_desc.iterations,
+            tree_desc.branching.iterations,
             radius_min,
             radius_max,
             length_min,
@@ -462,8 +537,24 @@ impl TreePlacementService {
             positions.sort_by_key(|pos| (pos.x, pos.y, pos.z));
             positions
         };
-        let quantized_apple_positions =
-            quantized_apple_positions(tree_desc.seed, tree_pos * 256.0, &quantized_leaf_positions);
+        let mut quantized_leaf_render_data = tree
+            .relative_leaf_placements()
+            .iter()
+            .map(|placement| {
+                let world_pos = (placement.position + tree_pos * 256.0).as_uvec3();
+                let world_anchor = (placement.anchor + tree_pos * 256.0).as_ivec3();
+                (world_pos, world_pos.as_ivec3() - world_anchor)
+            })
+            .collect::<Vec<_>>();
+        quantized_leaf_render_data.sort_by_key(|(pos, _)| (pos.x, pos.y, pos.z));
+        quantized_leaf_render_data.dedup_by_key(|(pos, _)| *pos);
+        let (quantized_leaf_render_positions, leaf_render_local_positions) =
+            quantized_leaf_render_data.into_iter().unzip();
+        let quantized_apple_positions = quantized_apple_positions(
+            tree_desc.branching.seed,
+            tree_pos * 256.0,
+            &quantized_leaf_positions,
+        );
 
         CompiledTreePlacement {
             trunk_voxel_edit: VoxelEdit::StampRoundCones {
@@ -475,10 +566,156 @@ impl TreePlacementService {
             tree_pos,
             this_bound,
             quantized_leaf_positions,
+            quantized_leaf_render_positions,
+            leaf_render_local_positions,
             quantized_apple_positions,
             world_leaf_positions,
         }
     }
+}
+
+fn authored_flora_hash(mut value: u32) -> u32 {
+    value ^= value >> 16;
+    value = value.wrapping_mul(0x7feb_352d);
+    value ^= value >> 15;
+    value = value.wrapping_mul(0x846c_a68b);
+    value ^ (value >> 16)
+}
+
+fn authored_flora_candidate_seed(
+    species_index: u32,
+    paint_dab_serial: u32,
+    plant_index: u32,
+    attempt: u32,
+) -> u32 {
+    let mut seed = paint_dab_serial ^ species_index.wrapping_mul(0x9e37_79b9);
+    seed ^= plant_index.wrapping_mul(0x27d4_eb2d);
+    seed ^= attempt.wrapping_mul(0x1656_67b1);
+    authored_flora_hash(seed)
+}
+
+fn authored_flora_base_center(base_world_vox: UVec3) -> Vec3 {
+    Vec3::new(
+        base_world_vox.x as f32 + 0.5,
+        base_world_vox.y as f32 + 0.5,
+        base_world_vox.z as f32 + 0.5,
+    )
+}
+
+fn authored_flora_xz_distance_sq(a: Vec3, b: Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    dx * dx + dz * dz
+}
+
+fn authored_flora_nearest_xz_distance_sq(
+    candidate_base_center_vox: Vec3,
+    existing_base_centers_vox: &[Vec3],
+    placed_base_centers_vox: &[Vec3],
+) -> f32 {
+    existing_base_centers_vox
+        .iter()
+        .chain(placed_base_centers_vox.iter())
+        .map(|center| authored_flora_xz_distance_sq(candidate_base_center_vox, *center))
+        .fold(f32::INFINITY, f32::min)
+}
+
+fn authored_flora_release_is_outlier(
+    paint_dab_serial: u32,
+    species_index: u32,
+    chance: f32,
+) -> bool {
+    let chance = chance.clamp(0.0, 1.0);
+    if chance <= 0.0 {
+        return false;
+    }
+    let seed = authored_flora_hash(
+        paint_dab_serial ^ species_index.wrapping_mul(0x85eb_ca6b) ^ 0xc2b2_ae35,
+    );
+    authored_flora_unit_from_seed(seed) < chance
+}
+
+fn authored_flora_existing_cluster_anchor(
+    edit: TerrainBrushEdit,
+    existing_base_centers_vox: &[Vec3],
+    cluster_radius_vox: f32,
+    seed: u32,
+) -> Option<Vec3> {
+    let start_vox = edit.start * 256.0;
+    let end_vox = edit.end * 256.0;
+    let brush_radius_vox = edit.radius * 256.0;
+    let influence_radius_sq = (brush_radius_vox + cluster_radius_vox).powi(2);
+    let mut candidates = existing_base_centers_vox
+        .iter()
+        .copied()
+        .filter(|center| distance_sq_to_segment(*center, start_vox, end_vox) <= influence_radius_sq)
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return None;
+    }
+
+    candidates.sort_by(|a, b| {
+        let key_a = authored_flora_hash(
+            seed ^ (a.x.floor() as u32).wrapping_mul(0x9e37_79b9)
+                ^ (a.z.floor() as u32).wrapping_mul(0x7f4a_7c15),
+        );
+        let key_b = authored_flora_hash(
+            seed ^ (b.x.floor() as u32).wrapping_mul(0x9e37_79b9)
+                ^ (b.z.floor() as u32).wrapping_mul(0x7f4a_7c15),
+        );
+        key_a.cmp(&key_b)
+    });
+    candidates.into_iter().next()
+}
+
+fn authored_flora_natural_candidate_score(
+    candidate_base_center_vox: Vec3,
+    cluster_anchor_vox: Vec3,
+    existing_base_centers_vox: &[Vec3],
+    placed_base_centers_vox: &[Vec3],
+    params: SpecialFloraDistributionParams,
+    seed: u32,
+) -> Option<f32> {
+    let nearest_distance_sq = authored_flora_nearest_xz_distance_sq(
+        candidate_base_center_vox,
+        existing_base_centers_vox,
+        placed_base_centers_vox,
+    );
+    let min_spacing_sq = params.min_spacing_voxels * params.min_spacing_voxels;
+    if nearest_distance_sq.is_finite() && nearest_distance_sq < min_spacing_sq {
+        return None;
+    }
+
+    let cluster_radius = params.cluster_radius_voxels.max(1.0);
+    let cluster_distance =
+        authored_flora_xz_distance_sq(candidate_base_center_vox, cluster_anchor_vox).sqrt();
+    let cluster_score = (1.0 - cluster_distance / cluster_radius).clamp(0.0, 1.0);
+    let random_score = authored_flora_unit_from_seed(seed ^ 0x27d4_eb2d);
+    let spacing_score = if nearest_distance_sq.is_finite() {
+        (nearest_distance_sq.sqrt() / cluster_radius).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+
+    let cluster_bias = params.cluster_bias.clamp(0.0, 1.0);
+    Some(
+        cluster_score * cluster_bias
+            + random_score * (1.0 - cluster_bias)
+            + spacing_score * 0.18
+            + authored_flora_unit_from_seed(seed ^ 0x9e37_79b9) * 0.03,
+    )
+}
+
+fn authored_flora_unit_from_seed(seed: u32) -> f32 {
+    (seed as f32) / (u32::MAX as f32 + 1.0)
+}
+
+fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
+    let segment = end - start;
+    let segment_len_sq = segment.length_squared().max(1.0e-4);
+    let t = ((point - start).dot(segment) / segment_len_sq).clamp(0.0, 1.0);
+    let closest = start + segment * t;
+    point.distance_squared(closest)
 }
 
 #[derive(Clone, Debug)]
@@ -488,6 +725,7 @@ pub(super) struct TreeRecord {
 }
 
 impl App {
+    #[allow(dead_code)]
     pub(super) fn generate_procedural_trees(&mut self) -> Result<()> {
         self.clear_procedural_trees()?;
         self.remove_tree(self.single_tree_id)?;
@@ -525,7 +763,7 @@ impl App {
 
         for tree_pos in tree_positions_3d.iter() {
             let mut tree_desc = self.debug_tree_desc.clone();
-            tree_desc.seed = rng.random_range(1..10000);
+            tree_desc.branching.seed = rng.random_range(1..10000);
 
             self.apply_tree_variations(&mut tree_desc, &mut rng);
             self.apply_tree_placement(TreePlacementEdit {
@@ -538,6 +776,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) fn clear_procedural_trees(&mut self) -> Result<()> {
         let tree_ids_to_remove: Vec<u32> = self
             .tree_records
@@ -554,6 +793,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) fn remove_tree(&mut self, tree_id: u32) -> Result<()> {
         self.tracer
             .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
@@ -589,6 +829,31 @@ impl App {
         chunk_ids
     }
 
+    fn current_tuned_tree_terrain_position(&self) -> Vec3 {
+        let xz = Vec2::new(self.debug_tree_pos.x, self.debug_tree_pos.z);
+        Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y)
+    }
+
+    pub(super) fn plant_startup_tuned_tree(&mut self) -> Result<()> {
+        self.debug_tree_pos = self.current_tuned_tree_terrain_position();
+        self.replace_tuned_tree_with_rebuild_mode(false)?;
+        log::info!("Planted startup tuning tree at {:?}", self.debug_tree_pos);
+        Ok(())
+    }
+
+    pub(super) fn update_tuned_tree_from_gui(&mut self) -> Result<()> {
+        self.replace_tuned_tree_with_rebuild_mode(true)
+    }
+
+    fn replace_tuned_tree_with_rebuild_mode(&mut self, defer_rebuild: bool) -> Result<()> {
+        self.replace_single_tree_with_rebuild_mode(
+            self.debug_tree_desc.clone(),
+            self.debug_tree_pos,
+            defer_rebuild,
+        )
+    }
+
+    #[allow(dead_code)]
     pub(super) fn replace_single_tree_deferred(
         &mut self,
         tree_desc: TreeDesc,
@@ -663,9 +928,9 @@ impl App {
         let rebuild_chunk_ids = self.tree_rebuild_chunk_ids(old_bound, compiled.this_bound);
         let rebuild_start = Instant::now();
         if defer_rebuild {
-            self.enqueue_deferred_chunk_rebuilds(&rebuild_chunk_ids);
+            self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
         } else {
-            world_ops::mesh_generate_chunks(
+            world_ops::mesh_generate_chunks_without_flora(
                 &mut self.surface_builder,
                 &mut self.contree_builder,
                 &mut self.scene_accel_builder,
@@ -686,6 +951,8 @@ impl App {
             compiled.rebuild_bound,
             rebuild_chunk_ids.len(),
             &compiled.quantized_leaf_positions,
+            &compiled.quantized_leaf_render_positions,
+            &compiled.leaf_render_local_positions,
             &compiled.quantized_apple_positions,
             &compiled.world_leaf_positions,
             total_start,
@@ -730,6 +997,7 @@ impl App {
         (tree_changed, regenerate_pressed)
     }
 
+    #[allow(dead_code)]
     pub(super) fn apply_tree_variations(&self, tree_desc: &mut TreeDesc, rng: &mut impl Rng) {
         let config = &self.tree_variation_config;
 
@@ -744,26 +1012,19 @@ impl App {
                 );
         }
 
-        if config.trunk_thickness_min_variance > 0.0 {
-            tree_desc.trunk_thickness_min *= 1.0
-                + rng.random_range(
-                    -config.trunk_thickness_min_variance..=config.trunk_thickness_min_variance,
-                );
-        }
-
         if config.spread_variance > 0.0 {
-            tree_desc.spread *=
+            tree_desc.branching.spread *=
                 1.0 + rng.random_range(-config.spread_variance..=config.spread_variance);
         }
 
         if config.randomness_variance > 0.0 {
-            tree_desc.randomness = (tree_desc.randomness
+            tree_desc.branching.randomness = (tree_desc.branching.randomness
                 + rng.random_range(-config.randomness_variance..=config.randomness_variance))
             .clamp(0.0, 1.0);
         }
 
         if config.vertical_tendency_variance > 0.0 {
-            tree_desc.vertical_tendency = (tree_desc.vertical_tendency
+            tree_desc.branching.vertical_tendency = (tree_desc.branching.vertical_tendency
                 + rng.random_range(
                     -config.vertical_tendency_variance..=config.vertical_tendency_variance,
                 ))
@@ -771,20 +1032,21 @@ impl App {
         }
 
         if config.branch_probability_variance > 0.0 {
-            tree_desc.branch_probability = (tree_desc.branch_probability
+            tree_desc.branching.branch_probability = (tree_desc.branching.branch_probability
                 + rng.random_range(
                     -config.branch_probability_variance..=config.branch_probability_variance,
                 ))
             .clamp(0.0, 1.0);
         }
 
-        if config.tree_height_variance > 0.0 {
-            tree_desc.tree_height *=
-                1.0 + rng.random_range(-config.tree_height_variance..=config.tree_height_variance);
+        if config.initial_length_variance > 0.0 {
+            tree_desc.branching.initial_length *= 1.0
+                + rng
+                    .random_range(-config.initial_length_variance..=config.initial_length_variance);
         }
 
         if config.length_dropoff_variance > 0.0 {
-            tree_desc.length_dropoff = (tree_desc.length_dropoff
+            tree_desc.branching.length_dropoff = (tree_desc.branching.length_dropoff
                 + rng.random_range(
                     -config.length_dropoff_variance..=config.length_dropoff_variance,
                 ))
@@ -802,8 +1064,8 @@ impl App {
         if config.iterations_variance > 0.0 {
             let variation =
                 rng.random_range(-config.iterations_variance..=config.iterations_variance);
-            tree_desc.iterations =
-                ((tree_desc.iterations as f32 + variation).round() as u32).clamp(1, 12);
+            tree_desc.branching.iterations =
+                ((tree_desc.branching.iterations as f32 + variation).round() as u32).clamp(1, 12);
         }
 
         if config.leaves_size_level_variance > 0.0 {
@@ -815,6 +1077,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     pub(super) fn query_terrain_heights_for_positions(
         &mut self,
         positions_2d: &[Vec2],
@@ -842,6 +1105,7 @@ impl App {
         Ok(positions_3d)
     }
 
+    #[allow(dead_code)]
     pub(super) fn clean_up_prev_tree(&mut self) -> Result<()> {
         self.tree_audio_manager.remove_all();
 
@@ -857,6 +1121,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) fn add_tree(
         &mut self,
         tree_desc: TreeDesc,
@@ -997,10 +1262,12 @@ impl App {
             );
             self.enqueue_deferred_flora_preserving_chunk_rebuilds(
                 &rebuild_chunk_ids,
-                world_ops::FloraSphereEdit {
-                    center: edit.center,
+                world_ops::FloraBrushEdit {
+                    start: edit.center,
+                    end: edit.center,
                     radius: edit.radius,
                     tick: self.flora_tick,
+                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             );
             let total_elapsed = total_start.elapsed();
@@ -1056,10 +1323,12 @@ impl App {
             );
             self.enqueue_deferred_flora_preserving_chunk_rebuilds(
                 &rebuild_chunk_ids,
-                world_ops::FloraSphereEdit {
-                    center: edit.center,
+                world_ops::FloraBrushEdit {
+                    start: edit.center,
+                    end: edit.center,
                     radius: edit.radius,
                     tick: self.flora_tick,
+                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             );
             let _mesh_elapsed = mesh_start.elapsed();
@@ -1075,25 +1344,276 @@ impl App {
         Ok(ChunkModifyReadback::default())
     }
 
+    pub(super) fn apply_surface_terrain_smooth(
+        &mut self,
+        center: Vec3,
+        radius: f32,
+        strength: f32,
+        max_delta: f32,
+        deadband: f32,
+    ) -> Result<()> {
+        let flora_brush_edit = TerrainBrushEdit {
+            start: center,
+            end: center,
+            radius,
+        };
+        let flora_rebuild_bound =
+            TerrainSurfaceRemovalService::compile_surface_brush(flora_brush_edit)
+                .map(|compiled| compiled.rebuild_bound);
+        let flora_edit = world_ops::FloraBrushEdit {
+            start: center,
+            end: center,
+            radius,
+            tick: self.flora_tick,
+            spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
+        };
+
+        let terrain_rebuild_bound = self
+            .plain_builder
+            .smooth_terrain_dirt(center, radius, strength, max_delta, deadband)?;
+
+        if let Some(flora_rebuild_bound) = flora_rebuild_bound {
+            world_ops::mesh_remove_flora_for_brush_edit(
+                &mut self.surface_builder,
+                super::VOXEL_DIM_PER_CHUNK,
+                flora_rebuild_bound,
+                flora_edit,
+            )?;
+        }
+
+        let Some(rebuild_bound) = terrain_rebuild_bound else {
+            return Ok(());
+        };
+
+        self.request_vsm_history_reset();
+        let rebuild_chunk_ids =
+            world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
+        self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
+        Ok(())
+    }
+
     pub(super) fn apply_surface_flora_regeneration(
         &mut self,
-        edit: TerrainRemovalEdit,
+        edit: TerrainBrushEdit,
+        paint_dab_serial: u32,
+        is_release_step: bool,
     ) -> Result<()> {
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
-            world_ops::mesh_regenerate_flora_for_sphere_edit(
+        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
+            let spawn_time_ms = self.time_info.time_since_start_duration().as_millis() as u32;
+            let paint_selection = self.current_flora_paint_selection();
+            let paint_brush = species::flora_paint_brush_settings(paint_selection);
+            if let species::FloraPaintSelection::Species(species_index) = paint_selection {
+                if species::is_authored_plant_species_index(species_index) {
+                    if is_release_step {
+                        self.paint_authored_surface_flora(
+                            edit,
+                            compiled.rebuild_bound,
+                            species_index,
+                            paint_dab_serial,
+                            paint_brush,
+                            spawn_time_ms,
+                        )?;
+                    }
+                    return Ok(());
+                }
+            }
+
+            world_ops::mesh_regenerate_flora_for_brush_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
                 compiled.rebuild_bound,
-                world_ops::FloraSphereEdit {
-                    center: edit.center,
+                world_ops::FloraBrushEdit {
+                    start: edit.start,
+                    end: edit.end,
                     radius: edit.radius,
                     tick: self.flora_tick.wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
+                    spawn_time_ms,
+                },
+                paint_selection,
+                paint_dab_serial,
+                paint_brush,
+            )?;
+        } else {
+            log::info!(
+                "Flora regen compile skipped: start={:?}, end={:?}, radius={}",
+                edit.start,
+                edit.end,
+                edit.radius
+            );
+        }
+        Ok(())
+    }
+
+    fn paint_authored_surface_flora(
+        &mut self,
+        edit: TerrainBrushEdit,
+        rebuild_bound: UAabb3,
+        species_index: u32,
+        paint_dab_serial: u32,
+        paint_brush: species::FloraPaintBrushSettings,
+        spawn_time_ms: u32,
+    ) -> Result<()> {
+        if paint_brush.soft_spacing_voxels == 0 {
+            return Ok(());
+        }
+        let distribution = SpecialFloraDistributionParams {
+            plants_per_release: self
+                .gui_adjustables
+                .special_flora_plants_per_release
+                .value
+                .clamp(1, 8),
+            cluster_radius_voxels: self
+                .gui_adjustables
+                .special_flora_cluster_radius_voxels
+                .value
+                .max(1.0),
+            min_spacing_voxels: self
+                .gui_adjustables
+                .special_flora_min_spacing_voxels
+                .value
+                .max(0.0),
+            cluster_bias: self.gui_adjustables.special_flora_cluster_bias.value,
+            outlier_chance: self.gui_adjustables.special_flora_outlier_chance.value,
+        };
+        let radius_vox = edit.radius * 256.0;
+        let radius_sq = radius_vox * radius_vox;
+        let start_vox = edit.start * 256.0;
+        let end_vox = edit.end * 256.0;
+        let world_dim = super::VOXEL_DIM_PER_CHUNK * super::CHUNK_DIM;
+        let min = rebuild_bound
+            .min()
+            .min(world_dim.saturating_sub(UVec3::ONE));
+        let max = rebuild_bound.max().min(world_dim);
+        if min.x >= max.x || min.z >= max.z {
+            return Ok(());
+        }
+
+        let existing_base_centers_vox = self
+            .surface_builder
+            .authored_flora_base_positions_for_species(species_index)
+            .into_iter()
+            .map(authored_flora_base_center)
+            .collect::<Vec<_>>();
+        let mut placed_base_centers_vox = Vec::new();
+        let mut dirty_chunks = Vec::new();
+        let x_span = max.x - min.x;
+        let z_span = max.z - min.z;
+        let release_seed = authored_flora_hash(
+            paint_dab_serial ^ species_index.wrapping_mul(0x517c_c1b7) ^ 0x68bc_21ebu32,
+        );
+        let is_outlier_release = authored_flora_release_is_outlier(
+            paint_dab_serial,
+            species_index,
+            distribution.outlier_chance,
+        );
+        let existing_anchor = (!is_outlier_release).then(|| {
+            authored_flora_existing_cluster_anchor(
+                edit,
+                &existing_base_centers_vox,
+                distribution.cluster_radius_voxels,
+                release_seed,
+            )
+        });
+        let mut release_anchor_vox = existing_anchor.flatten();
+
+        for plant_index in 0..distribution.plants_per_release {
+            let mut best_candidate: Option<(f32, UVec3, Vec3, u32)> = None;
+
+            for attempt in 0..AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT {
+                let seed = authored_flora_candidate_seed(
+                    species_index,
+                    paint_dab_serial,
+                    plant_index,
+                    attempt,
+                );
+                let x_seed = authored_flora_hash(seed ^ 0xa511_e9b3);
+                let z_seed = authored_flora_hash(seed ^ 0x63d8_3595);
+                let x_vox = min.x
+                    + ((authored_flora_unit_from_seed(x_seed) * x_span as f32).floor() as u32)
+                        .min(x_span.saturating_sub(1));
+                let z_vox = min.z
+                    + ((authored_flora_unit_from_seed(z_seed) * z_span as f32).floor() as u32)
+                        .min(z_span.saturating_sub(1));
+
+                let pos_xz = Vec2::new((x_vox as f32 + 0.5) / 256.0, (z_vox as f32 + 0.5) / 256.0);
+                let terrain_height = self.query_terrain_height_cpu(pos_xz);
+                let base_y = (terrain_height * 256.0).floor().max(0.0) as u32;
+                if base_y >= world_dim.y {
+                    continue;
+                }
+
+                let base_center_vox =
+                    Vec3::new(x_vox as f32 + 0.5, base_y as f32 + 0.5, z_vox as f32 + 0.5);
+                if distance_sq_to_segment(base_center_vox, start_vox, end_vox) > radius_sq {
+                    continue;
+                }
+
+                let cluster_anchor_vox = *release_anchor_vox.get_or_insert(base_center_vox);
+                let Some(score) = authored_flora_natural_candidate_score(
+                    base_center_vox,
+                    cluster_anchor_vox,
+                    &existing_base_centers_vox,
+                    &placed_base_centers_vox,
+                    distribution,
+                    seed,
+                ) else {
+                    continue;
+                };
+                if best_candidate
+                    .as_ref()
+                    .is_none_or(|(best_score, _, _, _)| score > *best_score)
+                {
+                    best_candidate = Some((
+                        score,
+                        UVec3::new(x_vox, base_y, z_vox),
+                        base_center_vox,
+                        seed,
+                    ));
+                }
+            }
+
+            let Some((_, base_world_vox, base_center_vox, seed)) = best_candidate else {
+                continue;
+            };
+            if self
+                .surface_builder
+                .try_add_authored_flora_instance_deferred(
+                    species_index,
+                    base_world_vox,
+                    AUTHORED_FLORA_GROWTH_MATURE,
+                    spawn_time_ms,
+                    seed,
+                    &mut dirty_chunks,
+                )
+            {
+                placed_base_centers_vox.push(base_center_vox);
+            }
+        }
+
+        self.surface_builder
+            .sync_authored_flora_dirty_chunks(&dirty_chunks)?;
+        Ok(())
+    }
+
+    pub(super) fn apply_surface_flora_removal(&mut self, edit: TerrainBrushEdit) -> Result<()> {
+        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
+            world_ops::mesh_remove_flora_for_brush_edit(
+                &mut self.surface_builder,
+                super::VOXEL_DIM_PER_CHUNK,
+                compiled.rebuild_bound,
+                world_ops::FloraBrushEdit {
+                    start: edit.start,
+                    end: edit.end,
+                    radius: edit.radius,
+                    tick: self.flora_tick,
+                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             )?;
         } else {
             log::info!(
-                "Flora regen compile skipped: center={:?}, radius={}",
-                edit.center,
+                "Flora removal compile skipped: start={:?}, end={:?}, radius={}",
+                edit.start,
+                edit.end,
                 edit.radius
             );
         }
@@ -1101,16 +1621,23 @@ impl App {
     }
 
     pub(super) fn apply_flora_trim(&mut self, edit: TerrainRemovalEdit) -> Result<()> {
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
-            let target_age = super::FLORA_FULL_GROWTH_TICKS / 2;
-            let growing_chunks = world_ops::mesh_trim_flora_for_sphere_edit(
+        let brush_edit = TerrainBrushEdit {
+            start: edit.center,
+            end: edit.center,
+            radius: edit.radius,
+        };
+        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(brush_edit) {
+            let target_age = super::FLORA_TRIM_MAX_GROWTH_PROGRESS;
+            let growing_chunks = world_ops::mesh_trim_flora_for_brush_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
                 compiled.rebuild_bound,
-                world_ops::FloraSphereEdit {
-                    center: edit.center,
-                    radius: edit.radius,
+                world_ops::FloraBrushEdit {
+                    start: brush_edit.start,
+                    end: brush_edit.end,
+                    radius: brush_edit.radius,
                     tick: self.flora_tick,
+                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
                 target_age,
             )?;
@@ -1119,9 +1646,10 @@ impl App {
             }
         } else {
             log::info!(
-                "Flora trim compile skipped: center={:?}, radius={}",
-                edit.center,
-                edit.radius
+                "Flora trim compile skipped: start={:?}, end={:?}, radius={}",
+                brush_edit.start,
+                brush_edit.end,
+                brush_edit.radius
             );
         }
         Ok(())
@@ -1136,6 +1664,8 @@ impl App {
         rebuild_bound: UAabb3,
         rebuild_chunk_count: usize,
         quantized_leaf_positions: &[UVec3],
+        quantized_leaf_render_positions: &[UVec3],
+        leaf_render_local_positions: &[IVec3],
         quantized_apple_positions: &[UVec3],
         world_leaf_positions: &[Vec3],
         total_start: Instant,
@@ -1149,7 +1679,8 @@ impl App {
         self.tracer.add_tree_leaves(
             &mut self.surface_builder.resources,
             tree_id,
-            quantized_leaf_positions,
+            quantized_leaf_render_positions,
+            leaf_render_local_positions,
         )?;
         self.tracer.add_tree_apples(
             &mut self.surface_builder.resources,
@@ -1211,7 +1742,7 @@ impl App {
                 .record("tree_gui_leaf_emitter", emitter_elapsed);
 
             log::info!(
-                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaves {} apples {} clusters {} rebuild_chunks {} bound {:?}",
+                "[PERF][TREE_GUI] add_total {:.2}ms compile {:.2}ms trunk_voxel {:.2}ms add_leaves {:.2}ms rebuild {:.2}ms cluster {:.2}ms audio {:.2}ms emitter {:.2}ms trunks {} leaf_anchors {} leaf_instances {} apples {} clusters {} rebuild_chunks {} bound {:?}",
                 total_start.elapsed().as_secs_f32() * 1000.0,
                 compile_elapsed.as_secs_f32() * 1000.0,
                 trunk_elapsed.as_secs_f32() * 1000.0,
@@ -1222,6 +1753,7 @@ impl App {
                 emitter_elapsed.as_secs_f32() * 1000.0,
                 trunk_count,
                 quantized_leaf_positions.len(),
+                quantized_leaf_render_positions.len(),
                 quantized_apple_positions.len(),
                 leaf_clusters.len(),
                 rebuild_chunk_count,
@@ -1232,6 +1764,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) fn apply_tree_placement(&mut self, edit: TreePlacementEdit) -> Result<()> {
         let total_start = Instant::now();
         let TreePlacementEdit {
@@ -1281,9 +1814,9 @@ impl App {
         }
 
         let rebuild_start = Instant::now();
-        self.execute_edit_plan(WorldEditPlan::with_build(BuildEdit::RebuildMesh(
-            compiled.rebuild_bound,
-        )))?;
+        self.execute_edit_plan(WorldEditPlan::with_build(
+            BuildEdit::RebuildMeshWithoutFlora(compiled.rebuild_bound),
+        ))?;
         let rebuild_elapsed = rebuild_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH
@@ -1303,6 +1836,8 @@ impl App {
             )
             .len(),
             &compiled.quantized_leaf_positions,
+            &compiled.quantized_leaf_render_positions,
+            &compiled.leaf_render_local_positions,
             &compiled.quantized_apple_positions,
             &compiled.world_leaf_positions,
             total_start,
@@ -1312,5 +1847,49 @@ impl App {
             trunk_count,
             benchmark_gui_tree,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terrain_surface_removal_bvh_reaches_positive_atlas_edge() {
+        let world_dim = super::super::VOXEL_DIM_PER_CHUNK * super::super::CHUNK_DIM;
+        let positive_edge_x = world_dim.x as f32 / super::super::VOXEL_DIM_PER_CHUNK.x as f32;
+        let compiled = TerrainSurfaceRemovalService::compile(TerrainRemovalEdit {
+            center: Vec3::new(positive_edge_x, 0.5, 0.5),
+            radius: super::super::TERRAIN_EDIT_DEFAULT_RADIUS,
+        })
+        .expect("edge-overlapping edit should compile");
+
+        let VoxelEdit::StampSurfaceSpheres { bvh_nodes, .. } = &compiled.voxel_edit else {
+            panic!("expected surface sphere edit");
+        };
+
+        assert_eq!(bvh_nodes[0].aabb.max().x, world_dim.x as f32);
+        assert_eq!(compiled.rebuild_bound.max().x, world_dim.x - 1);
+    }
+
+    #[test]
+    fn terrain_brush_capsule_bound_covers_start_end_and_radius() {
+        let radius = super::super::TERRAIN_EDIT_DEFAULT_RADIUS;
+        let compiled = TerrainSurfaceRemovalService::compile_surface_brush(TerrainBrushEdit {
+            start: Vec3::new(0.25, 0.5, 0.25),
+            end: Vec3::new(0.75, 0.5, 0.75),
+            radius,
+        })
+        .expect("capsule edit should compile");
+
+        let radius_vox = (radius * 256.0).ceil() as u32;
+        assert!(compiled.rebuild_bound.min().x <= 64_u32.saturating_sub(radius_vox));
+        assert!(compiled.rebuild_bound.min().z <= 64_u32.saturating_sub(radius_vox));
+        assert!(
+            compiled.rebuild_bound.max().x >= 192_u32.saturating_add(radius_vox).saturating_sub(1)
+        );
+        assert!(
+            compiled.rebuild_bound.max().z >= 192_u32.saturating_add(radius_vox).saturating_sub(1)
+        );
     }
 }

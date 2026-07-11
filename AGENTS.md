@@ -4,6 +4,7 @@
 
 - Keep changes small and focused.
 - Commit each validated step before starting the next one.
+- After completing and validating a requested feature or fix, commit it automatically; do not wait for the user to ask for a commit.
 - Prefer measuring before guessing on performance work.
 - For performance work, release-mode app benchmarks are authoritative; debug builds and unit tests are not performance evidence.
 - Run `cargo check` after shader or Rust changes. It also regenerates shader-derived Rust structs.
@@ -86,6 +87,10 @@ Inspect the generated per-worktree run log after hidden runs. Prefer checking co
 cargo run --release -- --latest-log
 cargo run --release -- --tail-latest-log 200
 ```
+
+### User Try-Out Role
+
+After implementing and validating a change, do not automatically launch the visible game. If the user says they want to try it, visualize it, experience it, or otherwise asks for a live/manual check, run the game in visible mode with plain `cargo run` and no `--hidden` flag. If the implementation lives in a worker worktree, run `cargo run` from that same worktree so the user tests the intended branch and assets.
 
 ## Basic Perf Test
 

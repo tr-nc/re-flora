@@ -1,22 +1,24 @@
-use crate::tracer::voxel_encoding::append_indexed_cube_data;
-use crate::tracer::Vertex;
+use crate::tracer::voxel_encoding::{
+    append_indexed_cube_data, append_indexed_cube_data_with_info, FloraMeshData, FloraVoxelInfo,
+    FLORA_VOXEL_MATERIAL_ALLIUM_CORE, FLORA_VOXEL_MATERIAL_GRADIENT,
+};
 use anyhow::Result;
 use glam::IVec3;
 
-fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<FloraMeshData> {
     const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
     let max_length = voxel_count - 1;
 
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut mesh = FloraMeshData::new(max_length);
 
     for i in 0..voxel_count {
-        let vertex_offset = vertices.len() as u32;
+        let vertex_offset = mesh.vertices.len() as u32;
         let base_pos = IVec3::new(0, i as i32, 0);
 
         append_indexed_cube_data(
-            &mut vertices,
-            &mut indices,
+            &mut mesh.vertices,
+            &mut mesh.indices,
+            &mut mesh.voxel_infos,
             base_pos,
             vertex_offset,
             ORIGIN,
@@ -25,18 +27,18 @@ fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<(Vec<Vertex>,
         )?;
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }
 
-pub fn gen_tall_grass(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_tall_grass(is_lod_used: bool) -> Result<FloraMeshData> {
     gen_grass_column(8, is_lod_used)
 }
 
-pub fn gen_short_grass(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_short_grass(is_lod_used: bool) -> Result<FloraMeshData> {
     gen_grass_column(4, is_lod_used)
 }
 
-pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
+pub fn gen_lavender(is_lod_used: bool) -> Result<FloraMeshData> {
     const STEM_VOXEL_COUNT: u32 = 6;
     const LEAF_BALL_RADIUS: f32 = 1.5;
     const LEAF_BALL_BOUNDARY: i32 = LEAF_BALL_RADIUS as i32;
@@ -48,18 +50,18 @@ pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
         .ceil()
         .max(1.0) as u32;
 
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut mesh = FloraMeshData::new(max_length);
 
     // draw the stem
     let total_stem_voxel_count = STEM_VOXEL_COUNT - LEAF_BALL_BOUNDARY as u32;
     for i in 0..total_stem_voxel_count {
-        let vertex_offset = vertices.len() as u32;
+        let vertex_offset = mesh.vertices.len() as u32;
         let base_pos = IVec3::new(0, i as i32, 0);
 
         append_indexed_cube_data(
-            &mut vertices,
-            &mut indices,
+            &mut mesh.vertices,
+            &mut mesh.indices,
+            &mut mesh.voxel_infos,
             base_pos,
             vertex_offset,
             ORIGIN,
@@ -76,12 +78,13 @@ pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
                     continue;
                 }
 
-                let vertex_offset = vertices.len() as u32;
+                let vertex_offset = mesh.vertices.len() as u32;
                 let base_pos = IVec3::new(i, j, k) + IVec3::new(0, STEM_VOXEL_COUNT as i32, 0);
 
                 append_indexed_cube_data(
-                    &mut vertices,
-                    &mut indices,
+                    &mut mesh.vertices,
+                    &mut mesh.indices,
+                    &mut mesh.voxel_infos,
                     base_pos,
                     vertex_offset,
                     ORIGIN,
@@ -92,80 +95,54 @@ pub fn gen_lavender(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
         }
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }
 
-use std::f32::consts::PI;
-
-pub fn gen_ember_bloom(is_lod_used: bool) -> Result<(Vec<Vertex>, Vec<u32>)> {
-    const HEIGHT: i32 = 12;
-    // Width Configuration: How wide the plant swells
-    const MAX_RADIUS: f32 = 2.0;
+pub fn gen_ember_bloom(is_lod_used: bool) -> Result<FloraMeshData> {
+    // Keep the legacy generator/key name so existing saves still resolve this species.
+    // Visually this is now a tall ornamental allium: a slender stalk topped by a
+    // blocky globe made from a dense core and a few individual florets.
+    const STEM_HEIGHT: i32 = 12;
+    const FLOWER_CENTER_Y: i32 = 14;
+    const FLOWER_RADIUS: i32 = 2;
     const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
 
-    let max_vertical = (HEIGHT - 1) as f32;
-    let max_horizontal = (MAX_RADIUS + 2.0).ceil(); // includes search padding
+    let max_vertical = (FLOWER_CENTER_Y + FLOWER_RADIUS) as f32;
+    let max_horizontal = FLOWER_RADIUS as f32;
     let max_length = ((max_vertical * max_vertical + 2.0 * max_horizontal * max_horizontal).sqrt())
         .ceil()
         .max(1.0) as u32;
+    let mut mesh = FloraMeshData::new(max_length);
 
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut append_voxel = |pos: IVec3, material_id: u8| -> Result<()> {
+        let vertex_offset = mesh.vertices.len() as u32;
+        let gradient = (pos - ORIGIN).as_vec3().length() / max_length as f32;
+        append_indexed_cube_data_with_info(
+            &mut mesh.vertices,
+            &mut mesh.indices,
+            &mut mesh.voxel_infos,
+            pos,
+            vertex_offset,
+            FloraVoxelInfo::new(gradient, gradient, gradient, material_id),
+            is_lod_used,
+        )
+    };
 
-    for y in 0..HEIGHT {
-        // Normalized height (0.0 at bottom, 1.0 at top)
-        let t = y as f32 / HEIGHT as f32;
+    for y in 0..STEM_HEIGHT {
+        append_voxel(IVec3::new(0, y, 0), FLORA_VOXEL_MATERIAL_GRADIENT)?;
+    }
 
-        // Vertical Profile:
-        // Uses a sine wave to create a soft bulb shape.
-        // It starts small, swells wide in the middle, and tapers at the top.
-        // We add 0.5 base radius so it doesn't disappear completely at the very bottom.
-        let vertical_swell = (t * PI).sin();
-        let base_radius = 0.5 + (vertical_swell * MAX_RADIUS);
-
-        // Define search area for this layer
-        let search_radius = (base_radius + 1.5).ceil() as i32;
-
-        for x in -search_radius..=search_radius {
-            for z in -search_radius..=search_radius {
-                // Calculate distance from center (0,0)
-                let dist_sq = (x * x + z * z) as f32;
-                let dist = dist_sq.sqrt();
-
-                // Calculate Angle for the "Wavy" texture
-                let angle = (z as f32).atan2(x as f32);
-
-                // Wavy/Leafy Logic:
-                // We use cos(angle * 6.0) to create 6 gentle lobes (leaves) wrapping around.
-                // 'lobe_depth' controls how deep the ridges are.
-                let lobe_depth = 0.6;
-                let wave_modifier = (angle * 6.0).cos() * lobe_depth;
-
-                // The effective radius limit at this specific angle
-                let radius_limit = base_radius + wave_modifier;
-
-                // Solid Fill Logic:
-                // We fill everything inside the calculated radius.
-                // This guarantees the shape is symmetrical and has no holes.
-                if dist <= radius_limit {
-                    let vertex_offset = vertices.len() as u32;
-
-                    // No stem sway, just straight up for symmetry
-                    let pos = IVec3::new(x, y, z);
-
-                    append_indexed_cube_data(
-                        &mut vertices,
-                        &mut indices,
-                        pos,
-                        vertex_offset,
-                        ORIGIN,
-                        max_length,
-                        is_lod_used,
-                    )?;
+    for y in -FLOWER_RADIUS..=FLOWER_RADIUS {
+        for x in -FLOWER_RADIUS..=FLOWER_RADIUS {
+            for z in -FLOWER_RADIUS..=FLOWER_RADIUS {
+                let distance_sq = x * x + y * y + z * z;
+                let pos = IVec3::new(x, FLOWER_CENTER_Y + y, z);
+                if distance_sq <= 4 {
+                    append_voxel(pos, FLORA_VOXEL_MATERIAL_ALLIUM_CORE)?;
                 }
             }
         }
     }
 
-    Ok((vertices, indices))
+    Ok(mesh)
 }

@@ -46,10 +46,19 @@ make_surface_result;
 layout(set = 0, binding = 8) readonly buffer B_SurfaceActiveBrickIndices { uint data[]; }
 surface_active_brick_indices;
 
+layout(set = 0, binding = 9) writeonly buffer B_SurfaceLeafCoords { uint data[]; }
+surface_leaf_coords;
+
 #include "../../include/core/bits.glsl"
 
 shared uint shared_invocation_data[64];
 shared uint group_base;
+
+uint pack_surface_leaf_local_coord(ivec3 coord) {
+    return (uint(coord.x) & 0x3FFu) |
+           ((uint(coord.y) & 0x3FFu) << 10u) |
+           ((uint(coord.z) & 0x3FFu) << 20u);
+}
 
 void cleanup_shared_invocation_data(uint local_invocation_idx) {
     shared_invocation_data[local_invocation_idx] = 0;
@@ -139,7 +148,15 @@ void main() {
         bool set = (i < 32u) ? ((child_mask_lo & (1u << i)) != 0u)
                              : ((child_mask_hi & (1u << (i - 32u))) != 0u);
         if (set) {
-            contree_leaf_data.data[contree_build_info.leaf_write_offset + base + w] = temp[i];
+            uint global_leaf_idx = contree_build_info.leaf_write_offset + base + w;
+            contree_leaf_data.data[global_leaf_idx] = temp[i];
+
+            uint xi = i & 3u;
+            uint zi = (i >> 2u) & 3u;
+            uint yi = (i >> 4u) & 3u;
+            ivec3 local_voxel_pos = uvi * 4 + ivec3(int(xi), int(yi), int(zi));
+            surface_leaf_coords.data[global_leaf_idx] =
+                pack_surface_leaf_local_coord(local_voxel_pos);
             w++;
         }
     }

@@ -1,0 +1,90 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(set = 0, binding = 0) readonly uniform U_VoxelPropertySampleInfo {
+    // xyz: atlas offset in voxels, w: property id.
+    uvec4 atlas_offset_property_id;
+    // xyz: source dimensions in voxels, w: target voxel-type bit mask.
+    uvec4 atlas_dim_target_mask;
+    // xyz: brush center in atlas voxel space, w: brush radius in voxels.
+    vec4 center_radius;
+    // Reserved for future sampling shape / property options.
+    uvec4 options;
+}
+voxel_property_sample_info;
+
+layout(set = 0, binding = 1, r8ui) readonly uniform uimage3D chunk_atlas;
+
+layout(set = 0, binding = 2) buffer B_VoxelPropertySampleResult {
+    // x: matching voxel count, y: property sum, z/w reserved.
+    uvec4 stats;
+    // Reserved for future multi-property or histogram readback.
+    uvec4 extra;
+}
+voxel_property_sample_result;
+
+#include "../../include/voxel_data.glsl"
+#include "../../include/voxel_types.glsl"
+
+const uint VOXEL_PROPERTY_MOISTURE = 1u;
+const uint VOXEL_PROPERTY_FERTILITY = 2u;
+shared uint workgroup_count;
+shared uint workgroup_sum;
+
+bool target_mask_contains(uint voxel_type, uint target_mask) {
+    return voxel_type < 32u && ((target_mask & (1u << voxel_type)) != 0u);
+}
+
+bool sample_voxel_property(uint atlas_data, uint property_id, out uint value) {
+    if (property_id == VOXEL_PROPERTY_MOISTURE) {
+        value = voxel_moisture_from_atlas_data(atlas_data);
+        return true;
+    }
+    if (property_id == VOXEL_PROPERTY_FERTILITY) {
+        value = voxel_fertility_from_atlas_data(atlas_data);
+        return true;
+    }
+
+    value = 0u;
+    return false;
+}
+
+void main() {
+    if (gl_LocalInvocationIndex == 0u) {
+        workgroup_count = 0u;
+        workgroup_sum = 0u;
+    }
+    barrier();
+
+    uvec3 local = gl_GlobalInvocationID.xyz;
+    uvec3 dim = voxel_property_sample_info.atlas_dim_target_mask.xyz;
+    if (!any(greaterThanEqual(local, dim))) {
+        uvec3 atlas_u = voxel_property_sample_info.atlas_offset_property_id.xyz + local;
+        vec3 center_vox = voxel_property_sample_info.center_radius.xyz;
+        float radius_vox = max(voxel_property_sample_info.center_radius.w, 0.0);
+        vec3 voxel_center = vec3(atlas_u) + vec3(0.5);
+
+        if (radius_vox > 0.0 && distance(voxel_center, center_vox) <= radius_vox) {
+            uint atlas_data = imageLoad(chunk_atlas, ivec3(atlas_u)).r;
+            uint voxel_type = voxel_type_from_atlas_data(atlas_data);
+            uint target_mask = voxel_property_sample_info.atlas_dim_target_mask.w;
+
+            if (target_mask_contains(voxel_type, target_mask)) {
+                uint property_value;
+                uint property_id = voxel_property_sample_info.atlas_offset_property_id.w;
+                if (sample_voxel_property(atlas_data, property_id, property_value)) {
+                    atomicAdd(workgroup_count, 1u);
+                    atomicAdd(workgroup_sum, property_value);
+                }
+            }
+        }
+    }
+
+    barrier();
+    if (gl_LocalInvocationIndex == 0u && workgroup_count > 0u) {
+        atomicAdd(voxel_property_sample_result.stats.x, workgroup_count);
+        atomicAdd(voxel_property_sample_result.stats.y, workgroup_sum);
+    }
+}

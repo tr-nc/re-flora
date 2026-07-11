@@ -1,30 +1,27 @@
+use crate::branch_skeleton::{generate_branch_skeleton_with_rng, BranchingDesc};
+use crate::branching_gui::{edit_branching_desc, BranchingGuiSpec};
 use crate::geom::RoundCone;
+use crate::util::stable_perpendicular_basis;
 use glam::Vec3;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use std::f32::consts::PI;
 
+pub const TREE_MIN_TRUNK_THICKNESS: f32 = 1.05;
+const TREE_DEFAULT_SIZE: f32 = 30.0;
+
 #[derive(Debug, Clone)]
 pub struct TreeDesc {
+    pub branching: BranchingDesc,
     pub size: f32,
     pub trunk_thickness: f32,
-    pub trunk_thickness_min: f32,
-    pub spread: f32,
-    pub randomness: f32,
-    pub vertical_tendency: f32,
-    pub branch_angle_min: f32,
-    pub branch_angle_max: f32,
-    pub branch_probability: f32,
-    pub branch_count_min: u32,
-    pub branch_count_max: u32,
+    pub thickness_reduction: f32,
     pub leaves_size_level: u32,
     pub leaf_offset: u32,
-    pub iterations: u32,
-    pub segment_length_variation: f32,
-    pub tree_height: f32,
-    pub length_dropoff: f32,
-    pub thickness_reduction: f32,
-    pub seed: u64,
+    pub leaf_density: f32,
+    pub leaf_spray_width_ratio: f32,
+    pub leaf_spray_thickness_ratio: f32,
+    pub leaf_spray_tip_offset_ratio: f32,
     pub enable_subdivision: bool,
     pub subdivision_count_min: u32,
     pub subdivision_count_max: u32,
@@ -32,44 +29,45 @@ pub struct TreeDesc {
     pub subdivision_randomness_progression: f32,
 }
 
+pub fn default_tree_branching_desc() -> BranchingDesc {
+    BranchingDesc {
+        seed: 122,
+        iterations: 7,
+        branch_start_fraction: 1.0 / 6.0,
+        branch_end_fraction: 1.0,
+        initial_length: 48.0,
+        length_dropoff: 0.78,
+        spread: 0.0,
+        randomness: 0.33,
+        vertical_tendency: 0.47,
+        branch_angle_min: 24.0 * PI / 180.0,
+        branch_angle_max: 48.0 * PI / 180.0,
+        branch_probability: 0.82,
+        branch_count_min: 2,
+        branch_count_max: 3,
+        segment_length_variation: 0.12,
+        continue_main_axis: false,
+    }
+}
+
 impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
-            // Basic Properties
-            size: 30.0,
+            branching: default_tree_branching_desc(),
+            size: TREE_DEFAULT_SIZE,
             trunk_thickness: 0.40,
-            trunk_thickness_min: 1.05,
-            iterations: 7,
-
-            // Tree Shape
-            tree_height: 6.0,
-            spread: 0.0,
-            vertical_tendency: 0.47,
-            segment_length_variation: 0.12,
-            length_dropoff: 0.78,
             thickness_reduction: 0.61,
-
-            // Branching Control
-            branch_probability: 0.82,
-            branch_count_min: 2,
-            branch_count_max: 3,
-            branch_angle_min: 24.0 * PI / 180.0,
-            branch_angle_max: 48.0 * PI / 180.0,
-
-            // Subdivision
+            leaves_size_level: 5,
+            leaf_offset: 1,
+            leaf_density: 0.055,
+            leaf_spray_width_ratio: 0.65,
+            leaf_spray_thickness_ratio: 0.35,
+            leaf_spray_tip_offset_ratio: 0.25,
             enable_subdivision: true,
             subdivision_count_min: 6,
             subdivision_count_max: 9,
             subdivision_randomness: 2.6,
             subdivision_randomness_progression: 3.0,
-
-            // Variation
-            randomness: 0.33,
-            leaves_size_level: 5,
-            leaf_offset: 1,
-
-            // Seed
-            seed: 122,
         }
     }
 }
@@ -77,9 +75,17 @@ impl Default for TreeDesc {
 impl TreeDesc {
     #[allow(dead_code)]
     pub fn edit_by_gui(&mut self, ui: &mut egui::Ui) -> bool {
+        self.edit_by_gui_with_leaves_toggle(ui, None)
+    }
+
+    pub fn edit_by_gui_with_leaves_toggle(
+        &mut self,
+        ui: &mut egui::Ui,
+        render_leaves: Option<&mut bool>,
+    ) -> bool {
         let mut changed = false;
 
-        ui.heading("Basic Properties");
+        ui.heading("Tree Renderer");
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.size, 0.1..=50.0)
@@ -92,93 +98,19 @@ impl TreeDesc {
             .changed();
         changed |= ui
             .add(
-                egui::Slider::new(&mut self.trunk_thickness_min, 0.001..=2.0)
-                    .text("Min Trunk Thickness"),
-            )
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut self.iterations, 1..=12).text("Iterations"))
-            .changed();
-
-        ui.separator();
-        ui.heading("Tree Shape");
-
-        changed |= ui
-            .add(egui::Slider::new(&mut self.tree_height, 0.5..=50.0).text("Tree Height"))
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut self.spread, 0.0..=2.0).text("Spread"))
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.vertical_tendency, -1.0..=1.0)
-                    .text("Vertical Tendency (upward/downward)"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.segment_length_variation, 0.0..=1.0)
-                    .text("Segment Length Variation"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.length_dropoff, 0.1..=1.0)
-                    .text("Length Dropoff per Level"),
-            )
-            .changed();
-        changed |= ui
-            .add(
                 egui::Slider::new(&mut self.thickness_reduction, 0.0..=1.0)
                     .text("Thickness Reduction"),
             )
             .changed();
 
         ui.separator();
-        ui.heading("Branching Control");
-
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.branch_probability, 0.0..=1.0)
-                    .text("Branch Probability"),
-            )
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut self.branch_count_min, 1..=5).text("Min Branches"))
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut self.branch_count_max, 1..=8).text("Max Branches"))
-            .changed();
-
-        let mut angle_min_deg = self.branch_angle_min.to_degrees();
-        let mut angle_max_deg = self.branch_angle_max.to_degrees();
-
-        changed |= ui
-            .add(egui::Slider::new(&mut angle_min_deg, 0.0..=90.0).text("Min Branch Angle (deg)"))
-            .changed();
-        changed |= ui
-            .add(egui::Slider::new(&mut angle_max_deg, 0.0..=120.0).text("Max Branch Angle (deg)"))
-            .changed();
-
-        if changed {
-            self.branch_angle_min = angle_min_deg.to_radians();
-            self.branch_angle_max = angle_max_deg.to_radians();
-            if self.branch_angle_min > self.branch_angle_max {
-                self.branch_angle_max = self.branch_angle_min;
-            }
-            if self.branch_count_min > self.branch_count_max {
-                self.branch_count_max = self.branch_count_min;
-            }
-        }
+        changed |= edit_branching_desc(ui, &mut self.branching, &BranchingGuiSpec::default());
 
         ui.separator();
         ui.heading("Subdivision");
-
-        // nEW: subdivision toggle
         changed |= ui
             .checkbox(&mut self.enable_subdivision, "Enable Subdivision")
             .changed();
-
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.subdivision_count_min, 1..=10).text("Min Subdivisions"),
@@ -207,11 +139,10 @@ impl TreeDesc {
         }
 
         ui.separator();
-        ui.heading("Variation");
-
-        changed |= ui
-            .add(egui::Slider::new(&mut self.randomness, 0.0..=1.0).text("Randomness"))
-            .changed();
+        ui.heading("Leaves");
+        if let Some(render_leaves) = render_leaves {
+            ui.checkbox(render_leaves, "Render Leaves");
+        }
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.leaves_size_level, 0..=8)
@@ -220,15 +151,29 @@ impl TreeDesc {
             .changed();
         changed |= ui
             .add(
-                egui::Slider::new(&mut self.leaf_offset, 0..=self.iterations.max(1))
+                egui::Slider::new(&mut self.leaf_offset, 0..=self.branching.iterations.max(1))
                     .text("Leaf Offset (levels from end)"),
             )
             .changed();
         changed |= ui
+            .add(egui::Slider::new(&mut self.leaf_density, 0.005..=0.2).text("Leaf Density"))
+            .changed();
+        changed |= ui
             .add(
-                egui::DragValue::new(&mut self.seed)
-                    .speed(1.0)
-                    .prefix("Seed: "),
+                egui::Slider::new(&mut self.leaf_spray_width_ratio, 0.1..=1.5)
+                    .text("Leaf Spray Width"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.leaf_spray_thickness_ratio, 0.05..=1.0)
+                    .text("Leaf Spray Thickness"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.leaf_spray_tip_offset_ratio, -0.5..=1.0)
+                    .text("Leaf Spray Tip Offset"),
             )
             .changed();
 
@@ -236,10 +181,19 @@ impl TreeDesc {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct LeafPlacement {
+    /// Leaf voxel position relative to the tree origin.
+    pub position: Vec3,
+    /// Twig attachment point used to keep wind motion coherent within a spray.
+    pub anchor: Vec3,
+}
+
 #[derive(Debug)]
 struct BuiltObjects {
     trunks: Vec<RoundCone>,
     leaf_positions: Vec<Vec3>,
+    leaf_placements: Vec<LeafPlacement>,
 }
 
 #[derive(Debug)]
@@ -262,50 +216,115 @@ impl Tree {
         &self.built_objects.leaf_positions
     }
 
-    fn initial_segment_length(desc: &TreeDesc) -> f32 {
-        let d = desc.length_dropoff;
-        // if d is almost 1.0, fall back to the old average-per-level method
-        if (1.0 - d).abs() < 1e-5 {
-            return desc.tree_height * desc.size / (desc.iterations as f32).max(1.0);
+    /// Obtain independently placeable leaf voxels relative to the tree position.
+    pub fn relative_leaf_placements(&self) -> &[LeafPlacement] {
+        &self.built_objects.leaf_placements
+    }
+
+    fn thickness_at_level(desc: &TreeDesc, base_thickness: f32, level: u32) -> f32 {
+        let mut thickness = base_thickness;
+        for current_level in 0..level {
+            thickness = if desc.thickness_reduction > 0.0 {
+                thickness * desc.thickness_reduction
+            } else {
+                thickness * 0.1_f32.powf((current_level + 1) as f32)
+            };
         }
-        let iterations_f = desc.iterations as f32;
-        let numerator = desc.tree_height * desc.size * (1.0 - d);
-        let denominator = 1.0 - d.powf(iterations_f);
-        numerator / denominator
+        thickness
     }
 
     fn build(desc: &TreeDesc) -> BuiltObjects {
-        let mut rng = StdRng::seed_from_u64(desc.seed);
-        let mut initial_trunks = Vec::new();
-        let mut leaf_positions = Vec::new();
-
-        let base_length = Self::initial_segment_length(desc);
+        let mut branching_desc = desc.branching.normalized();
+        let length_scale = (desc.size / TREE_DEFAULT_SIZE).max(0.0);
+        branching_desc.initial_length *= length_scale;
+        let mut rng = StdRng::seed_from_u64(branching_desc.seed);
         let base_thickness = desc.trunk_thickness * desc.size;
+        let skeleton = generate_branch_skeleton_with_rng(&branching_desc, &mut rng);
 
-        recurse(
-            Vec3::ZERO,
-            Vec3::Y,
-            0,
-            desc,
-            base_length,
-            base_thickness,
-            &mut initial_trunks,
-            &mut leaf_positions,
-            &mut rng,
-        );
+        let leaf_level = branching_desc.iterations.saturating_sub(desc.leaf_offset);
+        let leaf_anchors = skeleton
+            .segments
+            .iter()
+            .filter(|segment| segment.level.saturating_add(1) == leaf_level)
+            .map(|segment| {
+                let direction = (segment.end - segment.start).normalize_or_zero();
+                (segment.end, direction)
+            })
+            .collect::<Vec<_>>();
+        let leaf_positions = leaf_anchors.iter().map(|(position, _)| *position).collect();
+        let leaf_placements = generate_leaf_sprays(desc, &leaf_anchors, &mut rng);
 
         let mut trunks = Vec::new();
-        for (cone, level) in &initial_trunks {
+        for segment in &skeleton.segments {
+            let thickness_start = Self::thickness_at_level(desc, base_thickness, segment.level);
+            let thickness_end = Self::thickness_at_level(desc, base_thickness, segment.level + 1);
+            let cone = RoundCone::new(
+                thickness_start.max(TREE_MIN_TRUNK_THICKNESS),
+                segment.start,
+                thickness_end.max(TREE_MIN_TRUNK_THICKNESS),
+                segment.end,
+            );
             // subdivision now respects the toggle
-            let subdivided_cones = subdivide_trunk_segment(cone, desc, *level, &mut rng);
+            let subdivided_cones = subdivide_trunk_segment(&cone, desc, segment.level, &mut rng);
             trunks.extend(subdivided_cones);
         }
 
         BuiltObjects {
             trunks,
             leaf_positions,
+            leaf_placements,
         }
     }
+}
+
+fn generate_leaf_sprays(
+    desc: &TreeDesc,
+    anchors: &[(Vec3, Vec3)],
+    rng: &mut StdRng,
+) -> Vec<LeafPlacement> {
+    let diameter = 2.0_f32.powi(desc.leaves_size_level.min(8) as i32);
+    let along_radius = (diameter * 0.5).max(1.0);
+    let width_radius = (along_radius * desc.leaf_spray_width_ratio.max(0.05)).max(1.0);
+    let thickness_radius = (along_radius * desc.leaf_spray_thickness_ratio.max(0.05)).max(1.0);
+    let spray_volume = 4.0 / 3.0 * PI * along_radius * width_radius * thickness_radius;
+    let leaves_per_spray = (spray_volume * desc.leaf_density.max(0.0)).round() as usize;
+    let mut placements = Vec::with_capacity(anchors.len().saturating_mul(leaves_per_spray));
+
+    for &(anchor, branch_direction) in anchors {
+        let axis = if branch_direction.length_squared() > 0.0 {
+            branch_direction
+        } else {
+            Vec3::Y
+        };
+        let (side, vertical) = stable_perpendicular_basis(axis);
+        let spray_center = anchor + axis * along_radius * desc.leaf_spray_tip_offset_ratio;
+        let mut emitted = 0;
+        let mut attempts = 0;
+        let max_attempts = leaves_per_spray.saturating_mul(8).max(8);
+
+        while emitted < leaves_per_spray && attempts < max_attempts {
+            attempts += 1;
+            let sample = Vec3::new(
+                rng.random_range(-1.0..=1.0),
+                rng.random_range(-1.0..=1.0),
+                rng.random_range(-1.0..=1.0),
+            );
+            if sample.length_squared() > 1.0 {
+                continue;
+            }
+
+            // A branch-oriented ellipsoid creates a readable spray instead of another
+            // world-aligned ball. Individual positions remain independent render instances.
+            let position = spray_center
+                + axis * (sample.x * along_radius)
+                + side * (sample.y * width_radius)
+                + vertical * (sample.z * thickness_radius);
+            placements.push(LeafPlacement { position, anchor });
+            emitted += 1;
+        }
+    }
+
+    placements
 }
 
 /// Subdivides a single RoundCone into multiple, smaller, slightly perturbed cones.
@@ -329,7 +348,7 @@ fn subdivide_trunk_segment(
     }
 
     // 0.0 at root, 1.0 at the deepest level
-    let t = (level as f32) / (desc.iterations as f32).max(1.0);
+    let t = (level as f32) / (desc.branching.iterations as f32).max(1.0);
 
     // Shape the curve with an exponent:
     //  - 1.0 => roughly linear
@@ -362,13 +381,7 @@ fn subdivide_trunk_segment(
     let mut current_pos = cone.center_a();
     let segment_vec = axis / num_segments as f32;
 
-    let up = if axis.normalize_or_zero().y.abs() < 0.9 {
-        Vec3::Y
-    } else {
-        Vec3::X
-    };
-    let perp1 = axis.cross(up).normalize_or_zero();
-    let perp2 = axis.cross(perp1).normalize_or_zero();
+    let (perp1, perp2) = stable_perpendicular_basis(axis);
 
     let root_radius = desc.trunk_thickness * desc.size;
 
@@ -402,9 +415,9 @@ fn subdivide_trunk_segment(
         }
 
         subdivided_trunks.push(RoundCone::new(
-            segment_start_radius.max(desc.trunk_thickness_min),
+            segment_start_radius.max(TREE_MIN_TRUNK_THICKNESS),
             current_pos,
-            segment_end_radius.max(desc.trunk_thickness_min),
+            segment_end_radius.max(TREE_MIN_TRUNK_THICKNESS),
             next_pos,
         ));
 
@@ -414,138 +427,98 @@ fn subdivide_trunk_segment(
     subdivided_trunks
 }
 
-#[allow(clippy::too_many_arguments)]
-fn recurse(
-    pos: Vec3,
-    dir: Vec3,
-    level: u32,
-    desc: &TreeDesc,
-    length: f32,
-    thickness: f32,
-    trunks: &mut Vec<(RoundCone, u32)>,
-    leaf_positions: &mut Vec<Vec3>,
-    rng: &mut StdRng,
-) {
-    if level >= desc.iterations {
-        return;
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // leaf placement: place leaves at (iterations - leaf_offset) levels from the end
-    if level == desc.iterations.saturating_sub(desc.leaf_offset) {
-        leaf_positions.push(pos);
-    }
-
-    let length_variation_factor = {
-        let random_factor = rng.random_range(-1.0..=1.0); // Always generate a random value
-        1.0 + random_factor * desc.segment_length_variation // Scale by variation amount
-    };
-
-    let segment_length = length * length_variation_factor;
-    let thickness_start = thickness;
-    let natural_thickness_end = if desc.thickness_reduction > 0.0 {
-        thickness * desc.thickness_reduction
-    } else {
-        thickness * 0.1_f32.powf((level + 1) as f32)
-    };
-    let thickness_end = natural_thickness_end;
-
-    let level_factor = (level as f32) / (desc.iterations as f32);
-    let vertical_influence = desc.vertical_tendency * level_factor;
-    let adjusted_dir = (dir + Vec3::new(0.0, vertical_influence, 0.0)).normalize_or_zero();
-
-    let end_pos = pos + adjusted_dir * segment_length;
-
-    trunks.push((
-        RoundCone::new(
-            thickness_start.max(desc.trunk_thickness_min),
-            pos,
-            thickness_end.max(desc.trunk_thickness_min),
-            end_pos,
-        ),
-        level,
-    ));
-
-    let should_branch = level < desc.iterations - 1
-        && (level == 0 || rng.random::<f32>() < desc.branch_probability);
-
-    if should_branch {
-        let branch_count = if desc.branch_count_min == desc.branch_count_max {
-            desc.branch_count_min
-        } else {
-            rng.random_range(desc.branch_count_min..=desc.branch_count_max)
+    #[test]
+    fn leaf_offset_zero_places_leaves_on_terminal_branch_tips() {
+        let desc = TreeDesc {
+            branching: BranchingDesc {
+                iterations: 1,
+                branch_start_fraction: 0.0,
+                branch_count_min: 2,
+                branch_count_max: 2,
+                randomness: 0.0,
+                segment_length_variation: 0.0,
+                ..default_tree_branching_desc()
+            },
+            leaf_offset: 0,
+            enable_subdivision: false,
+            ..TreeDesc::default()
         };
 
-        for i in 0..branch_count {
-            let new_dir =
-                calculate_branch_direction(adjusted_dir, i, branch_count, level, desc, rng);
+        let tree = Tree::new(desc);
 
-            if new_dir != Vec3::ZERO {
-                recurse(
-                    end_pos,
-                    new_dir,
-                    level + 1,
-                    desc,
-                    length * desc.length_dropoff,
-                    thickness_end,
-                    trunks,
-                    leaf_positions,
-                    rng,
-                );
-            }
-        }
-    } else {
-        let new_dir = add_direction_variation(adjusted_dir, desc.randomness * 0.2, rng);
-        recurse(
-            end_pos,
-            new_dir,
-            level + 1,
-            desc,
-            length * desc.length_dropoff,
-            thickness_end,
-            trunks,
-            leaf_positions,
-            rng,
+        assert_eq!(tree.relative_leaf_positions().len(), 2);
+    }
+
+    #[test]
+    fn leaf_sprays_are_deterministic_independent_placements() {
+        let desc = TreeDesc {
+            branching: BranchingDesc {
+                seed: 7,
+                iterations: 2,
+                branch_count_min: 2,
+                branch_count_max: 2,
+                ..default_tree_branching_desc()
+            },
+            leaves_size_level: 3,
+            leaf_offset: 0,
+            ..TreeDesc::default()
+        };
+
+        let first = Tree::new(desc.clone());
+        let second = Tree::new(desc);
+
+        assert!(!first.relative_leaf_positions().is_empty());
+        assert!(
+            first.relative_leaf_placements().len() > first.relative_leaf_positions().len(),
+            "each foliage anchor should expand into independently placed leaf voxels"
+        );
+        assert_eq!(
+            first
+                .relative_leaf_placements()
+                .iter()
+                .map(|leaf| (leaf.position, leaf.anchor))
+                .collect::<Vec<_>>(),
+            second
+                .relative_leaf_placements()
+                .iter()
+                .map(|leaf| (leaf.position, leaf.anchor))
+                .collect::<Vec<_>>()
         );
     }
-}
 
-fn calculate_branch_direction(
-    parent_dir: Vec3,
-    branch_index: u32,
-    total_branches: u32,
-    level: u32,
-    desc: &TreeDesc,
-    rng: &mut StdRng,
-) -> Vec3 {
-    let golden_angle = 2.4;
-    let around_angle = if total_branches > 1 {
-        (branch_index as f32) * (2.0 * PI) / (total_branches as f32) + (level as f32) * golden_angle
-    } else {
-        rng.random::<f32>() * 2.0 * PI
-    };
-    let away_angle =
-        rng.random_range(desc.branch_angle_min..=desc.branch_angle_max) * (1.0 + desc.spread);
+    #[test]
+    fn tree_size_scales_branch_length() {
+        let desc = TreeDesc {
+            branching: BranchingDesc {
+                seed: 1,
+                iterations: 1,
+                randomness: 0.0,
+                segment_length_variation: 0.0,
+                ..default_tree_branching_desc()
+            },
+            enable_subdivision: false,
+            size: TREE_DEFAULT_SIZE,
+            ..TreeDesc::default()
+        };
+        let mut half_size_desc = desc.clone();
+        half_size_desc.size = TREE_DEFAULT_SIZE * 0.5;
 
-    let up = if parent_dir.y.abs() < 0.9 {
-        Vec3::Y
-    } else {
-        Vec3::X
-    };
-    let right = parent_dir.cross(up).normalize_or_zero();
-    let forward = parent_dir.cross(right).normalize_or_zero();
+        let default_tree = Tree::new(desc);
+        let half_size_tree = Tree::new(half_size_desc);
+        let default_segment = &default_tree.trunks()[0];
+        let half_size_segment = &half_size_tree.trunks()[0];
 
-    let branch_dir = {
-        let rotated_perp = right * around_angle.cos() + forward * around_angle.sin();
-        let base_dir = parent_dir * away_angle.cos() + rotated_perp * away_angle.sin();
-        base_dir.normalize_or_zero()
-    };
+        let default_length = default_segment
+            .center_b()
+            .distance(default_segment.center_a());
+        let half_size_length = half_size_segment
+            .center_b()
+            .distance(half_size_segment.center_a());
 
-    add_direction_variation(branch_dir, desc.randomness, rng)
-}
-
-fn add_direction_variation(dir: Vec3, variation: f32, rng: &mut StdRng) -> Vec3 {
-    let rand_x = rng.random_range(-variation..=variation);
-    let rand_y = rng.random_range(-variation..=variation);
-    let rand_z = rng.random_range(-variation..=variation);
-    (dir + Vec3::new(rand_x, rand_y, rand_z)).normalize_or_zero()
+        assert!((half_size_length - default_length * 0.5).abs() < 0.001);
+    }
 }

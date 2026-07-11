@@ -39,6 +39,26 @@ vec3 unpack_normal(uint enc) {
     return normalize(n);
 }
 
+/// Compresses a unit normal with the industry-standard octahedral mapping into RG8_UNORM.
+uint pack_normal_oct16(vec3 normal) {
+    float inv_l1_norm = 1.0 / max(abs(normal.x) + abs(normal.y) + abs(normal.z), 1e-8);
+    vec2 p = normal.xy * inv_l1_norm;
+    p = normal.z < 0.0
+            ? (1.0 - abs(p.yx)) * mix(vec2(-1.0), vec2(1.0), greaterThanEqual(p.xy, vec2(0.0)))
+            : p;
+    uvec2 quantized = uvec2(round(clamp(p * 0.5 + 0.5, 0.0, 1.0) * 255.0));
+    return quantized.x | (quantized.y << 8u);
+}
+
+vec3 unpack_normal_oct16(uint packed) {
+    uvec2 quantized = uvec2(packed & 0xffu, (packed >> 8u) & 0xffu);
+    vec2 p = vec2(quantized) * (2.0 / 255.0) - 1.0;
+    vec3 normal = vec3(p, 1.0 - abs(p.x) - abs(p.y));
+    float fold = max(-normal.z, 0.0);
+    normal.xy += mix(vec2(fold), vec2(-fold), greaterThanEqual(normal.xy, vec2(0.0)));
+    return normalize(normal);
+}
+
 /// Compress a normal vector into a single uint.
 /// The normal vector is compressed into 3 7-bit components.
 /// Therefore there's additional 32-21=11 bits left for other data.

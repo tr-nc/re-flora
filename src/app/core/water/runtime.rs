@@ -143,6 +143,7 @@ enum WaterSimCommand {
     InvalidateTerrainGridCacheForChunk(IVec3),
     ApplyTerrainGridCachePatch(WaterTerrainCachePatch),
     StabilizeAfterTerrainChunkChange(IVec3),
+    #[allow(dead_code)]
     SpawnDebugParticlesAtSurface {
         surface_point_ws: Vec3,
         count: usize,
@@ -417,6 +418,7 @@ impl AsyncWaterSim {
         self.send_critical_command(WaterSimCommand::StabilizeAfterTerrainChunkChange(chunk_id));
     }
 
+    #[allow(dead_code)]
     pub(crate) fn request_debug_particle_spawn(
         &mut self,
         surface_point_ws: Vec3,

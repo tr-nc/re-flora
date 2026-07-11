@@ -72,7 +72,7 @@ impl MovementState {
         self.jump_requested = false;
     }
 
-    /// Handles keyboard input for movement controls
+    /// Handles keyboard input for movement controls.
     pub fn handle_keyboard(&mut self, key_event: &KeyEvent) {
         if let PhysicalKey::Code(code) = key_event.physical_key {
             if key_event.repeat {
@@ -110,7 +110,7 @@ impl MovementState {
         }
     }
 
-    /// Checks if the player is currently moving horizontally
+    /// Checks if the player is currently moving horizontally.
     pub fn is_moving_horizontally(&self) -> bool {
         self.axes.forward || self.axes.backward || self.axes.left || self.axes.right
     }

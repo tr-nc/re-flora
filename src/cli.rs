@@ -142,10 +142,12 @@ pub struct AppOptions {
     pub tree_bench: bool,
     /// Number of tree benchmark samples.
     pub tree_bench_samples: u32,
-    /// Sweep Min Trunk Thickness during tree benchmark.
-    pub tree_bench_min_thickness: bool,
     /// Do not wait for deferred rebuilds between tree benchmark samples.
     pub tree_bench_rapid: bool,
+    /// Run the authored special-flora paint benchmark and exit after completion.
+    pub authored_flora_bench: bool,
+    /// Number of authored flora benchmark paint samples.
+    pub authored_flora_bench_samples: u32,
     /// Print the per-worktree run log directory and exit successfully.
     pub print_log_dir: bool,
     /// Print the latest run log path and exit successfully.
@@ -222,7 +224,7 @@ impl AppOptions {
         let monitor_score =
             match parse_required_string_after("--monitor-score", "one of: highest, lowest")? {
                 Some(value) => parse_monitor_score_preference(&value)?,
-                None => MonitorScorePreference::Lowest,
+                None => MonitorScorePreference::Highest,
             };
 
         let screenshot = parse_screenshot_request(&args)?;
@@ -289,8 +291,10 @@ impl AppOptions {
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
-            tree_bench_min_thickness: args.iter().any(|a| a == "--tree-bench-min-thickness"),
             tree_bench_rapid: args.iter().any(|a| a == "--tree-bench-rapid"),
+            authored_flora_bench: args.iter().any(|a| a == "--authored-flora-bench"),
+            authored_flora_bench_samples: parse_u32_after("--authored-flora-bench-samples")
+                .unwrap_or(25),
             print_log_dir: args.iter().any(|a| a == "--print-log-dir"),
             latest_log: args.iter().any(|a| a == "--latest-log"),
             tail_latest_log,
@@ -432,7 +436,7 @@ Options:
   --no-flora                  Disable flora and leaves rendering
   --no-clouds                 Disable procedural cloud rendering
   --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
-  --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: lowest)
+  --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: highest)
   --swapchain-images <N>      Override swapchain image count (default: auto)
   --screenshot <preset> <path>
                               Save one screenshot from exactly one camera snapshot preset
@@ -458,8 +462,10 @@ Options:
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
-  --tree-bench-min-thickness  Sweep Min Trunk Thickness instead of Tree Height
   --tree-bench-rapid          Do not wait for deferred rebuilds between samples
+  --authored-flora-bench      Run authored special-flora paint benchmark and exit
+  --authored-flora-bench-samples <N>
+                              Authored flora benchmark paint samples (default: 25)
   --print-log-dir             Print the per-worktree run log directory and exit
   --latest-log                Print the latest run log path and exit
   --tail-latest-log [N]       Print the last N lines of the latest run log and exit (default: 200)
@@ -496,6 +502,7 @@ pub struct RenderFlags {
     pub enable_lens_flare: bool,
     pub enable_tracer: bool,
     pub enable_flora: bool,
+    pub enable_leaves: bool,
     pub enable_particles: bool,
     pub enable_clouds: bool,
 }
@@ -509,8 +516,10 @@ impl From<&AppOptions> for RenderFlags {
             enable_lens_flare: !options.no_lens_flare,
             enable_tracer: !options.no_tracer,
             enable_flora: !options.no_flora,
+            enable_leaves: !options.no_flora,
             enable_particles: !options.no_particles,
-            enable_clouds: !options.no_clouds,
+            // Disabled for now; infrastructure kept for easy re-enable.
+            enable_clouds: false,
         }
     }
 }
@@ -536,14 +545,29 @@ mod tests {
         assert!(options.present_mode.is_none());
         assert!(matches!(
             options.monitor_score,
-            MonitorScorePreference::Lowest
+            MonitorScorePreference::Highest
         ));
         assert!(options.screenshot_path.is_none());
         assert!(options.screenshot_delay.is_none());
         assert!(options.camera_snapshot.is_none());
         assert!(!options.list_camera_snapshots);
         assert_eq!(options.tree_bench_samples, 10);
+        assert!(!options.authored_flora_bench);
+        assert_eq!(options.authored_flora_bench_samples, 25);
         assert!(options.tail_latest_log.is_none());
+    }
+
+    #[test]
+    fn parses_authored_flora_bench_options() {
+        let options = parse(&[
+            "re-flora",
+            "--authored-flora-bench",
+            "--authored-flora-bench-samples",
+            "7",
+        ]);
+
+        assert!(options.authored_flora_bench);
+        assert_eq!(options.authored_flora_bench_samples, 7);
     }
 
     #[test]

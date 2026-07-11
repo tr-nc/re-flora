@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
-use glam::{UVec3, Vec3};
+use glam::UVec3;
+#[cfg(test)]
+use glam::Vec3;
 
-use crate::util::ChunkWorkQueue;
+use crate::util::{ChunkPopMode, ChunkWorkQueue};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LatestChunkWork<T> {
@@ -88,49 +90,85 @@ impl<T> LatestChunkQueue<T> {
         state.latest_revision
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn pop_next(&mut self) -> Option<LatestChunkWork<T>> {
-        self.pop_with(|pending| pending.pop_next())
+        self.pop(ChunkPopMode::Fifo)
     }
 
+    pub(crate) fn pop(&mut self, mode: ChunkPopMode) -> Option<LatestChunkWork<T>> {
+        self.pop_with(|pending| pending.pop(mode))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn pop_if(
+        &mut self,
+        mode: ChunkPopMode,
+        mut is_ready: impl FnMut(UVec3) -> bool,
+    ) -> Option<LatestChunkWork<T>> {
+        self.pop_with(|pending| pending.pop_if(mode, &mut is_ready))
+    }
+
+    #[cfg(test)]
     pub(crate) fn pop_nearest_to(
         &mut self,
         focus: Vec3,
         chunk_extent: UVec3,
     ) -> Option<LatestChunkWork<T>> {
-        self.pop_with(|pending| pending.pop_nearest_to(focus, chunk_extent))
+        self.pop(ChunkPopMode::NearestWithAging {
+            focus,
+            chunk_extent,
+        })
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn pop_nearest_to_if(
         &mut self,
         focus: Vec3,
         chunk_extent: UVec3,
-        mut is_ready: impl FnMut(UVec3) -> bool,
+        is_ready: impl FnMut(UVec3) -> bool,
     ) -> Option<LatestChunkWork<T>> {
-        self.pop_with(|pending| pending.pop_nearest_to_if(focus, chunk_extent, &mut is_ready))
+        self.pop_if(
+            ChunkPopMode::NearestWithAging {
+                focus,
+                chunk_extent,
+            },
+            is_ready,
+        )
     }
 
+    pub(crate) fn pop_if_payload(
+        &mut self,
+        mode: ChunkPopMode,
+        mut is_ready: impl FnMut(UVec3, &T) -> bool,
+    ) -> Option<LatestChunkWork<T>> {
+        let states = &self.states;
+        let chunk_id = self.pending.pop_if(mode, |chunk_id| {
+            states.get(&chunk_id).is_some_and(|state| {
+                state.active_revision.is_none()
+                    && state.latest_revision > state.completed_revision
+                    && state
+                        .latest_payload
+                        .as_ref()
+                        .is_some_and(|payload| is_ready(chunk_id, payload))
+            })
+        })?;
+        self.take_popped_chunk(chunk_id)
+    }
+
+    #[cfg(test)]
     pub(crate) fn pop_nearest_to_if_payload(
         &mut self,
         focus: Vec3,
         chunk_extent: UVec3,
-        mut is_ready: impl FnMut(UVec3, &T) -> bool,
+        is_ready: impl FnMut(UVec3, &T) -> bool,
     ) -> Option<LatestChunkWork<T>> {
-        let states = &self.states;
-        let chunk_id = self
-            .pending
-            .pop_nearest_to_if(focus, chunk_extent, |chunk_id| {
-                states.get(&chunk_id).is_some_and(|state| {
-                    state.active_revision.is_none()
-                        && state.latest_revision > state.completed_revision
-                        && state
-                            .latest_payload
-                            .as_ref()
-                            .is_some_and(|payload| is_ready(chunk_id, payload))
-                })
-            })?;
-        self.take_popped_chunk(chunk_id)
+        self.pop_if_payload(
+            ChunkPopMode::NearestWithAging {
+                focus,
+                chunk_extent,
+            },
+            is_ready,
+        )
     }
 
     fn pop_with(
