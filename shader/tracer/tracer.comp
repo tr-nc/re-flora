@@ -121,8 +121,8 @@ bool scene_hit(inout MarchingResult o_res, vec3 o, vec3 d, ivec3 map_pos, uvec4 
         o_res.is_hit          = true;
         o_res.pos             = contree_res.pos;
         o_res.center_pos      = contree_res.center_pos;
-        o_res.is_normal_valid = voxel_normal_valid_from_data(voxel_data);
-        o_res.normal          = unpack_normal_v2(voxel_normal_bits_from_data(voxel_data));
+        o_res.is_normal_valid = true;
+        o_res.normal          = voxel_surface_normal_from_data(voxel_data);
         o_res.voxel_type      = voxel_type_from_data(voxel_data);
         o_res.hash_id         = voxel_hash_from_data(voxel_data);
         o_res.voxel_addr      = contree_res.voxel_addr;
@@ -166,7 +166,6 @@ vec3 get_shadow_ray_color(Ray ray, ivec3 seed) {
     return direct_sun_shadow * sun_info.sun_color * sun_info.sun_luminance * sun_above_horizon;
 }
 
-vec3 choose_random_normal(ivec3 seed);
 void parse_trace_result(out vec3 albedo, out vec3 next_tracing_pos, MarchingResult res);
 
 vec3 calc_direct_lighting(vec3 albedo, vec3 normal, vec3 next_tracing_pos, ivec3 seed) {
@@ -195,10 +194,6 @@ vec3 calc_indirect_lighting(vec3 albedo, vec3 primary_normal, vec3 next_tracing_
     MarchingResult res_indirect_ray = general_scene_marching(indirect_ray);
     if (!res_indirect_ray.is_hit) {
         return vec3(0.0);
-    }
-
-    if (!res_indirect_ray.is_normal_valid) {
-        res_indirect_ray.normal = choose_random_normal(indirect_seed);
     }
 
     vec3 sample_albedo, sample_next_tracing_pos;
@@ -265,14 +260,6 @@ void parse_trace_result(out vec3 albedo, out vec3 next_tracing_pos, MarchingResu
     albedo = apply_terrain_fertility_level(albedo, res.voxel_type, fertility_level, res.center_pos);
     // albedo = offset_color(albedo, res.center_pos);
     next_tracing_pos = get_next_tracing_pos(res.center_pos, res.normal);
-}
-
-vec3 choose_random_normal(ivec3 seed) {
-    return random_unit_vec3_bn(seed);
-
-    vec2 rand_vec = random_unit_vec2_bn(seed);
-    return vec3(rand_vec.x, 0.0,
-                rand_vec.y); // This is a 2D random vector projected onto the XZ plane.
 }
 
 bool tree_preview_billboard_hit(Ray ray, out float o_t, out vec3 o_pos, out vec3 o_normal,
@@ -410,11 +397,6 @@ void get_pixel_color(out vec3 o_color, out float o_depth_01, out vec3 o_primary_
     o_primary_position = res_primary_ray.pos;
     o_primary_vox_id   = res_primary_ray.voxel_addr;
     o_primary_is_hit   = true;
-
-    // if normal is not valid, change the res.normal to a random one
-    if (!res_primary_ray.is_normal_valid) {
-        res_primary_ray.normal = choose_random_normal(seed);
-    }
 
     vec3 albedo, next_tracing_pos;
     parse_trace_result(albedo, next_tracing_pos, res_primary_ray);

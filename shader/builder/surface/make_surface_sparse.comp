@@ -149,10 +149,10 @@ void calculate_normal(out vec3 o_normal, out bool o_is_normal_valid, ivec3 workg
         }
     }
     float normal_len_sq = dot(normal, normal);
-    o_is_normal_valid = normal_len_sq > EPSILON * EPSILON;
-    if (o_is_normal_valid) {
-        o_normal = -normal * inversesqrt(normal_len_sq);
-    }
+    o_is_normal_valid = true;
+    o_normal = normal_len_sq > EPSILON * EPSILON
+                   ? -normal * inversesqrt(normal_len_sq)
+                   : vec3(0.0, 1.0, 0.0);
 }
 
 bool normal_not_too_steep(vec3 normal, float threhold) {

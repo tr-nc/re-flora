@@ -1,6 +1,8 @@
 #ifndef VOXEL_DATA_GLSL
 #define VOXEL_DATA_GLSL
 
+#include "core/packer.glsl"
+
 const uint VOXEL_TYPE_MASK          = 0x0Fu;
 const uint VOXEL_ATLAS_STATE_MASK   = 0xF0u;
 // Atlas bytes store 4 bits of voxel type, 2 bits of moisture, and 2 bits of fertility.
@@ -62,6 +64,15 @@ uint voxel_normal_bits_from_data(uint voxel_data) {
 
 bool voxel_normal_valid_from_data(uint voxel_data) {
     return (voxel_data & VOXEL_NORMAL_VALID_MASK) != 0u;
+}
+
+/// Returns the authored smooth terrain normal, with a deterministic upward fallback for
+/// symmetric neighborhoods whose weighted occupancy gradient is zero.
+vec3 voxel_surface_normal_from_data(uint voxel_data) {
+    if (!voxel_normal_valid_from_data(voxel_data)) {
+        return vec3(0.0, 1.0, 0.0);
+    }
+    return normalize(unpack_normal_v2(voxel_normal_bits_from_data(voxel_data)));
 }
 
 uint voxel_hash_from_data(uint voxel_data) {

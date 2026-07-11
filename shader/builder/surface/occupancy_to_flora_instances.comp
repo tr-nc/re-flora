@@ -40,9 +40,8 @@ manual_flora_instances;
 void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal,
                          out bool o_is_normal_valid) {
     o_voxel_type      = voxel_type_from_data(packed);
-    uint normal_bits  = voxel_normal_bits_from_data(packed);
-    o_is_normal_valid = voxel_normal_valid_from_data(packed);
-    o_normal          = unpack_normal_v2(normal_bits);
+    o_is_normal_valid = true;
+    o_normal          = voxel_surface_normal_from_data(packed);
 }
 
 void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_progress,
