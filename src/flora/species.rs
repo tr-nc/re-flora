@@ -5,9 +5,13 @@ use anyhow::Result;
 pub const MAX_FLORA_SPECIES: usize = 4;
 pub const LAVENDER_SPECIES_INDEX: u32 = 2;
 pub const EMBER_BLOOM_SPECIES_INDEX: u32 = 3;
-pub const AUTHORED_PLANT_SPECIES_INDICES: [u32; 2] =
-    [LAVENDER_SPECIES_INDEX, EMBER_BLOOM_SPECIES_INDEX];
 pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FloraPlacementMode {
+    Occupancy,
+    Authored,
+}
 
 pub type MeshGeneratorFn = fn(bool) -> Result<FloraMeshData>;
 
@@ -73,6 +77,7 @@ pub struct FloraSpeciesDesc {
     pub default_tip_color: [u8; 3],
     pub mesh_generator: MeshGeneratorFn,
     pub paint_brush: FloraPaintBrushSettings,
+    pub placement_mode: FloraPlacementMode,
 }
 
 impl FloraSpeciesDesc {
@@ -83,6 +88,7 @@ impl FloraSpeciesDesc {
         default_tip_color: [u8; 3],
         mesh_generator: MeshGeneratorFn,
         paint_brush: FloraPaintBrushSettings,
+        placement_mode: FloraPlacementMode,
     ) -> Self {
         Self {
             key,
@@ -91,6 +97,7 @@ impl FloraSpeciesDesc {
             default_tip_color,
             mesh_generator,
             paint_brush,
+            placement_mode,
         }
     }
 }
@@ -103,6 +110,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [168, 227, 0],
         gen_tall_grass,
         FloraPaintBrushSettings::dense(80),
+        FloraPlacementMode::Occupancy,
     ),
     FloraSpeciesDesc::new(
         "short_grass",
@@ -111,6 +119,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [168, 227, 0],
         gen_short_grass,
         FloraPaintBrushSettings::dense(80),
+        FloraPlacementMode::Occupancy,
     ),
     FloraSpeciesDesc::new(
         "lavender",
@@ -119,6 +128,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [85, 0, 207],
         gen_lavender,
         LAVENDER_PAINT_BRUSH_SETTINGS,
+        FloraPlacementMode::Authored,
     ),
     FloraSpeciesDesc::new(
         "ember_bloom",
@@ -127,6 +137,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         [211, 107, 174],
         gen_ember_bloom,
         EMBER_BLOOM_PAINT_BRUSH_SETTINGS,
+        FloraPlacementMode::Authored,
     ),
 ];
 
@@ -190,8 +201,18 @@ pub fn flora_paint_brush_settings(selection: FloraPaintSelection) -> FloraPaintB
     }
 }
 
+pub fn authored_plant_species_indices() -> impl Iterator<Item = u32> {
+    species()
+        .iter()
+        .enumerate()
+        .filter(|(_, species)| species.placement_mode == FloraPlacementMode::Authored)
+        .map(|(index, _)| index as u32)
+}
+
 pub fn is_authored_plant_species_index(species_idx: u32) -> bool {
-    AUTHORED_PLANT_SPECIES_INDICES.contains(&species_idx)
+    species()
+        .get(species_idx as usize)
+        .is_some_and(|species| species.placement_mode == FloraPlacementMode::Authored)
 }
 
 pub fn assert_species_limit() {
@@ -235,6 +256,16 @@ mod tests {
                         .is_some_and(|species| species.key == "carrot")
             )
         }));
+    }
+
+    #[test]
+    fn authored_species_are_derived_from_registry_metadata() {
+        assert_eq!(
+            authored_plant_species_indices().collect::<Vec<_>>(),
+            vec![LAVENDER_SPECIES_INDEX, EMBER_BLOOM_SPECIES_INDEX]
+        );
+        assert!(!is_authored_plant_species_index(0));
+        assert!(!is_authored_plant_species_index(species_count() as u32));
     }
 
     #[test]

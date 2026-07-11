@@ -947,7 +947,7 @@ impl SurfaceBuilder {
         let authored_instances = self.authored_flora.instances_for_chunk(chunk_id);
         let chunk_resources = &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
 
-        for species_index in species::AUTHORED_PLANT_SPECIES_INDICES {
+        for species_index in species::authored_plant_species_indices() {
             let mut gpu_instances = Vec::new();
             for instance in authored_instances
                 .iter()
