@@ -706,7 +706,7 @@ impl App {
                     origin + Vec3::new(0.0, RAY_EPSILON, 0.0),
                     dir.normalize_or_zero(),
                 ) {
-                    let hit_dist = (hit - origin).length();
+                    let hit_dist = (hit.position - origin).length();
                     hit_dist < STEP_LEN - RAY_EPSILON
                 } else {
                     false

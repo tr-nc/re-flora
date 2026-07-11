@@ -146,17 +146,8 @@ pub struct ContreeCpuRayQuerySnapshot {
 
 #[allow(dead_code)]
 impl ContreeCpuRayQuerySnapshot {
-    pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
-        self.query_terrain_ray_hit_cpu(origin, direction)
-            .map(|hit| hit.position)
-    }
-
-    pub fn query_terrain_ray_hit_cpu(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-    ) -> Option<ContreeCpuRayHit> {
-        query_terrain_ray_hit_against_state(
+    pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<ContreeCpuRayHit> {
+        query_terrain_ray_against_state(
             self.chunk_dim,
             &self.cpu_scene_chunks,
             &self.cpu_chunk_caches,
@@ -1153,17 +1144,8 @@ impl ContreeBuilder {
         }
     }
 
-    pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
-        self.query_terrain_ray_hit_cpu(origin, direction)
-            .map(|hit| hit.position)
-    }
-
-    pub fn query_terrain_ray_hit_cpu(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-    ) -> Option<ContreeCpuRayHit> {
-        query_terrain_ray_hit_against_state(
+    pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<ContreeCpuRayHit> {
+        query_terrain_ray_against_state(
             self.chunk_dim,
             &self.cpu_scene_chunks,
             &self.cpu_chunk_caches,
@@ -2077,26 +2059,10 @@ fn query_terrain_ray_from_snapshot(
         origin,
         direction,
     )
-}
-
-fn query_terrain_ray_against_state(
-    chunk_dim: UVec3,
-    cpu_scene_chunks: &[Option<UVec3>],
-    cpu_chunk_caches: &HashMap<UVec3, Arc<CpuChunkCache>>,
-    origin: Vec3,
-    direction: Vec3,
-) -> Option<Vec3> {
-    query_terrain_ray_hit_against_state(
-        chunk_dim,
-        cpu_scene_chunks,
-        cpu_chunk_caches,
-        origin,
-        direction,
-    )
     .map(|hit| hit.position)
 }
 
-fn query_terrain_ray_hit_against_state(
+fn query_terrain_ray_against_state(
     chunk_dim: UVec3,
     cpu_scene_chunks: &[Option<UVec3>],
     cpu_chunk_caches: &HashMap<UVec3, Arc<CpuChunkCache>>,

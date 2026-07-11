@@ -349,8 +349,11 @@ impl App {
             let gpu_hit = self.tracer.query_terrain_ray_with_validity(ray);
             let gpu_elapsed = gpu_start.elapsed();
 
-            let format_cpu = |hit: Option<Vec3>| match hit {
-                Some(pos) => format!("hit ({:.3}, {:.3}, {:.3})", pos.x, pos.y, pos.z),
+            let format_cpu = |hit: Option<crate::builder::ContreeCpuRayHit>| match hit {
+                Some(hit) => format!(
+                    "hit ({:.3}, {:.3}, {:.3}) type {}",
+                    hit.position.x, hit.position.y, hit.position.z, hit.voxel_type
+                ),
                 None => "miss".to_owned(),
             };
             let gpu_position = match &gpu_hit {
@@ -367,7 +370,9 @@ impl App {
                     Err(err) => format!("error: {err}"),
                 };
             let position_delta = match (cpu_hit, gpu_position) {
-                (Some(cpu_pos), Some(gpu_pos)) => format!("{:.6}", cpu_pos.distance(gpu_pos)),
+                (Some(cpu_hit), Some(gpu_pos)) => {
+                    format!("{:.6}", cpu_hit.position.distance(gpu_pos))
+                }
                 _ => "n/a".to_owned(),
             };
 

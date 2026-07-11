@@ -252,7 +252,9 @@ impl App {
             return;
         };
 
-        let terrain_hit = self.query_terrain_ray_cpu(origin, direction);
+        let terrain_hit = self
+            .query_terrain_ray_cpu(origin, direction)
+            .map(|hit| hit.position);
         if let Some(focus) =
             orbit_focus_from_view_ray(origin, direction, terrain_hit, self.orbit_camera_focus)
         {
@@ -386,6 +388,7 @@ impl App {
 
         let Some(focus) = self
             .query_terrain_ray_cpu(origin, direction)
+            .map(|hit| hit.position)
             .filter(|hit| (*hit - origin).length() <= super::ORBIT_CAMERA_FOCUS_RAY_QUERY_DISTANCE)
         else {
             return;
@@ -484,6 +487,7 @@ impl App {
         }
 
         self.query_terrain_ray_cpu(origin, direction)
+            .map(|hit| hit.position)
             .filter(|hit| (*hit - origin).length() <= super::SHOVEL_RAY_QUERY_DISTANCE)
     }
 
@@ -1044,6 +1048,7 @@ impl App {
 
         Ok(self
             .query_terrain_ray_cpu(origin, direction)
+            .map(|hit| hit.position)
             .filter(|hit| (*hit - origin).length() <= max_distance))
     }
 
@@ -1070,7 +1075,7 @@ impl App {
 
                 let ground_distance = self
                     .query_terrain_ray_cpu(ray_origin, Vec3::NEG_Y)
-                    .map(|hit| (hit - ray_origin).length())
+                    .map(|hit| (hit.position - ray_origin).length())
                     .unwrap_or(Self::PLAYER_COLLISION_GROUND_MISS_DISTANCE);
                 let weight = Self::player_collision_gaussian_weight(x, y);
                 weighted_sum += ground_distance * weight;
@@ -1078,7 +1083,7 @@ impl App {
 
                 let ceiling_hit_distance = self
                     .query_terrain_ray_cpu(ray_origin, Vec3::Y)
-                    .map(|hit| (hit - ray_origin).length())
+                    .map(|hit| (hit.position - ray_origin).length())
                     .unwrap_or(Self::PLAYER_COLLISION_RAY_DISTANCE)
                     .min(Self::PLAYER_COLLISION_RAY_DISTANCE);
                 ceiling_distance = ceiling_distance.min(ceiling_hit_distance);
@@ -1116,27 +1121,22 @@ impl App {
 
     fn query_player_collision_ring_distance(&self, origin: Vec3, direction: Vec3) -> f32 {
         self.query_terrain_ray_cpu(origin, direction)
-            .map(|hit| (hit - origin).length())
+            .map(|hit| (hit.position - origin).length())
             .unwrap_or(Self::PLAYER_COLLISION_RAY_DISTANCE)
     }
 
-    pub(super) fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
-        self.contree_builder
-            .query_terrain_ray_cpu(origin, direction)
-    }
-
-    pub(super) fn query_terrain_ray_hit_cpu(
+    pub(super) fn query_terrain_ray_cpu(
         &self,
         origin: Vec3,
         direction: Vec3,
     ) -> Option<crate::builder::ContreeCpuRayHit> {
         self.contree_builder
-            .query_terrain_ray_hit_cpu(origin, direction)
+            .query_terrain_ray_cpu(origin, direction)
     }
 
     pub(super) fn query_terrain_height_cpu(&self, pos_xz: Vec2) -> f32 {
         self.query_terrain_ray_cpu(Vec3::new(pos_xz.x, 10.0, pos_xz.y), Vec3::NEG_Y)
-            .map(|hit| hit.y)
+            .map(|hit| hit.position.y)
             .unwrap_or(0.0)
     }
 
