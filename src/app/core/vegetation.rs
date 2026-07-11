@@ -11,7 +11,7 @@ use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tree_gen::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
 use crate::util::cluster_positions;
 use anyhow::Result;
-use glam::{IVec3, UVec3, Vec2, Vec3};
+use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
 use std::collections::HashSet;
 use std::time::Instant;
@@ -1535,22 +1535,12 @@ impl App {
                     + ((authored_flora_unit_from_seed(z_seed) * z_span as f32).floor() as u32)
                         .min(z_span.saturating_sub(1));
 
-                let pos_xz = Vec2::new((x_vox as f32 + 0.5) / 256.0, (z_vox as f32 + 0.5) / 256.0);
-                let Some(terrain_hit) =
-                    self.query_terrain_ray_cpu(Vec3::new(pos_xz.x, 10.0, pos_xz.y), Vec3::NEG_Y)
+                let Ok(anchor) = self.resolve_plantable_surface_column(UVec2::new(x_vox, z_vox))
                 else {
                     continue;
                 };
-                if terrain_hit.voxel_type != crate::builder::VOXEL_TYPE_DIRT {
-                    continue;
-                }
-                let base_y = (terrain_hit.position.y * 256.0).floor().max(0.0) as u32;
-                if base_y >= world_dim.y {
-                    continue;
-                }
-
-                let base_center_vox =
-                    Vec3::new(x_vox as f32 + 0.5, base_y as f32 + 0.5, z_vox as f32 + 0.5);
+                let base_world_vox = anchor.base_world_vox();
+                let base_center_vox = anchor.base_center_vox();
                 if distance_sq_to_segment(base_center_vox, start_vox, end_vox) > radius_sq {
                     continue;
                 }
@@ -1570,12 +1560,7 @@ impl App {
                     .as_ref()
                     .is_none_or(|(best_score, _, _, _)| score > *best_score)
                 {
-                    best_candidate = Some((
-                        score,
-                        UVec3::new(x_vox, base_y, z_vox),
-                        base_center_vox,
-                        seed,
-                    ));
+                    best_candidate = Some((score, base_world_vox, base_center_vox, seed));
                 }
             }
 

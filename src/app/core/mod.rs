@@ -11,6 +11,7 @@ mod loading;
 mod moisture;
 mod particles;
 mod placeables;
+mod planting;
 mod player_tools;
 mod screenshot;
 mod terrain_rebuild;
