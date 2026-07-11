@@ -1,18 +1,12 @@
-use crate::flora::construct::{
-    gen_ember_bloom, gen_lavender, gen_short_grass, gen_tall_grass, gen_tomato,
-};
+use crate::flora::construct::{gen_ember_bloom, gen_lavender, gen_short_grass, gen_tall_grass};
 use crate::tracer::voxel_encoding::FloraMeshData;
 use anyhow::Result;
 
-pub const MAX_FLORA_SPECIES: usize = 5;
+pub const MAX_FLORA_SPECIES: usize = 4;
 pub const LAVENDER_SPECIES_INDEX: u32 = 2;
 pub const EMBER_BLOOM_SPECIES_INDEX: u32 = 3;
-pub const TOMATO_SPECIES_INDEX: u32 = 4;
-pub const AUTHORED_PLANT_SPECIES_INDICES: [u32; 3] = [
-    LAVENDER_SPECIES_INDEX,
-    EMBER_BLOOM_SPECIES_INDEX,
-    TOMATO_SPECIES_INDEX,
-];
+pub const AUTHORED_PLANT_SPECIES_INDICES: [u32; 2] =
+    [LAVENDER_SPECIES_INDEX, EMBER_BLOOM_SPECIES_INDEX];
 pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
 
 pub type MeshGeneratorFn = fn(bool) -> Result<FloraMeshData>;
@@ -67,13 +61,6 @@ pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaint
     SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS,
-    1,
-);
-
-pub const TOMATO_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
-    SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
-    SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
-    30,
     1,
 );
 
@@ -135,19 +122,11 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
     ),
     FloraSpeciesDesc::new(
         "ember_bloom",
-        "Ember Bloom",
-        [42, 138, 102],
-        [255, 141, 78],
+        "Purple Allium",
+        [43, 130, 65],
+        [211, 107, 174],
         gen_ember_bloom,
         EMBER_BLOOM_PAINT_BRUSH_SETTINGS,
-    ),
-    FloraSpeciesDesc::new(
-        "tomato",
-        "Tomato",
-        [44, 109, 41],
-        [110, 174, 63],
-        gen_tomato,
-        TOMATO_PAINT_BRUSH_SETTINGS,
     ),
 ];
 
@@ -189,7 +168,6 @@ pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
     FloraPaintSelection::GrassMix,
     FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX),
     FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX),
-    FloraPaintSelection::Species(TOMATO_SPECIES_INDEX),
 ];
 
 pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static str {

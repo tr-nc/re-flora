@@ -61,11 +61,19 @@ impl BufferUpdater {
             })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_flora_growth_info(
         resources: &TracerResources,
         flora_tick: u32,
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
+        spawn_time_ms: u32,
+        spawn_duration_seconds: f32,
+        spawn_rise_fraction: f32,
+        spawn_overshoot_min_voxels: f32,
+        spawn_overshoot_max_voxels: f32,
+        spawn_stagger_seconds: f32,
+        spawn_depth_padding_voxels: f32,
     ) -> Result<()> {
         resources
             .uniforms
@@ -74,6 +82,13 @@ impl BufferUpdater {
                 flora_tick,
                 sprout_delay_ticks,
                 full_growth_ticks,
+                spawn_time_ms,
+                spawn_duration_seconds,
+                spawn_rise_fraction,
+                spawn_overshoot_min_voxels,
+                spawn_overshoot_max_voxels,
+                spawn_stagger_seconds,
+                spawn_depth_padding_voxels,
                 ..FloraGrowthInfo::zeroed()
             })
     }

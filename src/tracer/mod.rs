@@ -46,7 +46,6 @@ use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
-use crate::flora::construct::{gen_tomato_with_desc, TomatoVineDesc};
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
 };
@@ -256,6 +255,34 @@ pub fn solid_flora_height_color_tables(
 ) -> FloraHeightColorTables {
     let table = flora_height_color_table(bottom_srgb, tip_srgb);
     [table, table]
+}
+
+pub fn allium_height_color_tables(
+    stem_bottom_srgb: Vec3,
+    stem_top_srgb: Vec3,
+    flower_a_srgb: Vec3,
+    flower_b_srgb: Vec3,
+) -> FloraHeightColorTables {
+    let stem_bottom = srgb_to_linear_color(stem_bottom_srgb);
+    let stem_top = srgb_to_linear_color(stem_top_srgb);
+    let flower_a = srgb_to_linear_color(flower_a_srgb);
+    let flower_b = srgb_to_linear_color(flower_b_srgb);
+    let mut table_a = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
+    let mut table_b = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
+
+    for row in 0..FLORA_HEIGHT_COLOR_TABLE_LEN {
+        let height_t = row as f32 / (FLORA_HEIGHT_COLOR_TABLE_LEN - 1) as f32;
+        if height_t < 0.64 {
+            let stem_color = stem_bottom.lerp(stem_top, height_t / 0.64);
+            table_a[row] = pack_linear_rgb10(stem_color);
+            table_b[row] = pack_linear_rgb10(stem_color);
+        } else {
+            table_a[row] = pack_linear_rgb10(flower_a);
+            table_b[row] = pack_linear_rgb10(flower_b);
+        }
+    }
+
+    [table_a, table_b]
 }
 
 pub fn grass_flora_height_color_tables(
@@ -907,6 +934,13 @@ impl Tracer {
         flora_tick: u32,
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
+        spawn_time_ms: u32,
+        spawn_duration_seconds: f32,
+        spawn_rise_fraction: f32,
+        spawn_overshoot_min_voxels: f32,
+        spawn_overshoot_max_voxels: f32,
+        spawn_stagger_seconds: f32,
+        spawn_depth_padding_voxels: f32,
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
@@ -1070,6 +1104,13 @@ impl Tracer {
             flora_tick,
             sprout_delay_ticks,
             full_growth_ticks,
+            spawn_time_ms,
+            spawn_duration_seconds,
+            spawn_rise_fraction,
+            spawn_overshoot_min_voxels,
+            spawn_overshoot_max_voxels,
+            spawn_stagger_seconds,
+            spawn_depth_padding_voxels,
         )?;
 
         BufferUpdater::update_sun_info(
@@ -1234,6 +1275,7 @@ impl Tracer {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::needless_option_as_deref)]
     pub fn record_shadow_prepass(
         &mut self,
         cmdbuf: &CommandBuffer,
@@ -1870,6 +1912,7 @@ impl Tracer {
     /// overhead on tile-based GPUs (Apple Silicon via MoltenVK) and prevent
     /// the particle pass from clearing the flora output.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::needless_option_as_deref)]
     fn record_all_graphics_passes(
         &self,
         cmdbuf: &CommandBuffer,
@@ -3317,39 +3360,6 @@ impl Tracer {
             ),
             (None, None) => log::warn!("Attempted to remove non-existent tree {}", tree_id),
         }
-        Ok(())
-    }
-
-    pub fn regenerate_tomato_mesh(&mut self, desc: &TomatoVineDesc) -> Result<()> {
-        let species_idx = crate::flora::species::TOMATO_SPECIES_INDEX as usize;
-        anyhow::ensure!(
-            species_idx < self.resources.meshes.flora_meshes.len(),
-            "tomato species index {} exceeds flora mesh count {}",
-            species_idx,
-            self.resources.meshes.flora_meshes.len()
-        );
-        anyhow::ensure!(
-            species_idx < self.resources.meshes.flora_meshes_lod.len(),
-            "tomato species index {} exceeds flora LOD mesh count {}",
-            species_idx,
-            self.resources.meshes.flora_meshes_lod.len()
-        );
-
-        let mesh_data = gen_tomato_with_desc(desc, false)?;
-        let lookup_type_data = FloraVoxelLookupTypeData::from_mesh_data(&mesh_data);
-        let mesh_data_lod = gen_tomato_with_desc(desc, true)?;
-        self.vulkan_ctx.device().wait_idle();
-        let device = self.vulkan_ctx.device();
-        self.resources.meshes.flora_meshes[species_idx] =
-            FloraMeshResources::from_mesh_data(device.clone(), self.allocator.clone(), mesh_data);
-        self.resources.meshes.flora_meshes_lod[species_idx] = FloraMeshResources::from_mesh_data(
-            device.clone(),
-            self.allocator.clone(),
-            mesh_data_lod,
-        );
-        self.resources
-            .flora_voxel_lookup
-            .update_type(species_idx, lookup_type_data)?;
         Ok(())
     }
 

@@ -52,12 +52,7 @@ layout(set = 0, binding = 9) uniform sampler2D leaf_shadow_opacity_blended_tex;
 layout(set = 0, binding = 10) uniform sampler2D leaf_shadow_mask_tex;
 layout(set = 0, binding = 11) uniform sampler2D cloud_shadow_tex;
 
-layout(set = 0, binding = 6) uniform U_FloraGrowthInfo {
-    uint flora_tick;
-    uint sprout_delay_ticks;
-    uint full_growth_ticks;
-}
-flora_growth_info;
+#include "./flora_animation_info.glsl"
 
 layout(set = 0, binding = 7) uniform U_WindVolumeInfo { vec3 world_chunk_extent; }
 wind_volume_info;
@@ -112,8 +107,9 @@ void main() {
     uint instance_seed = get_instance_seed(instance_pos);
     uint voxel_info = lookup_flora_voxel_info(pc.instance_ty, leaf_vox_local_pos);
     prepaverdarium_vertex(leaf_vox_local_pos, voxel_info, instance_pos, pc.instance_ty,
-                          instance_seed, TREE_LEAF_GROWTH_PROGRESS, is_grass, color_gradient,
-                          voxel_pos, anchor_pos, shadow_weight, should_trim_voxel);
+                          instance_seed, TREE_LEAF_GROWTH_PROGRESS, INSTANCE_SPAWN_INACTIVE,
+                          is_grass, color_gradient, voxel_pos, anchor_pos, shadow_weight,
+                          should_trim_voxel);
     vec3 vert_pos = anchor_pos + vec3(vert_offset_in_vox) * scaling_factor;
 
     if (should_trim_voxel) {

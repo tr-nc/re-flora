@@ -74,7 +74,7 @@ pub struct FloraVoxelInfos {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FloraVoxelTableDescs {
-    pub descs: [u32; 28],
+    pub descs: [u32; 24],
 }
 
 /// Auto-generated from `B_LevelDispatchIndirect` (GLSL source of truth).
@@ -99,6 +99,7 @@ pub struct MakeSurfaceResult {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ManualFloraInstances {
     pub packed_local_pos: u32,
+    pub spawn_start_ms: u32,
 }
 
 /// Auto-generated from `B_ModelTriangles` (GLSL source of truth).
@@ -119,7 +120,7 @@ pub struct NodeOffsetForLevels {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OccupancyToInstancesResult {
-    pub flora_instance_len: [u32; 5],
+    pub flora_instance_len: [u32; 4],
     pub has_growing_flora: u32,
 }
 
@@ -416,7 +417,14 @@ pub struct FloraGrowthInfo {
     pub flora_tick: u32,
     pub sprout_delay_ticks: u32,
     pub full_growth_ticks: u32,
-    pub _pad0: [u8; 4],
+    pub spawn_time_ms: u32,
+    pub spawn_duration_seconds: f32,
+    pub spawn_rise_fraction: f32,
+    pub spawn_overshoot_min_voxels: f32,
+    pub spawn_overshoot_max_voxels: f32,
+    pub spawn_stagger_seconds: f32,
+    pub spawn_depth_padding_voxels: f32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_GodRayInfo` (GLSL source of truth).
@@ -521,7 +529,8 @@ pub struct InstancesToOccupancyInfo {
     pub _pad1: [u8; 4],
     pub species_instance_len: [u32; 4],
     pub tick_delta: u32,
-    pub _pad2: [u8; 12],
+    pub spawn_time_ms: u32,
+    pub _pad2: [u8; 8],
 }
 
 /// Auto-generated from `U_MakeSurfaceInfo` (GLSL source of truth).
@@ -553,7 +562,7 @@ pub struct OccupancyToInstancesInfo {
     pub chunk_world_offset: [u32; 3],
     pub _pad0: [u8; 4],
     pub chunk_dim: [u32; 3],
-    pub _pad1: [u8; 4],
+    pub spawn_time_ms: u32,
 }
 
 /// Auto-generated from `U_PlayerColliderInfo` (GLSL source of truth).

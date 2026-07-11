@@ -53,12 +53,7 @@ layout(set = 0, binding = 9) uniform sampler2D leaf_shadow_opacity_blended_tex;
 layout(set = 0, binding = 10) uniform sampler2D leaf_shadow_mask_tex;
 layout(set = 0, binding = 11) uniform sampler2D cloud_shadow_tex;
 
-layout(set = 0, binding = 6) uniform U_FloraGrowthInfo {
-    uint flora_tick;
-    uint sprout_delay_ticks;
-    uint full_growth_ticks;
-}
-flora_growth_info;
+#include "./flora_animation_info.glsl"
 
 layout(set = 0, binding = 7) uniform U_WindVolumeInfo { vec3 world_chunk_extent; }
 wind_volume_info;
@@ -105,9 +100,11 @@ void main() {
                                                           pc.chunk_world_offset);
     uint instance_seed = get_instance_seed(instance_pos);
     uint instance_growth_progress = unpack_instance_growth_progress(in_instance_packed_local_pos);
+    uint instance_spawn_start_ms = manual_flora_instances.data[gl_InstanceIndex].spawn_start_ms;
     uint voxel_info = lookup_flora_voxel_info(pc.instance_ty, vox_local_pos);
     prepaverdarium_vertex(vox_local_pos, voxel_info, instance_pos, pc.instance_ty, instance_seed,
-                          instance_growth_progress, is_grass, color_gradient, voxel_pos,
+                          instance_growth_progress, instance_spawn_start_ms, is_grass,
+                          color_gradient, voxel_pos,
                           anchor_pos, shadow_weight, should_trim_voxel);
     vec3 vert_pos = get_vert_pos_with_billboard(camera_info.view_mat, voxel_pos, vert_offset_in_vox,
                                                 scaling_factor);

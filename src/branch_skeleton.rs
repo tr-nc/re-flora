@@ -1,7 +1,10 @@
 use crate::util::stable_perpendicular_basis;
 use glam::Vec3;
+#[cfg(test)]
 use rand::rngs::StdRng;
-use rand::{RngExt, SeedableRng};
+use rand::RngExt;
+#[cfg(test)]
+use rand::SeedableRng;
 use std::f32::consts::PI;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +88,7 @@ pub struct BranchSkeleton {
     pub nodes: Vec<BranchNode>,
 }
 
+#[cfg(test)]
 pub fn generate_branch_skeleton(desc: &BranchingDesc) -> BranchSkeleton {
     let mut rng = StdRng::seed_from_u64(desc.seed);
     generate_branch_skeleton_with_rng(desc, &mut rng)
@@ -243,6 +247,7 @@ fn varied_segment_length(length: f32, desc: &BranchingDesc, rng: &mut impl RngEx
     length * (1.0 + random_factor * variation).max(0.0)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn grow_segment(
     pos: Vec3,
     dir: Vec3,

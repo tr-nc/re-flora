@@ -13,7 +13,7 @@ const LOOKUP_BITS_PER_AXIS: u32 = 10;
 pub const FLORA_VOXEL_LOOKUP_EMPTY_KEY: u32 = u32::MAX;
 
 pub const FLORA_VOXEL_MATERIAL_GRADIENT: u8 = 0;
-pub const FLORA_VOXEL_MATERIAL_TOMATO_FRUIT: u8 = 1;
+pub const FLORA_VOXEL_MATERIAL_ALLIUM_CORE: u8 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FloraVoxelInfo {
@@ -137,6 +137,7 @@ fn encode_vec3_with_bits(pos: IVec3, bits: u32, label: &str) -> Result<u32> {
 }
 
 /// Appends indexed cube data and a default gradient-based voxel lookup entry.
+#[allow(clippy::too_many_arguments)]
 pub fn append_indexed_cube_data(
     vertices: &mut Vec<Vertex>,
     indices: &mut Vec<u32>,

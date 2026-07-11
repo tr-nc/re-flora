@@ -43,8 +43,7 @@ uint flora_paint_priority(uint selection) {
     // Grass, including mixed grass and existing tall/short grass instances, is the lowest
     // priority. Authored plants share the higher paint priority so they can replace grass
     // without overwriting each other.
-    if (selection == FLORA_SPECIES_LAVENDER || selection == FLORA_SPECIES_EMBER_BLOOM ||
-        selection == FLORA_SPECIES_TOMATO) {
+    if (selection == FLORA_SPECIES_LAVENDER || selection == FLORA_SPECIES_EMBER_BLOOM) {
         return 1u;
     }
 
@@ -122,8 +121,8 @@ void main() {
                 return;
             }
 
-            uint occupancy_value = pack_flora_occupancy(
-                edit_occupancy_info.paint_selection, INSTANCE_GROWTH_PROGRESS_MATURE);
+            uint occupancy_value = pack_flora_occupancy_with_spawn_age(
+                edit_occupancy_info.paint_selection, INSTANCE_GROWTH_PROGRESS_MATURE, 0u);
             imageStore(occupancy_data, base_local, uvec4(occupancy_value, 0u, 0u, 0u));
         }
     }

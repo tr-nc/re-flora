@@ -9,6 +9,7 @@ layout(set = 0, binding = 0) readonly uniform U_InstancesToOccupancyInfo {
     uvec3 chunk_dim;
     uvec4 species_instance_len;
     uint tick_delta;
+    uint spawn_time_ms;
 }
 instances_to_occupancy_info;
 
@@ -39,8 +40,10 @@ void mark_base_occupied(uint species_idx, uint idx, uint instance_len) {
     }
 
     uvec3 base_local = base_world - instances_to_occupancy_info.chunk_world_offset;
-    uint occupancy_value = pack_flora_occupancy(
-        species_idx, unpack_instance_growth_progress(instance.packed_local_pos));
+    uint spawn_age_ms = instance_spawn_age_ms(
+        instance.spawn_start_ms, instances_to_occupancy_info.spawn_time_ms);
+    uint occupancy_value = pack_flora_occupancy_with_spawn_age(
+        species_idx, unpack_instance_growth_progress(instance.packed_local_pos), spawn_age_ms);
     imageStore(occupancy_data, ivec3(base_local), uvec4(occupancy_value, 0u, 0u, 0u));
 }
 

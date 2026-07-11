@@ -1247,6 +1247,7 @@ impl App {
                     end: edit.center,
                     radius: edit.radius,
                     tick: self.flora_tick,
+                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             );
             let total_elapsed = total_start.elapsed();
@@ -1307,6 +1308,7 @@ impl App {
                     end: edit.center,
                     radius: edit.radius,
                     tick: self.flora_tick,
+                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             );
             let _mesh_elapsed = mesh_start.elapsed();
@@ -1343,6 +1345,7 @@ impl App {
             end: center,
             radius,
             tick: self.flora_tick,
+            spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
         };
 
         let terrain_rebuild_bound = self
@@ -1376,6 +1379,7 @@ impl App {
         is_release_step: bool,
     ) -> Result<()> {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
+            let spawn_time_ms = self.time_info.time_since_start_duration().as_millis() as u32;
             let paint_selection = self.current_flora_paint_selection();
             let paint_brush = species::flora_paint_brush_settings(paint_selection);
             if let species::FloraPaintSelection::Species(species_index) = paint_selection {
@@ -1387,6 +1391,7 @@ impl App {
                             species_index,
                             paint_dab_serial,
                             paint_brush,
+                            spawn_time_ms,
                         )?;
                     }
                     return Ok(());
@@ -1402,6 +1407,7 @@ impl App {
                     end: edit.end,
                     radius: edit.radius,
                     tick: self.flora_tick.wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
+                    spawn_time_ms,
                 },
                 paint_selection,
                 paint_dab_serial,
@@ -1425,6 +1431,7 @@ impl App {
         species_index: u32,
         paint_dab_serial: u32,
         paint_brush: species::FloraPaintBrushSettings,
+        spawn_time_ms: u32,
     ) -> Result<()> {
         if paint_brush.soft_spacing_voxels == 0 {
             return Ok(());
@@ -1554,6 +1561,7 @@ impl App {
                     species_index,
                     base_world_vox,
                     AUTHORED_FLORA_GROWTH_MATURE,
+                    spawn_time_ms,
                     seed,
                     &mut dirty_chunks,
                 )
@@ -1578,6 +1586,7 @@ impl App {
                     end: edit.end,
                     radius: edit.radius,
                     tick: self.flora_tick,
+                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             )?;
         } else {
@@ -1608,6 +1617,7 @@ impl App {
                     end: brush_edit.end,
                     radius: brush_edit.radius,
                     tick: self.flora_tick,
+                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
                 target_age,
             )?;

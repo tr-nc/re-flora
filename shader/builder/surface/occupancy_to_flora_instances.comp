@@ -12,6 +12,7 @@ layout(local_size_x = GROUP_SIZE, local_size_y = GROUP_SIZE, local_size_z = GROU
 layout(set = 0, binding = 0) readonly uniform U_OccupancyToInstancesInfo {
     uvec3 chunk_world_offset;
     uvec3 chunk_dim;
+    uint spawn_time_ms;
 }
 occupancy_to_instances_info;
 
@@ -44,12 +45,16 @@ void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal,
     o_normal          = unpack_normal_v2(normal_bits);
 }
 
-void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_progress) {
+void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_progress,
+                        uint spawn_age_ms) {
     uint write_idx = atomicAdd(occupancy_to_instances_result.flora_instance_len[species_idx], 1u);
     Instance instance;
-    set_instance_local_pos_growth(instance,
-                                  uvec3(base_world_pos) - occupancy_to_instances_info.chunk_world_offset,
-                                  growth_progress);
+    uint spawn_start_ms = spawn_age_ms == FLORA_OCCUPANCY_SPAWN_INACTIVE ?
+                              INSTANCE_SPAWN_INACTIVE :
+                              occupancy_to_instances_info.spawn_time_ms - spawn_age_ms;
+    initialize_flora_instance(
+        instance, uvec3(base_world_pos) - occupancy_to_instances_info.chunk_world_offset,
+        growth_progress, spawn_start_ms);
     manual_flora_instances.data[flora_species_instance_offset(species_idx) + write_idx] = instance;
     if (growth_progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
         atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);
@@ -195,6 +200,7 @@ void main() {
         return;
     }
     uint growth_progress = unpack_flora_occupancy_growth(occupancy_value);
+    uint spawn_age_ms = unpack_flora_occupancy_spawn_age_ms(occupancy_value);
     uint paint_selection = unpack_flora_occupancy_selection(occupancy_value);
 
     uint surface_data = imageLoad(surface, base_local).r;
@@ -216,8 +222,8 @@ void main() {
     // Painted sparse flowers already passed the active dab's density mask when written into
     // occupancy. Rebuilding instances should preserve those accumulated paint choices instead of
     // reapplying a fixed world-space sparse mask.
-    if (paint_selection != FLORA_SPECIES_LAVENDER && paint_selection != FLORA_SPECIES_EMBER_BLOOM &&
-        paint_selection != FLORA_SPECIES_TOMATO &&
+    if (paint_selection != FLORA_SPECIES_LAVENDER &&
+        paint_selection != FLORA_SPECIES_EMBER_BLOOM &&
         !(allow_any_flora || allow_tall_grass || allow_short_grass)) {
         return;
     }
@@ -233,5 +239,5 @@ void main() {
     }
 
     // Exactly one flora instance can be emitted for each occupied base position.
-    add_flora_instance(world_base_pos, flora_type, growth_progress);
+    add_flora_instance(world_base_pos, flora_type, growth_progress, spawn_age_ms);
 }

@@ -15,40 +15,33 @@ pub(crate) const FLOWER_ACCENT: Color32 = Color32::from_rgb(190, 160, 210);
 pub(crate) const SAGE_ACCENT: Color32 = Color32::from_rgb(110, 140, 120);
 pub(crate) const SHADOW_COLOR: Color32 = Color32::from_rgb(75, 60, 85);
 
-pub(crate) const ITEM_PANEL_SHOVEL_ICON_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/10_Wooden_Shovel.PNG";
+pub(crate) const ITEM_PANEL_SHOVEL_ICON_PATH: &str = "assets/texture/tool_icons/dig.png";
 pub(crate) const ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/10_Wooden_Shovel.PNG";
-pub(crate) const ITEM_PANEL_STAFF_ICON_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/4_Wooden_Staff.PNG";
+pub(crate) const ITEM_PANEL_STAFF_ICON_PATH: &str = "assets/texture/tool_icons/grow.png";
 pub(crate) const ITEM_PANEL_STAFF_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/4_Wooden_Staff.PNG";
-pub(crate) const ITEM_PANEL_SMOOTH_ICON_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG";
+pub(crate) const ITEM_PANEL_SMOOTH_ICON_PATH: &str = "assets/texture/tool_icons/smooth.png";
 pub(crate) const ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/26_Copper_Hoe.PNG";
-pub(crate) const ITEM_PANEL_HOE_ICON_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG";
+pub(crate) const ITEM_PANEL_HOE_ICON_PATH: &str = "assets/texture/tool_icons/trim.png";
 pub(crate) const ITEM_PANEL_HOE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG";
-pub(crate) const ITEM_PANEL_WATER_ICON_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/15_Wooden_Watering_Can.PNG";
+pub(crate) const ITEM_PANEL_WATER_ICON_PATH: &str = "assets/texture/tool_icons/water.png";
 pub(crate) const ITEM_PANEL_WATER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/30_Copper_Watering_Can.PNG";
+pub(crate) const ITEM_PANEL_SPRINKLER_ICON_PATH: &str = "assets/texture/tool_icons/sprinkler.png";
 pub(crate) const ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/9_Wooden_Pickaxe.PNG";
+    "assets/texture/tool_icons/inspector.png";
 pub(crate) const ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/24_Copper_Pickaxe.PNG";
-pub(crate) const ITEM_PANEL_FERTILIZER_ICON_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/16_Copper_Bar.PNG";
+pub(crate) const ITEM_PANEL_FERTILIZER_ICON_PATH: &str = "assets/texture/tool_icons/fertilizer.png";
 pub(crate) const ITEM_PANEL_FERTILIZER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/46_Gold_Bar.PNG";
-pub(crate) const ITEM_PANEL_TILLER_ICON_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/26_Copper_Hoe.PNG";
+pub(crate) const ITEM_PANEL_TILLER_ICON_PATH: &str = "assets/texture/tool_icons/till.png";
 pub(crate) const ITEM_PANEL_TILLER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG";
-pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/1_Tree_Log.PNG";
+pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str = "assets/texture/tool_icons/tree.png";
 pub(crate) const ITEM_PANEL_TREE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/8_Wooden_Axe.PNG";
 pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 11;
@@ -545,6 +538,7 @@ fn draw_center_card_text(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_projected_text(
     ctx: &egui::Context,
     painter: &egui::Painter,
@@ -745,6 +739,7 @@ fn draw_tool_panel(
     panel_response
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_tool_panel_contents(
     ui: &mut egui::Ui,
     slots: &[ToolPanelSlot<'_>],

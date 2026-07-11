@@ -817,8 +817,6 @@ impl App {
                 PlaceableKind::Tree => TerrainEditPreviewShape::TreeBillboard,
                 PlaceableKind::Sprinkler => TerrainEditPreviewShape::SurfaceCircle,
             }
-        } else if self.is_watering_selected() || self.is_fertilizer_selected() {
-            TerrainEditPreviewShape::Sphere
         } else {
             TerrainEditPreviewShape::Sphere
         }

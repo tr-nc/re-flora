@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 mod resources;
 use crate::generated::gpu_structs::{
     BvhNodes, ChunkModifyInfo, ChunkSolidSampleInfo, Cuboids, ModelVoxelizeInfo,
@@ -1092,6 +1094,7 @@ impl PlainBuilder {
         Ok(Some(changed_bound))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn bind_terrain_moisture_dry_resources(
         &self,
         gui_input: &Buffer,
@@ -1160,6 +1163,7 @@ impl PlainBuilder {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn record_terrain_moisture_dry_region(
         &mut self,
         cmdbuf: &CommandBuffer,
@@ -1247,6 +1251,7 @@ impl PlainBuilder {
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn record_terrain_moisture_spread_region(
         &mut self,
         cmdbuf: &CommandBuffer,
@@ -1696,7 +1701,7 @@ impl PlainBuilder {
         }
 
         let mut iteration_count = ((kernel_radius_vox / 2.0).ceil() as u32).clamp(2, 6);
-        if iteration_count % 2 != 0 {
+        if !iteration_count.is_multiple_of(2) {
             iteration_count += 1;
         }
 
@@ -3025,6 +3030,7 @@ fn calculate_clipped_offset_and_dim(
     Some((offset, dim))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_chunk_modify_info(
     resources: &PlainBuilderResources,
     offset: UVec3,

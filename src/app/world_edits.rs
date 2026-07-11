@@ -104,6 +104,7 @@ pub(crate) enum VoxelEdit {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum BuildEdit {
     RebuildMesh(UAabb3),
     RebuildMeshWithoutFlora(UAabb3),

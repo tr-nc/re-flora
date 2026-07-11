@@ -3,8 +3,10 @@
 
 struct Instance {
     uint packed_local_pos;
+    uint spawn_start_ms;
 };
 
+const uint INSTANCE_SPAWN_INACTIVE = 0xffffffffu;
 const uint INSTANCE_GROWTH_PROGRESS_MATURE = 0xffu;
 const uint INSTANCE_GROWTH_PROGRESS_REBIRTH = 0x0au;
 
@@ -51,6 +53,17 @@ uint get_instance_seed(uvec3 instance_pos_voxels) {
 
 void set_instance_local_pos_growth(inout Instance instance, uvec3 local_pos, uint growth_progress) {
     instance.packed_local_pos = pack_instance_local_pos_growth(local_pos, growth_progress);
+}
+
+void initialize_flora_instance(inout Instance instance, uvec3 local_pos, uint growth_progress,
+                               uint spawn_start_ms) {
+    set_instance_local_pos_growth(instance, local_pos, growth_progress);
+    instance.spawn_start_ms = spawn_start_ms;
+}
+
+uint instance_spawn_age_ms(uint spawn_start_ms, uint now_ms) {
+    return spawn_start_ms == INSTANCE_SPAWN_INACTIVE ? INSTANCE_SPAWN_INACTIVE :
+                                                        now_ms - spawn_start_ms;
 }
 
 #endif // INSTANCE_GLSL

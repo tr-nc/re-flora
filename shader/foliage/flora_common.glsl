@@ -13,6 +13,7 @@ const float short_grass_height_stddev_voxels = 0.6;
 
 #include "./flora_wind_motion.glsl"
 #include "./flora_species_profile.glsl"
+#include "./flora_spawn_animation.glsl"
 #define DIRECT_SUN_SHADOW_ENABLE_LEAF
 #define DIRECT_SUN_SHADOW_ENABLE_CLOUD
 #include "../include/direct_sun_shadow.glsl"
@@ -55,7 +56,8 @@ float get_shadow_weight(ivec3 vox_local_pos) {
 
 void prepaverdarium_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_pos_voxels,
                            uint instance_ty, uint instance_seed, uint in_instance_growth_progress,
-                           out bool is_grass, out float color_gradient, out vec3 voxel_pos,
+                           uint instance_spawn_start_ms, out bool is_grass,
+                           out float color_gradient, out vec3 voxel_pos,
                            out vec3 anchor_pos, out float shadow_weight,
                            out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
@@ -113,8 +115,18 @@ void prepaverdarium_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_
     } else if (is_apple) {
         wind_offset += apple_wind_swing(wind_vec, instance_seed, wind_motion_time);
     }
-    anchor_pos = (vec3(vox_local_pos) + wind_offset) * scaling_factor + instance_pos;
-    voxel_pos         = anchor_pos + vec3(0.5) * scaling_factor;
+    float plant_height_voxels = is_grass ? float(grass_height_voxels) :
+                                            flora_voxel_lookup_max_length(instance_ty) + 1.0;
+    FloraSpawnAnimationPose spawn_pose = is_surface_flora ? sample_flora_spawn_animation(
+                                                               instance_spawn_start_ms,
+                                                               instance_seed,
+                                                               plant_height_voxels) :
+                                                           FloraSpawnAnimationPose(
+                                                               vec3(0.0), vec3(1.0), 1.0);
+    anchor_pos = (vec3(vox_local_pos) + wind_offset + spawn_pose.translation_voxels) *
+                     scaling_factor +
+                 instance_pos;
+    voxel_pos = anchor_pos + vec3(0.5) * scaling_factor;
 
     DirectSunShadowReceiver shadow_receiver = direct_sun_shadow_receiver(
         vec4(voxel_pos, 1.0),
@@ -144,16 +156,34 @@ vec3 sample_flora_base_color(bool is_grass, uint instance_ty, uint instance_seed
                              ivec3 vox_local_pos, uvec3 instance_pos_voxels,
                              float color_gradient, uint voxel_info) {
     uint material_id = flora_voxel_material_id(voxel_info);
-    if (instance_ty == FLORA_SPECIES_TOMATO && material_id == FLORA_VOXEL_MATERIAL_TOMATO_FRUIT) {
-        return srgb_to_linear(vec3(0.92, 0.05, 0.025));
-    }
-
     uint color_row = flora_height_color_row(color_gradient);
     uint dark_height_color_rgb10 = pc.height_dark_color_rgb10[color_row];
     if (instance_ty == FLORA_SPECIES_LAVENDER) {
         dark_height_color_rgb10 = sample_lavender_height_palette_rgb10(instance_seed, color_row);
     }
     vec3 dark_height_color = unpack_linear_rgb10(dark_height_color_rgb10);
+
+    if (instance_ty == FLORA_SPECIES_EMBER_BLOOM &&
+        material_id == FLORA_VOXEL_MATERIAL_ALLIUM_CORE) {
+        const uint flower_color_row = 8u;
+        vec3 flower_a = unpack_linear_rgb10(pc.height_dark_color_rgb10[flower_color_row]);
+        vec3 flower_b = unpack_linear_rgb10(pc.height_light_color_rgb10[flower_color_row]);
+        float preset_choice = construct_float_01(wellons_hash(instance_seed ^ 0x63D83595u));
+        if (preset_choice >= 0.5) {
+            // Golden seed-head preset: warm yellow through a soft floral white.
+            flower_a = srgb_to_linear(vec3(0.89, 0.72, 0.29));
+            flower_b = srgb_to_linear(vec3(0.98, 0.96, 0.86));
+        }
+
+        // A low-discrepancy lattice sequence gives every voxel its own blend factor.
+        // Unlike unconstrained hash noise, neighboring coordinates take large,
+        // well-distributed steps through [0, 1), which avoids obvious color clumps.
+        float instance_offset = construct_float_01(wellons_hash(instance_seed ^ 0xA511E9B3u));
+        float blend_factor = fract(dot(vec3(vox_local_pos),
+                                       vec3(0.754877666, 0.569840296, 0.438289173)) +
+                                   instance_offset);
+        return mix(flower_a, flower_b, blend_factor);
+    }
 
     if (is_grass) {
         float grass_band_t = sample_grass_band_interpolation_t(

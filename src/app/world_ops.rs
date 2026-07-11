@@ -16,6 +16,7 @@ pub(crate) struct FloraBrushEdit {
     pub(crate) end: Vec3,
     pub(crate) radius: f32,
     pub(crate) tick: u32,
+    pub(crate) spawn_time_ms: u32,
 }
 
 struct DirectChunkRebuildRecord {
@@ -490,6 +491,7 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_brush_edit(
         flora_edit.end,
         flora_edit.radius,
         flora_edit.tick,
+        flora_edit.spawn_time_ms,
     )?;
 
     let contree_start = Instant::now();
@@ -545,6 +547,7 @@ pub(crate) fn mesh_regenerate_flora_for_brush_edit(
             flora_edit.end,
             flora_edit.radius,
             flora_edit.tick,
+            flora_edit.spawn_time_ms,
             paint_selection,
             paint_dab_serial,
             paint_brush,
@@ -578,6 +581,7 @@ pub(crate) fn mesh_remove_flora_for_brush_edit(
             flora_edit.end,
             flora_edit.radius,
             flora_edit.tick,
+            flora_edit.spawn_time_ms,
         )?;
     }
 
@@ -610,6 +614,7 @@ pub(crate) fn mesh_trim_flora_for_brush_edit(
             flora_edit.end,
             flora_edit.radius,
             flora_edit.tick,
+            flora_edit.spawn_time_ms,
             target_age,
         )?;
         if regen_stats.has_growing_flora {

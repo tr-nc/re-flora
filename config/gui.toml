@@ -2039,268 +2039,113 @@ min = 0
 max = 20
 
 [[section]]
-name = "EmberBloom"
+name = "Purple Allium"
 
 [[section.param]]
 id = "ember_bloom_bottom_color"
 kind = "color"
-label = "Bottom Color"
+label = "Stem Bottom Color"
 type = "Color"
 
 [section.param.data]
-value = "#580032"
+value = "#3D7A38"
 
 [[section.param]]
-id = "ember_bloom_tip_color"
+id = "ember_bloom_stem_tip_color"
 kind = "color"
-label = "Tip Color"
+label = "Stem Top Color"
 type = "Color"
 
 [section.param.data]
-value = "#FFB5FF"
+value = "#72A84A"
+
+[[section.param]]
+id = "ember_bloom_flower_purple_color"
+kind = "color"
+label = "Flower Color A"
+type = "Color"
+
+[section.param.data]
+value = "#A85AC4"
+
+[[section.param]]
+id = "ember_bloom_flower_secondary_color"
+kind = "color"
+label = "Flower Color B"
+type = "Color"
+
+[section.param.data]
+value = "#D36BAE"
+
 
 [[section]]
-name = "Tomato Vine Structure"
+name = "Flora Spawn Animation"
 
 [[section.param]]
-id = "tomato_seed_offset"
-kind = "uint"
-label = "Seed Offset"
-type = "Uint"
-
-[section.param.data]
-value = 0
-min = 0
-max = 10000
-
-[[section.param]]
-id = "tomato_iterations"
-kind = "uint"
-label = "Iterations"
-type = "Uint"
-
-[section.param.data]
-value = 5
-min = 1
-max = 7
-
-[[section.param]]
-id = "tomato_branch_start_fraction"
+id = "flora_spawn_duration_seconds"
 kind = "float"
-label = "Branch Start Fraction"
+label = "Duration (Seconds)"
 type = "Float"
 
 [section.param.data]
-value = 0
-min = 0
-max = 1
-
-[[section.param]]
-id = "tomato_branch_end_fraction"
-kind = "float"
-label = "Branch End Fraction"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0
-max = 1
-
-[[section.param]]
-id = "tomato_initial_length"
-kind = "float"
-label = "Initial Length"
-type = "Float"
-
-[section.param.data]
-value = 4
-min = 1
-max = 8
-
-[[section.param]]
-id = "tomato_overall_scale"
-kind = "float"
-label = "Overall Scale"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0.5
+value = 0.62
+min = 0.1
 max = 2
 
 [[section.param]]
-id = "tomato_base_diameter_voxels"
-kind = "uint"
-label = "Base Diameter (voxels)"
-type = "Uint"
-
-[section.param.data]
-value = 1
-min = 1
-max = 1
-
-[[section.param]]
-id = "tomato_thickness_taper_power"
+id = "flora_spawn_rise_fraction"
 kind = "float"
-label = "Thickness Taper Power"
+label = "Rise Timeline Fraction"
 type = "Float"
 
 [section.param.data]
-value = 1.15
-min = 0.2
-max = 4
+value = 0.68
+min = 0.1
+max = 0.95
 
 [[section.param]]
-id = "tomato_length_dropoff"
+id = "flora_spawn_overshoot_min_voxels"
 kind = "float"
-label = "Length Dropoff"
-type = "Float"
-
-[section.param.data]
-value = 0.76
-min = 0.4
-max = 0.9
-
-[[section.param]]
-id = "tomato_spread"
-kind = "float"
-label = "Spread"
-type = "Float"
-
-[section.param.data]
-value = 0.08
-min = 0
-max = 1
-
-[[section.param]]
-id = "tomato_randomness"
-kind = "float"
-label = "Randomness"
-type = "Float"
-
-[section.param.data]
-value = 0.18
-min = 0
-max = 0.6
-
-[[section.param]]
-id = "tomato_vertical_tendency"
-kind = "float"
-label = "Vertical Tendency"
-type = "Float"
-
-[section.param.data]
-value = 0.48
-min = -0.5
-max = 1
-
-[[section.param]]
-id = "tomato_branch_angle_min_degrees"
-kind = "float"
-label = "Branch Angle Min (deg)"
-type = "Float"
-
-[section.param.data]
-value = 30
-min = 0
-max = 90
-
-[[section.param]]
-id = "tomato_branch_angle_max_degrees"
-kind = "float"
-label = "Branch Angle Max (deg)"
-type = "Float"
-
-[section.param.data]
-value = 58
-min = 0
-max = 100
-
-[[section.param]]
-id = "tomato_branch_probability"
-kind = "float"
-label = "Branch Probability"
-type = "Float"
-
-[section.param.data]
-value = 0.92
-min = 0
-max = 1
-
-[[section.param]]
-id = "tomato_branch_count_min"
-kind = "uint"
-label = "Branch Count Min"
-type = "Uint"
-
-[section.param.data]
-value = 2
-min = 1
-max = 4
-
-[[section.param]]
-id = "tomato_branch_count_max"
-kind = "uint"
-label = "Branch Count Max"
-type = "Uint"
-
-[section.param.data]
-value = 3
-min = 1
-max = 5
-
-[[section.param]]
-id = "tomato_segment_length_variation"
-kind = "float"
-label = "Segment Length Variation"
-type = "Float"
-
-[section.param.data]
-value = 0.1
-min = 0
-max = 0.5
-
-[[section.param]]
-id = "tomato_continue_main_axis"
-kind = "bool"
-label = "Continue Main Axis"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
-id = "tomato_fruit_count"
-kind = "uint"
-label = "Fruit Count"
-type = "Uint"
-
-[section.param.data]
-value = 0
-min = 0
-max = 16
-
-[[section.param]]
-id = "tomato_fruit_radius"
-kind = "float"
-label = "Fruit Radius (voxels)"
-type = "Float"
-
-[section.param.data]
-value = 1.25
-min = 0
-max = 3
-
-[[section.param]]
-id = "tomato_fruit_min_height_fraction"
-kind = "float"
-label = "Fruit Min Height Fraction"
+label = "Minimum Overshoot (Voxels)"
 type = "Float"
 
 [section.param.data]
 value = 0.35
 min = 0
-max = 1
+max = 4
+
+[[section.param]]
+id = "flora_spawn_overshoot_max_voxels"
+kind = "float"
+label = "Maximum Overshoot (Voxels)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 8
+
+[[section.param]]
+id = "flora_spawn_stagger_seconds"
+kind = "float"
+label = "Random Stagger (Seconds)"
+type = "Float"
+
+[section.param.data]
+value = 0.08
+min = 0
+max = 0.5
+
+[[section.param]]
+id = "flora_spawn_depth_padding_voxels"
+kind = "float"
+label = "Underground Padding (Voxels)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 8
 
 [[section]]
 name = "FloraVariation"

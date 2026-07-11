@@ -10,6 +10,7 @@ layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 0) readonly uniform U_OccupancyToInstancesInfo {
     uvec3 chunk_world_offset;
     uvec3 chunk_dim;
+    uint spawn_time_ms;
 }
 occupancy_to_instances_info;
 
@@ -52,9 +53,9 @@ void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal,
 void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_progress) {
     uint write_idx = atomicAdd(occupancy_to_instances_result.flora_instance_len[species_idx], 1u);
     Instance instance;
-    set_instance_local_pos_growth(instance,
-                                  uvec3(base_world_pos) - occupancy_to_instances_info.chunk_world_offset,
-                                  growth_progress);
+    initialize_flora_instance(
+        instance, uvec3(base_world_pos) - occupancy_to_instances_info.chunk_world_offset,
+        growth_progress, INSTANCE_SPAWN_INACTIVE);
     manual_flora_instances.data[flora_species_instance_offset(species_idx) + write_idx] = instance;
     if (growth_progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
         atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);

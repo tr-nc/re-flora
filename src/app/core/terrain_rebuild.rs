@@ -469,6 +469,7 @@ impl App {
                         flora_edit.end,
                         flora_edit.radius,
                         flora_edit.tick,
+                        flora_edit.spawn_time_ms,
                     ) {
                         Ok(()) => {
                             preserve_flora_ms = flora_start.elapsed().as_secs_f64() * 1000.0;

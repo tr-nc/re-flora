@@ -6,7 +6,7 @@ use petalsonic::spatial::{SpatialProcessingMetrics, SpatialProcessor};
 use petalsonic::{
     AmbisonicsBackend, DirectPathBackend, HrtfBackend, PlaybackInstance, SourceConfig, SourceId,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -172,8 +172,8 @@ fn run_mode(
     source_count: usize,
     mode: &BenchMode,
     audio_data: &Arc<PetalSonicAudioData>,
-    native_hrtf_path: &PathBuf,
-    steam_hrtf_path: &PathBuf,
+    native_hrtf_path: &Path,
+    steam_hrtf_path: &Path,
     warmup_blocks: usize,
     measure_blocks: usize,
 ) -> Result<BenchStats> {

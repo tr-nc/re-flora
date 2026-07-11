@@ -45,15 +45,15 @@ use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
-use crate::flora::{construct::TomatoVineDesc, species};
+use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
 use crate::tracer::{
-    grass_flora_height_color_tables, solid_flora_height_color_tables, CloudGuiParams,
-    GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
+    allium_height_color_tables, grass_flora_height_color_tables, solid_flora_height_color_tables,
+    CloudGuiParams, GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
     DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
 use crate::tree_gen::TreeDesc;
@@ -82,8 +82,8 @@ use ui_style::{
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
-    ITEM_PANEL_STAFF_ICON_FALLBACK_PATH, ITEM_PANEL_STAFF_ICON_PATH,
-    ITEM_PANEL_TILLER_ICON_FALLBACK_PATH, ITEM_PANEL_TILLER_ICON_PATH,
+    ITEM_PANEL_SPRINKLER_ICON_PATH, ITEM_PANEL_STAFF_ICON_FALLBACK_PATH,
+    ITEM_PANEL_STAFF_ICON_PATH, ITEM_PANEL_TILLER_ICON_FALLBACK_PATH, ITEM_PANEL_TILLER_ICON_PATH,
     ITEM_PANEL_TREE_ICON_FALLBACK_PATH, ITEM_PANEL_TREE_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
@@ -170,6 +170,7 @@ pub struct App {
     item_panel_hoe_icon: Option<TextureHandle>,
     item_panel_tree_icon: Option<TextureHandle>,
     item_panel_water_icon: Option<TextureHandle>,
+    item_panel_sprinkler_icon: Option<TextureHandle>,
     item_panel_soil_inspector_icon: Option<TextureHandle>,
     item_panel_fertilizer_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
@@ -252,17 +253,12 @@ pub struct App {
     tree_audio_manager: TreeAudioManager,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum CameraControlMode {
+    #[default]
     FreeFly,
     Walk,
     OrbitEdit,
-}
-
-impl Default for CameraControlMode {
-    fn default() -> Self {
-        Self::FreeFly
-    }
 }
 
 impl CameraControlMode {
@@ -806,21 +802,6 @@ impl App {
         }
     }
 
-    fn tomato_vine_desc(gui_adjustables: &GuiAdjustables) -> TomatoVineDesc {
-        TomatoVineDesc {
-            branching: super::gui_config::tomato_branching_desc_from_adjustables(gui_adjustables),
-            overall_scale: gui_adjustables.tomato_overall_scale.value.max(0.1),
-            base_diameter_voxels: gui_adjustables.tomato_base_diameter_voxels.value.max(1),
-            thickness_taper_power: gui_adjustables.tomato_thickness_taper_power.value.max(0.05),
-            fruit_count: gui_adjustables.tomato_fruit_count.value,
-            fruit_radius: gui_adjustables.tomato_fruit_radius.value.max(0.0),
-            fruit_min_height_fraction: gui_adjustables
-                .tomato_fruit_min_height_fraction
-                .value
-                .clamp(0.0, 1.0),
-        }
-    }
-
     fn wind_gui_params(wind_sources: &[WindSourceGuiValues]) -> WindGuiParams {
         WindGuiParams {
             sources: GuiAdjustables::active_wind_sources(wind_sources),
@@ -942,7 +923,7 @@ impl App {
             options.audio_output_device.clone(),
         )?;
 
-        let mut tracer = Tracer::new(
+        let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
             &shader_compiler,
@@ -1001,9 +982,6 @@ impl App {
         let debug_tree_pos = Vec3::new(editable_center.x, 0.2, editable_center.z);
         let gui_config = GuiConfigLoader::load();
         let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
-        if let Err(err) = tracer.regenerate_tomato_mesh(&Self::tomato_vine_desc(&gui_adjustables)) {
-            log::error!("Failed to apply tomato vine GUI parameters at startup: {err}");
-        }
         let wind_sources = crate::app::wind_sources_from_config(&gui_config);
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
@@ -1196,6 +1174,7 @@ impl App {
             item_panel_hoe_icon: None,
             item_panel_tree_icon: None,
             item_panel_water_icon: None,
+            item_panel_sprinkler_icon: None,
             item_panel_soil_inspector_icon: None,
             item_panel_fertilizer_icon: None,
             item_panel_tiller_icon: None,
@@ -1468,6 +1447,34 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_water_icon = Some(water_texture);
+
+        let sprinkler_path = if std::path::Path::new(ITEM_PANEL_SPRINKLER_ICON_PATH).exists() {
+            ITEM_PANEL_SPRINKLER_ICON_PATH
+        } else {
+            log::warn!(
+                "Item panel icon not found at {}. Falling back to {}",
+                ITEM_PANEL_SPRINKLER_ICON_PATH,
+                ITEM_PANEL_WATER_ICON_FALLBACK_PATH
+            );
+            ITEM_PANEL_WATER_ICON_FALLBACK_PATH
+        };
+        let sprinkler_bytes = std::fs::read(sprinkler_path)
+            .with_context(|| format!("Failed to read item panel icon from {sprinkler_path}"))?;
+        let sprinkler_rgba = image::load_from_memory(&sprinkler_bytes)
+            .with_context(|| format!("Failed to decode item panel icon from {sprinkler_path}"))?
+            .to_rgba8();
+        let sprinkler_size = [
+            sprinkler_rgba.width() as usize,
+            sprinkler_rgba.height() as usize,
+        ];
+        let sprinkler_pixels = sprinkler_rgba.into_raw();
+        let sprinkler_image = ColorImage::from_rgba_unmultiplied(sprinkler_size, &sprinkler_pixels);
+        let sprinkler_texture = self.egui_renderer.context().load_texture(
+            "item_panel_sprinkler",
+            sprinkler_image,
+            egui::TextureOptions::NEAREST,
+        );
+        self.item_panel_sprinkler_icon = Some(sprinkler_texture);
 
         let soil_inspector_path =
             if std::path::Path::new(ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH).exists() {
@@ -1937,13 +1944,13 @@ impl App {
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.gui_adjustables.time_of_day.value;
                 let vsm_blur_radius_before_gui = self.gui_adjustables.vsm_blur_radius.value;
-                let tomato_vine_desc_before_gui = Self::tomato_vine_desc(&self.gui_adjustables);
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_smooth_icon = self.item_panel_smooth_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
                 let item_panel_tree_icon = self.item_panel_tree_icon.clone();
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
+                let item_panel_sprinkler_icon = self.item_panel_sprinkler_icon.clone();
                 let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
                 let item_panel_fertilizer_icon = self.item_panel_fertilizer_icon.clone();
                 let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
@@ -2290,7 +2297,7 @@ impl App {
                                 label: "Spray",
                                 key_hint: "X",
                                 category: Some("ITEMS"),
-                                icon: item_panel_water_icon.as_ref(),
+                                icon: item_panel_sprinkler_icon.as_ref(),
                                 accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
@@ -2482,17 +2489,6 @@ impl App {
                         Err(err) => {
                             log::error!("Failed to update tuning tree from GUI sliders: {}", err)
                         }
-                    }
-                }
-
-                let tomato_vine_desc_after_gui = Self::tomato_vine_desc(&self.gui_adjustables);
-                if tomato_vine_desc_after_gui != tomato_vine_desc_before_gui {
-                    match self
-                        .tracer
-                        .regenerate_tomato_mesh(&tomato_vine_desc_after_gui)
-                    {
-                        Ok(()) => log::info!("Regenerated tomato vine mesh from GUI sliders"),
-                        Err(err) => log::error!("Failed to regenerate tomato vine mesh: {err}"),
                     }
                 }
 
@@ -2810,6 +2806,13 @@ impl App {
                         self.flora_tick,
                         FLORA_SPROUT_DELAY_TICKS,
                         FLORA_FULL_GROWTH_TICKS,
+                        self.time_info.time_since_start_duration().as_millis() as u32,
+                        self.gui_adjustables.flora_spawn_duration_seconds.value,
+                        self.gui_adjustables.flora_spawn_rise_fraction.value,
+                        self.gui_adjustables.flora_spawn_overshoot_min_voxels.value,
+                        self.gui_adjustables.flora_spawn_overshoot_max_voxels.value,
+                        self.gui_adjustables.flora_spawn_stagger_seconds.value,
+                        self.gui_adjustables.flora_spawn_depth_padding_voxels.value,
                         sun_dir,
                         self.gui_adjustables.sun_size.value,
                         Vec3::new(
@@ -2909,9 +2912,17 @@ impl App {
                             color_to_vec3(self.gui_adjustables.grass_tip_dark_color.value),
                             color_to_vec3(self.gui_adjustables.grass_tip_light_color.value),
                         ),
-                        "ember_bloom" => solid_flora_height_color_tables(
+                        "ember_bloom" => allium_height_color_tables(
                             color_to_vec3(self.gui_adjustables.ember_bloom_bottom_color.value),
-                            color_to_vec3(self.gui_adjustables.ember_bloom_tip_color.value),
+                            color_to_vec3(self.gui_adjustables.ember_bloom_stem_tip_color.value),
+                            color_to_vec3(
+                                self.gui_adjustables.ember_bloom_flower_purple_color.value,
+                            ),
+                            color_to_vec3(
+                                self.gui_adjustables
+                                    .ember_bloom_flower_secondary_color
+                                    .value,
+                            ),
                         ),
                         _ => {
                             let bottom = Color32::from_rgb(

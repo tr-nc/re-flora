@@ -315,6 +315,7 @@ pub struct AuthoredFloraInstance {
     pub species_index: u32,
     pub base_world_vox: UVec3,
     pub growth_progress: u32,
+    pub spawn_start_ms: u32,
     #[allow(dead_code)]
     pub seed: u32,
 }
@@ -591,6 +592,7 @@ impl SurfaceBuilder {
                 &self.resources.occupancy_to_instances_info,
                 atlas_read_offset,
                 self.voxel_dim_per_chunk,
+                0,
             )?;
             cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
             let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
@@ -852,6 +854,7 @@ impl SurfaceBuilder {
         species_index: u32,
         base_world_vox: UVec3,
         growth_progress: u32,
+        spawn_start_ms: u32,
         seed: u32,
         dirty_chunks: &mut Vec<UVec3>,
     ) -> bool {
@@ -879,6 +882,7 @@ impl SurfaceBuilder {
             species_index,
             base_world_vox,
             growth_progress: growth_progress.min(0xff),
+            spawn_start_ms,
             seed,
         });
         if !dirty_chunks.contains(&chunk_id) {
@@ -952,6 +956,7 @@ impl SurfaceBuilder {
                 gpu_instances.push(pack_manual_flora_instance(
                     local_pos,
                     instance.growth_progress,
+                    instance.spawn_start_ms,
                 ));
             }
             chunk_resources.write_species_instances(species_index as usize, &gpu_instances)?;
@@ -967,6 +972,7 @@ impl SurfaceBuilder {
         edit_end: Vec3,
         edit_radius: f32,
         flora_tick: u32,
+        spawn_time_ms: u32,
     ) -> Result<()> {
         self.remove_authored_flora_for_brush(chunk_id, edit_start, edit_end, edit_radius)?;
         let _ = self.run_occupancy_edit(
@@ -975,6 +981,7 @@ impl SurfaceBuilder {
             edit_end,
             edit_radius,
             flora_tick,
+            spawn_time_ms,
             0,
             species::FloraPaintSelection::GrassMix,
             0,
@@ -984,6 +991,7 @@ impl SurfaceBuilder {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn regenerate_flora_instances_for_brush(
         &mut self,
         chunk_id: UVec3,
@@ -991,6 +999,7 @@ impl SurfaceBuilder {
         edit_end: Vec3,
         edit_radius: f32,
         flora_tick: u32,
+        spawn_time_ms: u32,
         paint_selection: species::FloraPaintSelection,
         paint_dab_serial: u32,
         paint_brush: species::FloraPaintBrushSettings,
@@ -1001,6 +1010,7 @@ impl SurfaceBuilder {
             edit_end,
             edit_radius,
             flora_tick,
+            spawn_time_ms,
             0,
             paint_selection,
             paint_dab_serial,
@@ -1009,6 +1019,7 @@ impl SurfaceBuilder {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn trim_flora_instances_for_brush(
         &mut self,
         chunk_id: UVec3,
@@ -1016,6 +1027,7 @@ impl SurfaceBuilder {
         edit_end: Vec3,
         edit_radius: f32,
         flora_tick: u32,
+        spawn_time_ms: u32,
         target_age: u32,
     ) -> Result<FloraRegenStats> {
         self.run_occupancy_edit(
@@ -1024,6 +1036,7 @@ impl SurfaceBuilder {
             edit_end,
             edit_radius,
             flora_tick,
+            spawn_time_ms,
             target_age,
             species::FloraPaintSelection::GrassMix,
             0,
@@ -1032,6 +1045,7 @@ impl SurfaceBuilder {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run_occupancy_edit(
         &mut self,
         chunk_id: UVec3,
@@ -1039,6 +1053,7 @@ impl SurfaceBuilder {
         edit_end: Vec3,
         edit_radius: f32,
         flora_tick: u32,
+        spawn_time_ms: u32,
         target_age: u32,
         paint_selection: species::FloraPaintSelection,
         paint_dab_serial: u32,
@@ -1083,6 +1098,7 @@ impl SurfaceBuilder {
             self.voxel_dim_per_chunk,
             species_len,
             0u32, // tick_delta=0 for rebuild
+            spawn_time_ms,
         )?;
         update_edit_occupancy_info(
             &self.resources.edit_occupancy_info,
@@ -1102,6 +1118,7 @@ impl SurfaceBuilder {
             &self.resources.occupancy_to_instances_info,
             chunk_world_offset,
             self.voxel_dim_per_chunk,
+            spawn_time_ms,
         )?;
         cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
 
@@ -1266,6 +1283,7 @@ impl SurfaceBuilder {
             self.voxel_dim_per_chunk,
             species_len,
             tick_delta,
+            0,
         )?;
         cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
 
@@ -1333,12 +1351,17 @@ impl SurfaceBuilder {
     }
 }
 
-fn pack_manual_flora_instance(local_pos: UVec3, growth_progress: u32) -> resources::Instance {
+fn pack_manual_flora_instance(
+    local_pos: UVec3,
+    growth_progress: u32,
+    spawn_start_ms: u32,
+) -> resources::Instance {
     resources::Instance {
         packed_local_pos: (local_pos.x & 0xff)
             | ((local_pos.y & 0xff) << 8)
             | ((local_pos.z & 0xff) << 16)
             | ((growth_progress & 0xff) << 24),
+        spawn_start_ms,
     }
 }
 
@@ -1414,12 +1437,14 @@ fn update_instances_to_occupancy_info(
     chunk_dim: UVec3,
     species_instance_len: [u32; 4],
     tick_delta: u32,
+    spawn_time_ms: u32,
 ) -> Result<()> {
     instances_to_occupancy_info.fill_uniform(&InstancesToOccupancyInfo {
         chunk_world_offset: chunk_world_offset.to_array(),
         chunk_dim: chunk_dim.to_array(),
         species_instance_len,
         tick_delta,
+        spawn_time_ms,
         ..InstancesToOccupancyInfo::zeroed()
     })
 }
@@ -1472,10 +1497,12 @@ fn update_occupancy_to_instances_info(
     occupancy_to_instances_info: &Buffer,
     chunk_world_offset: UVec3,
     chunk_dim: UVec3,
+    spawn_time_ms: u32,
 ) -> Result<()> {
     occupancy_to_instances_info.fill_uniform(&OccupancyToInstancesInfo {
         chunk_world_offset: chunk_world_offset.to_array(),
         chunk_dim: chunk_dim.to_array(),
+        spawn_time_ms,
         ..OccupancyToInstancesInfo::zeroed()
     })
 }
