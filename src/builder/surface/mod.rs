@@ -849,7 +849,8 @@ impl SurfaceBuilder {
             .collect()
     }
 
-    pub fn try_add_authored_flora_instance_deferred(
+    /// Low-level authored-flora storage primitive. Callers must validate the terrain anchor first.
+    pub(crate) fn try_insert_authored_flora_instance_unchecked(
         &mut self,
         species_index: u32,
         base_world_vox: UVec3,
@@ -891,7 +892,10 @@ impl SurfaceBuilder {
         true
     }
 
-    pub fn sync_authored_flora_dirty_chunks(&mut self, dirty_chunks: &[UVec3]) -> Result<()> {
+    pub(crate) fn sync_authored_flora_dirty_chunks(
+        &mut self,
+        dirty_chunks: &[UVec3],
+    ) -> Result<()> {
         for &chunk_id in dirty_chunks {
             self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
         }

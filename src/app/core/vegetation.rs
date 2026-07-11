@@ -1,3 +1,4 @@
+use super::planting::AuthoredFloraPlacementBatch;
 use super::App;
 use crate::app::world_edits::{
     BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
@@ -1495,7 +1496,7 @@ impl App {
             .map(authored_flora_base_center)
             .collect::<Vec<_>>();
         let mut placed_base_centers_vox = Vec::new();
-        let mut dirty_chunks = Vec::new();
+        let mut placement_batch = AuthoredFloraPlacementBatch::new();
         let x_span = max.x - min.x;
         let z_span = max.z - min.z;
         let release_seed = authored_flora_hash(
@@ -1517,7 +1518,7 @@ impl App {
         let mut release_anchor_vox = existing_anchor.flatten();
 
         for plant_index in 0..distribution.plants_per_release {
-            let mut best_candidate: Option<(f32, UVec3, Vec3, u32)> = None;
+            let mut best_candidate = None;
 
             for attempt in 0..AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT {
                 let seed = authored_flora_candidate_seed(
@@ -1539,7 +1540,6 @@ impl App {
                 else {
                     continue;
                 };
-                let base_world_vox = anchor.base_world_vox();
                 let base_center_vox = anchor.base_center_vox();
                 if distance_sq_to_segment(base_center_vox, start_vox, end_vox) > radius_sq {
                     continue;
@@ -1560,30 +1560,26 @@ impl App {
                     .as_ref()
                     .is_none_or(|(best_score, _, _, _)| score > *best_score)
                 {
-                    best_candidate = Some((score, base_world_vox, base_center_vox, seed));
+                    best_candidate = Some((score, anchor, base_center_vox, seed));
                 }
             }
 
-            let Some((_, base_world_vox, base_center_vox, seed)) = best_candidate else {
+            let Some((_, anchor, base_center_vox, seed)) = best_candidate else {
                 continue;
             };
-            if self
-                .surface_builder
-                .try_add_authored_flora_instance_deferred(
-                    species_index,
-                    base_world_vox,
-                    AUTHORED_FLORA_GROWTH_MATURE,
-                    spawn_time_ms,
-                    seed,
-                    &mut dirty_chunks,
-                )
-            {
+            if self.try_place_authored_flora(
+                &mut placement_batch,
+                species_index,
+                anchor,
+                AUTHORED_FLORA_GROWTH_MATURE,
+                spawn_time_ms,
+                seed,
+            ) {
                 placed_base_centers_vox.push(base_center_vox);
             }
         }
 
-        self.surface_builder
-            .sync_authored_flora_dirty_chunks(&dirty_chunks)?;
+        self.finish_authored_flora_placement(placement_batch)?;
         Ok(())
     }
 

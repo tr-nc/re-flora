@@ -25,6 +25,17 @@ pub(super) enum PlantingRejection {
     UnsupportedSubstrate { voxel_type: u32 },
 }
 
+#[derive(Default)]
+pub(super) struct AuthoredFloraPlacementBatch {
+    dirty_chunks: Vec<UVec3>,
+}
+
+impl AuthoredFloraPlacementBatch {
+    pub(super) fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl App {
     pub(super) fn resolve_plantable_surface_column(
         &self,
@@ -45,6 +56,34 @@ impl App {
             .ok_or(PlantingRejection::NoSurface)?;
 
         classify_plantable_surface_hit(column_world_vox, hit, world_dim_vox)
+    }
+
+    pub(super) fn try_place_authored_flora(
+        &mut self,
+        batch: &mut AuthoredFloraPlacementBatch,
+        species_index: u32,
+        anchor: PlantableSurfaceAnchor,
+        growth_progress: u32,
+        spawn_start_ms: u32,
+        seed: u32,
+    ) -> bool {
+        self.surface_builder
+            .try_insert_authored_flora_instance_unchecked(
+                species_index,
+                anchor.base_world_vox(),
+                growth_progress,
+                spawn_start_ms,
+                seed,
+                &mut batch.dirty_chunks,
+            )
+    }
+
+    pub(super) fn finish_authored_flora_placement(
+        &mut self,
+        batch: AuthoredFloraPlacementBatch,
+    ) -> anyhow::Result<()> {
+        self.surface_builder
+            .sync_authored_flora_dirty_chunks(&batch.dirty_chunks)
     }
 }
 
