@@ -570,7 +570,7 @@ impl PipelineBuilder {
             &shader_modules.sprinkler_vert_sm,
             &shader_modules.flora_frag_sm,
             &render_passes.render_pass_color_and_depth,
-            Some(4),
+            Some(5),
             pool,
             &[resources],
         );
