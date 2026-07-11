@@ -1,8 +1,6 @@
 use super::App;
-use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldEditPlan};
 use crate::app::world_ops;
-use crate::builder::{VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_ROCK};
-use crate::geom::{build_bvh, Cuboid, UAabb3};
+use crate::geom::UAabb3;
 use crate::particles::{
     MotionMode, ParticleEmitter, ParticleRenderKind, ParticleSpawn, ParticleSystem,
 };
@@ -13,17 +11,9 @@ use std::f32::consts::TAU;
 
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 
-// Keep the device low and readable from above: a two-voxel dark pedestal under a
-// one-voxel warm, cross-cut disc. The overlapping rectangles clip the disc's corners
-// into a chunky octagonal silhouette without introducing a sprinkler-specific mesh.
-const SPRINKLER_PEDESTAL_HEIGHT_VOXELS: f32 = 2.0;
-const SPRINKLER_PEDESTAL_FOOT_HALF_WIDTH_VOXELS: f32 = 1.35;
-const SPRINKLER_PEDESTAL_BODY_HALF_WIDTH_VOXELS: f32 = 0.85;
-const SPRINKLER_CAP_HEIGHT_VOXELS: f32 = 1.0;
-const SPRINKLER_CAP_RADIUS_VOXELS: f32 = 2.0;
-const SPRINKLER_CAP_INNER_HALF_WIDTH_VOXELS: f32 = 1.25;
-const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 =
-    SPRINKLER_PEDESTAL_HEIGHT_VOXELS + SPRINKLER_CAP_HEIGHT_VOXELS;
+// The rasterized prop mesh is three voxels tall: a two-voxel black stem and a
+// one-voxel bright-orange circular head. Keep the emitter at its top surface.
+const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 = 3.0;
 
 #[derive(Clone, Copy, Debug)]
 struct SprinklerPlacementPolicy {
@@ -152,87 +142,6 @@ impl ParticleEmitter for SprinklerEmitter {
     }
 }
 
-struct CompiledSprinklerPlacement {
-    voxel_edits: Vec<VoxelEdit>,
-    rebuild_bound: UAabb3,
-    nozzle_position: Vec3,
-}
-
-struct SprinklerPlacementService;
-
-impl SprinklerPlacementService {
-    fn compile(base_position: Vec3) -> CompiledSprinklerPlacement {
-        let base_vox = base_position * VOXELS_PER_WORLD_UNIT;
-        let pedestal_cuboids = vec![
-            Cuboid::new(
-                base_vox + Vec3::Y * 0.5,
-                Vec3::new(
-                    SPRINKLER_PEDESTAL_FOOT_HALF_WIDTH_VOXELS,
-                    0.5,
-                    SPRINKLER_PEDESTAL_FOOT_HALF_WIDTH_VOXELS,
-                ),
-            ),
-            Cuboid::new(
-                base_vox + Vec3::Y * 1.5,
-                Vec3::new(
-                    SPRINKLER_PEDESTAL_BODY_HALF_WIDTH_VOXELS,
-                    0.5,
-                    SPRINKLER_PEDESTAL_BODY_HALF_WIDTH_VOXELS,
-                ),
-            ),
-        ];
-        let (pedestal_bvh_nodes, pedestal_bound) = compile_cuboids(&pedestal_cuboids);
-
-        let cap_center = base_vox
-            + Vec3::Y * (SPRINKLER_PEDESTAL_HEIGHT_VOXELS + SPRINKLER_CAP_HEIGHT_VOXELS * 0.5);
-        let cap_cuboids = vec![
-            Cuboid::new(
-                cap_center,
-                Vec3::new(
-                    SPRINKLER_CAP_RADIUS_VOXELS,
-                    SPRINKLER_CAP_HEIGHT_VOXELS * 0.5,
-                    SPRINKLER_CAP_INNER_HALF_WIDTH_VOXELS,
-                ),
-            ),
-            Cuboid::new(
-                cap_center,
-                Vec3::new(
-                    SPRINKLER_CAP_INNER_HALF_WIDTH_VOXELS,
-                    SPRINKLER_CAP_HEIGHT_VOXELS * 0.5,
-                    SPRINKLER_CAP_RADIUS_VOXELS,
-                ),
-            ),
-        ];
-        let (cap_bvh_nodes, cap_bound) = compile_cuboids(&cap_cuboids);
-
-        CompiledSprinklerPlacement {
-            voxel_edits: vec![
-                VoxelEdit::StampCuboids {
-                    bvh_nodes: pedestal_bvh_nodes,
-                    cuboids: pedestal_cuboids,
-                    voxel_type: VOXEL_TYPE_ROCK,
-                },
-                VoxelEdit::StampCuboids {
-                    bvh_nodes: cap_bvh_nodes,
-                    cuboids: cap_cuboids,
-                    voxel_type: VOXEL_TYPE_CHERRY_WOOD,
-                },
-            ],
-            rebuild_bound: pedestal_bound.union_with(&cap_bound),
-            nozzle_position: base_position
-                + Vec3::Y * (SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT),
-        }
-    }
-}
-
-fn compile_cuboids(cuboids: &[Cuboid]) -> (Vec<crate::geom::BvhNode>, UAabb3) {
-    let leaves_data_sequential = (0..cuboids.len()).map(|i| i as u32).collect::<Vec<_>>();
-    let aabbs = cuboids.iter().map(Cuboid::aabb).collect::<Vec<_>>();
-    let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
-    let bound = UAabb3::new(bvh_nodes[0].aabb.min_uvec3(), bvh_nodes[0].aabb.max_uvec3());
-    (bvh_nodes, bound)
-}
-
 fn compile_sprinkler_flora_clearance(
     base_position: Vec3,
     radius_voxels: f32,
@@ -279,21 +188,17 @@ impl App {
     }
 
     pub(super) fn apply_sprinkler_placement(&mut self, base_position: Vec3) -> Result<()> {
-        let compiled = SprinklerPlacementService::compile(base_position);
-        let rebuild_bound = compiled.rebuild_bound;
-        let nozzle_position = compiled.nozzle_position;
+        let nozzle_position =
+            base_position + Vec3::Y * (SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT);
 
-        // Update voxel state first, then edit flora occupancy, and only then rebuild. Keeping
-        // flora clearance out of the voxel plan makes its optional policy independently tunable.
-        self.execute_edit_plan(WorldEditPlan {
-            voxel_edits: compiled.voxel_edits,
-            build_edits: vec![],
-        })?;
         self.apply_sprinkler_flora_clearance(base_position)?;
-        self.execute_edit_plan(WorldEditPlan {
-            voxel_edits: vec![],
-            build_edits: vec![BuildEdit::RebuildMeshWithoutFlora(rebuild_bound)],
-        })?;
+        let mut render_positions = self
+            .sprinkler_records
+            .iter()
+            .map(|sprinkler| sprinkler.base_position)
+            .collect::<Vec<_>>();
+        render_positions.push(base_position);
+        self.tracer.upload_sprinklers(&render_positions)?;
 
         let id = self.next_sprinkler_id;
         self.next_sprinkler_id = self.next_sprinkler_id.wrapping_add(1).max(1);
@@ -336,18 +241,6 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sprinkler_is_three_voxels_tall() {
-        let base_position = Vec3::new(0.5, 0.5, 0.5);
-        let compiled = SprinklerPlacementService::compile(base_position);
-
-        assert_eq!(
-            compiled.nozzle_position,
-            base_position + Vec3::Y * (3.0 / VOXELS_PER_WORLD_UNIT)
-        );
-        assert_eq!(compiled.rebuild_bound.height(), 3);
-    }
 
     #[test]
     fn sprinkler_flora_clearance_uses_voxel_scale() {

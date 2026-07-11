@@ -9,6 +9,9 @@ mod palette_remap;
 mod particle_texture_layout;
 pub use particle_texture_layout::*;
 
+mod sprinkler_resources;
+pub use sprinkler_resources::*;
+
 mod denoiser_resources;
 pub use denoiser_resources::*;
 
@@ -362,6 +365,7 @@ pub struct Tracer {
     allocator: Allocator,
     resources: TracerResources,
     particle_resources: ParticleRendererResources,
+    sprinkler_resources: SprinklerRendererResources,
 
     camera: Camera,
     camera_view_mat_prev_frame: Mat4,
@@ -507,6 +511,8 @@ impl Tracer {
         );
         let particle_resources =
             ParticleRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
+        let sprinkler_resources =
+            SprinklerRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
 
         let compute_pipelines = PipelineBuilder::create_compute_pipelines(
             &vulkan_ctx,
@@ -592,6 +598,7 @@ impl Tracer {
             allocator,
             resources,
             particle_resources,
+            sprinkler_resources,
             camera,
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
@@ -824,6 +831,7 @@ impl Tracer {
             &self.graphics_pipelines.leaves_shadow_lod_ppl,
             &tracer_resources,
         );
+        update_graphics_fn(&self.graphics_pipelines.sprinkler_ppl, &tracer_resources);
         update_graphics_fn(&self.graphics_pipelines.particle_ppl, &tracer_resources);
     }
 
@@ -1325,7 +1333,9 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
-        let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
+        let has_graphics_pass = render_flags.enable_flora
+            || render_flags.enable_particles
+            || self.sprinkler_resources.instance_count > 0;
 
         if render_flags.enable_flora {
             Self::with_gpu_scope(
@@ -1497,7 +1507,9 @@ impl Tracer {
         // already-combined scene and depth-test against ray-traced terrain. Keep it out of the
         // raster graphics pass to avoid transparent-layer accumulation and coplanar edge shimmer.
         let enable_glass = false;
-        let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
+        let has_graphics_pass = render_flags.enable_flora
+            || render_flags.enable_particles
+            || self.sprinkler_resources.instance_count > 0;
 
         if render_flags.enable_flora {
             assert_eq!(
@@ -1754,7 +1766,9 @@ impl Tracer {
         render_flags: &crate::RenderFlags,
         update_shadow_map: bool,
     ) {
-        let has_graphics_pass = render_flags.enable_flora || render_flags.enable_particles;
+        let has_graphics_pass = render_flags.enable_flora
+            || render_flags.enable_particles
+            || self.sprinkler_resources.instance_count > 0;
         if !has_graphics_pass {
             self.resources
                 .extent_dependent_resources
@@ -1944,6 +1958,11 @@ impl Tracer {
             ] {
                 pipeline.record_texture_transitions(cmdbuf);
             }
+        }
+        if self.sprinkler_resources.instance_count > 0 {
+            self.graphics_pipelines
+                .sprinkler_ppl
+                .record_texture_transitions(cmdbuf);
         }
         if enable_particles {
             self.graphics_pipelines
@@ -2221,6 +2240,40 @@ impl Tracer {
                 );
             }
         } // end enable_flora
+
+        if self.sprinkler_resources.instance_count > 0 {
+            let sprinklers_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.sprinklers",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            let resources = &self.sprinkler_resources;
+            let pipeline = &self.graphics_pipelines.sprinkler_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(&resources.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
+            pipeline.record_indexed(
+                cmdbuf,
+                resources.indices_len,
+                resources.instance_count,
+                0,
+                0,
+                0,
+                None,
+            );
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), sprinklers_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        }
 
         // Draw particles in the same render pass (no second CLEAR)
         if enable_particles {
@@ -3043,6 +3096,10 @@ impl Tracer {
         self.spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())
             .unwrap();
+    }
+
+    pub fn upload_sprinklers(&mut self, base_positions: &[Vec3]) -> Result<()> {
+        self.sprinkler_resources.upload(base_positions)
     }
 
     pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {

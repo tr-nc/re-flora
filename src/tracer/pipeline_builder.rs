@@ -256,6 +256,14 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let sprinkler_vert_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/props/sprinkler.vert",
+            "main",
+        )
+        .unwrap();
+
         let particle_lod_textured_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
             shader_compiler,
@@ -317,6 +325,7 @@ impl PipelineBuilder {
             leaves_lod_vert_sm,
             leaves_shadow_vert_sm,
             leaves_shadow_frag_sm,
+            sprinkler_vert_sm,
             particle_lod_textured_vert_sm,
             particle_lod_textured_frag_sm,
             glass_vert_sm,
@@ -556,6 +565,16 @@ impl PipelineBuilder {
             },
         );
 
+        let sprinkler_ppl = Self::create_gfx_pipeline(
+            vulkan_ctx,
+            &shader_modules.sprinkler_vert_sm,
+            &shader_modules.flora_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            Some(3),
+            pool,
+            &[resources],
+        );
+
         let particle_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
             &shader_modules.particle_lod_textured_vert_sm,
@@ -588,6 +607,7 @@ impl PipelineBuilder {
             leaves_ppl,
             leaves_lod_ppl,
             leaves_shadow_lod_ppl,
+            sprinkler_ppl,
             particle_ppl,
             glass_ppl,
         }
@@ -733,6 +753,7 @@ pub struct ShaderModules {
     pub leaves_lod_vert_sm: ShaderModule,
     pub leaves_shadow_vert_sm: ShaderModule,
     pub leaves_shadow_frag_sm: ShaderModule,
+    pub sprinkler_vert_sm: ShaderModule,
     pub particle_lod_textured_vert_sm: ShaderModule,
     pub particle_lod_textured_frag_sm: ShaderModule,
     pub glass_vert_sm: ShaderModule,
@@ -777,6 +798,7 @@ pub struct GraphicsPipelines {
     pub leaves_ppl: GraphicsPipeline,
     pub leaves_lod_ppl: GraphicsPipeline,
     pub leaves_shadow_lod_ppl: GraphicsPipeline,
+    pub sprinkler_ppl: GraphicsPipeline,
     pub particle_ppl: GraphicsPipeline,
     pub glass_ppl: GraphicsPipeline,
 }
