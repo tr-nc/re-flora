@@ -2812,7 +2812,6 @@ impl App {
                         self.gui_adjustables.flora_spawn_overshoot_min_voxels.value,
                         self.gui_adjustables.flora_spawn_overshoot_max_voxels.value,
                         self.gui_adjustables.flora_spawn_stagger_seconds.value,
-                        self.gui_adjustables.flora_spawn_depth_padding_voxels.value,
                         sun_dir,
                         self.gui_adjustables.sun_size.value,
                         Vec3::new(

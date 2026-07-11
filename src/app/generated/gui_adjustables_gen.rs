@@ -1195,12 +1195,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Random Stagger (Seconds)",
     },
     GeneratedGuiParamDescriptor {
-        section: "Flora Spawn Animation",
-        id: "flora_spawn_depth_padding_voxels",
-        kind: "float",
-        label: "Underground Padding (Voxels)",
-    },
-    GeneratedGuiParamDescriptor {
         section: "FloraVariation",
         id: "flora_instance_hue_offset",
         kind: "float",
@@ -1603,7 +1597,6 @@ pub struct GuiAdjustables {
     pub flora_spawn_overshoot_min_voxels: crate::gui_adjustables::FloatParam,
     pub flora_spawn_overshoot_max_voxels: crate::gui_adjustables::FloatParam,
     pub flora_spawn_stagger_seconds: crate::gui_adjustables::FloatParam,
-    pub flora_spawn_depth_padding_voxels: crate::gui_adjustables::FloatParam,
     pub flora_instance_hue_offset: crate::gui_adjustables::FloatParam,
     pub flora_instance_saturation_offset: crate::gui_adjustables::FloatParam,
     pub flora_instance_value_offset: crate::gui_adjustables::FloatParam,
@@ -1846,7 +1839,6 @@ impl GuiAdjustables {
         let mut flora_spawn_overshoot_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_overshoot_max_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_stagger_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_spawn_depth_padding_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_instance_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3192,13 +3184,6 @@ impl GuiAdjustables {
                             flora_spawn_stagger_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "flora_spawn_depth_padding_voxels" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_spawn_depth_padding_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "flora_instance_hue_offset" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3620,7 +3605,6 @@ impl GuiAdjustables {
             flora_spawn_overshoot_min_voxels: flora_spawn_overshoot_min_voxels_field.expect("Missing parameter: flora_spawn_overshoot_min_voxels"),
             flora_spawn_overshoot_max_voxels: flora_spawn_overshoot_max_voxels_field.expect("Missing parameter: flora_spawn_overshoot_max_voxels"),
             flora_spawn_stagger_seconds: flora_spawn_stagger_seconds_field.expect("Missing parameter: flora_spawn_stagger_seconds"),
-            flora_spawn_depth_padding_voxels: flora_spawn_depth_padding_voxels_field.expect("Missing parameter: flora_spawn_depth_padding_voxels"),
             flora_instance_hue_offset: flora_instance_hue_offset_field.expect("Missing parameter: flora_instance_hue_offset"),
             flora_instance_saturation_offset: flora_instance_saturation_offset_field.expect("Missing parameter: flora_instance_saturation_offset"),
             flora_instance_value_offset: flora_instance_value_offset_field.expect("Missing parameter: flora_instance_value_offset"),
@@ -3809,7 +3793,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flora_spawn_overshoot_min_voxels" => Some(&adjustables.flora_spawn_overshoot_min_voxels),
         "flora_spawn_overshoot_max_voxels" => Some(&adjustables.flora_spawn_overshoot_max_voxels),
         "flora_spawn_stagger_seconds" => Some(&adjustables.flora_spawn_stagger_seconds),
-        "flora_spawn_depth_padding_voxels" => Some(&adjustables.flora_spawn_depth_padding_voxels),
         "flora_instance_hue_offset" => Some(&adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&adjustables.flora_instance_value_offset),
@@ -4086,7 +4069,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flora_spawn_overshoot_min_voxels" => Some(&mut adjustables.flora_spawn_overshoot_min_voxels),
         "flora_spawn_overshoot_max_voxels" => Some(&mut adjustables.flora_spawn_overshoot_max_voxels),
         "flora_spawn_stagger_seconds" => Some(&mut adjustables.flora_spawn_stagger_seconds),
-        "flora_spawn_depth_padding_voxels" => Some(&mut adjustables.flora_spawn_depth_padding_voxels),
         "flora_instance_hue_offset" => Some(&mut adjustables.flora_instance_hue_offset),
         "flora_instance_saturation_offset" => Some(&mut adjustables.flora_instance_saturation_offset),
         "flora_instance_value_offset" => Some(&mut adjustables.flora_instance_value_offset),

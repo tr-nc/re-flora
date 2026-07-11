@@ -73,7 +73,6 @@ impl BufferUpdater {
         spawn_overshoot_min_voxels: f32,
         spawn_overshoot_max_voxels: f32,
         spawn_stagger_seconds: f32,
-        spawn_depth_padding_voxels: f32,
     ) -> Result<()> {
         resources
             .uniforms
@@ -88,7 +87,6 @@ impl BufferUpdater {
                 spawn_overshoot_min_voxels,
                 spawn_overshoot_max_voxels,
                 spawn_stagger_seconds,
-                spawn_depth_padding_voxels,
                 ..FloraGrowthInfo::zeroed()
             })
     }

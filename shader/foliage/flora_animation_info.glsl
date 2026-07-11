@@ -13,7 +13,6 @@ layout(set = 0, binding = 6) uniform U_FloraGrowthInfo {
     float spawn_overshoot_min_voxels;
     float spawn_overshoot_max_voxels;
     float spawn_stagger_seconds;
-    float spawn_depth_padding_voxels;
 }
 flora_growth_info;
 

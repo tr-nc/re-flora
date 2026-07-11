@@ -940,7 +940,6 @@ impl Tracer {
         spawn_overshoot_min_voxels: f32,
         spawn_overshoot_max_voxels: f32,
         spawn_stagger_seconds: f32,
-        spawn_depth_padding_voxels: f32,
         sun_dir: Vec3,
         sun_size: f32,
         sun_color: Vec3,
@@ -1110,7 +1109,6 @@ impl Tracer {
             spawn_overshoot_min_voxels,
             spawn_overshoot_max_voxels,
             spawn_stagger_seconds,
-            spawn_depth_padding_voxels,
         )?;
 
         BufferUpdater::update_sun_info(

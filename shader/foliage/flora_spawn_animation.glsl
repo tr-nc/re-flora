@@ -43,8 +43,8 @@ FloraSpawnAnimationPose sample_flora_spawn_animation(uint spawn_start_ms, uint i
     float overshoot_max = max(flora_growth_info.spawn_overshoot_min_voxels,
                               flora_growth_info.spawn_overshoot_max_voxels);
     float overshoot = clamp(plant_height_voxels * 0.08, overshoot_min, overshoot_max);
-    float underground = -(plant_height_voxels +
-                          max(flora_growth_info.spawn_depth_padding_voxels, 0.0));
+    const float underground_padding_voxels = 1.0;
+    float underground = -(plant_height_voxels + underground_padding_voxels);
 
     float vertical_offset;
     if (timeline < rise_end) {

@@ -2135,17 +2135,6 @@ value = 0.16
 min = 0
 max = 0.5
 
-[[section.param]]
-id = "flora_spawn_depth_padding_voxels"
-kind = "float"
-label = "Underground Padding (Voxels)"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 8
-
 [[section]]
 name = "FloraVariation"
 
