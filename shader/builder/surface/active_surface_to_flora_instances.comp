@@ -38,6 +38,7 @@ manual_flora_instances;
 #include "../../include/config.glsl"
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
+#include "../../include/flora_surface_planting.glsl"
 #include "../../include/grass_type.glsl"
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
@@ -59,10 +60,8 @@ void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_prog
     }
 }
 
-bool is_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }
-
 bool check_surface_plantability(uint voxel_type, vec3 normal, ivec3 world_pos) {
-    if (!is_surface_plantable(voxel_type)) {
+    if (!is_flora_surface_plantable(voxel_type)) {
         return false;
     }
 

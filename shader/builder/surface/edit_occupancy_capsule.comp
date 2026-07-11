@@ -27,6 +27,7 @@ layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D surface;
 #include "../../include/voxel_types.glsl"
 #include "../../include/flora_occupancy.glsl"
 #include "../../include/flora_placement.glsl"
+#include "../../include/flora_surface_planting.glsl"
 #include "../../include/instance.glsl"
 
 const uint OCCUPANCY_MODE_REMOVE = 0u;
@@ -36,8 +37,6 @@ const uint OCCUPANCY_MODE_TRIM   = 2u;
 // Short grass is four voxels tall, so half growth is the lowest neat cut that
 // avoids a one-voxel stump with the floor-based grass height trim.
 const uint OCCUPANCY_TRIM_MIN_GROWTH_PROGRESS = 128u;
-
-bool is_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }
 
 uint flora_paint_priority(uint selection) {
     // Grass, including mixed grass and existing tall/short grass instances, is the lowest
@@ -107,7 +106,7 @@ void main() {
         if (surface_data == 0u) {
             return;
         }
-        if (is_surface_plantable(voxel_type_from_data(surface_data))) {
+        if (is_flora_surface_plantable(voxel_type_from_data(surface_data))) {
             uint current_occupancy = imageLoad(occupancy_data, base_local).r;
             if (!flora_paint_can_replace_current(edit_occupancy_info.paint_selection,
                                                  current_occupancy)) {

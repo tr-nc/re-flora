@@ -87,12 +87,16 @@ impl App {
     }
 }
 
+fn is_plantable_surface_voxel_type(voxel_type: u32) -> bool {
+    voxel_type == VOXEL_TYPE_DIRT
+}
+
 fn classify_plantable_surface_hit(
     column_world_vox: UVec2,
     hit: ContreeCpuRayHit,
     world_dim_vox: UVec3,
 ) -> Result<PlantableSurfaceAnchor, PlantingRejection> {
-    if hit.voxel_type != VOXEL_TYPE_DIRT {
+    if !is_plantable_surface_voxel_type(hit.voxel_type) {
         return Err(PlantingRejection::UnsupportedSubstrate {
             voxel_type: hit.voxel_type,
         });
@@ -115,7 +119,9 @@ fn classify_plantable_surface_hit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builder::{VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
+    use crate::builder::{
+        VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
+    };
 
     const WORLD_DIM_VOX: UVec3 = UVec3::new(512, 512, 512);
 
@@ -141,7 +147,12 @@ mod tests {
 
     #[test]
     fn non_dirt_hits_are_rejected() {
-        for voxel_type in [VOXEL_TYPE_SAND, VOXEL_TYPE_ROCK] {
+        for voxel_type in [
+            VOXEL_TYPE_SAND,
+            VOXEL_TYPE_ROCK,
+            VOXEL_TYPE_CHERRY_WOOD,
+            VOXEL_TYPE_OAK_WOOD,
+        ] {
             assert_eq!(
                 classify_plantable_surface_hit(
                     UVec2::new(12, 34),
@@ -151,6 +162,15 @@ mod tests {
                 Err(PlantingRejection::UnsupportedSubstrate { voxel_type })
             );
         }
+    }
+
+    #[test]
+    fn cpu_and_shader_planting_policies_both_require_dirt() {
+        assert!(is_plantable_surface_voxel_type(VOXEL_TYPE_DIRT));
+        let shader_policy = include_str!("../../../shader/include/flora_surface_planting.glsl");
+        assert!(shader_policy.contains(
+            "is_flora_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }"
+        ));
     }
 
     #[test]
