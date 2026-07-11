@@ -5,7 +5,8 @@
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;
 layout(location = 2) in vec3 in_color_srgb;
-layout(location = 3) in vec3 in_base_position;
+layout(location = 3) in vec3 in_animation_direction;
+layout(location = 4) in vec3 in_base_position;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -36,8 +37,17 @@ camera_info;
 
 #include "../include/core/color.glsl"
 
+layout(push_constant) uniform PushConstantSprinkler { float time; }
+pc;
+
+const float ANIMATION_PERIOD_SECONDS = 1.0;
+const float ANIMATION_DISTANCE = 1.0 / 256.0;
+
 void main() {
-    vec3 world_position = in_base_position + in_position;
+    float phase = fract(pc.time / ANIMATION_PERIOD_SECONDS);
+    float extension = 0.5 - 0.5 * cos(phase * 6.28318530718);
+    vec3 animation_offset = in_animation_direction * extension * ANIMATION_DISTANCE;
+    vec3 world_position = in_base_position + in_position + animation_offset;
     gl_Position = camera_info.view_proj_mat * vec4(world_position, 1.0);
 
     vec3 normal = normalize(in_normal);

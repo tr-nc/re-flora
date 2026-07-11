@@ -89,6 +89,12 @@ struct GlassPushConstants {
     box_max_far_alpha: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct SprinklerPushConstants {
+    time: f32,
+}
+
 const TERRARIUM_GLASS_NEAR_ALPHA: f32 = 0.025;
 const TERRARIUM_GLASS_FAR_ALPHA: f32 = 0.070;
 const DEFAULT_CAMERA_DISTANCE_SCALE: f32 = 0.7;
@@ -2263,7 +2269,10 @@ impl Tracer {
                 0,
                 0,
                 0,
-                None,
+                Some(&PushConstantInfo {
+                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                    push_constants: bytemuck::bytes_of(&SprinklerPushConstants { time }).to_vec(),
+                }),
             );
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), sprinklers_scope) {
                 profiler.end_scope(

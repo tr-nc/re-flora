@@ -19,6 +19,7 @@ pub struct SprinklerVertex {
     position: [f32; 3],
     normal: [f32; 3],
     color_srgb: [f32; 3],
+    animation_direction: [f32; 3],
 }
 
 #[repr(C)]
@@ -108,6 +109,7 @@ fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
                     &mut indices,
                     IVec3::new(x, y, z),
                     PEDESTAL_COLOR_SRGB,
+                    Vec3::ZERO,
                 );
             }
         }
@@ -119,11 +121,19 @@ fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
             if (x == -2 || x == 1) && (z == -2 || z == 1) {
                 continue;
             }
+            let animation_direction = match (x, z) {
+                (-2, _) => -Vec3::X,
+                (1, _) => Vec3::X,
+                (_, -2) => -Vec3::Z,
+                (_, 1) => Vec3::Z,
+                _ => Vec3::ZERO,
+            };
             append_voxel(
                 &mut vertices,
                 &mut indices,
                 IVec3::new(x, 2, z),
                 CAP_COLOR_SRGB,
+                animation_direction,
             );
         }
     }
@@ -136,6 +146,7 @@ fn append_voxel(
     indices: &mut Vec<u32>,
     voxel_min: IVec3,
     color_srgb: Vec3,
+    animation_direction: Vec3,
 ) {
     let min = voxel_min.as_vec3() * VOXEL_SCALE;
     let max = min + Vec3::splat(VOXEL_SCALE);
@@ -202,6 +213,7 @@ fn append_voxel(
             position: position.to_array(),
             normal: normal.to_array(),
             color_srgb: color_srgb.to_array(),
+            animation_direction: animation_direction.to_array(),
         }));
         indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
@@ -226,8 +238,20 @@ mod tests {
     }
 
     #[test]
+    fn sprinkler_edges_have_stable_animation_directions() {
+        let (vertices, _) = build_sprinkler_mesh();
+        let vertices_per_voxel = 6 * 4;
+        let animated_voxels = vertices
+            .chunks_exact(vertices_per_voxel)
+            .filter(|voxel| voxel[0].animation_direction != Vec3::ZERO.to_array())
+            .count();
+
+        assert_eq!(animated_voxels, 8);
+    }
+
+    #[test]
     fn sprinkler_vertex_layout_matches_shader_locations() {
-        assert_eq!(std::mem::size_of::<SprinklerVertex>(), 9 * 4);
+        assert_eq!(std::mem::size_of::<SprinklerVertex>(), 12 * 4);
         assert_eq!(std::mem::size_of::<SprinklerInstanceGpu>(), 3 * 4);
     }
 }
