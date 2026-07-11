@@ -1536,8 +1536,15 @@ impl App {
                         .min(z_span.saturating_sub(1));
 
                 let pos_xz = Vec2::new((x_vox as f32 + 0.5) / 256.0, (z_vox as f32 + 0.5) / 256.0);
-                let terrain_height = self.query_terrain_height_cpu(pos_xz);
-                let base_y = (terrain_height * 256.0).floor().max(0.0) as u32;
+                let Some(terrain_hit) = self
+                    .query_terrain_ray_hit_cpu(Vec3::new(pos_xz.x, 10.0, pos_xz.y), Vec3::NEG_Y)
+                else {
+                    continue;
+                };
+                if terrain_hit.voxel_type != crate::builder::VOXEL_TYPE_DIRT {
+                    continue;
+                }
+                let base_y = (terrain_hit.position.y * 256.0).floor().max(0.0) as u32;
                 if base_y >= world_dim.y {
                     continue;
                 }

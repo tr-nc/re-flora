@@ -131,6 +131,12 @@ pub struct ContreeCpuChunkSourceUpdate {
     pub is_present: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ContreeCpuRayHit {
+    pub position: Vec3,
+    pub voxel_type: u32,
+}
+
 #[allow(dead_code)]
 pub struct ContreeCpuRayQuerySnapshot {
     chunk_dim: UVec3,
@@ -141,7 +147,16 @@ pub struct ContreeCpuRayQuerySnapshot {
 #[allow(dead_code)]
 impl ContreeCpuRayQuerySnapshot {
     pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
-        query_terrain_ray_against_state(
+        self.query_terrain_ray_hit_cpu(origin, direction)
+            .map(|hit| hit.position)
+    }
+
+    pub fn query_terrain_ray_hit_cpu(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+    ) -> Option<ContreeCpuRayHit> {
+        query_terrain_ray_hit_against_state(
             self.chunk_dim,
             &self.cpu_scene_chunks,
             &self.cpu_chunk_caches,
@@ -1139,7 +1154,16 @@ impl ContreeBuilder {
     }
 
     pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
-        query_terrain_ray_against_state(
+        self.query_terrain_ray_hit_cpu(origin, direction)
+            .map(|hit| hit.position)
+    }
+
+    pub fn query_terrain_ray_hit_cpu(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+    ) -> Option<ContreeCpuRayHit> {
+        query_terrain_ray_hit_against_state(
             self.chunk_dim,
             &self.cpu_scene_chunks,
             &self.cpu_chunk_caches,
@@ -2062,6 +2086,23 @@ fn query_terrain_ray_against_state(
     origin: Vec3,
     direction: Vec3,
 ) -> Option<Vec3> {
+    query_terrain_ray_hit_against_state(
+        chunk_dim,
+        cpu_scene_chunks,
+        cpu_chunk_caches,
+        origin,
+        direction,
+    )
+    .map(|hit| hit.position)
+}
+
+fn query_terrain_ray_hit_against_state(
+    chunk_dim: UVec3,
+    cpu_scene_chunks: &[Option<UVec3>],
+    cpu_chunk_caches: &HashMap<UVec3, Arc<CpuChunkCache>>,
+    origin: Vec3,
+    direction: Vec3,
+) -> Option<ContreeCpuRayHit> {
     if direction.length_squared() <= f32::EPSILON {
         return None;
     }
@@ -2191,14 +2232,18 @@ fn query_cached_chunk_cpu_ray(
     cache: &CpuChunkCache,
     origin: Vec3,
     direction: Vec3,
-) -> Option<Vec3> {
+) -> Option<ContreeCpuRayHit> {
     if direction.length_squared() <= f32::EPSILON || cache.nodes.is_empty() {
         return None;
     }
 
     let local_origin = origin - cache.chunk_idx.as_vec3() + Vec3::ONE;
-    let local_hit = march_contree_cpu(local_origin, direction, &cache.nodes, &cache.leaves)?;
-    Some(local_hit + cache.chunk_idx.as_vec3() - Vec3::ONE)
+    let (local_position, voxel_data) =
+        march_contree_cpu(local_origin, direction, &cache.nodes, &cache.leaves)?;
+    Some(ContreeCpuRayHit {
+        position: local_position + cache.chunk_idx.as_vec3() - Vec3::ONE,
+        voxel_type: voxel_data & crate::builder::VOXEL_TYPE_MASK as u32,
+    })
 }
 
 fn scene_chunk_present_in_grid(
@@ -2254,7 +2299,7 @@ fn march_contree_cpu(
     dir: Vec3,
     nodes: &[CpuContreeNode],
     leaves: &[u32],
-) -> Option<Vec3> {
+) -> Option<(Vec3, u32)> {
     if nodes.is_empty() {
         return None;
     }
@@ -2304,8 +2349,8 @@ fn march_contree_cpu(
             let child_idx = get_node_cell_index(pos, scale_exp)? as u32;
             let bits = child_mask_bitcount_below(node, child_idx);
             let voxel_addr = ((node.packed_0 >> 1) + bits) as usize;
-            if voxel_addr < leaves.len() {
-                return Some(pos);
+            if let Some(&voxel_data) = leaves.get(voxel_addr) {
+                return Some((pos, voxel_data));
             }
             return None;
         }

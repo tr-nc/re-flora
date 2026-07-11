@@ -1125,6 +1125,15 @@ impl App {
             .query_terrain_ray_cpu(origin, direction)
     }
 
+    pub(super) fn query_terrain_ray_hit_cpu(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+    ) -> Option<crate::builder::ContreeCpuRayHit> {
+        self.contree_builder
+            .query_terrain_ray_hit_cpu(origin, direction)
+    }
+
     pub(super) fn query_terrain_height_cpu(&self, pos_xz: Vec2) -> f32 {
         self.query_terrain_ray_cpu(Vec3::new(pos_xz.x, 10.0, pos_xz.y), Vec3::NEG_Y)
             .map(|hit| hit.y)
