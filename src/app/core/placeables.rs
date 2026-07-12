@@ -2,7 +2,7 @@ use super::App;
 use crate::app::world_edits::TerrainBrushEdit;
 use crate::particles::{
     MotionMode, ParticleEmitter, ParticleRenderKind, ParticleSpawn, ParticleSystem,
-    ParticleUpdateConfig,
+    ParticleUpdateConfig, STANDARD_PARTICLE_SIZE,
 };
 use crate::tracer::SprinklerRenderInstance;
 use anyhow::Result;
@@ -17,7 +17,7 @@ const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 = 4.0;
 
 const SPRINKLER_SPAWN_RATE_PER_SECOND: f32 = 576.0;
 const SPRINKLER_MAX_SPAWN_PER_FRAME: u32 = 192;
-const SPRINKLER_DROPLET_SIZE: f32 = 0.00125;
+const SPRINKLER_DROPLET_SIZE: f32 = STANDARD_PARTICLE_SIZE;
 const SPRINKLER_DROPLET_LIFETIME: f32 = 0.62;
 const SPRINKLER_GRAVITY_FACTOR: f32 = 0.82;
 const SPRINKLER_COLOR_LOW: Vec4 = Vec4::new(0.03, 0.20, 0.95, 0.94);
@@ -118,7 +118,7 @@ impl SprinklerEmitter {
             position: self.nozzle_position + horizontal_dir * 0.025 + muzzle_jitter,
             velocity: horizontal_dir * horizontal_speed + Vec3::Y * vertical_speed,
             color,
-            size: SPRINKLER_DROPLET_SIZE * self.rng.random_range(0.75..=1.25),
+            size: SPRINKLER_DROPLET_SIZE,
             lifetime: SPRINKLER_DROPLET_LIFETIME * self.rng.random_range(0.82..=1.18),
             wind_factor: 0.0,
             gravity_factor: SPRINKLER_GRAVITY_FACTOR,
@@ -282,6 +282,14 @@ mod tests {
         let end_distance = distance_sq_to_segment(Vec3::new(1.2, 0.0, 0.0), start, end);
         assert!((side_distance - 0.04).abs() < 1e-6);
         assert!((end_distance - 0.04).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sprinkler_droplets_match_fallen_leaf_particle_size() {
+        assert_eq!(
+            SPRINKLER_DROPLET_SIZE,
+            crate::particles::LeafEmitterDesc::default().size
+        );
     }
 
     #[test]

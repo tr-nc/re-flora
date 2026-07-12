@@ -5,6 +5,8 @@ use super::animation::{BUTTERFLY_ANIM_FRAME_DURATION_SEC, BUTTERFLY_FRAMES_PER_V
 
 /// Default maximum particle capacity shared between the CPU simulation and GPU buffer.
 pub const PARTICLE_CAPACITY: usize = 16_384;
+/// Standard world-space particle quad size, matching one terrain voxel.
+pub const STANDARD_PARTICLE_SIZE: f32 = 1.0 / 256.0;
 pub const PARTICLE_UPDATE_BUCKET_COUNT: usize = 2;
 
 #[derive(Clone, Copy, Debug)]

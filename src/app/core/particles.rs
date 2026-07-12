@@ -4,7 +4,7 @@ use crate::geom::UAabb3;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, FallenLeafEmitter, ParticleEmitter, ParticleHandle,
     ParticleRenderKind, ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep,
-    ParticleUpdateConfig, PARTICLE_CAPACITY,
+    ParticleUpdateConfig, PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
 };
 use crate::util::ClusterResult;
 use egui::Color32;
@@ -18,7 +18,7 @@ const TERRAIN_HARVEST_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConf
 #[allow(dead_code)]
 const TERRAIN_HARVEST_MAX_PARTICLES_PER_EDIT: u32 = 4;
 #[allow(dead_code)]
-const TERRAIN_HARVEST_PARTICLE_SIZE: f32 = 1.0 / 256.0;
+const TERRAIN_HARVEST_PARTICLE_SIZE: f32 = STANDARD_PARTICLE_SIZE;
 const DEFAULT_WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
 const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
 

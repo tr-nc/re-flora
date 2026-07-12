@@ -6,7 +6,7 @@ use rand::{rngs::SmallRng, RngExt, SeedableRng};
 
 use super::{
     MotionMode, ParticleHandle, ParticleRenderKind, ParticleSpawn, ParticleSystem,
-    ParticleUpdateConfig,
+    ParticleUpdateConfig, STANDARD_PARTICLE_SIZE,
 };
 use crate::tracer::ButterflyPalettePreset;
 use crate::wind::{Wind, WindResponseCurve};
@@ -102,7 +102,7 @@ impl Default for LeafEmitterDesc {
     fn default() -> Self {
         Self {
             spawn_rate: 0.5,
-            size: 1.0 / 256.0,
+            size: STANDARD_PARTICLE_SIZE,
             lifetime_min: 120.0,
             lifetime_max: 240.0,
             color_low: Vec4::new(212.0 / 255.0, 111.0 / 255.0, 0.0, 1.0),
