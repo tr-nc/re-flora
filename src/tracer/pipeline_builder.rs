@@ -605,7 +605,10 @@ impl PipelineBuilder {
             GraphicsPipelineDesc {
                 cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: true,
-                depth_write_enable: false,
+                // The hybrid compositor uses raster depth to place premultiplied raster color
+                // over ray-traced terrain. Back-to-front sorting keeps droplet overlap valid even
+                // though the nearest translucent droplet ultimately owns this depth pixel.
+                depth_write_enable: true,
                 ..Default::default()
             },
         );

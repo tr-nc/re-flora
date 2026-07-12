@@ -20,7 +20,7 @@ use crate::{
     util::get_project_root,
 };
 use bytemuck::{Pod, Zeroable};
-use glam::{IVec3, UVec3, Vec2, Vec3};
+use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, CurrentPrevious, Device, Extent2D, Extent3D, ImageDesc,
@@ -1472,7 +1472,6 @@ impl TracerResources {
             .repeat((frame_dim * frame_dim) as usize)
             .into_iter()
             .collect::<Vec<u8>>();
-        let water_droplet_layer = Self::create_water_droplet_particle_layer(frame_dim);
         let dir_path = get_project_root() + "/" + PARTICLE_LOD_TEXTURE_DIR_REL_PATH;
         let mut atlas_paths = std::fs::read_dir(&dir_path)
             .ok()
@@ -1566,12 +1565,6 @@ impl TracerResources {
         let tex = Texture::new(vulkan_ctx.device().clone(), allocator, &img_desc, &sam_desc);
 
         Self::fill_particle_lut_layer(vulkan_ctx, &tex, layout.leaf_layer(), &white_layer);
-        Self::fill_particle_lut_layer(
-            vulkan_ctx,
-            &tex,
-            layout.water_droplet_layer(),
-            &water_droplet_layer,
-        );
         for (frame_idx, frame_data) in butterfly_layers.iter().enumerate() {
             Self::fill_particle_lut_layer(
                 vulkan_ctx,
@@ -1582,24 +1575,6 @@ impl TracerResources {
         }
 
         tex
-    }
-
-    fn create_water_droplet_particle_layer(frame_dim: u32) -> Vec<u8> {
-        let mut rgba = Vec::with_capacity((frame_dim * frame_dim * 4) as usize);
-        for y in 0..frame_dim {
-            for x in 0..frame_dim {
-                let uv = (Vec2::new(x as f32 + 0.5, y as f32 + 0.5) / frame_dim as f32) * 2.0
-                    - Vec2::ONE;
-                let edge = ((1.0 - uv.length()) / 0.32).clamp(0.0, 1.0);
-                let alpha = edge * edge * (3.0 - 2.0 * edge);
-                let highlight_delta = uv - Vec2::new(-0.32, -0.36);
-                let highlight = (-highlight_delta.length_squared() / 0.055).exp();
-                let brightness = 0.82 + 0.18 * highlight;
-                let channel = (brightness * 255.0).round() as u8;
-                rgba.extend_from_slice(&[channel, channel, 255, (alpha * 255.0).round() as u8]);
-            }
-        }
-        rgba
     }
 
     fn extract_row_sequence_layers(
@@ -1903,20 +1878,4 @@ impl TracerResources {
 struct WindVolumeInfoGpu {
     world_chunk_extent: [f32; 3],
     _pad0: f32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn water_droplet_particle_layer_has_soft_transparent_edges() {
-        let dim = 16;
-        let rgba = TracerResources::create_water_droplet_particle_layer(dim);
-        let alpha = |x: usize, y: usize| rgba[(x + y * dim as usize) * 4 + 3];
-        assert_eq!(rgba.len(), (dim * dim * 4) as usize);
-        assert_eq!(alpha(0, 0), 0);
-        assert!(alpha(7, 7) > 240);
-        assert!((1..255).contains(&alpha(1, 7)));
-    }
 }

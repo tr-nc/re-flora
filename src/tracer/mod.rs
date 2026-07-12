@@ -2322,8 +2322,9 @@ impl Tracer {
                 &particle_resources.instance_buffer,
                 particle_resources.instance_count,
             );
-            // Translucent droplets are sorted back-to-front and rendered after depth-writing
-            // particles. They depth-test against the scene but deliberately do not write depth.
+            // Translucent droplets are sorted back-to-front and rendered after ordinary
+            // particles. Their nearest depth lets the hybrid compositor place them over the
+            // ray-traced terrain while preserving correct blending between sorted droplets.
             draw_particles(
                 &self.graphics_pipelines.water_droplet_ppl,
                 &particle_resources.translucent_instance_buffer,
@@ -3219,7 +3220,7 @@ impl Tracer {
                         is_moving_right_relative_to_player(snap.velocity),
                     ),
                     crate::particles::ParticleRenderKind::WaterDroplet => {
-                        texture_layout.water_droplet_layer()
+                        texture_layout.leaf_layer()
                     }
                 },
             };
