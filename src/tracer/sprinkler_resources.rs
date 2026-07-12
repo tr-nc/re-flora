@@ -11,7 +11,7 @@ use crate::{
 
 pub const SPRINKLER_RENDER_CAPACITY: usize = 256;
 const VOXEL_SCALE: f32 = 1.0 / 256.0;
-const PEDESTAL_VOXEL_COUNT: usize = 2;
+const PEDESTAL_VOXEL_COUNT: usize = 3;
 const CAP_VOXEL_COUNT: usize = 5;
 const MODEL_GRID_OFFSET_VOXELS: Vec3 = Vec3::new(-0.5, 0.0, -0.5);
 const PEDESTAL_COLOR_SRGB: Vec3 = Vec3::new(0.018, 0.022, 0.026);
@@ -106,8 +106,8 @@ fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
     let mut vertices = Vec::with_capacity(voxel_count * VOXEL_VERTICES.len());
     let mut indices = Vec::with_capacity(voxel_count * CUBE_INDICES.len());
 
-    // One-voxel-wide stem, two voxels high.
-    for y in 0..2 {
+    // One-voxel-wide stem, three voxels high.
+    for y in 0..3 {
         append_voxel(
             &mut vertices,
             &mut indices,
@@ -134,7 +134,7 @@ fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
             append_voxel(
                 &mut vertices,
                 &mut indices,
-                IVec3::new(x, 2, z),
+                IVec3::new(x, 3, z),
                 CAP_COLOR_SRGB,
                 Vec3::Y + outward_direction * CAP_EDGE_EXPANSION_VOXELS,
             );
@@ -182,7 +182,7 @@ mod tests {
             .iter()
             .map(|vertex| vertex.position[1])
             .fold(f32::NEG_INFINITY, f32::max);
-        assert_eq!(max_y, 3.0 / 256.0);
+        assert_eq!(max_y, 4.0 / 256.0);
     }
 
     #[test]

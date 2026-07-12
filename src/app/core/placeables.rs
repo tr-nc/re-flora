@@ -9,9 +9,9 @@ use std::f32::consts::TAU;
 
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 
-// The rasterized prop mesh is three voxels tall: a two-voxel black stem and a
-// one-voxel bright-orange circular head. Keep the emitter at its top surface.
-const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 = 3.0;
+// The rasterized prop mesh is four voxels tall: a three-voxel black stem and a
+// one-voxel bright-orange cross-shaped head. Keep the emitter at its top surface.
+const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 = 4.0;
 
 const SPRINKLER_SPAWN_RATE_PER_SECOND: f32 = 72.0;
 const SPRINKLER_MAX_SPAWN_PER_FRAME: u32 = 24;
