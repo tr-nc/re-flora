@@ -65,6 +65,7 @@ layout(set = 0, binding = 11) uniform sampler2D cloud_shadow_tex;
 #define DIRECT_SUN_SHADOW_ENABLE_CLOUD
 #include "../include/direct_sun_shadow.glsl"
 #include "../include/stylized_voxel_lighting.glsl"
+#include "../include/terrain_edit_preview.glsl"
 
 const float CAP_MOTION_SECONDS = 1.0;
 const float ANIMATION_DISTANCE = 1.0 / 256.0;
@@ -87,5 +88,6 @@ void main() {
 
     vec3 base_color = srgb_to_linear(in_color_srgb);
     float shadow_weight = stylized_voxel_shadow_weight(voxel_center, in_shading_normal);
-    vert_color = apply_stylized_voxel_lighting(base_color, shadow_weight);
+    vec3 lit_color = apply_stylized_voxel_lighting(base_color, shadow_weight);
+    vert_color = apply_terrain_edit_preview_tint(lit_color, voxel_center);
 }

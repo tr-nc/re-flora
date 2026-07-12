@@ -14,7 +14,7 @@ const VOXEL_SCALE: f32 = 1.0 / 256.0;
 const PEDESTAL_VOXEL_COUNT: usize = 3;
 const CAP_VOXEL_COUNT: usize = 5;
 const MODEL_GRID_OFFSET_VOXELS: Vec3 = Vec3::new(-0.5, 0.0, -0.5);
-const PEDESTAL_COLOR_SRGB: Vec3 = Vec3::new(0.018, 0.022, 0.026);
+const PEDESTAL_COLOR_SRGB: Vec3 = Vec3::new(0.62, 0.64, 0.63);
 const CAP_COLOR_SRGB: Vec3 = Vec3::new(1.0, 0.22, 0.015);
 const CAP_EDGE_EXPANSION_VOXELS: f32 = 0.2;
 
