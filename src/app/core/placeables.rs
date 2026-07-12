@@ -1,6 +1,4 @@
 use super::App;
-use crate::app::world_ops;
-use crate::geom::UAabb3;
 use crate::particles::{
     MotionMode, ParticleEmitter, ParticleRenderKind, ParticleSpawn, ParticleSystem,
 };
@@ -14,16 +12,6 @@ const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 // The rasterized prop mesh is three voxels tall: a two-voxel black stem and a
 // one-voxel bright-orange circular head. Keep the emitter at its top surface.
 const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 = 3.0;
-
-#[derive(Clone, Copy, Debug)]
-struct SprinklerPlacementPolicy {
-    // `None` deliberately means that placing a sprinkler keeps nearby flora.
-    flora_clearance_radius_voxels: Option<f32>,
-}
-
-const SPRINKLER_PLACEMENT_POLICY: SprinklerPlacementPolicy = SprinklerPlacementPolicy {
-    flora_clearance_radius_voxels: Some(6.0),
-};
 
 const SPRINKLER_SPAWN_RATE_PER_SECOND: f32 = 72.0;
 const SPRINKLER_MAX_SPAWN_PER_FRAME: u32 = 24;
@@ -142,28 +130,6 @@ impl ParticleEmitter for SprinklerEmitter {
     }
 }
 
-fn compile_sprinkler_flora_clearance(
-    base_position: Vec3,
-    radius_voxels: f32,
-) -> Option<(UAabb3, f32)> {
-    if !base_position.is_finite() || !radius_voxels.is_finite() || radius_voxels <= 0.0 {
-        return None;
-    }
-
-    let center_vox = base_position * VOXELS_PER_WORLD_UNIT;
-    let radius = Vec3::splat(radius_voxels);
-    let world_dim = (super::VOXEL_DIM_PER_CHUNK * super::CHUNK_DIM).as_vec3();
-    let min_f = (center_vox - radius).max(Vec3::ZERO);
-    let max_exclusive_f = (center_vox + radius).ceil().min(world_dim);
-    if min_f.cmpge(max_exclusive_f).any() {
-        return None;
-    }
-
-    let min = min_f.floor().as_uvec3();
-    let max = max_exclusive_f.as_uvec3().saturating_sub(glam::UVec3::ONE);
-    Some((UAabb3::new(min, max), radius_voxels / VOXELS_PER_WORLD_UNIT))
-}
-
 fn sprinkler_seed(id: u32, position: Vec3) -> u64 {
     let mut seed = 0xA24B_AED4_963E_E407u64 ^ id as u64;
     for bits in [
@@ -191,7 +157,6 @@ impl App {
         let nozzle_position =
             base_position + Vec3::Y * (SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT);
 
-        self.apply_sprinkler_flora_clearance(base_position)?;
         let mut render_positions = self
             .sprinkler_records
             .iter()
@@ -211,44 +176,5 @@ impl App {
             .push(SprinklerEmitter::new(id, nozzle_position));
         log::info!("Placed sprinkler {} at {:?}", id, base_position);
         Ok(())
-    }
-
-    fn apply_sprinkler_flora_clearance(&mut self, base_position: Vec3) -> Result<()> {
-        let Some(radius_voxels) = SPRINKLER_PLACEMENT_POLICY.flora_clearance_radius_voxels else {
-            return Ok(());
-        };
-        let Some((rebuild_bound, radius)) =
-            compile_sprinkler_flora_clearance(base_position, radius_voxels)
-        else {
-            return Ok(());
-        };
-
-        world_ops::mesh_remove_flora_for_brush_edit(
-            &mut self.surface_builder,
-            super::VOXEL_DIM_PER_CHUNK,
-            rebuild_bound,
-            world_ops::FloraBrushEdit {
-                start: base_position,
-                end: base_position,
-                radius,
-                tick: self.flora_tick,
-                spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
-            },
-        )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sprinkler_flora_clearance_uses_voxel_scale() {
-        let base_position = Vec3::splat(0.5);
-        let (bound, radius) = compile_sprinkler_flora_clearance(base_position, 6.0).unwrap();
-
-        assert_eq!(radius, 6.0 / VOXELS_PER_WORLD_UNIT);
-        assert_eq!(bound.min(), glam::UVec3::splat(122));
-        assert_eq!(bound.max(), glam::UVec3::splat(133));
     }
 }
