@@ -2057,7 +2057,7 @@ impl Tracer {
                             1,
                             &[
                                 (0, &instances.resource.instances_buf),
-                                (1, &instances.growth_potential_levels),
+                                (1, &instances.grass_growth_potential_levels),
                             ],
                             mesh.indices_len,
                             instance_count,

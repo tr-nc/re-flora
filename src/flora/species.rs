@@ -78,10 +78,10 @@ pub struct FloraSpeciesDesc {
     pub mesh_generator: MeshGeneratorFn,
     pub paint_brush: FloraPaintBrushSettings,
     pub placement_mode: FloraPlacementMode,
-    /// Radius of this species' contribution to the shared 3D environmental growth potential.
-    pub growth_influence_radius_voxels: u32,
+    /// Radius of this species' contribution to the shared 3D ordinary-grass competition field.
+    pub grass_growth_influence_radius_voxels: u32,
     /// Minimum four-bit growth-potential level at the influence center (15 is unrestricted).
-    pub growth_influence_min_level: u8,
+    pub grass_growth_influence_min_level: u8,
 }
 
 impl FloraSpeciesDesc {
@@ -93,8 +93,8 @@ impl FloraSpeciesDesc {
         mesh_generator: MeshGeneratorFn,
         paint_brush: FloraPaintBrushSettings,
         placement_mode: FloraPlacementMode,
-        growth_influence_radius_voxels: u32,
-        growth_influence_min_level: u8,
+        grass_growth_influence_radius_voxels: u32,
+        grass_growth_influence_min_level: u8,
     ) -> Self {
         Self {
             key,
@@ -104,8 +104,8 @@ impl FloraSpeciesDesc {
             mesh_generator,
             paint_brush,
             placement_mode,
-            growth_influence_radius_voxels,
-            growth_influence_min_level,
+            grass_growth_influence_radius_voxels,
+            grass_growth_influence_min_level,
         }
     }
 }

@@ -29,7 +29,7 @@ layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D surface;
 #include "../../include/flora_placement.glsl"
 #include "../../include/flora_surface_planting.glsl"
 #include "../../include/instance.glsl"
-#include "../../include/flora_growth_potential.glsl"
+#include "../../include/grass_growth_potential.glsl"
 
 const uint OCCUPANCY_MODE_REMOVE = 0u;
 const uint OCCUPANCY_MODE_ADD    = 1u;
@@ -128,7 +128,7 @@ void main() {
 
             uint growth_progress = INSTANCE_GROWTH_PROGRESS_MATURE;
             if (flora_paint_priority(edit_occupancy_info.paint_selection) == 0u) {
-                growth_progress = flora_growth_progress_limit(
+                growth_progress = grass_growth_progress_limit(
                     uvec3(base_local), edit_occupancy_info.chunk_dim);
             }
             uint occupancy_value = pack_flora_occupancy_with_spawn_age(

@@ -35,7 +35,7 @@ manual_flora_instances;
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/flora_surface_planting.glsl"
-#include "../../include/flora_growth_potential.glsl"
+#include "../../include/grass_growth_potential.glsl"
 #include "../../include/grass_type.glsl"
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
@@ -199,17 +199,19 @@ void main() {
     uint growth_progress = unpack_flora_occupancy_growth(occupancy_value);
     uint spawn_age_ms = unpack_flora_occupancy_spawn_age_ms(occupancy_value);
     uint paint_selection = unpack_flora_occupancy_selection(occupancy_value);
-    bool is_authored_plant = paint_selection == FLORA_SPECIES_LAVENDER ||
-                             paint_selection == FLORA_SPECIES_EMBER_BLOOM;
-    uint growth_limit = is_authored_plant ? INSTANCE_GROWTH_PROGRESS_MATURE :
-                                            flora_growth_progress_limit(
-                                                uvec3(base_local),
-                                                occupancy_to_instances_info.chunk_dim);
+    bool is_grass_selection = paint_selection == FLORA_SPECIES_TALL_GRASS ||
+                              paint_selection == FLORA_SPECIES_SHORT_GRASS ||
+                              paint_selection == FLORA_OCCUPANCY_SELECTION_GRASS_MIX;
+    uint growth_limit = is_grass_selection ? grass_growth_progress_limit(
+                                                 uvec3(base_local),
+                                                 occupancy_to_instances_info.chunk_dim) :
+                                             INSTANCE_GROWTH_PROGRESS_MATURE;
 
     ivec3 world_base_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + base_local;
     // Growth-potential refresh must not consult the shared surface staging image. That image may
     // currently contain another chunk, and these instances already passed surface placement when
-    // they were created. The environmental limit is the only placement property updated here.
+    // they were created. The target-specific grass competition limit is the only placement
+    // property updated here.
     if (occupancy_to_instances_info.preserve_existing_placements != 0u) {
         add_flora_instance(world_base_pos, paint_selection, min(growth_progress, growth_limit),
                            growth_limit, spawn_age_ms);

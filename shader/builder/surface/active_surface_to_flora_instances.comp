@@ -40,7 +40,7 @@ manual_flora_instances;
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/flora_surface_planting.glsl"
-#include "../../include/flora_growth_potential.glsl"
+#include "../../include/grass_growth_potential.glsl"
 #include "../../include/grass_type.glsl"
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
@@ -209,7 +209,7 @@ void main() {
         return;
     }
 
-    uint growth_limit = flora_growth_progress_limit(base_local_u,
+    uint growth_limit = grass_growth_progress_limit(base_local_u,
                                                      occupancy_to_instances_info.chunk_dim);
     add_flora_instance(world_base_pos, flora_type, growth_limit, growth_limit);
 }

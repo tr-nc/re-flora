@@ -45,20 +45,20 @@ float flora_lifecycle_growth_factor(uint growth_progress) {
 }
 
 vec3 apply_grass_growth_stress_tint(vec3 base_color_linear, bool is_grass,
-                                    float environmental_growth_potential) {
+                                    float competition_growth_factor) {
     if (!is_grass) {
         return base_color_linear;
     }
     const vec3 stressed_grass_srgb = vec3(0.62, 0.68, 0.275);
     const float max_tint_strength = 0.55;
-    float stress = 1.0 - clamp(environmental_growth_potential, 0.0, 1.0);
+    float stress = 1.0 - clamp(competition_growth_factor, 0.0, 1.0);
     return mix(base_color_linear, srgb_to_linear(stressed_grass_srgb),
                stress * max_tint_strength);
 }
 
 void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_pos_voxels,
                            uint instance_ty, uint instance_seed, uint in_instance_growth_progress,
-                           float environmental_growth_potential, uint instance_spawn_start_ms,
+                           float competition_growth_factor, uint instance_spawn_start_ms,
                            out bool is_grass,
                            out float color_gradient, out vec3 voxel_pos,
                            out vec3 anchor_pos, out float shadow_weight,
@@ -73,7 +73,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_p
     uint grass_height_voxels =
         is_grass ? sample_grass_height(instance_ty, instance_seed) : tall_grass_height_voxels;
     float growth_factor = min(flora_lifecycle_growth_factor(in_instance_growth_progress),
-                              environmental_growth_potential);
+                              competition_growth_factor);
     should_trim_voxel      = false;
 
     if (is_grass) {

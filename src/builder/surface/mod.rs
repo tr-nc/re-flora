@@ -599,7 +599,10 @@ impl SurfaceBuilder {
             cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
             let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
             self.bind_manual_instance_buffer(&self.active_surface_to_flora_ppl, chunk_resources);
-            self.bind_growth_potential_buffer(&self.active_surface_to_flora_ppl, chunk_resources);
+            self.bind_grass_growth_potential_buffer(
+                &self.active_surface_to_flora_ppl,
+                chunk_resources,
+            );
             Some(chunk_idx)
         } else {
             None
@@ -890,9 +893,9 @@ impl SurfaceBuilder {
             seed,
         });
         let influence_radius =
-            species::species()[species_index as usize].growth_influence_radius_voxels;
+            species::species()[species_index as usize].grass_growth_influence_radius_voxels;
         for affected_chunk in
-            self.growth_potential_affected_chunks(base_world_vox, influence_radius)
+            self.grass_growth_potential_affected_chunks(base_world_vox, influence_radius)
         {
             if !dirty_chunks.contains(&affected_chunk) {
                 dirty_chunks.push(affected_chunk);
@@ -910,15 +913,19 @@ impl SurfaceBuilder {
             self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
         }
         for &chunk_id in dirty_chunks {
-            self.rebuild_growth_potential_for_chunk(chunk_id)?;
+            self.rebuild_grass_growth_potential_for_chunk(chunk_id)?;
         }
         for &chunk_id in dirty_chunks {
-            self.refresh_grass_growth_potential(chunk_id, spawn_time_ms)?;
+            self.refresh_grass_growth_from_potential(chunk_id, spawn_time_ms)?;
         }
         Ok(())
     }
 
-    fn growth_potential_affected_chunks(&self, base_world_vox: UVec3, radius: u32) -> Vec<UVec3> {
+    fn grass_growth_potential_affected_chunks(
+        &self,
+        base_world_vox: UVec3,
+        radius: u32,
+    ) -> Vec<UVec3> {
         let radius = radius as i64;
         let world_min = base_world_vox.as_ivec3().as_i64vec3() - glam::I64Vec3::splat(radius);
         let world_max = base_world_vox.as_ivec3().as_i64vec3() + glam::I64Vec3::splat(radius);
@@ -942,7 +949,7 @@ impl SurfaceBuilder {
         chunks
     }
 
-    fn rebuild_growth_potential_for_chunk(&mut self, chunk_id: UVec3) -> Result<()> {
+    fn rebuild_grass_growth_potential_for_chunk(&mut self, chunk_id: UVec3) -> Result<()> {
         if !self.chunk_bound.in_bound(chunk_id) {
             return Ok(());
         }
@@ -951,7 +958,7 @@ impl SurfaceBuilder {
         let chunk_min = (chunk_id * self.voxel_dim_per_chunk).as_ivec3();
         let chunk_max = chunk_min + self.voxel_dim_per_chunk.as_ivec3();
         let max_radius = species::authored_plant_species_indices()
-            .map(|index| species::species()[index as usize].growth_influence_radius_voxels)
+            .map(|index| species::species()[index as usize].grass_growth_influence_radius_voxels)
             .max()
             .unwrap_or(0) as i32;
         let neighbor_min = (chunk_min - IVec3::splat(max_radius)).max(IVec3::ZERO);
@@ -967,17 +974,17 @@ impl SurfaceBuilder {
                     let source_chunk = UVec3::new(source_x, source_y, source_z);
                     for instance in self.authored_flora.instances_for_chunk(source_chunk) {
                         let influence = &species::species()[instance.species_index as usize];
-                        let radius = influence.growth_influence_radius_voxels as i32;
+                        let radius = influence.grass_growth_influence_radius_voxels as i32;
                         if radius == 0 {
                             continue;
                         }
-                        apply_spherical_growth_influence(
+                        apply_spherical_grass_growth_influence(
                             &mut words,
                             chunk_min,
                             self.voxel_dim_per_chunk,
                             instance.base_world_vox.as_ivec3(),
                             radius,
-                            influence.growth_influence_min_level,
+                            influence.grass_growth_influence_min_level,
                         );
                     }
                 }
@@ -987,19 +994,19 @@ impl SurfaceBuilder {
         let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
         self.resources.instances.chunk_flora_instances[chunk_idx]
             .1
-            .growth_potential_levels
+            .grass_growth_potential_levels
             .fill_range_with_raw_u8(0, bytemuck::cast_slice(&words))?;
         log::debug!(
             "[FLORA_GROWTH] rebuilt chunk {:?} influenced_voxels={}",
             chunk_id,
             (0..voxel_count)
-                .filter(|&index| packed_growth_potential_level(&words, index) < 15)
+                .filter(|&index| packed_grass_growth_potential_level(&words, index) < 15)
                 .count(),
         );
         Ok(())
     }
 
-    fn refresh_grass_growth_potential(
+    fn refresh_grass_growth_from_potential(
         &mut self,
         chunk_id: UVec3,
         spawn_time_ms: u32,
@@ -1068,10 +1075,10 @@ impl SurfaceBuilder {
         self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
         let mut dirty_growth_chunks = Vec::new();
         for instance in removed_instances {
-            let radius =
-                species::species()[instance.species_index as usize].growth_influence_radius_voxels;
+            let radius = species::species()[instance.species_index as usize]
+                .grass_growth_influence_radius_voxels;
             for affected_chunk in
-                self.growth_potential_affected_chunks(instance.base_world_vox, radius)
+                self.grass_growth_potential_affected_chunks(instance.base_world_vox, radius)
             {
                 if !dirty_growth_chunks.contains(&affected_chunk) {
                     dirty_growth_chunks.push(affected_chunk);
@@ -1079,7 +1086,7 @@ impl SurfaceBuilder {
             }
         }
         for dirty_chunk in dirty_growth_chunks {
-            self.rebuild_growth_potential_for_chunk(dirty_chunk)?;
+            self.rebuild_grass_growth_potential_for_chunk(dirty_chunk)?;
         }
         Ok(removed)
     }
@@ -1276,9 +1283,9 @@ impl SurfaceBuilder {
 
         let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
         self.bind_manual_instance_buffer(&self.instances_to_occupancy_ppl, chunk_resources);
-        self.bind_growth_potential_buffer(&self.edit_occupancy_ppl, chunk_resources);
+        self.bind_grass_growth_potential_buffer(&self.edit_occupancy_ppl, chunk_resources);
         self.bind_manual_instance_buffer(&self.occupancy_to_instances_ppl, chunk_resources);
-        self.bind_growth_potential_buffer(&self.occupancy_to_instances_ppl, chunk_resources);
+        self.bind_grass_growth_potential_buffer(&self.occupancy_to_instances_ppl, chunk_resources);
 
         let flora_edit_timing_passes: &[SurfacePassTimingPass] = if max_len > 0 {
             &FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES
@@ -1443,7 +1450,7 @@ impl SurfaceBuilder {
 
         let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
         self.bind_manual_instance_buffer(&self.update_flora_growth_ppl, chunk_resources);
-        self.bind_growth_potential_buffer(&self.update_flora_growth_ppl, chunk_resources);
+        self.bind_grass_growth_potential_buffer(&self.update_flora_growth_ppl, chunk_resources);
 
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
@@ -1501,14 +1508,14 @@ impl SurfaceBuilder {
         );
     }
 
-    fn bind_growth_potential_buffer(
+    fn bind_grass_growth_potential_buffer(
         &self,
         pipeline: &ComputePipeline,
         resources: &FloraInstanceResources,
     ) {
         pipeline.write_descriptor_set(
             1,
-            WriteDescriptorSet::new_buffer_write(1, &resources.growth_potential_levels),
+            WriteDescriptorSet::new_buffer_write(1, &resources.grass_growth_potential_levels),
         );
     }
 
@@ -1531,7 +1538,7 @@ fn pack_manual_flora_instance(
     }
 }
 
-fn apply_spherical_growth_influence(
+fn apply_spherical_grass_growth_influence(
     words: &mut [u32],
     chunk_min: IVec3,
     chunk_dim: UVec3,
@@ -1563,17 +1570,17 @@ fn apply_spherical_growth_influence(
                 let linear = local.x as usize
                     + chunk_dim.x as usize
                         * (local.y as usize + chunk_dim.y as usize * local.z as usize);
-                set_min_packed_growth_potential_level(words, linear, level);
+                set_min_packed_grass_growth_potential_level(words, linear, level);
             }
         }
     }
 }
 
-fn packed_growth_potential_level(words: &[u32], linear: usize) -> u8 {
+fn packed_grass_growth_potential_level(words: &[u32], linear: usize) -> u8 {
     ((words[linear >> 3] >> ((linear & 7) * 4)) & 0x0f) as u8
 }
 
-fn set_min_packed_growth_potential_level(words: &mut [u32], linear: usize, level: u8) {
+fn set_min_packed_grass_growth_potential_level(words: &mut [u32], linear: usize, level: u8) {
     let shift = (linear & 7) * 4;
     let word = &mut words[linear >> 3];
     let current = ((*word >> shift) & 0x0f) as u8;
@@ -1582,10 +1589,10 @@ fn set_min_packed_growth_potential_level(words: &mut [u32], linear: usize, level
 }
 
 #[cfg(test)]
-fn growth_potential_level(words: &[u32], chunk_dim: UVec3, local: UVec3) -> u8 {
+fn grass_growth_potential_level(words: &[u32], chunk_dim: UVec3, local: UVec3) -> u8 {
     let linear = local.x as usize
         + chunk_dim.x as usize * (local.y as usize + chunk_dim.y as usize * local.z as usize);
-    packed_growth_potential_level(words, linear)
+    packed_grass_growth_potential_level(words, linear)
 }
 
 fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
@@ -1770,10 +1777,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn spherical_growth_influence_distinguishes_overhang_heights() {
+    fn spherical_grass_growth_influence_distinguishes_overhang_heights() {
         let dim = UVec3::splat(32);
         let mut words = vec![u32::MAX; dim.element_product().div_ceil(8) as usize];
-        apply_spherical_growth_influence(
+        apply_spherical_grass_growth_influence(
             &mut words,
             IVec3::ZERO,
             dim,
@@ -1783,21 +1790,38 @@ mod tests {
         );
 
         assert_eq!(
-            growth_potential_level(&words, dim, UVec3::new(16, 20, 16)),
+            grass_growth_potential_level(&words, dim, UVec3::new(16, 20, 16)),
             6
         );
         assert_eq!(
-            growth_potential_level(&words, dim, UVec3::new(16, 18, 16)),
+            grass_growth_potential_level(&words, dim, UVec3::new(16, 18, 16)),
             11
         );
         assert_eq!(
-            growth_potential_level(&words, dim, UVec3::new(16, 15, 16)),
+            grass_growth_potential_level(&words, dim, UVec3::new(16, 15, 16)),
             15
         );
         assert_eq!(
-            growth_potential_level(&words, dim, UVec3::new(16, 4, 16)),
+            grass_growth_potential_level(&words, dim, UVec3::new(16, 4, 16)),
             15
         );
+    }
+
+    #[test]
+    fn grass_competition_factor_is_target_species_aware() {
+        let growth_shader = include_str!("../../../shader/include/grass_growth_potential.glsl");
+        assert!(
+            growth_shader.contains("return is_grass ? grass_growth_potential(local_base) : 1.0;")
+        );
+
+        for vertex_shader in [
+            include_str!("../../../shader/foliage/flora.vert"),
+            include_str!("../../../shader/foliage/flora_lod.vert"),
+        ] {
+            assert!(vertex_shader.contains(
+                "unpack_instance_local_pos(in_instance_packed_local_pos), pc.instance_ty"
+            ));
+        }
     }
 
     #[test]
@@ -1817,17 +1841,29 @@ mod tests {
     }
 
     #[test]
-    fn spherical_growth_influence_clips_cleanly_at_chunk_boundaries() {
+    fn spherical_grass_growth_influence_clips_cleanly_at_chunk_boundaries() {
         let dim = UVec3::splat(8);
         let mut left = vec![u32::MAX; dim.element_product().div_ceil(8) as usize];
         let mut right = vec![u32::MAX; dim.element_product().div_ceil(8) as usize];
         let center = IVec3::new(7, 4, 4);
-        apply_spherical_growth_influence(&mut left, IVec3::ZERO, dim, center, 2, 6);
-        apply_spherical_growth_influence(&mut right, IVec3::new(8, 0, 0), dim, center, 2, 6);
+        apply_spherical_grass_growth_influence(&mut left, IVec3::ZERO, dim, center, 2, 6);
+        apply_spherical_grass_growth_influence(&mut right, IVec3::new(8, 0, 0), dim, center, 2, 6);
 
-        assert_eq!(growth_potential_level(&left, dim, UVec3::new(7, 4, 4)), 6);
-        assert_eq!(growth_potential_level(&right, dim, UVec3::new(0, 4, 4)), 11);
-        assert_eq!(growth_potential_level(&right, dim, UVec3::new(1, 4, 4)), 15);
-        assert_eq!(growth_potential_level(&right, dim, UVec3::new(2, 4, 4)), 15);
+        assert_eq!(
+            grass_growth_potential_level(&left, dim, UVec3::new(7, 4, 4)),
+            6
+        );
+        assert_eq!(
+            grass_growth_potential_level(&right, dim, UVec3::new(0, 4, 4)),
+            11
+        );
+        assert_eq!(
+            grass_growth_potential_level(&right, dim, UVec3::new(1, 4, 4)),
+            15
+        );
+        assert_eq!(
+            grass_growth_potential_level(&right, dim, UVec3::new(2, 4, 4)),
+            15
+        );
     }
 }
