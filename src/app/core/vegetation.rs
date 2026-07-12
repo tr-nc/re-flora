@@ -1271,6 +1271,11 @@ impl App {
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             );
+            self.remove_sprinklers_in_brush(TerrainBrushEdit {
+                start: edit.center,
+                end: edit.center,
+                radius: edit.radius,
+            })?;
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
                 .lock()

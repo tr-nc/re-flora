@@ -1,4 +1,5 @@
 use super::App;
+use crate::app::world_edits::TerrainBrushEdit;
 use crate::particles::{
     MotionMode, ParticleEmitter, ParticleRenderKind, ParticleSpawn, ParticleSystem,
     ParticleUpdateConfig,
@@ -157,6 +158,16 @@ impl ParticleEmitter for SprinklerEmitter {
     }
 }
 
+pub(super) fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
+    let segment = end - start;
+    let length_sq = segment.length_squared();
+    if length_sq <= f32::EPSILON {
+        return point.distance_squared(start);
+    }
+    let t = ((point - start).dot(segment) / length_sq).clamp(0.0, 1.0);
+    point.distance_squared(start + segment * t)
+}
+
 pub(super) fn sprinkler_sprays_along_x(tick: u32, tick_seconds: f32, animation_phase: f32) -> bool {
     let pair_cycle_ticks = (1.0 / tick_seconds).round().max(2.0) as u32;
     let full_cycle_ticks = pair_cycle_ticks * 2;
@@ -190,6 +201,39 @@ impl App {
 
     pub(super) fn current_placeable_label(&self) -> &'static str {
         self.current_placeable_kind().label()
+    }
+
+    pub(super) fn remove_sprinklers_in_brush(&mut self, edit: TerrainBrushEdit) -> Result<usize> {
+        let retained_records = self
+            .sprinkler_records
+            .iter()
+            .copied()
+            .filter(|sprinkler| {
+                distance_sq_to_segment(sprinkler.base_position, edit.start, edit.end)
+                    > edit.radius * edit.radius
+            })
+            .collect::<Vec<_>>();
+        let removed_count = self.sprinkler_records.len() - retained_records.len();
+        if removed_count == 0 {
+            return Ok(0);
+        }
+
+        let render_instances = retained_records
+            .iter()
+            .map(|sprinkler| SprinklerRenderInstance {
+                base_position: sprinkler.base_position,
+                animation_phase: sprinkler.animation_phase,
+            })
+            .collect::<Vec<_>>();
+        self.tracer.upload_sprinklers(&render_instances)?;
+        self.sprinkler_emitters.retain(|emitter| {
+            retained_records
+                .iter()
+                .any(|record| record.id == emitter.id)
+        });
+        self.sprinkler_records = retained_records;
+        log::info!("Removed {} sprinkler(s) with digging brush", removed_count);
+        Ok(removed_count)
     }
 
     pub(super) fn apply_sprinkler_placement(&mut self, base_position: Vec3) -> Result<()> {
@@ -229,6 +273,16 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn digging_brush_overlap_uses_capsule_distance() {
+        let start = Vec3::ZERO;
+        let end = Vec3::X;
+        let side_distance = distance_sq_to_segment(Vec3::new(0.5, 0.2, 0.0), start, end);
+        let end_distance = distance_sq_to_segment(Vec3::new(1.2, 0.0, 0.0), start, end);
+        assert!((side_distance - 0.04).abs() < 1e-6);
+        assert!((end_distance - 0.04).abs() < 1e-6);
+    }
 
     #[test]
     fn sprinkler_spray_axis_alternates_by_opposing_pair() {
