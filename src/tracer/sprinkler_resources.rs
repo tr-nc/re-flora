@@ -11,8 +11,9 @@ use crate::{
 
 pub const SPRINKLER_RENDER_CAPACITY: usize = 256;
 const VOXEL_SCALE: f32 = 1.0 / 256.0;
-const PEDESTAL_VOXEL_COUNT: usize = 8;
-const CAP_VOXEL_COUNT: usize = 12;
+const PEDESTAL_VOXEL_COUNT: usize = 2;
+const CAP_VOXEL_COUNT: usize = 5;
+const MODEL_GRID_OFFSET_VOXELS: Vec3 = Vec3::new(-0.5, 0.0, -0.5);
 const PEDESTAL_COLOR_SRGB: Vec3 = Vec3::new(0.018, 0.022, 0.026);
 const CAP_COLOR_SRGB: Vec3 = Vec3::new(1.0, 0.22, 0.015);
 const CAP_EDGE_EXPANSION_VOXELS: f32 = 0.2;
@@ -105,31 +106,27 @@ fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
     let mut vertices = Vec::with_capacity(voxel_count * VOXEL_VERTICES.len());
     let mut indices = Vec::with_capacity(voxel_count * CUBE_INDICES.len());
 
-    // Centered 2x2 stem, two voxels high.
+    // One-voxel-wide stem, two voxels high.
     for y in 0..2 {
-        for x in -1..1 {
-            for z in -1..1 {
-                append_voxel(
-                    &mut vertices,
-                    &mut indices,
-                    IVec3::new(x, y, z),
-                    PEDESTAL_COLOR_SRGB,
-                    Vec3::ZERO,
-                );
-            }
-        }
+        append_voxel(
+            &mut vertices,
+            &mut indices,
+            IVec3::new(0, y, 0),
+            PEDESTAL_COLOR_SRGB,
+            Vec3::ZERO,
+        );
     }
 
-    // Deterministic 4x4 head with exactly the four corners removed. The entire cap moves
-    // vertically while all four edges expand together at the same phase.
-    for x in -2..2 {
-        for z in -2..2 {
-            if (x == -2 || x == 1) && (z == -2 || z == 1) {
+    // Centered 3x3 cross: remove all four corners from the square. The entire cap moves
+    // vertically while all four arms expand together at the same phase.
+    for x in -1..=1 {
+        for z in -1..=1 {
+            if x != 0 && z != 0 {
                 continue;
             }
             let outward_direction = match (x, z) {
-                (_, -2) => -Vec3::Z,
-                (-2, _) => -Vec3::X,
+                (_, -1) => -Vec3::Z,
+                (-1, _) => -Vec3::X,
                 (_, 1) => Vec3::Z,
                 (1, _) => Vec3::X,
                 _ => Vec3::ZERO,
@@ -154,13 +151,14 @@ fn append_voxel(
     color_srgb: Vec3,
     animation_direction: Vec3,
 ) {
-    let voxel_center_voxels = voxel_min.as_vec3() + Vec3::splat(0.5);
+    let voxel_min_voxels = voxel_min.as_vec3() + MODEL_GRID_OFFSET_VOXELS;
+    let voxel_center_voxels = voxel_min_voxels + Vec3::splat(0.5);
     let voxel_center = voxel_center_voxels * VOXEL_SCALE;
     let shading_normal = voxel_center_voxels.normalize_or_zero();
     let base = vertices.len() as u32;
 
     vertices.extend(VOXEL_VERTICES.map(|offset| SprinklerVertex {
-        position: ((voxel_min.as_vec3() + offset.as_vec3()) * VOXEL_SCALE).to_array(),
+        position: ((voxel_min_voxels + offset.as_vec3()) * VOXEL_SCALE).to_array(),
         voxel_center: voxel_center.to_array(),
         shading_normal: shading_normal.to_array(),
         color_srgb: color_srgb.to_array(),
@@ -185,6 +183,31 @@ mod tests {
             .map(|vertex| vertex.position[1])
             .fold(f32::NEG_INFINITY, f32::max);
         assert_eq!(max_y, 3.0 / 256.0);
+    }
+
+    #[test]
+    fn sprinkler_stem_and_cross_cap_are_centered() {
+        let (vertices, _) = build_sprinkler_mesh();
+        let pedestal_vertex_count = PEDESTAL_VOXEL_COUNT * VOXEL_VERTICES.len();
+        let (pedestal, cap) = vertices.split_at(pedestal_vertex_count);
+
+        let axis_bounds = |vertices: &[SprinklerVertex], axis: usize| {
+            vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), value| {
+                    (min.min(value), max.max(value))
+                })
+        };
+        let (stem_min_x, stem_max_x) = axis_bounds(pedestal, 0);
+        let (stem_min_z, stem_max_z) = axis_bounds(pedestal, 2);
+        let (cap_min_x, cap_max_x) = axis_bounds(cap, 0);
+        let (cap_min_z, cap_max_z) = axis_bounds(cap, 2);
+
+        assert_eq!((stem_min_x, stem_max_x), (-0.5 / 256.0, 0.5 / 256.0));
+        assert_eq!((stem_min_z, stem_max_z), (-0.5 / 256.0, 0.5 / 256.0));
+        assert_eq!((cap_min_x, cap_max_x), (-1.5 / 256.0, 1.5 / 256.0));
+        assert_eq!((cap_min_z, cap_max_z), (-1.5 / 256.0, 1.5 / 256.0));
     }
 
     #[test]
@@ -223,7 +246,7 @@ mod tests {
                 voxel[0].animation_direction[0] != 0.0 || voxel[0].animation_direction[2] != 0.0
             })
             .count();
-        assert_eq!(expanding_voxels, 8);
+        assert_eq!(expanding_voxels, 4);
         assert!(animated_voxels.iter().all(|voxel| {
             voxel[0].animation_direction[0].abs() <= CAP_EDGE_EXPANSION_VOXELS
                 && voxel[0].animation_direction[2].abs() <= CAP_EDGE_EXPANSION_VOXELS
