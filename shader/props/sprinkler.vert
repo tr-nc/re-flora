@@ -8,6 +8,7 @@ layout(location = 2) in vec3 in_shading_normal;
 layout(location = 3) in vec3 in_color_srgb;
 layout(location = 4) in vec3 in_animation_direction;
 layout(location = 5) in vec3 in_base_position;
+layout(location = 6) in float in_animation_phase;
 
 layout(location = 0) out vec3 vert_color;
 
@@ -70,18 +71,31 @@ layout(set = 0, binding = 11) uniform sampler2D cloud_shadow_tex;
 const float CAP_MOTION_SECONDS = 1.0;
 const float ANIMATION_DISTANCE = 1.0 / 256.0;
 
-float sprinkler_extension() {
+void sprinkler_animation(out float extension, out bool animate_x_arms) {
     float tick_seconds = max(gui_input.world_tick_seconds, 1.0 / 240.0);
-    uint half_cycle_ticks = max(uint(round((CAP_MOTION_SECONDS * 0.5) / tick_seconds)), 1u);
-    uint cycle_ticks = half_cycle_ticks * 2u;
-    uint cycle_tick = flora_growth_info.flora_tick % cycle_ticks;
-    float phase = float(cycle_tick) / float(cycle_ticks);
-    return 0.5 - 0.5 * cos(phase * 6.28318530718);
+    uint pair_cycle_ticks = max(uint(round(CAP_MOTION_SECONDS / tick_seconds)), 2u);
+    uint full_cycle_ticks = pair_cycle_ticks * 2u;
+    uint phase_offset_ticks = uint(round(fract(in_animation_phase) * float(full_cycle_ticks)));
+    uint cycle_tick = (flora_growth_info.flora_tick + phase_offset_ticks) % full_cycle_ticks;
+    animate_x_arms = cycle_tick >= pair_cycle_ticks;
+    uint pair_tick = cycle_tick % pair_cycle_ticks;
+    float pair_phase = float(pair_tick) / float(pair_cycle_ticks);
+    extension = 0.5 - 0.5 * cos(pair_phase * 6.28318530718);
 }
 
 void main() {
-    float extension = sprinkler_extension();
-    vec3 animation_offset = in_animation_direction * extension * ANIMATION_DISTANCE;
+    float extension;
+    bool animate_x_arms;
+    sprinkler_animation(extension, animate_x_arms);
+    bool is_x_arm = abs(in_animation_direction.x) > 0.0;
+    bool is_z_arm = abs(in_animation_direction.z) > 0.0;
+    bool arm_is_active = (!is_x_arm && !is_z_arm) ||
+                         (animate_x_arms ? is_x_arm : is_z_arm);
+    vec3 active_direction = in_animation_direction;
+    if (!arm_is_active) {
+        active_direction.xz = vec2(0.0);
+    }
+    vec3 animation_offset = active_direction * extension * ANIMATION_DISTANCE;
     vec3 world_position = in_base_position + in_position + animation_offset;
     vec3 voxel_center = in_base_position + in_voxel_center + animation_offset;
     gl_Position = camera_info.view_proj_mat * vec4(world_position, 1.0);

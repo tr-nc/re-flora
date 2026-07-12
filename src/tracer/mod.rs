@@ -3098,8 +3098,8 @@ impl Tracer {
             .unwrap();
     }
 
-    pub fn upload_sprinklers(&mut self, base_positions: &[Vec3]) -> Result<()> {
-        self.sprinkler_resources.upload(base_positions)
+    pub fn upload_sprinklers(&mut self, instances: &[SprinklerRenderInstance]) -> Result<()> {
+        self.sprinkler_resources.upload(instances)
     }
 
     pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {

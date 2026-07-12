@@ -32,6 +32,13 @@ pub struct SprinklerVertex {
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct SprinklerInstanceGpu {
     base_position: [f32; 3],
+    animation_phase: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SprinklerRenderInstance {
+    pub base_position: Vec3,
+    pub animation_phase: f32,
 }
 
 pub struct SprinklerRendererResources {
@@ -80,17 +87,18 @@ impl SprinklerRendererResources {
         }
     }
 
-    pub fn upload(&mut self, base_positions: &[Vec3]) -> Result<()> {
+    pub fn upload(&mut self, render_instances: &[SprinklerRenderInstance]) -> Result<()> {
         ensure!(
-            base_positions.len() <= SPRINKLER_RENDER_CAPACITY,
+            render_instances.len() <= SPRINKLER_RENDER_CAPACITY,
             "sprinkler render capacity exceeded: {} > {}",
-            base_positions.len(),
+            render_instances.len(),
             SPRINKLER_RENDER_CAPACITY,
         );
-        let instances = base_positions
+        let instances = render_instances
             .iter()
-            .map(|position| SprinklerInstanceGpu {
-                base_position: position.to_array(),
+            .map(|instance| SprinklerInstanceGpu {
+                base_position: instance.base_position.to_array(),
+                animation_phase: instance.animation_phase.rem_euclid(1.0),
             })
             .collect::<Vec<_>>();
         if !instances.is_empty() {
@@ -256,6 +264,6 @@ mod tests {
     #[test]
     fn sprinkler_vertex_layout_matches_shader_locations() {
         assert_eq!(std::mem::size_of::<SprinklerVertex>(), 15 * 4);
-        assert_eq!(std::mem::size_of::<SprinklerInstanceGpu>(), 3 * 4);
+        assert_eq!(std::mem::size_of::<SprinklerInstanceGpu>(), 4 * 4);
     }
 }

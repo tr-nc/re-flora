@@ -419,12 +419,11 @@ impl App {
             dt,
             wind_time,
         );
-        Self::drive_emitters(
-            &mut self.sprinkler_emitters,
-            &mut self.particle_system,
-            dt,
-            wind_time,
-        );
+        let world_tick_seconds = self.gui_adjustables.world_tick_seconds.value;
+        for emitter in &mut self.sprinkler_emitters {
+            emitter.set_animation_clock(self.flora_tick, world_tick_seconds);
+            emitter.update(&mut self.particle_system, dt, wind_time);
+        }
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
         let sim_start = Instant::now();
