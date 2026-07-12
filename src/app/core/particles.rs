@@ -4,12 +4,14 @@ use crate::geom::UAabb3;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, FallenLeafEmitter, ParticleEmitter, ParticleHandle,
     ParticleRenderKind, ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep,
-    PARTICLE_CAPACITY,
+    ParticleUpdateConfig, PARTICLE_CAPACITY,
 };
 use crate::util::ClusterResult;
 use egui::Color32;
 use glam::{Vec2, Vec3, Vec4};
 use std::{f32::consts::TAU, time::Instant};
+
+const TERRAIN_HARVEST_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(0.1, 2);
 
 // bird-specific audio and control logic has been removed
 
@@ -175,6 +177,7 @@ impl App {
                 render_kind: ParticleRenderKind::Leaf,
                 despawn_on_lifetime: false,
                 despawn_below_ground: false,
+                update: TERRAIN_HARVEST_PARTICLE_UPDATE,
             };
             if let Some(handle) = self.particle_system.spawn(spawn) {
                 self.terrain_harvest_particle_handles.push(handle);

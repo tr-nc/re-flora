@@ -11,5 +11,5 @@ pub use emitters::{
 };
 pub use system::{
     MotionMode, ParticleForces, ParticleHandle, ParticleRenderKind, ParticleSnapshot,
-    ParticleSpawn, ParticleSystem, ParticleTickStep, PARTICLE_CAPACITY,
+    ParticleSpawn, ParticleSystem, ParticleTickStep, ParticleUpdateConfig, PARTICLE_CAPACITY,
 };

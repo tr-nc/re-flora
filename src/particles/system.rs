@@ -8,6 +8,29 @@ pub const PARTICLE_CAPACITY: usize = 16_384;
 pub const PARTICLE_UPDATE_BUCKET_COUNT: usize = 2;
 
 #[derive(Clone, Copy, Debug)]
+pub struct ParticleUpdateConfig {
+    /// Time between physics updates for each particle.
+    pub interval_seconds: f32,
+    /// Number of phase buckets used to spread those updates over the interval.
+    pub bucket_count: u32,
+}
+
+impl ParticleUpdateConfig {
+    pub const fn new(interval_seconds: f32, bucket_count: u32) -> Self {
+        Self {
+            interval_seconds,
+            bucket_count,
+        }
+    }
+}
+
+impl Default for ParticleUpdateConfig {
+    fn default() -> Self {
+        Self::new(0.1, 2)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct ParticleTickStep {
     pub did_step: bool,
     pub active_bucket: u32,
@@ -73,6 +96,8 @@ pub struct ParticleSpawn {
     pub despawn_on_lifetime: bool,
     /// If false, particle can go below y=0 without automatic despawn.
     pub despawn_below_ground: bool,
+    /// Per-particle-type physics cadence and update spreading.
+    pub update: ParticleUpdateConfig,
 }
 
 impl Default for ParticleSpawn {
@@ -96,6 +121,7 @@ impl Default for ParticleSpawn {
             render_kind: ParticleRenderKind::Leaf,
             despawn_on_lifetime: true,
             despawn_below_ground: true,
+            update: ParticleUpdateConfig::default(),
         }
     }
 }
@@ -189,6 +215,9 @@ pub struct ParticleSystem {
     despawn_on_lifetime: Vec<bool>,
     despawn_below_ground: Vec<bool>,
     update_buckets: Vec<u32>,
+    update_intervals: Vec<f32>,
+    update_bucket_counts: Vec<u32>,
+    update_elapsed: Vec<f32>,
     pending_sim_dt: Vec<f32>,
     update_bucket_phase: u32,
     update_bucket_elapsed: f32,
@@ -240,6 +269,9 @@ impl ParticleSystem {
             despawn_on_lifetime: vec![true; max_particles],
             despawn_below_ground: vec![true; max_particles],
             update_buckets: vec![0; max_particles],
+            update_intervals: vec![ParticleUpdateConfig::default().interval_seconds; max_particles],
+            update_bucket_counts: vec![ParticleUpdateConfig::default().bucket_count; max_particles],
+            update_elapsed: vec![0.0; max_particles],
             pending_sim_dt: vec![0.0; max_particles],
             update_bucket_phase: 0,
             update_bucket_elapsed: 0.0,
@@ -330,7 +362,15 @@ impl ParticleSystem {
         self.render_kinds[slot] = spawn.render_kind;
         self.despawn_on_lifetime[slot] = spawn.despawn_on_lifetime;
         self.despawn_below_ground[slot] = spawn.despawn_below_ground;
-        self.update_buckets[slot] = self.assign_update_bucket(slot, spawn.speed_noise_offset);
+        let update_interval = spawn.update.interval_seconds.max(1.0 / 1000.0);
+        let update_bucket_count = spawn.update.bucket_count.max(1);
+        let update_bucket =
+            self.assign_update_bucket(slot, spawn.speed_noise_offset, update_bucket_count);
+        self.update_buckets[slot] = update_bucket;
+        self.update_intervals[slot] = update_interval;
+        self.update_bucket_counts[slot] = update_bucket_count;
+        let first_delay = update_interval * (update_bucket + 1) as f32 / update_bucket_count as f32;
+        self.update_elapsed[slot] = update_interval - first_delay;
         self.pending_sim_dt[slot] = 0.0;
 
         Some(ParticleHandle {
@@ -376,8 +416,8 @@ impl ParticleSystem {
         self.retire_slot(slot);
     }
 
-    fn assign_update_bucket(&self, slot: usize, spawn_seed: f32) -> u32 {
-        if PARTICLE_UPDATE_BUCKET_COUNT <= 1 {
+    fn assign_update_bucket(&self, slot: usize, spawn_seed: f32, bucket_count: u32) -> u32 {
+        if bucket_count <= 1 {
             return 0;
         }
 
@@ -386,7 +426,7 @@ impl ParticleSystem {
             .wrapping_add(self.generations[slot].wrapping_mul(0x85EB_CA6B))
             .wrapping_add(spawn_seed.to_bits().wrapping_mul(0xC2B2_AE35));
 
-        (seed ^ (seed >> 16)).wrapping_mul(0x7FEB_352D) % (PARTICLE_UPDATE_BUCKET_COUNT as u32)
+        (seed ^ (seed >> 16)).wrapping_mul(0x7FEB_352D) % bucket_count
     }
 
     fn bucket_step_seconds(&self) -> f32 {
@@ -458,12 +498,14 @@ impl ParticleSystem {
         while alive_cursor < self.alive_indices.len() {
             let slot = self.alive_indices[alive_cursor];
             let mode = self.motion_modes[slot];
-            let is_bucketed = bucket_count > 1;
             self.pending_sim_dt[slot] += dt;
-            if is_bucketed && (!should_step_bucket || self.update_buckets[slot] != active_bucket) {
+            self.update_elapsed[slot] += dt;
+            let update_interval = self.update_intervals[slot];
+            if self.update_elapsed[slot] < update_interval {
                 alive_cursor += 1;
                 continue;
             }
+            self.update_elapsed[slot] %= update_interval;
 
             let sim_dt = self.pending_sim_dt[slot];
             self.pending_sim_dt[slot] = 0.0;
@@ -721,5 +763,53 @@ impl ParticleSystem {
     pub fn handle_bucket(&self, handle: ParticleHandle) -> Option<u32> {
         self.validate_handle(handle)
             .map(|idx| self.update_buckets[idx])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn free_particle(update: ParticleUpdateConfig) -> ParticleSpawn {
+        ParticleSpawn {
+            velocity: Vec3::X,
+            gravity_factor: 0.0,
+            motion_mode: MotionMode::Free,
+            despawn_below_ground: false,
+            update,
+            ..ParticleSpawn::default()
+        }
+    }
+
+    #[test]
+    fn particles_can_use_independent_update_intervals() {
+        let mut system = ParticleSystem::new(2);
+        let fast = system
+            .spawn(free_particle(ParticleUpdateConfig::new(0.05, 1)))
+            .unwrap();
+        let slow = system
+            .spawn(free_particle(ParticleUpdateConfig::new(0.10, 1)))
+            .unwrap();
+
+        system.update(0.05, ParticleForces::default());
+        assert!(system.position(fast).unwrap().x > 0.0);
+        assert_eq!(system.position(slow).unwrap().x, 0.0);
+
+        system.update(0.05, ParticleForces::default());
+        assert!(system.position(slow).unwrap().x > 0.0);
+    }
+
+    #[test]
+    fn particle_bucket_assignment_respects_its_own_bucket_count() {
+        let mut system = ParticleSystem::new(8);
+        for bucket_count in [1, 3, 5] {
+            let handle = system
+                .spawn(free_particle(ParticleUpdateConfig::new(0.12, bucket_count)))
+                .unwrap();
+            let slot = system.validate_handle(handle).unwrap();
+            assert_eq!(system.update_intervals[slot], 0.12);
+            assert_eq!(system.update_bucket_counts[slot], bucket_count);
+            assert!(system.handle_bucket(handle).unwrap() < bucket_count);
+        }
     }
 }

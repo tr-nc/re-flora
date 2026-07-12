@@ -4,11 +4,17 @@ use fastnoise_lite::{FastNoiseLite, NoiseType};
 use glam::{Vec3, Vec4};
 use rand::{rngs::SmallRng, RngExt, SeedableRng};
 
-use super::{MotionMode, ParticleHandle, ParticleRenderKind, ParticleSpawn, ParticleSystem};
+use super::{
+    MotionMode, ParticleHandle, ParticleRenderKind, ParticleSpawn, ParticleSystem,
+    ParticleUpdateConfig,
+};
 use crate::tracer::ButterflyPalettePreset;
 use crate::wind::{Wind, WindResponseCurve};
 
 pub const WORM_STEP_LEN: f32 = 0.15;
+
+const LEAF_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(0.1, 2);
+const BUTTERFLY_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(0.1, 2);
 
 pub trait ParticleEmitter {
     fn update(&mut self, system: &mut ParticleSystem, dt: f32, time: f32);
@@ -203,6 +209,7 @@ impl FallenLeafEmitter {
             render_kind: ParticleRenderKind::Leaf,
             despawn_on_lifetime: true,
             despawn_below_ground: true,
+            update: LEAF_UPDATE,
         };
         let _ = system.spawn(spawn);
     }
@@ -437,6 +444,7 @@ impl ButterflyEmitter {
             render_kind: self.render_kind,
             despawn_on_lifetime: true,
             despawn_below_ground: true,
+            update: BUTTERFLY_UPDATE,
         };
 
         match system.spawn(spawn) {

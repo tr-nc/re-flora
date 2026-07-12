@@ -1,6 +1,7 @@
 use super::App;
 use crate::particles::{
     MotionMode, ParticleEmitter, ParticleRenderKind, ParticleSpawn, ParticleSystem,
+    ParticleUpdateConfig,
 };
 use anyhow::Result;
 use glam::{Vec3, Vec4};
@@ -20,6 +21,7 @@ const SPRINKLER_DROPLET_LIFETIME: f32 = 0.62;
 const SPRINKLER_GRAVITY_FACTOR: f32 = 0.82;
 const SPRINKLER_COLOR_LOW: Vec4 = Vec4::new(0.03, 0.20, 0.95, 0.94);
 const SPRINKLER_COLOR_HIGH: Vec4 = Vec4::new(0.10, 0.48, 1.0, 0.98);
+const SPRINKLER_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(0.1, 2);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PlaceableKind {
@@ -106,6 +108,7 @@ impl SprinklerEmitter {
             render_kind: ParticleRenderKind::Leaf,
             despawn_on_lifetime: true,
             despawn_below_ground: true,
+            update: SPRINKLER_PARTICLE_UPDATE,
         };
         let _ = system.spawn(spawn);
     }
