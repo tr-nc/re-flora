@@ -65,6 +65,7 @@ layout(set = 0, binding = 8) uniform sampler3D wind_volume_tex;
 #include "../include/depth_offset.glsl"
 #include "../include/flora_registry.glsl"
 #include "../include/instance.glsl"
+#include "../include/flora_growth_potential.glsl"
 #include "../include/sunlight.glsl"
 #define ENABLE_TEMPORAL_VSM
 #include "../include/vsm.glsl"
@@ -100,10 +101,13 @@ void main() {
                                                           pc.chunk_world_offset);
     uint instance_seed = get_instance_seed(instance_pos);
     uint instance_growth_progress = unpack_instance_growth_progress(in_instance_packed_local_pos);
+    float environmental_growth_potential =
+        flora_growth_potential(unpack_instance_local_pos(in_instance_packed_local_pos));
     uint instance_spawn_start_ms = manual_flora_instances.data[gl_InstanceIndex].spawn_start_ms;
     uint voxel_info = lookup_flora_voxel_info(pc.instance_ty, vox_local_pos);
     prepare_flora_vertex(vox_local_pos, voxel_info, instance_pos, pc.instance_ty, instance_seed,
-                          instance_growth_progress, instance_spawn_start_ms, is_grass,
+                          instance_growth_progress, environmental_growth_potential,
+                          instance_spawn_start_ms, is_grass,
                           color_gradient, voxel_pos,
                           anchor_pos, shadow_weight, should_trim_voxel);
     vec3 vert_pos    = anchor_pos + vec3(vert_offset_in_vox) * scaling_factor;
@@ -121,6 +125,8 @@ void main() {
     vec3 base_color_linear =
         sample_flora_base_color(is_grass, pc.instance_ty, instance_seed, vox_local_pos,
                                 instance_pos, color_gradient, voxel_info);
+    base_color_linear = apply_grass_growth_stress_tint(
+        base_color_linear, is_grass, environmental_growth_potential);
 
     vec3 lit_color = apply_stylized_voxel_lighting(base_color_linear, shadow_weight);
     // The edit brush is a UI affordance, not foliage material. Match the terrain tracer by

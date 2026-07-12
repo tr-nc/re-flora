@@ -14,6 +14,7 @@ instances_to_occupancy_info;
 
 #include "../../include/flora_registry.glsl"
 #include "../../include/instance.glsl"
+#include "../../include/flora_growth_potential.glsl"
 
 layout(set = 0, binding = 1) buffer B_OccupancyToInstancesResult {
     uint flora_instance_len[MAX_FLORA_SPECIES];
@@ -31,17 +32,23 @@ void update_species_growth(uint species_idx, uint idx, uint instance_len) {
 
     uint instance_idx = flora_species_instance_offset(species_idx) + idx;
     Instance instance = manual_flora_instances.data[instance_idx];
-    uint progress     = unpack_instance_growth_progress(instance.packed_local_pos);
-    if (progress >= INSTANCE_GROWTH_PROGRESS_MATURE) {
+    uint progress = unpack_instance_growth_progress(instance.packed_local_pos);
+    uvec3 local_pos = unpack_instance_local_pos(instance.packed_local_pos);
+    bool is_grass = species_idx == FLORA_SPECIES_TALL_GRASS ||
+                    species_idx == FLORA_SPECIES_SHORT_GRASS;
+    uint growth_limit = is_grass ? flora_growth_progress_limit(
+                                       local_pos, instances_to_occupancy_info.chunk_dim) :
+                                   INSTANCE_GROWTH_PROGRESS_MATURE;
+    if (progress >= growth_limit) {
         return;
     }
 
-    uint remaining = INSTANCE_GROWTH_PROGRESS_MATURE - progress;
+    uint remaining = growth_limit - progress;
     progress += min(instances_to_occupancy_info.tick_delta, remaining);
     instance.packed_local_pos = set_instance_growth_progress(instance.packed_local_pos, progress);
     manual_flora_instances.data[instance_idx] = instance;
 
-    if (progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
+    if (progress < growth_limit) {
         atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);
     }
 }

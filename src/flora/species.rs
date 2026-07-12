@@ -78,8 +78,10 @@ pub struct FloraSpeciesDesc {
     pub mesh_generator: MeshGeneratorFn,
     pub paint_brush: FloraPaintBrushSettings,
     pub placement_mode: FloraPlacementMode,
-    /// Radius of the hard 3D grass exclusion volume around an authored plant base.
-    pub grass_exclusion_radius_voxels: u32,
+    /// Radius of this species' contribution to the shared 3D environmental growth potential.
+    pub growth_influence_radius_voxels: u32,
+    /// Minimum four-bit growth-potential level at the influence center (15 is unrestricted).
+    pub growth_influence_min_level: u8,
 }
 
 impl FloraSpeciesDesc {
@@ -91,7 +93,8 @@ impl FloraSpeciesDesc {
         mesh_generator: MeshGeneratorFn,
         paint_brush: FloraPaintBrushSettings,
         placement_mode: FloraPlacementMode,
-        grass_exclusion_radius_voxels: u32,
+        growth_influence_radius_voxels: u32,
+        growth_influence_min_level: u8,
     ) -> Self {
         Self {
             key,
@@ -101,7 +104,8 @@ impl FloraSpeciesDesc {
             mesh_generator,
             paint_brush,
             placement_mode,
-            grass_exclusion_radius_voxels,
+            growth_influence_radius_voxels,
+            growth_influence_min_level,
         }
     }
 }
@@ -116,6 +120,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         FloraPaintBrushSettings::dense(80),
         FloraPlacementMode::Occupancy,
         0,
+        15,
     ),
     FloraSpeciesDesc::new(
         "short_grass",
@@ -126,6 +131,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         FloraPaintBrushSettings::dense(80),
         FloraPlacementMode::Occupancy,
         0,
+        15,
     ),
     FloraSpeciesDesc::new(
         "lavender",
@@ -136,6 +142,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         LAVENDER_PAINT_BRUSH_SETTINGS,
         FloraPlacementMode::Authored,
         8,
+        6,
     ),
     FloraSpeciesDesc::new(
         "ember_bloom",
@@ -146,6 +153,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         EMBER_BLOOM_PAINT_BRUSH_SETTINGS,
         FloraPlacementMode::Authored,
         8,
+        6,
     ),
 ];
 

@@ -40,7 +40,7 @@ manual_flora_instances;
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/flora_surface_planting.glsl"
-#include "../../include/flora_exclusion.glsl"
+#include "../../include/flora_growth_potential.glsl"
 #include "../../include/grass_type.glsl"
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
@@ -50,14 +50,15 @@ void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal) 
     o_normal     = voxel_surface_normal_from_data(packed);
 }
 
-void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_progress) {
+void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_progress,
+                        uint growth_limit) {
     uint write_idx = atomicAdd(occupancy_to_instances_result.flora_instance_len[species_idx], 1u);
     Instance instance;
     initialize_flora_instance(
         instance, uvec3(base_world_pos) - occupancy_to_instances_info.chunk_world_offset,
         growth_progress, INSTANCE_SPAWN_INACTIVE);
     manual_flora_instances.data[flora_species_instance_offset(species_idx) + write_idx] = instance;
-    if (growth_progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
+    if (growth_progress < growth_limit) {
         atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);
     }
 }
@@ -189,9 +190,6 @@ void main() {
 
     ivec3 base_local     = ivec3(base_local_u);
     ivec3 world_base_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + base_local;
-    if (grass_is_excluded(base_local_u, occupancy_to_instances_info.chunk_dim)) {
-        return;
-    }
 
     bool allow_any_flora, allow_tall_grass, allow_short_grass;
     calculate_flora_density_placement(world_base_pos, allow_any_flora, allow_tall_grass,
@@ -211,5 +209,7 @@ void main() {
         return;
     }
 
-    add_flora_instance(world_base_pos, flora_type, INSTANCE_GROWTH_PROGRESS_MATURE);
+    uint growth_limit = flora_growth_progress_limit(base_local_u,
+                                                     occupancy_to_instances_info.chunk_dim);
+    add_flora_instance(world_base_pos, flora_type, growth_limit, growth_limit);
 }

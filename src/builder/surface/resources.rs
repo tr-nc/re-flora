@@ -99,8 +99,8 @@ pub struct FloraInstanceResources {
     pub chunk_id: UVec3,
     pub chunk_world_offset: UVec3,
     pub resource: InstanceResource,
-    /// One bit per local voxel. Authored flora mark nearby 3D positions where grass is forbidden.
-    pub grass_exclusion_bits: Resource<Buffer>,
+    /// One four-bit environmental growth-potential level per local voxel (15 means unrestricted).
+    pub growth_potential_levels: Resource<Buffer>,
     species_instance_len: [u32; species::MAX_FLORA_SPECIES],
 }
 
@@ -118,24 +118,27 @@ impl FloraInstanceResources {
         let voxel_count = u64::from(voxel_dim_per_chunk.x)
             * u64::from(voxel_dim_per_chunk.y)
             * u64::from(voxel_dim_per_chunk.z);
-        let exclusion_word_count = voxel_count.div_ceil(32);
-        let grass_exclusion_bits = Buffer::new_sized(
+        let growth_potential_word_count = voxel_count.div_ceil(8);
+        let growth_potential_levels = Buffer::new_sized(
             device,
             allocator,
             BufferUsage::from_flags(
                 vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             ),
             MemoryLocation::CpuToGpu,
-            exclusion_word_count * std::mem::size_of::<u32>() as u64,
+            growth_potential_word_count * std::mem::size_of::<u32>() as u64,
         );
-        grass_exclusion_bits
-            .fill_range_with_raw_u8(0, &vec![0; grass_exclusion_bits.get_size_bytes() as usize])
-            .expect("initialize grass exclusion bitset");
+        growth_potential_levels
+            .fill_range_with_raw_u8(
+                0,
+                &vec![0xff; growth_potential_levels.get_size_bytes() as usize],
+            )
+            .expect("initialize flora growth-potential field");
         Self {
             chunk_id,
             chunk_world_offset: chunk_id * voxel_dim_per_chunk,
             resource,
-            grass_exclusion_bits: Resource::new(grass_exclusion_bits),
+            growth_potential_levels: Resource::new(growth_potential_levels),
             species_instance_len: [0; species::MAX_FLORA_SPECIES],
         }
     }

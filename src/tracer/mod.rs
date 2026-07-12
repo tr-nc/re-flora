@@ -2052,11 +2052,13 @@ impl Tracer {
                         );
 
                         cmdbuf.bind_vertex_buffers(0, &[&mesh.vertices]);
-                        pipeline.record_indexed_with_manual_buffer(
+                        pipeline.record_indexed_with_manual_buffers(
                             cmdbuf,
                             1,
-                            0,
-                            &instances.resource.instances_buf,
+                            &[
+                                (0, &instances.resource.instances_buf),
+                                (1, &instances.growth_potential_levels),
+                            ],
                             mesh.indices_len,
                             instance_count,
                             0,

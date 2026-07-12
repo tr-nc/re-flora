@@ -35,7 +35,7 @@ manual_flora_instances;
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/flora_surface_planting.glsl"
-#include "../../include/flora_exclusion.glsl"
+#include "../../include/flora_growth_potential.glsl"
 #include "../../include/grass_type.glsl"
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
@@ -46,7 +46,7 @@ void unpack_surface_data(uint packed, out uint o_voxel_type, out vec3 o_normal) 
 }
 
 void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_progress,
-                        uint spawn_age_ms) {
+                        uint growth_limit, uint spawn_age_ms) {
     uint write_idx = atomicAdd(occupancy_to_instances_result.flora_instance_len[species_idx], 1u);
     Instance instance;
     uint spawn_start_ms = spawn_age_ms == FLORA_OCCUPANCY_SPAWN_INACTIVE ?
@@ -56,7 +56,7 @@ void add_flora_instance(ivec3 base_world_pos, uint species_idx, uint growth_prog
         instance, uvec3(base_world_pos) - occupancy_to_instances_info.chunk_world_offset,
         growth_progress, spawn_start_ms);
     manual_flora_instances.data[flora_species_instance_offset(species_idx) + write_idx] = instance;
-    if (growth_progress < INSTANCE_GROWTH_PROGRESS_MATURE) {
+    if (growth_progress < growth_limit) {
         atomicOr(occupancy_to_instances_result.has_growing_flora, 1u);
     }
 }
@@ -201,17 +201,18 @@ void main() {
     uint paint_selection = unpack_flora_occupancy_selection(occupancy_value);
     bool is_authored_plant = paint_selection == FLORA_SPECIES_LAVENDER ||
                              paint_selection == FLORA_SPECIES_EMBER_BLOOM;
-    if (!is_authored_plant &&
-        grass_is_excluded(uvec3(base_local), occupancy_to_instances_info.chunk_dim)) {
-        return;
-    }
+    uint growth_limit = is_authored_plant ? INSTANCE_GROWTH_PROGRESS_MATURE :
+                                            flora_growth_progress_limit(
+                                                uvec3(base_local),
+                                                occupancy_to_instances_info.chunk_dim);
 
     ivec3 world_base_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + base_local;
-    // Exclusion-only compaction must not consult the shared surface staging image. That image may
+    // Growth-potential refresh must not consult the shared surface staging image. That image may
     // currently contain another chunk, and these instances already passed surface placement when
-    // they were created. Only the 3D exclusion bit is allowed to remove them here.
+    // they were created. The environmental limit is the only placement property updated here.
     if (occupancy_to_instances_info.preserve_existing_placements != 0u) {
-        add_flora_instance(world_base_pos, paint_selection, growth_progress, spawn_age_ms);
+        add_flora_instance(world_base_pos, paint_selection, min(growth_progress, growth_limit),
+                           growth_limit, spawn_age_ms);
         return;
     }
 
@@ -248,5 +249,6 @@ void main() {
     }
 
     // Exactly one flora instance can be emitted for each occupied base position.
-    add_flora_instance(world_base_pos, flora_type, growth_progress, spawn_age_ms);
+    add_flora_instance(world_base_pos, flora_type, min(growth_progress, growth_limit),
+                       growth_limit, spawn_age_ms);
 }

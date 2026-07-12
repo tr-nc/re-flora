@@ -544,11 +544,61 @@ impl GraphicsPipeline {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_indexed_with_manual_buffers(
+        &self,
+        cmdbuf: &CommandBuffer,
+        manual_set_no: u32,
+        manual_buffers: &[(u32, &Buffer)],
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        first_instance: u32,
+        push_constants: Option<&PushConstantInfo>,
+    ) {
+        self.record_bind(cmdbuf);
+        let manual_set = self.next_manual_buffer_descriptor_set_with_writes(
+            manual_set_no,
+            manual_buffers,
+        );
+        {
+            let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
+            if manual_set_no > 0 && !descriptor_sets.is_empty() {
+                self.record_bind_descriptor_sets(
+                    cmdbuf,
+                    &descriptor_sets[..manual_set_no as usize],
+                    0,
+                );
+            }
+        }
+        self.record_bind_descriptor_sets(cmdbuf, std::slice::from_ref(&manual_set), manual_set_no);
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
+        }
+        self.record_draw_indexed(
+            cmdbuf,
+            index_count,
+            instance_count,
+            first_index,
+            vertex_offset,
+            first_instance,
+        );
+    }
+
     fn next_manual_buffer_descriptor_set(
         &self,
         set_no: u32,
         binding: u32,
         buffer: &Buffer,
+    ) -> DescriptorSet {
+        self.next_manual_buffer_descriptor_set_with_writes(set_no, &[(binding, buffer)])
+    }
+
+    fn next_manual_buffer_descriptor_set_with_writes(
+        &self,
+        set_no: u32,
+        buffers: &[(u32, &Buffer)],
     ) -> DescriptorSet {
         let layout = self
             .0
@@ -563,7 +613,11 @@ impl GraphicsPipeline {
             .unwrap()
             .next_descriptor_set(set_no, &self.0.descriptor_pool, layout)
             .unwrap_or_else(|err| panic!("{err:#}"));
-        descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(binding, buffer)]);
+        let mut writes = buffers
+            .iter()
+            .map(|(binding, buffer)| WriteDescriptorSet::new_buffer_write(*binding, buffer))
+            .collect::<Vec<_>>();
+        descriptor_set.perform_writes(&mut writes);
         descriptor_set
     }
 

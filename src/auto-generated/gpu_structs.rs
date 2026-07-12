@@ -63,6 +63,13 @@ pub struct EditStats {
     pub added_counts: [u32; 8],
 }
 
+/// Auto-generated from `B_FloraGrowthPotentialLevels` (GLSL source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct FloraGrowthPotentialLevels {
+    pub words: [u32; 0],
+}
+
 /// Auto-generated from `B_FloraVoxelInfos` (GLSL source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -75,13 +82,6 @@ pub struct FloraVoxelInfos {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FloraVoxelTableDescs {
     pub descs: [u32; 24],
-}
-
-/// Auto-generated from `B_GrassExclusionBits` (GLSL source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct GrassExclusionBits {
-    pub words: [u32; 0],
 }
 
 /// Auto-generated from `B_LevelDispatchIndirect` (GLSL source of truth).

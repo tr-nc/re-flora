@@ -28,13 +28,13 @@ layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D surface;
 #include "../../include/flora_occupancy.glsl"
 #include "../../include/flora_placement.glsl"
 #include "../../include/flora_surface_planting.glsl"
-#include "../../include/flora_exclusion.glsl"
 #include "../../include/instance.glsl"
+#include "../../include/flora_growth_potential.glsl"
 
 const uint OCCUPANCY_MODE_REMOVE = 0u;
 const uint OCCUPANCY_MODE_ADD    = 1u;
 const uint OCCUPANCY_MODE_TRIM   = 2u;
-const uint OCCUPANCY_MODE_FILTER_EXCLUSIONS = 3u;
+const uint OCCUPANCY_MODE_REFRESH_GROWTH_POTENTIAL = 3u;
 // Keep trimmed grasses visibly clipped rather than reset to the tiny rebirth edge.
 // Short grass is four voxels tall, so half growth is the lowest neat cut that
 // avoids a one-voxel stump with the floor-based grass height trim.
@@ -89,7 +89,7 @@ void main() {
         return;
     }
 
-    if (edit_occupancy_info.mode == OCCUPANCY_MODE_FILTER_EXCLUSIONS) {
+    if (edit_occupancy_info.mode == OCCUPANCY_MODE_REFRESH_GROWTH_POTENTIAL) {
         return;
     }
 
@@ -108,10 +108,6 @@ void main() {
     }
 
     if (edit_occupancy_info.mode == OCCUPANCY_MODE_ADD) {
-        if (flora_paint_priority(edit_occupancy_info.paint_selection) == 0u &&
-            grass_is_excluded(uvec3(base_local), edit_occupancy_info.chunk_dim)) {
-            return;
-        }
         uint surface_data = imageLoad(surface, base_local).r;
         if (surface_data == 0u) {
             return;
@@ -130,8 +126,13 @@ void main() {
                 return;
             }
 
+            uint growth_progress = INSTANCE_GROWTH_PROGRESS_MATURE;
+            if (flora_paint_priority(edit_occupancy_info.paint_selection) == 0u) {
+                growth_progress = flora_growth_progress_limit(
+                    uvec3(base_local), edit_occupancy_info.chunk_dim);
+            }
             uint occupancy_value = pack_flora_occupancy_with_spawn_age(
-                edit_occupancy_info.paint_selection, INSTANCE_GROWTH_PROGRESS_MATURE, 0u);
+                edit_occupancy_info.paint_selection, growth_progress, 0u);
             imageStore(occupancy_data, base_local, uvec4(occupancy_value, 0u, 0u, 0u));
         }
     }
