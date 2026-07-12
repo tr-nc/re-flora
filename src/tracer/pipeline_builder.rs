@@ -278,6 +278,13 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let water_droplet_frag_sm = ShaderModule::from_glsl(
+            vulkan_ctx.device(),
+            shader_compiler,
+            "shader/particles/water_droplet.frag",
+            "main",
+        )
+        .unwrap();
 
         let glass_vert_sm = ShaderModule::from_glsl(
             vulkan_ctx.device(),
@@ -328,6 +335,7 @@ impl PipelineBuilder {
             sprinkler_vert_sm,
             particle_lod_textured_vert_sm,
             particle_lod_textured_frag_sm,
+            water_droplet_frag_sm,
             glass_vert_sm,
             glass_frag_sm,
         })
@@ -586,6 +594,21 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
+        let water_droplet_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.particle_lod_textured_vert_sm,
+            &shader_modules.water_droplet_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            Some(1),
+            pool,
+            &[resources],
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: false,
+                ..Default::default()
+            },
+        );
 
         let glass_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
@@ -611,6 +634,7 @@ impl PipelineBuilder {
             leaves_shadow_lod_ppl,
             sprinkler_ppl,
             particle_ppl,
+            water_droplet_ppl,
             glass_ppl,
         }
     }
@@ -758,6 +782,7 @@ pub struct ShaderModules {
     pub sprinkler_vert_sm: ShaderModule,
     pub particle_lod_textured_vert_sm: ShaderModule,
     pub particle_lod_textured_frag_sm: ShaderModule,
+    pub water_droplet_frag_sm: ShaderModule,
     pub glass_vert_sm: ShaderModule,
     pub glass_frag_sm: ShaderModule,
 }
@@ -802,6 +827,7 @@ pub struct GraphicsPipelines {
     pub leaves_shadow_lod_ppl: GraphicsPipeline,
     pub sprinkler_ppl: GraphicsPipeline,
     pub particle_ppl: GraphicsPipeline,
+    pub water_droplet_ppl: GraphicsPipeline,
     pub glass_ppl: GraphicsPipeline,
 }
 

@@ -25,8 +25,8 @@ const SPRINKLER_MIN_LANDING_RADIUS: f32 = 0.025;
 const SPRINKLER_MAX_LANDING_RADIUS: f32 = 0.28;
 const SPRINKLER_MIN_ELEVATION: f32 = 42.0_f32.to_radians();
 const SPRINKLER_MAX_ELEVATION: f32 = 54.0_f32.to_radians();
-const SPRINKLER_COLOR_LOW: Vec4 = Vec4::new(0.03, 0.20, 0.95, 0.94);
-const SPRINKLER_COLOR_HIGH: Vec4 = Vec4::new(0.10, 0.48, 1.0, 0.98);
+const SPRINKLER_COLOR_LOW: Vec4 = Vec4::new(0.03, 0.20, 0.95, 0.42);
+const SPRINKLER_COLOR_HIGH: Vec4 = Vec4::new(0.10, 0.48, 1.0, 0.68);
 const SPRINKLER_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(0.1, 2);
 // Keep the hardware footprint clear without suppressing the much larger watered area.
 // A smooth ten-voxel influence extends slightly beyond the five-voxel-wide sprinkler head.
@@ -150,7 +150,7 @@ impl SprinklerEmitter {
             sink_on_lifetime: false,
             sink_speed: 0.0,
             texture_variant: 0,
-            render_kind: ParticleRenderKind::Leaf,
+            render_kind: ParticleRenderKind::WaterDroplet,
             despawn_on_lifetime: true,
             despawn_below_ground: true,
             update: SPRINKLER_PARTICLE_UPDATE,

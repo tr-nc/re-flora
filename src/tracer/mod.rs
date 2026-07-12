@@ -395,6 +395,7 @@ pub struct Tracer {
     wind_source_buffer_capacity: usize,
     spatial_sound_manager: SpatialSoundManager,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
+    translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
 
 impl Drop for Tracer {
@@ -623,6 +624,7 @@ impl Tracer {
             wind_source_buffer_capacity: 1,
             spatial_sound_manager,
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
+            translucent_particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
     }
 
@@ -834,6 +836,10 @@ impl Tracer {
         );
         update_graphics_fn(&self.graphics_pipelines.sprinkler_ppl, &tracer_resources);
         update_graphics_fn(&self.graphics_pipelines.particle_ppl, &tracer_resources);
+        update_graphics_fn(
+            &self.graphics_pipelines.water_droplet_ppl,
+            &tracer_resources,
+        );
     }
 
     fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 1] {
@@ -1969,6 +1975,9 @@ impl Tracer {
             self.graphics_pipelines
                 .particle_ppl
                 .record_texture_transitions(cmdbuf);
+            self.graphics_pipelines
+                .water_droplet_ppl
+                .record_texture_transitions(cmdbuf);
         }
         if enable_glass {
             self.graphics_pipelines
@@ -2289,30 +2298,37 @@ impl Tracer {
                 )
             });
             let particle_resources = &self.particle_resources;
-            if particle_resources.instance_count > 0 {
-                let particle_ppl = &self.graphics_pipelines.particle_ppl;
-                particle_ppl.record_bind(cmdbuf);
-                particle_ppl.record_viewport_scissor(cmdbuf, viewport, scissor);
-
-                cmdbuf.bind_index_buffer_u32(&particle_resources.indices);
-                cmdbuf.bind_vertex_buffers(
-                    0,
-                    &[
-                        &particle_resources.vertices,
-                        &particle_resources.instance_buffer,
-                    ],
-                );
-
-                particle_ppl.record_indexed(
-                    cmdbuf,
-                    particle_resources.indices_len,
-                    particle_resources.instance_count,
-                    0,
-                    0,
-                    0,
-                    None,
-                );
-            }
+            let draw_particles =
+                |pipeline: &GraphicsPipeline, instance_buffer: &Buffer, instance_count: u32| {
+                    if instance_count == 0 {
+                        return;
+                    }
+                    pipeline.record_bind(cmdbuf);
+                    pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+                    cmdbuf.bind_index_buffer_u32(&particle_resources.indices);
+                    cmdbuf.bind_vertex_buffers(0, &[&particle_resources.vertices, instance_buffer]);
+                    pipeline.record_indexed(
+                        cmdbuf,
+                        particle_resources.indices_len,
+                        instance_count,
+                        0,
+                        0,
+                        0,
+                        None,
+                    );
+                };
+            draw_particles(
+                &self.graphics_pipelines.particle_ppl,
+                &particle_resources.instance_buffer,
+                particle_resources.instance_count,
+            );
+            // Translucent droplets are sorted back-to-front and rendered after depth-writing
+            // particles. They depth-test against the scene but deliberately do not write depth.
+            draw_particles(
+                &self.graphics_pipelines.water_droplet_ppl,
+                &particle_resources.translucent_instance_buffer,
+                particle_resources.translucent_instance_count,
+            );
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), particles_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
@@ -3156,6 +3172,8 @@ impl Tracer {
 
         self.particle_instance_scratch.clear();
         self.particle_instance_scratch.reserve(count);
+        self.translucent_particle_instance_scratch.clear();
+        self.translucent_particle_instance_scratch.reserve(count);
         for snap in snapshots.iter().take(capacity) {
             let butterfly_tex_index = {
                 let vel_xz = Vec2::new(snap.velocity.x, snap.velocity.z);
@@ -3190,7 +3208,7 @@ impl Tracer {
                 );
                 tex_index
             };
-            self.particle_instance_scratch.push(ParticleInstanceGpu {
+            let instance = ParticleInstanceGpu {
                 position: snap.position_ws.to_array(),
                 size: snap.size,
                 color: snap.color.to_array(),
@@ -3200,16 +3218,44 @@ impl Tracer {
                         butterfly_tex_index,
                         is_moving_right_relative_to_player(snap.velocity),
                     ),
+                    crate::particles::ParticleRenderKind::WaterDroplet => {
+                        texture_layout.water_droplet_layer()
+                    }
                 },
-            });
+            };
+            match snap.kind {
+                crate::particles::ParticleRenderKind::WaterDroplet => {
+                    self.translucent_particle_instance_scratch.push(instance)
+                }
+                crate::particles::ParticleRenderKind::Leaf
+                | crate::particles::ParticleRenderKind::Butterfly => {
+                    self.particle_instance_scratch.push(instance)
+                }
+            }
         }
 
-        if count > 0 {
+        let camera_position = self.camera.position();
+        self.translucent_particle_instance_scratch
+            .sort_unstable_by(|a, b| {
+                let distance_sq = |instance: &ParticleInstanceGpu| {
+                    Vec3::from_array(instance.position).distance_squared(camera_position)
+                };
+                distance_sq(b).total_cmp(&distance_sq(a))
+            });
+
+        if !self.particle_instance_scratch.is_empty() {
             self.particle_resources
                 .instance_buffer
                 .fill(&self.particle_instance_scratch)?;
         }
-        self.particle_resources.instance_count = count as u32;
+        if !self.translucent_particle_instance_scratch.is_empty() {
+            self.particle_resources
+                .translucent_instance_buffer
+                .fill(&self.translucent_particle_instance_scratch)?;
+        }
+        self.particle_resources.instance_count = self.particle_instance_scratch.len() as u32;
+        self.particle_resources.translucent_instance_count =
+            self.translucent_particle_instance_scratch.len() as u32;
         Ok(())
     }
 

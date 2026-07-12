@@ -185,6 +185,7 @@ pub struct ParticleSnapshot {
 pub enum ParticleRenderKind {
     Leaf,
     Butterfly,
+    WaterDroplet,
 }
 
 /// Keeps particle data in a struct-of-arrays layout for cache-friendly updates.
@@ -585,7 +586,7 @@ impl ParticleSystem {
                         BUTTERFLY_FRAMES_PER_VARIANT,
                     );
                 }
-                ParticleRenderKind::Leaf => {}
+                ParticleRenderKind::Leaf | ParticleRenderKind::WaterDroplet => {}
             }
 
             if !self.is_sinking[slot]

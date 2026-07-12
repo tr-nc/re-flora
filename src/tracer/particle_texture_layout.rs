@@ -5,6 +5,8 @@ use crate::tracer::ButterflyPalettePreset;
 pub struct ParticleTextureLayout {
     leaf_layer: u32,
     leaf_layer_count: u32,
+    water_droplet_layer: u32,
+    water_droplet_layer_count: u32,
     butterfly_base_layer: u32,
     butterfly_preset_count: u32,
     butterfly_view_count: u32,
@@ -16,7 +18,9 @@ impl ParticleTextureLayout {
     pub const fn new() -> Self {
         let leaf_layer = 0;
         let leaf_layer_count = 1;
-        let butterfly_base_layer = leaf_layer + leaf_layer_count;
+        let water_droplet_layer = leaf_layer + leaf_layer_count;
+        let water_droplet_layer_count = 1;
+        let butterfly_base_layer = water_droplet_layer + water_droplet_layer_count;
         let butterfly_preset_count = ButterflyPalettePreset::COUNT;
         let butterfly_view_count = BUTTERFLY_VIEW_COUNT;
         let butterfly_frames_per_view = BUTTERFLY_FRAMES_PER_VARIANT;
@@ -27,6 +31,8 @@ impl ParticleTextureLayout {
         Self {
             leaf_layer,
             leaf_layer_count,
+            water_droplet_layer,
+            water_droplet_layer_count,
             butterfly_base_layer,
             butterfly_preset_count,
             butterfly_view_count,
@@ -37,6 +43,10 @@ impl ParticleTextureLayout {
 
     pub const fn leaf_layer(self) -> u32 {
         self.leaf_layer
+    }
+
+    pub const fn water_droplet_layer(self) -> u32 {
+        self.water_droplet_layer
     }
 
     pub const fn butterfly_base_layer(self) -> u32 {
@@ -83,7 +93,15 @@ impl ParticleTextureLayout {
             "Particle texture layout butterfly dimensions must be non-zero"
         );
         assert!(
-            self.butterfly_base_layer == self.leaf_layer + self.leaf_layer_count,
+            self.water_droplet_layer == self.leaf_layer + self.leaf_layer_count,
+            "Particle texture layout water-droplet layer is not contiguous"
+        );
+        assert!(
+            self.water_droplet_layer_count == 1,
+            "Particle texture layout must reserve exactly one water-droplet layer"
+        );
+        assert!(
+            self.butterfly_base_layer == self.water_droplet_layer + self.water_droplet_layer_count,
             "Particle texture layout butterfly base layer is not contiguous"
         );
         assert!(
@@ -94,5 +112,21 @@ impl ParticleTextureLayout {
 
     pub fn contains_layer(self, layer: u32) -> bool {
         layer < self.total_layer_count
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn particle_texture_layers_are_contiguous_and_distinct() {
+        let layout = ParticleTextureLayout::new();
+        layout.assert_valid();
+        assert_eq!(layout.leaf_layer(), 0);
+        assert_eq!(layout.water_droplet_layer(), 1);
+        assert_eq!(layout.butterfly_base_layer(), 2);
+        assert!(layout.contains_layer(layout.water_droplet_layer()));
+        assert!(!layout.contains_layer(layout.total_layer_count()));
     }
 }
