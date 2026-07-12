@@ -117,28 +117,20 @@ fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
         }
     }
 
-    // Deterministic 4x4 head with exactly the four corners removed.
+    // Deterministic 4x4 head with exactly the four corners removed. The entire cap moves
+    // together vertically, as though water pressure lifts it off the pedestal.
     for x in -2..2 {
         for z in -2..2 {
             if (x == -2 || x == 1) && (z == -2 || z == 1) {
                 continue;
             }
-            // Viewed from above with -Z as north, these delays advance counterclockwise:
-            // north -> west -> south -> east. Each edge starts as the previous one returns.
-            let (animation_direction, animation_delay_seconds) = match (x, z) {
-                (_, -2) => (-Vec3::Z, 0.0),
-                (-2, _) => (-Vec3::X, 0.5),
-                (_, 1) => (Vec3::Z, 1.0),
-                (1, _) => (Vec3::X, 1.5),
-                _ => (Vec3::ZERO, 0.0),
-            };
             append_voxel(
                 &mut vertices,
                 &mut indices,
                 IVec3::new(x, 2, z),
                 CAP_COLOR_SRGB,
-                animation_direction,
-                animation_delay_seconds,
+                Vec3::Y,
+                0.0,
             );
         }
     }
@@ -245,23 +237,19 @@ mod tests {
     }
 
     #[test]
-    fn sprinkler_edges_have_stable_animation_directions() {
+    fn sprinkler_cap_moves_up_as_one_piece() {
         let (vertices, _) = build_sprinkler_mesh();
         let vertices_per_voxel = 6 * 4;
         let animated_voxels = vertices
             .chunks_exact(vertices_per_voxel)
             .filter(|voxel| voxel[0].animation_direction != Vec3::ZERO.to_array())
-            .count();
-
-        assert_eq!(animated_voxels, 8);
-
-        let mut delays = vertices
-            .chunks_exact(vertices_per_voxel)
-            .filter(|voxel| voxel[0].animation_direction != Vec3::ZERO.to_array())
-            .map(|voxel| voxel[0].animation_delay_seconds)
             .collect::<Vec<_>>();
-        delays.sort_by(f32::total_cmp);
-        assert_eq!(delays, vec![0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.5, 1.5]);
+
+        assert_eq!(animated_voxels.len(), CAP_VOXEL_COUNT);
+        assert!(animated_voxels.iter().all(|voxel| {
+            voxel[0].animation_direction == Vec3::Y.to_array()
+                && voxel[0].animation_delay_seconds == 0.0
+        }));
     }
 
     #[test]

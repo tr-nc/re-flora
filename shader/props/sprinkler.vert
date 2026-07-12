@@ -41,16 +41,13 @@ camera_info;
 layout(push_constant) uniform PushConstantSprinkler { float time; }
 pc;
 
-const float EDGE_MOTION_SECONDS = 1.0;
-const float SEQUENCE_PERIOD_SECONDS = 2.0;
+const float CAP_MOTION_SECONDS = 1.0;
 const float ANIMATION_DISTANCE = 1.0 / 256.0;
 
 void main() {
-    float elapsed = mod(pc.time - in_animation_delay_seconds, SEQUENCE_PERIOD_SECONDS);
-    float phase = clamp(elapsed / EDGE_MOTION_SECONDS, 0.0, 1.0);
-    float extension = elapsed < EDGE_MOTION_SECONDS
-                          ? 0.5 - 0.5 * cos(phase * 6.28318530718)
-                          : 0.0;
+    float elapsed = mod(pc.time - in_animation_delay_seconds, CAP_MOTION_SECONDS);
+    float phase = elapsed / CAP_MOTION_SECONDS;
+    float extension = 0.5 - 0.5 * cos(phase * 6.28318530718);
     vec3 animation_offset = in_animation_direction * extension * ANIMATION_DISTANCE;
     vec3 world_position = in_base_position + in_position + animation_offset;
     gl_Position = camera_info.view_proj_mat * vec4(world_position, 1.0);
