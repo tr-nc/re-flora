@@ -1,5 +1,6 @@
 use super::App;
 use crate::app::world_edits::TerrainBrushEdit;
+use crate::builder::GrassGrowthInfluence;
 use crate::particles::{
     MotionMode, ParticleEmitter, ParticleRenderKind, ParticleSpawn, ParticleSystem,
     ParticleUpdateConfig, STANDARD_PARTICLE_SIZE,
@@ -27,6 +28,11 @@ const SPRINKLER_MAX_ELEVATION: f32 = 54.0_f32.to_radians();
 const SPRINKLER_COLOR_LOW: Vec4 = Vec4::new(0.03, 0.20, 0.95, 0.94);
 const SPRINKLER_COLOR_HIGH: Vec4 = Vec4::new(0.10, 0.48, 1.0, 0.98);
 const SPRINKLER_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(0.1, 2);
+// Keep the hardware footprint clear without suppressing the much larger watered area.
+// A smooth ten-voxel influence extends slightly beyond the five-voxel-wide sprinkler head.
+const SPRINKLER_GRASS_SUPPRESSION_RADIUS_VOXELS: u32 = 10;
+const SPRINKLER_GRASS_SUPPRESSION_MIN_LEVEL: u8 = 0;
+const SPRINKLER_GRASS_INFLUENCE_ID_PREFIX: u64 = 0x5350_524B_0000_0000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PlaceableKind {
@@ -205,6 +211,18 @@ fn sprinkler_animation_phase(id: u32, position: Vec3) -> f32 {
     ((seed >> 40) as u32 & 0x00FF_FFFF) as f32 / 16_777_216.0
 }
 
+fn sprinkler_grass_influence_id(id: u32) -> u64 {
+    SPRINKLER_GRASS_INFLUENCE_ID_PREFIX | u64::from(id)
+}
+
+fn sprinkler_grass_influence(base_position: Vec3) -> GrassGrowthInfluence {
+    GrassGrowthInfluence {
+        center_world_vox: (base_position * VOXELS_PER_WORLD_UNIT).floor().as_uvec3(),
+        radius_voxels: SPRINKLER_GRASS_SUPPRESSION_RADIUS_VOXELS,
+        min_level: SPRINKLER_GRASS_SUPPRESSION_MIN_LEVEL,
+    }
+}
+
 fn sprinkler_seed(id: u32, position: Vec3) -> u64 {
     let mut seed = 0xA24B_AED4_963E_E407u64 ^ id as u64;
     for bits in [
@@ -251,6 +269,21 @@ impl App {
             })
             .collect::<Vec<_>>();
         self.tracer.upload_sprinklers(&render_instances)?;
+        let removed_ids = self
+            .sprinkler_records
+            .iter()
+            .filter(|record| {
+                !retained_records
+                    .iter()
+                    .any(|retained| retained.id == record.id)
+            })
+            .map(|record| sprinkler_grass_influence_id(record.id))
+            .collect::<Vec<_>>();
+        self.surface_builder
+            .remove_external_grass_growth_influences(
+                &removed_ids,
+                self.time_info.time_since_start_duration().as_millis() as u32,
+            )?;
         self.sprinkler_emitters.retain(|emitter| {
             retained_records
                 .iter()
@@ -280,6 +313,12 @@ impl App {
             animation_phase,
         });
         self.tracer.upload_sprinklers(&render_instances)?;
+        self.surface_builder
+            .upsert_external_grass_growth_influence(
+                sprinkler_grass_influence_id(id),
+                sprinkler_grass_influence(base_position),
+                self.time_info.time_since_start_duration().as_millis() as u32,
+            )?;
 
         self.next_sprinkler_id = self.next_sprinkler_id.wrapping_add(1).max(1);
         self.sprinkler_records.push(SprinklerRecord {
@@ -298,6 +337,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::UVec3;
 
     #[test]
     fn digging_brush_overlap_uses_capsule_distance() {
@@ -307,6 +347,18 @@ mod tests {
         let end_distance = distance_sq_to_segment(Vec3::new(1.2, 0.0, 0.0), start, end);
         assert!((side_distance - 0.04).abs() < 1e-6);
         assert!((end_distance - 0.04).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sprinkler_grass_suppression_is_centered_on_footprint() {
+        let influence = sprinkler_grass_influence(Vec3::new(0.5, 0.25, 0.75));
+        assert_eq!(influence.center_world_vox, UVec3::new(128, 64, 192));
+        assert_eq!(influence.radius_voxels, 10);
+        assert_eq!(influence.min_level, 0);
+        assert_ne!(
+            sprinkler_grass_influence_id(1),
+            sprinkler_grass_influence_id(2)
+        );
     }
 
     #[test]

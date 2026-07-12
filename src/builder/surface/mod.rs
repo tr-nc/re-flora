@@ -311,6 +311,13 @@ const FLORA_GROWTH_TIMING_PASSES: [SurfacePassTimingPass; 1] = [SurfacePassTimin
     bench_key: "flora_growth_pass_update_gpu",
 }];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GrassGrowthInfluence {
+    pub center_world_vox: UVec3,
+    pub radius_voxels: u32,
+    pub min_level: u8,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct AuthoredFloraInstance {
     pub species_index: u32,
@@ -358,6 +365,7 @@ pub struct SurfaceBuilder {
     pass_timing: Option<SurfacePassTiming>,
     gpu_job_profiler: Option<GpuJobProfiler>,
     authored_flora: AuthoredFloraStore,
+    external_grass_growth_influences: HashMap<u64, GrassGrowthInfluence>,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -539,6 +547,7 @@ impl SurfaceBuilder {
             pass_timing,
             gpu_job_profiler: None,
             authored_flora: AuthoredFloraStore::default(),
+            external_grass_growth_influences: HashMap::new(),
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
@@ -912,6 +921,69 @@ impl SurfaceBuilder {
         for &chunk_id in dirty_chunks {
             self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
         }
+        self.sync_grass_growth_influence_chunks(dirty_chunks, spawn_time_ms)
+    }
+
+    pub fn upsert_external_grass_growth_influence(
+        &mut self,
+        id: u64,
+        influence: GrassGrowthInfluence,
+        spawn_time_ms: u32,
+    ) -> Result<()> {
+        let influence = GrassGrowthInfluence {
+            radius_voxels: influence.radius_voxels,
+            min_level: influence.min_level.min(15),
+            ..influence
+        };
+        if self.external_grass_growth_influences.get(&id) == Some(&influence) {
+            return Ok(());
+        }
+
+        let previous = self.external_grass_growth_influences.insert(id, influence);
+        let mut dirty_chunks = previous
+            .into_iter()
+            .flat_map(|old| {
+                self.grass_growth_potential_affected_chunks(old.center_world_vox, old.radius_voxels)
+            })
+            .collect::<Vec<_>>();
+        for chunk in self.grass_growth_potential_affected_chunks(
+            influence.center_world_vox,
+            influence.radius_voxels,
+        ) {
+            if !dirty_chunks.contains(&chunk) {
+                dirty_chunks.push(chunk);
+            }
+        }
+        self.sync_grass_growth_influence_chunks(&dirty_chunks, spawn_time_ms)
+    }
+
+    pub fn remove_external_grass_growth_influences(
+        &mut self,
+        ids: &[u64],
+        spawn_time_ms: u32,
+    ) -> Result<()> {
+        let mut dirty_chunks = Vec::new();
+        for id in ids {
+            let Some(removed) = self.external_grass_growth_influences.remove(id) else {
+                continue;
+            };
+            for chunk in self.grass_growth_potential_affected_chunks(
+                removed.center_world_vox,
+                removed.radius_voxels,
+            ) {
+                if !dirty_chunks.contains(&chunk) {
+                    dirty_chunks.push(chunk);
+                }
+            }
+        }
+        self.sync_grass_growth_influence_chunks(&dirty_chunks, spawn_time_ms)
+    }
+
+    fn sync_grass_growth_influence_chunks(
+        &mut self,
+        dirty_chunks: &[UVec3],
+        spawn_time_ms: u32,
+    ) -> Result<()> {
         for &chunk_id in dirty_chunks {
             self.rebuild_grass_growth_potential_for_chunk(chunk_id)?;
         }
@@ -989,6 +1061,20 @@ impl SurfaceBuilder {
                     }
                 }
             }
+        }
+
+        for influence in self.external_grass_growth_influences.values() {
+            if influence.radius_voxels == 0 {
+                continue;
+            }
+            apply_spherical_grass_growth_influence(
+                &mut words,
+                chunk_min,
+                self.voxel_dim_per_chunk,
+                influence.center_world_vox.as_ivec3(),
+                influence.radius_voxels as i32,
+                influence.min_level,
+            );
         }
 
         let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
