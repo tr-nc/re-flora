@@ -17,6 +17,7 @@ const float short_grass_height_stddev_voxels = 0.6;
 #define DIRECT_SUN_SHADOW_ENABLE_LEAF
 #define DIRECT_SUN_SHADOW_ENABLE_CLOUD
 #include "../include/direct_sun_shadow.glsl"
+#include "../include/stylized_voxel_lighting.glsl"
 
 float sample_standard_normal(uint seed) {
     uint state_a = wellons_hash(seed ^ 0xA511E9B3u);
@@ -42,16 +43,6 @@ uint sample_grass_height(uint instance_ty, uint seed) {
 float flora_growth_factor(uint growth_progress) {
     // TODO: advance non-mature growth progress over time instead of treating it as static state.
     return float(growth_progress) / float(INSTANCE_GROWTH_PROGRESS_MATURE);
-}
-
-float get_shadow_weight(ivec3 vox_local_pos) {
-    vec3 vox_dir_normalized            = normalize(vec3(vox_local_pos));
-    float shadow_negative_side_dropoff = max(0.0, dot(-vox_dir_normalized, sun_info.sun_dir));
-    shadow_negative_side_dropoff       = pow(shadow_negative_side_dropoff, 2.0);
-    float shadow_weight                = 1.0 - shadow_negative_side_dropoff;
-
-    shadow_weight = max(0.7, shadow_weight);
-    return shadow_weight;
 }
 
 void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_pos_voxels,
@@ -128,16 +119,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_p
                  instance_pos;
     voxel_pos = anchor_pos + vec3(0.5) * scaling_factor;
 
-    DirectSunShadowReceiver shadow_receiver = direct_sun_shadow_receiver(
-        vec4(voxel_pos, 1.0),
-        ivec3(0),
-        DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_TERRAIN_SHADOW_VSM,
-        DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE
-    );
-    shadow_weight = get_direct_sun_shadow_transmittance(shadow_receiver);
-    shadow_weight *= get_shadow_weight(vox_local_pos);
+    shadow_weight = stylized_voxel_shadow_weight(voxel_pos, vec3(vox_local_pos));
 }
 
 uint flora_height_color_row(float color_gradient) {

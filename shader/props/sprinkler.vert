@@ -3,13 +3,15 @@
 #extension GL_GOOGLE_include_directive : require
 
 layout(location = 0) in vec3 in_position;
-layout(location = 1) in vec3 in_normal;
-layout(location = 2) in vec3 in_color_srgb;
-layout(location = 3) in vec3 in_animation_direction;
-layout(location = 4) in float in_animation_delay_seconds;
+layout(location = 1) in vec3 in_voxel_center;
+layout(location = 2) in vec3 in_shading_normal;
+layout(location = 3) in vec3 in_color_srgb;
+layout(location = 4) in vec3 in_animation_direction;
 layout(location = 5) in vec3 in_base_position;
 
 layout(location = 0) out vec3 vert_color;
+
+#include "../include/gui_input.glsl"
 
 layout(set = 0, binding = 1) uniform U_SunInfo {
     vec3 sun_dir;
@@ -36,26 +38,54 @@ layout(set = 0, binding = 3) uniform U_CameraInfo {
 }
 camera_info;
 
-#include "../include/core/color.glsl"
+layout(set = 0, binding = 4) uniform U_ShadowCameraInfo {
+    vec4 pos;
+    mat4 view_mat;
+    mat4 view_mat_inv;
+    mat4 proj_mat;
+    mat4 proj_mat_inv;
+    mat4 view_proj_mat;
+    mat4 view_proj_mat_inv;
+}
+shadow_camera_info;
 
-layout(push_constant) uniform PushConstantSprinkler { float time; }
-pc;
+layout(set = 0, binding = 5) uniform sampler2D shadow_map_tex_for_vsm_ping;
+layout(set = 0, binding = 9) uniform sampler2D leaf_shadow_opacity_blended_tex;
+layout(set = 0, binding = 10) uniform sampler2D leaf_shadow_mask_tex;
+layout(set = 0, binding = 11) uniform sampler2D cloud_shadow_tex;
+
+#include "../foliage/flora_animation_info.glsl"
+#include "../include/core/color.glsl"
+#include "../include/sunlight.glsl"
+#define ENABLE_TEMPORAL_VSM
+#include "../include/vsm.glsl"
+#include "../include/leaf_shadow.glsl"
+#include "../include/cloud_shadow.glsl"
+#define DIRECT_SUN_SHADOW_ENABLE_LEAF
+#define DIRECT_SUN_SHADOW_ENABLE_CLOUD
+#include "../include/direct_sun_shadow.glsl"
+#include "../include/stylized_voxel_lighting.glsl"
 
 const float CAP_MOTION_SECONDS = 1.0;
 const float ANIMATION_DISTANCE = 1.0 / 256.0;
 
+float sprinkler_extension() {
+    float tick_seconds = max(gui_input.world_tick_seconds, 1.0 / 240.0);
+    uint half_cycle_ticks = max(uint(round((CAP_MOTION_SECONDS * 0.5) / tick_seconds)), 1u);
+    uint cycle_ticks = half_cycle_ticks * 2u;
+    uint cycle_tick = flora_growth_info.flora_tick % cycle_ticks;
+    float phase = float(cycle_tick) / float(cycle_ticks);
+    return 0.5 - 0.5 * cos(phase * 6.28318530718);
+}
+
 void main() {
-    float elapsed = mod(pc.time - in_animation_delay_seconds, CAP_MOTION_SECONDS);
-    float phase = elapsed / CAP_MOTION_SECONDS;
-    float extension = 0.5 - 0.5 * cos(phase * 6.28318530718);
+    float extension = sprinkler_extension();
     vec3 animation_offset = in_animation_direction * extension * ANIMATION_DISTANCE;
     vec3 world_position = in_base_position + in_position + animation_offset;
+    vec3 voxel_center = in_base_position + in_voxel_center + animation_offset;
     gl_Position = camera_info.view_proj_mat * vec4(world_position, 1.0);
 
-    vec3 normal = normalize(in_normal);
-    float facing = max(dot(normal, normalize(sun_info.sun_dir)), 0.0);
-    float wrap_light = 0.28 + 0.72 * facing;
-    vec3 sunlight = sun_info.sun_color * sun_info.sun_luminance * wrap_light;
     vec3 base_color = srgb_to_linear(in_color_srgb);
-    vert_color = base_color * (shading_info.ambient_light + sunlight);
+    float shadow_weight = stylized_voxel_shadow_weight(voxel_center, in_shading_normal);
+    vert_color = apply_stylized_voxel_lighting(base_color, shadow_weight);
 }

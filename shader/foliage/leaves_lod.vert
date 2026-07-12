@@ -125,9 +125,7 @@ void main() {
         sample_flora_base_color(is_grass, pc.instance_ty, instance_seed, leaf_vox_local_pos,
                                 instance_pos, color_gradient, voxel_info);
 
-    float sun_luminance = sun_luminance_from_dir(sun_info.sun_dir, sun_info.sun_luminance);
-    vec3 sun_light = sun_info.sun_color * sun_luminance;
-    vec3 lit_color = base_color_linear * (sun_light * shadow_weight + shading_info.ambient_light);
+    vec3 lit_color = apply_stylized_voxel_lighting(base_color_linear, shadow_weight);
     // The edit brush is a UI affordance, not foliage material. Match the terrain tracer by
     // applying the tint after lighting so rasterized voxels highlight consistently.
     vert_color = apply_terrain_edit_preview_tint(lit_color, voxel_pos);
