@@ -1,4 +1,7 @@
-use super::{placeables::sprinkler_sprays_along_x, App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+use super::{
+    placeables::sprinkler_sprays_along_x, vegetation::SurfaceOccupantClearPath, App, CHUNK_DIM,
+    VOXEL_DIM_PER_CHUNK,
+};
 use crate::app::world_edits::TerrainBrushEdit;
 use crate::util::BENCH;
 use anyhow::Result;
@@ -277,6 +280,6 @@ impl App {
             edit.radius,
             TILLER_BRUSH_SOIL_MIX_STRENGTH,
         )?;
-        self.clear_surface_flora_in_brush(edit)
+        self.clear_surface_occupants_in_brush(edit, SurfaceOccupantClearPath::Standalone)
     }
 }

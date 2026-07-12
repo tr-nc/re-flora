@@ -290,7 +290,7 @@ impl App {
                 .any(|record| record.id == emitter.id)
         });
         self.sprinkler_records = retained_records;
-        log::info!("Removed {} sprinkler(s) with digging brush", removed_count);
+        log::info!("Removed {} sprinkler(s) with terrain brush", removed_count);
         Ok(removed_count)
     }
 

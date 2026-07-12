@@ -20,6 +20,11 @@ use std::time::Instant;
 const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
 const AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT: u32 = 48;
 
+pub(super) enum SurfaceOccupantClearPath {
+    Standalone,
+    TerrainRebuild { chunk_ids: Vec<UVec3> },
+}
+
 #[derive(Clone, Copy, Debug)]
 struct SpecialFloraDistributionParams {
     plants_per_release: u32,
@@ -1261,21 +1266,16 @@ impl App {
                 rebuild_bound,
                 super::VOXEL_DIM_PER_CHUNK,
             );
-            self.enqueue_deferred_flora_preserving_chunk_rebuilds(
-                &rebuild_chunk_ids,
-                world_ops::FloraBrushEdit {
+            self.clear_surface_occupants_in_brush(
+                TerrainBrushEdit {
                     start: edit.center,
                     end: edit.center,
                     radius: edit.radius,
-                    tick: self.flora_tick,
-                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
-            );
-            self.remove_sprinklers_in_brush(TerrainBrushEdit {
-                start: edit.center,
-                end: edit.center,
-                radius: edit.radius,
-            })?;
+                SurfaceOccupantClearPath::TerrainRebuild {
+                    chunk_ids: rebuild_chunk_ids,
+                },
+            )?;
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
                 .lock()
@@ -1350,22 +1350,41 @@ impl App {
         Ok(ChunkModifyReadback::default())
     }
 
-    pub(super) fn clear_surface_flora_in_brush(&mut self, edit: TerrainBrushEdit) -> Result<()> {
-        let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) else {
-            return Ok(());
+    pub(super) fn clear_surface_occupants_in_brush(
+        &mut self,
+        edit: TerrainBrushEdit,
+        clear_path: SurfaceOccupantClearPath,
+    ) -> Result<()> {
+        let flora_edit = world_ops::FloraBrushEdit {
+            start: edit.start,
+            end: edit.end,
+            radius: edit.radius,
+            tick: self.flora_tick,
+            spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
         };
-        world_ops::mesh_remove_flora_for_brush_edit(
-            &mut self.surface_builder,
-            super::VOXEL_DIM_PER_CHUNK,
-            compiled.rebuild_bound,
-            world_ops::FloraBrushEdit {
-                start: edit.start,
-                end: edit.end,
-                radius: edit.radius,
-                tick: self.flora_tick,
-                spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
-            },
-        )
+
+        match clear_path {
+            SurfaceOccupantClearPath::Standalone => {
+                let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit)
+                else {
+                    return Ok(());
+                };
+                world_ops::mesh_remove_flora_for_brush_edit(
+                    &mut self.surface_builder,
+                    super::VOXEL_DIM_PER_CHUNK,
+                    compiled.rebuild_bound,
+                    flora_edit,
+                )?;
+            }
+            SurfaceOccupantClearPath::TerrainRebuild { chunk_ids } => {
+                self.enqueue_deferred_flora_preserving_chunk_rebuilds(&chunk_ids, flora_edit);
+            }
+        }
+
+        // Surface occupants have different storage/rendering backends, but brush semantics are
+        // centralized here so future tools cannot accidentally clear only one category.
+        self.remove_sprinklers_in_brush(edit)?;
+        Ok(())
     }
 
     pub(super) fn apply_surface_terrain_smooth(
