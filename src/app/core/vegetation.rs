@@ -1350,6 +1350,24 @@ impl App {
         Ok(ChunkModifyReadback::default())
     }
 
+    pub(super) fn clear_surface_flora_in_brush(&mut self, edit: TerrainBrushEdit) -> Result<()> {
+        let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) else {
+            return Ok(());
+        };
+        world_ops::mesh_remove_flora_for_brush_edit(
+            &mut self.surface_builder,
+            super::VOXEL_DIM_PER_CHUNK,
+            compiled.rebuild_bound,
+            world_ops::FloraBrushEdit {
+                start: edit.start,
+                end: edit.end,
+                radius: edit.radius,
+                tick: self.flora_tick,
+                spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
+            },
+        )
+    }
+
     pub(super) fn apply_surface_terrain_smooth(
         &mut self,
         center: Vec3,

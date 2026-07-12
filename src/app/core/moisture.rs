@@ -277,6 +277,6 @@ impl App {
             edit.radius,
             TILLER_BRUSH_SOIL_MIX_STRENGTH,
         )?;
-        Ok(())
+        self.clear_surface_flora_in_brush(edit)
     }
 }

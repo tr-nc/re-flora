@@ -2319,13 +2319,15 @@ impl App {
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
 
-                        let flora_paint_panel_response = draw_flora_paint_panel(
-                            ctx,
-                            &flora_paint_panel_entries,
-                            self.window_state.is_cursor_visible(),
-                        );
-                        clicked_flora_paint_selection_index =
-                            flora_paint_panel_response.clicked_selection_index;
+                        if selected_item_panel_slot == Some(STAFF_SLOT_INDEX) {
+                            let flora_paint_panel_response = draw_flora_paint_panel(
+                                ctx,
+                                &flora_paint_panel_entries,
+                                self.window_state.is_cursor_visible(),
+                            );
+                            clicked_flora_paint_selection_index =
+                                flora_paint_panel_response.clicked_selection_index;
+                        }
 
                         let voxel_palette_response =
                             draw_voxel_palette(ctx, &voxel_palette_entries, false);

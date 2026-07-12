@@ -15,7 +15,8 @@ const PEDESTAL_VOXEL_COUNT: usize = 3;
 const CAP_VOXEL_COUNT: usize = 5;
 const MODEL_GRID_OFFSET_VOXELS: Vec3 = Vec3::new(-0.5, 0.0, -0.5);
 const PEDESTAL_COLOR_SRGB: Vec3 = Vec3::new(0.62, 0.64, 0.63);
-const CAP_COLOR_SRGB: Vec3 = Vec3::new(1.0, 0.22, 0.015);
+// High-visibility rescue orange keeps the engineering-plastic head distinct from foliage.
+const CAP_COLOR_SRGB: Vec3 = Vec3::new(1.0, 0.42, 0.02);
 const CAP_EDGE_EXPANSION_VOXELS: f32 = 0.2;
 
 #[repr(C)]
