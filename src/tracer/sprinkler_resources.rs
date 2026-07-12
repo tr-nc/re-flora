@@ -118,18 +118,25 @@ fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
     }
 
     // Deterministic 4x4 head with exactly the four corners removed. The entire cap moves
-    // together vertically, as though water pressure lifts it off the pedestal.
+    // vertically while all four edges expand together at the same phase.
     for x in -2..2 {
         for z in -2..2 {
             if (x == -2 || x == 1) && (z == -2 || z == 1) {
                 continue;
             }
+            let outward_direction = match (x, z) {
+                (_, -2) => -Vec3::Z,
+                (-2, _) => -Vec3::X,
+                (_, 1) => Vec3::Z,
+                (1, _) => Vec3::X,
+                _ => Vec3::ZERO,
+            };
             append_voxel(
                 &mut vertices,
                 &mut indices,
                 IVec3::new(x, 2, z),
                 CAP_COLOR_SRGB,
-                Vec3::Y,
+                Vec3::Y + outward_direction,
                 0.0,
             );
         }
@@ -237,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn sprinkler_cap_moves_up_as_one_piece() {
+    fn sprinkler_cap_lifts_and_expands_in_sync() {
         let (vertices, _) = build_sprinkler_mesh();
         let vertices_per_voxel = 6 * 4;
         let animated_voxels = vertices
@@ -247,9 +254,15 @@ mod tests {
 
         assert_eq!(animated_voxels.len(), CAP_VOXEL_COUNT);
         assert!(animated_voxels.iter().all(|voxel| {
-            voxel[0].animation_direction == Vec3::Y.to_array()
-                && voxel[0].animation_delay_seconds == 0.0
+            voxel[0].animation_direction[1] == 1.0 && voxel[0].animation_delay_seconds == 0.0
         }));
+        let expanding_voxels = animated_voxels
+            .iter()
+            .filter(|voxel| {
+                voxel[0].animation_direction[0] != 0.0 || voxel[0].animation_direction[2] != 0.0
+            })
+            .count();
+        assert_eq!(expanding_voxels, 8);
     }
 
     #[test]
