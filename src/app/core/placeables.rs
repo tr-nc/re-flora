@@ -18,8 +18,12 @@ const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 = 4.0;
 const SPRINKLER_SPAWN_RATE_PER_SECOND: f32 = 576.0;
 const SPRINKLER_MAX_SPAWN_PER_FRAME: u32 = 192;
 const SPRINKLER_DROPLET_SIZE: f32 = STANDARD_PARTICLE_SIZE;
-const SPRINKLER_DROPLET_LIFETIME: f32 = 0.62;
 const SPRINKLER_GRAVITY_FACTOR: f32 = 0.82;
+const SPRINKLER_GRAVITY: f32 = 3.6 * SPRINKLER_GRAVITY_FACTOR;
+const SPRINKLER_MIN_LANDING_RADIUS: f32 = 0.025;
+const SPRINKLER_MAX_LANDING_RADIUS: f32 = 0.28;
+const SPRINKLER_MIN_ELEVATION: f32 = 42.0_f32.to_radians();
+const SPRINKLER_MAX_ELEVATION: f32 = 54.0_f32.to_radians();
 const SPRINKLER_COLOR_LOW: Vec4 = Vec4::new(0.03, 0.20, 0.95, 0.94);
 const SPRINKLER_COLOR_HIGH: Vec4 = Vec4::new(0.10, 0.48, 1.0, 0.98);
 const SPRINKLER_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(0.1, 2);
@@ -103,8 +107,18 @@ impl SprinklerEmitter {
         } else {
             Vec3::new(sin_angle, 0.0, sign * cos_angle)
         };
-        let horizontal_speed = self.rng.random_range(0.42..=0.95);
-        let vertical_speed = self.rng.random_range(0.20..=0.44);
+
+        // Uniformly sample the covered disk by area, then solve the ballistic launch speed
+        // for that landing radius. This fills the spray footprint instead of concentrating
+        // droplets at its rim, while every near and far droplet follows the same gravity.
+        let area_sample = self.rng.random_range(0.0_f32..=1.0).sqrt();
+        let landing_radius = SPRINKLER_MIN_LANDING_RADIUS
+            + (SPRINKLER_MAX_LANDING_RADIUS - SPRINKLER_MIN_LANDING_RADIUS) * area_sample;
+        let elevation = self
+            .rng
+            .random_range(SPRINKLER_MIN_ELEVATION..=SPRINKLER_MAX_ELEVATION);
+        let (horizontal_speed, vertical_speed, flight_time) =
+            sprinkler_ballistic_launch(landing_radius, elevation);
         let muzzle_jitter = Vec3::new(
             self.rng.random_range(-0.008..=0.008),
             self.rng.random_range(-0.002..=0.006),
@@ -119,11 +133,11 @@ impl SprinklerEmitter {
             velocity: horizontal_dir * horizontal_speed + Vec3::Y * vertical_speed,
             color,
             size: SPRINKLER_DROPLET_SIZE,
-            lifetime: SPRINKLER_DROPLET_LIFETIME * self.rng.random_range(0.82..=1.18),
+            lifetime: flight_time + SPRINKLER_PARTICLE_UPDATE.interval_seconds,
             wind_factor: 0.0,
             gravity_factor: SPRINKLER_GRAVITY_FACTOR,
             drift_direction,
-            drift_strength: self.rng.random_range(0.00..=0.025),
+            drift_strength: self.rng.random_range(0.00..=0.008),
             drift_frequency: self.rng.random_range(1.5..=4.0),
             speed_noise_offset: self.rng.random_range(0.0..10_000.0) + self.id as f32,
             motion_mode: MotionMode::Free,
@@ -156,6 +170,17 @@ impl ParticleEmitter for SprinklerEmitter {
             self.spawn_accumulator = self.spawn_accumulator.min(1.0);
         }
     }
+}
+
+fn sprinkler_ballistic_launch(landing_radius: f32, elevation: f32) -> (f32, f32, f32) {
+    let nozzle_height = SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT;
+    let radius = landing_radius.max(f32::EPSILON);
+    let horizontal_speed = (0.5 * SPRINKLER_GRAVITY * radius * radius
+        / (nozzle_height + radius * elevation.tan()))
+    .sqrt();
+    let vertical_speed = horizontal_speed * elevation.tan();
+    let flight_time = radius / horizontal_speed;
+    (horizontal_speed, vertical_speed, flight_time)
 }
 
 pub(super) fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
@@ -290,6 +315,26 @@ mod tests {
             SPRINKLER_DROPLET_SIZE,
             crate::particles::LeafEmitterDesc::default().size
         );
+    }
+
+    #[test]
+    fn sprinkler_launch_lands_at_sampled_radius() {
+        let nozzle_height = SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT;
+        for radius in [
+            SPRINKLER_MIN_LANDING_RADIUS,
+            0.12,
+            SPRINKLER_MAX_LANDING_RADIUS,
+        ] {
+            for elevation in [SPRINKLER_MIN_ELEVATION, SPRINKLER_MAX_ELEVATION] {
+                let (horizontal_speed, vertical_speed, flight_time) =
+                    sprinkler_ballistic_launch(radius, elevation);
+                assert!((horizontal_speed * flight_time - radius).abs() < 1e-6);
+                let landing_height = nozzle_height + vertical_speed * flight_time
+                    - 0.5 * SPRINKLER_GRAVITY * flight_time * flight_time;
+                assert!(landing_height.abs() < 1e-6);
+                assert!(vertical_speed > 0.0);
+            }
+        }
     }
 
     #[test]
