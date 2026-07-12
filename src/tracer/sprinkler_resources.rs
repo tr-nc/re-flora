@@ -12,6 +12,7 @@ const PEDESTAL_VOXEL_COUNT: usize = 8;
 const CAP_VOXEL_COUNT: usize = 12;
 const PEDESTAL_COLOR_SRGB: Vec3 = Vec3::new(0.018, 0.022, 0.026);
 const CAP_COLOR_SRGB: Vec3 = Vec3::new(1.0, 0.22, 0.015);
+const CAP_EDGE_EXPANSION_VOXELS: f32 = 0.2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -136,7 +137,7 @@ fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
                 &mut indices,
                 IVec3::new(x, 2, z),
                 CAP_COLOR_SRGB,
-                Vec3::Y + outward_direction,
+                Vec3::Y + outward_direction * CAP_EDGE_EXPANSION_VOXELS,
                 0.0,
             );
         }
@@ -263,6 +264,10 @@ mod tests {
             })
             .count();
         assert_eq!(expanding_voxels, 8);
+        assert!(animated_voxels.iter().all(|voxel| {
+            voxel[0].animation_direction[0].abs() <= CAP_EDGE_EXPANSION_VOXELS
+                && voxel[0].animation_direction[2].abs() <= CAP_EDGE_EXPANSION_VOXELS
+        }));
     }
 
     #[test]
