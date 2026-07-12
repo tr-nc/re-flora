@@ -341,7 +341,7 @@ impl ParticleSystem {
         self.positions[slot] = spawn.position;
         self.velocities[slot] = spawn.velocity;
         self.colors[slot] = spawn.color;
-        self.sizes[slot] = spawn.size.max(0.001);
+        self.sizes[slot] = spawn.size.max(0.0001);
         self.wind_factors[slot] = spawn.wind_factor.max(0.0);
         self.gravity_factors[slot] = spawn.gravity_factor.max(0.0);
         self.drift_directions[slot] = spawn.drift_direction.normalize_or_zero();
@@ -724,7 +724,7 @@ impl ParticleSystem {
     #[allow(dead_code)]
     pub fn set_size(&mut self, handle: ParticleHandle, size: f32) -> bool {
         if let Some(idx) = self.validate_handle(handle) {
-            self.sizes[idx] = size.max(0.001);
+            self.sizes[idx] = size.max(0.0001);
             true
         } else {
             false

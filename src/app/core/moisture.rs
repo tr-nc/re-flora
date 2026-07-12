@@ -1,4 +1,4 @@
-use super::{App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+use super::{placeables::sprinkler_sprays_along_x, App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use crate::app::world_edits::TerrainBrushEdit;
 use crate::util::BENCH;
 use anyhow::Result;
@@ -198,19 +198,26 @@ impl App {
 
         let record_start = self.perf_logging.then(Instant::now);
         let amount = SPRINKLER_MOISTURE_PER_SECOND * dt;
-        let sprinkler_positions = self
+        let sprinkler_states = self
             .sprinkler_records
             .iter()
-            .map(|sprinkler| sprinkler.base_position)
+            .map(|sprinkler| (sprinkler.base_position, sprinkler.animation_phase))
             .collect::<Vec<_>>();
+        let tick_seconds = self.gui_adjustables.world_tick_seconds.value;
         let mut recorded_count = 0;
-        for base_position in sprinkler_positions {
+        for (base_position, animation_phase) in sprinkler_states {
+            let spray_axis =
+                if sprinkler_sprays_along_x(self.flora_tick, tick_seconds, animation_phase) {
+                    Vec3::X
+                } else {
+                    Vec3::Z
+                };
             if self
                 .plain_builder
-                .record_terrain_moisture_brush(
+                .record_directional_pair_moisture_brush(
                     cmdbuf,
                     base_position,
-                    base_position,
+                    spray_axis,
                     SPRINKLER_MOISTURE_RADIUS,
                     amount,
                 )

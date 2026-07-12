@@ -84,6 +84,7 @@ float moisture_hash01(uvec3 p, uint seed) {
 void main() {
     uvec3 local = gl_GlobalInvocationID.xyz;
     uvec3 dim   = pc.dim.xyz;
+    bool directional_pair = pc.dim.w != 0u;
     if (any(greaterThanEqual(local, dim))) {
         return;
     }
@@ -99,9 +100,28 @@ void main() {
     }
 
     vec3 voxel_center = vec3(atlas_u) + vec3(0.5);
-    float dist = distance_to_segment(voxel_center, start_vox, end_vox);
-    if (dist > radius_vox) {
-        return;
+    float dist;
+    if (directional_pair) {
+        vec2 axis = end_vox.xz - start_vox.xz;
+        float range_vox = length(axis);
+        vec2 offset = voxel_center.xz - start_vox.xz;
+        dist = length(offset);
+        if (range_vox <= 1.0e-5 || dist > range_vox) {
+            return;
+        }
+        if (dist > 1.0e-5) {
+            float alignment = abs(dot(offset / dist, axis / range_vox));
+            const float COS_45_DEGREES = 0.70710678;
+            if (alignment < COS_45_DEGREES) {
+                return;
+            }
+        }
+        radius_vox = range_vox;
+    } else {
+        dist = distance_to_segment(voxel_center, start_vox, end_vox);
+        if (dist > radius_vox) {
+            return;
+        }
     }
 
     uint old_data = imageLoad(chunk_atlas, ivec3(atlas_u)).r;

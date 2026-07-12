@@ -801,6 +801,7 @@ impl PlainBuilder {
         end: Vec3,
         radius_world: f32,
         amount: f32,
+        directional_pair: bool,
     ) -> Option<(TerrainSoilBrushPushConstants, UVec3, UAabb3)> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let start_vox = start * 256.0;
@@ -842,7 +843,7 @@ impl PlainBuilder {
             .max(1);
         let push_constants = TerrainSoilBrushPushConstants {
             offset: [offset.x, offset.y, offset.z, dither_seed],
-            dim: [dim.x, dim.y, dim.z, 0],
+            dim: [dim.x, dim.y, dim.z, u32::from(directional_pair)],
             start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
             end_amount: [end_vox.x, end_vox.y, end_vox.z, amount],
         };
@@ -864,6 +865,7 @@ impl PlainBuilder {
         PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
     }
 
+    #[allow(dead_code)]
     pub fn record_terrain_moisture_brush(
         &mut self,
         cmdbuf: &CommandBuffer,
@@ -873,7 +875,26 @@ impl PlainBuilder {
         amount: f32,
     ) -> Option<UAabb3> {
         let (push_constants, dim, changed_bound) =
-            self.prepare_terrain_moisture_brush(start, end, radius_world, amount)?;
+            self.prepare_terrain_moisture_brush(start, end, radius_world, amount, false)?;
+        self.record_prepared_terrain_moisture_brush(cmdbuf, &push_constants, dim);
+        Some(changed_bound)
+    }
+
+    pub fn record_directional_pair_moisture_brush(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        center: Vec3,
+        axis: Vec3,
+        range_world: f32,
+        amount: f32,
+    ) -> Option<UAabb3> {
+        let direction = Vec3::new(axis.x, 0.0, axis.z).normalize_or_zero();
+        if direction == Vec3::ZERO {
+            return None;
+        }
+        let end = center + direction * range_world;
+        let (push_constants, dim, changed_bound) =
+            self.prepare_terrain_moisture_brush(center, end, range_world, amount, true)?;
         self.record_prepared_terrain_moisture_brush(cmdbuf, &push_constants, dim);
         Some(changed_bound)
     }
@@ -887,7 +908,7 @@ impl PlainBuilder {
         amount: f32,
     ) -> Result<Option<UAabb3>> {
         let Some((push_constants, dim, changed_bound)) =
-            self.prepare_terrain_moisture_brush(start, end, radius_world, amount)
+            self.prepare_terrain_moisture_brush(start, end, radius_world, amount, false)
         else {
             return Ok(None);
         };

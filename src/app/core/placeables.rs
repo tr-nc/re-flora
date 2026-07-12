@@ -14,9 +14,9 @@ const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 // one-voxel bright-orange cross-shaped head. Keep the emitter at its top surface.
 const SPRINKLER_NOZZLE_HEIGHT_VOXELS: f32 = 4.0;
 
-const SPRINKLER_SPAWN_RATE_PER_SECOND: f32 = 288.0;
-const SPRINKLER_MAX_SPAWN_PER_FRAME: u32 = 96;
-const SPRINKLER_DROPLET_SIZE: f32 = 0.0025;
+const SPRINKLER_SPAWN_RATE_PER_SECOND: f32 = 576.0;
+const SPRINKLER_MAX_SPAWN_PER_FRAME: u32 = 192;
+const SPRINKLER_DROPLET_SIZE: f32 = 0.00125;
 const SPRINKLER_DROPLET_LIFETIME: f32 = 0.62;
 const SPRINKLER_GRAVITY_FACTOR: f32 = 0.82;
 const SPRINKLER_COLOR_LOW: Vec4 = Vec4::new(0.03, 0.20, 0.95, 0.94);
@@ -93,10 +93,14 @@ impl SprinklerEmitter {
 
     fn spawn_droplet(&mut self, system: &mut ParticleSystem) {
         let sign = if self.rng.random_bool(0.5) { 1.0 } else { -1.0 };
+        let fan_angle = self
+            .rng
+            .random_range(-std::f32::consts::FRAC_PI_4..=std::f32::consts::FRAC_PI_4);
+        let (sin_angle, cos_angle) = fan_angle.sin_cos();
         let horizontal_dir = if self.sprays_along_x() {
-            Vec3::X * sign
+            Vec3::new(sign * cos_angle, 0.0, sin_angle)
         } else {
-            Vec3::Z * sign
+            Vec3::new(sin_angle, 0.0, sign * cos_angle)
         };
         let horizontal_speed = self.rng.random_range(0.42..=0.95);
         let vertical_speed = self.rng.random_range(0.20..=0.44);
@@ -153,7 +157,7 @@ impl ParticleEmitter for SprinklerEmitter {
     }
 }
 
-fn sprinkler_sprays_along_x(tick: u32, tick_seconds: f32, animation_phase: f32) -> bool {
+pub(super) fn sprinkler_sprays_along_x(tick: u32, tick_seconds: f32, animation_phase: f32) -> bool {
     let pair_cycle_ticks = (1.0 / tick_seconds).round().max(2.0) as u32;
     let full_cycle_ticks = pair_cycle_ticks * 2;
     let phase_offset = (animation_phase.rem_euclid(1.0) * full_cycle_ticks as f32).round() as u32;
