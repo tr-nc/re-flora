@@ -569,6 +569,8 @@ pub struct OccupancyToInstancesInfo {
     pub _pad0: [u8; 4],
     pub chunk_dim: [u32; 3],
     pub spawn_time_ms: u32,
+    pub preserve_existing_placements: u32,
+    pub _pad1: [u8; 12],
 }
 
 /// Auto-generated from `U_PlayerColliderInfo` (GLSL source of truth).

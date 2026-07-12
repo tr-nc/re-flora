@@ -13,6 +13,7 @@ layout(set = 0, binding = 0) readonly uniform U_OccupancyToInstancesInfo {
     uvec3 chunk_world_offset;
     uvec3 chunk_dim;
     uint spawn_time_ms;
+    uint preserve_existing_placements;
 }
 occupancy_to_instances_info;
 
@@ -205,6 +206,15 @@ void main() {
         return;
     }
 
+    ivec3 world_base_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + base_local;
+    // Exclusion-only compaction must not consult the shared surface staging image. That image may
+    // currently contain another chunk, and these instances already passed surface placement when
+    // they were created. Only the 3D exclusion bit is allowed to remove them here.
+    if (occupancy_to_instances_info.preserve_existing_placements != 0u) {
+        add_flora_instance(world_base_pos, paint_selection, growth_progress, spawn_age_ms);
+        return;
+    }
+
     uint surface_data = imageLoad(surface, base_local).r;
     if (surface_data == 0u) {
         return;
@@ -213,8 +223,6 @@ void main() {
     uint voxel_type;
     vec3 normal;
     unpack_surface_data(surface_data, voxel_type, normal);
-
-    ivec3 world_base_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + base_local;
 
     bool allow_any_flora, allow_tall_grass, allow_short_grass;
     calculate_flora_density_placement(world_base_pos, allow_any_flora, allow_tall_grass,

@@ -594,6 +594,7 @@ impl SurfaceBuilder {
                 atlas_read_offset,
                 self.voxel_dim_per_chunk,
                 0,
+                false,
             )?;
             cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
             let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
@@ -987,11 +988,16 @@ impl SurfaceBuilder {
             .1
             .grass_exclusion_bits
             .fill_range_with_raw_u8(0, bytemuck::cast_slice(&words))?;
+        log::debug!(
+            "[FLORA_EXCLUSION] rebuilt chunk {:?} excluded_voxels={}",
+            chunk_id,
+            words.iter().map(|word| word.count_ones()).sum::<u32>(),
+        );
         Ok(())
     }
 
     fn filter_grass_exclusions(&mut self, chunk_id: UVec3, spawn_time_ms: u32) -> Result<()> {
-        let _ = self.run_occupancy_edit(
+        let stats = self.run_occupancy_edit(
             chunk_id,
             Vec3::ZERO,
             Vec3::ZERO,
@@ -1004,6 +1010,12 @@ impl SurfaceBuilder {
             species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
             OccupancyEditMode::FilterExclusions,
         )?;
+        log::debug!(
+            "[FLORA_EXCLUSION] filtered chunk {:?} instances {} -> {}",
+            chunk_id,
+            stats.before_total,
+            stats.after_total,
+        );
         Ok(())
     }
 
@@ -1251,6 +1263,7 @@ impl SurfaceBuilder {
             chunk_world_offset,
             self.voxel_dim_per_chunk,
             spawn_time_ms,
+            mode == OccupancyEditMode::FilterExclusions,
         )?;
         cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
 
@@ -1681,11 +1694,13 @@ fn update_occupancy_to_instances_info(
     chunk_world_offset: UVec3,
     chunk_dim: UVec3,
     spawn_time_ms: u32,
+    preserve_existing_placements: bool,
 ) -> Result<()> {
     occupancy_to_instances_info.fill_uniform(&OccupancyToInstancesInfo {
         chunk_world_offset: chunk_world_offset.to_array(),
         chunk_dim: chunk_dim.to_array(),
         spawn_time_ms,
+        preserve_existing_placements: u32::from(preserve_existing_placements),
         ..OccupancyToInstancesInfo::zeroed()
     })
 }
@@ -1737,6 +1752,22 @@ mod tests {
         assert!(grass_exclusion_bit(&words, dim, UVec3::new(16, 16, 16)));
         assert!(!grass_exclusion_bit(&words, dim, UVec3::new(16, 15, 16)));
         assert!(!grass_exclusion_bit(&words, dim, UVec3::new(16, 4, 16)));
+    }
+
+    #[test]
+    fn exclusion_compaction_preserves_instances_before_reading_shared_surface() {
+        let shader =
+            include_str!("../../../shader/builder/surface/occupancy_to_flora_instances.comp");
+        let preserve_branch = shader
+            .find("if (occupancy_to_instances_info.preserve_existing_placements != 0u)")
+            .expect("missing preserve-existing exclusion compaction branch");
+        let surface_read = shader
+            .find("uint surface_data = imageLoad(surface, base_local).r;")
+            .expect("missing surface staging read");
+        assert!(
+            preserve_branch < surface_read,
+            "exclusion-only compaction must not filter instances through another chunk's shared surface staging image"
+        );
     }
 
     #[test]
