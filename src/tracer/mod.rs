@@ -537,6 +537,7 @@ impl Tracer {
             &render_passes,
             &pool,
             &resources,
+            plain_builder_resources,
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
@@ -823,8 +824,8 @@ impl Tracer {
         );
 
         // update graphics pipelines descriptor sets
-        update_graphics_fn(&self.graphics_pipelines.flora_ppl, &tracer_resources);
-        update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, &tracer_resources);
+        update_graphics_fn(&self.graphics_pipelines.flora_ppl, &all_resources);
+        update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, &all_resources);
         update_graphics_fn(&self.graphics_pipelines.leaves_ppl, &tracer_resources);
         update_graphics_fn(&self.graphics_pipelines.leaves_lod_ppl, &tracer_resources);
         update_graphics_fn(

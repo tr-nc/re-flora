@@ -1,3 +1,4 @@
+use crate::flora::species::{species, MAX_FLORA_SPECIES};
 use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
     ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, TerrainEditPreview,
@@ -74,6 +75,9 @@ impl BufferUpdater {
         spawn_overshoot_max_voxels: f32,
         spawn_stagger_seconds: f32,
     ) -> Result<()> {
+        let moisture_growth_factors: [u32; MAX_FLORA_SPECIES * 4] = std::array::from_fn(|idx| {
+            species()[idx / 4].moisture_growth_factors[idx % 4].to_bits()
+        });
         resources
             .uniforms
             .flora_growth_info
@@ -87,6 +91,7 @@ impl BufferUpdater {
                 spawn_overshoot_min_voxels,
                 spawn_overshoot_max_voxels,
                 spawn_stagger_seconds,
+                moisture_growth_factors,
                 ..FloraGrowthInfo::zeroed()
             })
     }

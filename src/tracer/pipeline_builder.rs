@@ -508,7 +508,9 @@ impl PipelineBuilder {
         render_passes: &RenderPasses,
         pool: &DescriptorPool,
         resources: &TracerResources,
+        plain_builder_resources: &PlainBuilderResources,
     ) -> GraphicsPipelines {
+        let flora_resources: [&dyn ResourceContainer; 2] = [resources, plain_builder_resources];
         let flora_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
             &shader_modules.flora_vert_sm,
@@ -516,7 +518,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
-            &[resources],
+            &flora_resources,
         );
 
         let flora_lod_ppl = Self::create_gfx_pipeline(
@@ -526,7 +528,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
-            &[resources],
+            &flora_resources,
         );
 
         let leaves_ppl = Self::create_gfx_pipeline(

@@ -431,6 +431,7 @@ pub struct FloraGrowthInfo {
     pub spawn_overshoot_max_voxels: f32,
     pub spawn_stagger_seconds: f32,
     pub _pad0: [u8; 12],
+    pub moisture_growth_factors: [u32; 16],
 }
 
 /// Auto-generated from `U_GodRayInfo` (GLSL source of truth).

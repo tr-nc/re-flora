@@ -1,6 +1,8 @@
 #ifndef FLORA_ANIMATION_INFO_GLSL
 #define FLORA_ANIMATION_INFO_GLSL
 
+#include "../include/flora_registry.glsl"
+
 // Shared by surface flora and tree foliage pipelines so every consumer sees one authoritative
 // buffer layout. Spawn motion itself is implemented in flora_spawn_animation.glsl.
 layout(set = 0, binding = 6) uniform U_FloraGrowthInfo {
@@ -13,6 +15,7 @@ layout(set = 0, binding = 6) uniform U_FloraGrowthInfo {
     float spawn_overshoot_min_voxels;
     float spawn_overshoot_max_voxels;
     float spawn_stagger_seconds;
+    vec4 moisture_growth_factors[MAX_FLORA_SPECIES];
 }
 flora_growth_info;
 

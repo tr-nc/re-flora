@@ -1818,9 +1818,8 @@ mod tests {
             include_str!("../../../shader/foliage/flora.vert"),
             include_str!("../../../shader/foliage/flora_lod.vert"),
         ] {
-            assert!(vertex_shader.contains(
-                "unpack_instance_local_pos(in_instance_packed_local_pos), pc.instance_ty"
-            ));
+            assert!(vertex_shader
+                .contains("flora_competition_growth_factor(instance_local_base, pc.instance_ty)"));
         }
     }
 

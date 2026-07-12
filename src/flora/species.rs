@@ -7,6 +7,9 @@ pub const LAVENDER_SPECIES_INDEX: u32 = 2;
 pub const EMBER_BLOOM_SPECIES_INDEX: u32 = 3;
 pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
 
+/// Growth expression for the four soil-moisture levels stored in the terrain atlas.
+pub const DEFAULT_MOISTURE_GROWTH_FACTORS: [f32; 4] = [0.70, 0.82, 0.93, 1.0];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FloraPlacementMode {
     Occupancy,
@@ -82,6 +85,8 @@ pub struct FloraSpeciesDesc {
     pub grass_growth_influence_radius_voxels: u32,
     /// Minimum four-bit growth-potential level at the influence center (15 is unrestricted).
     pub grass_growth_influence_min_level: u8,
+    /// Environmental growth factor selected by the two-bit moisture level of the root soil voxel.
+    pub moisture_growth_factors: [f32; 4],
 }
 
 impl FloraSpeciesDesc {
@@ -95,6 +100,7 @@ impl FloraSpeciesDesc {
         placement_mode: FloraPlacementMode,
         grass_growth_influence_radius_voxels: u32,
         grass_growth_influence_min_level: u8,
+        moisture_growth_factors: [f32; 4],
     ) -> Self {
         Self {
             key,
@@ -106,6 +112,7 @@ impl FloraSpeciesDesc {
             placement_mode,
             grass_growth_influence_radius_voxels,
             grass_growth_influence_min_level,
+            moisture_growth_factors,
         }
     }
 }
@@ -121,6 +128,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         FloraPlacementMode::Occupancy,
         0,
         15,
+        DEFAULT_MOISTURE_GROWTH_FACTORS,
     ),
     FloraSpeciesDesc::new(
         "short_grass",
@@ -132,6 +140,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         FloraPlacementMode::Occupancy,
         0,
         15,
+        DEFAULT_MOISTURE_GROWTH_FACTORS,
     ),
     FloraSpeciesDesc::new(
         "lavender",
@@ -143,6 +152,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         FloraPlacementMode::Authored,
         8,
         6,
+        DEFAULT_MOISTURE_GROWTH_FACTORS,
     ),
     FloraSpeciesDesc::new(
         "ember_bloom",
@@ -154,6 +164,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         FloraPlacementMode::Authored,
         8,
         6,
+        DEFAULT_MOISTURE_GROWTH_FACTORS,
     ),
 ];
 
@@ -282,6 +293,26 @@ mod tests {
         );
         assert!(!is_authored_plant_species_index(0));
         assert!(!is_authored_plant_species_index(species_count() as u32));
+    }
+
+    #[test]
+    fn moisture_growth_curves_are_bounded_and_monotonic() {
+        for flora_species in species() {
+            let curve = flora_species.moisture_growth_factors;
+            assert!(curve.iter().all(|factor| (0.0..=1.0).contains(factor)));
+            assert!(curve.windows(2).all(|levels| levels[0] <= levels[1]));
+            assert_eq!(curve[3], 1.0);
+        }
+    }
+
+    #[test]
+    fn moisture_growth_samples_the_stored_supporting_voxel() {
+        let environment_shader = include_str!("../../shader/include/flora_environment.glsl");
+        assert!(environment_shader.contains("chunk_world_offset + local_base"));
+        assert!(!environment_shader.contains("local_base -"));
+
+        let flora_shader = include_str!("../../shader/foliage/flora_common.glsl");
+        assert!(flora_shader.contains("min(competition_growth_factor, environment_growth_factor)"));
     }
 
     #[test]
