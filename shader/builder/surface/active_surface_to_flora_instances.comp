@@ -39,6 +39,7 @@ manual_flora_instances;
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/flora_surface_planting.glsl"
+#include "../../include/flora_exclusion.glsl"
 #include "../../include/grass_type.glsl"
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
@@ -187,6 +188,9 @@ void main() {
 
     ivec3 base_local     = ivec3(base_local_u);
     ivec3 world_base_pos = ivec3(occupancy_to_instances_info.chunk_world_offset) + base_local;
+    if (grass_is_excluded(base_local_u, occupancy_to_instances_info.chunk_dim)) {
+        return;
+    }
 
     bool allow_any_flora, allow_tall_grass, allow_short_grass;
     calculate_flora_density_placement(world_base_pos, allow_any_flora, allow_tall_grass,

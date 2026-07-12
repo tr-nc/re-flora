@@ -28,6 +28,7 @@ pub(super) enum PlantingRejection {
 #[derive(Default)]
 pub(super) struct AuthoredFloraPlacementBatch {
     dirty_chunks: Vec<UVec3>,
+    spawn_time_ms: u32,
 }
 
 impl AuthoredFloraPlacementBatch {
@@ -67,6 +68,7 @@ impl App {
         spawn_start_ms: u32,
         seed: u32,
     ) -> bool {
+        batch.spawn_time_ms = spawn_start_ms;
         self.surface_builder
             .try_insert_authored_flora_instance_unchecked(
                 species_index,
@@ -83,7 +85,7 @@ impl App {
         batch: AuthoredFloraPlacementBatch,
     ) -> anyhow::Result<()> {
         self.surface_builder
-            .sync_authored_flora_dirty_chunks(&batch.dirty_chunks)
+            .sync_authored_flora_dirty_chunks(&batch.dirty_chunks, batch.spawn_time_ms)
     }
 }
 

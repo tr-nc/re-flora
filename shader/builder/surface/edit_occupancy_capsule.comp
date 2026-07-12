@@ -28,11 +28,13 @@ layout(set = 0, binding = 2, r32ui) readonly uniform uimage3D surface;
 #include "../../include/flora_occupancy.glsl"
 #include "../../include/flora_placement.glsl"
 #include "../../include/flora_surface_planting.glsl"
+#include "../../include/flora_exclusion.glsl"
 #include "../../include/instance.glsl"
 
 const uint OCCUPANCY_MODE_REMOVE = 0u;
 const uint OCCUPANCY_MODE_ADD    = 1u;
 const uint OCCUPANCY_MODE_TRIM   = 2u;
+const uint OCCUPANCY_MODE_FILTER_EXCLUSIONS = 3u;
 // Keep trimmed grasses visibly clipped rather than reset to the tiny rebirth edge.
 // Short grass is four voxels tall, so half growth is the lowest neat cut that
 // avoids a one-voxel stump with the floor-based grass height trim.
@@ -87,6 +89,10 @@ void main() {
         return;
     }
 
+    if (edit_occupancy_info.mode == OCCUPANCY_MODE_FILTER_EXCLUSIONS) {
+        return;
+    }
+
     vec3 base_world_center =
         vec3(edit_occupancy_info.chunk_world_offset + uvec3(base_local)) + vec3(0.5);
     float radius_sq = edit_occupancy_info.edit_segment_start_radius_vox.w *
@@ -102,6 +108,10 @@ void main() {
     }
 
     if (edit_occupancy_info.mode == OCCUPANCY_MODE_ADD) {
+        if (flora_paint_priority(edit_occupancy_info.paint_selection) == 0u &&
+            grass_is_excluded(uvec3(base_local), edit_occupancy_info.chunk_dim)) {
+            return;
+        }
         uint surface_data = imageLoad(surface, base_local).r;
         if (surface_data == 0u) {
             return;

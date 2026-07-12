@@ -34,6 +34,7 @@ manual_flora_instances;
 #include "../../include/core/definitions.glsl"
 #include "../../include/core/packer.glsl"
 #include "../../include/flora_surface_planting.glsl"
+#include "../../include/flora_exclusion.glsl"
 #include "../../include/grass_type.glsl"
 #include "../../include/voxel_data.glsl"
 #include "../../include/voxel_types.glsl"
@@ -197,6 +198,12 @@ void main() {
     uint growth_progress = unpack_flora_occupancy_growth(occupancy_value);
     uint spawn_age_ms = unpack_flora_occupancy_spawn_age_ms(occupancy_value);
     uint paint_selection = unpack_flora_occupancy_selection(occupancy_value);
+    bool is_authored_plant = paint_selection == FLORA_SPECIES_LAVENDER ||
+                             paint_selection == FLORA_SPECIES_EMBER_BLOOM;
+    if (!is_authored_plant &&
+        grass_is_excluded(uvec3(base_local), occupancy_to_instances_info.chunk_dim)) {
+        return;
+    }
 
     uint surface_data = imageLoad(surface, base_local).r;
     if (surface_data == 0u) {

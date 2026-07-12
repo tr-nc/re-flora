@@ -78,6 +78,8 @@ pub struct FloraSpeciesDesc {
     pub mesh_generator: MeshGeneratorFn,
     pub paint_brush: FloraPaintBrushSettings,
     pub placement_mode: FloraPlacementMode,
+    /// Radius of the hard 3D grass exclusion volume around an authored plant base.
+    pub grass_exclusion_radius_voxels: u32,
 }
 
 impl FloraSpeciesDesc {
@@ -89,6 +91,7 @@ impl FloraSpeciesDesc {
         mesh_generator: MeshGeneratorFn,
         paint_brush: FloraPaintBrushSettings,
         placement_mode: FloraPlacementMode,
+        grass_exclusion_radius_voxels: u32,
     ) -> Self {
         Self {
             key,
@@ -98,6 +101,7 @@ impl FloraSpeciesDesc {
             mesh_generator,
             paint_brush,
             placement_mode,
+            grass_exclusion_radius_voxels,
         }
     }
 }
@@ -111,6 +115,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         gen_tall_grass,
         FloraPaintBrushSettings::dense(80),
         FloraPlacementMode::Occupancy,
+        0,
     ),
     FloraSpeciesDesc::new(
         "short_grass",
@@ -120,6 +125,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         gen_short_grass,
         FloraPaintBrushSettings::dense(80),
         FloraPlacementMode::Occupancy,
+        0,
     ),
     FloraSpeciesDesc::new(
         "lavender",
@@ -129,6 +135,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         gen_lavender,
         LAVENDER_PAINT_BRUSH_SETTINGS,
         FloraPlacementMode::Authored,
+        8,
     ),
     FloraSpeciesDesc::new(
         "ember_bloom",
@@ -138,6 +145,7 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         gen_ember_bloom,
         EMBER_BLOOM_PAINT_BRUSH_SETTINGS,
         FloraPlacementMode::Authored,
+        8,
     ),
 ];
 
