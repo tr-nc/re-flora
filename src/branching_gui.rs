@@ -20,8 +20,7 @@ pub struct BranchingGuiSpec {
     pub branch_count_min_max: u32,
     pub branch_count_max_min: u32,
     pub branch_count_max_max: u32,
-    pub branch_angle_min_degrees_max: f32,
-    pub branch_angle_max_degrees_max: f32,
+    pub branch_angle_mean_degrees_max: f32,
     pub seed_base: u64,
     pub seed_offset_max: Option<u64>,
     pub seed_label: &'static str,
@@ -48,8 +47,7 @@ impl Default for BranchingGuiSpec {
             branch_count_min_max: 8,
             branch_count_max_min: 0,
             branch_count_max_max: 8,
-            branch_angle_min_degrees_max: 90.0,
-            branch_angle_max_degrees_max: 120.0,
+            branch_angle_mean_degrees_max: 120.0,
             seed_base: 0,
             seed_offset_max: None,
             seed_label: "Seed",
@@ -122,7 +120,11 @@ pub fn edit_branching_desc(
                 &mut desc.vertical_tendency,
                 spec.vertical_tendency_min..=spec.vertical_tendency_max,
             )
-            .text("Vertical Tendency"),
+            .text("Axis Vertical Tendency"),
+        )
+        .on_hover_text(
+            "Progressively pulls each parent axis toward global up (positive) or down (negative). \
+             Unlike branch angle, this changes the axis that later branches grow from.",
         )
         .changed();
 
@@ -167,20 +169,33 @@ pub fn edit_branching_desc(
         )
         .changed();
 
-    let mut angle_min_deg = desc.branch_angle_min.to_degrees();
-    let mut angle_max_deg = desc.branch_angle_max.to_degrees();
-    changed |= ui
+    let (mut angle_mean_deg, mut angle_variation_deg) = branch_angle_mean_variation_degrees(desc);
+    let angle_mean_changed = ui
         .add(
-            egui::Slider::new(&mut angle_min_deg, 0.0..=spec.branch_angle_min_degrees_max)
-                .text("Min Branch Angle (deg)"),
+            egui::Slider::new(
+                &mut angle_mean_deg,
+                0.0..=spec.branch_angle_mean_degrees_max,
+            )
+            .text("Branch Angle Mean (deg)"),
+        )
+        .on_hover_text(
+            "Mean local angle between a lateral branch and its current parent axis, before Spread \
+             is applied.",
         )
         .changed();
-    changed |= ui
+    let max_variation = angle_mean_deg.min(spec.branch_angle_mean_degrees_max - angle_mean_deg);
+    angle_variation_deg = angle_variation_deg.min(max_variation);
+    let angle_variation_changed = ui
         .add(
-            egui::Slider::new(&mut angle_max_deg, 0.0..=spec.branch_angle_max_degrees_max)
-                .text("Max Branch Angle (deg)"),
+            egui::Slider::new(&mut angle_variation_deg, 0.0..=max_variation)
+                .text("Branch Angle Variation (± deg)"),
+        )
+        .on_hover_text(
+            "Each lateral branch samples uniformly from mean minus this value through mean plus \
+             this value.",
         )
         .changed();
+    changed |= angle_mean_changed || angle_variation_changed;
 
     ui.separator();
     ui.heading("Seed");
@@ -201,10 +216,45 @@ pub fn edit_branching_desc(
     }
 
     if changed {
-        desc.branch_angle_min = angle_min_deg.to_radians();
-        desc.branch_angle_max = angle_max_deg.to_radians();
+        set_branch_angle_mean_variation_degrees(desc, angle_mean_deg, angle_variation_deg);
         desc.normalize();
     }
 
     changed
+}
+
+fn branch_angle_mean_variation_degrees(desc: &BranchingDesc) -> (f32, f32) {
+    let min = desc.branch_angle_min.to_degrees();
+    let max = desc.branch_angle_max.to_degrees();
+    ((min + max) * 0.5, (max - min).abs() * 0.5)
+}
+
+fn set_branch_angle_mean_variation_degrees(
+    desc: &mut BranchingDesc,
+    mean_degrees: f32,
+    variation_degrees: f32,
+) {
+    let variation_degrees = variation_degrees.max(0.0);
+    desc.branch_angle_min = (mean_degrees - variation_degrees).to_radians();
+    desc.branch_angle_max = (mean_degrees + variation_degrees).to_radians();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn branch_angle_mean_variation_round_trips() {
+        let mut desc = crate::tree_gen::TreeDesc::default().branching;
+        desc.branch_angle_min = 24.0_f32.to_radians();
+        desc.branch_angle_max = 48.0_f32.to_radians();
+
+        let (mean, variation) = branch_angle_mean_variation_degrees(&desc);
+        assert!((mean - 36.0).abs() < 0.001);
+        assert!((variation - 12.0).abs() < 0.001);
+
+        set_branch_angle_mean_variation_degrees(&mut desc, 50.0, 10.0);
+        assert!((desc.branch_angle_min.to_degrees() - 40.0).abs() < 0.001);
+        assert!((desc.branch_angle_max.to_degrees() - 60.0).abs() < 0.001);
+    }
 }
