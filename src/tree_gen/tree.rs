@@ -237,9 +237,12 @@ impl Tree {
         let mut branching_desc = desc.branching.normalized();
         let length_scale = (desc.size / TREE_DEFAULT_SIZE).max(0.0);
         branching_desc.initial_length *= length_scale;
-        let mut rng = StdRng::seed_from_u64(branching_desc.seed);
+        let mut skeleton_rng = StdRng::seed_from_u64(branching_desc.seed);
+        let mut leaf_rng = StdRng::seed_from_u64(branching_desc.seed ^ 0xA511_E9B3_D6E8_FD9D);
+        let mut subdivision_rng =
+            StdRng::seed_from_u64(branching_desc.seed ^ 0x63D8_3595_B529_7A4D);
         let base_thickness = desc.trunk_thickness * desc.size;
-        let skeleton = generate_branch_skeleton_with_rng(&branching_desc, &mut rng);
+        let skeleton = generate_branch_skeleton_with_rng(&branching_desc, &mut skeleton_rng);
 
         let leaf_level = branching_desc.iterations.saturating_sub(desc.leaf_offset);
         let leaf_anchors = skeleton
@@ -252,7 +255,7 @@ impl Tree {
             })
             .collect::<Vec<_>>();
         let leaf_positions = leaf_anchors.iter().map(|(position, _)| *position).collect();
-        let leaf_placements = generate_leaf_sprays(desc, &leaf_anchors, &mut rng);
+        let leaf_placements = generate_leaf_sprays(desc, &leaf_anchors, &mut leaf_rng);
 
         let mut trunks = Vec::new();
         for segment in &skeleton.segments {
@@ -265,7 +268,8 @@ impl Tree {
                 segment.end,
             );
             // subdivision now respects the toggle
-            let subdivided_cones = subdivide_trunk_segment(&cone, desc, segment.level, &mut rng);
+            let subdivided_cones =
+                subdivide_trunk_segment(&cone, desc, segment.level, &mut subdivision_rng);
             trunks.extend(subdivided_cones);
         }
 
@@ -488,6 +492,32 @@ mod tests {
                 .map(|leaf| (leaf.position, leaf.anchor))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn leaf_density_does_not_change_trunk_subdivision() {
+        let sparse_desc = TreeDesc {
+            branching: BranchingDesc {
+                seed: 7,
+                iterations: 3,
+                ..default_tree_branching_desc()
+            },
+            leaf_density: 0.005,
+            ..TreeDesc::default()
+        };
+        let mut dense_desc = sparse_desc.clone();
+        dense_desc.leaf_density = 0.2;
+
+        let sparse_tree = Tree::new(sparse_desc);
+        let dense_tree = Tree::new(dense_desc);
+
+        assert_eq!(sparse_tree.trunks().len(), dense_tree.trunks().len());
+        for (sparse, dense) in sparse_tree.trunks().iter().zip(dense_tree.trunks()) {
+            assert_eq!(sparse.center_a(), dense.center_a());
+            assert_eq!(sparse.center_b(), dense.center_b());
+            assert_eq!(sparse.radius_a(), dense.radius_a());
+            assert_eq!(sparse.radius_b(), dense.radius_b());
+        }
     }
 
     #[test]
