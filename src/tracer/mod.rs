@@ -327,6 +327,15 @@ pub struct TracerDesc {
     pub default_camera_look_at: Vec3,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct FruitMotionParams {
+    pub swing_length_voxels: f32,
+    pub max_angle_radians: f32,
+    pub swing_speed: f32,
+    pub speed_variation: f32,
+    pub min_response: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LodState {
     Lod0,
@@ -931,6 +940,7 @@ impl Tracer {
         leaf_paddle_frequency_wind_knee_bias: f32,
         leaf_paddle_frequency_min_multiplier: f32,
         leaf_paddle_frequency_max_multiplier: f32,
+        fruit_motion: FruitMotionParams,
         leaf_shadow_fragment_opacity: f32,
         leaf_shadow_strength: f32,
         leaf_shadow_min_transmittance: f32,
@@ -1096,6 +1106,7 @@ impl Tracer {
             leaf_paddle_frequency_wind_knee_bias,
             leaf_paddle_frequency_min_multiplier,
             leaf_paddle_frequency_max_multiplier,
+            fruit_motion,
             leaf_shadow_fragment_opacity,
             leaf_shadow_strength,
             leaf_shadow_min_transmittance,

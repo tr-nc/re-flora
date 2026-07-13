@@ -5,8 +5,8 @@ use crate::generated::gpu_structs::{
     VoxelColors,
 };
 use crate::tracer::{
-    CloudGuiParams, GlassGuiParams, TerrainEditPreviewShape, TracerResources, WindGuiParams,
-    WindSourceGpu,
+    CloudGuiParams, FruitMotionParams, GlassGuiParams, TerrainEditPreviewShape, TracerResources,
+    WindGuiParams, WindSourceGpu,
 };
 use anyhow::Result;
 use bytemuck::Zeroable;
@@ -295,6 +295,7 @@ impl BufferUpdater {
         leaf_paddle_frequency_wind_knee_bias: f32,
         leaf_paddle_frequency_min_multiplier: f32,
         leaf_paddle_frequency_max_multiplier: f32,
+        fruit_motion: FruitMotionParams,
         leaf_shadow_fragment_opacity: f32,
         leaf_shadow_strength: f32,
         leaf_shadow_min_transmittance: f32,
@@ -358,6 +359,11 @@ impl BufferUpdater {
             leaf_paddle_frequency_wind_knee_bias,
             leaf_paddle_frequency_min_multiplier,
             leaf_paddle_frequency_max_multiplier,
+            fruit_swing_length_voxels: fruit_motion.swing_length_voxels,
+            fruit_swing_max_angle_radians: fruit_motion.max_angle_radians,
+            fruit_swing_speed: fruit_motion.swing_speed,
+            fruit_swing_speed_variation: fruit_motion.speed_variation,
+            fruit_swing_min_response: fruit_motion.min_response,
             leaf_shadow_fragment_opacity,
             leaf_shadow_strength,
             leaf_shadow_min_transmittance,

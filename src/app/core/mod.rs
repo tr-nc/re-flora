@@ -54,8 +54,8 @@ use crate::particles::{
 };
 use crate::tracer::{
     allium_height_color_tables, grass_flora_height_color_tables, solid_flora_height_color_tables,
-    CloudGuiParams, GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
-    DIRECT_SUN_SHADOW_SOURCE_ALL,
+    CloudGuiParams, FruitMotionParams, GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc,
+    WindGuiParams, DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
@@ -2801,6 +2801,16 @@ impl App {
                         self.gui_adjustables
                             .leaf_paddle_frequency_max_multiplier
                             .value,
+                        FruitMotionParams {
+                            swing_length_voxels: self.debug_tree_desc.fruit_swing_length_voxels,
+                            max_angle_radians: self
+                                .debug_tree_desc
+                                .fruit_swing_max_angle_degrees
+                                .to_radians(),
+                            swing_speed: self.debug_tree_desc.fruit_swing_speed,
+                            speed_variation: self.debug_tree_desc.fruit_swing_speed_variation,
+                            min_response: self.debug_tree_desc.fruit_swing_min_response,
+                        },
                         self.gui_adjustables.leaf_shadow_fragment_opacity.value,
                         self.gui_adjustables.leaf_shadow_strength.value,
                         self.gui_adjustables.leaf_shadow_min_transmittance.value,

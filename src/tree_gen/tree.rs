@@ -22,6 +22,16 @@ pub struct TreeDesc {
     pub leaf_spray_width_ratio: f32,
     pub leaf_spray_thickness_ratio: f32,
     pub leaf_spray_tip_offset_ratio: f32,
+    pub fruit_spawn_probability: f32,
+    pub fruit_side_offset_voxels: f32,
+    pub fruit_side_offset_variance_voxels: f32,
+    pub fruit_down_offset_voxels: f32,
+    pub fruit_down_offset_variance_voxels: f32,
+    pub fruit_swing_length_voxels: f32,
+    pub fruit_swing_max_angle_degrees: f32,
+    pub fruit_swing_speed: f32,
+    pub fruit_swing_speed_variation: f32,
+    pub fruit_swing_min_response: f32,
     pub enable_subdivision: bool,
     pub subdivision_count_min: u32,
     pub subdivision_count_max: u32,
@@ -63,6 +73,16 @@ impl Default for TreeDesc {
             leaf_spray_width_ratio: 0.65,
             leaf_spray_thickness_ratio: 0.35,
             leaf_spray_tip_offset_ratio: 0.25,
+            fruit_spawn_probability: 0.30,
+            fruit_side_offset_voxels: 0.5,
+            fruit_side_offset_variance_voxels: 1.5,
+            fruit_down_offset_voxels: 4.0,
+            fruit_down_offset_variance_voxels: 2.0,
+            fruit_swing_length_voxels: 2.0,
+            fruit_swing_max_angle_degrees: 50.0,
+            fruit_swing_speed: 2.1,
+            fruit_swing_speed_variation: 0.3,
+            fruit_swing_min_response: 0.18,
             enable_subdivision: true,
             subdivision_count_min: 6,
             subdivision_count_max: 9,
@@ -174,6 +194,72 @@ impl TreeDesc {
             .add(
                 egui::Slider::new(&mut self.leaf_spray_tip_offset_ratio, -0.5..=1.0)
                     .text("Leaf Spray Tip Offset"),
+            )
+            .changed();
+
+        ui.separator();
+        ui.heading("Fruit");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_spawn_probability, 0.0..=1.0)
+                    .text("Fruit Spawn Probability"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_side_offset_voxels, 0.0..=16.0)
+                    .text("Fruit Side Offset (voxels)"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_side_offset_variance_voxels, 0.0..=16.0)
+                    .text("Fruit Side Offset Variation"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_down_offset_voxels, 0.0..=24.0)
+                    .text("Fruit Down Offset From Branch"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_down_offset_variance_voxels, 0.0..=16.0)
+                    .text("Fruit Down Offset Variation"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_swing_length_voxels, 0.0..=12.0)
+                    .text("Fruit Pivot Offset From Center"),
+            )
+            .on_hover_text(
+                "Distance from the fruit center to its fixed attachment pivot; 2 voxels places the \
+                 default apple pivot at its top center.",
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_swing_max_angle_degrees, 0.0..=85.0)
+                    .text("Fruit Max Swing Angle (deg)"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_swing_speed, 0.0..=8.0).text("Fruit Swing Speed"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_swing_speed_variation, 0.0..=1.0)
+                    .text("Fruit Swing Speed Variation"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.fruit_swing_min_response, 0.0..=1.0)
+                    .text("Fruit Minimum Wind Response"),
             )
             .changed();
 

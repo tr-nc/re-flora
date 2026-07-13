@@ -499,6 +499,11 @@ pub struct GuiInput {
     pub leaf_paddle_frequency_wind_knee_bias: f32,
     pub leaf_paddle_frequency_min_multiplier: f32,
     pub leaf_paddle_frequency_max_multiplier: f32,
+    pub fruit_swing_length_voxels: f32,
+    pub fruit_swing_max_angle_radians: f32,
+    pub fruit_swing_speed: f32,
+    pub fruit_swing_speed_variation: f32,
+    pub fruit_swing_min_response: f32,
     pub leaf_shadow_fragment_opacity: f32,
     pub leaf_shadow_strength: f32,
     pub leaf_shadow_min_transmittance: f32,
@@ -523,7 +528,6 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad6: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).

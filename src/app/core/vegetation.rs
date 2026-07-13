@@ -374,12 +374,6 @@ struct CompiledTreePlacement {
 
 struct TreePlacementService;
 
-const APPLE_SPAWN_PROBABILITY: f32 = 0.30;
-const APPLE_MIN_HANG_VOXELS: f32 = 4.0;
-const APPLE_HANG_VARIANCE_VOXELS: f32 = 2.0;
-const APPLE_MIN_SIDE_OFFSET_VOXELS: f32 = 0.5;
-const APPLE_SIDE_OFFSET_VARIANCE_VOXELS: f32 = 1.5;
-
 fn analyze_round_cones(round_cones: &[RoundCone]) -> (f32, f32, f32, f32, usize, usize) {
     let mut radius_min = f32::INFINITY;
     let mut radius_max = 0.0_f32;
@@ -438,13 +432,16 @@ fn unit_hash(seed: u64, leaf_index: usize, salt: u32, leaf_pos: UVec3) -> f32 {
 }
 
 fn quantized_apple_positions(
-    seed: u64,
+    tree_desc: &TreeDesc,
     tree_pos_voxels: Vec3,
     leaf_positions: &[UVec3],
 ) -> Vec<UVec3> {
+    let seed = tree_desc.branching.seed;
     let mut apple_positions = HashSet::new();
     for (leaf_index, leaf_pos) in leaf_positions.iter().copied().enumerate() {
-        if unit_hash(seed, leaf_index, 0xA511_E9B3, leaf_pos) >= APPLE_SPAWN_PROBABILITY {
+        if unit_hash(seed, leaf_index, 0xA511_E9B3, leaf_pos)
+            >= tree_desc.fruit_spawn_probability.clamp(0.0, 1.0)
+        {
             continue;
         }
 
@@ -460,11 +457,12 @@ fn quantized_apple_positions(
         } else {
             random_dir
         };
-        let side_offset = APPLE_MIN_SIDE_OFFSET_VOXELS
+        let side_offset = tree_desc.fruit_side_offset_voxels.max(0.0)
             + unit_hash(seed, leaf_index, 0xB529_7A4D, leaf_pos)
-                * APPLE_SIDE_OFFSET_VARIANCE_VOXELS;
-        let hang_offset = APPLE_MIN_HANG_VOXELS
-            + unit_hash(seed, leaf_index, 0x68E3_1DA4, leaf_pos) * APPLE_HANG_VARIANCE_VOXELS;
+                * tree_desc.fruit_side_offset_variance_voxels.max(0.0);
+        let hang_offset = tree_desc.fruit_down_offset_voxels.max(0.0)
+            + unit_hash(seed, leaf_index, 0x68E3_1DA4, leaf_pos)
+                * tree_desc.fruit_down_offset_variance_voxels.max(0.0);
         let apple_pos = leaf_pos_voxels
             + Vec3::new(
                 hang_dir.x * side_offset,
@@ -556,11 +554,8 @@ impl TreePlacementService {
         quantized_leaf_render_data.dedup_by_key(|(pos, _)| *pos);
         let (quantized_leaf_render_positions, leaf_render_local_positions) =
             quantized_leaf_render_data.into_iter().unzip();
-        let quantized_apple_positions = quantized_apple_positions(
-            tree_desc.branching.seed,
-            tree_pos * 256.0,
-            &quantized_leaf_positions,
-        );
+        let quantized_apple_positions =
+            quantized_apple_positions(&tree_desc, tree_pos * 256.0, &quantized_leaf_positions);
 
         CompiledTreePlacement {
             trunk_voxel_edit: VoxelEdit::StampRoundCones {
@@ -1883,6 +1878,27 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fruit_offsets_are_controlled_relative_to_branch_anchors() {
+        let tree_pos_voxels = Vec3::new(100.0, 100.0, 100.0);
+        let branch_anchors = [UVec3::new(110, 120, 100), UVec3::new(90, 130, 100)];
+        let desc = TreeDesc {
+            fruit_spawn_probability: 1.0,
+            fruit_side_offset_voxels: 0.0,
+            fruit_side_offset_variance_voxels: 0.0,
+            fruit_down_offset_voxels: 7.0,
+            fruit_down_offset_variance_voxels: 0.0,
+            ..TreeDesc::default()
+        };
+
+        let fruit = quantized_apple_positions(&desc, tree_pos_voxels, &branch_anchors);
+
+        assert_eq!(
+            fruit,
+            vec![UVec3::new(90, 123, 100), UVec3::new(110, 113, 100)]
+        );
+    }
 
     #[test]
     fn terrain_surface_removal_bvh_reaches_positive_atlas_edge() {

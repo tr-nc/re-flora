@@ -57,6 +57,11 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float leaf_paddle_frequency_wind_knee_bias;
     float leaf_paddle_frequency_min_multiplier;
     float leaf_paddle_frequency_max_multiplier;
+    float fruit_swing_length_voxels;
+    float fruit_swing_max_angle_radians;
+    float fruit_swing_speed;
+    float fruit_swing_speed_variation;
+    float fruit_swing_min_response;
     float leaf_shadow_fragment_opacity;
     float leaf_shadow_strength;
     float leaf_shadow_min_transmittance;
