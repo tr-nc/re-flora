@@ -109,6 +109,16 @@ const TERRAIN_EDIT_PREVIEW_ALPHA: f32 = 0.2;
 // without producing audible output for the user.
 const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 
+fn advance_time_of_day(
+    current_time_of_day: f32,
+    elapsed_ticks: u32,
+    world_tick_seconds: f32,
+    day_cycle_minutes: f32,
+) -> f32 {
+    let time_speed = 1.0 / (day_cycle_minutes * 60.0);
+    (current_time_of_day + elapsed_ticks as f32 * world_tick_seconds * time_speed) % 1.0
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct TerrainSdfColliderRebuildRequest;
 
@@ -125,6 +135,7 @@ pub struct App {
     gpu_profiler: Option<GpuProfiler>,
     gpu_profiler_latest_results: Option<GpuProfilerFrameResults>,
     time_info: TimeInfo,
+    current_time_of_day: f32,
     render_flags: RenderFlags,
     accumulated_mouse_delta: Vec2,
     smoothed_mouse_delta: Vec2,
@@ -987,6 +998,7 @@ impl App {
         if render_flags.enable_flora {
             render_flags.enable_leaves = debug_settings.tree.render_leaves;
         }
+        let current_time_of_day = debug_settings.adjustables.time_of_day.value;
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
             Vec4::new(
@@ -1160,6 +1172,7 @@ impl App {
 
             is_resize_pending: false,
             time_info: TimeInfo::default(),
+            current_time_of_day,
             render_flags,
 
             debug_settings,
@@ -2526,6 +2539,9 @@ impl App {
                 let vsm_blur_radius_changed_by_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value
                         != vsm_blur_radius_before_gui;
+                if time_of_day_changed_by_gui {
+                    self.current_time_of_day = self.debug_settings.adjustables.time_of_day.value;
+                }
                 if time_of_day_changed_by_gui || vsm_blur_radius_changed_by_gui {
                     self.request_vsm_history_reset();
                 }
@@ -2533,16 +2549,12 @@ impl App {
                 // update sun position if auto day/night cycle is enabled
                 let sun_position_updated = sun_update_ticks > 0;
                 if sun_position_updated {
-                    // update time of day based on delta time and day cycle speed
-                    // day_cycle_minutes is the real-world minutes for a full day cycle
-                    // convert to time progression per second: 1.0 / (day_cycle_minutes * 60.0)
-                    let time_speed =
-                        1.0 / (self.debug_settings.adjustables.day_cycle_minutes.value * 60.0);
-                    self.debug_settings.adjustables.time_of_day.value +=
-                        sun_update_ticks as f32 * world_tick_seconds * time_speed;
-
-                    // keep time_of_day in 0.0 to 1.0 range (wrap around)
-                    self.debug_settings.adjustables.time_of_day.value %= 1.0;
+                    self.current_time_of_day = advance_time_of_day(
+                        self.current_time_of_day,
+                        sun_update_ticks,
+                        world_tick_seconds,
+                        self.debug_settings.adjustables.day_cycle_minutes.value,
+                    );
                 }
 
                 if self.render_flags.enable_particles {
@@ -2588,7 +2600,7 @@ impl App {
                 });
 
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
-                    self.debug_settings.adjustables.time_of_day.value,
+                    self.current_time_of_day,
                     self.debug_settings.adjustables.latitude.value,
                     self.debug_settings.adjustables.season.value,
                 );
@@ -3475,9 +3487,20 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{App, CameraControlMode, MouseWheelDollySmoother, OrbitKeyboardPanInput};
+    use super::{
+        advance_time_of_day, App, CameraControlMode, MouseWheelDollySmoother, OrbitKeyboardPanInput,
+    };
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
     use winit::keyboard::KeyCode;
+
+    #[test]
+    fn day_night_clock_advances_without_mutating_its_persisted_start_value() {
+        let persisted_start = 0.25;
+        let current = advance_time_of_day(persisted_start, 600, 0.05, 1.0);
+
+        assert_eq!(persisted_start, 0.25);
+        assert!((current - 0.75).abs() < 1.0e-6);
+    }
 
     #[test]
     fn ambisonics_backend_selects_matching_decoder_backend() {

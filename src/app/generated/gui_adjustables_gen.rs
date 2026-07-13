@@ -460,7 +460,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Sky",
         id: "time_of_day",
         kind: "float",
-        label: "Time of Day",
+        label: "Initial / Manual Time of Day",
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",

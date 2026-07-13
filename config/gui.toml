@@ -826,7 +826,7 @@ value = false
 [[section.param]]
 id = "time_of_day"
 kind = "float"
-label = "Time of Day"
+label = "Initial / Manual Time of Day"
 type = "Float"
 
 [section.param.data]
