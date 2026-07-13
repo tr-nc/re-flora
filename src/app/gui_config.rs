@@ -19,6 +19,46 @@ mod generated {
 
 pub use generated::GuiAdjustables;
 
+pub struct DebugSettings {
+    pub config: GuiConfigFile,
+    pub adjustables: GuiAdjustables,
+    pub wind_sources: Vec<WindSourceGuiValues>,
+    pub tree: TreeGuiConfig,
+}
+
+impl DebugSettings {
+    pub fn load() -> Self {
+        let config = GuiConfigLoader::load();
+        Self::from_config(config)
+    }
+
+    fn from_config(config: GuiConfigFile) -> Self {
+        let adjustables = GuiAdjustables::from_config(&config);
+        let wind_sources = wind_sources_from_config(&config);
+        let tree = config.tree.clone().unwrap_or_else(|| TreeGuiConfig {
+            render_leaves: true,
+            desc: TreeDesc::default(),
+        });
+        Self {
+            config,
+            adjustables,
+            wind_sources,
+            tree,
+        }
+    }
+
+    pub fn save(&mut self, render_leaves: bool) -> std::io::Result<()> {
+        self.tree.render_leaves = render_leaves;
+        self.adjustables.write_to_config(
+            &mut self.config,
+            &self.wind_sources,
+            &self.tree.desc,
+            self.tree.render_leaves,
+        );
+        GuiConfigLoader::save(&self.config)
+    }
+}
+
 fn parse_color(hex: &str) -> Color32 {
     let hex = hex.trim_start_matches('#');
     let (r, g, b, a) = match hex.len() {

@@ -12,6 +12,4 @@ mod world_edits;
 mod world_ops;
 
 pub use app_controller::AppController;
-pub use gui_config::{
-    render_gui_from_config, wind_sources_from_config, GuiAdjustables, WindSourceGuiValues,
-};
+pub use gui_config::{render_gui_from_config, DebugSettings, GuiAdjustables, WindSourceGuiValues};

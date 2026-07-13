@@ -769,7 +769,7 @@ impl App {
         let mut rng = rand::rng();
 
         for tree_pos in tree_positions_3d.iter() {
-            let mut tree_desc = self.debug_tree_desc.clone();
+            let mut tree_desc = self.debug_settings.tree.desc.clone();
             tree_desc.branching.seed = rng.random_range(1..10000);
 
             self.apply_tree_variations(&mut tree_desc, &mut rng);
@@ -854,7 +854,7 @@ impl App {
 
     fn replace_tuned_tree_with_rebuild_mode(&mut self, defer_rebuild: bool) -> Result<()> {
         self.replace_single_tree_with_rebuild_mode(
-            self.debug_tree_desc.clone(),
+            self.debug_settings.tree.desc.clone(),
             self.debug_tree_pos,
             defer_rebuild,
         )
@@ -1502,22 +1502,33 @@ impl App {
         }
         let distribution = SpecialFloraDistributionParams {
             plants_per_release: self
-                .gui_adjustables
+                .debug_settings
+                .adjustables
                 .special_flora_plants_per_release
                 .value
                 .clamp(1, 8),
             cluster_radius_voxels: self
-                .gui_adjustables
+                .debug_settings
+                .adjustables
                 .special_flora_cluster_radius_voxels
                 .value
                 .max(1.0),
             min_spacing_voxels: self
-                .gui_adjustables
+                .debug_settings
+                .adjustables
                 .special_flora_min_spacing_voxels
                 .value
                 .max(0.0),
-            cluster_bias: self.gui_adjustables.special_flora_cluster_bias.value,
-            outlier_chance: self.gui_adjustables.special_flora_outlier_chance.value,
+            cluster_bias: self
+                .debug_settings
+                .adjustables
+                .special_flora_cluster_bias
+                .value,
+            outlier_chance: self
+                .debug_settings
+                .adjustables
+                .special_flora_outlier_chance
+                .value,
         };
         let radius_vox = edit.radius * 256.0;
         let radius_sq = radius_vox * radius_vox;

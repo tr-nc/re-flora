@@ -663,14 +663,16 @@ impl App {
     }
 
     pub(super) fn update_water_sim(&mut self, frame_delta_time: f32, world_tick_seconds: f32) {
-        self.water_sim.apply_gui_adjustables(&self.gui_adjustables);
+        self.water_sim
+            .apply_gui_adjustables(&self.debug_settings.adjustables);
         let max_substeps = if self.water_terrain_work_active() {
             WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS
         } else {
             runtime::WATER_SIM_THREAD_DEFAULT_MAX_SUBSTEPS
         };
         let water_world_tick_multiplier = self
-            .gui_adjustables
+            .debug_settings
+            .adjustables
             .water_world_tick_multiplier
             .value
             .clamp(0.0, 1.0);

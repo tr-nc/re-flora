@@ -105,7 +105,12 @@ impl App {
         stats: &ChunkModifyStats,
         sampled_positions_world: &[Vec3],
     ) {
-        if !self.gui_adjustables.terrain_harvest_particles_enabled.value {
+        if !self
+            .debug_settings
+            .adjustables
+            .terrain_harvest_particles_enabled
+            .value
+        {
             return;
         }
 
@@ -121,7 +126,8 @@ impl App {
         let fallback_base_pos = center + Vec3::new(0.0, 0.03, 0.0);
         let collection_target = self.terrain_harvest_collection_target();
         let flyback_speed = self
-            .gui_adjustables
+            .debug_settings
+            .adjustables
             .terrain_harvest_flyback_speed
             .value
             .max(0.05);
@@ -188,7 +194,11 @@ impl App {
     #[allow(dead_code)]
     fn update_terrain_harvest_particle_collection(&mut self, dt: f32) {
         if dt <= 0.0
-            || !self.gui_adjustables.terrain_harvest_particles_enabled.value
+            || !self
+                .debug_settings
+                .adjustables
+                .terrain_harvest_particles_enabled
+                .value
             || self.terrain_harvest_particle_handles.is_empty()
         {
             return;
@@ -196,7 +206,8 @@ impl App {
 
         let collection_target = self.terrain_harvest_collection_target();
         let flyback_speed = self
-            .gui_adjustables
+            .debug_settings
+            .adjustables
             .terrain_harvest_flyback_speed
             .value
             .max(0.05);
@@ -396,14 +407,14 @@ impl App {
         let total_start = Instant::now();
         let setup_start = Instant::now();
         self.butterfly_emitter_desc =
-            Self::butterfly_desc_from_gui_adjustables(&self.gui_adjustables);
+            Self::butterfly_desc_from_gui_adjustables(&self.debug_settings.adjustables);
         for emitter in &mut self.butterfly_emitters {
             emitter.apply_desc(&self.butterfly_emitter_desc);
         }
         self.ensure_map_butterfly_emitter();
         let wind_time = self.time_info.time_since_start();
         self.particle_system
-            .set_bucket_step_seconds(self.gui_adjustables.world_tick_seconds.value);
+            .set_bucket_step_seconds(self.debug_settings.adjustables.world_tick_seconds.value);
         let setup_ms = setup_start.elapsed().as_secs_f32() * 1000.0;
 
         let emit_start = Instant::now();
@@ -422,7 +433,7 @@ impl App {
             dt,
             wind_time,
         );
-        let world_tick_seconds = self.gui_adjustables.world_tick_seconds.value;
+        let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
         for emitter in &mut self.sprinkler_emitters {
             emitter.set_animation_clock(self.flora_tick, world_tick_seconds);
             emitter.update(&mut self.particle_system, dt, wind_time);
@@ -492,8 +503,12 @@ impl App {
         }
 
         let bounds = self.water_sim.config.collider;
-        let water_particle_size =
-            water_debug_particle_size(self.gui_adjustables.water_particle_quad_size.value);
+        let water_particle_size = water_debug_particle_size(
+            self.debug_settings
+                .adjustables
+                .water_particle_quad_size
+                .value,
+        );
         for particle in self
             .water_sim
             .latest_particles()

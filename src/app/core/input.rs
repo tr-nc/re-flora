@@ -1695,7 +1695,7 @@ impl App {
                 }
                 match self.current_placeable_kind() {
                     PlaceableKind::Tree => {
-                        let mut tree_desc = self.debug_tree_desc.clone();
+                        let mut tree_desc = self.debug_settings.tree.desc.clone();
                         tree_desc.branching.seed = rand::rng().random::<u64>();
                         if let Err(err) = self.add_tree(
                             tree_desc,

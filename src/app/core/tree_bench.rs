@@ -71,7 +71,7 @@ impl TreeBench {
         self.next_sample += 1;
         let sample = self.next_sample;
 
-        let mut tree_desc = app.debug_tree_desc.clone();
+        let mut tree_desc = app.debug_settings.tree.desc.clone();
         let t = if self.samples <= 1 {
             0.0
         } else {
@@ -79,10 +79,12 @@ impl TreeBench {
         };
         tree_desc.branching.initial_length = 32.0 + t * 64.0;
         tree_desc.branching.seed = 122;
-        app.debug_tree_desc = tree_desc;
+        app.debug_settings.tree.desc = tree_desc;
 
         let start = Instant::now();
-        match app.replace_single_tree_deferred(app.debug_tree_desc.clone(), app.debug_tree_pos) {
+        match app
+            .replace_single_tree_deferred(app.debug_settings.tree.desc.clone(), app.debug_tree_pos)
+        {
             Ok(()) => {
                 let enqueue_elapsed_ms = start.elapsed().as_secs_f32() * 1000.0;
                 log::info!(
@@ -90,8 +92,8 @@ impl TreeBench {
                     sample,
                     self.samples,
                     enqueue_elapsed_ms,
-                    app.debug_tree_desc.branching.initial_length,
-                    app.debug_tree_desc.branching.seed,
+                    app.debug_settings.tree.desc.branching.initial_length,
+                    app.debug_settings.tree.desc.branching.seed,
                 );
                 if self.rapid {
                     self.results.push(enqueue_elapsed_ms);
@@ -99,8 +101,8 @@ impl TreeBench {
                     self.active_sample = Some(TreeBenchActiveSample {
                         sample,
                         start,
-                        initial_length: app.debug_tree_desc.branching.initial_length,
-                        seed: app.debug_tree_desc.branching.seed,
+                        initial_length: app.debug_settings.tree.desc.branching.initial_length,
+                        seed: app.debug_settings.tree.desc.branching.seed,
                     });
                 }
             }

@@ -35,12 +35,10 @@ use self::vegetation::{TreeRecord, TreeVariationConfig};
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::cpu_solid_voxels::CpuSolidVoxelStore;
 use crate::app::environment;
-use crate::app::gui_config_loader::GuiConfigLoader;
-use crate::app::gui_config_model::GuiConfigFile;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldBuildBackend, WorldEditPlan};
 use crate::app::world_ops;
-use crate::app::{GuiAdjustables, WindSourceGuiValues};
+use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
@@ -57,7 +55,6 @@ use crate::tracer::{
     CloudGuiParams, FruitMotionParams, GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc,
     WindGuiParams, DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
-use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{
@@ -153,10 +150,7 @@ pub struct App {
     contree_builder: ContreeBuilder,
     scene_accel_builder: SceneAccelBuilder,
 
-    // gui config and adjustables
-    gui_config: GuiConfigFile,
-    gui_adjustables: GuiAdjustables,
-    wind_sources: Vec<WindSourceGuiValues>,
+    debug_settings: DebugSettings,
     debug_tree_pos: Vec3,
     config_panel_visible: bool,
     camera_snapshots: CameraSnapshotLibrary,
@@ -188,8 +182,6 @@ pub struct App {
     sun_position_update_tick_accumulator: u32,
     vsm_history_reset_pending: bool,
 
-    #[allow(dead_code)]
-    debug_tree_desc: TreeDesc,
     #[allow(dead_code)]
     tree_variation_config: TreeVariationConfig,
     #[allow(dead_code)]
@@ -697,7 +689,7 @@ impl App {
 
     fn effective_master_volume_gain_db(&self) -> f32 {
         Self::master_volume_gain_db(
-            self.gui_adjustables.master_volume.value,
+            self.debug_settings.adjustables.master_volume.value,
             self.mute_audio_output,
         )
     }
@@ -730,16 +722,24 @@ impl App {
     }
 
     fn update_audio_ray_tracing(&mut self) {
-        self.spatial_sound_manager
-            .set_audio_ray_tracing_enabled(self.gui_adjustables.audio_ray_tracing_enabled.value);
+        self.spatial_sound_manager.set_audio_ray_tracing_enabled(
+            self.debug_settings
+                .adjustables
+                .audio_ray_tracing_enabled
+                .value,
+        );
     }
 
     fn update_spatial_audio_backends(&mut self) {
-        let use_ambisonics = self.gui_adjustables.audio_use_ambisonics.value;
-        let ambisonics_backend =
-            Self::selected_ambisonics_backend(self.gui_adjustables.audio_ambisonics_backend.value);
+        let use_ambisonics = self.debug_settings.adjustables.audio_use_ambisonics.value;
+        let ambisonics_backend = Self::selected_ambisonics_backend(
+            self.debug_settings
+                .adjustables
+                .audio_ambisonics_backend
+                .value,
+        );
         let hrtf_backend = Self::effective_hrtf_backend(
-            Self::selected_hrtf_backend(self.gui_adjustables.audio_hrtf_backend.value),
+            Self::selected_hrtf_backend(self.debug_settings.adjustables.audio_hrtf_backend.value),
             use_ambisonics,
             ambisonics_backend,
         );
@@ -982,21 +982,10 @@ impl App {
 
         let editable_center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
         let debug_tree_pos = Vec3::new(editable_center.x, 0.2, editable_center.z);
-        let gui_config = GuiConfigLoader::load();
-        let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
-        let wind_sources = crate::app::wind_sources_from_config(&gui_config);
-        let debug_tree_desc = gui_config
-            .tree
-            .as_ref()
-            .map(|tree| tree.desc.clone())
-            .unwrap_or_default();
+        let mut debug_settings = DebugSettings::load();
         let mut render_flags = RenderFlags::from(options);
         if render_flags.enable_flora {
-            render_flags.enable_leaves = gui_config
-                .tree
-                .as_ref()
-                .map(|tree| tree.render_leaves)
-                .unwrap_or(true);
+            render_flags.enable_leaves = debug_settings.tree.render_leaves;
         }
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
@@ -1012,18 +1001,19 @@ impl App {
         let leaf_emitters = Vec::new();
         let tree_leaf_emitter_indices = HashMap::new();
         let leaf_emitter_desc = LeafEmitterDesc {
-            color_low: color_to_vec4(gui_adjustables.leaves_bottom_color.value),
-            color_high: color_to_vec4(gui_adjustables.leaves_tip_color.value),
+            color_low: color_to_vec4(debug_settings.adjustables.leaves_bottom_color.value),
+            color_high: color_to_vec4(debug_settings.adjustables.leaves_tip_color.value),
             ..LeafEmitterDesc::default()
         };
         let tree_audio_manager = TreeAudioManager::new(
             spatial_sound_manager.clone(),
-            Self::tree_audio_wind_response_curve(&gui_adjustables),
-            gui_adjustables.tree_wind_volume_db.value,
-            Self::tree_rustle_params(&gui_adjustables),
+            Self::tree_audio_wind_response_curve(&debug_settings.adjustables),
+            debug_settings.adjustables.tree_wind_volume_db.value,
+            Self::tree_rustle_params(&debug_settings.adjustables),
         );
         let butterfly_emitters = Vec::new();
-        let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(&gui_adjustables);
+        let butterfly_emitter_desc =
+            Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
         let sprinkler_records = Vec::new();
         let sprinkler_emitters = Vec::new();
         let next_sprinkler_id = 1;
@@ -1051,7 +1041,10 @@ impl App {
         };
         let water_gui_config_applied = options.water_profile.is_none();
         if water_gui_config_applied {
-            water::apply_water_gui_adjustables_to_config(&mut water_config, &gui_adjustables);
+            water::apply_water_gui_adjustables_to_config(
+                &mut water_config,
+                &debug_settings.adjustables,
+            );
         }
         if let Some(particle_count) = options.water_particles {
             water_config = water_config.with_particle_count(particle_count);
@@ -1083,7 +1076,10 @@ impl App {
         if let Some(j_min) = options.water_j_min {
             water_config = water_config.with_j_min(j_min);
         }
-        water::sync_water_gui_adjustables_from_config(&mut gui_adjustables, &water_config);
+        water::sync_water_gui_adjustables_from_config(
+            &mut debug_settings.adjustables,
+            &water_config,
+        );
 
         log::info!(
             "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
@@ -1166,11 +1162,8 @@ impl App {
             time_info: TimeInfo::default(),
             render_flags,
 
-            gui_config,
-            gui_adjustables,
-            wind_sources,
+            debug_settings,
             debug_tree_pos,
-            debug_tree_desc,
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
             prev_bound: Default::default(),
@@ -1917,7 +1910,7 @@ impl App {
                 let frame_delta_time = self.time_info.delta_time();
                 let time_since_start = self.time_info.time_since_start();
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
-                    self.gui_adjustables.world_tick_seconds.value,
+                    self.debug_settings.adjustables.world_tick_seconds.value,
                 );
                 self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
                 let mut world_tick_steps = 0u32;
@@ -1929,12 +1922,19 @@ impl App {
                 if world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                let active_wind_sources = GuiAdjustables::active_wind_sources(&self.wind_sources);
+                let active_wind_sources =
+                    GuiAdjustables::active_wind_sources(&self.debug_settings.wind_sources);
                 if let Err(err) = self.tree_audio_manager.update(
                     time_since_start,
                     &active_wind_sources,
-                    self.gui_adjustables.wind_audio_attack_decay.value,
-                    self.gui_adjustables.wind_audio_release_decay.value,
+                    self.debug_settings
+                        .adjustables
+                        .wind_audio_attack_decay
+                        .value,
+                    self.debug_settings
+                        .adjustables
+                        .wind_audio_release_decay
+                        .value,
                 ) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
@@ -1957,8 +1957,9 @@ impl App {
                 }
 
                 let mut tree_desc_changed = false;
-                let time_of_day_before_gui = self.gui_adjustables.time_of_day.value;
-                let vsm_blur_radius_before_gui = self.gui_adjustables.vsm_blur_radius.value;
+                let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
+                let vsm_blur_radius_before_gui =
+                    self.debug_settings.adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
                 let item_panel_smooth_icon = self.item_panel_smooth_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
@@ -2118,12 +2119,9 @@ impl App {
                                                     .clicked()
                                                 {
                                                     match self
-                                                        .gui_adjustables
-                                                        .save_to_config_with_wind_sources(
-                                                            &self.wind_sources,
-                                                            &self.debug_tree_desc,
-                                                            self.render_flags.enable_leaves,
-                                                        ) {
+                                                        .debug_settings
+                                                        .save(self.render_flags.enable_leaves)
+                                                    {
                                                         Ok(_) => {
                                                             log::info!("Config saved successfully");
                                                         }
@@ -2149,10 +2147,11 @@ impl App {
                                             egui::containers::scroll_area::ScrollSource::MOUSE_WHEEL,
                                         )
                                         .show(ui, |ui| {
-                                            let gui_config = &self.gui_config;
-                                            let gui_adjustables = &mut self.gui_adjustables;
-                                            let wind_sources = &mut self.wind_sources;
-                                            let debug_tree_desc = &mut self.debug_tree_desc;
+                                            let gui_config = &self.debug_settings.config;
+                                            let gui_adjustables =
+                                                &mut self.debug_settings.adjustables;
+                                            let wind_sources = &mut self.debug_settings.wind_sources;
+                                            let debug_tree_desc = &mut self.debug_settings.tree.desc;
                                             let render_leaves = &mut self.render_flags.enable_leaves;
                                             crate::app::render_gui_from_config(
                                                 ui,
@@ -2208,7 +2207,7 @@ impl App {
                                             );
                                             ui.checkbox(
                                                 &mut self
-                                                    .gui_adjustables
+                                                    .debug_settings.adjustables
                                                     .audio_ray_tracing_enabled
                                                     .value,
                                                 "Enable Audio Ray Tracing",
@@ -2514,15 +2513,15 @@ impl App {
                 self.apply_effective_master_volume_gain("Failed to apply master volume");
                 if let Err(err) = self
                     .tree_audio_manager
-                    .set_wind_volume_db(self.gui_adjustables.tree_wind_volume_db.value)
+                    .set_wind_volume_db(self.debug_settings.adjustables.tree_wind_volume_db.value)
                 {
                     log::error!("Failed to apply tree wind volume: {}", err);
                 }
                 self.tree_audio_manager.set_wind_response_curve(
-                    Self::tree_audio_wind_response_curve(&self.gui_adjustables),
+                    Self::tree_audio_wind_response_curve(&self.debug_settings.adjustables),
                 );
                 self.tree_audio_manager
-                    .set_rustle_params(Self::tree_rustle_params(&self.gui_adjustables));
+                    .set_rustle_params(Self::tree_rustle_params(&self.debug_settings.adjustables));
 
                 if TreeBench::run_next(self) {
                     self.on_terminate(event_loop);
@@ -2550,7 +2549,8 @@ impl App {
                 });
 
                 let mut sun_update_ticks = 0;
-                if self.gui_adjustables.auto_daynight_cycle.value && world_tick_steps > 0 {
+                if self.debug_settings.adjustables.auto_daynight_cycle.value && world_tick_steps > 0
+                {
                     self.sun_position_update_tick_accumulator += world_tick_steps;
                     while self.sun_position_update_tick_accumulator
                         >= SUN_POSITION_UPDATE_INTERVAL_TICKS
@@ -2562,9 +2562,10 @@ impl App {
                 }
 
                 let time_of_day_changed_by_gui =
-                    self.gui_adjustables.time_of_day.value != time_of_day_before_gui;
+                    self.debug_settings.adjustables.time_of_day.value != time_of_day_before_gui;
                 let vsm_blur_radius_changed_by_gui =
-                    self.gui_adjustables.vsm_blur_radius.value != vsm_blur_radius_before_gui;
+                    self.debug_settings.adjustables.vsm_blur_radius.value
+                        != vsm_blur_radius_before_gui;
                 if time_of_day_changed_by_gui || vsm_blur_radius_changed_by_gui {
                     self.request_vsm_history_reset();
                 }
@@ -2575,12 +2576,13 @@ impl App {
                     // update time of day based on delta time and day cycle speed
                     // day_cycle_minutes is the real-world minutes for a full day cycle
                     // convert to time progression per second: 1.0 / (day_cycle_minutes * 60.0)
-                    let time_speed = 1.0 / (self.gui_adjustables.day_cycle_minutes.value * 60.0);
-                    self.gui_adjustables.time_of_day.value +=
+                    let time_speed =
+                        1.0 / (self.debug_settings.adjustables.day_cycle_minutes.value * 60.0);
+                    self.debug_settings.adjustables.time_of_day.value +=
                         sun_update_ticks as f32 * world_tick_seconds * time_speed;
 
                     // keep time_of_day in 0.0 to 1.0 range (wrap around)
-                    self.gui_adjustables.time_of_day.value %= 1.0;
+                    self.debug_settings.adjustables.time_of_day.value %= 1.0;
                 }
 
                 if self.render_flags.enable_particles {
@@ -2626,9 +2628,9 @@ impl App {
                 });
 
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
-                    self.gui_adjustables.time_of_day.value,
-                    self.gui_adjustables.latitude.value,
-                    self.gui_adjustables.season.value,
+                    self.debug_settings.adjustables.time_of_day.value,
+                    self.debug_settings.adjustables.latitude.value,
+                    self.debug_settings.adjustables.season.value,
                 );
                 let sun_dir = get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
 
@@ -2680,239 +2682,454 @@ impl App {
 
                 self.render_flags.enable_leaves &= self.render_flags.enable_flora;
                 let update_shadow_map = self.render_flags.enable_shadows;
-                let wind_gui_params = Self::wind_gui_params(&self.wind_sources);
+                let wind_gui_params = Self::wind_gui_params(&self.debug_settings.wind_sources);
                 let cloud_gui_params = CloudGuiParams {
                     // Disabled for now; infrastructure kept for easy re-enable.
                     enabled: false,
-                    coverage: self.gui_adjustables.cloud_coverage.value,
-                    density: self.gui_adjustables.cloud_density.value,
-                    bottom_height: self.gui_adjustables.cloud_bottom_height.value,
-                    top_height: self.gui_adjustables.cloud_top_height.value,
-                    shape_scale: self.gui_adjustables.cloud_shape_scale.value,
-                    detail_scale: self.gui_adjustables.cloud_detail_scale.value,
-                    detail_strength: self.gui_adjustables.cloud_detail_strength.value,
-                    wind_speed: self.gui_adjustables.cloud_wind_speed.value,
-                    primary_steps: self.gui_adjustables.cloud_primary_steps.value,
-                    light_steps: self.gui_adjustables.cloud_light_steps.value,
-                    temporal_alpha: self.gui_adjustables.cloud_temporal_alpha.value,
-                    absorption: self.gui_adjustables.cloud_absorption.value,
-                    phase_eccentricity: self.gui_adjustables.cloud_phase_eccentricity.value,
-                    silver_intensity: self.gui_adjustables.cloud_silver_intensity.value,
-                    max_distance: self.gui_adjustables.cloud_max_distance.value,
+                    coverage: self.debug_settings.adjustables.cloud_coverage.value,
+                    density: self.debug_settings.adjustables.cloud_density.value,
+                    bottom_height: self.debug_settings.adjustables.cloud_bottom_height.value,
+                    top_height: self.debug_settings.adjustables.cloud_top_height.value,
+                    shape_scale: self.debug_settings.adjustables.cloud_shape_scale.value,
+                    detail_scale: self.debug_settings.adjustables.cloud_detail_scale.value,
+                    detail_strength: self.debug_settings.adjustables.cloud_detail_strength.value,
+                    wind_speed: self.debug_settings.adjustables.cloud_wind_speed.value,
+                    primary_steps: self.debug_settings.adjustables.cloud_primary_steps.value,
+                    light_steps: self.debug_settings.adjustables.cloud_light_steps.value,
+                    temporal_alpha: self.debug_settings.adjustables.cloud_temporal_alpha.value,
+                    absorption: self.debug_settings.adjustables.cloud_absorption.value,
+                    phase_eccentricity: self
+                        .debug_settings
+                        .adjustables
+                        .cloud_phase_eccentricity
+                        .value,
+                    silver_intensity: self.debug_settings.adjustables.cloud_silver_intensity.value,
+                    max_distance: self.debug_settings.adjustables.cloud_max_distance.value,
                     // Disabled for now; restore original expression to re-enable.
                     shadows_enabled: false,
-                    shadow_strength: self.gui_adjustables.cloud_shadow_strength.value,
+                    shadow_strength: self.debug_settings.adjustables.cloud_shadow_strength.value,
                     shadow_min_transmittance: self
-                        .gui_adjustables
+                        .debug_settings
+                        .adjustables
                         .cloud_shadow_min_transmittance
                         .value,
-                    shadow_steps: self.gui_adjustables.cloud_shadow_steps.value,
+                    shadow_steps: self.debug_settings.adjustables.cloud_shadow_steps.value,
                 };
 
                 self.tracer
                     .update_buffers(
                         &self.time_info,
-                        self.gui_adjustables.debug_float.value,
-                        self.gui_adjustables.debug_bool.value,
-                        self.gui_adjustables.debug_uint.value,
-                        self.gui_adjustables.terrain_shadow_use_vsm.value,
+                        self.debug_settings.adjustables.debug_float.value,
+                        self.debug_settings.adjustables.debug_bool.value,
+                        self.debug_settings.adjustables.debug_uint.value,
+                        self.debug_settings.adjustables.terrain_shadow_use_vsm.value,
                         Vec3::new(
-                            self.gui_adjustables.flora_instance_hue_offset.value,
-                            self.gui_adjustables.flora_instance_saturation_offset.value,
-                            self.gui_adjustables.flora_instance_value_offset.value,
+                            self.debug_settings
+                                .adjustables
+                                .flora_instance_hue_offset
+                                .value,
+                            self.debug_settings
+                                .adjustables
+                                .flora_instance_saturation_offset
+                                .value,
+                            self.debug_settings
+                                .adjustables
+                                .flora_instance_value_offset
+                                .value,
                         ),
                         Vec3::new(
-                            self.gui_adjustables.flora_voxel_hue_offset.value,
-                            self.gui_adjustables.flora_voxel_saturation_offset.value,
-                            self.gui_adjustables.flora_voxel_value_offset.value,
+                            self.debug_settings.adjustables.flora_voxel_hue_offset.value,
+                            self.debug_settings
+                                .adjustables
+                                .flora_voxel_saturation_offset
+                                .value,
+                            self.debug_settings
+                                .adjustables
+                                .flora_voxel_value_offset
+                                .value,
                         ),
                         Vec3::new(
-                            self.gui_adjustables.grass_bottom_dark_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.grass_bottom_dark_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.grass_bottom_dark_color.value.b() as f32 / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_bottom_dark_color
+                                .value
+                                .r() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_bottom_dark_color
+                                .value
+                                .g() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_bottom_dark_color
+                                .value
+                                .b() as f32
+                                / 255.0,
                         ),
                         Vec3::new(
-                            self.gui_adjustables.grass_bottom_light_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.grass_bottom_light_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.grass_bottom_light_color.value.b() as f32 / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_bottom_light_color
+                                .value
+                                .r() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_bottom_light_color
+                                .value
+                                .g() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_bottom_light_color
+                                .value
+                                .b() as f32
+                                / 255.0,
                         ),
                         Vec3::new(
-                            self.gui_adjustables.grass_tip_dark_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.grass_tip_dark_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.grass_tip_dark_color.value.b() as f32 / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_tip_dark_color
+                                .value
+                                .r() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_tip_dark_color
+                                .value
+                                .g() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_tip_dark_color
+                                .value
+                                .b() as f32
+                                / 255.0,
                         ),
                         Vec3::new(
-                            self.gui_adjustables.grass_tip_light_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.grass_tip_light_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.grass_tip_light_color.value.b() as f32 / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_tip_light_color
+                                .value
+                                .r() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_tip_light_color
+                                .value
+                                .g() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .grass_tip_light_color
+                                .value
+                                .b() as f32
+                                / 255.0,
                         ),
                         world_tick_seconds,
                         update_shadow_map,
-                        self.gui_adjustables.lens_flare_intensity.value,
-                        self.gui_adjustables.lens_flare_sun_pixel_scale.value,
+                        self.debug_settings.adjustables.lens_flare_intensity.value,
+                        self.debug_settings
+                            .adjustables
+                            .lens_flare_sun_pixel_scale
+                            .value,
                         GlassGuiParams {
                             tint: Vec3::new(
-                                self.gui_adjustables.glass_tint.value.r() as f32 / 255.0,
-                                self.gui_adjustables.glass_tint.value.g() as f32 / 255.0,
-                                self.gui_adjustables.glass_tint.value.b() as f32 / 255.0,
+                                self.debug_settings.adjustables.glass_tint.value.r() as f32 / 255.0,
+                                self.debug_settings.adjustables.glass_tint.value.g() as f32 / 255.0,
+                                self.debug_settings.adjustables.glass_tint.value.b() as f32 / 255.0,
                             ),
                             reflection_strength: self
-                                .gui_adjustables
+                                .debug_settings
+                                .adjustables
                                 .glass_reflection_strength
                                 .value,
-                            ssr_strength: self.gui_adjustables.glass_ssr_strength.value,
-                            ssr_steps: self.gui_adjustables.glass_ssr_steps.value,
+                            ssr_strength: self.debug_settings.adjustables.glass_ssr_strength.value,
+                            ssr_steps: self.debug_settings.adjustables.glass_ssr_steps.value,
                             per_voxel_reflection: self
-                                .gui_adjustables
+                                .debug_settings
+                                .adjustables
                                 .glass_per_voxel_reflection
                                 .value,
                             ssr_min_hit_thickness_voxels: self
-                                .gui_adjustables
+                                .debug_settings
+                                .adjustables
                                 .glass_ssr_min_hit_thickness_voxels
                                 .value,
                             ssr_footprint_pixels: self
-                                .gui_adjustables
+                                .debug_settings
+                                .adjustables
                                 .glass_ssr_footprint_pixels
                                 .value,
                             refraction_strength: self
-                                .gui_adjustables
+                                .debug_settings
+                                .adjustables
                                 .glass_refraction_strength
                                 .value,
-                            alpha: self.gui_adjustables.glass_alpha.value,
-                            glint_strength: self.gui_adjustables.glass_glint_strength.value,
+                            alpha: self.debug_settings.adjustables.glass_alpha.value,
+                            glint_strength: self
+                                .debug_settings
+                                .adjustables
+                                .glass_glint_strength
+                                .value,
                         },
-                        self.gui_adjustables.wind_directional_bias_fraction.value,
-                        self.gui_adjustables.wind_turbulence_fraction.value,
-                        self.gui_adjustables.grass_vibration_amplitude_voxels.value,
-                        self.gui_adjustables.grass_vibration_primary_speed.value,
-                        self.gui_adjustables.grass_vibration_secondary_speed.value,
-                        self.gui_adjustables.grass_natural_bend_min_voxels.value,
-                        self.gui_adjustables.grass_natural_bend_max_voxels.value,
-                        self.gui_adjustables.flora_bend_height_power.value,
-                        self.gui_adjustables.leaf_paddle_amplitude_voxels.value,
-                        self.gui_adjustables.leaf_paddle_primary_speed.value,
-                        self.gui_adjustables.leaf_paddle_secondary_speed.value,
-                        self.gui_adjustables
+                        self.debug_settings
+                            .adjustables
+                            .wind_directional_bias_fraction
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .wind_turbulence_fraction
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .grass_vibration_amplitude_voxels
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .grass_vibration_primary_speed
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .grass_vibration_secondary_speed
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .grass_natural_bend_min_voxels
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .grass_natural_bend_max_voxels
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .flora_bend_height_power
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .leaf_paddle_amplitude_voxels
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .leaf_paddle_primary_speed
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .leaf_paddle_secondary_speed
+                            .value,
+                        self.debug_settings
+                            .adjustables
                             .leaf_paddle_amplitude_wind_start_strength
                             .value,
-                        self.gui_adjustables
+                        self.debug_settings
+                            .adjustables
                             .leaf_paddle_amplitude_wind_full_strength
                             .value,
-                        self.gui_adjustables
+                        self.debug_settings
+                            .adjustables
                             .leaf_paddle_amplitude_wind_knee_bias
                             .value,
-                        self.gui_adjustables
+                        self.debug_settings
+                            .adjustables
                             .leaf_paddle_frequency_wind_start_strength
                             .value,
-                        self.gui_adjustables
+                        self.debug_settings
+                            .adjustables
                             .leaf_paddle_frequency_wind_full_strength
                             .value,
-                        self.gui_adjustables
+                        self.debug_settings
+                            .adjustables
                             .leaf_paddle_frequency_wind_knee_bias
                             .value,
-                        self.gui_adjustables
+                        self.debug_settings
+                            .adjustables
                             .leaf_paddle_frequency_min_multiplier
                             .value,
-                        self.gui_adjustables
+                        self.debug_settings
+                            .adjustables
                             .leaf_paddle_frequency_max_multiplier
                             .value,
                         FruitMotionParams {
-                            swing_length_voxels: self.debug_tree_desc.fruit_swing_length_voxels,
+                            swing_length_voxels: self
+                                .debug_settings
+                                .tree
+                                .desc
+                                .fruit_swing_length_voxels,
                             max_angle_radians: self
-                                .debug_tree_desc
+                                .debug_settings
+                                .tree
+                                .desc
                                 .fruit_swing_max_angle_degrees
                                 .to_radians(),
-                            swing_speed: self.debug_tree_desc.fruit_swing_speed,
-                            speed_variation: self.debug_tree_desc.fruit_swing_speed_variation,
-                            min_response: self.debug_tree_desc.fruit_swing_min_response,
+                            swing_speed: self.debug_settings.tree.desc.fruit_swing_speed,
+                            speed_variation: self
+                                .debug_settings
+                                .tree
+                                .desc
+                                .fruit_swing_speed_variation,
+                            min_response: self.debug_settings.tree.desc.fruit_swing_min_response,
                         },
-                        self.gui_adjustables.leaf_shadow_fragment_opacity.value,
-                        self.gui_adjustables.leaf_shadow_strength.value,
-                        self.gui_adjustables.leaf_shadow_min_transmittance.value,
-                        self.gui_adjustables.leaf_shadow_filter_radius_texels.value,
+                        self.debug_settings
+                            .adjustables
+                            .leaf_shadow_fragment_opacity
+                            .value,
+                        self.debug_settings.adjustables.leaf_shadow_strength.value,
+                        self.debug_settings
+                            .adjustables
+                            .leaf_shadow_min_transmittance
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .leaf_shadow_filter_radius_texels
+                            .value,
                         wind_gui_params,
                         cloud_gui_params,
                         self.flora_tick,
                         FLORA_SPROUT_DELAY_TICKS,
                         FLORA_FULL_GROWTH_TICKS,
                         self.time_info.time_since_start_duration().as_millis() as u32,
-                        self.gui_adjustables.flora_spawn_duration_seconds.value,
-                        self.gui_adjustables.flora_spawn_rise_fraction.value,
-                        self.gui_adjustables.flora_spawn_overshoot_min_voxels.value,
-                        self.gui_adjustables.flora_spawn_overshoot_max_voxels.value,
-                        self.gui_adjustables.flora_spawn_stagger_seconds.value,
+                        self.debug_settings
+                            .adjustables
+                            .flora_spawn_duration_seconds
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .flora_spawn_rise_fraction
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .flora_spawn_overshoot_min_voxels
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .flora_spawn_overshoot_max_voxels
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .flora_spawn_stagger_seconds
+                            .value,
                         sun_dir,
-                        self.gui_adjustables.sun_size.value,
+                        self.debug_settings.adjustables.sun_size.value,
                         Vec3::new(
-                            self.gui_adjustables.sun_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.sun_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.sun_color.value.b() as f32 / 255.0,
+                            self.debug_settings.adjustables.sun_color.value.r() as f32 / 255.0,
+                            self.debug_settings.adjustables.sun_color.value.g() as f32 / 255.0,
+                            self.debug_settings.adjustables.sun_color.value.b() as f32 / 255.0,
                         ),
-                        self.gui_adjustables.sun_luminance.value,
-                        self.gui_adjustables.sun_display_luminance.value,
+                        self.debug_settings.adjustables.sun_luminance.value,
+                        self.debug_settings.adjustables.sun_display_luminance.value,
                         sun_altitude,
                         sun_azimuth,
                         Vec3::new(
-                            self.gui_adjustables.ambient_light.value.r() as f32 / 255.0,
-                            self.gui_adjustables.ambient_light.value.g() as f32 / 255.0,
-                            self.gui_adjustables.ambient_light.value.b() as f32 / 255.0,
+                            self.debug_settings.adjustables.ambient_light.value.r() as f32 / 255.0,
+                            self.debug_settings.adjustables.ambient_light.value.g() as f32 / 255.0,
+                            self.debug_settings.adjustables.ambient_light.value.b() as f32 / 255.0,
                         ),
-                        self.gui_adjustables.temporal_position_phi.value,
-                        self.gui_adjustables.temporal_alpha.value,
-                        self.gui_adjustables.phi_c.value,
-                        self.gui_adjustables.phi_n.value,
-                        self.gui_adjustables.phi_p.value,
-                        self.gui_adjustables.min_phi_z.value,
-                        self.gui_adjustables.max_phi_z.value,
-                        self.gui_adjustables.phi_z_stable_sample_count.value,
-                        self.gui_adjustables.is_changing_lum_phi.value,
-                        self.gui_adjustables.is_spatial_denoising_enabled.value,
-                        self.gui_adjustables.a_trous_iteration_count.value,
-                        self.gui_adjustables.god_ray_max_depth.value,
-                        self.gui_adjustables.god_ray_max_checks.value,
-                        self.gui_adjustables.god_ray_weight.value,
+                        self.debug_settings.adjustables.temporal_position_phi.value,
+                        self.debug_settings.adjustables.temporal_alpha.value,
+                        self.debug_settings.adjustables.phi_c.value,
+                        self.debug_settings.adjustables.phi_n.value,
+                        self.debug_settings.adjustables.phi_p.value,
+                        self.debug_settings.adjustables.min_phi_z.value,
+                        self.debug_settings.adjustables.max_phi_z.value,
+                        self.debug_settings
+                            .adjustables
+                            .phi_z_stable_sample_count
+                            .value,
+                        self.debug_settings.adjustables.is_changing_lum_phi.value,
+                        self.debug_settings
+                            .adjustables
+                            .is_spatial_denoising_enabled
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .a_trous_iteration_count
+                            .value,
+                        self.debug_settings.adjustables.god_ray_max_depth.value,
+                        self.debug_settings.adjustables.god_ray_max_checks.value,
+                        self.debug_settings.adjustables.god_ray_weight.value,
                         Vec3::new(
-                            self.gui_adjustables.sun_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.sun_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.sun_color.value.b() as f32 / 255.0,
+                            self.debug_settings.adjustables.sun_color.value.r() as f32 / 255.0,
+                            self.debug_settings.adjustables.sun_color.value.g() as f32 / 255.0,
+                            self.debug_settings.adjustables.sun_color.value.b() as f32 / 255.0,
                         ),
-                        self.gui_adjustables.starlight_iterations.value,
-                        self.gui_adjustables.starlight_formuparam.value,
-                        self.gui_adjustables.starlight_volsteps.value,
-                        self.gui_adjustables.starlight_stepsize.value,
-                        self.gui_adjustables.starlight_zoom.value,
-                        self.gui_adjustables.starlight_tile.value,
-                        self.gui_adjustables.starlight_speed.value,
-                        self.gui_adjustables.starlight_brightness.value,
-                        self.gui_adjustables.starlight_darkmatter.value,
-                        self.gui_adjustables.starlight_distfading.value,
-                        self.gui_adjustables.starlight_saturation.value,
+                        self.debug_settings.adjustables.starlight_iterations.value,
+                        self.debug_settings.adjustables.starlight_formuparam.value,
+                        self.debug_settings.adjustables.starlight_volsteps.value,
+                        self.debug_settings.adjustables.starlight_stepsize.value,
+                        self.debug_settings.adjustables.starlight_zoom.value,
+                        self.debug_settings.adjustables.starlight_tile.value,
+                        self.debug_settings.adjustables.starlight_speed.value,
+                        self.debug_settings.adjustables.starlight_brightness.value,
+                        self.debug_settings.adjustables.starlight_darkmatter.value,
+                        self.debug_settings.adjustables.starlight_distfading.value,
+                        self.debug_settings.adjustables.starlight_saturation.value,
                         Vec3::new(
-                            self.gui_adjustables.voxel_dirt_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.voxel_dirt_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.voxel_dirt_color.value.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
-                            self.gui_adjustables.voxel_sand_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.voxel_sand_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.voxel_sand_color.value.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
-                            self.gui_adjustables.voxel_cherry_wood_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.voxel_cherry_wood_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.voxel_cherry_wood_color.value.b() as f32 / 255.0,
-                        ),
-                        Vec3::new(
-                            self.gui_adjustables.voxel_oak_wood_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.voxel_oak_wood_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.voxel_oak_wood_color.value.b() as f32 / 255.0,
+                            self.debug_settings.adjustables.voxel_dirt_color.value.r() as f32
+                                / 255.0,
+                            self.debug_settings.adjustables.voxel_dirt_color.value.g() as f32
+                                / 255.0,
+                            self.debug_settings.adjustables.voxel_dirt_color.value.b() as f32
+                                / 255.0,
                         ),
                         Vec3::new(
-                            self.gui_adjustables.voxel_rock_color.value.r() as f32 / 255.0,
-                            self.gui_adjustables.voxel_rock_color.value.g() as f32 / 255.0,
-                            self.gui_adjustables.voxel_rock_color.value.b() as f32 / 255.0,
+                            self.debug_settings.adjustables.voxel_sand_color.value.r() as f32
+                                / 255.0,
+                            self.debug_settings.adjustables.voxel_sand_color.value.g() as f32
+                                / 255.0,
+                            self.debug_settings.adjustables.voxel_sand_color.value.b() as f32
+                                / 255.0,
                         ),
-                        self.gui_adjustables.voxel_color_variance.value,
+                        Vec3::new(
+                            self.debug_settings
+                                .adjustables
+                                .voxel_cherry_wood_color
+                                .value
+                                .r() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .voxel_cherry_wood_color
+                                .value
+                                .g() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .voxel_cherry_wood_color
+                                .value
+                                .b() as f32
+                                / 255.0,
+                        ),
+                        Vec3::new(
+                            self.debug_settings
+                                .adjustables
+                                .voxel_oak_wood_color
+                                .value
+                                .r() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .voxel_oak_wood_color
+                                .value
+                                .g() as f32
+                                / 255.0,
+                            self.debug_settings
+                                .adjustables
+                                .voxel_oak_wood_color
+                                .value
+                                .b() as f32
+                                / 255.0,
+                        ),
+                        Vec3::new(
+                            self.debug_settings.adjustables.voxel_rock_color.value.r() as f32
+                                / 255.0,
+                            self.debug_settings.adjustables.voxel_rock_color.value.g() as f32
+                                / 255.0,
+                            self.debug_settings.adjustables.voxel_rock_color.value.b() as f32
+                                / 255.0,
+                        ),
+                        self.debug_settings.adjustables.voxel_color_variance.value,
                         terrain_edit_preview_center,
                         self.player_tools.terrain_edit_radius,
                         terrain_edit_preview_shape,
@@ -2935,19 +3152,47 @@ impl App {
                 for (slot, desc) in flora_color_tables.iter_mut().zip(species::species()) {
                     *slot = match desc.key {
                         "tall_grass" | "short_grass" => grass_flora_height_color_tables(
-                            color_to_vec3(self.gui_adjustables.grass_bottom_dark_color.value),
-                            color_to_vec3(self.gui_adjustables.grass_bottom_light_color.value),
-                            color_to_vec3(self.gui_adjustables.grass_tip_dark_color.value),
-                            color_to_vec3(self.gui_adjustables.grass_tip_light_color.value),
-                        ),
-                        "ember_bloom" => allium_height_color_tables(
-                            color_to_vec3(self.gui_adjustables.ember_bloom_bottom_color.value),
-                            color_to_vec3(self.gui_adjustables.ember_bloom_stem_tip_color.value),
                             color_to_vec3(
-                                self.gui_adjustables.ember_bloom_flower_purple_color.value,
+                                self.debug_settings
+                                    .adjustables
+                                    .grass_bottom_dark_color
+                                    .value,
                             ),
                             color_to_vec3(
-                                self.gui_adjustables
+                                self.debug_settings
+                                    .adjustables
+                                    .grass_bottom_light_color
+                                    .value,
+                            ),
+                            color_to_vec3(
+                                self.debug_settings.adjustables.grass_tip_dark_color.value,
+                            ),
+                            color_to_vec3(
+                                self.debug_settings.adjustables.grass_tip_light_color.value,
+                            ),
+                        ),
+                        "ember_bloom" => allium_height_color_tables(
+                            color_to_vec3(
+                                self.debug_settings
+                                    .adjustables
+                                    .ember_bloom_bottom_color
+                                    .value,
+                            ),
+                            color_to_vec3(
+                                self.debug_settings
+                                    .adjustables
+                                    .ember_bloom_stem_tip_color
+                                    .value,
+                            ),
+                            color_to_vec3(
+                                self.debug_settings
+                                    .adjustables
+                                    .ember_bloom_flower_purple_color
+                                    .value,
+                            ),
+                            color_to_vec3(
+                                self.debug_settings
+                                    .adjustables
                                     .ember_bloom_flower_secondary_color
                                     .value,
                             ),
@@ -2973,16 +3218,19 @@ impl App {
                 let flora_color_tables = &flora_color_tables[..species::species_count()];
 
                 let leaf_color_tables = solid_flora_height_color_tables(
-                    color_to_vec3(self.gui_adjustables.leaves_bottom_color.value),
-                    color_to_vec3(self.gui_adjustables.leaves_tip_color.value),
+                    color_to_vec3(self.debug_settings.adjustables.leaves_bottom_color.value),
+                    color_to_vec3(self.debug_settings.adjustables.leaves_tip_color.value),
                 );
                 let reset_vsm_history = self.vsm_history_reset_pending;
                 let vsm_temporal_alpha = Self::frame_rate_adjusted_vsm_temporal_alpha(
-                    self.gui_adjustables.vsm_temporal_alpha.value,
+                    self.debug_settings.adjustables.vsm_temporal_alpha.value,
                     frame_delta_time,
                 );
                 let leaf_shadow_temporal_alpha = Self::frame_rate_adjusted_vsm_temporal_alpha(
-                    self.gui_adjustables.leaf_shadow_temporal_alpha.value,
+                    self.debug_settings
+                        .adjustables
+                        .leaf_shadow_temporal_alpha
+                        .value,
                     frame_delta_time,
                 );
                 let mut gpu_profiler_for_shadow = self.gpu_profiler.take();
@@ -3003,7 +3251,7 @@ impl App {
                         leaf_color_tables,
                         &self.render_flags,
                         update_shadow_map,
-                        self.gui_adjustables.vsm_blur_radius.value,
+                        self.debug_settings.adjustables.vsm_blur_radius.value,
                         vsm_temporal_alpha,
                         leaf_shadow_temporal_alpha,
                         reset_vsm_history,
@@ -3061,9 +3309,9 @@ impl App {
                     .record_trace_after_shadow_prepass(
                         cmdbuf,
                         self.surface_builder.get_resources(),
-                        self.gui_adjustables.lod_distance.value,
-                        self.gui_adjustables.flora_draw_distance.value,
-                        self.gui_adjustables.grass_render_mode.value,
+                        self.debug_settings.adjustables.lod_distance.value,
+                        self.debug_settings.adjustables.flora_draw_distance.value,
+                        self.debug_settings.adjustables.grass_render_mode.value,
                         self.time_info.time_since_start(),
                         flora_color_tables,
                         leaf_color_tables,
@@ -3196,7 +3444,7 @@ impl App {
                 }
 
                 self.tracer.set_footstep_volume_gain(
-                    -40.0 + self.gui_adjustables.footstep_volume_db.value,
+                    -40.0 + self.debug_settings.adjustables.footstep_volume_db.value,
                 );
                 self.update_camera_for_current_mode(frame_delta_time);
 

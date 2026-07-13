@@ -206,7 +206,7 @@ impl App {
             .iter()
             .map(|sprinkler| (sprinkler.base_position, sprinkler.animation_phase))
             .collect::<Vec<_>>();
-        let tick_seconds = self.gui_adjustables.world_tick_seconds.value;
+        let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
         let mut recorded_count = 0;
         for (base_position, animation_phase) in sprinkler_states {
             let spray_axis =
