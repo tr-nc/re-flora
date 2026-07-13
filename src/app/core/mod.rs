@@ -2118,10 +2118,7 @@ impl App {
                                                     .add(egui::Button::new("Save").small())
                                                     .clicked()
                                                 {
-                                                    match self
-                                                        .debug_settings
-                                                        .save(self.render_flags.enable_leaves)
-                                                    {
+                                                    match self.debug_settings.save() {
                                                         Ok(_) => {
                                                             log::info!("Config saved successfully");
                                                         }
@@ -2147,29 +2144,7 @@ impl App {
                                             egui::containers::scroll_area::ScrollSource::MOUSE_WHEEL,
                                         )
                                         .show(ui, |ui| {
-                                            let gui_config = &self.debug_settings.config;
-                                            let gui_adjustables =
-                                                &mut self.debug_settings.adjustables;
-                                            let wind_sources = &mut self.debug_settings.wind_sources;
-                                            let debug_tree_desc = &mut self.debug_settings.tree.desc;
-                                            let render_leaves = &mut self.render_flags.enable_leaves;
-                                            crate::app::render_gui_from_config(
-                                                ui,
-                                                gui_config,
-                                                gui_adjustables,
-                                                wind_sources,
-                                                |section_name, ui| {
-                                                    if section_name == "Debug" {
-                                                        ui.collapsing("Tree", |ui| {
-                                                            tree_desc_changed |= debug_tree_desc
-                                                                .edit_by_gui_with_leaves_toggle(
-                                                                    ui,
-                                                                    Some(render_leaves),
-                                                                );
-                                                        });
-                                                    }
-                                                },
-                                            );
+                                            tree_desc_changed |= self.debug_settings.draw(ui);
 
                                             ui.add_space(8.0);
                                             ui.separator();
@@ -2197,21 +2172,6 @@ impl App {
                                                 growing_flora_chunk_count
                                             ));
 
-                                            ui.add_space(8.0);
-                                            ui.separator();
-                                            ui.add_space(8.0);
-                                            ui.heading(
-                                                RichText::new("Audio Ray Tracing")
-                                                    .size(16.0)
-                                                    .color(GOLD_ACCENT),
-                                            );
-                                            ui.checkbox(
-                                                &mut self
-                                                    .debug_settings.adjustables
-                                                    .audio_ray_tracing_enabled
-                                                    .value,
-                                                "Enable Audio Ray Tracing",
-                                            );
                                         });
                                 });
                         }
@@ -2680,7 +2640,8 @@ impl App {
                     }
                 }
 
-                self.render_flags.enable_leaves &= self.render_flags.enable_flora;
+                self.render_flags.enable_leaves =
+                    self.render_flags.enable_flora && self.debug_settings.tree.render_leaves;
                 let update_shadow_map = self.render_flags.enable_shadows;
                 let wind_gui_params = Self::wind_gui_params(&self.debug_settings.wind_sources);
                 let cloud_gui_params = CloudGuiParams {

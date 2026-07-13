@@ -47,8 +47,7 @@ impl DebugSettings {
         }
     }
 
-    pub fn save(&mut self, render_leaves: bool) -> std::io::Result<()> {
-        self.tree.render_leaves = render_leaves;
+    pub fn save(&mut self) -> std::io::Result<()> {
         self.adjustables.write_to_config(
             &mut self.config,
             &self.wind_sources,
@@ -56,6 +55,36 @@ impl DebugSettings {
             self.tree.render_leaves,
         );
         GuiConfigLoader::save(&self.config)
+    }
+
+    pub fn draw(&mut self, ui: &mut egui::Ui) -> bool {
+        let Self {
+            config,
+            adjustables,
+            wind_sources,
+            tree,
+        } = self;
+        let mut tree_desc_changed = false;
+        render_gui_from_config(ui, config, adjustables, wind_sources, |section_name, ui| {
+            if section_name == "Debug" {
+                ui.collapsing("Tree", |ui| {
+                    tree_desc_changed |= tree
+                        .desc
+                        .edit_by_gui_with_leaves_toggle(ui, Some(&mut tree.render_leaves));
+                });
+            }
+        });
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.heading("Audio Ray Tracing");
+        ui.checkbox(
+            &mut adjustables.audio_ray_tracing_enabled.value,
+            "Enable Audio Ray Tracing",
+        );
+
+        tree_desc_changed
     }
 }
 
