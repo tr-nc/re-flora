@@ -107,6 +107,7 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
+const TERRAIN_EDIT_PREVIEW_ALPHA: f32 = 0.2;
 // Muted runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
 const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
@@ -2891,7 +2892,7 @@ impl App {
                         self.player_tools.terrain_edit_radius,
                         terrain_edit_preview_shape,
                         terrain_edit_preview_color,
-                        self.gui_adjustables.terrain_edit_preview_alpha.value,
+                        TERRAIN_EDIT_PREVIEW_ALPHA,
                     )
                     .unwrap();
 
