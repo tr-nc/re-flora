@@ -640,6 +640,33 @@ fn draw_leaf_curve_previews(ui: &mut egui::Ui, adjustables: &GuiAdjustables) {
     );
 }
 
+fn is_custom_flora_param(id: &str) -> bool {
+    matches!(
+        id,
+        "grass_natural_bend_min_voxels"
+            | "grass_natural_bend_max_voxels"
+            | "flora_bend_height_power"
+            | "grass_vibration_amplitude_voxels"
+            | "grass_vibration_primary_speed"
+            | "grass_vibration_secondary_speed"
+            | "leaf_paddle_amplitude_voxels"
+            | "leaf_paddle_primary_speed"
+            | "leaf_paddle_secondary_speed"
+            | "leaf_paddle_amplitude_wind_start_strength"
+            | "leaf_paddle_amplitude_wind_full_strength"
+            | "leaf_paddle_amplitude_wind_knee_bias"
+            | "leaf_paddle_frequency_wind_start_strength"
+            | "leaf_paddle_frequency_wind_full_strength"
+            | "leaf_paddle_frequency_wind_knee_bias"
+            | "leaf_paddle_frequency_min_multiplier"
+            | "leaf_paddle_frequency_max_multiplier"
+            | "grass_bottom_dark_color"
+            | "grass_bottom_light_color"
+            | "grass_tip_dark_color"
+            | "grass_tip_light_color"
+    )
+}
+
 fn render_flora_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
     ui.label("Natural Bend");
     ui.add(
@@ -815,6 +842,18 @@ fn render_flora_gui(ui: &mut egui::Ui, adjustables: &mut GuiAdjustables) {
         ui.label("Tip Light");
         ui.color_edit_button_srgba(&mut adjustables.grass_tip_light_color.value);
     });
+}
+
+fn is_custom_wind_param(id: &str) -> bool {
+    id == "wind_source_count"
+        || is_wind_source_param_id(id)
+        || matches!(
+            id,
+            "wind_audio_attack_decay"
+                | "wind_audio_release_decay"
+                | "wind_directional_bias_fraction"
+                | "wind_turbulence_fraction"
+        )
 }
 
 fn render_wind_sources_gui(
@@ -1024,10 +1063,20 @@ pub fn render_gui_from_config(
     for section in &config.section {
         ui.collapsing(&section.name, |ui| {
             if section.name == "Wind" {
+                for param in &section.param {
+                    if !is_custom_wind_param(&param.id) {
+                        render_gui_param_from_config(ui, param, &section.name, adjustables);
+                    }
+                }
                 render_wind_sources_gui(ui, adjustables, wind_sources);
                 return;
             }
             if section.name == "Flora" {
+                for param in &section.param {
+                    if !is_custom_flora_param(&param.id) {
+                        render_gui_param_from_config(ui, param, &section.name, adjustables);
+                    }
+                }
                 render_flora_gui(ui, adjustables);
                 return;
             }
@@ -1105,6 +1154,15 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn custom_sections_fall_back_to_generic_rendering_for_unhandled_params() {
+        assert!(!is_custom_flora_param("special_flora_plants_per_release"));
+        assert!(is_custom_flora_param("grass_natural_bend_min_voxels"));
+        assert!(!is_custom_wind_param("future_wind_setting"));
+        assert!(is_custom_wind_param("wind_audio_attack_decay"));
+        assert!(is_custom_wind_param("wind_source_0_gain"));
     }
 
     #[test]
