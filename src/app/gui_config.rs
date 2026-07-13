@@ -48,13 +48,17 @@ impl DebugSettings {
     }
 
     pub fn save(&mut self) -> std::io::Result<()> {
+        self.sync_config();
+        GuiConfigLoader::save(&self.config)
+    }
+
+    fn sync_config(&mut self) {
         self.adjustables.write_to_config(
             &mut self.config,
             &self.wind_sources,
             &self.tree.desc,
             self.tree.render_leaves,
         );
-        GuiConfigLoader::save(&self.config)
     }
 
     pub fn draw(&mut self, ui: &mut egui::Ui) -> bool {
@@ -117,8 +121,6 @@ fn color_to_hex(color: Color32) -> String {
 }
 
 impl GuiAdjustables {
-    const SAVE_DENYLIST: &'static [&'static str] = &["time_of_day"];
-
     pub fn active_wind_sources(wind_sources: &[WindSourceGuiValues]) -> Vec<WindSource> {
         wind_sources
             .iter()
@@ -130,17 +132,6 @@ impl GuiAdjustables {
                 source
             })
             .collect()
-    }
-
-    pub fn save_to_config_with_wind_sources(
-        &self,
-        wind_sources: &[WindSourceGuiValues],
-        tree_desc: &TreeDesc,
-        render_leaves: bool,
-    ) -> std::io::Result<()> {
-        let mut config = GuiConfigLoader::load();
-        self.write_to_config(&mut config, wind_sources, tree_desc, render_leaves);
-        GuiConfigLoader::save(&config)
     }
 
     fn write_to_config(
@@ -157,9 +148,7 @@ impl GuiAdjustables {
 
         for section in &mut config.section {
             for param in &mut section.param {
-                if Self::SAVE_DENYLIST.contains(&param.id.as_str())
-                    || is_wind_source_param_id(&param.id)
-                {
+                if is_wind_source_param_id(&param.id) {
                     continue;
                 }
 
@@ -242,17 +231,6 @@ impl GuiAdjustables {
                 section.param.extend(wind_source_params(wind_sources));
             }
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn save_to_config(&self) -> std::io::Result<()> {
-        let config = GuiConfigLoader::load();
-        let wind_sources = wind_sources_from_config(&config);
-        let tree = config.tree.unwrap_or_else(|| TreeGuiConfig {
-            render_leaves: true,
-            desc: TreeDesc::default(),
-        });
-        self.save_to_config_with_wind_sources(&wind_sources, &tree.desc, tree.render_leaves)
     }
 
     #[allow(dead_code)]
@@ -1057,10 +1035,7 @@ mod tests {
     fn assert_generic_values_match(config: &GuiConfigFile, adjustables: &GuiAdjustables) {
         for section in &config.section {
             for param in &section.param {
-                if param.id == "time_of_day"
-                    || param.id == "wind_source_count"
-                    || is_wind_source_param_id(&param.id)
-                {
+                if param.id == "wind_source_count" || is_wind_source_param_id(&param.id) {
                     continue;
                 }
 
@@ -1122,19 +1097,17 @@ mod tests {
 
     #[test]
     fn current_debug_settings_write_complete_generic_tree_and_wind_state() {
-        let mut config = GuiConfigLoader::load();
-        let mut adjustables = GuiAdjustables::from_config(&config);
-        adjustables.debug_float.value = 7.25;
-        adjustables.debug_uint.value = 41;
-        adjustables.debug_bool.value = false;
-        adjustables.time_of_day.value = 0.987;
-        adjustables.voxel_dirt_color.value = Color32::from_rgb(12, 34, 56);
-
-        let mut tree_desc = TreeDesc::default();
-        tree_desc.size = 19.5;
-        tree_desc.branching.seed = 9876;
-        tree_desc.fruit_swing_speed = 3.25;
-        let wind_sources = vec![
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        settings.adjustables.debug_float.value = 7.25;
+        settings.adjustables.debug_uint.value = 41;
+        settings.adjustables.debug_bool.value = false;
+        settings.adjustables.time_of_day.value = 0.987;
+        settings.adjustables.voxel_dirt_color.value = Color32::from_rgb(12, 34, 56);
+        settings.tree.render_leaves = false;
+        settings.tree.desc.size = 19.5;
+        settings.tree.desc.branching.seed = 9876;
+        settings.tree.desc.fruit_swing_speed = 3.25;
+        settings.wind_sources = vec![
             WindSourceGuiValues {
                 name: "Primary".to_owned(),
                 muted: false,
@@ -1147,34 +1120,13 @@ mod tests {
             },
         ];
 
-        let saved_time_of_day = config
-            .section
-            .iter()
-            .flat_map(|section| &section.param)
-            .find(|param| param.id == "time_of_day")
-            .and_then(|param| param.value.get_float())
-            .map(|(value, _, _)| value)
-            .unwrap();
-        adjustables.write_to_config(&mut config, &wind_sources, &tree_desc, false);
+        settings.sync_config();
 
-        assert_generic_values_match(&config, &adjustables);
-        assert_eq!(wind_sources_from_config(&config), wind_sources);
+        assert_generic_values_match(&settings.config, &settings.adjustables);
         assert_eq!(
-            config.tree,
-            Some(TreeGuiConfig {
-                render_leaves: false,
-                desc: tree_desc,
-            })
+            wind_sources_from_config(&settings.config),
+            settings.wind_sources
         );
-        let persisted_time_of_day = config
-            .section
-            .iter()
-            .flat_map(|section| &section.param)
-            .find(|param| param.id == "time_of_day")
-            .and_then(|param| param.value.get_float())
-            .map(|(value, _, _)| value)
-            .unwrap();
-        assert_eq!(persisted_time_of_day, saved_time_of_day);
-        assert_ne!(persisted_time_of_day, adjustables.time_of_day.value);
+        assert_eq!(settings.config.tree, Some(settings.tree.clone()));
     }
 }
