@@ -139,6 +139,7 @@ pub struct FallenLeafEmitter {
     leaf_positions: Vec<Vec3>,
     rng: SmallRng,
     spawn_accumulator: f32,
+    active_handles: Vec<ParticleHandle>,
     wind: Wind,
 }
 
@@ -160,6 +161,7 @@ impl FallenLeafEmitter {
             leaf_positions,
             rng,
             spawn_accumulator: 0.0,
+            active_handles: Vec::new(),
             wind: Wind::new(),
         }
     }
@@ -211,7 +213,21 @@ impl FallenLeafEmitter {
             despawn_below_ground: true,
             update: LEAF_UPDATE,
         };
-        let _ = system.spawn(spawn);
+        if let Some(handle) = system.spawn(spawn) {
+            self.active_handles.push(handle);
+        }
+    }
+
+    pub fn despawn_all(&mut self, system: &mut ParticleSystem) {
+        for handle in self.active_handles.drain(..) {
+            let _ = system.despawn(handle);
+        }
+        self.spawn_accumulator = 0.0;
+    }
+
+    fn prune_handles(&mut self, system: &ParticleSystem) {
+        self.active_handles
+            .retain(|handle| system.is_alive_handle(*handle));
     }
 
     fn wind_spawn_multiplier(&self, time: f32) -> f32 {
@@ -229,6 +245,7 @@ impl FallenLeafEmitter {
 
 impl ParticleEmitter for FallenLeafEmitter {
     fn update(&mut self, system: &mut ParticleSystem, dt: f32, time: f32) {
+        self.prune_handles(system);
         if self.spawn_rate <= 0.0 {
             return;
         }
@@ -529,3 +546,22 @@ impl ParticleEmitter for ButterflyEmitter {
 }
 
 // bird emitters and behaviors have been removed; only leaves and butterflies remain
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallen_leaf_emitter_despawns_its_particles() {
+        let mut system = ParticleSystem::new(4);
+        let mut emitter =
+            FallenLeafEmitter::new(Vec3::ZERO, Vec::new(), 1, &LeafEmitterDesc::default());
+
+        emitter.spawn_leaf(&mut system);
+        assert_eq!(system.alive_count(), 1);
+
+        emitter.despawn_all(&mut system);
+        assert_eq!(system.alive_count(), 0);
+        assert!(emitter.active_handles.is_empty());
+    }
+}

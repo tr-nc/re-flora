@@ -413,12 +413,18 @@ impl App {
             dt,
             wind_time,
         );
-        Self::drive_emitters(
-            &mut self.leaf_emitters,
-            &mut self.particle_system,
-            dt,
-            wind_time,
-        );
+        if self.render_flags.enable_leaves {
+            Self::drive_emitters(
+                &mut self.leaf_emitters,
+                &mut self.particle_system,
+                dt,
+                wind_time,
+            );
+        } else {
+            for emitter in &mut self.leaf_emitters {
+                emitter.emitter.despawn_all(&mut self.particle_system);
+            }
+        }
         let world_tick_seconds = self.gui_adjustables.world_tick_seconds.value;
         for emitter in &mut self.sprinkler_emitters {
             emitter.set_animation_clock(self.flora_tick, world_tick_seconds);
