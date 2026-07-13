@@ -2146,6 +2146,9 @@ impl App {
                                             },
                                         );
                                     });
+                                    if let Some(status) = self.debug_settings.save_status() {
+                                        ui.small(status);
+                                    }
 
                                     ui.add_space(4.0);
                                     ui.separator();

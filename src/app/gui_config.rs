@@ -24,6 +24,7 @@ pub struct DebugSettings {
     pub adjustables: GuiAdjustables,
     pub wind_sources: Vec<WindSourceGuiValues>,
     pub tree: TreeGuiConfig,
+    save_status: Option<String>,
 }
 
 impl DebugSettings {
@@ -44,12 +45,22 @@ impl DebugSettings {
             adjustables,
             wind_sources,
             tree,
+            save_status: None,
         }
     }
 
     pub fn save(&mut self) -> std::io::Result<()> {
         self.sync_config();
-        GuiConfigLoader::save(&self.config)
+        let result = GuiConfigLoader::save(&self.config);
+        self.save_status = Some(match &result {
+            Ok(()) => "Settings saved".to_owned(),
+            Err(error) => format!("Save failed: {error}"),
+        });
+        result
+    }
+
+    pub fn save_status(&self) -> Option<&str> {
+        self.save_status.as_deref()
     }
 
     fn sync_config(&mut self) {
@@ -67,6 +78,7 @@ impl DebugSettings {
             adjustables,
             wind_sources,
             tree,
+            ..
         } = self;
         let mut tree_desc_changed = false;
         render_gui_from_config(ui, config, adjustables, wind_sources, |section_name, ui| {
