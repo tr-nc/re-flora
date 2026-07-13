@@ -1,4 +1,4 @@
-use super::apply_water_gui_adjustables_to_config;
+use super::{apply_water_gui_adjustables_to_config, WaterRuntimeOverrides};
 use crate::app::GuiAdjustables;
 use glam::{IVec3, Vec3};
 use re_flora_water::{
@@ -222,8 +222,13 @@ impl AsyncWaterSim {
         }
     }
 
-    pub(crate) fn apply_gui_adjustables(&mut self, gui_adjustables: &GuiAdjustables) {
+    pub(crate) fn apply_gui_adjustables(
+        &mut self,
+        gui_adjustables: &GuiAdjustables,
+        runtime_overrides: &WaterRuntimeOverrides,
+    ) {
         apply_water_gui_adjustables_to_config(&mut self.config, gui_adjustables);
+        runtime_overrides.apply(&mut self.config);
         self.dx = water_config_dx(&self.config);
         if self.config != self.last_sent_config {
             let config = self.config.clone();

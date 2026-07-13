@@ -217,6 +217,7 @@ pub struct App {
     next_sprinkler_id: u32,
     particle_animation_time_sec: f32,
     water_sim: water::AsyncWaterSim,
+    water_runtime_overrides: water::WaterRuntimeOverrides,
     water_terrain_initialized: bool,
     water_terrain_collider_cache_rebuild_pending: bool,
     cpu_solid_voxels: CpuSolidVoxelStore,
@@ -993,7 +994,7 @@ impl App {
 
         let editable_center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
         let debug_tree_pos = Vec3::new(editable_center.x, 0.2, editable_center.z);
-        let mut debug_settings = DebugSettings::load();
+        let debug_settings = DebugSettings::load();
         let mut render_flags = RenderFlags::from(options);
         if render_flags.enable_flora {
             render_flags.enable_leaves = debug_settings.tree.render_leaves;
@@ -1052,46 +1053,14 @@ impl App {
                 .with_grid_dim(world_grid_dim),
         };
         let water_gui_config_applied = options.water_profile.is_none();
-        if water_gui_config_applied {
-            water::apply_water_gui_adjustables_to_config(
-                &mut water_config,
-                &debug_settings.adjustables,
-            );
-        }
-        if let Some(particle_count) = options.water_particles {
-            water_config = water_config.with_particle_count(particle_count);
-        }
-        if let Some(edge_len) = options.water_particle_edge_len {
-            water_config = water_config.with_particle_edge_len(edge_len);
-        }
-        if let Some(grid_dim) = options.water_grid {
-            water_config = water_config.with_cubic_grid_dim(grid_dim);
-        }
-        if let Some(substep_hz) = options.water_substep_hz {
-            water_config = water_config.with_substep_hz(substep_hz);
-        }
-        if let Some(margin_cells) = options.water_terrain_margin_cells {
-            water_config = water_config.with_terrain_collision_margin_cells(margin_cells);
-        }
-        if let Some(damping_per_sec) = options.water_damping {
-            water_config = water_config.with_linear_damping_per_sec(damping_per_sec);
-        }
-        if let Some(damping_per_sec) = options.water_terrain_tangent_damping {
-            water_config = water_config.with_terrain_tangent_damping_per_sec(damping_per_sec);
-        }
-        if let Some(stiffness) = options.water_stiffness {
-            water_config = water_config.with_stiffness(stiffness);
-        }
-        if let Some(gamma) = options.water_gamma {
-            water_config = water_config.with_gamma(gamma);
-        }
-        if let Some(j_min) = options.water_j_min {
-            water_config = water_config.with_j_min(j_min);
-        }
-        water::sync_water_gui_adjustables_from_config(
-            &mut debug_settings.adjustables,
-            &water_config,
+        let water_profile_config = options.water_profile.map(|_| water_config.clone());
+        water::apply_water_gui_adjustables_to_config(
+            &mut water_config,
+            &debug_settings.adjustables,
         );
+        let water_runtime_overrides =
+            water::WaterRuntimeOverrides::from_options(options, water_profile_config);
+        water_runtime_overrides.apply(&mut water_config);
 
         log::info!(
             "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
@@ -1225,6 +1194,7 @@ impl App {
             next_sprinkler_id,
             particle_animation_time_sec: 0.0,
             water_sim,
+            water_runtime_overrides,
             water_terrain_initialized: false,
             water_terrain_collider_cache_rebuild_pending: false,
             cpu_solid_voxels: CpuSolidVoxelStore::default(),
