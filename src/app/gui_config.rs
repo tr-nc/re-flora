@@ -70,6 +70,17 @@ impl GuiAdjustables {
         render_leaves: bool,
     ) -> std::io::Result<()> {
         let mut config = GuiConfigLoader::load();
+        self.write_to_config(&mut config, wind_sources, tree_desc, render_leaves);
+        GuiConfigLoader::save(&config)
+    }
+
+    fn write_to_config(
+        &self,
+        config: &mut GuiConfigFile,
+        wind_sources: &[WindSourceGuiValues],
+        tree_desc: &TreeDesc,
+        render_leaves: bool,
+    ) {
         config.tree = Some(TreeGuiConfig {
             render_leaves,
             desc: tree_desc.clone(),
@@ -162,8 +173,6 @@ impl GuiAdjustables {
                 section.param.extend(wind_source_params(wind_sources));
             }
         }
-
-        GuiConfigLoader::save(&config)
     }
 
     #[allow(dead_code)]
@@ -288,7 +297,7 @@ impl GuiAdjustables {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WindSourceGuiValues {
     pub name: String,
     pub muted: bool,
@@ -969,5 +978,134 @@ pub fn render_gui_from_config(
             }
         });
         after_section(&section.name, ui);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_generic_values_match(config: &GuiConfigFile, adjustables: &GuiAdjustables) {
+        for section in &config.section {
+            for param in &section.param {
+                if param.id == "time_of_day"
+                    || param.id == "wind_source_count"
+                    || is_wind_source_param_id(&param.id)
+                {
+                    continue;
+                }
+
+                match (&param.kind, &param.value) {
+                    (GuiParamKind::Float, GuiParamValue::Float { value, .. }) => assert_eq!(
+                        GuiAdjustables::get_float_param(adjustables, &param.id)
+                            .map(|field| field.value),
+                        Some(*value),
+                        "float param {}",
+                        param.id
+                    ),
+                    (GuiParamKind::Int, GuiParamValue::Int { value, .. }) => assert_eq!(
+                        GuiAdjustables::get_int_param(adjustables, &param.id)
+                            .map(|field| field.value),
+                        Some(*value),
+                        "int param {}",
+                        param.id
+                    ),
+                    (GuiParamKind::Uint, GuiParamValue::Uint { value, .. }) => assert_eq!(
+                        GuiAdjustables::get_uint_param(adjustables, &param.id)
+                            .map(|field| field.value),
+                        Some(*value),
+                        "uint param {}",
+                        param.id
+                    ),
+                    (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) => assert_eq!(
+                        GuiAdjustables::get_choice_param(adjustables, &param.id)
+                            .map(|field| field.value),
+                        Some(*value),
+                        "choice param {}",
+                        param.id
+                    ),
+                    (GuiParamKind::String, GuiParamValue::String { value }) => assert_eq!(
+                        GuiAdjustables::get_string_param(adjustables, &param.id)
+                            .map(|field| field.value.as_str()),
+                        Some(value.as_str()),
+                        "string param {}",
+                        param.id
+                    ),
+                    (GuiParamKind::Bool, GuiParamValue::Bool { value }) => assert_eq!(
+                        GuiAdjustables::get_bool_param(adjustables, &param.id)
+                            .map(|field| field.value),
+                        Some(*value),
+                        "bool param {}",
+                        param.id
+                    ),
+                    (GuiParamKind::Color, GuiParamValue::Color { value }) => assert_eq!(
+                        GuiAdjustables::get_color_param(adjustables, &param.id)
+                            .map(|field| color_to_hex(field.value)),
+                        Some(value.clone()),
+                        "color param {}",
+                        param.id
+                    ),
+                    _ => panic!("kind/value mismatch for {}", param.id),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn current_debug_settings_write_complete_generic_tree_and_wind_state() {
+        let mut config = GuiConfigLoader::load();
+        let mut adjustables = GuiAdjustables::from_config(&config);
+        adjustables.debug_float.value = 7.25;
+        adjustables.debug_uint.value = 41;
+        adjustables.debug_bool.value = false;
+        adjustables.time_of_day.value = 0.987;
+        adjustables.voxel_dirt_color.value = Color32::from_rgb(12, 34, 56);
+
+        let mut tree_desc = TreeDesc::default();
+        tree_desc.size = 19.5;
+        tree_desc.branching.seed = 9876;
+        tree_desc.fruit_swing_speed = 3.25;
+        let wind_sources = vec![
+            WindSourceGuiValues {
+                name: "Primary".to_owned(),
+                muted: false,
+                source: WindSource::new(45.0, 1.5, 2.0, 4, 2.25, 0.6, 1.2),
+            },
+            WindSourceGuiValues {
+                name: "Muted".to_owned(),
+                muted: true,
+                source: WindSource::new(270.0, 0.75, 0.8, 2, 1.75, 0.4, 0.5),
+            },
+        ];
+
+        let saved_time_of_day = config
+            .section
+            .iter()
+            .flat_map(|section| &section.param)
+            .find(|param| param.id == "time_of_day")
+            .and_then(|param| param.value.get_float())
+            .map(|(value, _, _)| value)
+            .unwrap();
+        adjustables.write_to_config(&mut config, &wind_sources, &tree_desc, false);
+
+        assert_generic_values_match(&config, &adjustables);
+        assert_eq!(wind_sources_from_config(&config), wind_sources);
+        assert_eq!(
+            config.tree,
+            Some(TreeGuiConfig {
+                render_leaves: false,
+                desc: tree_desc,
+            })
+        );
+        let persisted_time_of_day = config
+            .section
+            .iter()
+            .flat_map(|section| &section.param)
+            .find(|param| param.id == "time_of_day")
+            .and_then(|param| param.value.get_float())
+            .map(|(value, _, _)| value)
+            .unwrap();
+        assert_eq!(persisted_time_of_day, saved_time_of_day);
+        assert_ne!(persisted_time_of_day, adjustables.time_of_day.value);
     }
 }

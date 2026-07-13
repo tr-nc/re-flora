@@ -9,7 +9,7 @@ pub struct GuiConfigFile {
     pub section: Vec<GuiSection>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct TreeGuiConfig {
     #[serde(default = "default_true")]
     pub render_leaves: bool,
