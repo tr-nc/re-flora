@@ -5,9 +5,10 @@ use rand::rngs::StdRng;
 use rand::RngExt;
 #[cfg(test)]
 use rand::SeedableRng;
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct BranchingDesc {
     pub seed: u64,
     pub iterations: u32,

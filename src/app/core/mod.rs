@@ -985,6 +985,19 @@ impl App {
         let gui_config = GuiConfigLoader::load();
         let mut gui_adjustables = GuiAdjustables::from_config(&gui_config);
         let wind_sources = crate::app::wind_sources_from_config(&gui_config);
+        let debug_tree_desc = gui_config
+            .tree
+            .as_ref()
+            .map(|tree| tree.desc.clone())
+            .unwrap_or_default();
+        let mut render_flags = RenderFlags::from(options);
+        if render_flags.enable_flora {
+            render_flags.enable_leaves = gui_config
+                .tree
+                .as_ref()
+                .map(|tree| tree.render_leaves)
+                .unwrap_or(true);
+        }
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
             Vec4::new(
@@ -1151,13 +1164,13 @@ impl App {
 
             is_resize_pending: false,
             time_info: TimeInfo::default(),
-            render_flags: RenderFlags::from(options),
+            render_flags,
 
             gui_config,
             gui_adjustables,
             wind_sources,
             debug_tree_pos,
-            debug_tree_desc: TreeDesc::default(),
+            debug_tree_desc,
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
             prev_bound: Default::default(),
@@ -2108,6 +2121,8 @@ impl App {
                                                         .gui_adjustables
                                                         .save_to_config_with_wind_sources(
                                                             &self.wind_sources,
+                                                            &self.debug_tree_desc,
+                                                            self.render_flags.enable_leaves,
                                                         ) {
                                                         Ok(_) => {
                                                             log::info!("Config saved successfully");

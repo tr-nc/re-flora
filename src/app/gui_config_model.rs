@@ -1,9 +1,24 @@
+use crate::tree_gen::TreeDesc;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GuiConfigFile {
     pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<TreeGuiConfig>,
     pub section: Vec<GuiSection>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TreeGuiConfig {
+    #[serde(default = "default_true")]
+    pub render_leaves: bool,
+    #[serde(default)]
+    pub desc: TreeDesc,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -171,5 +186,42 @@ impl GuiParamValue {
         if let GuiParamValue::Color { value: v } = self {
             *v = value;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tree_gui_config_round_trip_preserves_all_tree_fields() {
+        let mut desc = TreeDesc::default();
+        desc.size = 17.25;
+        desc.branching.initial_length = 63.0;
+        desc.leaf_density = 0.123;
+        desc.fruit_swing_speed = 4.5;
+        desc.subdivision_count_max = 8;
+        let config = GuiConfigFile {
+            schema_version: 1,
+            tree: Some(TreeGuiConfig {
+                render_leaves: false,
+                desc: desc.clone(),
+            }),
+            section: Vec::new(),
+        };
+
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        let parsed: GuiConfigFile = toml::from_str(&serialized).unwrap();
+        let parsed_tree = parsed.tree.unwrap();
+
+        assert!(!parsed_tree.render_leaves);
+        assert_eq!(parsed_tree.desc, desc);
+    }
+
+    #[test]
+    fn legacy_gui_config_without_tree_still_loads() {
+        let parsed: GuiConfigFile = toml::from_str("schema_version = 1\nsection = []\n").unwrap();
+
+        assert!(parsed.tree.is_none());
     }
 }

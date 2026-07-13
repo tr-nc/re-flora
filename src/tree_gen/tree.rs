@@ -5,12 +5,14 @@ use crate::util::stable_perpendicular_basis;
 use glam::Vec3;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
 pub const TREE_MIN_TRUNK_THICKNESS: f32 = 1.05;
 const TREE_DEFAULT_SIZE: f32 = 30.0;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(default)]
 pub struct TreeDesc {
     pub branching: BranchingDesc,
     pub size: f32,

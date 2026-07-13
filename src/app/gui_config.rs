@@ -6,7 +6,10 @@ use crate::app::curve_preview::{
     draw_curve_preview, smoothstep_variant_response, CurvePreviewMarker,
 };
 use crate::app::gui_config_loader::GuiConfigLoader;
-use crate::app::gui_config_model::{GuiConfigFile, GuiParam, GuiParamKind, GuiParamValue};
+use crate::app::gui_config_model::{
+    GuiConfigFile, GuiParam, GuiParamKind, GuiParamValue, TreeGuiConfig,
+};
+use crate::tree_gen::TreeDesc;
 use crate::wind::WindSource;
 use egui::Color32;
 
@@ -63,8 +66,14 @@ impl GuiAdjustables {
     pub fn save_to_config_with_wind_sources(
         &self,
         wind_sources: &[WindSourceGuiValues],
+        tree_desc: &TreeDesc,
+        render_leaves: bool,
     ) -> std::io::Result<()> {
         let mut config = GuiConfigLoader::load();
+        config.tree = Some(TreeGuiConfig {
+            render_leaves,
+            desc: tree_desc.clone(),
+        });
 
         for section in &mut config.section {
             for param in &mut section.param {
@@ -161,7 +170,11 @@ impl GuiAdjustables {
     pub fn save_to_config(&self) -> std::io::Result<()> {
         let config = GuiConfigLoader::load();
         let wind_sources = wind_sources_from_config(&config);
-        self.save_to_config_with_wind_sources(&wind_sources)
+        let tree = config.tree.unwrap_or_else(|| TreeGuiConfig {
+            render_leaves: true,
+            desc: TreeDesc::default(),
+        });
+        self.save_to_config_with_wind_sources(&wind_sources, &tree.desc, tree.render_leaves)
     }
 
     #[allow(dead_code)]
