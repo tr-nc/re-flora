@@ -57,10 +57,6 @@ impl GuiConfigLoader {
             .join(CONFIG_FILE_NAME)
     }
 
-    pub fn save(config: &GuiConfigFile) -> std::io::Result<()> {
-        Self::save_to_path(config, &Self::config_path())
-    }
-
     pub(crate) fn save_to_path(config: &GuiConfigFile, config_path: &Path) -> std::io::Result<()> {
         let content = toml::to_string_pretty(config)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;

@@ -12,6 +12,7 @@ use crate::app::gui_config_model::{
 use crate::tree_gen::TreeDesc;
 use crate::wind::WindSource;
 use egui::Color32;
+use std::path::Path;
 
 mod generated {
     include!("generated/gui_adjustables_gen.rs");
@@ -50,8 +51,12 @@ impl DebugSettings {
     }
 
     pub fn save(&mut self) -> std::io::Result<()> {
+        self.save_to_path(&GuiConfigLoader::config_path())
+    }
+
+    fn save_to_path(&mut self, path: &Path) -> std::io::Result<()> {
         self.sync_config();
-        let result = GuiConfigLoader::save(&self.config);
+        let result = GuiConfigLoader::save_to_path(&self.config, path);
         self.save_status = Some(match &result {
             Ok(()) => "Settings saved".to_owned(),
             Err(error) => format!("Save failed: {error}"),
@@ -1198,5 +1203,22 @@ mod tests {
             settings.wind_sources
         );
         assert_eq!(settings.config.tree, Some(settings.tree.clone()));
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+
+        assert_generic_values_match(&reloaded.config, &reloaded.adjustables);
+        assert_eq!(reloaded.wind_sources, settings.wind_sources);
+        assert_eq!(reloaded.tree, settings.tree);
+        assert_eq!(reloaded.adjustables.debug_float.value, 7.25);
+        assert_eq!(reloaded.adjustables.debug_uint.value, 41);
+        assert!(!reloaded.adjustables.debug_bool.value);
+        assert_eq!(
+            reloaded.adjustables.voxel_dirt_color.value,
+            Color32::from_rgb(12, 34, 56)
+        );
+        assert_eq!(reloaded.adjustables.time_of_day.value, 0.987);
     }
 }
