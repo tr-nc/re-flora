@@ -1,5 +1,5 @@
 use crate::app::gui_config_model::{GuiConfigFile, GuiParamKind};
-use std::{collections::HashSet, path::Path};
+use std::{collections::HashSet, io::Write, path::Path};
 
 const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 const CONFIG_FILE_NAME: &str = "gui.toml";
@@ -9,8 +9,10 @@ pub struct GuiConfigLoader;
 
 impl GuiConfigLoader {
     pub fn load() -> GuiConfigFile {
-        let config_path = Self::config_path();
+        Self::load_from_path(&Self::config_path())
+    }
 
+    pub(crate) fn load_from_path(config_path: &Path) -> GuiConfigFile {
         if !config_path.exists() {
             panic!(
                 "GUI config file not found: {}\n\
@@ -36,7 +38,7 @@ impl GuiConfigLoader {
             );
         });
 
-        Self::validate(&config, &config_path);
+        Self::validate(&config, config_path);
 
         log::info!(
             "Loaded GUI config: {} (schema v{}, {} sections, {} params)",
@@ -56,11 +58,28 @@ impl GuiConfigLoader {
     }
 
     pub fn save(config: &GuiConfigFile) -> std::io::Result<()> {
-        let config_path = Self::config_path();
+        Self::save_to_path(config, &Self::config_path())
+    }
+
+    pub(crate) fn save_to_path(config: &GuiConfigFile, config_path: &Path) -> std::io::Result<()> {
         let content = toml::to_string_pretty(config)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let content = Self::normalize_float_assignments(&content, GUI_FLOAT_DECIMALS);
-        std::fs::write(&config_path, content)?;
+        let parent = config_path.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("GUI config path has no parent: {}", config_path.display()),
+            )
+        })?;
+        let mut temporary = tempfile::Builder::new()
+            .prefix(".gui-config-")
+            .suffix(".tmp")
+            .tempfile_in(parent)?;
+        temporary.write_all(content.as_bytes())?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(config_path)
+            .map_err(|error| error.error)?;
         log::info!("Saved GUI config to {}", config_path.display());
         Ok(())
     }
@@ -355,5 +374,24 @@ mod tests {
         let src = "value = true\nmin = 1\nmax = \"#FF00FF\"\n";
         let normalized = GuiConfigLoader::normalize_float_assignments(src, 6);
         assert_eq!(normalized, "value = true\nmin = 1\nmax = \"#FF00FF\"\n");
+    }
+
+    #[test]
+    fn atomic_save_replaces_existing_config_without_leaving_temporary_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        std::fs::write(&path, "incomplete previous contents").unwrap();
+        let mut config = GuiConfigLoader::load();
+        config.tree.as_mut().unwrap().desc.size = 17.5;
+
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(loaded.tree.unwrap().desc.size, 17.5);
+        let files = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(files, vec![std::ffi::OsString::from("gui.toml")]);
     }
 }
