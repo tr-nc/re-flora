@@ -228,7 +228,7 @@ impl TreeDesc {
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.fruit_down_offset_variance_voxels, 0.0..=16.0)
-                    .text("Fruit Down Offset Variation"),
+                    .text("Fruit Down Offset Variation (±)"),
             )
             .changed();
         changed |= ui

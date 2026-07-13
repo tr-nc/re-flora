@@ -431,6 +431,10 @@ fn unit_hash(seed: u64, leaf_index: usize, salt: u32, leaf_pos: UVec3) -> f32 {
     (mix_u32(value) as f32) / (u32::MAX as f32 + 1.0)
 }
 
+fn centered_variation(mean: f32, variation: f32, unit_sample: f32) -> f32 {
+    mean + (unit_sample * 2.0 - 1.0) * variation
+}
+
 fn quantized_apple_positions(
     tree_desc: &TreeDesc,
     tree_pos_voxels: Vec3,
@@ -460,9 +464,11 @@ fn quantized_apple_positions(
         let side_offset = tree_desc.fruit_side_offset_voxels.max(0.0)
             + unit_hash(seed, leaf_index, 0xB529_7A4D, leaf_pos)
                 * tree_desc.fruit_side_offset_variance_voxels.max(0.0);
-        let hang_offset = tree_desc.fruit_down_offset_voxels.max(0.0)
-            + unit_hash(seed, leaf_index, 0x68E3_1DA4, leaf_pos)
-                * tree_desc.fruit_down_offset_variance_voxels.max(0.0);
+        let hang_offset = centered_variation(
+            tree_desc.fruit_down_offset_voxels.max(0.0),
+            tree_desc.fruit_down_offset_variance_voxels.max(0.0),
+            unit_hash(seed, leaf_index, 0x68E3_1DA4, leaf_pos),
+        );
         let apple_pos = leaf_pos_voxels
             + Vec3::new(
                 hang_dir.x * side_offset,
@@ -1878,6 +1884,13 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fruit_down_offset_variation_is_centered_on_configured_offset() {
+        assert_eq!(centered_variation(7.0, 2.0, 0.0), 5.0);
+        assert_eq!(centered_variation(7.0, 2.0, 0.5), 7.0);
+        assert_eq!(centered_variation(7.0, 2.0, 1.0), 9.0);
+    }
 
     #[test]
     fn fruit_offsets_are_controlled_relative_to_branch_anchors() {
