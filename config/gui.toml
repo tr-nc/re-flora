@@ -1,5 +1,52 @@
 schema_version = 1
 
+[tree]
+render_leaves = true
+
+[tree.desc]
+size = 20.0
+trunk_thickness = 0.4
+thickness_reduction = 0.61
+leaves_size_level = 5
+leaf_offset = 2
+leaf_density = 0.049
+leaf_spray_width_ratio = 0.77
+leaf_spray_thickness_ratio = 0.81
+leaf_spray_tip_offset_ratio = 0.74
+fruit_spawn_probability = 0.505
+fruit_side_offset_voxels = 10.0
+fruit_side_offset_variance_voxels = 5.5
+fruit_down_offset_voxels = 1.0
+fruit_down_offset_variance_voxels = 4.0
+fruit_swing_length_voxels = 1.0
+fruit_swing_max_angle_degrees = 60.0
+fruit_swing_speed = 2.1
+fruit_swing_speed_variation = 0.3
+fruit_swing_min_response = 0.18
+enable_subdivision = true
+subdivision_count_min = 5
+subdivision_count_max = 9
+subdivision_randomness = 2.6
+subdivision_randomness_progression = 3.0
+
+[tree.desc.branching]
+seed = 122
+iterations = 7
+branch_start_fraction = 0.16666667
+branch_end_fraction = 1.0
+initial_length = 42.5
+length_dropoff = 0.785
+spread = 0.0
+randomness = 0.315
+vertical_tendency = 1.0
+branch_angle_min = 0.37524578
+branch_angle_max = 0.84648466
+branch_probability = 0.82
+branch_count_min = 2
+branch_count_max = 3
+segment_length_variation = 0.145
+continue_main_axis = false
+
 [[section]]
 name = "Debug"
 
