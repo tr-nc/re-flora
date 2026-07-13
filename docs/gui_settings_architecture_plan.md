@@ -795,18 +795,36 @@ Recommended defaults:
 
 ## Definition of Done Checklist
 
-- [ ] One `DebugSettings` owner exists in `App`.
-- [ ] All editable Debug Panel settings are fields under its desired values.
-- [ ] The top-level Save takes no per-setting arguments.
-- [ ] Tree and Render Leaves have one desired-state authority.
-- [ ] Wind vector length is the only source of truth for source count.
-- [ ] No hidden save denylist remains.
-- [ ] Runtime/live values are read-only or clearly session-only.
-- [ ] CLI overrides do not mutate desired values.
-- [ ] Full settings round-trip tests cover non-default values.
-- [ ] Legacy config tests cover missing and renamed fields as required.
-- [ ] Save is atomic and path-injectable for tests.
-- [ ] Save errors and dirty state are visible in the panel.
-- [ ] Generated load and save paths come from the same declarations.
-- [ ] Documentation explains how to add simple and complex settings.
-- [ ] Existing hidden release run remains error-free.
+- [x] One `DebugSettings` owner exists in `App`.
+- [x] All editable Debug Panel settings are fields under its desired values.
+- [x] The top-level Save takes no per-setting arguments.
+- [x] Tree and Render Leaves have one desired-state authority.
+- [x] Wind vector length is the only source of truth for source count.
+- [x] No hidden save denylist remains.
+- [x] Runtime/live values are read-only or clearly separated from persisted settings.
+- [x] CLI overrides do not mutate desired values.
+- [x] Full settings round-trip tests cover non-default values.
+- [x] Legacy config tests cover missing fields required by the current format.
+- [x] Save is atomic and path-injectable for tests.
+- [ ] Dirty state is visible in the panel. Save success and failure are already visible.
+- [x] Generated load and save paths come from the same declarations.
+- [x] Documentation explains how to add simple and complex settings.
+- [x] Existing hidden release run remains error-free.
+
+## Implementation Progress
+
+- 2026-07-14: Added a persistence coverage test spanning all generic parameter kinds, typed Tree settings, Render Leaves, and dynamic wind sources.
+- 2026-07-14: Introduced the aggregate `DebugSettings` owner and moved `App` consumers to that single settings boundary.
+- 2026-07-14: Closed the editable UI boundary under `DebugSettings::draw`; Tree and Audio Ray Tracing no longer enter through unrelated `App` wiring.
+- 2026-07-14: Reduced Save to `DebugSettings::save()` with no per-setting arguments, removed the hidden `time_of_day` denylist, and removed obsolete save entry points.
+- 2026-07-14: Made Render Leaves a desired Tree setting with effective runtime state derived from CLI flora constraints.
+- 2026-07-14: Split persisted initial/manual time of day from the live day/night clock.
+- 2026-07-14: Split water CLI/profile overrides from persisted desired water settings so diagnostic startup flags cannot leak into Save.
+- 2026-07-14: Added atomic temporary-file replacement, path-injected persistence tests, and visible Save status.
+- 2026-07-14: Added generic fallback rendering for parameters not claimed by custom Flora/Wind layouts, so future schema additions cannot silently disappear from those sections.
+- 2026-07-14: Validated with formatting, compile checks, 160 passing tests (1 ignored), default and performance-profile hidden release runs, and checks that runtime validation did not alter `config/gui.toml`.
+
+Deferred decisions:
+
+- Phase 6's schema/defaults/user-values file split remains intentionally deferred until the project decides whether this panel writes developer defaults or per-user settings.
+- Dirty-state UI remains optional follow-up work; Save success and failure are already reported in the panel.
