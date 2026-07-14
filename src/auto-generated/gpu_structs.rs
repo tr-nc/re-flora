@@ -450,25 +450,22 @@ pub struct GodRayInfo {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GuiInput {
-    pub debug_float: f32,
     pub debug_bool: u32,
-    pub debug_uint: u32,
     pub flora_growth_override_enabled: u32,
     pub flora_growth_override: f32,
     pub terrain_shadow_use_vsm: u32,
-    pub _pad0: [u8; 8],
     pub flora_instance_hsv_offset_max: [f32; 3],
-    pub _pad1: [u8; 4],
+    pub _pad0: [u8; 4],
     pub flora_voxel_hsv_offset_max: [f32; 3],
-    pub _pad2: [u8; 4],
+    pub _pad1: [u8; 4],
     pub grass_bottom_dark: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _pad2: [u8; 4],
     pub grass_bottom_light: [f32; 3],
-    pub _pad4: [u8; 4],
+    pub _pad3: [u8; 4],
     pub grass_tip_dark: [f32; 3],
-    pub _pad5: [u8; 4],
+    pub _pad4: [u8; 4],
     pub grass_tip_light: [f32; 3],
-    pub _pad6: [u8; 4],
+    pub _pad5: [u8; 4],
     pub glass_tint: [f32; 3],
     pub glass_reflection_strength: f32,
     pub glass_ssr_strength: f32,
@@ -537,7 +534,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad7: [u8; 8],
+    pub _pad6: [u8; 8],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).

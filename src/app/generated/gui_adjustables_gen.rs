@@ -38,18 +38,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "debug_float",
-        kind: "float",
-        label: "Debug Float",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
-        id: "debug_uint",
-        kind: "uint",
-        label: "Debug UInt",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "lod_distance",
         kind: "float",
         label: "LOD Distance",
@@ -1458,8 +1446,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 pub struct GuiAdjustables {
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
-    pub debug_float: crate::gui_adjustables::FloatParam,
-    pub debug_uint: crate::gui_adjustables::UintParam,
     pub lod_distance: crate::gui_adjustables::FloatParam,
     pub flora_draw_distance: crate::gui_adjustables::FloatParam,
     pub grass_render_mode: crate::gui_adjustables::UintParam,
@@ -1709,8 +1695,6 @@ impl GuiAdjustables {
 
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut debug_float_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut debug_uint_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut lod_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_draw_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -1959,20 +1943,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             flora_growth_override_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "debug_float" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            debug_float_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "debug_uint" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            debug_uint_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "lod_distance" => {
@@ -3539,8 +3509,6 @@ impl GuiAdjustables {
         GuiAdjustables {
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
-            debug_float: debug_float_field.expect("Missing parameter: debug_float"),
-            debug_uint: debug_uint_field.expect("Missing parameter: debug_uint"),
             lod_distance: lod_distance_field.expect("Missing parameter: lod_distance"),
             flora_draw_distance: flora_draw_distance_field.expect("Missing parameter: flora_draw_distance"),
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
@@ -3783,7 +3751,6 @@ impl GuiAdjustables {
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
-        "debug_float" => Some(&adjustables.debug_float),
         "lod_distance" => Some(&adjustables.lod_distance),
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
@@ -3975,7 +3942,6 @@ pub fn get_int_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) 
 #[allow(dead_code)]
 pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::UintParam> {
     match id {
-        "debug_uint" => Some(&adjustables.debug_uint),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
         "wind_source_count" => Some(&adjustables.wind_source_count),
         "wind_source_0_octaves" => Some(&adjustables.wind_source_0_octaves),
@@ -4068,7 +4034,6 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
-        "debug_float" => Some(&mut adjustables.debug_float),
         "lod_distance" => Some(&mut adjustables.lod_distance),
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
@@ -4260,7 +4225,6 @@ pub fn get_int_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id
 #[allow(dead_code)]
 pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::UintParam> {
     match id {
-        "debug_uint" => Some(&mut adjustables.debug_uint),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
         "wind_source_count" => Some(&mut adjustables.wind_source_count),
         "wind_source_0_octaves" => Some(&mut adjustables.wind_source_0_octaves),

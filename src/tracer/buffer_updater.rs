@@ -262,9 +262,7 @@ impl BufferUpdater {
     #[allow(clippy::too_many_arguments)]
     pub fn update_gui_input(
         resources: &TracerResources,
-        debug_float: f32,
         debug_bool: bool,
-        debug_uint: u32,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
         terrain_shadow_use_vsm: bool,
@@ -319,9 +317,7 @@ impl BufferUpdater {
         resources.wind.wind_sources.fill(&wind_sources)?;
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
-            debug_float,
             debug_bool: debug_bool as u32,
-            debug_uint,
             flora_growth_override_enabled: flora_growth_override_enabled as u32,
             flora_growth_override: flora_growth_override.clamp(0.0, 1.0),
             terrain_shadow_use_vsm: terrain_shadow_use_vsm as u32,

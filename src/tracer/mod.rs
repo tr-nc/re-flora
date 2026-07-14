@@ -976,9 +976,7 @@ impl Tracer {
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
-        debug_float: f32,
         debug_bool: bool,
-        debug_uint: u32,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
         terrain_shadow_use_vsm: bool,
@@ -1146,9 +1144,7 @@ impl Tracer {
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
         BufferUpdater::update_gui_input(
             &self.resources,
-            debug_float,
             debug_bool,
-            debug_uint,
             flora_growth_override_enabled,
             flora_growth_override,
             terrain_shadow_use_vsm,

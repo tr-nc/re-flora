@@ -2666,9 +2666,7 @@ impl App {
                 self.tracer
                     .update_buffers(
                         &self.time_info,
-                        self.debug_settings.adjustables.debug_float.value,
                         self.debug_settings.adjustables.debug_bool.value,
-                        self.debug_settings.adjustables.debug_uint.value,
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled

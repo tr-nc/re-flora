@@ -7,7 +7,7 @@
 /// ```
 /// declare_gui_adjustables! {
 ///     [Debug] {
-///         debug_float: f32 = 0.0, range(0.0..=10.0), "Debug Float",
+///         example_scale: f32 = 1.0, range(0.0..=2.0), "Example Scale",
 ///     }
 /// }
 /// ```
