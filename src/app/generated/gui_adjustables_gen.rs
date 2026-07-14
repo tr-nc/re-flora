@@ -1160,39 +1160,39 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Kochia",
-        id: "kochia_inner_green_color",
+        id: "kochia_inner_yellow_color",
         kind: "color",
-        label: "Inner Green",
+        label: "Inner Yellow",
     },
     GeneratedGuiParamDescriptor {
         section: "Kochia",
-        id: "kochia_middle_red_color",
+        id: "kochia_transition_coral_color",
         kind: "color",
-        label: "Middle Red",
+        label: "Transition Coral",
     },
     GeneratedGuiParamDescriptor {
         section: "Kochia",
-        id: "kochia_outer_pink_color",
+        id: "kochia_outer_red_color",
         kind: "color",
-        label: "Outer Pink",
+        label: "Outer Red",
     },
     GeneratedGuiParamDescriptor {
         section: "Kochia",
-        id: "kochia_green_core_end",
+        id: "kochia_yellow_core_end",
         kind: "float",
-        label: "Green Core End",
+        label: "Yellow Core End",
     },
     GeneratedGuiParamDescriptor {
         section: "Kochia",
-        id: "kochia_pink_shell_start",
+        id: "kochia_red_shell_start",
         kind: "float",
-        label: "Pink Shell Start",
+        label: "Red Shell Start",
     },
     GeneratedGuiParamDescriptor {
         section: "Kochia",
         id: "kochia_instance_color_variation",
         kind: "float",
-        label: "Red/Pink Instance Variation",
+        label: "Red Tone Instance Variation",
     },
     GeneratedGuiParamDescriptor {
         section: "Kochia",
@@ -1633,11 +1633,11 @@ pub struct GuiAdjustables {
     pub ember_bloom_stem_tip_color: crate::gui_adjustables::ColorParam,
     pub ember_bloom_flower_purple_color: crate::gui_adjustables::ColorParam,
     pub ember_bloom_flower_secondary_color: crate::gui_adjustables::ColorParam,
-    pub kochia_inner_green_color: crate::gui_adjustables::ColorParam,
-    pub kochia_middle_red_color: crate::gui_adjustables::ColorParam,
-    pub kochia_outer_pink_color: crate::gui_adjustables::ColorParam,
-    pub kochia_green_core_end: crate::gui_adjustables::FloatParam,
-    pub kochia_pink_shell_start: crate::gui_adjustables::FloatParam,
+    pub kochia_inner_yellow_color: crate::gui_adjustables::ColorParam,
+    pub kochia_transition_coral_color: crate::gui_adjustables::ColorParam,
+    pub kochia_outer_red_color: crate::gui_adjustables::ColorParam,
+    pub kochia_yellow_core_end: crate::gui_adjustables::FloatParam,
+    pub kochia_red_shell_start: crate::gui_adjustables::FloatParam,
     pub kochia_instance_color_variation: crate::gui_adjustables::FloatParam,
     pub kochia_body_wind_response: crate::gui_adjustables::FloatParam,
     pub kochia_branch_jelly_amplitude_voxels: crate::gui_adjustables::FloatParam,
@@ -1882,11 +1882,11 @@ impl GuiAdjustables {
         let mut ember_bloom_stem_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut ember_bloom_flower_purple_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut ember_bloom_flower_secondary_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut kochia_inner_green_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut kochia_middle_red_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut kochia_outer_pink_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut kochia_green_core_end_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut kochia_pink_shell_start_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_inner_yellow_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut kochia_transition_coral_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut kochia_outer_red_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut kochia_yellow_core_end_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_red_shell_start_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_instance_color_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_body_wind_response_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_branch_jelly_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3196,33 +3196,33 @@ impl GuiAdjustables {
                             ember_bloom_flower_secondary_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "kochia_inner_green_color" => {
+                    "kochia_inner_yellow_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            kochia_inner_green_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                            kochia_inner_yellow_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "kochia_middle_red_color" => {
+                    "kochia_transition_coral_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            kochia_middle_red_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                            kochia_transition_coral_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "kochia_outer_pink_color" => {
+                    "kochia_outer_red_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            kochia_outer_pink_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                            kochia_outer_red_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "kochia_green_core_end" => {
+                    "kochia_yellow_core_end" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            kochia_green_core_end_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            kochia_yellow_core_end_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "kochia_pink_shell_start" => {
+                    "kochia_red_shell_start" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            kochia_pink_shell_start_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            kochia_red_shell_start_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "kochia_instance_color_variation" => {
@@ -3696,11 +3696,11 @@ impl GuiAdjustables {
             ember_bloom_stem_tip_color: ember_bloom_stem_tip_color_field.expect("Missing parameter: ember_bloom_stem_tip_color"),
             ember_bloom_flower_purple_color: ember_bloom_flower_purple_color_field.expect("Missing parameter: ember_bloom_flower_purple_color"),
             ember_bloom_flower_secondary_color: ember_bloom_flower_secondary_color_field.expect("Missing parameter: ember_bloom_flower_secondary_color"),
-            kochia_inner_green_color: kochia_inner_green_color_field.expect("Missing parameter: kochia_inner_green_color"),
-            kochia_middle_red_color: kochia_middle_red_color_field.expect("Missing parameter: kochia_middle_red_color"),
-            kochia_outer_pink_color: kochia_outer_pink_color_field.expect("Missing parameter: kochia_outer_pink_color"),
-            kochia_green_core_end: kochia_green_core_end_field.expect("Missing parameter: kochia_green_core_end"),
-            kochia_pink_shell_start: kochia_pink_shell_start_field.expect("Missing parameter: kochia_pink_shell_start"),
+            kochia_inner_yellow_color: kochia_inner_yellow_color_field.expect("Missing parameter: kochia_inner_yellow_color"),
+            kochia_transition_coral_color: kochia_transition_coral_color_field.expect("Missing parameter: kochia_transition_coral_color"),
+            kochia_outer_red_color: kochia_outer_red_color_field.expect("Missing parameter: kochia_outer_red_color"),
+            kochia_yellow_core_end: kochia_yellow_core_end_field.expect("Missing parameter: kochia_yellow_core_end"),
+            kochia_red_shell_start: kochia_red_shell_start_field.expect("Missing parameter: kochia_red_shell_start"),
             kochia_instance_color_variation: kochia_instance_color_variation_field.expect("Missing parameter: kochia_instance_color_variation"),
             kochia_body_wind_response: kochia_body_wind_response_field.expect("Missing parameter: kochia_body_wind_response"),
             kochia_branch_jelly_amplitude_voxels: kochia_branch_jelly_amplitude_voxels_field.expect("Missing parameter: kochia_branch_jelly_amplitude_voxels"),
@@ -3891,8 +3891,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "water_j_min" => Some(&adjustables.water_j_min),
         "water_wall_damping" => Some(&adjustables.water_wall_damping),
         "water_terrain_tangent_damping" => Some(&adjustables.water_terrain_tangent_damping),
-        "kochia_green_core_end" => Some(&adjustables.kochia_green_core_end),
-        "kochia_pink_shell_start" => Some(&adjustables.kochia_pink_shell_start),
+        "kochia_yellow_core_end" => Some(&adjustables.kochia_yellow_core_end),
+        "kochia_red_shell_start" => Some(&adjustables.kochia_red_shell_start),
         "kochia_instance_color_variation" => Some(&adjustables.kochia_instance_color_variation),
         "kochia_body_wind_response" => Some(&adjustables.kochia_body_wind_response),
         "kochia_branch_jelly_amplitude_voxels" => Some(&adjustables.kochia_branch_jelly_amplitude_voxels),
@@ -4016,9 +4016,9 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "ember_bloom_stem_tip_color" => Some(&adjustables.ember_bloom_stem_tip_color),
         "ember_bloom_flower_purple_color" => Some(&adjustables.ember_bloom_flower_purple_color),
         "ember_bloom_flower_secondary_color" => Some(&adjustables.ember_bloom_flower_secondary_color),
-        "kochia_inner_green_color" => Some(&adjustables.kochia_inner_green_color),
-        "kochia_middle_red_color" => Some(&adjustables.kochia_middle_red_color),
-        "kochia_outer_pink_color" => Some(&adjustables.kochia_outer_pink_color),
+        "kochia_inner_yellow_color" => Some(&adjustables.kochia_inner_yellow_color),
+        "kochia_transition_coral_color" => Some(&adjustables.kochia_transition_coral_color),
+        "kochia_outer_red_color" => Some(&adjustables.kochia_outer_red_color),
         "leaves_bottom_color" => Some(&adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&adjustables.voxel_dirt_color),
@@ -4174,8 +4174,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "water_j_min" => Some(&mut adjustables.water_j_min),
         "water_wall_damping" => Some(&mut adjustables.water_wall_damping),
         "water_terrain_tangent_damping" => Some(&mut adjustables.water_terrain_tangent_damping),
-        "kochia_green_core_end" => Some(&mut adjustables.kochia_green_core_end),
-        "kochia_pink_shell_start" => Some(&mut adjustables.kochia_pink_shell_start),
+        "kochia_yellow_core_end" => Some(&mut adjustables.kochia_yellow_core_end),
+        "kochia_red_shell_start" => Some(&mut adjustables.kochia_red_shell_start),
         "kochia_instance_color_variation" => Some(&mut adjustables.kochia_instance_color_variation),
         "kochia_body_wind_response" => Some(&mut adjustables.kochia_body_wind_response),
         "kochia_branch_jelly_amplitude_voxels" => Some(&mut adjustables.kochia_branch_jelly_amplitude_voxels),
@@ -4299,9 +4299,9 @@ pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "ember_bloom_stem_tip_color" => Some(&mut adjustables.ember_bloom_stem_tip_color),
         "ember_bloom_flower_purple_color" => Some(&mut adjustables.ember_bloom_flower_purple_color),
         "ember_bloom_flower_secondary_color" => Some(&mut adjustables.ember_bloom_flower_secondary_color),
-        "kochia_inner_green_color" => Some(&mut adjustables.kochia_inner_green_color),
-        "kochia_middle_red_color" => Some(&mut adjustables.kochia_middle_red_color),
-        "kochia_outer_pink_color" => Some(&mut adjustables.kochia_outer_pink_color),
+        "kochia_inner_yellow_color" => Some(&mut adjustables.kochia_inner_yellow_color),
+        "kochia_transition_coral_color" => Some(&mut adjustables.kochia_transition_coral_color),
+        "kochia_outer_red_color" => Some(&mut adjustables.kochia_outer_red_color),
         "leaves_bottom_color" => Some(&mut adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&mut adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&mut adjustables.voxel_dirt_color),

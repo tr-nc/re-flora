@@ -2112,58 +2112,58 @@ value = "#D36BAE"
 name = "Kochia"
 
 [[section.param]]
-id = "kochia_inner_green_color"
+id = "kochia_inner_yellow_color"
 kind = "color"
-label = "Inner Green"
+label = "Inner Yellow"
 type = "Color"
 
 [section.param.data]
-value = "#577C3B"
+value = "#D6B94C"
 
 [[section.param]]
-id = "kochia_middle_red_color"
+id = "kochia_transition_coral_color"
 kind = "color"
-label = "Middle Red"
+label = "Transition Coral"
 type = "Color"
 
 [section.param.data]
-value = "#CB5361"
+value = "#D46A55"
 
 [[section.param]]
-id = "kochia_outer_pink_color"
+id = "kochia_outer_red_color"
 kind = "color"
-label = "Outer Pink"
+label = "Outer Red"
 type = "Color"
 
 [section.param.data]
-value = "#F08A9E"
+value = "#D9525E"
 
 [[section.param]]
-id = "kochia_green_core_end"
+id = "kochia_yellow_core_end"
 kind = "float"
-label = "Green Core End"
+label = "Yellow Core End"
 type = "Float"
 
 [section.param.data]
-value = 0.34
+value = 0.2
 min = 0
 max = 0.55
 
 [[section.param]]
-id = "kochia_pink_shell_start"
+id = "kochia_red_shell_start"
 kind = "float"
-label = "Pink Shell Start"
+label = "Red Shell Start"
 type = "Float"
 
 [section.param.data]
-value = 0.7
-min = 0.6
+value = 0.78
+min = 0.5
 max = 0.95
 
 [[section.param]]
 id = "kochia_instance_color_variation"
 kind = "float"
-label = "Red/Pink Instance Variation"
+label = "Red Tone Instance Variation"
 type = "Float"
 
 [section.param.data]

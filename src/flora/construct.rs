@@ -48,19 +48,8 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
     struct KochiaVoxel {
         pos: IVec3,
         branch_progress: f32,
+        shell_floor: f32,
         animation_group: u8,
-    }
-
-    fn profile_radius(height_t: f32) -> f32 {
-        if height_t < 0.18 {
-            2.0 + height_t / 0.18 * 1.6
-        } else if height_t < 0.52 {
-            3.6 + (height_t - 0.18) / 0.34 * 1.4
-        } else if height_t < 0.72 {
-            5.0 - (height_t - 0.52) / 0.20 * 0.2
-        } else {
-            4.8 - (height_t - 0.72) / 0.28 * 3.3
-        }
     }
 
     fn smootherstep(value: f32) -> f32 {
@@ -98,6 +87,10 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
         let target = Vec2::new(direction.x * target_radius, direction.y * target_radius);
         let bow = (jitter - 0.5) * 0.9;
         let animation_group = branch_idx as u8 + 1;
+        // Color follows whole branches rather than world height: short, wide branches form the
+        // red side shell from root to tip, while tall inner branches expose a yellow core until
+        // their tips join the red crown. Intermediate branches bridge the two smoothly.
+        let shell_floor = smootherstep((target_radius - 2.2) / 1.8);
 
         for y in 0..height {
             let progress = y as f32 / (height - 1) as f32;
@@ -109,6 +102,7 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
             insert_voxel(KochiaVoxel {
                 pos,
                 branch_progress: progress,
+                shell_floor,
                 animation_group,
             });
 
@@ -132,6 +126,7 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
                 insert_voxel(KochiaVoxel {
                     pos: pos + IVec3::new(side_step.x, 0, side_step.y),
                     branch_progress: progress,
+                    shell_floor,
                     animation_group,
                 });
             }
@@ -146,12 +141,8 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
     let mut mesh = FloraMeshData::new(max_length);
 
     for voxel in voxels.values() {
-        let height_t = voxel.pos.y as f32 / (MAX_HEIGHT - 1) as f32;
-        let radial_distance = Vec2::new(voxel.pos.x as f32, voxel.pos.z as f32).length();
-        let radial_shell = (radial_distance / profile_radius(height_t)).clamp(0.0, 1.0);
-        let tip_shell = voxel.branch_progress.powf(2.2);
-        let lower_green_gate = smootherstep((height_t - 0.06) / 0.36);
-        let shell_depth = radial_shell.max(tip_shell) * lower_green_gate;
+        let tip_shell = smootherstep((voxel.branch_progress - 0.48) / 0.52);
+        let shell_depth = voxel.shell_floor.max(tip_shell);
         let vertex_offset = mesh.vertices.len() as u32;
         append_indexed_cube_data_with_info(
             &mut mesh.vertices,
@@ -291,6 +282,42 @@ mod tests {
             groups.len()
         );
         assert!(!groups.contains(&0));
+    }
+
+    #[test]
+    fn kochia_color_shell_follows_branches() {
+        let mesh = gen_kochia(false).unwrap();
+        let color_gradient = |entry: &crate::tracer::voxel_encoding::FloraVoxelInfoEntry| {
+            (entry.info.packed & 0xff) as f32 / 255.0
+        };
+
+        let outer_gradients = mesh
+            .voxel_infos
+            .iter()
+            .filter(|entry| entry.info.animation_group() >= 13)
+            .map(color_gradient)
+            .collect::<Vec<_>>();
+        assert!(!outer_gradients.is_empty());
+        let outer_branch_min = outer_gradients.into_iter().fold(1.0_f32, f32::min);
+        assert!(outer_branch_min > 0.95, "outer minimum {outer_branch_min}");
+
+        let inner_gradients = mesh
+            .voxel_infos
+            .iter()
+            .filter(|entry| entry.info.animation_group() <= 5)
+            .map(color_gradient)
+            .collect::<Vec<_>>();
+        assert!(inner_gradients.iter().any(|gradient| *gradient < 0.05));
+        assert!(inner_gradients.iter().any(|gradient| *gradient > 0.95));
+
+        let lower_gradients = mesh
+            .voxel_infos
+            .iter()
+            .filter(|entry| entry.pos.y <= 2)
+            .map(color_gradient)
+            .collect::<Vec<_>>();
+        assert!(lower_gradients.iter().any(|gradient| *gradient < 0.05));
+        assert!(lower_gradients.iter().any(|gradient| *gradient > 0.95));
     }
 }
 

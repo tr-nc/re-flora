@@ -3183,26 +3183,20 @@ impl App {
                             color_to_vec3(
                                 self.debug_settings
                                     .adjustables
-                                    .kochia_inner_green_color
+                                    .kochia_inner_yellow_color
                                     .value,
                             ),
                             color_to_vec3(
                                 self.debug_settings
                                     .adjustables
-                                    .kochia_middle_red_color
+                                    .kochia_transition_coral_color
                                     .value,
                             ),
                             color_to_vec3(
-                                self.debug_settings
-                                    .adjustables
-                                    .kochia_outer_pink_color
-                                    .value,
+                                self.debug_settings.adjustables.kochia_outer_red_color.value,
                             ),
-                            self.debug_settings.adjustables.kochia_green_core_end.value,
-                            self.debug_settings
-                                .adjustables
-                                .kochia_pink_shell_start
-                                .value,
+                            self.debug_settings.adjustables.kochia_yellow_core_end.value,
+                            self.debug_settings.adjustables.kochia_red_shell_start.value,
                             self.debug_settings
                                 .adjustables
                                 .kochia_instance_color_variation

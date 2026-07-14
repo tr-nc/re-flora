@@ -177,9 +177,9 @@ vec3 sample_flora_base_color(bool is_grass, uint instance_ty, uint instance_seed
     }
     vec3 dark_height_color = unpack_linear_rgb10(dark_height_color_rgb10);
     if (instance_ty == FLORA_SPECIES_KOCHIA) {
-        vec3 red_variant = unpack_linear_rgb10(pc.height_light_color_rgb10[color_row]);
+        vec3 warm_red_variant = unpack_linear_rgb10(pc.height_light_color_rgb10[color_row]);
         float palette_t = construct_float_01(wellons_hash(instance_seed ^ 0xD1B54A32u));
-        dark_height_color = mix(dark_height_color, red_variant, palette_t);
+        dark_height_color = mix(dark_height_color, warm_red_variant, palette_t);
     }
 
     if (instance_ty == FLORA_SPECIES_EMBER_BLOOM &&
