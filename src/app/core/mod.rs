@@ -53,7 +53,8 @@ use crate::particles::{
 use crate::tracer::{
     allium_height_color_tables, grass_flora_height_color_tables, kochia_color_tables,
     solid_flora_height_color_tables, CloudGuiParams, FruitMotionParams, GlassGuiParams,
-    TerrainRayQuery, Tracer, TracerDesc, WindGuiParams, DIRECT_SUN_SHADOW_SOURCE_ALL,
+    KochiaMotionParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
+    DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
@@ -2853,6 +2854,38 @@ impl App {
                             .adjustables
                             .flora_bend_height_power
                             .value,
+                        KochiaMotionParams {
+                            body_wind_response: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_body_wind_response
+                                .value,
+                            branch_jelly_amplitude_voxels: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_branch_jelly_amplitude_voxels
+                                .value,
+                            branch_jelly_speed: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_branch_jelly_speed
+                                .value,
+                            branch_phase_spread: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_branch_phase_spread
+                                .value,
+                            tip_flutter_amplitude_voxels: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_tip_flutter_amplitude_voxels
+                                .value,
+                            tip_flutter_speed: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_tip_flutter_speed
+                                .value,
+                        },
                         self.debug_settings
                             .adjustables
                             .leaf_paddle_amplitude_voxels

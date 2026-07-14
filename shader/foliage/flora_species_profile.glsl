@@ -7,6 +7,9 @@
 
 float flora_species_voxel_wind_affect_multiplier(uint instance_ty, ivec3 vox_local_pos,
                                                   float wind_gradient) {
+    if (instance_ty == FLORA_SPECIES_KOCHIA) {
+        return max(gui_input.kochia_body_wind_response, 0.0);
+    }
     return 1.0;
 }
 

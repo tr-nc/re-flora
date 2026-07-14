@@ -1195,6 +1195,42 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Red/Pink Instance Variation",
     },
     GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_body_wind_response",
+        kind: "float",
+        label: "Body Wind Response",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_branch_jelly_amplitude_voxels",
+        kind: "float",
+        label: "Branch Jelly Amplitude (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_branch_jelly_speed",
+        kind: "float",
+        label: "Branch Jelly Speed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_branch_phase_spread",
+        kind: "float",
+        label: "Branch Phase Spread",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_tip_flutter_amplitude_voxels",
+        kind: "float",
+        label: "Tip Flutter Amplitude (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_tip_flutter_speed",
+        kind: "float",
+        label: "Tip Flutter Speed",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Flora Spawn Animation",
         id: "flora_spawn_duration_seconds",
         kind: "float",
@@ -1603,6 +1639,12 @@ pub struct GuiAdjustables {
     pub kochia_green_core_end: crate::gui_adjustables::FloatParam,
     pub kochia_pink_shell_start: crate::gui_adjustables::FloatParam,
     pub kochia_instance_color_variation: crate::gui_adjustables::FloatParam,
+    pub kochia_body_wind_response: crate::gui_adjustables::FloatParam,
+    pub kochia_branch_jelly_amplitude_voxels: crate::gui_adjustables::FloatParam,
+    pub kochia_branch_jelly_speed: crate::gui_adjustables::FloatParam,
+    pub kochia_branch_phase_spread: crate::gui_adjustables::FloatParam,
+    pub kochia_tip_flutter_amplitude_voxels: crate::gui_adjustables::FloatParam,
+    pub kochia_tip_flutter_speed: crate::gui_adjustables::FloatParam,
     pub flora_spawn_duration_seconds: crate::gui_adjustables::FloatParam,
     pub flora_spawn_rise_fraction: crate::gui_adjustables::FloatParam,
     pub flora_spawn_overshoot_min_voxels: crate::gui_adjustables::FloatParam,
@@ -1846,6 +1888,12 @@ impl GuiAdjustables {
         let mut kochia_green_core_end_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_pink_shell_start_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_instance_color_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_body_wind_response_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_branch_jelly_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_branch_jelly_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_branch_phase_spread_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_tip_flutter_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_tip_flutter_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_duration_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_rise_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_overshoot_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3186,6 +3234,48 @@ impl GuiAdjustables {
                             kochia_instance_color_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "kochia_body_wind_response" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_body_wind_response_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "kochia_branch_jelly_amplitude_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_branch_jelly_amplitude_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "kochia_branch_jelly_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_branch_jelly_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "kochia_branch_phase_spread" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_branch_phase_spread_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "kochia_tip_flutter_amplitude_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_tip_flutter_amplitude_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "kochia_tip_flutter_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_tip_flutter_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "flora_spawn_duration_seconds" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3614,6 +3704,12 @@ impl GuiAdjustables {
             kochia_green_core_end: kochia_green_core_end_field.expect("Missing parameter: kochia_green_core_end"),
             kochia_pink_shell_start: kochia_pink_shell_start_field.expect("Missing parameter: kochia_pink_shell_start"),
             kochia_instance_color_variation: kochia_instance_color_variation_field.expect("Missing parameter: kochia_instance_color_variation"),
+            kochia_body_wind_response: kochia_body_wind_response_field.expect("Missing parameter: kochia_body_wind_response"),
+            kochia_branch_jelly_amplitude_voxels: kochia_branch_jelly_amplitude_voxels_field.expect("Missing parameter: kochia_branch_jelly_amplitude_voxels"),
+            kochia_branch_jelly_speed: kochia_branch_jelly_speed_field.expect("Missing parameter: kochia_branch_jelly_speed"),
+            kochia_branch_phase_spread: kochia_branch_phase_spread_field.expect("Missing parameter: kochia_branch_phase_spread"),
+            kochia_tip_flutter_amplitude_voxels: kochia_tip_flutter_amplitude_voxels_field.expect("Missing parameter: kochia_tip_flutter_amplitude_voxels"),
+            kochia_tip_flutter_speed: kochia_tip_flutter_speed_field.expect("Missing parameter: kochia_tip_flutter_speed"),
             flora_spawn_duration_seconds: flora_spawn_duration_seconds_field.expect("Missing parameter: flora_spawn_duration_seconds"),
             flora_spawn_rise_fraction: flora_spawn_rise_fraction_field.expect("Missing parameter: flora_spawn_rise_fraction"),
             flora_spawn_overshoot_min_voxels: flora_spawn_overshoot_min_voxels_field.expect("Missing parameter: flora_spawn_overshoot_min_voxels"),
@@ -3800,6 +3896,12 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "kochia_green_core_end" => Some(&adjustables.kochia_green_core_end),
         "kochia_pink_shell_start" => Some(&adjustables.kochia_pink_shell_start),
         "kochia_instance_color_variation" => Some(&adjustables.kochia_instance_color_variation),
+        "kochia_body_wind_response" => Some(&adjustables.kochia_body_wind_response),
+        "kochia_branch_jelly_amplitude_voxels" => Some(&adjustables.kochia_branch_jelly_amplitude_voxels),
+        "kochia_branch_jelly_speed" => Some(&adjustables.kochia_branch_jelly_speed),
+        "kochia_branch_phase_spread" => Some(&adjustables.kochia_branch_phase_spread),
+        "kochia_tip_flutter_amplitude_voxels" => Some(&adjustables.kochia_tip_flutter_amplitude_voxels),
+        "kochia_tip_flutter_speed" => Some(&adjustables.kochia_tip_flutter_speed),
         "flora_spawn_duration_seconds" => Some(&adjustables.flora_spawn_duration_seconds),
         "flora_spawn_rise_fraction" => Some(&adjustables.flora_spawn_rise_fraction),
         "flora_spawn_overshoot_min_voxels" => Some(&adjustables.flora_spawn_overshoot_min_voxels),
@@ -4077,6 +4179,12 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "kochia_green_core_end" => Some(&mut adjustables.kochia_green_core_end),
         "kochia_pink_shell_start" => Some(&mut adjustables.kochia_pink_shell_start),
         "kochia_instance_color_variation" => Some(&mut adjustables.kochia_instance_color_variation),
+        "kochia_body_wind_response" => Some(&mut adjustables.kochia_body_wind_response),
+        "kochia_branch_jelly_amplitude_voxels" => Some(&mut adjustables.kochia_branch_jelly_amplitude_voxels),
+        "kochia_branch_jelly_speed" => Some(&mut adjustables.kochia_branch_jelly_speed),
+        "kochia_branch_phase_spread" => Some(&mut adjustables.kochia_branch_phase_spread),
+        "kochia_tip_flutter_amplitude_voxels" => Some(&mut adjustables.kochia_tip_flutter_amplitude_voxels),
+        "kochia_tip_flutter_speed" => Some(&mut adjustables.kochia_tip_flutter_speed),
         "flora_spawn_duration_seconds" => Some(&mut adjustables.flora_spawn_duration_seconds),
         "flora_spawn_rise_fraction" => Some(&mut adjustables.flora_spawn_rise_fraction),
         "flora_spawn_overshoot_min_voxels" => Some(&mut adjustables.flora_spawn_overshoot_min_voxels),

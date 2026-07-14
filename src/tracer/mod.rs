@@ -396,6 +396,16 @@ pub struct FruitMotionParams {
     pub min_response: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct KochiaMotionParams {
+    pub body_wind_response: f32,
+    pub branch_jelly_amplitude_voxels: f32,
+    pub branch_jelly_speed: f32,
+    pub branch_phase_spread: f32,
+    pub tip_flutter_amplitude_voxels: f32,
+    pub tip_flutter_speed: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LodState {
     Lod0,
@@ -989,6 +999,7 @@ impl Tracer {
         grass_natural_bend_min_voxels: f32,
         grass_natural_bend_max_voxels: f32,
         flora_bend_height_power: f32,
+        kochia_motion: KochiaMotionParams,
         leaf_paddle_amplitude_voxels: f32,
         leaf_paddle_primary_speed: f32,
         leaf_paddle_secondary_speed: f32,
@@ -1155,6 +1166,7 @@ impl Tracer {
             grass_natural_bend_min_voxels,
             grass_natural_bend_max_voxels,
             flora_bend_height_power,
+            kochia_motion,
             leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed,

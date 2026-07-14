@@ -46,6 +46,12 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float grass_natural_bend_min_voxels;
     float grass_natural_bend_max_voxels;
     float flora_bend_height_power;
+    float kochia_body_wind_response;
+    float kochia_branch_jelly_amplitude_voxels;
+    float kochia_branch_jelly_speed;
+    float kochia_branch_phase_spread;
+    float kochia_tip_flutter_amplitude_voxels;
+    float kochia_tip_flutter_speed;
     float leaf_paddle_amplitude_voxels;
     float leaf_paddle_primary_speed;
     float leaf_paddle_secondary_speed;

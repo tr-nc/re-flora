@@ -96,6 +96,42 @@ vec3 flora_wind_vibration(vec3 wind_vec, float wind_gradient, uint instance_seed
     return cross_wind_dir * (vibration * gui_input.grass_vibration_amplitude_voxels * strength * tip_weight);
 }
 
+vec3 kochia_branch_jelly_motion(vec3 wind_vec, float branch_height_t, uint instance_seed,
+                                uint animation_group, float time) {
+    float strength = flora_wind_planar_strength(wind_vec);
+    float branch_weight = flora_smootherstep(branch_height_t);
+    if (strength <= 0.0 || branch_weight <= 0.0) {
+        return vec3(0.0);
+    }
+
+    vec2 wind_dir = flora_wind_planar_dir(wind_vec);
+    vec3 along_wind_dir = vec3(wind_dir.x, 0.0, wind_dir.y);
+    vec3 cross_wind_dir = vec3(-wind_dir.y, 0.0, wind_dir.x);
+    uint group_seed = wellons_hash(instance_seed ^ (animation_group * 0x9E3779B9u));
+    float instance_phase = construct_float_01(wellons_hash(instance_seed ^ 0xA511E9B3u));
+    float group_phase = fract(instance_phase + float(animation_group) * 0.61803398875 *
+                                                   gui_input.kochia_branch_phase_spread) *
+                        FLORA_TWO_PI;
+    float direction_jitter = construct_float_01(group_seed) * 2.0 - 1.0;
+    vec3 branch_direction = normalize(along_wind_dir + cross_wind_dir * direction_jitter * 0.7);
+    float speed_jitter = mix(0.85, 1.15, construct_float_01(wellons_hash(group_seed ^ 0xB5297A4Du)));
+    float jelly_speed = max(gui_input.kochia_branch_jelly_speed, 0.0) * speed_jitter;
+    float jelly = sin(time * jelly_speed + group_phase);
+    jelly += 0.35 * sin(time * jelly_speed * 1.67 + group_phase * 1.31);
+    jelly *= 1.0 / 1.35;
+
+    vec3 offset = branch_direction *
+                  (jelly * gui_input.kochia_branch_jelly_amplitude_voxels * strength *
+                   branch_weight);
+
+    float flutter_phase = group_phase * 1.73 + float(animation_group) * 0.41;
+    float flutter = sin(time * max(gui_input.kochia_tip_flutter_speed, 0.0) + flutter_phase);
+    float tip_weight = branch_weight * branch_weight * branch_weight;
+    offset += cross_wind_dir *
+              (flutter * gui_input.kochia_tip_flutter_amplitude_voxels * strength * tip_weight);
+    return offset;
+}
+
 vec3 apple_wind_swing(vec3 wind_vec, uint instance_seed, float time) {
     float strength = max(clamp(gui_input.fruit_swing_min_response, 0.0, 1.0),
                          flora_wind_planar_strength(wind_vec));

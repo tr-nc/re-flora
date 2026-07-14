@@ -66,6 +66,7 @@ void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_p
                            out bool should_trim_voxel) {
     is_grass = instance_ty == FLORA_SPECIES_TALL_GRASS || instance_ty == FLORA_SPECIES_SHORT_GRASS;
     bool is_surface_flora = instance_ty < FLORA_SPECIES_COUNT;
+    bool is_kochia = instance_ty == FLORA_SPECIES_KOCHIA;
     bool is_apple = instance_ty == FLORA_SPECIES_APPLE;
 
     float wind_gradient = is_apple ? 1.0 : flora_voxel_wind_gradient(voxel_info);
@@ -89,10 +90,11 @@ void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_p
     }
 
     vec3 instance_pos    = vec3(instance_pos_voxels) * scaling_factor;
-    vec3 wind_sample_pos = (is_grass || is_apple) ? instance_pos :
-                                                  instance_pos + vec3(vox_local_pos) * scaling_factor;
-    uint wind_seed = (is_grass || is_apple) ? instance_seed :
-                                             get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
+    bool uses_coherent_wind = is_grass || is_kochia || is_apple;
+    vec3 wind_sample_pos = uses_coherent_wind ? instance_pos :
+                                                instance_pos + vec3(vox_local_pos) * scaling_factor;
+    uint wind_seed = uses_coherent_wind ? instance_seed :
+                                          get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
     vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
     float grass_rooted_height_t =
         float(vox_local_pos.y) / max(float(grass_height_voxels) - 1.0, 1.0);
@@ -111,9 +113,15 @@ void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_p
         float natural_bend_t = is_grass ? grass_rooted_height_t : wind_gradient;
         wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height) *
                        species_wind_affect;
-        wind_offset += flora_wind_vibration(wind_vec, flora_bend_height_t, instance_seed,
-                                            vox_local_pos, wind_motion_time) *
-                       species_wind_affect;
+        if (is_kochia) {
+            wind_offset += kochia_branch_jelly_motion(
+                wind_vec, wind_gradient, instance_seed, flora_voxel_animation_group(voxel_info),
+                wind_motion_time);
+        } else {
+            wind_offset += flora_wind_vibration(wind_vec, flora_bend_height_t, instance_seed,
+                                                vox_local_pos, wind_motion_time) *
+                           species_wind_affect;
+        }
     } else if (instance_ty == FLORA_SPECIES_TREE_LEAF) {
         wind_offset += leaf_wind_paddling(wind_vec, wind_gradient, instance_seed, vox_local_pos,
                                           ivec3(0), wind_motion_time);
