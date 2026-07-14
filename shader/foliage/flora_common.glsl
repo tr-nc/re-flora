@@ -99,12 +99,19 @@ void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_p
         }
     }
 
-    vec3 instance_pos    = vec3(instance_pos_voxels) * scaling_factor;
-    bool uses_coherent_wind = is_grass || is_kochia || is_apple;
-    vec3 wind_sample_pos = uses_coherent_wind ? instance_pos :
-                                                instance_pos + vec3(vox_local_pos) * scaling_factor;
-    uint wind_seed = uses_coherent_wind ? instance_seed :
-                                          get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
+    vec3 instance_pos = vec3(instance_pos_voxels) * scaling_factor;
+    uint animation_group = flora_voxel_animation_group(voxel_info);
+    uint wind_motion_topology = flora_species_wind_motion_topology(instance_ty);
+    bool uses_shared_wind_sample_pos = wind_motion_topology != FLORA_WIND_MOTION_LOCAL_VOXELS;
+    vec3 wind_sample_pos = uses_shared_wind_sample_pos ?
+                               instance_pos :
+                               instance_pos + vec3(vox_local_pos) * scaling_factor;
+    uint wind_seed = instance_seed;
+    if (wind_motion_topology == FLORA_WIND_MOTION_GROUPED_STEMS) {
+        wind_seed = flora_grouped_stem_wind_seed(instance_seed, animation_group);
+    } else if (wind_motion_topology == FLORA_WIND_MOTION_LOCAL_VOXELS) {
+        wind_seed = get_wind_volume_voxel_seed(instance_seed, vox_local_pos);
+    }
     vec3 wind_vec = sample_wind_volume(wind_sample_pos, wind_seed);
     float grass_rooted_height_t =
         float(vox_local_pos.y) / max(float(grass_height_voxels) - 1.0, 1.0);
@@ -121,12 +128,15 @@ void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_p
         float natural_bend_height = is_grass ? float(grass_height_voxels) :
                                                flora_voxel_lookup_max_length(instance_ty);
         float natural_bend_t = is_grass ? grass_rooted_height_t : wind_gradient;
-        wind_offset += flora_natural_rest_bend(instance_seed, natural_bend_t, natural_bend_height) *
+        uint rest_bend_seed = wind_motion_topology == FLORA_WIND_MOTION_GROUPED_STEMS ?
+                                  wind_seed :
+                                  instance_seed;
+        wind_offset += flora_natural_rest_bend(rest_bend_seed, natural_bend_t,
+                                               natural_bend_height) *
                        species_wind_affect;
         if (is_kochia) {
-            wind_offset += kochia_branch_jelly_motion(
-                wind_vec, wind_gradient, instance_seed, flora_voxel_animation_group(voxel_info),
-                wind_motion_time);
+            wind_offset += kochia_branch_jelly_motion(wind_vec, wind_gradient, instance_seed,
+                                                      animation_group, wind_motion_time);
         } else {
             wind_offset += flora_wind_vibration(wind_vec, flora_bend_height_t, instance_seed,
                                                 vox_local_pos, wind_motion_time) *
