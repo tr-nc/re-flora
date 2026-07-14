@@ -129,7 +129,9 @@ void main() {
         sample_flora_base_color(is_grass, pc.instance_ty, instance_seed, vox_local_pos,
                                 instance_pos, color_gradient, voxel_info);
     base_color_linear = apply_grass_growth_stress_tint(
-        base_color_linear, is_grass, min(competition_growth_factor, environment_growth_factor));
+        base_color_linear, is_grass,
+        flora_effective_growth_potential(true, competition_growth_factor,
+                                         environment_growth_factor));
 
     vec3 lit_color = apply_stylized_voxel_lighting(base_color_linear, shadow_weight);
     // The edit brush is a UI affordance, not foliage material. Match the terrain tracer by

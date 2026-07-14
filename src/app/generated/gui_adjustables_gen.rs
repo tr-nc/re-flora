@@ -26,6 +26,18 @@ pub struct GeneratedGuiParamDescriptor {
 pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "flora_growth_override_enabled",
+        kind: "bool",
+        label: "Override Flora Growth",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "flora_growth_override",
+        kind: "float",
+        label: "Flora Growth Override",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "debug_float",
         kind: "float",
         label: "Debug Float",
@@ -1444,6 +1456,8 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 
 #[allow(dead_code)]
 pub struct GuiAdjustables {
+    pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
+    pub flora_growth_override: crate::gui_adjustables::FloatParam,
     pub debug_float: crate::gui_adjustables::FloatParam,
     pub debug_uint: crate::gui_adjustables::UintParam,
     pub lod_distance: crate::gui_adjustables::FloatParam,
@@ -1693,6 +1707,8 @@ impl GuiAdjustables {
     pub fn from_config(config: &crate::app::gui_config_model::GuiConfigFile) -> Self {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
+        let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut debug_float_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut debug_uint_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut lod_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1933,6 +1949,18 @@ impl GuiAdjustables {
         for section in &config.section {
             for param in &section.param {
                 match param.id.as_str() {
+                    "flora_growth_override_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            flora_growth_override_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "flora_growth_override" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flora_growth_override_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "debug_float" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3509,6 +3537,8 @@ impl GuiAdjustables {
         }
 
         GuiAdjustables {
+            flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
+            flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
             debug_float: debug_float_field.expect("Missing parameter: debug_float"),
             debug_uint: debug_uint_field.expect("Missing parameter: debug_uint"),
             lod_distance: lod_distance_field.expect("Missing parameter: lod_distance"),
@@ -3752,6 +3782,7 @@ impl GuiAdjustables {
 #[allow(dead_code)]
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
+        "flora_growth_override" => Some(&adjustables.flora_growth_override),
         "debug_float" => Some(&adjustables.debug_float),
         "lod_distance" => Some(&adjustables.lod_distance),
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
@@ -3984,6 +4015,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "debug_bool" => Some(&adjustables.debug_bool),
         "wind_source_0_muted" => Some(&adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&adjustables.wind_source_1_muted),
@@ -4035,6 +4067,7 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
+        "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
         "debug_float" => Some(&mut adjustables.debug_float),
         "lod_distance" => Some(&mut adjustables.lod_distance),
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
@@ -4267,6 +4300,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "debug_bool" => Some(&mut adjustables.debug_bool),
         "wind_source_0_muted" => Some(&mut adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&mut adjustables.wind_source_1_muted),

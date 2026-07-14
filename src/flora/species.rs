@@ -340,6 +340,8 @@ mod tests {
 
         let flora_shader = include_str!("../../shader/foliage/flora_common.glsl");
         assert!(flora_shader.contains("min(competition_growth_factor, environment_growth_factor)"));
+        assert!(flora_shader.contains("gui_input.flora_growth_override_enabled != 0u"));
+        assert!(flora_shader.contains("clamp(gui_input.flora_growth_override, 0.0, 1.0)"));
     }
 
     #[test]

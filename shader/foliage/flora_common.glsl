@@ -44,6 +44,14 @@ float flora_lifecycle_growth_factor(uint growth_progress) {
     return float(growth_progress) / float(INSTANCE_GROWTH_PROGRESS_MATURE);
 }
 
+float flora_effective_growth_potential(bool is_surface_flora, float competition_growth_factor,
+                                       float environment_growth_factor) {
+    if (is_surface_flora && gui_input.flora_growth_override_enabled != 0u) {
+        return clamp(gui_input.flora_growth_override, 0.0, 1.0);
+    }
+    return min(competition_growth_factor, environment_growth_factor);
+}
+
 vec3 apply_grass_growth_stress_tint(vec3 base_color_linear, bool is_grass,
                                     float competition_growth_factor) {
     if (!is_grass) {
@@ -74,8 +82,10 @@ void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_p
 
     uint grass_height_voxels =
         is_grass ? sample_grass_height(instance_ty, instance_seed) : tall_grass_height_voxels;
-    float growth_factor = min(flora_lifecycle_growth_factor(in_instance_growth_progress),
-                              min(competition_growth_factor, environment_growth_factor));
+    float growth_potential = flora_effective_growth_potential(
+        is_surface_flora, competition_growth_factor, environment_growth_factor);
+    float growth_factor =
+        min(flora_lifecycle_growth_factor(in_instance_growth_progress), growth_potential);
     should_trim_voxel      = false;
 
     if (is_grass) {

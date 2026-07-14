@@ -51,6 +51,26 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "flora_growth_override_enabled"
+kind = "bool"
+label = "Override Flora Growth"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "flora_growth_override"
+kind = "float"
+label = "Flora Growth Override"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1
+
+[[section.param]]
 id = "debug_float"
 kind = "float"
 label = "Debug Float"

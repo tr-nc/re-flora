@@ -2669,6 +2669,11 @@ impl App {
                         self.debug_settings.adjustables.debug_float.value,
                         self.debug_settings.adjustables.debug_bool.value,
                         self.debug_settings.adjustables.debug_uint.value,
+                        self.debug_settings
+                            .adjustables
+                            .flora_growth_override_enabled
+                            .value,
+                        self.debug_settings.adjustables.flora_growth_override.value,
                         self.debug_settings.adjustables.terrain_shadow_use_vsm.value,
                         Vec3::new(
                             self.debug_settings
