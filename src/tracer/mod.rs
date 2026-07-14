@@ -411,6 +411,7 @@ pub struct KochiaVisualParams {
     pub bottom_darkening: f32,
     pub branch_value_variation: f32,
     pub voxel_value_variation: f32,
+    pub branch_count: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

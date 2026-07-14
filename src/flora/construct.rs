@@ -11,6 +11,11 @@ const KOCHIA_MIDDLE_BRANCH_COUNT: usize = 10;
 const KOCHIA_OUTER_BRANCH_COUNT: usize = 12;
 const KOCHIA_BRANCH_COUNT: usize =
     KOCHIA_INNER_BRANCH_COUNT + KOCHIA_MIDDLE_BRANCH_COUNT + KOCHIA_OUTER_BRANCH_COUNT;
+const KOCHIA_BRANCH_SELECTION_STRIDE: usize = 11;
+
+fn kochia_animation_group(branch_idx: usize) -> u8 {
+    ((branch_idx * KOCHIA_BRANCH_SELECTION_STRIDE) % KOCHIA_BRANCH_COUNT + 1) as u8
+}
 
 fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<FloraMeshData> {
     const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
@@ -85,13 +90,13 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
         } else if branch_idx < middle_end {
             (
                 11 + (branch_idx % 3) as i32,
-                3.2 + jitter * 1.6,
+                3.1 + jitter * 1.4,
                 1.1 + jitter * 1.0,
             )
         } else {
             (
                 9 + (branch_idx % 3) as i32,
-                5.2 + jitter * 0.9,
+                5.0 + jitter * 0.8,
                 1.6 + jitter * 1.2,
             )
         };
@@ -100,16 +105,18 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
             (direction.y * root_radius).round() as i32,
         );
         let target = Vec2::new(direction.x * target_radius, direction.y * target_radius);
-        let bow = (jitter - 0.5) * 0.9;
-        let animation_group = branch_idx as u8 + 1;
+        let bow = (jitter - 0.5) * 0.75;
+        let animation_group = kochia_animation_group(branch_idx);
         // Color follows whole branches rather than world height: short, wide branches form the
         // red side shell from root to tip, while tall inner branches expose a yellow core until
         // their tips join the red crown. Intermediate branches bridge the two smoothly.
-        let shell_floor = smootherstep((target_radius - 2.2) / 3.0);
+        let shell_floor = smootherstep((target_radius - 2.0) / 2.8);
 
         for y in 0..height {
             let progress = y as f32 / (height - 1) as f32;
-            let outward_t = progress.powf(1.35);
+            // Ease to a vertical tangent at the branch tips instead of accelerating outward;
+            // this keeps the broad silhouette while making the clump read as gathered.
+            let outward_t = smootherstep(progress);
             let lateral = (std::f32::consts::PI * progress).sin() * bow;
             let root_f = root.as_vec2();
             let xz = root_f.lerp(target, outward_t) + perpendicular * lateral;
@@ -296,12 +303,34 @@ mod tests {
             .map(|entry| entry.info.animation_group())
             .collect::<HashSet<_>>();
 
-        assert!(
-            groups.len() >= 20,
-            "only {} surviving branch groups",
-            groups.len()
-        );
+        assert_eq!(groups.len(), KOCHIA_BRANCH_COUNT);
         assert!(!groups.contains(&0));
+    }
+
+    #[test]
+    fn kochia_branch_count_selection_preserves_every_layer() {
+        for visible_count in [8_u8, 12, 16, 24] {
+            let mut layer_counts = [0_usize; 3];
+            for branch_idx in 0..KOCHIA_BRANCH_COUNT {
+                if kochia_animation_group(branch_idx) > visible_count {
+                    continue;
+                }
+                let layer = if branch_idx < KOCHIA_INNER_BRANCH_COUNT {
+                    0
+                } else if branch_idx < KOCHIA_INNER_BRANCH_COUNT + KOCHIA_MIDDLE_BRANCH_COUNT {
+                    1
+                } else {
+                    2
+                };
+                layer_counts[layer] += 1;
+            }
+
+            assert_eq!(layer_counts.iter().sum::<usize>(), visible_count as usize);
+            assert!(
+                layer_counts.iter().all(|count| *count > 0),
+                "{visible_count} branches produced layer counts {layer_counts:?}"
+            );
+        }
     }
 
     #[test]
@@ -311,23 +340,27 @@ mod tests {
             (entry.info.packed & 0xff) as f32 / 255.0
         };
 
+        let middle_end = KOCHIA_INNER_BRANCH_COUNT + KOCHIA_MIDDLE_BRANCH_COUNT;
+        let outer_groups = (middle_end..KOCHIA_BRANCH_COUNT)
+            .map(kochia_animation_group)
+            .collect::<HashSet<_>>();
         let outer_gradients = mesh
             .voxel_infos
             .iter()
-            .filter(|entry| {
-                entry.info.animation_group() as usize
-                    > KOCHIA_INNER_BRANCH_COUNT + KOCHIA_MIDDLE_BRANCH_COUNT
-            })
+            .filter(|entry| outer_groups.contains(&entry.info.animation_group()))
             .map(color_gradient)
             .collect::<Vec<_>>();
         assert!(!outer_gradients.is_empty());
         let outer_branch_min = outer_gradients.into_iter().fold(1.0_f32, f32::min);
         assert!(outer_branch_min > 0.95, "outer minimum {outer_branch_min}");
 
+        let inner_groups = (0..KOCHIA_INNER_BRANCH_COUNT)
+            .map(kochia_animation_group)
+            .collect::<HashSet<_>>();
         let inner_gradients = mesh
             .voxel_infos
             .iter()
-            .filter(|entry| entry.info.animation_group() as usize <= KOCHIA_INNER_BRANCH_COUNT)
+            .filter(|entry| inner_groups.contains(&entry.info.animation_group()))
             .map(color_gradient)
             .collect::<Vec<_>>();
         assert!(inner_gradients.iter().any(|gradient| *gradient < 0.05));

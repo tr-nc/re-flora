@@ -101,6 +101,9 @@ void prepare_flora_vertex(ivec3 vox_local_pos, uint voxel_info, uvec3 instance_p
 
     vec3 instance_pos = vec3(instance_pos_voxels) * scaling_factor;
     uint animation_group = flora_voxel_animation_group(voxel_info);
+    if (is_kochia && animation_group > max(gui_input.kochia_branch_count, 1u)) {
+        should_trim_voxel = true;
+    }
     uint wind_motion_topology = flora_species_wind_motion_topology(instance_ty);
     bool uses_shared_wind_sample_pos = wind_motion_topology != FLORA_WIND_MOTION_LOCAL_VOXELS;
     vec3 wind_sample_pos = uses_shared_wind_sample_pos ?

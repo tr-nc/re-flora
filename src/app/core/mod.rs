@@ -2905,6 +2905,7 @@ impl App {
                                 .adjustables
                                 .kochia_voxel_value_variation
                                 .value,
+                            branch_count: self.debug_settings.adjustables.kochia_branch_count.value,
                         },
                         self.debug_settings
                             .adjustables

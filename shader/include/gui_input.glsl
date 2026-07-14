@@ -55,6 +55,7 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float kochia_bottom_darkening;
     float kochia_branch_value_variation;
     float kochia_voxel_value_variation;
+    uint kochia_branch_count;
     float leaf_paddle_amplitude_voxels;
     float leaf_paddle_primary_speed;
     float leaf_paddle_secondary_speed;

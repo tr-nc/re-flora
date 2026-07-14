@@ -359,6 +359,7 @@ impl BufferUpdater {
             kochia_bottom_darkening: kochia_visual.bottom_darkening,
             kochia_branch_value_variation: kochia_visual.branch_value_variation,
             kochia_voxel_value_variation: kochia_visual.voxel_value_variation,
+            kochia_branch_count: kochia_visual.branch_count,
             leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed,

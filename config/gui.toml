@@ -2205,6 +2205,17 @@ min = 0
 max = 0.15
 
 [[section.param]]
+id = "kochia_branch_count"
+kind = "uint"
+label = "Visible Branch Count"
+type = "Uint"
+
+[section.param.data]
+value = 24
+min = 8
+max = 28
+
+[[section.param]]
 id = "kochia_body_wind_response"
 kind = "float"
 label = "Body Wind Response"

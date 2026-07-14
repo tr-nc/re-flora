@@ -1214,6 +1214,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Kochia",
+        id: "kochia_branch_count",
+        kind: "uint",
+        label: "Visible Branch Count",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
         id: "kochia_body_wind_response",
         kind: "float",
         label: "Body Wind Response",
@@ -1660,6 +1666,7 @@ pub struct GuiAdjustables {
     pub kochia_bottom_darkening: crate::gui_adjustables::FloatParam,
     pub kochia_branch_value_variation: crate::gui_adjustables::FloatParam,
     pub kochia_voxel_value_variation: crate::gui_adjustables::FloatParam,
+    pub kochia_branch_count: crate::gui_adjustables::UintParam,
     pub kochia_body_wind_response: crate::gui_adjustables::FloatParam,
     pub kochia_branch_jelly_amplitude_voxels: crate::gui_adjustables::FloatParam,
     pub kochia_branch_jelly_speed: crate::gui_adjustables::FloatParam,
@@ -1912,6 +1919,7 @@ impl GuiAdjustables {
         let mut kochia_bottom_darkening_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_branch_value_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_voxel_value_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_branch_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut kochia_body_wind_response_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_branch_jelly_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_branch_jelly_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3277,6 +3285,13 @@ impl GuiAdjustables {
                             kochia_voxel_value_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "kochia_branch_count" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            kochia_branch_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
                     "kochia_body_wind_response" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3750,6 +3765,7 @@ impl GuiAdjustables {
             kochia_bottom_darkening: kochia_bottom_darkening_field.expect("Missing parameter: kochia_bottom_darkening"),
             kochia_branch_value_variation: kochia_branch_value_variation_field.expect("Missing parameter: kochia_branch_value_variation"),
             kochia_voxel_value_variation: kochia_voxel_value_variation_field.expect("Missing parameter: kochia_voxel_value_variation"),
+            kochia_branch_count: kochia_branch_count_field.expect("Missing parameter: kochia_branch_count"),
             kochia_body_wind_response: kochia_body_wind_response_field.expect("Missing parameter: kochia_body_wind_response"),
             kochia_branch_jelly_amplitude_voxels: kochia_branch_jelly_amplitude_voxels_field.expect("Missing parameter: kochia_branch_jelly_amplitude_voxels"),
             kochia_branch_jelly_speed: kochia_branch_jelly_speed_field.expect("Missing parameter: kochia_branch_jelly_speed"),
@@ -4009,6 +4025,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "cloud_primary_steps" => Some(&adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&adjustables.cloud_shadow_steps),
+        "kochia_branch_count" => Some(&adjustables.kochia_branch_count),
         _ => None,
     }
 }
@@ -4295,6 +4312,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "cloud_primary_steps" => Some(&mut adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&mut adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&mut adjustables.cloud_shadow_steps),
+        "kochia_branch_count" => Some(&mut adjustables.kochia_branch_count),
         _ => None,
     }
 }

@@ -497,6 +497,7 @@ pub struct GuiInput {
     pub kochia_bottom_darkening: f32,
     pub kochia_branch_value_variation: f32,
     pub kochia_voxel_value_variation: f32,
+    pub kochia_branch_count: u32,
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,
@@ -537,7 +538,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad6: [u8; 12],
+    pub _pad6: [u8; 8],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (GLSL source of truth).
