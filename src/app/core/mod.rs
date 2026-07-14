@@ -51,9 +51,9 @@ use crate::particles::{
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
 use crate::tracer::{
-    allium_height_color_tables, grass_flora_height_color_tables, solid_flora_height_color_tables,
-    CloudGuiParams, FruitMotionParams, GlassGuiParams, TerrainRayQuery, Tracer, TracerDesc,
-    WindGuiParams, DIRECT_SUN_SHADOW_SOURCE_ALL,
+    allium_height_color_tables, grass_flora_height_color_tables, kochia_color_tables,
+    solid_flora_height_color_tables, CloudGuiParams, FruitMotionParams, GlassGuiParams,
+    TerrainRayQuery, Tracer, TracerDesc, WindGuiParams, DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
@@ -3142,6 +3142,35 @@ impl App {
                                     .ember_bloom_flower_secondary_color
                                     .value,
                             ),
+                        ),
+                        "kochia" => kochia_color_tables(
+                            color_to_vec3(
+                                self.debug_settings
+                                    .adjustables
+                                    .kochia_inner_green_color
+                                    .value,
+                            ),
+                            color_to_vec3(
+                                self.debug_settings
+                                    .adjustables
+                                    .kochia_middle_red_color
+                                    .value,
+                            ),
+                            color_to_vec3(
+                                self.debug_settings
+                                    .adjustables
+                                    .kochia_outer_pink_color
+                                    .value,
+                            ),
+                            self.debug_settings.adjustables.kochia_green_core_end.value,
+                            self.debug_settings
+                                .adjustables
+                                .kochia_pink_shell_start
+                                .value,
+                            self.debug_settings
+                                .adjustables
+                                .kochia_instance_color_variation
+                                .value,
                         ),
                         _ => {
                             let bottom = Color32::from_rgb(

@@ -1159,6 +1159,42 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Flower Color B",
     },
     GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_inner_green_color",
+        kind: "color",
+        label: "Inner Green",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_middle_red_color",
+        kind: "color",
+        label: "Middle Red",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_outer_pink_color",
+        kind: "color",
+        label: "Outer Pink",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_green_core_end",
+        kind: "float",
+        label: "Green Core End",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_pink_shell_start",
+        kind: "float",
+        label: "Pink Shell Start",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_instance_color_variation",
+        kind: "float",
+        label: "Red/Pink Instance Variation",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Flora Spawn Animation",
         id: "flora_spawn_duration_seconds",
         kind: "float",
@@ -1561,6 +1597,12 @@ pub struct GuiAdjustables {
     pub ember_bloom_stem_tip_color: crate::gui_adjustables::ColorParam,
     pub ember_bloom_flower_purple_color: crate::gui_adjustables::ColorParam,
     pub ember_bloom_flower_secondary_color: crate::gui_adjustables::ColorParam,
+    pub kochia_inner_green_color: crate::gui_adjustables::ColorParam,
+    pub kochia_middle_red_color: crate::gui_adjustables::ColorParam,
+    pub kochia_outer_pink_color: crate::gui_adjustables::ColorParam,
+    pub kochia_green_core_end: crate::gui_adjustables::FloatParam,
+    pub kochia_pink_shell_start: crate::gui_adjustables::FloatParam,
+    pub kochia_instance_color_variation: crate::gui_adjustables::FloatParam,
     pub flora_spawn_duration_seconds: crate::gui_adjustables::FloatParam,
     pub flora_spawn_rise_fraction: crate::gui_adjustables::FloatParam,
     pub flora_spawn_overshoot_min_voxels: crate::gui_adjustables::FloatParam,
@@ -1798,6 +1840,12 @@ impl GuiAdjustables {
         let mut ember_bloom_stem_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut ember_bloom_flower_purple_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut ember_bloom_flower_secondary_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut kochia_inner_green_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut kochia_middle_red_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut kochia_outer_pink_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut kochia_green_core_end_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_pink_shell_start_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_instance_color_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_duration_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_rise_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_overshoot_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3102,6 +3150,42 @@ impl GuiAdjustables {
                             ember_bloom_flower_secondary_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "kochia_inner_green_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            kochia_inner_green_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "kochia_middle_red_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            kochia_middle_red_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "kochia_outer_pink_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            kochia_outer_pink_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "kochia_green_core_end" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_green_core_end_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "kochia_pink_shell_start" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_pink_shell_start_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "kochia_instance_color_variation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_instance_color_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "flora_spawn_duration_seconds" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3524,6 +3608,12 @@ impl GuiAdjustables {
             ember_bloom_stem_tip_color: ember_bloom_stem_tip_color_field.expect("Missing parameter: ember_bloom_stem_tip_color"),
             ember_bloom_flower_purple_color: ember_bloom_flower_purple_color_field.expect("Missing parameter: ember_bloom_flower_purple_color"),
             ember_bloom_flower_secondary_color: ember_bloom_flower_secondary_color_field.expect("Missing parameter: ember_bloom_flower_secondary_color"),
+            kochia_inner_green_color: kochia_inner_green_color_field.expect("Missing parameter: kochia_inner_green_color"),
+            kochia_middle_red_color: kochia_middle_red_color_field.expect("Missing parameter: kochia_middle_red_color"),
+            kochia_outer_pink_color: kochia_outer_pink_color_field.expect("Missing parameter: kochia_outer_pink_color"),
+            kochia_green_core_end: kochia_green_core_end_field.expect("Missing parameter: kochia_green_core_end"),
+            kochia_pink_shell_start: kochia_pink_shell_start_field.expect("Missing parameter: kochia_pink_shell_start"),
+            kochia_instance_color_variation: kochia_instance_color_variation_field.expect("Missing parameter: kochia_instance_color_variation"),
             flora_spawn_duration_seconds: flora_spawn_duration_seconds_field.expect("Missing parameter: flora_spawn_duration_seconds"),
             flora_spawn_rise_fraction: flora_spawn_rise_fraction_field.expect("Missing parameter: flora_spawn_rise_fraction"),
             flora_spawn_overshoot_min_voxels: flora_spawn_overshoot_min_voxels_field.expect("Missing parameter: flora_spawn_overshoot_min_voxels"),
@@ -3707,6 +3797,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "water_j_min" => Some(&adjustables.water_j_min),
         "water_wall_damping" => Some(&adjustables.water_wall_damping),
         "water_terrain_tangent_damping" => Some(&adjustables.water_terrain_tangent_damping),
+        "kochia_green_core_end" => Some(&adjustables.kochia_green_core_end),
+        "kochia_pink_shell_start" => Some(&adjustables.kochia_pink_shell_start),
+        "kochia_instance_color_variation" => Some(&adjustables.kochia_instance_color_variation),
         "flora_spawn_duration_seconds" => Some(&adjustables.flora_spawn_duration_seconds),
         "flora_spawn_rise_fraction" => Some(&adjustables.flora_spawn_rise_fraction),
         "flora_spawn_overshoot_min_voxels" => Some(&adjustables.flora_spawn_overshoot_min_voxels),
@@ -3823,6 +3916,9 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "ember_bloom_stem_tip_color" => Some(&adjustables.ember_bloom_stem_tip_color),
         "ember_bloom_flower_purple_color" => Some(&adjustables.ember_bloom_flower_purple_color),
         "ember_bloom_flower_secondary_color" => Some(&adjustables.ember_bloom_flower_secondary_color),
+        "kochia_inner_green_color" => Some(&adjustables.kochia_inner_green_color),
+        "kochia_middle_red_color" => Some(&adjustables.kochia_middle_red_color),
+        "kochia_outer_pink_color" => Some(&adjustables.kochia_outer_pink_color),
         "leaves_bottom_color" => Some(&adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&adjustables.voxel_dirt_color),
@@ -3978,6 +4074,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "water_j_min" => Some(&mut adjustables.water_j_min),
         "water_wall_damping" => Some(&mut adjustables.water_wall_damping),
         "water_terrain_tangent_damping" => Some(&mut adjustables.water_terrain_tangent_damping),
+        "kochia_green_core_end" => Some(&mut adjustables.kochia_green_core_end),
+        "kochia_pink_shell_start" => Some(&mut adjustables.kochia_pink_shell_start),
+        "kochia_instance_color_variation" => Some(&mut adjustables.kochia_instance_color_variation),
         "flora_spawn_duration_seconds" => Some(&mut adjustables.flora_spawn_duration_seconds),
         "flora_spawn_rise_fraction" => Some(&mut adjustables.flora_spawn_rise_fraction),
         "flora_spawn_overshoot_min_voxels" => Some(&mut adjustables.flora_spawn_overshoot_min_voxels),
@@ -4094,6 +4193,9 @@ pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "ember_bloom_stem_tip_color" => Some(&mut adjustables.ember_bloom_stem_tip_color),
         "ember_bloom_flower_purple_color" => Some(&mut adjustables.ember_bloom_flower_purple_color),
         "ember_bloom_flower_secondary_color" => Some(&mut adjustables.ember_bloom_flower_secondary_color),
+        "kochia_inner_green_color" => Some(&mut adjustables.kochia_inner_green_color),
+        "kochia_middle_red_color" => Some(&mut adjustables.kochia_middle_red_color),
+        "kochia_outer_pink_color" => Some(&mut adjustables.kochia_outer_pink_color),
         "leaves_bottom_color" => Some(&mut adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&mut adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&mut adjustables.voxel_dirt_color),
