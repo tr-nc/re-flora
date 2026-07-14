@@ -2118,7 +2118,7 @@ label = "Inner Yellow"
 type = "Color"
 
 [section.param.data]
-value = "#D6B94C"
+value = "#D6AEA0"
 
 [[section.param]]
 id = "kochia_transition_coral_color"
@@ -2127,7 +2127,7 @@ label = "Transition Coral"
 type = "Color"
 
 [section.param.data]
-value = "#D46A55"
+value = "#D17B7B"
 
 [[section.param]]
 id = "kochia_outer_red_color"
@@ -2136,7 +2136,7 @@ label = "Outer Red"
 type = "Color"
 
 [section.param.data]
-value = "#D9525E"
+value = "#FFACB1"
 
 [[section.param]]
 id = "kochia_yellow_core_end"
@@ -2145,7 +2145,7 @@ label = "Yellow Core End"
 type = "Float"
 
 [section.param.data]
-value = 0.2
+value = 0.11
 min = 0
 max = 0.55
 
@@ -2156,7 +2156,7 @@ label = "Red Shell Start"
 type = "Float"
 
 [section.param.data]
-value = 0.78
+value = 0.79
 min = 0.5
 max = 0.95
 
@@ -2167,7 +2167,7 @@ label = "Red Tone Instance Variation"
 type = "Float"
 
 [section.param.data]
-value = 0.75
+value = 0.2
 min = 0
 max = 1
 
@@ -2178,7 +2178,7 @@ label = "Stem Bottom Darkening"
 type = "Float"
 
 [section.param.data]
-value = 0.14
+value = 0.048
 min = 0
 max = 0.35
 
@@ -2189,7 +2189,7 @@ label = "Branch Brightness Variation"
 type = "Float"
 
 [section.param.data]
-value = 0.045
+value = 0.077
 min = 0
 max = 0.2
 
@@ -2200,7 +2200,7 @@ label = "Voxel Brightness Variation"
 type = "Float"
 
 [section.param.data]
-value = 0.025
+value = 0.092
 min = 0
 max = 0.15
 
@@ -2211,7 +2211,7 @@ label = "Visible Branch Count"
 type = "Uint"
 
 [section.param.data]
-value = 24
+value = 28
 min = 8
 max = 28
 
@@ -2222,7 +2222,7 @@ label = "Body Wind Response"
 type = "Float"
 
 [section.param.data]
-value = 0.65
+value = 0
 min = 0
 max = 2
 
@@ -2233,7 +2233,7 @@ label = "Branch Jelly Amplitude (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.8
+value = 1
 min = 0
 max = 2.5
 
@@ -2244,7 +2244,7 @@ label = "Branch Jelly Speed"
 type = "Float"
 
 [section.param.data]
-value = 3.2
+value = 1
 min = 0
 max = 10
 
@@ -2255,7 +2255,7 @@ label = "Branch Phase Spread"
 type = "Float"
 
 [section.param.data]
-value = 0.7
+value = 0
 min = 0
 max = 2
 
@@ -2266,7 +2266,7 @@ label = "Tip Flutter Amplitude (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.22
+value = 0.23
 min = 0
 max = 1
 
@@ -2277,7 +2277,7 @@ label = "Tip Flutter Speed"
 type = "Float"
 
 [section.param.data]
-value = 7
+value = 6
 min = 0
 max = 20
 
