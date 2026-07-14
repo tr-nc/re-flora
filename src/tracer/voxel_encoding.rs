@@ -14,6 +14,9 @@ pub const FLORA_VOXEL_LOOKUP_EMPTY_KEY: u32 = u32::MAX;
 
 pub const FLORA_VOXEL_MATERIAL_GRADIENT: u8 = 0;
 pub const FLORA_VOXEL_MATERIAL_ALLIUM_CORE: u8 = 1;
+const FLORA_VOXEL_MATERIAL_BITS: u8 = 3;
+const FLORA_VOXEL_MATERIAL_MASK: u8 = (1 << FLORA_VOXEL_MATERIAL_BITS) - 1;
+const FLORA_VOXEL_ANIMATION_GROUP_MAX: u8 = (1 << (8 - FLORA_VOXEL_MATERIAL_BITS)) - 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FloraVoxelInfo {
@@ -27,16 +30,51 @@ impl FloraVoxelInfo {
         growth_gradient: f32,
         material_id: u8,
     ) -> Self {
+        Self::with_animation_group(
+            color_gradient,
+            wind_gradient,
+            growth_gradient,
+            material_id,
+            0,
+        )
+    }
+
+    pub fn with_animation_group(
+        color_gradient: f32,
+        wind_gradient: f32,
+        growth_gradient: f32,
+        material_id: u8,
+        animation_group: u8,
+    ) -> Self {
+        assert!(
+            material_id <= FLORA_VOXEL_MATERIAL_MASK,
+            "flora material id {material_id} exceeds {FLORA_VOXEL_MATERIAL_BITS}-bit storage"
+        );
+        assert!(
+            animation_group <= FLORA_VOXEL_ANIMATION_GROUP_MAX,
+            "flora animation group {animation_group} exceeds packed storage"
+        );
         let color = quantize_unorm8(color_gradient);
         let wind = quantize_unorm8(wind_gradient);
         let growth = quantize_unorm8(growth_gradient);
+        let metadata = material_id | (animation_group << FLORA_VOXEL_MATERIAL_BITS);
         Self {
-            packed: color | (wind << 8) | (growth << 16) | ((material_id as u32) << 24),
+            packed: color | (wind << 8) | (growth << 16) | ((metadata as u32) << 24),
         }
     }
 
     pub fn gradient(gradient: f32) -> Self {
         Self::new(gradient, gradient, gradient, FLORA_VOXEL_MATERIAL_GRADIENT)
+    }
+
+    #[cfg(test)]
+    pub fn material_id(self) -> u8 {
+        ((self.packed >> 24) as u8) & FLORA_VOXEL_MATERIAL_MASK
+    }
+
+    #[cfg(test)]
+    pub fn animation_group(self) -> u8 {
+        (self.packed >> (24 + FLORA_VOXEL_MATERIAL_BITS)) as u8
     }
 
     pub const fn fallback() -> Self {
@@ -219,5 +257,13 @@ mod tests {
             FLORA_VOXEL_LOOKUP_EMPTY_KEY
         );
         assert!(encode_lookup_pos_key(IVec3::new(512, 0, 0)).is_err());
+    }
+
+    #[test]
+    fn voxel_info_packs_material_and_animation_group_separately() {
+        let info = FloraVoxelInfo::with_animation_group(0.25, 0.5, 0.75, 1, 17);
+
+        assert_eq!(info.material_id(), 1);
+        assert_eq!(info.animation_group(), 17);
     }
 }

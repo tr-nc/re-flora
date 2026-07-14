@@ -1,10 +1,13 @@
-use crate::flora::construct::{gen_ember_bloom, gen_lavender, gen_short_grass, gen_tall_grass};
+use crate::flora::construct::{
+    gen_ember_bloom, gen_kochia, gen_lavender, gen_short_grass, gen_tall_grass,
+};
 use crate::tracer::voxel_encoding::FloraMeshData;
 use anyhow::Result;
 
-pub const MAX_FLORA_SPECIES: usize = 4;
+pub const MAX_FLORA_SPECIES: usize = 5;
 pub const LAVENDER_SPECIES_INDEX: u32 = 2;
 pub const EMBER_BLOOM_SPECIES_INDEX: u32 = 3;
+pub const KOCHIA_SPECIES_INDEX: u32 = 4;
 pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
 
 /// Growth expression for the four soil-moisture levels stored in the terrain atlas.
@@ -68,6 +71,13 @@ pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaint
     SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS,
+    1,
+);
+
+pub const KOCHIA_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
+    SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
+    SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
+    12,
     1,
 );
 
@@ -166,6 +176,18 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         6,
         DEFAULT_MOISTURE_GROWTH_FACTORS,
     ),
+    FloraSpeciesDesc::new(
+        "kochia",
+        "Kochia",
+        [79, 125, 58],
+        [245, 132, 153],
+        gen_kochia,
+        KOCHIA_PAINT_BRUSH_SETTINGS,
+        FloraPlacementMode::Authored,
+        7,
+        6,
+        DEFAULT_MOISTURE_GROWTH_FACTORS,
+    ),
 ];
 
 pub const TREE_LEAF_RENDER_SPECIES_INDEX: u32 = FLORA_SPECIES.len() as u32;
@@ -206,6 +228,7 @@ pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
     FloraPaintSelection::GrassMix,
     FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX),
     FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX),
+    FloraPaintSelection::Species(KOCHIA_SPECIES_INDEX),
 ];
 
 pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static str {
@@ -289,7 +312,11 @@ mod tests {
     fn authored_species_are_derived_from_registry_metadata() {
         assert_eq!(
             authored_plant_species_indices().collect::<Vec<_>>(),
-            vec![LAVENDER_SPECIES_INDEX, EMBER_BLOOM_SPECIES_INDEX]
+            vec![
+                LAVENDER_SPECIES_INDEX,
+                EMBER_BLOOM_SPECIES_INDEX,
+                KOCHIA_SPECIES_INDEX,
+            ]
         );
         assert!(!is_authored_plant_species_index(0));
         assert!(!is_authored_plant_species_index(species_count() as u32));

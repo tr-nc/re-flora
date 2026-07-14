@@ -8,6 +8,8 @@ const uint FLORA_VOXEL_LOOKUP_EMPTY_KEY  = 0xffffffffu;
 const uint FLORA_VOXEL_LOOKUP_MAX_PROBES = 64u;
 const uint FLORA_VOXEL_MATERIAL_GRADIENT = 0u;
 const uint FLORA_VOXEL_MATERIAL_ALLIUM_CORE = 1u;
+const uint FLORA_VOXEL_MATERIAL_BITS = 3u;
+const uint FLORA_VOXEL_MATERIAL_MASK = (1u << FLORA_VOXEL_MATERIAL_BITS) - 1u;
 const uint FLORA_LOOKUP_BITS_PER_AXIS    = 10u;
 const uint FLORA_LOOKUP_AXIS_MASK        = (1u << FLORA_LOOKUP_BITS_PER_AXIS) - 1u;
 const int FLORA_LOOKUP_AXIS_BIAS         = 1 << (FLORA_LOOKUP_BITS_PER_AXIS - 1u);
@@ -97,7 +99,11 @@ float flora_voxel_growth_gradient(uint info) {
 }
 
 uint flora_voxel_material_id(uint info) {
-    return info >> 24u;
+    return (info >> 24u) & FLORA_VOXEL_MATERIAL_MASK;
+}
+
+uint flora_voxel_animation_group(uint info) {
+    return info >> (24u + FLORA_VOXEL_MATERIAL_BITS);
 }
 
 float flora_voxel_lookup_max_length(uint instance_ty) {

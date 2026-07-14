@@ -3,7 +3,8 @@ use crate::tracer::voxel_encoding::{
     FLORA_VOXEL_MATERIAL_ALLIUM_CORE, FLORA_VOXEL_MATERIAL_GRADIENT,
 };
 use anyhow::Result;
-use glam::IVec3;
+use glam::{IVec2, IVec3, Vec2};
+use std::collections::BTreeMap;
 
 fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<FloraMeshData> {
     const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
@@ -36,6 +37,140 @@ pub fn gen_tall_grass(is_lod_used: bool) -> Result<FloraMeshData> {
 
 pub fn gen_short_grass(is_lod_used: bool) -> Result<FloraMeshData> {
     gen_grass_column(4, is_lod_used)
+}
+
+pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
+    const BRANCH_COUNT: usize = 18;
+    const MAX_HEIGHT: i32 = 14;
+    const GOLDEN_ANGLE: f32 = 2.399_963_1;
+
+    #[derive(Clone, Copy)]
+    struct KochiaVoxel {
+        pos: IVec3,
+        branch_progress: f32,
+        animation_group: u8,
+    }
+
+    fn profile_radius(height_t: f32) -> f32 {
+        if height_t < 0.18 {
+            2.0 + height_t / 0.18 * 1.6
+        } else if height_t < 0.52 {
+            3.6 + (height_t - 0.18) / 0.34 * 1.4
+        } else if height_t < 0.72 {
+            5.0 - (height_t - 0.52) / 0.20 * 0.2
+        } else {
+            4.8 - (height_t - 0.72) / 0.28 * 3.3
+        }
+    }
+
+    fn smootherstep(value: f32) -> f32 {
+        let t = value.clamp(0.0, 1.0);
+        t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+    }
+
+    let mut voxels = BTreeMap::<(i32, i32, i32), KochiaVoxel>::new();
+    let mut insert_voxel = |voxel: KochiaVoxel| {
+        voxels
+            .entry((voxel.pos.x, voxel.pos.y, voxel.pos.z))
+            .or_insert(voxel);
+    };
+
+    for branch_idx in 0..BRANCH_COUNT {
+        let angle = branch_idx as f32 * GOLDEN_ANGLE;
+        let direction = Vec2::new(angle.cos(), angle.sin());
+        let perpendicular = Vec2::new(-direction.y, direction.x);
+        let jitter = ((branch_idx * 7) % 11) as f32 / 10.0;
+
+        let (height, target_radius) = match branch_idx {
+            0..=4 => (MAX_HEIGHT - (branch_idx % 2) as i32, 0.7 + jitter * 1.0),
+            5..=11 => (11 + (branch_idx % 2) as i32, 3.0 + jitter * 1.0),
+            _ => (9 + (branch_idx % 2) as i32, 4.0 + jitter * 0.5),
+        };
+        let root_radius = if branch_idx < 5 {
+            0.4 + jitter * 0.8
+        } else {
+            1.0 + jitter * 0.9
+        };
+        let root = IVec2::new(
+            (direction.x * root_radius).round() as i32,
+            (direction.y * root_radius).round() as i32,
+        );
+        let target = Vec2::new(direction.x * target_radius, direction.y * target_radius);
+        let bow = (jitter - 0.5) * 0.9;
+        let animation_group = branch_idx as u8 + 1;
+
+        for y in 0..height {
+            let progress = y as f32 / (height - 1) as f32;
+            let outward_t = progress.powf(1.35);
+            let lateral = (std::f32::consts::PI * progress).sin() * bow;
+            let root_f = root.as_vec2();
+            let xz = root_f.lerp(target, outward_t) + perpendicular * lateral;
+            let pos = IVec3::new(xz.x.round() as i32, y, xz.y.round() as i32);
+            insert_voxel(KochiaVoxel {
+                pos,
+                branch_progress: progress,
+                animation_group,
+            });
+
+            if progress > 0.45 && progress < 0.92 && (y as usize + branch_idx * 3) % 4 == 0 {
+                let side_step = IVec2::new(
+                    if direction.x > 0.35 {
+                        1
+                    } else if direction.x < -0.35 {
+                        -1
+                    } else {
+                        0
+                    },
+                    if direction.y > 0.35 {
+                        1
+                    } else if direction.y < -0.35 {
+                        -1
+                    } else {
+                        0
+                    },
+                );
+                insert_voxel(KochiaVoxel {
+                    pos: pos + IVec3::new(side_step.x, 0, side_step.y),
+                    branch_progress: progress,
+                    animation_group,
+                });
+            }
+        }
+    }
+
+    let max_length = voxels
+        .values()
+        .map(|voxel| voxel.pos.as_vec3().length())
+        .fold(1.0_f32, f32::max)
+        .ceil() as u32;
+    let mut mesh = FloraMeshData::new(max_length);
+
+    for voxel in voxels.values() {
+        let height_t = voxel.pos.y as f32 / (MAX_HEIGHT - 1) as f32;
+        let radial_distance = Vec2::new(voxel.pos.x as f32, voxel.pos.z as f32).length();
+        let radial_shell = (radial_distance / profile_radius(height_t)).clamp(0.0, 1.0);
+        let tip_shell = voxel.branch_progress.powf(2.2);
+        let lower_green_gate = smootherstep((height_t - 0.06) / 0.36);
+        let shell_depth = radial_shell.max(tip_shell) * lower_green_gate;
+        let vertex_offset = mesh.vertices.len() as u32;
+        append_indexed_cube_data_with_info(
+            &mut mesh.vertices,
+            &mut mesh.indices,
+            &mut mesh.voxel_infos,
+            voxel.pos,
+            vertex_offset,
+            FloraVoxelInfo::with_animation_group(
+                shell_depth,
+                voxel.branch_progress,
+                voxel.branch_progress,
+                FLORA_VOXEL_MATERIAL_GRADIENT,
+                voxel.animation_group,
+            ),
+            is_lod_used,
+        )?;
+    }
+
+    Ok(mesh)
 }
 
 pub fn gen_lavender(is_lod_used: bool) -> Result<FloraMeshData> {
@@ -96,6 +231,67 @@ pub fn gen_lavender(is_lod_used: bool) -> Result<FloraMeshData> {
     }
 
     Ok(mesh)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn kochia_mesh_has_a_readable_branched_silhouette() {
+        let mesh = gen_kochia(false).unwrap();
+        let positions = mesh
+            .voxel_infos
+            .iter()
+            .map(|entry| entry.pos)
+            .collect::<Vec<_>>();
+        let unique_positions = positions.iter().copied().collect::<HashSet<_>>();
+
+        assert_eq!(unique_positions.len(), positions.len());
+        assert!(
+            (120..=220).contains(&positions.len()),
+            "{} voxels",
+            positions.len()
+        );
+        assert_eq!(positions.iter().map(|pos| pos.y).min(), Some(0));
+        assert_eq!(positions.iter().map(|pos| pos.y).max(), Some(13));
+        assert!(positions
+            .iter()
+            .any(|pos| pos.x.abs() >= 5 || pos.z.abs() >= 5));
+
+        let roots = positions
+            .iter()
+            .filter(|pos| pos.y == 0)
+            .map(|pos| IVec2::new(pos.x, pos.z))
+            .collect::<HashSet<_>>();
+        assert!(roots.len() >= 5, "only {} distinct roots", roots.len());
+
+        let outer_max_height = positions
+            .iter()
+            .filter(|pos| pos.x.abs().max(pos.z.abs()) >= 4)
+            .map(|pos| pos.y)
+            .max()
+            .unwrap();
+        assert!(outer_max_height < 13);
+    }
+
+    #[test]
+    fn kochia_voxels_retain_branch_animation_groups() {
+        let mesh = gen_kochia(false).unwrap();
+        let groups = mesh
+            .voxel_infos
+            .iter()
+            .map(|entry| entry.info.animation_group())
+            .collect::<HashSet<_>>();
+
+        assert!(
+            groups.len() >= 12,
+            "only {} surviving branch groups",
+            groups.len()
+        );
+        assert!(!groups.contains(&0));
+    }
 }
 
 pub fn gen_ember_bloom(is_lod_used: bool) -> Result<FloraMeshData> {
