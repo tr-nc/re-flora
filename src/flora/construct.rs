@@ -6,6 +6,12 @@ use anyhow::Result;
 use glam::{IVec2, IVec3, Vec2};
 use std::collections::BTreeMap;
 
+const KOCHIA_INNER_BRANCH_COUNT: usize = 6;
+const KOCHIA_MIDDLE_BRANCH_COUNT: usize = 10;
+const KOCHIA_OUTER_BRANCH_COUNT: usize = 12;
+const KOCHIA_BRANCH_COUNT: usize =
+    KOCHIA_INNER_BRANCH_COUNT + KOCHIA_MIDDLE_BRANCH_COUNT + KOCHIA_OUTER_BRANCH_COUNT;
+
 fn gen_grass_column(voxel_count: u32, is_lod_used: bool) -> Result<FloraMeshData> {
     const ORIGIN: IVec3 = IVec3::new(0, 0, 0);
     let max_length = voxel_count - 1;
@@ -40,7 +46,6 @@ pub fn gen_short_grass(is_lod_used: bool) -> Result<FloraMeshData> {
 }
 
 pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
-    const BRANCH_COUNT: usize = 18;
     const MAX_HEIGHT: i32 = 14;
     const GOLDEN_ANGLE: f32 = 2.399_963_1;
 
@@ -64,21 +69,31 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
             .or_insert(voxel);
     };
 
-    for branch_idx in 0..BRANCH_COUNT {
+    for branch_idx in 0..KOCHIA_BRANCH_COUNT {
         let angle = branch_idx as f32 * GOLDEN_ANGLE;
         let direction = Vec2::new(angle.cos(), angle.sin());
         let perpendicular = Vec2::new(-direction.y, direction.x);
         let jitter = ((branch_idx * 7) % 11) as f32 / 10.0;
 
-        let (height, target_radius) = match branch_idx {
-            0..=4 => (MAX_HEIGHT - (branch_idx % 2) as i32, 0.7 + jitter * 1.0),
-            5..=11 => (11 + (branch_idx % 2) as i32, 3.0 + jitter * 1.0),
-            _ => (9 + (branch_idx % 2) as i32, 4.0 + jitter * 0.5),
-        };
-        let root_radius = if branch_idx < 5 {
-            0.4 + jitter * 0.8
+        let middle_end = KOCHIA_INNER_BRANCH_COUNT + KOCHIA_MIDDLE_BRANCH_COUNT;
+        let (height, target_radius, root_radius) = if branch_idx < KOCHIA_INNER_BRANCH_COUNT {
+            (
+                MAX_HEIGHT - (branch_idx % 2) as i32,
+                0.8 + jitter * 1.1,
+                0.4 + jitter * 0.9,
+            )
+        } else if branch_idx < middle_end {
+            (
+                11 + (branch_idx % 3) as i32,
+                3.2 + jitter * 1.6,
+                1.1 + jitter * 1.0,
+            )
         } else {
-            1.0 + jitter * 0.9
+            (
+                9 + (branch_idx % 3) as i32,
+                5.2 + jitter * 0.9,
+                1.6 + jitter * 1.2,
+            )
         };
         let root = IVec2::new(
             (direction.x * root_radius).round() as i32,
@@ -90,7 +105,7 @@ pub fn gen_kochia(is_lod_used: bool) -> Result<FloraMeshData> {
         // Color follows whole branches rather than world height: short, wide branches form the
         // red side shell from root to tip, while tall inner branches expose a yellow core until
         // their tips join the red crown. Intermediate branches bridge the two smoothly.
-        let shell_floor = smootherstep((target_radius - 2.2) / 1.8);
+        let shell_floor = smootherstep((target_radius - 2.2) / 3.0);
 
         for y in 0..height {
             let progress = y as f32 / (height - 1) as f32;
@@ -241,22 +256,27 @@ mod tests {
 
         assert_eq!(unique_positions.len(), positions.len());
         assert!(
-            (120..=220).contains(&positions.len()),
+            (260..=380).contains(&positions.len()),
             "{} voxels",
             positions.len()
         );
         assert_eq!(positions.iter().map(|pos| pos.y).min(), Some(0));
         assert_eq!(positions.iter().map(|pos| pos.y).max(), Some(13));
-        assert!(positions
-            .iter()
-            .any(|pos| pos.x.abs() >= 5 || pos.z.abs() >= 5));
+        let x_span = positions.iter().map(|pos| pos.x).max().unwrap()
+            - positions.iter().map(|pos| pos.x).min().unwrap()
+            + 1;
+        let z_span = positions.iter().map(|pos| pos.z).max().unwrap()
+            - positions.iter().map(|pos| pos.z).min().unwrap()
+            + 1;
+        assert!((13..=15).contains(&x_span), "x span {x_span}");
+        assert!((13..=15).contains(&z_span), "z span {z_span}");
 
         let roots = positions
             .iter()
             .filter(|pos| pos.y == 0)
             .map(|pos| IVec2::new(pos.x, pos.z))
             .collect::<HashSet<_>>();
-        assert!(roots.len() >= 5, "only {} distinct roots", roots.len());
+        assert!(roots.len() >= 8, "only {} distinct roots", roots.len());
 
         let outer_max_height = positions
             .iter()
@@ -277,7 +297,7 @@ mod tests {
             .collect::<HashSet<_>>();
 
         assert!(
-            groups.len() >= 12,
+            groups.len() >= 20,
             "only {} surviving branch groups",
             groups.len()
         );
@@ -294,7 +314,10 @@ mod tests {
         let outer_gradients = mesh
             .voxel_infos
             .iter()
-            .filter(|entry| entry.info.animation_group() >= 13)
+            .filter(|entry| {
+                entry.info.animation_group() as usize
+                    > KOCHIA_INNER_BRANCH_COUNT + KOCHIA_MIDDLE_BRANCH_COUNT
+            })
             .map(color_gradient)
             .collect::<Vec<_>>();
         assert!(!outer_gradients.is_empty());
@@ -304,7 +327,7 @@ mod tests {
         let inner_gradients = mesh
             .voxel_infos
             .iter()
-            .filter(|entry| entry.info.animation_group() <= 5)
+            .filter(|entry| entry.info.animation_group() as usize <= KOCHIA_INNER_BRANCH_COUNT)
             .map(color_gradient)
             .collect::<Vec<_>>();
         assert!(inner_gradients.iter().any(|gradient| *gradient < 0.05));
