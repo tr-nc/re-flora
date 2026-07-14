@@ -1196,6 +1196,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Kochia",
+        id: "kochia_bottom_darkening",
+        kind: "float",
+        label: "Stem Bottom Darkening",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_branch_value_variation",
+        kind: "float",
+        label: "Branch Brightness Variation",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
+        id: "kochia_voxel_value_variation",
+        kind: "float",
+        label: "Voxel Brightness Variation",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Kochia",
         id: "kochia_body_wind_response",
         kind: "float",
         label: "Body Wind Response",
@@ -1639,6 +1657,9 @@ pub struct GuiAdjustables {
     pub kochia_yellow_core_end: crate::gui_adjustables::FloatParam,
     pub kochia_red_shell_start: crate::gui_adjustables::FloatParam,
     pub kochia_instance_color_variation: crate::gui_adjustables::FloatParam,
+    pub kochia_bottom_darkening: crate::gui_adjustables::FloatParam,
+    pub kochia_branch_value_variation: crate::gui_adjustables::FloatParam,
+    pub kochia_voxel_value_variation: crate::gui_adjustables::FloatParam,
     pub kochia_body_wind_response: crate::gui_adjustables::FloatParam,
     pub kochia_branch_jelly_amplitude_voxels: crate::gui_adjustables::FloatParam,
     pub kochia_branch_jelly_speed: crate::gui_adjustables::FloatParam,
@@ -1888,6 +1909,9 @@ impl GuiAdjustables {
         let mut kochia_yellow_core_end_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_red_shell_start_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_instance_color_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_bottom_darkening_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_branch_value_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut kochia_voxel_value_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_body_wind_response_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_branch_jelly_amplitude_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut kochia_branch_jelly_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3232,6 +3256,27 @@ impl GuiAdjustables {
                             kochia_instance_color_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "kochia_bottom_darkening" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_bottom_darkening_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "kochia_branch_value_variation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_branch_value_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "kochia_voxel_value_variation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            kochia_voxel_value_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "kochia_body_wind_response" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3702,6 +3747,9 @@ impl GuiAdjustables {
             kochia_yellow_core_end: kochia_yellow_core_end_field.expect("Missing parameter: kochia_yellow_core_end"),
             kochia_red_shell_start: kochia_red_shell_start_field.expect("Missing parameter: kochia_red_shell_start"),
             kochia_instance_color_variation: kochia_instance_color_variation_field.expect("Missing parameter: kochia_instance_color_variation"),
+            kochia_bottom_darkening: kochia_bottom_darkening_field.expect("Missing parameter: kochia_bottom_darkening"),
+            kochia_branch_value_variation: kochia_branch_value_variation_field.expect("Missing parameter: kochia_branch_value_variation"),
+            kochia_voxel_value_variation: kochia_voxel_value_variation_field.expect("Missing parameter: kochia_voxel_value_variation"),
             kochia_body_wind_response: kochia_body_wind_response_field.expect("Missing parameter: kochia_body_wind_response"),
             kochia_branch_jelly_amplitude_voxels: kochia_branch_jelly_amplitude_voxels_field.expect("Missing parameter: kochia_branch_jelly_amplitude_voxels"),
             kochia_branch_jelly_speed: kochia_branch_jelly_speed_field.expect("Missing parameter: kochia_branch_jelly_speed"),
@@ -3894,6 +3942,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "kochia_yellow_core_end" => Some(&adjustables.kochia_yellow_core_end),
         "kochia_red_shell_start" => Some(&adjustables.kochia_red_shell_start),
         "kochia_instance_color_variation" => Some(&adjustables.kochia_instance_color_variation),
+        "kochia_bottom_darkening" => Some(&adjustables.kochia_bottom_darkening),
+        "kochia_branch_value_variation" => Some(&adjustables.kochia_branch_value_variation),
+        "kochia_voxel_value_variation" => Some(&adjustables.kochia_voxel_value_variation),
         "kochia_body_wind_response" => Some(&adjustables.kochia_body_wind_response),
         "kochia_branch_jelly_amplitude_voxels" => Some(&adjustables.kochia_branch_jelly_amplitude_voxels),
         "kochia_branch_jelly_speed" => Some(&adjustables.kochia_branch_jelly_speed),
@@ -4177,6 +4228,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "kochia_yellow_core_end" => Some(&mut adjustables.kochia_yellow_core_end),
         "kochia_red_shell_start" => Some(&mut adjustables.kochia_red_shell_start),
         "kochia_instance_color_variation" => Some(&mut adjustables.kochia_instance_color_variation),
+        "kochia_bottom_darkening" => Some(&mut adjustables.kochia_bottom_darkening),
+        "kochia_branch_value_variation" => Some(&mut adjustables.kochia_branch_value_variation),
+        "kochia_voxel_value_variation" => Some(&mut adjustables.kochia_voxel_value_variation),
         "kochia_body_wind_response" => Some(&mut adjustables.kochia_body_wind_response),
         "kochia_branch_jelly_amplitude_voxels" => Some(&mut adjustables.kochia_branch_jelly_amplitude_voxels),
         "kochia_branch_jelly_speed" => Some(&mut adjustables.kochia_branch_jelly_speed),

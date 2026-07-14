@@ -406,6 +406,13 @@ pub struct KochiaMotionParams {
     pub tip_flutter_speed: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct KochiaVisualParams {
+    pub bottom_darkening: f32,
+    pub branch_value_variation: f32,
+    pub voxel_value_variation: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LodState {
     Lod0,
@@ -1000,6 +1007,7 @@ impl Tracer {
         grass_natural_bend_max_voxels: f32,
         flora_bend_height_power: f32,
         kochia_motion: KochiaMotionParams,
+        kochia_visual: KochiaVisualParams,
         leaf_paddle_amplitude_voxels: f32,
         leaf_paddle_primary_speed: f32,
         leaf_paddle_secondary_speed: f32,
@@ -1167,6 +1175,7 @@ impl Tracer {
             grass_natural_bend_max_voxels,
             flora_bend_height_power,
             kochia_motion,
+            kochia_visual,
             leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed,

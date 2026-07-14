@@ -52,6 +52,9 @@ layout(set = GUI_INPUT_SET, binding = GUI_INPUT_BINDING) uniform U_GuiInput {
     float kochia_branch_phase_spread;
     float kochia_tip_flutter_amplitude_voxels;
     float kochia_tip_flutter_speed;
+    float kochia_bottom_darkening;
+    float kochia_branch_value_variation;
+    float kochia_voxel_value_variation;
     float leaf_paddle_amplitude_voxels;
     float leaf_paddle_primary_speed;
     float leaf_paddle_secondary_speed;

@@ -2172,6 +2172,39 @@ min = 0
 max = 1
 
 [[section.param]]
+id = "kochia_bottom_darkening"
+kind = "float"
+label = "Stem Bottom Darkening"
+type = "Float"
+
+[section.param.data]
+value = 0.14
+min = 0
+max = 0.35
+
+[[section.param]]
+id = "kochia_branch_value_variation"
+kind = "float"
+label = "Branch Brightness Variation"
+type = "Float"
+
+[section.param.data]
+value = 0.045
+min = 0
+max = 0.2
+
+[[section.param]]
+id = "kochia_voxel_value_variation"
+kind = "float"
+label = "Voxel Brightness Variation"
+type = "Float"
+
+[section.param.data]
+value = 0.025
+min = 0
+max = 0.15
+
+[[section.param]]
 id = "kochia_body_wind_response"
 kind = "float"
 label = "Body Wind Response"

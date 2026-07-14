@@ -189,7 +189,21 @@ vec3 sample_flora_base_color(bool is_grass, uint instance_ty, uint instance_seed
     if (instance_ty == FLORA_SPECIES_KOCHIA) {
         vec3 warm_red_variant = unpack_linear_rgb10(pc.height_light_color_rgb10[color_row]);
         float palette_t = construct_float_01(wellons_hash(instance_seed ^ 0xD1B54A32u));
-        dark_height_color = mix(dark_height_color, warm_red_variant, palette_t);
+        vec3 kochia_color = mix(dark_height_color, warm_red_variant, palette_t);
+
+        uint animation_group = flora_voxel_animation_group(voxel_info);
+        uint branch_seed = wellons_hash(instance_seed ^ (animation_group * 0x9E3779B9u));
+        float branch_noise = construct_float_01(branch_seed) * 2.0 - 1.0;
+        float voxel_noise = signed_unit_noise(
+            vec4(vec3(vox_local_pos), float(instance_seed ^ branch_seed))).z;
+        float branch_height_t = flora_smootherstep(flora_voxel_wind_gradient(voxel_info));
+        float vertical_value_offset =
+            -max(gui_input.kochia_bottom_darkening, 0.0) * (1.0 - branch_height_t);
+        float value_offset =
+            vertical_value_offset +
+            branch_noise * max(gui_input.kochia_branch_value_variation, 0.0) +
+            voxel_noise * max(gui_input.kochia_voxel_value_variation, 0.0);
+        return apply_hsv_offset(kochia_color, vec3(0.0, 0.0, value_offset));
     }
 
     if (instance_ty == FLORA_SPECIES_EMBER_BLOOM &&

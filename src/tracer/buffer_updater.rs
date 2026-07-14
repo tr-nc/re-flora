@@ -5,8 +5,8 @@ use crate::generated::gpu_structs::{
     VoxelColors,
 };
 use crate::tracer::{
-    CloudGuiParams, FruitMotionParams, GlassGuiParams, KochiaMotionParams, TerrainEditPreviewShape,
-    TracerResources, WindGuiParams, WindSourceGpu,
+    CloudGuiParams, FruitMotionParams, GlassGuiParams, KochiaMotionParams, KochiaVisualParams,
+    TerrainEditPreviewShape, TracerResources, WindGuiParams, WindSourceGpu,
 };
 use anyhow::Result;
 use bytemuck::Zeroable;
@@ -285,6 +285,7 @@ impl BufferUpdater {
         grass_natural_bend_max_voxels: f32,
         flora_bend_height_power: f32,
         kochia_motion: KochiaMotionParams,
+        kochia_visual: KochiaVisualParams,
         leaf_paddle_amplitude_voxels: f32,
         leaf_paddle_primary_speed: f32,
         leaf_paddle_secondary_speed: f32,
@@ -355,6 +356,9 @@ impl BufferUpdater {
             kochia_branch_phase_spread: kochia_motion.branch_phase_spread,
             kochia_tip_flutter_amplitude_voxels: kochia_motion.tip_flutter_amplitude_voxels,
             kochia_tip_flutter_speed: kochia_motion.tip_flutter_speed,
+            kochia_bottom_darkening: kochia_visual.bottom_darkening,
+            kochia_branch_value_variation: kochia_visual.branch_value_variation,
+            kochia_voxel_value_variation: kochia_visual.voxel_value_variation,
             leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed,

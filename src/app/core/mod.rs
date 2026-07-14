@@ -53,7 +53,7 @@ use crate::particles::{
 use crate::tracer::{
     allium_height_color_tables, grass_flora_height_color_tables, kochia_color_tables,
     solid_flora_height_color_tables, CloudGuiParams, FruitMotionParams, GlassGuiParams,
-    KochiaMotionParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
+    KochiaMotionParams, KochiaVisualParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
     DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
 use crate::util::get_sun_dir;
@@ -2887,6 +2887,23 @@ impl App {
                                 .debug_settings
                                 .adjustables
                                 .kochia_tip_flutter_speed
+                                .value,
+                        },
+                        KochiaVisualParams {
+                            bottom_darkening: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_bottom_darkening
+                                .value,
+                            branch_value_variation: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_branch_value_variation
+                                .value,
+                            voxel_value_variation: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_voxel_value_variation
                                 .value,
                         },
                         self.debug_settings
