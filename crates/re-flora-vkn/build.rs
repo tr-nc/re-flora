@@ -357,6 +357,7 @@ struct DescriptorAbi {
     image: ImageAbi,
     block_size: u32,
     block_padded_size: u32,
+    block_members: Vec<BlockMemberAbi>,
 }
 
 // SPIR-V's image Depth operand is intentionally excluded: Slang emits Unknown
@@ -372,11 +373,21 @@ struct ImageAbi {
     format: ReflectImageFormat,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq)]
+struct BlockMemberAbi {
+    offset: u32,
+    size: u32,
+    padded_size: u32,
+    array_dims: Vec<u32>,
+    array_stride: u32,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 struct PushConstantAbi {
     offset: u32,
     size: u32,
     padded_size: u32,
+    members: Vec<BlockMemberAbi>,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -434,6 +445,7 @@ fn reflect_shader_abi(
             },
             block_size: binding.block.size,
             block_padded_size: binding.block.padded_size,
+            block_members: reflect_block_members(&binding.block.members),
         })
         .collect::<Vec<_>>();
     descriptors.sort_by_key(|binding| (binding.set, binding.binding));
@@ -448,9 +460,10 @@ fn reflect_shader_abi(
             offset: block.offset,
             size: block.size,
             padded_size: block.padded_size,
+            members: reflect_block_members(&block.members),
         })
         .collect::<Vec<_>>();
-    push_constants.sort();
+    push_constants.sort_by_key(|block| block.offset);
 
     let inputs = reflect_interfaces(
         logical_path,
@@ -488,6 +501,21 @@ fn reflect_shader_abi(
         inputs,
         outputs,
     }
+}
+
+fn reflect_block_members(
+    members: &[spirv_reflect::types::ReflectBlockVariable],
+) -> Vec<BlockMemberAbi> {
+    members
+        .iter()
+        .map(|member| BlockMemberAbi {
+            offset: member.offset,
+            size: member.size,
+            padded_size: member.padded_size,
+            array_dims: member.array.dims.clone(),
+            array_stride: member.array.stride,
+        })
+        .collect()
 }
 
 fn reflect_interfaces(
