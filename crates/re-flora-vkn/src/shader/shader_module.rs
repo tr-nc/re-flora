@@ -1,8 +1,10 @@
-use super::struct_layout::*;
-use crate::{full_path_from_relative, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device, ShaderCompiler};
+use super::{precompiled_shader::find_precompiled_shader, struct_layout::*};
+use crate::{
+    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
+    ShaderCompiler,
+};
 use anyhow::Result;
 use ash::vk;
-use shaderc::ShaderKind;
 use spirv_reflect::{
     types::{
         ReflectDescriptorSet, ReflectDescriptorType, ReflectTypeDescriptionTraits, ReflectTypeFlags,
@@ -71,32 +73,43 @@ impl Debug for ShaderModule {
 }
 
 impl ShaderModule {
-    /// Create a new shader module from GLSL code, reflect it, and cache relevant layout metadata.
+    /// Create a shader module from SPIR-V artifacts generated during the Rust build.
     ///
-    /// * `device` - The device to create the shader module on.
-    /// * `compiler` - The shader compiler to use.
-    /// * `file_path` - The relative path to the GLSL file, from the project root.
-    /// * `entry_point_name` - The name of the entry point function in the shader.
+    /// The compatibility `compiler` argument is unused and will be removed after call sites
+    /// migrate away from the former runtime-GLSL API.
     pub fn from_glsl(
         device: &Device,
-        compiler: &ShaderCompiler,
+        _compiler: &ShaderCompiler,
         file_path: &str,
         entry_point_name: &str,
     ) -> Result<Self, String> {
-        let module_name = file_path.split('/').next_back().unwrap().to_string();
-        let full_path = full_path_from_relative(file_path);
-        let code = read_code_from_path(&full_path)?;
-        let shader_kind = predict_shader_kind(file_path).map_err(|e| e.to_string())?;
+        if entry_point_name != "main" {
+            return Err(format!(
+                "Precompiled shader {file_path} has no entry point {entry_point_name:?}"
+            ));
+        }
 
-        Self::from_glsl_code(
-            device,
-            &module_name,
-            &code,
-            &full_path,
-            entry_point_name,
-            compiler,
-            shader_kind,
-        )
+        let normalized_path = file_path.replace('\\', "/");
+        let artifact = find_precompiled_shader(&normalized_path)
+            .ok_or_else(|| format!("No precompiled shader artifact for {normalized_path}"))?;
+        let module_name = normalized_path
+            .split('/')
+            .next_back()
+            .unwrap_or(&normalized_path);
+        let reflect_sm = ReflectShaderModule::load_u8_data(artifact.reflection_spirv)
+            .map_err(|error| error.to_string())?;
+        let sm = bytecode_to_shader_module(device, artifact.optimized_spirv)?;
+        let buffer_layouts = extract_buffer_layouts(&reflect_sm)?;
+
+        #[allow(clippy::arc_with_non_send_sync)]
+        Ok(Self(Arc::new(ShaderModuleInner {
+            device: device.clone(),
+            module_name: module_name.to_owned(),
+            entry_point_name: CString::new(entry_point_name).unwrap(),
+            shader_module: sm,
+            reflect_shader_module: reflect_sm,
+            buffer_layouts,
+        })))
     }
 
     pub fn get_buffer_layout(&self, name: &str) -> Result<&BufferLayout, String> {
@@ -328,45 +341,6 @@ impl ShaderModule {
         }
     }
 
-    fn from_glsl_code(
-        device: &Device,
-        module_name: &str,
-        code: &str,
-        full_path_to_shader_file: &str,
-        entry_point_name: &str,
-        compiler: &ShaderCompiler,
-        shader_kind: ShaderKind,
-    ) -> Result<Self, String> {
-        let reflect_sm = create_reflect_shader_module(
-            code,
-            shader_kind,
-            entry_point_name,
-            full_path_to_shader_file,
-            compiler,
-        )?;
-
-        let sm = create_shader_module(
-            device,
-            code,
-            shader_kind,
-            entry_point_name,
-            full_path_to_shader_file,
-            compiler,
-        )?;
-
-        let buffer_layouts = extract_buffer_layouts(&reflect_sm).map_err(|e| e.to_string())?;
-
-        #[allow(clippy::arc_with_non_send_sync)]
-        Ok(Self(Arc::new(ShaderModuleInner {
-            device: device.clone(),
-            module_name: module_name.to_string(),
-            entry_point_name: CString::new(entry_point_name).unwrap(),
-            shader_module: sm,
-            reflect_shader_module: reflect_sm,
-            buffer_layouts,
-        })))
-    }
-
     fn get_reflect_descriptor_sets(&self) -> HashMap<u32, ReflectDescriptorSet> {
         let descriptor_sets = self
             .0
@@ -455,63 +429,6 @@ impl ShaderModule {
             layouts.insert(set_no, builder.build(&self.0.device).unwrap());
         }
         layouts
-    }
-}
-
-/// With zero optimization, no unused bindings will be removed, and the names of the
-/// variables will be preserved accurately
-fn create_reflect_shader_module(
-    code: &str,
-    shader_kind: ShaderKind,
-    entry_point_name: &str,
-    full_path_to_shader_file: &str,
-    compiler: &ShaderCompiler,
-) -> Result<ReflectShaderModule, String> {
-    let shader_byte_code_u8_zero_opti = compiler
-        .compile_to_bytecode(
-            code,
-            shader_kind,
-            entry_point_name,
-            full_path_to_shader_file,
-            shaderc::OptimizationLevel::Zero,
-        )
-        .map_err(|e| e.to_string())?;
-    ReflectShaderModule::load_u8_data(&shader_byte_code_u8_zero_opti).map_err(|e| e.to_string())
-}
-
-/// Compile the actual shader module with full optimization.
-fn create_shader_module(
-    device: &Device,
-    code: &str,
-    shader_kind: ShaderKind,
-    entry_point_name: &str,
-    full_path_to_shader_file: &str,
-    compiler: &ShaderCompiler,
-) -> Result<vk::ShaderModule, String> {
-    let shader_byte_code_u8_full_opti = compiler
-        .compile_to_bytecode(
-            code,
-            shader_kind,
-            entry_point_name,
-            full_path_to_shader_file,
-            shaderc::OptimizationLevel::Performance,
-        )
-        .map_err(|e| e.to_string())?;
-
-    bytecode_to_shader_module(device, &shader_byte_code_u8_full_opti)
-}
-
-fn read_code_from_path(full_shader_path: &str) -> Result<String, String> {
-    std::fs::read_to_string(full_shader_path).map_err(|e| e.to_string())
-}
-
-/// A simple extension-based guess of the shader kind (vert, frag, comp).
-fn predict_shader_kind(file_path: &str) -> Result<shaderc::ShaderKind, String> {
-    match file_path.split('.').next_back() {
-        Some("vert") => Ok(shaderc::ShaderKind::Vertex),
-        Some("frag") => Ok(shaderc::ShaderKind::Fragment),
-        Some("comp") => Ok(shaderc::ShaderKind::Compute),
-        _ => Err(format!("Unknown shader extension: {}", file_path)),
     }
 }
 
