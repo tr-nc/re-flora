@@ -36,11 +36,13 @@ cargo check --features slang-validation
 
 `slang-poc` remains a backward-compatible alias for `slang-post-processing`.
 
-The build emits a summary such as:
+The build reports each frontend separately, for example:
 
 ```text
-precompiled 75 GLSL shaders and 1 Slang shaders into SPIR-V artifacts
+precompiled 69 shaderc GLSL, 1 Slang GLSL, and 6 native Slang shaders into SPIR-V artifacts
 ```
+
+The logical shader path remains the runtime identity for both languages. Enabling an override compiles the original GLSL reflection artifact as a reference and fails the build if the replacement changes the pipeline ABI: stage, workgroup size, descriptor contract, push constant ranges, stage IO locations/formats/arrays, or interpolation decorations. Override configuration is also checked for duplicate and missing paths, stage mismatches, and missing source/include paths. Detailed buffer member layout is still validated by the existing Rust reflection/resource path at runtime.
 
 The Slang compiler validates generated SPIR-V by default. Runtime validation additionally covers SPIR-V reflection, descriptor names and bindings, uniform layout lookup, Vulkan pipeline creation, dispatch, and MoltenVK execution.
 

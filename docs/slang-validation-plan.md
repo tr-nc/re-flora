@@ -47,9 +47,9 @@ Planned feature boundaries:
 | `slang-tracer-shadow` | Native Slang contree/DDA shadow tracer modules |
 | `slang-validation` | Aggregate of all completed candidates |
 
-The existing `slang-poc` feature will remain as a backward-compatible alias while the build logic is generalized. A single declarative mapping in `crates/re-flora-vkn/build.rs` will own logical path, Slang source, stage, and feature selection. This avoids scattered hard-coded substitutions.
+The existing `slang-poc` feature remains as a backward-compatible alias. A single declarative override mapping in `crates/re-flora-vkn/build.rs` owns logical path, replacement source, stage, frontend, include root, and defines. The frontend is explicitly either native Slang 2025 or GLSL through Slang; paths without an enabled override remain shaderc GLSL. This avoids scattered hard-coded substitutions and keeps the runtime independent of source language.
 
-Slang sources will use explicit `vk::binding` and `vk::image_format` annotations. Existing Rust resource definitions remain the ABI authority. Frontend-specific SPIR-V names are normalized only at the reflection boundary.
+Every enabled override is checked against a freshly compiled GLSL reference during the build. The check rejects duplicate or missing logical paths, stage/extension mismatches, missing source/include paths, and differences in shader stage, compute workgroup size, descriptor set/binding/type/count/image contract, push constant ranges, stage input/output locations and formats, arrays, or interpolation decorations. Slang sources use explicit `vk::binding` and `vk::image_format` annotations. Existing Rust resource definitions remain the detailed buffer-layout authority, while frontend-specific SPIR-V names are normalized only at the reflection boundary.
 
 ## Key shader candidates
 
@@ -194,7 +194,7 @@ The mixed build may use individual `slangc` processes during compatibility exper
 
 ## Current status
 
-- Build selection is declarative and supports independent post-processing, surface, contree-leaf, and tracer-backend features plus the aggregate `slang-validation` feature.
+- Build selection is declarative and supports independent per-shader-family features plus the aggregate `slang-validation` feature. The source-language-neutral logical path is preserved, and every active override now receives an automatic build-time pipeline ABI comparison against its GLSL reference.
 - `make_surface_sparse.comp` has been ported and runs successfully through MoltenVK with shared memory, synchronization, atomics, formatted storage images, std140/std430 blocks, and runtime arrays.
 - Matched hidden tree benchmarks produced identical surface workload counts and scene output. Typical GPU time is at parity; run-order-sensitive mean and P95 variation requires more native Vulkan evidence before a performance verdict.
 - `leaf_write.comp`, the measured dominant contree construction shader, has been ported. Matched node/leaf sizes and scene output are identical, and both frontends have a combined 44 us median on MoltenVK.

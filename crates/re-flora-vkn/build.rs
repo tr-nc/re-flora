@@ -1,4 +1,9 @@
 use shaderc::{CompileOptions, Compiler, EnvVersion, OptimizationLevel, ShaderKind, SpirvVersion};
+use spirv_reflect::{
+    types::{ReflectDecorationFlags, ReflectDescriptorType, ReflectDimension, ReflectImageFormat},
+    ShaderModule as ReflectShaderModule,
+};
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,84 +12,113 @@ use std::process::Command;
 const ENTRY_POINT: &str = "main";
 
 #[allow(dead_code)]
-#[derive(Clone, Copy)]
-enum SlangSourceLanguage {
-    Slang2025,
-    Glsl,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShaderStage {
+    Compute,
+    Vertex,
+    Fragment,
 }
 
-#[derive(Clone, Copy)]
-struct SlangShaderConfig {
+impl ShaderStage {
+    fn slang_arg(self) -> &'static str {
+        match self {
+            Self::Compute => "compute",
+            Self::Vertex => "vertex",
+            Self::Fragment => "fragment",
+        }
+    }
+
+    fn file_extension(self) -> &'static str {
+        match self {
+            Self::Compute => "comp",
+            Self::Vertex => "vert",
+            Self::Fragment => "frag",
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShaderFrontend {
+    NativeSlang2025,
+    GlslViaSlang,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShaderOverride {
     logical_path: &'static str,
     source_path: &'static str,
     include_path: &'static str,
-    stage: &'static str,
-    source_language: SlangSourceLanguage,
+    stage: ShaderStage,
+    frontend: ShaderFrontend,
     defines: &'static [&'static str],
 }
 
-const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
+// A logical path is the stable runtime identity. Without a matching override it
+// compiles from GLSL through shaderc. A feature can replace only that path with
+// native Slang, or with GLSL through Slang for an isolated backend comparison.
+const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-contree-leaf")]
-    SlangShaderConfig {
+    ShaderOverride {
         logical_path: "shader/builder/contree/leaf_write.comp",
         source_path: "shader/experiments/slang/contree_leaf_write.slang",
         include_path: "shader/experiments/slang",
-        stage: "compute",
-        source_language: SlangSourceLanguage::Slang2025,
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
     #[cfg(feature = "slang-egui")]
-    SlangShaderConfig {
+    ShaderOverride {
         logical_path: "shader/egui/egui.vert",
         source_path: "shader/experiments/slang/egui.vert.slang",
         include_path: "shader/experiments/slang",
-        stage: "vertex",
-        source_language: SlangSourceLanguage::Slang2025,
+        stage: ShaderStage::Vertex,
+        frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
     #[cfg(feature = "slang-egui")]
-    SlangShaderConfig {
+    ShaderOverride {
         logical_path: "shader/egui/egui.frag",
         source_path: "shader/experiments/slang/egui.frag.slang",
         include_path: "shader/experiments/slang",
-        stage: "fragment",
-        source_language: SlangSourceLanguage::Slang2025,
+        stage: ShaderStage::Fragment,
+        frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
     #[cfg(feature = "slang-post-processing")]
-    SlangShaderConfig {
+    ShaderOverride {
         logical_path: "shader/tracer/post_processing.comp",
         source_path: "shader/experiments/slang/post_processing.slang",
         include_path: "shader/experiments/slang",
-        stage: "compute",
-        source_language: SlangSourceLanguage::Slang2025,
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
     #[cfg(feature = "slang-surface")]
-    SlangShaderConfig {
+    ShaderOverride {
         logical_path: "shader/builder/surface/make_surface_sparse.comp",
         source_path: "shader/experiments/slang/make_surface_sparse.slang",
         include_path: "shader/experiments/slang",
-        stage: "compute",
-        source_language: SlangSourceLanguage::Slang2025,
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
     #[cfg(feature = "slang-tracer-backend")]
-    SlangShaderConfig {
+    ShaderOverride {
         logical_path: "shader/tracer/tracer.comp",
         source_path: "shader/tracer/tracer.comp",
         include_path: "shader",
-        stage: "compute",
-        source_language: SlangSourceLanguage::Glsl,
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::GlslViaSlang,
         defines: &["DIRECT_SUN_SHADOW_EXPLICIT_LOD"],
     },
     #[cfg(feature = "slang-tracer-shadow")]
-    SlangShaderConfig {
+    ShaderOverride {
         logical_path: "shader/tracer/tracer_shadow.comp",
         source_path: "shader/experiments/slang/tracer_shadow.slang",
         include_path: "shader/experiments/slang",
-        stage: "compute",
-        source_language: SlangSourceLanguage::Slang2025,
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
 ];
@@ -105,6 +139,7 @@ fn main() {
     let mut shader_paths = Vec::new();
     collect_shader_paths(&shader_root, &mut shader_paths);
     shader_paths.sort();
+    validate_shader_overrides(project_root, &shader_paths);
 
     let compiler = Compiler::new().expect("create shader compiler");
     let artifact_root = out_dir.join("precompiled-shaders");
@@ -118,36 +153,56 @@ fn main() {
          \tmatch file_path {\n",
     );
 
-    let mut slang_shader_count = 0;
+    let mut native_slang_shader_count = 0;
+    let mut slang_glsl_shader_count = 0;
     for shader_path in &shader_paths {
         let relative_path = shader_path
             .strip_prefix(project_root)
             .expect("shader path must be under project root");
         let logical_path = path_with_forward_slashes(relative_path);
-        let slang_config = SLANG_SHADER_CONFIGS
+        let source = fs::read_to_string(shader_path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", shader_path.display()));
+        let shader_kind = shader_kind(shader_path);
+        let shader_override = SHADER_OVERRIDES
             .iter()
-            .find(|config| config.logical_path == logical_path);
+            .find(|shader_override| shader_override.logical_path == logical_path);
 
-        let (reflection_spirv, optimized_spirv) = if let Some(config) = slang_config {
-            slang_shader_count += 1;
+        let (reflection_spirv, optimized_spirv) = if let Some(shader_override) = shader_override {
+            match shader_override.frontend {
+                ShaderFrontend::NativeSlang2025 => native_slang_shader_count += 1,
+                ShaderFrontend::GlslViaSlang => slang_glsl_shader_count += 1,
+            }
+
+            let glsl_reference_spirv = compile_shader(
+                &compiler,
+                &source,
+                shader_kind,
+                shader_path,
+                OptimizationLevel::Zero,
+            );
+            let replacement_reflection_spirv = compile_slang_shader(
+                shader_override,
+                project_root,
+                &out_dir,
+                OptimizationLevel::Zero,
+            );
+            validate_shader_abi(
+                &logical_path,
+                shader_override.stage,
+                &glsl_reference_spirv,
+                &replacement_reflection_spirv,
+            );
+
             (
+                replacement_reflection_spirv,
                 compile_slang_shader(
-                    config,
-                    project_root,
-                    &out_dir,
-                    OptimizationLevel::Zero,
-                ),
-                compile_slang_shader(
-                    config,
+                    shader_override,
                     project_root,
                     &out_dir,
                     OptimizationLevel::Performance,
                 ),
             )
         } else {
-            let source = fs::read_to_string(shader_path)
-                .unwrap_or_else(|error| panic!("read {}: {error}", shader_path.display()));
-            let shader_kind = shader_kind(shader_path);
             (
                 compile_shader(
                     &compiler,
@@ -205,14 +260,267 @@ fn main() {
         .expect("write generated precompiled shader registry");
 
     println!(
-        "cargo:warning=precompiled {} GLSL shaders and {} Slang shaders into SPIR-V artifacts",
-        shader_paths.len() - slang_shader_count,
-        slang_shader_count,
+        "cargo:warning=precompiled {} shaderc GLSL, {} Slang GLSL, and {} native Slang shaders into SPIR-V artifacts",
+        shader_paths.len() - native_slang_shader_count - slang_glsl_shader_count,
+        slang_glsl_shader_count,
+        native_slang_shader_count,
     );
 }
 
+fn validate_shader_overrides(project_root: &Path, shader_paths: &[PathBuf]) {
+    let logical_paths: BTreeSet<_> = shader_paths
+        .iter()
+        .map(|shader_path| {
+            path_with_forward_slashes(
+                shader_path
+                    .strip_prefix(project_root)
+                    .expect("shader path must be under project root"),
+            )
+        })
+        .collect();
+    let mut configured_paths = BTreeSet::new();
+
+    for shader_override in SHADER_OVERRIDES {
+        assert!(
+            configured_paths.insert(shader_override.logical_path),
+            "duplicate shader override for {}",
+            shader_override.logical_path,
+        );
+        assert!(
+            logical_paths.contains(shader_override.logical_path),
+            "shader override logical path does not exist: {}",
+            shader_override.logical_path,
+        );
+
+        let logical_extension = Path::new(shader_override.logical_path)
+            .extension()
+            .and_then(|extension| extension.to_str());
+        assert_eq!(
+            logical_extension,
+            Some(shader_override.stage.file_extension()),
+            "shader override stage does not match logical path: {}",
+            shader_override.logical_path,
+        );
+
+        let source_path = project_root.join(shader_override.source_path);
+        assert!(
+            source_path.is_file(),
+            "shader override source does not exist: {}",
+            source_path.display(),
+        );
+        if shader_override.frontend == ShaderFrontend::NativeSlang2025 {
+            assert_eq!(
+                source_path
+                    .extension()
+                    .and_then(|extension| extension.to_str()),
+                Some("slang"),
+                "native Slang override must use a .slang source: {}",
+                source_path.display(),
+            );
+        }
+
+        let include_path = project_root.join(shader_override.include_path);
+        assert!(
+            include_path.is_dir(),
+            "shader override include path does not exist: {}",
+            include_path.display(),
+        );
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct ShaderAbi {
+    stage_bits: u32,
+    workgroup_size: Option<[u32; 3]>,
+    descriptors: Vec<DescriptorAbi>,
+    push_constants: Vec<PushConstantAbi>,
+    inputs: Vec<InterfaceAbi>,
+    outputs: Vec<InterfaceAbi>,
+}
+
+#[derive(Debug, PartialEq)]
+struct DescriptorAbi {
+    set: u32,
+    binding: u32,
+    descriptor_type: ReflectDescriptorType,
+    count: u32,
+    array_dims: Vec<u32>,
+    image: ImageAbi,
+    block_size: u32,
+    block_padded_size: u32,
+}
+
+// SPIR-V's image Depth operand is intentionally excluded: Slang emits Unknown
+// where shaderc emits NotDepth for storage images, but it does not affect the
+// Vulkan descriptor or pipeline ABI. Dimension, array shape, sampling mode, and
+// format are stable and are checked below.
+#[derive(Debug, PartialEq)]
+struct ImageAbi {
+    dimension: ReflectDimension,
+    arrayed: u32,
+    multisampled: u32,
+    sampled: u32,
+    format: ReflectImageFormat,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct PushConstantAbi {
+    offset: u32,
+    size: u32,
+    padded_size: u32,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct InterfaceAbi {
+    location: u32,
+    format: String,
+    array_dims: Vec<u32>,
+    no_perspective: bool,
+    flat: bool,
+    patch: bool,
+    per_vertex: bool,
+}
+
+fn validate_shader_abi(
+    logical_path: &str,
+    stage: ShaderStage,
+    glsl_spirv: &[u8],
+    replacement_spirv: &[u8],
+) {
+    let glsl_abi = reflect_shader_abi(logical_path, stage, "GLSL", glsl_spirv);
+    let replacement_abi = reflect_shader_abi(logical_path, stage, "replacement", replacement_spirv);
+    assert_eq!(
+        glsl_abi, replacement_abi,
+        "shader frontend ABI mismatch for {logical_path}",
+    );
+}
+
+fn reflect_shader_abi(
+    logical_path: &str,
+    stage: ShaderStage,
+    frontend: &str,
+    spirv: &[u8],
+) -> ShaderAbi {
+    let module = ReflectShaderModule::load_u8_data(spirv)
+        .unwrap_or_else(|error| panic!("reflect {frontend} SPIR-V for {logical_path}: {error}"));
+
+    let mut descriptors = module
+        .enumerate_descriptor_bindings(Some(ENTRY_POINT))
+        .unwrap_or_else(|error| {
+            panic!("enumerate {frontend} descriptors for {logical_path}: {error}")
+        })
+        .into_iter()
+        .map(|binding| DescriptorAbi {
+            set: binding.set,
+            binding: binding.binding,
+            descriptor_type: binding.descriptor_type,
+            count: binding.count,
+            array_dims: binding.array.dims,
+            image: ImageAbi {
+                dimension: binding.image.dim,
+                arrayed: binding.image.arrayed,
+                multisampled: binding.image.ms,
+                sampled: binding.image.sampled,
+                format: binding.image.image_format,
+            },
+            block_size: binding.block.size,
+            block_padded_size: binding.block.padded_size,
+        })
+        .collect::<Vec<_>>();
+    descriptors.sort_by_key(|binding| (binding.set, binding.binding));
+
+    let mut push_constants = module
+        .enumerate_push_constant_blocks(Some(ENTRY_POINT))
+        .unwrap_or_else(|error| {
+            panic!("enumerate {frontend} push constants for {logical_path}: {error}")
+        })
+        .into_iter()
+        .map(|block| PushConstantAbi {
+            offset: block.offset,
+            size: block.size,
+            padded_size: block.padded_size,
+        })
+        .collect::<Vec<_>>();
+    push_constants.sort();
+
+    let inputs = reflect_interfaces(
+        logical_path,
+        frontend,
+        "inputs",
+        module.enumerate_input_variables(Some(ENTRY_POINT)),
+    );
+    let outputs = reflect_interfaces(
+        logical_path,
+        frontend,
+        "outputs",
+        module.enumerate_output_variables(Some(ENTRY_POINT)),
+    );
+
+    let workgroup_size = (stage == ShaderStage::Compute).then(|| {
+        let entry_points = module.enumerate_entry_points().unwrap_or_else(|error| {
+            panic!("enumerate {frontend} entry points for {logical_path}: {error}")
+        });
+        let entry_point = entry_points
+            .iter()
+            .find(|entry_point| entry_point.name == ENTRY_POINT)
+            .unwrap_or_else(|| panic!("missing {frontend} entry point for {logical_path}"));
+        [
+            entry_point.local_size.x,
+            entry_point.local_size.y,
+            entry_point.local_size.z,
+        ]
+    });
+
+    ShaderAbi {
+        stage_bits: module.get_shader_stage().bits(),
+        workgroup_size,
+        descriptors,
+        push_constants,
+        inputs,
+        outputs,
+    }
+}
+
+fn reflect_interfaces(
+    logical_path: &str,
+    frontend: &str,
+    interface_kind: &str,
+    reflected: Result<Vec<spirv_reflect::types::ReflectInterfaceVariable>, &'static str>,
+) -> Vec<InterfaceAbi> {
+    let mut interfaces = reflected
+        .unwrap_or_else(|error| {
+            panic!("enumerate {frontend} {interface_kind} for {logical_path}: {error}")
+        })
+        .into_iter()
+        .filter(|variable| {
+            !variable
+                .decoration_flags
+                .contains(ReflectDecorationFlags::BUILT_IN)
+        })
+        .map(|variable| InterfaceAbi {
+            location: variable.location,
+            format: format!("{:?}", variable.format),
+            array_dims: variable.array.dims,
+            no_perspective: variable
+                .decoration_flags
+                .contains(ReflectDecorationFlags::NO_PERSPECTIVE),
+            flat: variable
+                .decoration_flags
+                .contains(ReflectDecorationFlags::FLAT),
+            patch: variable
+                .decoration_flags
+                .contains(ReflectDecorationFlags::PATCH),
+            per_vertex: variable
+                .decoration_flags
+                .contains(ReflectDecorationFlags::PER_VERTEX),
+        })
+        .collect::<Vec<_>>();
+    interfaces.sort();
+    interfaces
+}
+
 fn compile_slang_shader(
-    config: &SlangShaderConfig,
+    config: &ShaderOverride,
     project_root: &Path,
     out_dir: &Path,
     optimization_level: OptimizationLevel,
@@ -233,8 +541,12 @@ fn compile_slang_shader(
     let output_path = out_dir
         .join("slang")
         .join(format!("{artifact_stem}-{artifact_suffix}.spv"));
-    fs::create_dir_all(output_path.parent().expect("Slang artifact must have parent"))
-        .expect("create Slang artifact directory");
+    fs::create_dir_all(
+        output_path
+            .parent()
+            .expect("Slang artifact must have parent"),
+    )
+    .expect("create Slang artifact directory");
 
     let shader_path = project_root.join(config.source_path);
     let include_path = project_root.join(config.include_path);
@@ -242,9 +554,9 @@ fn compile_slang_shader(
     // Slang's GLSL frontend lowers column-major GLSL matrices through row-major
     // storage wrappers. Selecting row-major here preserves GLSL's std140 byte
     // interpretation; native Slang sources use the project's column-major mode.
-    let matrix_layout_arg = match config.source_language {
-        SlangSourceLanguage::Slang2025 => "-matrix-layout-column-major",
-        SlangSourceLanguage::Glsl => "-matrix-layout-row-major",
+    let matrix_layout_arg = match config.frontend {
+        ShaderFrontend::NativeSlang2025 => "-matrix-layout-column-major",
+        ShaderFrontend::GlslViaSlang => "-matrix-layout-row-major",
     };
 
     let mut command = Command::new(&slangc);
@@ -259,16 +571,16 @@ fn compile_slang_shader(
         "-entry".as_ref(),
         ENTRY_POINT.as_ref(),
         "-stage".as_ref(),
-        config.stage.as_ref(),
+        config.stage.slang_arg().as_ref(),
         matrix_layout_arg.as_ref(),
         "-fvk-use-gl-layout".as_ref(),
         optimization_arg.as_ref(),
     ]);
-    match config.source_language {
-        SlangSourceLanguage::Slang2025 => {
+    match config.frontend {
+        ShaderFrontend::NativeSlang2025 => {
             command.args(["-std", "2025"]);
         }
-        SlangSourceLanguage::Glsl => {
+        ShaderFrontend::GlslViaSlang => {
             command.arg("-allow-glsl");
         }
     }
@@ -335,7 +647,10 @@ fn shader_kind(path: &Path) -> ShaderKind {
         Some("comp") => ShaderKind::Compute,
         Some("vert") => ShaderKind::Vertex,
         Some("frag") => ShaderKind::Fragment,
-        extension => panic!("unsupported shader extension {extension:?}: {}", path.display()),
+        extension => panic!(
+            "unsupported shader extension {extension:?}: {}",
+            path.display()
+        ),
     }
 }
 
