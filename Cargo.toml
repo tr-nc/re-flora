@@ -51,9 +51,11 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 default = []
 no_validation_layer = ["re-flora-vkn/no_validation_layer"]
 slang-poc = ["slang-post-processing"]
+slang-contree = ["slang-contree-leaf"]
+slang-contree-leaf = ["re-flora-vkn/slang-contree-leaf"]
 slang-post-processing = ["re-flora-vkn/slang-post-processing"]
 slang-surface = ["re-flora-vkn/slang-surface"]
-slang-validation = ["slang-post-processing", "slang-surface"]
+slang-validation = ["slang-contree", "slang-post-processing", "slang-surface"]
 sync_diagnostics = ["re-flora-vkn/sync_diagnostics"]
 
 [profile.test]

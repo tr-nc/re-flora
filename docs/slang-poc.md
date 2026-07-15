@@ -125,6 +125,29 @@ scripts/compare_surface_pass.py <glsl-log> <slang-log>
 
 The final optimized surface artifact contained 498 SPIR-V instructions from GLSL and 508 from Slang after debug stripping. The remaining difference is small enough that generated-code inspection alone does not explain the run-order-sensitive tail.
 
+## Contree leaf construction
+
+The third candidate replaces `shader/builder/contree/leaf_write.comp` under `slang-contree-leaf`; `slang-contree` is the aggregate contree feature. This pass exercises a shared workgroup prefix allocation, three synchronized barriers, a global atomic leaf allocator, a 64-element per-invocation temporary array, a structured `ContreeNode` runtime array, and ten descriptor bindings.
+
+The port generates nearly identical optimized SPIR-V after debug stripping: 411 instructions from GLSL and 410 from Slang. Explicit storage qualifiers preserve `NonWritable` and `NonReadable` decorations.
+
+Two order-reversed 50-sample hidden tree-benchmark pairs retained 208 heavy contree builds per frontend after filtering at 500,000 leaf bytes:
+
+| Run order | Mean delta | Median delta | P95 delta |
+| --- | ---: | ---: | ---: |
+| GLSL then Slang | -9.45% | +2.17% | -10.37% |
+| Slang then GLSL | +0.18% | -2.33% | +1.35% |
+
+The pass takes only about 42-47 us on this machine, so its timestamp is quantized to one-microsecond steps. The combined median was exactly 44 us for both frontends; the large percentage changes in the first pair came from rare multi-millisecond OS/GPU stalls. There is no measured typical-time regression.
+
+All 307 matched contree workloads had identical chunk, node-byte, and leaf-byte results. A 5120x2880 screenshot was identical outside 24 pixels of dynamic performance text in the bottom-right UI. Baseline pass breakdown also confirmed that `leaf_write` is the dominant contree shader: its stable median was approximately 43 us, compared with 20 us, 14 us, and 8 us for the three `tree_write` levels.
+
+Reproduce the comparison with the same hidden tree-benchmark command used for the surface test, substituting `--features slang-contree-leaf`, then run:
+
+```bash
+scripts/compare_contree_pass.py <glsl-log> <slang-log> --pass leaf_write
+```
+
 ## Compatibility finding
 
 Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, while existing GLSL reflection exposes source type names directly. The runtime now normalizes known Slang layout suffixes at the reflection boundary, allowing both frontends to resolve the same resource definitions without shader-specific aliases.

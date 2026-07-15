@@ -193,7 +193,8 @@ The mixed build may use individual `slangc` processes during compatibility exper
 - Build selection is declarative and supports independent `slang-post-processing` and `slang-surface` features plus the aggregate `slang-validation` feature.
 - `make_surface_sparse.comp` has been ported and runs successfully through MoltenVK with shared memory, synchronization, atomics, formatted storage images, std140/std430 blocks, and runtime arrays.
 - Matched hidden tree benchmarks produced identical surface workload counts and scene output. Typical GPU time is at parity; run-order-sensitive mean and P95 variation requires more native Vulkan evidence before a performance verdict.
-- The next implementation target is `shader/builder/contree/leaf_write.comp`.
+- `leaf_write.comp`, the measured dominant contree construction shader, has been ported. Matched node/leaf sizes and scene output are identical, and both frontends have a combined 44 us median on MoltenVK.
+- The next primary implementation target is `shader/tracer/tracer.comp`; `tree_write.comp` remains secondary coverage for completing the contree subsystem.
 
 ## Decision criteria
 

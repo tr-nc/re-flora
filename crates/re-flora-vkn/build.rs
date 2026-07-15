@@ -15,6 +15,13 @@ struct SlangShaderConfig {
 }
 
 const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
+    #[cfg(feature = "slang-contree-leaf")]
+    SlangShaderConfig {
+        logical_path: "shader/builder/contree/leaf_write.comp",
+        source_path: "shader/experiments/slang/contree_leaf_write.slang",
+        include_path: "shader/experiments/slang",
+        stage: "compute",
+    },
     #[cfg(feature = "slang-post-processing")]
     SlangShaderConfig {
         logical_path: "shader/tracer/post_processing.comp",
