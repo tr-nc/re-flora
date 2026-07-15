@@ -2,26 +2,19 @@ module scene_marching;
 
 import aabb;
 import contree_marching;
+import contree_node;
 import definitions;
 import marching_result;
 import voxel_data;
 
 static const uint MAX_DDA_ITERATIONS = 256u;
 
-public struct B_ContreeLeafData
-{
-    uint data[];
-};
-
-[[vk::binding(2, 0)]]
-readonly GLSLShaderStorageBuffer<B_ContreeLeafData, Std430DataLayout> contree_leaf_data;
-
-[[vk::binding(3, 0)]]
-[[vk::image_format("rg32ui")]]
-readonly RWTexture3D<uint2> scene_tex;
-
-bool traceChunk(inout MarchingResult result, float3 origin, float3 direction,
-                int3 chunkPosition, uint2 sceneData, uint localInvocationIndex)
+bool traceChunk(
+    inout MarchingResult result,
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    float3 origin, float3 direction, int3 chunkPosition, uint2 sceneData,
+    uint localInvocationIndex)
 {
     if (sceneData.x == 0u)
     {
@@ -30,14 +23,14 @@ bool traceChunk(inout MarchingResult result, float3 origin, float3 direction,
     sceneData -= 1u;
 
     ContreeMarchingResult contreeResult = marchContree(
-        origin, direction, float3(chunkPosition), float3(1.0), false,
+        nodeData, origin, direction, float3(chunkPosition), float3(1.0), false,
         sceneData.x, sceneData.y, localInvocationIndex);
     if (!contreeResult.is_hit)
     {
         return false;
     }
 
-    uint voxelData = contree_leaf_data.data[contreeResult.voxel_address];
+    uint voxelData = leafData[contreeResult.voxel_address];
     result.is_hit = true;
     result.position = contreeResult.position;
     result.center_position = contreeResult.center_position;
@@ -48,8 +41,11 @@ bool traceChunk(inout MarchingResult result, float3 origin, float3 direction,
     return true;
 }
 
-public MarchingResult marchScene(float3 origin, float3 direction, float3 inverseDirection,
-                                 uint localInvocationIndex)
+public MarchingResult marchScene(
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture, float3 origin, float3 direction,
+    float3 inverseDirection, uint localInvocationIndex)
 {
     MarchingResult result;
     result.iteration_count = 0u;
@@ -65,7 +61,7 @@ public MarchingResult marchScene(float3 origin, float3 direction, float3 inverse
     uint width;
     uint height;
     uint depth;
-    scene_tex.GetDimensions(width, height, depth);
+    sceneTexture.GetDimensions(width, height, depth);
     int3 visibleChunkDimensions = int3(width, height, depth);
 
     float3 minimumBound = float3(0.0);
@@ -98,9 +94,9 @@ public MarchingResult marchScene(float3 origin, float3 direction, float3 inverse
             break;
         }
 
-        uint2 sceneData = scene_tex[uint3(mapPosition)];
-        if (traceChunk(result, marchedOrigin, direction, mapPosition, sceneData,
-                       localInvocationIndex))
+        uint2 sceneData = sceneTexture[uint3(mapPosition)];
+        if (traceChunk(result, nodeData, leafData, marchedOrigin, direction, mapPosition,
+                       sceneData, localInvocationIndex))
         {
             result.distance = length(origin - result.position);
             break;

@@ -1,3 +1,5 @@
+import contree_marching;
+import contree_node;
 import marching_result;
 import ray;
 import scene_marching;
@@ -16,6 +18,16 @@ struct U_ShadowCameraInfo
 [[vk::binding(0, 0)]]
 ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
 
+[[vk::binding(1, 0)]]
+StructuredBuffer<ContreeNode> contree_node_data;
+
+[[vk::binding(2, 0)]]
+StructuredBuffer<uint> contree_leaf_data;
+
+[[vk::binding(3, 0)]]
+[[vk::image_format("rg32ui")]]
+readonly RWTexture3D<uint2> scene_tex;
+
 [[vk::binding(4, 0)]]
 [[vk::image_format("r32f")]]
 RWTexture2D<float> shadow_map_tex;
@@ -23,7 +35,8 @@ RWTexture2D<float> shadow_map_tex;
 float tracePixelDepth(Ray ray, uint localInvocationIndex)
 {
     MarchingResult result = marchScene(
-        ray.origin, ray.direction, ray.inverse_direction, localInvocationIndex);
+        contree_node_data, contree_leaf_data, scene_tex, ray.origin, ray.direction,
+        ray.inverse_direction, localInvocationIndex);
     if (!result.is_hit)
     {
         return 1.0;

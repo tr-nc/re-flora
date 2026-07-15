@@ -8,14 +8,6 @@ static const uint CONTREE_STACK_DEPTH = 11u;
 
 groupshared uint contree_stack[CONTREE_WORKGROUP_SIZE][CONTREE_STACK_DEPTH];
 
-public struct B_ContreeNodeData
-{
-    ContreeNode data[];
-};
-
-[[vk::binding(1, 0)]]
-readonly GLSLShaderStorageBuffer<B_ContreeNodeData, Std430DataLayout> contree_node_data;
-
 public struct ContreeMarchingResult
 {
     public bool is_hit;
@@ -49,9 +41,10 @@ float3 floorToScale(float3 position, int scaleExponent)
     return asfloat(asuint(position) & uint3(mask));
 }
 
-ContreeMarchingResult marchLocalContree(float3 origin, float3 direction, bool coarse,
-                                        uint nodeOffset, uint leafOffset,
-                                        uint localInvocationIndex)
+ContreeMarchingResult marchLocalContree(
+    StructuredBuffer<ContreeNode> nodeData,
+    float3 origin, float3 direction, bool coarse, uint nodeOffset, uint leafOffset,
+    uint localInvocationIndex)
 {
     for (uint stackIndex = 0u; stackIndex < CONTREE_STACK_DEPTH; ++stackIndex)
     {
@@ -60,7 +53,7 @@ ContreeMarchingResult marchLocalContree(float3 origin, float3 direction, bool co
 
     int scaleExponent = 21;
     uint nodeIndex = 0u;
-    ContreeNode node = contree_node_data.data[nodeOffset + nodeIndex];
+    ContreeNode node = nodeData[nodeOffset + nodeIndex];
 
     ContreeMarchingResult result;
     result.is_hit = false;
@@ -101,7 +94,7 @@ ContreeMarchingResult marchLocalContree(float3 origin, float3 direction, bool co
 
             uint childCountBelow = childMaskBitCountBelow(node, childIndex);
             nodeIndex = (node.packed_0 >> 1u) + childCountBelow;
-            node = contree_node_data.data[nodeOffset + nodeIndex];
+            node = nodeData[nodeOffset + nodeIndex];
 
             scaleExponent -= 2;
             childIndex = uint(getNodeCellIndex(position, scaleExponent)) ^ mirrorMask;
@@ -154,7 +147,7 @@ ContreeMarchingResult marchLocalContree(float3 origin, float3 direction, bool co
             }
             uint stackIndex = uint(scaleExponent >> 1);
             nodeIndex = contree_stack[localInvocationIndex][stackIndex];
-            node = contree_node_data.data[nodeOffset + nodeIndex];
+            node = nodeData[nodeOffset + nodeIndex];
         }
     }
 
@@ -181,16 +174,17 @@ ContreeMarchingResult marchLocalContree(float3 origin, float3 direction, bool co
     return result;
 }
 
-public ContreeMarchingResult marchContree(float3 origin, float3 direction,
-                                          float3 chunkPosition, float3 chunkScaling,
-                                          bool coarse, uint nodeOffset, uint leafOffset,
-                                          uint localInvocationIndex)
+public ContreeMarchingResult marchContree(
+    StructuredBuffer<ContreeNode> nodeData,
+    float3 origin, float3 direction, float3 chunkPosition, float3 chunkScaling,
+    bool coarse, uint nodeOffset, uint leafOffset, uint localInvocationIndex)
 {
     float3 localOrigin = (origin - chunkPosition) / chunkScaling + 1.0;
     float3 localDirection = direction / chunkScaling;
 
     ContreeMarchingResult result = marchLocalContree(
-        localOrigin, localDirection, coarse, nodeOffset, leafOffset, localInvocationIndex);
+        nodeData, localOrigin, localDirection, coarse, nodeOffset, leafOffset,
+        localInvocationIndex);
     result.position = (result.position - 1.0) * chunkScaling + chunkPosition;
     result.center_position =
         (result.center_position - 1.0) * chunkScaling + chunkPosition;
