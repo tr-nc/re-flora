@@ -4,7 +4,7 @@ For migration status, completion criteria, the 76-entry-point checklist, and nex
 
 This experiment incrementally replaces selected GLSL compute shaders with equivalent Slang implementations. The normal build remains GLSL-only, and each replacement can be enabled independently for matched comparison.
 
-The first pass, `shader/tracer/post_processing.comp`, was selected because it runs every frame at the full output resolution, already has a Vulkan timestamp scope, and exercises a uniform buffer, formatted storage images, bounds checks, and a reusable dither module. The surface and contree-leaf passes cover difficult shared-memory, synchronization, atomic, and structured-buffer paths. The main tracer is also compiled from its existing GLSL source through Slang's GLSL frontend to isolate backend compatibility and optimization.
+The first pass, `shader/tracer/post_processing.comp`, was selected because it runs every frame at the full output resolution, already has a Vulkan timestamp scope, and exercises a uniform buffer, formatted storage images, bounds checks, and a reusable dither module. The surface and contree-leaf passes cover difficult shared-memory, synchronization, atomic, and structured-buffer paths. The main tracer first established a GLSL-through-Slang backend baseline and now also has a complete native Slang implementation.
 
 ## Requirements
 
@@ -33,6 +33,7 @@ cargo check --features slang-composition-backend
 cargo check --features slang-surface
 cargo check --features slang-contree-leaf
 cargo check --features slang-egui
+cargo check --features slang-tracer
 cargo check --features slang-tracer-backend
 cargo check --features slang-tracer-shadow
 cargo check --features slang-validation
@@ -43,7 +44,7 @@ cargo check --features slang-validation
 The build reports each frontend separately, for example:
 
 ```text
-precompiled 68 shaderc GLSL, 2 Slang GLSL, and 6 native Slang shaders into SPIR-V artifacts
+precompiled 68 shaderc GLSL, 1 Slang GLSL, and 7 native Slang shaders into SPIR-V artifacts
 ```
 
 The logical shader path remains the runtime identity for both languages. Enabling an override compiles the original GLSL reflection artifact as a reference and fails the build if the replacement changes the pipeline ABI: stage, workgroup size, descriptor contract, top-level buffer member byte layout and array stride, push constant ranges/member layout, stage IO locations/formats/arrays, or interpolation decorations. Override configuration is also checked for duplicate and missing paths, stage mismatches, and missing source/include paths. Nested compiler-specific matrix wrappers and the final Rust resource mapping are still validated by the existing reflection/resource path at runtime.
@@ -213,6 +214,23 @@ Two order-reversed ten-second hidden timing pairs retained 70 post-startup `trac
 
 The pass is close to the one-microsecond timestamp resolution in this workload. Its combined median did not regress, while the mean increased by 0.73 us and the P95 was noisier. This establishes functional parity and no measurable typical-time regression on MoltenVK, but not tail-latency parity. The optimized, debug-stripped modules contained 3,979 instructions/71,748 bytes from shaderc and 4,261 instructions/75,712 bytes from Slang. Native Vulkan measurements are still required.
 
+## Native main tracer
+
+The `slang-tracer` feature replaces the same logical `shader/tracer/tracer.comp` path with `shader/experiments/slang/tracer.slang`. The retained `slang-tracer-backend` feature remains available as a code-generation baseline; if both are requested, the native override takes precedence.
+
+The native entry keeps descriptor declarations and orchestration together while splitting reusable logic into focused modules for types, materials, direct-sun shadowing, terrain-edit preview, transforms, projection, packing, voxel data, and traversal. The contree and scene-marching modules now receive `StructuredBuffer` and scene-image resources from their caller, allowing the main and shadow tracer entries to share one traversal implementation despite their different bindings. The build-time GLSL-reference check accepts all four descriptor sets, 31 bindings, uniform/storage layouts, image formats, and the 8x8 workgroup.
+
+A 2880x1620 `player-default` capture on an NVIDIA RTX 3060 Ti was visually equivalent to shaderc. Independent app runs differed at 963,421 pixels, but only 27,138 pixels exceeded two 8-bit levels and 5,444 exceeded five levels; the larger differences were concentrated in moving foliage, butterflies, and dynamic UI. No missing terrain, geometry shift, material mismatch, or systematic shadow artifact was visible.
+
+Two order-reversed ten-second native-Vulkan pairs discarded the first ten logged samples from each run:
+
+| Frontend | Samples | `tracer.pass` mean | Median | P95 | Range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GLSL / shaderc | 151 | 467.38 us | 467 us | 477 us | 460-503 us |
+| Native Slang | 152 | 473.68 us | 473 us | 482 us | 467-502 us |
+
+The native median was 6 us (`+1.3%`) above shaderc in both run orders; the broader `tracer.render` median moved from 1,588 us to 1,596 us (`+0.5%`). This is small rather than material at the frame level, but repeatable enough to retain as a cross-driver follow-up. Generated-code inspection found 3,979 debug-stripped instructions/71,748 bytes from shaderc, 4,273/75,796 from the GLSL-through-Slang baseline, and 4,309/77,288 from native Slang. The native translation therefore adds only 36 instructions over the same Slang backend; much of the remaining frontend difference is aggregate decomposition and native column-major matrix lowering rather than an algorithm change.
+
 ## Largest shader through Slang's GLSL frontend
 
 The `slang-composition-backend` feature compiles the 923-line `shader/tracer/composition.comp` and its approximately 1,279 lines of includes with Slang while preserving GLSL as the source language. This validates the largest production entry point independently from the main tracer. Its ABI includes 16 bindings, six uniform blocks, sampled textures, formatted storage images, camera matrices, and full-resolution branch-heavy sky, cloud, glass, SSR, and composition logic.
@@ -234,4 +252,4 @@ Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, 
 
 ## Limits of this result
 
-The candidates establish Slang compatibility with the current shared-memory, barrier, atomic, storage-image, runtime-array, structured-SSBO, matrix, branch-heavy traversal, and basic graphics-stage interface patterns on MoltenVK. Native Slang modules cover the core contree/DDA shadow traversal and an end-to-end vertex/fragment pair; the full main tracer result still evaluates Slang code generation through its GLSL frontend. Shared-session compiler performance is validated locally on Linux, but the dynamically loaded API path still needs exact version pinning and Windows/macOS CI coverage. A foliage graphics pair would provide stronger vertex-stage complexity coverage. Native Vulkan performance and cross-platform CI are deferred until suitable Windows/Linux hardware is available. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
+The candidates establish Slang compatibility with the current shared-memory, barrier, atomic, storage-image, runtime-array, structured-SSBO, matrix, branch-heavy traversal, and basic graphics-stage interface patterns. Native Slang modules now cover both tracer entries and an end-to-end vertex/fragment pair. Shared-session compiler performance and the native main tracer are validated locally on Linux, but the dynamically loaded API path still needs exact version pinning and Windows/macOS CI coverage. A foliage graphics pair would provide stronger vertex-stage complexity coverage, and native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.

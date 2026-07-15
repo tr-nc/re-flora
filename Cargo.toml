@@ -57,6 +57,7 @@ slang-contree-leaf = ["re-flora-vkn/slang-contree-leaf"]
 slang-egui = ["re-flora-vkn/slang-egui"]
 slang-post-processing = ["re-flora-vkn/slang-post-processing"]
 slang-surface = ["re-flora-vkn/slang-surface"]
+slang-tracer = ["re-flora-vkn/slang-tracer"]
 slang-tracer-backend = ["re-flora-vkn/slang-tracer-backend"]
 slang-tracer-shadow = ["re-flora-vkn/slang-tracer-shadow"]
 slang-validation = [
@@ -65,7 +66,7 @@ slang-validation = [
     "slang-egui",
     "slang-post-processing",
     "slang-surface",
-    "slang-tracer-backend",
+    "slang-tracer",
     "slang-tracer-shadow",
 ]
 sync_diagnostics = ["re-flora-vkn/sync_diagnostics"]

@@ -7,3 +7,10 @@ public float3 projectScreenUvToWorld(float2 screenUv, float depth,
     float4 worldPosition = mul(inverseViewProjection, ndcPosition);
     return worldPosition.xyz / worldPosition.w;
 }
+
+public float2 projectWorldToScreen(float3 worldPosition, float4x4 viewProjection)
+{
+    float4 clipPosition = mul(viewProjection, float4(worldPosition, 1.0));
+    float2 ndc = clipPosition.xy / clipPosition.w;
+    return ndc * 0.5 + 0.5;
+}

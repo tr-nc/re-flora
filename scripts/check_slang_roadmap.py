@@ -45,8 +45,8 @@ def build_overrides(text: str) -> tuple[set[str], set[str]]:
             target = backend
         else:
             fail(f"unknown shader frontend {frontend} for {logical_path}")
-        if logical_path in native or logical_path in backend:
-            fail(f"duplicate shader override: {logical_path}")
+        if logical_path in target:
+            fail(f"duplicate {frontend} shader override: {logical_path}")
         target.add(logical_path)
     return native, backend
 
@@ -88,11 +88,12 @@ def main() -> int:
             f"roadmap_only={sorted(checked_paths - native_overrides)}, "
             f"build_only={sorted(native_overrides - checked_paths)}"
         )
-    if backend_paths != backend_overrides:
+    backend_only_overrides = backend_overrides - native_overrides
+    if backend_paths != backend_only_overrides:
         fail(
             "backend roadmap/build override mismatch: "
-            f"roadmap_only={sorted(backend_paths - backend_overrides)}, "
-            f"build_only={sorted(backend_overrides - backend_paths)}"
+            f"roadmap_only={sorted(backend_paths - backend_only_overrides)}, "
+            f"build_only={sorted(backend_only_overrides - backend_paths)}"
         )
 
     native_summary = summary_count(roadmap_text, "Native Slang complete")

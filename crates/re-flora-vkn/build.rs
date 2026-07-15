@@ -113,7 +113,16 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
-    #[cfg(feature = "slang-tracer-backend")]
+    #[cfg(feature = "slang-tracer")]
+    ShaderOverride {
+        logical_path: "shader/tracer/tracer.comp",
+        source_path: "shader/experiments/slang/tracer.slang",
+        include_path: "shader/experiments/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
+    #[cfg(all(feature = "slang-tracer-backend", not(feature = "slang-tracer")))]
     ShaderOverride {
         logical_path: "shader/tracer/tracer.comp",
         source_path: "shader/tracer/tracer.comp",

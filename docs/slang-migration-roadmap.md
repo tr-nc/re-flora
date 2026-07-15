@@ -43,17 +43,17 @@ Inventory: **76 entry points** = 61 compute + 9 vertex + 6 fragment.
 
 | State | Entry points | Meaning |
 | --- | ---: | --- |
-| Native Slang complete | 6 | Native source is independently selectable and has passed local gates |
-| Slang backend only | 2 | Existing GLSL compiles through Slang; native rewrite remains TODO |
+| Native Slang complete | 7 | Native source is independently selectable and has passed local gates |
+| Slang backend only | 1 | Existing GLSL compiles through Slang; native rewrite remains TODO |
 | GLSL only | 68 | No completed Slang replacement yet |
 
 Current aggregate `slang-validation` build:
 
 ```text
-68 shaderc GLSL + 2 Slang GLSL + 6 native Slang = 76 entry points
+68 shaderc GLSL + 1 Slang GLSL + 7 native Slang = 76 entry points
 ```
 
-The validated native entry points are post-processing, sparse surface extraction, contree leaf writing, tracer shadow traversal, and the egui vertex/fragment pair. The main tracer and composition have backend validation only.
+The validated native entry points are post-processing, sparse surface extraction, contree leaf writing, the main and shadow tracer passes, and the egui vertex/fragment pair. Composition retains backend-only validation.
 
 The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 16 reflection/optimized artifacts. On the local Linux Vulkan SDK 2025.23.2 toolchain, this reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. All 16 API-produced artifacts were byte-identical to separate `slangc` output, all 152 aggregate artifacts passed Vulkan 1.3 SPIR-V validation, and a hidden release smoke run completed on an NVIDIA RTX 3060 Ti through native Vulkan.
 
@@ -155,7 +155,7 @@ Complete this before scaling native migration far beyond the current candidates.
 
 ### Phase 2 — decisive native high-risk coverage
 
-- [ ] Rewrite the full `tracer.comp` entry point in native Slang, reusing the validated contree/DDA modules.
+- [x] Rewrite the full `tracer.comp` entry point in native Slang, reusing the validated contree/DDA modules.
 - [ ] Rewrite `composition.comp` in native Slang modules after its backend baseline.
 - [ ] Port `flora.vert` + `flora.frag` as the representative complex graphics pair.
 - [ ] Port `player_collider.comp` for an additional synchronization-heavy consumer of traversal modules.
@@ -169,7 +169,7 @@ Suggested order maximizes reuse and keeps failures local:
 - [ ] Finish surface construction: 9 remaining entry points.
 - [ ] Migrate scene acceleration: 1 entry point.
 - [ ] Migrate denoiser: 2 entry points.
-- [ ] Finish tracer compute family: 17 GLSL-only plus 2 backend-only entry points at the current snapshot.
+- [ ] Finish tracer compute family: 17 GLSL-only plus 1 backend-only entry point at the current snapshot.
 - [ ] Migrate chunk writer: 21 entry points in small behavior-related groups.
 
 ### Phase 4 — migrate graphics families
@@ -291,7 +291,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 - [ ] `shader/terrarium/glass.frag`
 - [ ] `shader/terrarium/glass.vert`
 
-### Tracer — 2/21 native, 2 backend validated
+### Tracer — 3/21 native, 1 backend validated
 
 - [ ] `shader/tracer/cloud_shadow_temporal.comp`
 - [ ] `shader/tracer/cloud_shadow.comp`
@@ -309,7 +309,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 - [ ] `shader/tracer/shadow_depth_copy.comp`
 - [ ] `shader/tracer/terrain_query.comp`
 - [x] `shader/tracer/tracer_shadow.comp` — `slang-tracer-shadow`
-- [ ] `shader/tracer/tracer.comp` — backend validated by `slang-tracer-backend`; native rewrite remains
+- [x] `shader/tracer/tracer.comp` — `slang-tracer` (backend baseline retained as `slang-tracer-backend`)
 - [ ] `shader/tracer/vsm_blur_h.comp`
 - [ ] `shader/tracer/vsm_blur_v.comp`
 - [ ] `shader/tracer/vsm_creation.comp`
@@ -320,9 +320,9 @@ A checked item means a native Slang implementation has passed all applicable loc
 | Risk or decision | Current state | Required resolution |
 | --- | --- | --- |
 | Slang compiler integration | Process startup is removed locally through one dynamically loaded global session; aggregate checks improved by about 20% | Pin the compiler ABI/version and reproduce the API path on Windows and macOS CI |
-| Native Vulkan performance | Only MoltenVK evidence exists | Windows/Linux order-reversed release benchmarks |
+| Native Vulkan performance | Main tracer has order-reversed RTX 3060 Ti evidence; most other candidates have only MoltenVK evidence | Repeat hot-pass benchmarks across additional native Vulkan vendors and drivers |
 | Cross-platform toolchain | CLI path tested on macOS; compiler API and aggregate runtime tested locally on Linux | Pinned compiler install plus Windows/macOS/Linux CI matrix |
-| Full tracer native translation | Traversal modules are native; main entry point is GLSL-through-Slang | Complete native resources, lighting, shading, and output orchestration |
+| Full tracer native translation | Native resources, traversal, lighting, materials, preview, and output orchestration pass locally; native `tracer.pass` median was 1.3% above shaderc on RTX 3060 Ti | Recheck the small measured delta on additional drivers while migrating shared modules |
 | Full composition native translation | Backend is validated only | Port sky/cloud/glass/SSR logic into focused native modules |
 | Complex graphics interfaces | Egui passes; foliage remains | Native flora pair plus interpolation/instance-input validation |
 | Binding source of truth | Explicit declarations plus ABI checker | Decide whether generation from one schema provides enough benefit |
@@ -336,7 +336,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 Do these in order unless new measurements change the priority:
 
 1. [x] **Compiler-session spike**: the build now uses one dynamically loaded global session; local aggregate checks improved by about 20% with byte-identical artifacts.
-2. **Full native tracer**: reuse `contree_marching.slang`, `scene_marching.slang`, `ray.slang`, and related validated modules.
+2. [x] **Full native tracer**: the native entry reuses the shared traversal modules and passes ABI, SPIR-V, screenshot, runtime, and local native-Vulkan timing gates.
 3. **Native composition modules**: begin with shared pure functions, then replace the entry point behind its own feature.
 4. **Complex flora graphics pair**: validate instance-rate input, push constants, many resources, shadows, wind sampling, and interpolation.
 5. **Player collider**: validate another synchronization-heavy traversal consumer.

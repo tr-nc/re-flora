@@ -3,6 +3,12 @@ module voxel_data;
 import packer;
 
 public static const uint VOXEL_TYPE_MASK = 0x0Fu;
+public static const uint VOXEL_MOISTURE_MASK = 0x30u;
+public static const uint VOXEL_MOISTURE_SHIFT = 4u;
+public static const uint VOXEL_MOISTURE_MAX = 3u;
+public static const uint VOXEL_FERTILITY_MASK = 0xC0u;
+public static const uint VOXEL_FERTILITY_SHIFT = 6u;
+public static const uint VOXEL_FERTILITY_MAX = 3u;
 public static const uint VOXEL_NORMAL_BITS_MASK = 0xFFFFu;
 public static const uint VOXEL_HASH_MASK = 0x3u;
 public static const uint VOXEL_HASH_SHIFT = 30u;
@@ -15,6 +21,16 @@ public uint voxelTypeFromAtlasData(uint voxelData)
 public uint voxelTypeFromData(uint voxelData)
 {
     return voxelData & VOXEL_TYPE_MASK;
+}
+
+public uint voxelMoistureFromAtlasData(uint voxelData)
+{
+    return (voxelData & VOXEL_MOISTURE_MASK) >> VOXEL_MOISTURE_SHIFT;
+}
+
+public uint voxelFertilityFromAtlasData(uint voxelData)
+{
+    return (voxelData & VOXEL_FERTILITY_MASK) >> VOXEL_FERTILITY_SHIFT;
 }
 
 public uint voxelNormalBitsFromData(uint voxelData)

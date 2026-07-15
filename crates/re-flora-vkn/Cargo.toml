@@ -35,6 +35,7 @@ slang-egui = []
 slang-poc = ["slang-post-processing"]
 slang-post-processing = []
 slang-surface = []
+slang-tracer = []
 slang-tracer-backend = []
 slang-tracer-shadow = []
 slang-validation = [
@@ -43,7 +44,7 @@ slang-validation = [
     "slang-egui",
     "slang-post-processing",
     "slang-surface",
-    "slang-tracer-backend",
+    "slang-tracer",
     "slang-tracer-shadow",
 ]
 sync_diagnostics = []

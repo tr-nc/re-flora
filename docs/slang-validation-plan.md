@@ -46,7 +46,8 @@ Planned feature boundaries:
 | `slang-surface` | Surface extraction and normal generation candidate |
 | `slang-contree` | Contree construction candidates |
 | `slang-egui` | Native Slang vertex/fragment interface pair |
-| `slang-tracer-backend` | Main tracer compiled by Slang's GLSL frontend |
+| `slang-tracer` | Native main tracer resources, lighting, materials, and orchestration |
+| `slang-tracer-backend` | Retained main-tracer GLSL-through-Slang baseline |
 | `slang-tracer-shadow` | Native Slang contree/DDA shadow tracer modules |
 | `slang-validation` | Aggregate of all completed candidates |
 
@@ -110,7 +111,7 @@ Why it matters:
 - direct and indirect lighting paths;
 - pressure on compiler inlining, register allocation, and control-flow optimization.
 
-The tracer is the decisive backend optimization comparison. The first stage compiles the existing source and include graph through Slang's GLSL frontend, isolating code generation and runtime compatibility from translation differences. A native Slang/module rewrite remains a separate maintainability experiment if the backend result is acceptable.
+The tracer is the decisive backend optimization comparison. The first stage compiles the existing source and include graph through Slang's GLSL frontend, isolating code generation and runtime compatibility from translation differences. The accepted second stage is a native Slang entry point split into focused type, material, shadowing, preview, transform, packing, projection, and traversal modules.
 
 ### 4. Composition: largest-source backend gate
 
@@ -178,7 +179,7 @@ Tracer benchmark shape:
 cargo run --release -- --hidden --mute --auto-exit 10 --perf
 ```
 
-Repeat with `--features slang-tracer-backend`, discard startup frames, and compare `tracer.pass` plus `tracer.render`. Use enough samples to report count, mean, median, P95, range, and percentage delta. Investigate changes larger than normal run-to-run variance; do not accept a regression merely because the generated SPIR-V validates.
+Repeat with `--features slang-tracer-backend` for the backend-only baseline and `--features slang-tracer` for the native candidate, discard startup frames, and compare `tracer.pass` plus `tracer.render`. Use enough samples to report count, mean, median, P95, range, and percentage delta. Investigate changes larger than normal run-to-run variance; do not accept a regression merely because the generated SPIR-V validates.
 
 Also record optimized SPIR-V byte size and stripped instruction count as diagnostics. They do not override measured GPU time.
 
@@ -197,9 +198,10 @@ On the local Linux Slang 2025.23.2 toolchain, three package-clean aggregate chec
 5. Capture matched hidden contree benchmarks and correctness evidence.
 6. Compile `tracer.comp` and its existing includes through Slang's GLSL frontend.
 7. Rewrite the shared contree and DDA traversal as native Slang modules and validate them through `tracer_shadow.comp`.
-8. Validate one graphics-stage pair.
-9. Add native Vulkan performance and cross-platform CI validation when suitable Windows/Linux hardware is available.
-10. Decide among Slang default, mixed Slang/GLSL production use, or retaining GLSL as default.
+8. Rewrite the full main tracer with reusable native modules and validate it against both frontend baselines.
+9. Validate one graphics-stage pair.
+10. Add broader native Vulkan performance coverage and cross-platform CI validation.
+11. Decide among Slang default, mixed Slang/GLSL production use, or retaining GLSL as default.
 
 ## Current status
 
@@ -207,12 +209,12 @@ On the local Linux Slang 2025.23.2 toolchain, three package-clean aggregate chec
 - `make_surface_sparse.comp` has been ported and runs successfully through MoltenVK with shared memory, synchronization, atomics, formatted storage images, std140/std430 blocks, and runtime arrays.
 - Matched hidden tree benchmarks produced identical surface workload counts and scene output. Typical GPU time is at parity; run-order-sensitive mean and P95 variation requires more native Vulkan evidence before a performance verdict.
 - `leaf_write.comp`, the measured dominant contree construction shader, has been ported. Matched node/leaf sizes and scene output are identical, and both frontends have a combined 44 us median on MoltenVK.
-- `tracer.comp` now compiles through Slang's GLSL frontend behind `slang-tracer-backend`. It runs through MoltenVK with the existing four-set descriptor ABI, structured SSBOs, storage images, camera matrices, and include graph. A fixed-camera image is visually equivalent; broad one- to two-level pixel differences and dynamic content prevent byte identity. Two order-reversed timing pairs showed no median regression in the approximately 11 us `tracer.pass`, while tail timing remains too quantized and noisy for a strong conclusion.
+- `tracer.comp` retains its GLSL-through-Slang baseline under `slang-tracer-backend` and now has a full native implementation under `slang-tracer`. The native entry reuses resource-independent contree/DDA traversal and focused material, shadowing, preview, transform, packing, projection, and type modules. Its four-set ABI matches automatically, all SPIR-V validates, and a 2880x1620 fixed-camera image is visually equivalent. Two order-reversed RTX 3060 Ti pairs retained 151 shaderc and 152 native post-startup samples: `tracer.pass` medians were 467 us and 473 us (`+1.3%`), while `tracer.render` medians differed by `+0.5%`. The small repeatable pass delta is documented for cross-driver follow-up rather than hidden by aggregate frame noise.
 - The production `tracer_shadow.comp` path has been rewritten in native Slang modules under `slang-tracer-shadow`. The modules cover AABB intersection, camera-ray projection, contree traversal, DDA scene traversal, voxel decoding, workgroup stack storage, structured SSBOs, storage images, and matrix uniforms. Fixed-camera shadow output is visually equivalent. Two order-reversed local MoltenVK pairs had native medians 0.8-1.4% lower, within run noise.
 - The egui vertex/fragment pair has been rewritten in native Slang under `slang-egui`. Runtime pipeline-layout merging, three vertex attributes, two interpolants, a matrix push constant, combined image sampler, alpha blending, and UI rendering all pass on MoltenVK. Static UI regions are visually equivalent, with only sparse 1-3-level color differences.
 - `composition.comp`, the largest production entry point, now compiles through Slang's GLSL frontend under `slang-composition-backend`. Its 16-binding ABI passes the automatic GLSL-reference check. Explicit LOD on its two sampled textures avoids requesting compute-derivative capabilities. A 5120x2880 fixed-camera image is visually equivalent, and three order-varied release pairs show no GPU regression: 93 combined GLSL samples had a 286 us median versus 280 us across 99 Slang samples.
 - The aggregate build now uses one dynamically loaded Slang compiler API global session instead of 16 `slangc` process launches. Local package-clean and shader-touched checks improved by about 20%, all API artifacts matched standalone compiler output byte-for-byte, and Cargo logs the loaded compiler build tag.
-- Remaining primary work is native module conversion of larger tracer/composition logic, with a complex foliage graphics pair as additional coverage. Exact compiler pinning, native Vulkan performance, and cross-platform CI remain open.
+- Remaining primary work is native composition conversion and a complex foliage graphics pair. Exact compiler pinning, broader native-Vulkan performance coverage, and cross-platform CI remain open.
 
 ## Decision criteria
 
