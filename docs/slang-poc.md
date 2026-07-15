@@ -1,5 +1,7 @@
 # Slang shader proof of concept
 
+For migration status, completion criteria, the 76-entry-point checklist, and next tasks, see [`slang-migration-roadmap.md`](slang-migration-roadmap.md). This document is the operator guide and technical evidence record.
+
 This experiment incrementally replaces selected GLSL compute shaders with equivalent Slang implementations. The normal build remains GLSL-only, and each replacement can be enabled independently for matched comparison.
 
 The first pass, `shader/tracer/post_processing.comp`, was selected because it runs every frame at the full output resolution, already has a Vulkan timestamp scope, and exercises a uniform buffer, formatted storage images, bounds checks, and a reusable dither module. The surface and contree-leaf passes cover difficult shared-memory, synchronization, atomic, and structured-buffer paths. The main tracer is also compiled from its existing GLSL source through Slang's GLSL frontend to isolate backend compatibility and optimization.

@@ -1,5 +1,7 @@
 # Slang compatibility and performance validation plan
 
+The authoritative migration status, per-entry-point checklist, phased roadmap, and next work queue live in [`slang-migration-roadmap.md`](slang-migration-roadmap.md). This document owns validation policy and evidence; do not duplicate the inventory here.
+
 ## Decision to make
 
 Determine whether Slang can become re-flora's primary shader language without losing Vulkan functionality, correctness, or GPU performance. Migration effort is not part of the decision, but recurring build cost, toolchain reliability, runtime behavior, and maintainability are.
