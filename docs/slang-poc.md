@@ -29,6 +29,7 @@ Enable an individual replacement or all completed validation candidates with:
 
 ```bash
 cargo check --features slang-post-processing
+cargo check --features slang-composition
 cargo check --features slang-composition-backend
 cargo check --features slang-surface
 cargo check --features slang-contree-leaf
@@ -44,7 +45,7 @@ cargo check --features slang-validation
 The build reports each frontend separately, for example:
 
 ```text
-precompiled 68 shaderc GLSL, 1 Slang GLSL, and 7 native Slang shaders into SPIR-V artifacts
+precompiled 68 shaderc GLSL, 0 Slang GLSL, and 8 native Slang shaders into SPIR-V artifacts
 ```
 
 The logical shader path remains the runtime identity for both languages. Enabling an override compiles the original GLSL reflection artifact as a reference and fails the build if the replacement changes the pipeline ABI: stage, workgroup size, descriptor contract, top-level buffer member byte layout and array stride, push constant ranges/member layout, stage IO locations/formats/arrays, or interpolation decorations. Override configuration is also checked for duplicate and missing paths, stage mismatches, and missing source/include paths. Nested compiler-specific matrix wrappers and the final Rust resource mapping are still validated by the existing reflection/resource path at runtime.
@@ -246,10 +247,25 @@ A 5120x2880 fixed-camera screenshot was visually equivalent. Most changed channe
 
 Run-level medians moved from Slang being 2.0% slower to 3.5% faster as run order and system state changed. The combined delta was `-1.04%` mean and `-2.10%` median, so there is no evidence of a regression. Debug-stripped optimized SPIR-V contained 1,105 instructions/20,452 bytes from shaderc and 1,145 instructions/20,860 bytes from Slang.
 
+## Native composition path
+
+The `slang-composition` feature replaces the same logical path with a native entry and focused sky, starlight, sunlight, and type modules. It covers the active open-tank production path: 16 bindings, sky keyframes, sun-sprite projection, procedural starlight, precomputed screen clouds, raster/ray-traced composition, lens flare, and god rays. The retained `slang-composition-backend` feature remains available as a frontend baseline; native takes precedence if both are enabled. The panel, analytic glass, volumetric-cloud reflection, and SSR helpers in the GLSL file are currently disabled by the production entry and remain a source-porting follow-up before reactivation.
+
+Matched 2880x1620 day and night captures were visually equivalent. Independent daytime runs differed at 959,895 pixels before tolerance, 25,090 above two 8-bit levels, and 4,055 above five levels; visible differences were confined to moving leaves and dynamic UI. The night capture exercises the expensive starlight path and differed at only 1,888 pixels, with no systematic sky difference.
+
+Two order-reversed ten-second RTX 3060 Ti pairs discarded the first ten logged samples from each run:
+
+| Frontend | Samples | Mean | Median | P95 | Range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GLSL / shaderc | 146 | 62.59 us | 62 us | 63 us | 61-91 us |
+| Native Slang | 145 | 62.72 us | 63 us | 65 us | 61-66 us |
+
+One pair had equal 62 us medians; the reversed pair measured native at 63 us versus shaderc at 62 us. The 1 us combined delta is at timestamp and run-to-run resolution rather than evidence of a material regression. Debug-stripped optimized SPIR-V contained 1,105 instructions/20,452 bytes from shaderc, 1,145/20,860 from the GLSL-through-Slang baseline, and 1,184/21,720 from native Slang.
+
 ## Compatibility findings
 
 Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, while existing GLSL reflection exposes source type names directly. Its GLSL frontend additionally adds the `SLANG_ParameterGroup_` prefix and materializes matrices as `_MatrixStorage_*` structs. The runtime normalizes these forms at the reflection boundary, allowing both frontends to resolve the same resource definitions and matrix members without shader-specific aliases.
 
 ## Limits of this result
 
-The candidates establish Slang compatibility with the current shared-memory, barrier, atomic, storage-image, runtime-array, structured-SSBO, matrix, branch-heavy traversal, and basic graphics-stage interface patterns. Native Slang modules now cover both tracer entries and an end-to-end vertex/fragment pair. Shared-session compiler performance and the native main tracer are validated locally on Linux, but the dynamically loaded API path still needs exact version pinning and Windows/macOS CI coverage. A foliage graphics pair would provide stronger vertex-stage complexity coverage, and native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
+The candidates establish Slang compatibility with the current shared-memory, barrier, atomic, storage-image, runtime-array, structured-SSBO, matrix, branch-heavy traversal, and basic graphics-stage interface patterns. Native Slang modules now cover both tracer entries, the active composition path, and an end-to-end vertex/fragment pair. Shared-session compiler performance and the native main tracer/composition passes are validated locally on Linux, but the dynamically loaded API path still needs exact version pinning and Windows/macOS CI coverage. The disabled composition helper source still needs translation before reactivation. A foliage graphics pair would provide stronger vertex-stage complexity coverage, and native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.

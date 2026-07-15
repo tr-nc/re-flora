@@ -42,7 +42,8 @@ Planned feature boundaries:
 | Feature | Slang replacement scope |
 | --- | --- |
 | `slang-post-processing` | Existing simple proof of concept |
-| `slang-composition-backend` | Largest production shader compiled by Slang's GLSL frontend |
+| `slang-composition` | Native active composition path and reusable sky/starlight modules |
+| `slang-composition-backend` | Retained composition GLSL-through-Slang baseline |
 | `slang-surface` | Surface extraction and normal generation candidate |
 | `slang-contree` | Contree construction candidates |
 | `slang-egui` | Native Slang vertex/fragment interface pair |
@@ -113,7 +114,7 @@ Why it matters:
 
 The tracer is the decisive backend optimization comparison. The first stage compiles the existing source and include graph through Slang's GLSL frontend, isolating code generation and runtime compatibility from translation differences. The accepted second stage is a native Slang entry point split into focused type, material, shadowing, preview, transform, packing, projection, and traversal modules.
 
-### 4. Composition: largest-source backend gate
+### 4. Composition: largest-source backend and native gate
 
 - GLSL: `shader/tracer/composition.comp`
 - Timing label: `composition.pass`
@@ -123,7 +124,7 @@ The tracer is the decisive backend optimization comparison. The first stage comp
   - camera matrices, sky/starlight/cloud paths, analytic terrarium glass, SSR, and branch-heavy per-pixel composition;
   - full-resolution execution makes small backend regressions measurable.
 
-As with the main tracer, the first stage keeps the GLSL source unchanged and switches only to Slang's GLSL frontend. A later native module rewrite can then be diagnosed separately from backend differences.
+As with the main tracer, the first stage keeps the GLSL source unchanged and switches only to Slang's GLSL frontend. The accepted second stage replaces the active production path with native sky, sunlight, starlight, type, and entry-point modules. The currently disabled open-tank panel, glass, volumetric-cloud reflection, and SSR helper source remains a separate source-porting follow-up before reactivation.
 
 ### Secondary coverage
 
@@ -199,9 +200,10 @@ On the local Linux Slang 2025.23.2 toolchain, three package-clean aggregate chec
 6. Compile `tracer.comp` and its existing includes through Slang's GLSL frontend.
 7. Rewrite the shared contree and DDA traversal as native Slang modules and validate them through `tracer_shadow.comp`.
 8. Rewrite the full main tracer with reusable native modules and validate it against both frontend baselines.
-9. Validate one graphics-stage pair.
-10. Add broader native Vulkan performance coverage and cross-platform CI validation.
-11. Decide among Slang default, mixed Slang/GLSL production use, or retaining GLSL as default.
+9. Rewrite the active composition path with reusable native sky and starlight modules and validate it against both frontend baselines.
+10. Validate one graphics-stage pair.
+11. Add broader native Vulkan performance coverage and cross-platform CI validation.
+12. Decide among Slang default, mixed Slang/GLSL production use, or retaining GLSL as default.
 
 ## Current status
 
@@ -212,9 +214,9 @@ On the local Linux Slang 2025.23.2 toolchain, three package-clean aggregate chec
 - `tracer.comp` retains its GLSL-through-Slang baseline under `slang-tracer-backend` and now has a full native implementation under `slang-tracer`. The native entry reuses resource-independent contree/DDA traversal and focused material, shadowing, preview, transform, packing, projection, and type modules. Its four-set ABI matches automatically, all SPIR-V validates, and a 2880x1620 fixed-camera image is visually equivalent. Two order-reversed RTX 3060 Ti pairs retained 151 shaderc and 152 native post-startup samples: `tracer.pass` medians were 467 us and 473 us (`+1.3%`), while `tracer.render` medians differed by `+0.5%`. The small repeatable pass delta is documented for cross-driver follow-up rather than hidden by aggregate frame noise.
 - The production `tracer_shadow.comp` path has been rewritten in native Slang modules under `slang-tracer-shadow`. The modules cover AABB intersection, camera-ray projection, contree traversal, DDA scene traversal, voxel decoding, workgroup stack storage, structured SSBOs, storage images, and matrix uniforms. Fixed-camera shadow output is visually equivalent. Two order-reversed local MoltenVK pairs had native medians 0.8-1.4% lower, within run noise.
 - The egui vertex/fragment pair has been rewritten in native Slang under `slang-egui`. Runtime pipeline-layout merging, three vertex attributes, two interpolants, a matrix push constant, combined image sampler, alpha blending, and UI rendering all pass on MoltenVK. Static UI regions are visually equivalent, with only sparse 1-3-level color differences.
-- `composition.comp`, the largest production entry point, now compiles through Slang's GLSL frontend under `slang-composition-backend`. Its 16-binding ABI passes the automatic GLSL-reference check. Explicit LOD on its two sampled textures avoids requesting compute-derivative capabilities. A 5120x2880 fixed-camera image is visually equivalent, and three order-varied release pairs show no GPU regression: 93 combined GLSL samples had a 286 us median versus 280 us across 99 Slang samples.
+- `composition.comp`, the largest production entry point, retains its GLSL-through-Slang baseline under `slang-composition-backend` and now has a native active-path implementation under `slang-composition`. Its 16-binding ABI passes the automatic GLSL-reference check, and explicit LOD on sampled textures avoids requesting compute-derivative capabilities. At 2880x1620, day and night captures are visually equivalent: the night/starlight pair differed at only 1,888 pixels across independent runs, while larger daytime differences were confined to moving leaves and UI. Two order-reversed RTX 3060 Ti pairs retained 146 shaderc and 145 native post-startup samples; both had 62-63 us medians, with the native combined median 1 us higher and within timestamp/run variance. The disabled open-tank helper source remains a source-porting follow-up before reactivation.
 - The aggregate build now uses one dynamically loaded Slang compiler API global session instead of 16 `slangc` process launches. Local package-clean and shader-touched checks improved by about 20%, all API artifacts matched standalone compiler output byte-for-byte, and Cargo logs the loaded compiler build tag.
-- Remaining primary work is native composition conversion and a complex foliage graphics pair. Exact compiler pinning, broader native-Vulkan performance coverage, and cross-platform CI remain open.
+- Remaining primary shader coverage is the disabled composition helper source and a complex foliage graphics pair. Exact compiler pinning, broader native-Vulkan performance coverage, and cross-platform CI remain open.
 
 ## Decision criteria
 
