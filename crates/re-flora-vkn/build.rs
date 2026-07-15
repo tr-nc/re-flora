@@ -33,6 +33,24 @@ const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
         source_language: SlangSourceLanguage::Slang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-egui")]
+    SlangShaderConfig {
+        logical_path: "shader/egui/egui.vert",
+        source_path: "shader/experiments/slang/egui.vert.slang",
+        include_path: "shader/experiments/slang",
+        stage: "vertex",
+        source_language: SlangSourceLanguage::Slang2025,
+        defines: &[],
+    },
+    #[cfg(feature = "slang-egui")]
+    SlangShaderConfig {
+        logical_path: "shader/egui/egui.frag",
+        source_path: "shader/experiments/slang/egui.frag.slang",
+        include_path: "shader/experiments/slang",
+        stage: "fragment",
+        source_language: SlangSourceLanguage::Slang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-post-processing")]
     SlangShaderConfig {
         logical_path: "shader/tracer/post_processing.comp",

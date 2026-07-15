@@ -28,6 +28,7 @@ Enable an individual replacement or all completed validation candidates with:
 cargo check --features slang-post-processing
 cargo check --features slang-surface
 cargo check --features slang-contree-leaf
+cargo check --features slang-egui
 cargo check --features slang-tracer-backend
 cargo check --features slang-tracer-shadow
 cargo check --features slang-validation
@@ -166,6 +167,12 @@ Two order-reversed local MoltenVK timing pairs measured `tracer_shadow.pass`:
 
 Typical GPU time is at parity on the tested Apple M4 Pro. The debug-stripped optimized artifact contains 736 instructions/12,796 bytes from shaderc and 815 instructions/14,168 bytes from Slang. Native Vulkan performance remains a TODO for when Windows/Linux hardware is available.
 
+## Native Slang graphics-stage pair
+
+The `slang-egui` feature replaces both `shader/egui/egui.vert` and `shader/egui/egui.frag`. It validates a native Slang vertex/fragment interface with three explicitly located vertex attributes, two interpolants, `SV_Position`, a 64-byte matrix push constant, a Vulkan combined `Sampler2D`, fragment output, and the existing alpha-blended graphics pipeline.
+
+Both stages pass `spirv-val`, their reflected locations and resource contracts match GLSL, and the merged Vulkan graphics pipeline runs successfully through MoltenVK. A 2560x1440 screenshot rendered all UI geometry, text, textures, clipping, and blending correctly. Stable UI regions were visually equivalent, with only sparse 1-3-level 8-bit color differences. The optimized vertex modules contain 94 GLSL versus 103 Slang instructions; the fragment modules contain 35 GLSL versus 34 Slang instructions.
+
 ## Main tracer through Slang's GLSL frontend
 
 The fourth candidate replaces the backend for `shader/tracer/tracer.comp` under `slang-tracer-backend` without translating its approximately 2,700 transitive lines to native Slang. This validates the branch-heavy DDA/contree traversal, 28-entry include graph, four descriptor sets, camera matrices, structured SSBOs, storage images, sampler arrays, and lighting paths while keeping source logic shared.
@@ -193,4 +200,4 @@ Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, 
 
 ## Limits of this result
 
-The compute candidates establish Slang compatibility with the current shared-memory, barrier, atomic, storage-image, runtime-array, structured-SSBO, matrix, and branch-heavy traversal patterns on MoltenVK. Native Slang modules now cover the core contree/DDA shadow traversal; the full main tracer result still evaluates Slang code generation through its GLSL frontend. Graphics stages and combined-session compiler performance remain unvalidated. Native Vulkan performance and cross-platform CI are deferred until suitable Windows/Linux hardware is available. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
+The candidates establish Slang compatibility with the current shared-memory, barrier, atomic, storage-image, runtime-array, structured-SSBO, matrix, branch-heavy traversal, and basic graphics-stage interface patterns on MoltenVK. Native Slang modules cover the core contree/DDA shadow traversal and an end-to-end vertex/fragment pair; the full main tracer result still evaluates Slang code generation through its GLSL frontend. Combined-session compiler performance remains unvalidated, and a foliage graphics pair would provide stronger vertex-stage complexity coverage. Native Vulkan performance and cross-platform CI are deferred until suitable Windows/Linux hardware is available. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.

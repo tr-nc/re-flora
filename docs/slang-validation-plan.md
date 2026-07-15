@@ -42,6 +42,7 @@ Planned feature boundaries:
 | `slang-post-processing` | Existing simple proof of concept |
 | `slang-surface` | Surface extraction and normal generation candidate |
 | `slang-contree` | Contree construction candidates |
+| `slang-egui` | Native Slang vertex/fragment interface pair |
 | `slang-tracer-backend` | Main tracer compiled by Slang's GLSL frontend |
 | `slang-tracer-shadow` | Native Slang contree/DDA shadow tracer modules |
 | `slang-validation` | Aggregate of all completed candidates |
@@ -113,7 +114,8 @@ The tracer is the decisive backend optimization comparison. The first stage comp
 After the three primary gates:
 
 - `shader/tracer/player_collider.comp` for additional shared-memory and synchronization coverage;
-- one foliage vertex/fragment pair for graphics-stage interfaces and interpolation;
+- the egui vertex/fragment pair for graphics-stage interfaces, push constants, vertex formats, interpolation, and combined image samplers;
+- one foliage vertex/fragment pair as later graphics-stage complexity coverage;
 - optional shader clock support if it is re-enabled;
 - any future buffer-reference or sparse-residency prototype before those features enter production.
 
@@ -198,7 +200,8 @@ The mixed build may use individual `slangc` processes during compatibility exper
 - `leaf_write.comp`, the measured dominant contree construction shader, has been ported. Matched node/leaf sizes and scene output are identical, and both frontends have a combined 44 us median on MoltenVK.
 - `tracer.comp` now compiles through Slang's GLSL frontend behind `slang-tracer-backend`. It runs through MoltenVK with the existing four-set descriptor ABI, structured SSBOs, storage images, camera matrices, and include graph. A fixed-camera image is visually equivalent; broad one- to two-level pixel differences and dynamic content prevent byte identity. Two order-reversed timing pairs showed no median regression in the approximately 11 us `tracer.pass`, while tail timing remains too quantized and noisy for a strong conclusion.
 - The production `tracer_shadow.comp` path has been rewritten in native Slang modules under `slang-tracer-shadow`. The modules cover AABB intersection, camera-ray projection, contree traversal, DDA scene traversal, voxel decoding, workgroup stack storage, structured SSBOs, storage images, and matrix uniforms. Fixed-camera shadow output is visually equivalent. Two order-reversed local MoltenVK pairs had native medians 0.8-1.4% lower, within run noise.
-- Remaining primary gates are a graphics-stage pair and compiler-session build-cost work. Native Vulkan performance and cross-platform CI are explicitly deferred until suitable Windows/Linux hardware is available.
+- The egui vertex/fragment pair has been rewritten in native Slang under `slang-egui`. Runtime pipeline-layout merging, three vertex attributes, two interpolants, a matrix push constant, combined image sampler, alpha blending, and UI rendering all pass on MoltenVK. Static UI regions are visually equivalent, with only sparse 1-3-level color differences.
+- Remaining primary work is compiler-session build-cost evaluation and, optionally, a more complex foliage graphics pair. Native Vulkan performance and cross-platform CI are explicitly deferred until suitable Windows/Linux hardware is available.
 
 ## Decision criteria
 
