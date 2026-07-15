@@ -5,9 +5,24 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const ENTRY_POINT: &str = "main";
-const SLANG_POC_LOGICAL_PATH: &str = "shader/tracer/post_processing.comp";
-const SLANG_POC_SOURCE_PATH: &str = "shader/experiments/slang/post_processing.slang";
-const SLANG_POC_INCLUDE_PATH: &str = "shader/experiments/slang";
+
+#[derive(Clone, Copy)]
+struct SlangShaderConfig {
+    logical_path: &'static str,
+    source_path: &'static str,
+    include_path: &'static str,
+    stage: &'static str,
+}
+
+const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
+    #[cfg(feature = "slang-post-processing")]
+    SlangShaderConfig {
+        logical_path: "shader/tracer/post_processing.comp",
+        source_path: "shader/experiments/slang/post_processing.slang",
+        include_path: "shader/experiments/slang",
+        stage: "compute",
+    },
+];
 
 fn main() {
     let crate_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -38,30 +53,28 @@ fn main() {
          \tmatch file_path {\n",
     );
 
-    let slang_poc_enabled = cfg!(feature = "slang-poc");
     let mut slang_shader_count = 0;
     for shader_path in &shader_paths {
         let relative_path = shader_path
             .strip_prefix(project_root)
             .expect("shader path must be under project root");
         let logical_path = path_with_forward_slashes(relative_path);
-        let shader_kind = shader_kind(shader_path);
-        let use_slang = slang_poc_enabled && logical_path == SLANG_POC_LOGICAL_PATH;
+        let slang_config = SLANG_SHADER_CONFIGS
+            .iter()
+            .find(|config| config.logical_path == logical_path);
 
-        let (reflection_spirv, optimized_spirv) = if use_slang {
+        let (reflection_spirv, optimized_spirv) = if let Some(config) = slang_config {
             slang_shader_count += 1;
-            let slang_path = project_root.join(SLANG_POC_SOURCE_PATH);
-            let include_path = project_root.join(SLANG_POC_INCLUDE_PATH);
             (
                 compile_slang_shader(
-                    &slang_path,
-                    &include_path,
+                    config,
+                    project_root,
                     &out_dir,
                     OptimizationLevel::Zero,
                 ),
                 compile_slang_shader(
-                    &slang_path,
-                    &include_path,
+                    config,
+                    project_root,
                     &out_dir,
                     OptimizationLevel::Performance,
                 ),
@@ -69,6 +82,7 @@ fn main() {
         } else {
             let source = fs::read_to_string(shader_path)
                 .unwrap_or_else(|error| panic!("read {}: {error}", shader_path.display()));
+            let shader_kind = shader_kind(shader_path);
             (
                 compile_shader(
                     &compiler,
@@ -133,8 +147,8 @@ fn main() {
 }
 
 fn compile_slang_shader(
-    shader_path: &Path,
-    include_path: &Path,
+    config: &SlangShaderConfig,
+    project_root: &Path,
     out_dir: &Path,
     optimization_level: OptimizationLevel,
 ) -> Vec<u8> {
@@ -143,7 +157,22 @@ fn compile_slang_shader(
         OptimizationLevel::Performance => ("-O3", "optimized"),
         other => panic!("unsupported Slang optimization level: {other:?}"),
     };
-    let output_path = out_dir.join(format!("slang-poc-post-processing-{artifact_suffix}.spv"));
+    let artifact_stem: String = config
+        .logical_path
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | '.' => '-',
+            other => other,
+        })
+        .collect();
+    let output_path = out_dir
+        .join("slang")
+        .join(format!("{artifact_stem}-{artifact_suffix}.spv"));
+    fs::create_dir_all(output_path.parent().expect("Slang artifact must have parent"))
+        .expect("create Slang artifact directory");
+
+    let shader_path = project_root.join(config.source_path);
+    let include_path = project_root.join(config.include_path);
     let slangc = find_slangc();
     let mut command = Command::new(&slangc);
     command.args([
@@ -157,7 +186,7 @@ fn compile_slang_shader(
         "-entry".as_ref(),
         ENTRY_POINT.as_ref(),
         "-stage".as_ref(),
-        "compute".as_ref(),
+        config.stage.as_ref(),
         "-std".as_ref(),
         "2025".as_ref(),
         "-matrix-layout-column-major".as_ref(),
