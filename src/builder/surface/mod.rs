@@ -7,7 +7,6 @@ use crate::{
         OccupancyToInstancesInfo,
     },
     geom::UAabb3,
-    util::ShaderCompiler,
 };
 use anyhow::Result;
 use bytemuck::Zeroable;
@@ -376,7 +375,6 @@ impl SurfaceBuilder {
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: re_flora_vkn::Allocator,
-        shader_compiler: &ShaderCompiler,
         plain_builder_resources: &PlainBuilderResources,
         voxel_dim_per_chunk: UVec3,
         chunk_bound: UAabb3,
@@ -385,73 +383,64 @@ impl SurfaceBuilder {
         species::assert_species_limit();
         let flora_species_count = species::species_count();
 
-        let make_surface_sm = ShaderModule::from_glsl(
+        let make_surface_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/surface/make_surface_sparse.comp",
             "main",
         )
         .unwrap();
 
-        let prepare_sparse_surface_dispatch_sm = ShaderModule::from_glsl(
+        let prepare_sparse_surface_dispatch_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/surface/prepare_sparse_surface_dispatch.comp",
             "main",
         )
         .unwrap();
 
-        let clear_occupancy_sm = ShaderModule::from_glsl(
+        let clear_occupancy_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/surface/clear_occupancy.comp",
             "main",
         )
         .unwrap();
 
-        let instances_to_occupancy_sm = ShaderModule::from_glsl(
+        let instances_to_occupancy_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/surface/instances_to_occupancy.comp",
             "main",
         )
         .unwrap();
 
-        let edit_occupancy_sm = ShaderModule::from_glsl(
+        let edit_occupancy_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/surface/edit_occupancy_capsule.comp",
             "main",
         )
         .unwrap();
 
-        let occupancy_to_instances_sm = ShaderModule::from_glsl(
+        let occupancy_to_instances_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/surface/occupancy_to_flora_instances.comp",
             "main",
         )
         .unwrap();
 
-        let active_surface_to_flora_sm = ShaderModule::from_glsl(
+        let active_surface_to_flora_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/surface/active_surface_to_flora_instances.comp",
             "main",
         )
         .unwrap();
 
-        let prepare_active_surface_flora_dispatch_sm = ShaderModule::from_glsl(
+        let prepare_active_surface_flora_dispatch_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/surface/prepare_active_surface_flora_dispatch.comp",
             "main",
         )
         .unwrap();
 
-        let update_flora_growth_sm = ShaderModule::from_glsl(
+        let update_flora_growth_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/surface/update_flora_growth.comp",
             "main",
         )

@@ -1,5 +1,4 @@
 use super::mesh::Mesh;
-use crate::util::ShaderCompiler;
 use egui::ViewportId;
 use egui::{
     epaint::{ImageDelta, Primitive},
@@ -49,15 +48,14 @@ impl EguiRenderer {
         vulkan_ctx: VulkanContext,
         window: &Window,
         allocator: Allocator,
-        compiler: &ShaderCompiler,
         render_pass: &RenderPass,
     ) -> Self {
         let device = vulkan_ctx.device();
 
         let egui_vert_sm =
-            ShaderModule::from_glsl(device, compiler, "shader/egui/egui.vert", "main").unwrap();
+            ShaderModule::from_precompiled(device, "shader/egui/egui.vert", "main").unwrap();
         let egui_frag_sm =
-            ShaderModule::from_glsl(device, compiler, "shader/egui/egui.frag", "main").unwrap();
+            ShaderModule::from_precompiled(device, "shader/egui/egui.frag", "main").unwrap();
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 

@@ -4,7 +4,7 @@ use glam::UVec3;
 pub use resources::*;
 use std::time::Instant;
 
-use crate::{generated::gpu_structs::SceneTexUpdateInfo, geom::UAabb3, util::ShaderCompiler};
+use crate::{generated::gpu_structs::SceneTexUpdateInfo, geom::UAabb3};
 use bytemuck::Zeroable;
 use re_flora_vkn::{
     execute_one_time_command, Allocator, Buffer, ClearValue, ColorClearValue, CommandBuffer,
@@ -48,15 +48,13 @@ impl SceneAccelBuilder {
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
-        shader_compiler: &ShaderCompiler,
         chunk_bound: UAabb3,
     ) -> Result<Self> {
         let device = vulkan_ctx.device();
         let pool = DescriptorPool::new(device).unwrap();
 
-        let update_scene_tex_sm = ShaderModule::from_glsl(
+        let update_scene_tex_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/scene_accel/update_scene_tex.comp",
             "main",
         )

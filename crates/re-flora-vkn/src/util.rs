@@ -44,10 +44,6 @@ where
     }
 }
 
-fn replace_backslashes_with_slashes(path: &str) -> String {
-    path.replace('\\', "/")
-}
-
 pub fn project_root() -> PathBuf {
     if let Ok(root) = env::var("RE_FLORA_ROOT") {
         let root = PathBuf::from(root);
@@ -94,20 +90,4 @@ fn is_project_root(path: &Path) -> bool {
     path.join("assets").is_dir()
         && path.join("shader").is_dir()
         && path.join("config").join("gui.toml").is_file()
-}
-
-pub fn full_path_from_relative(relative_path: &str) -> String {
-    let relative_path = relative_path.strip_prefix('/').unwrap_or(relative_path);
-    replace_backslashes_with_slashes(&project_root().join(relative_path).to_string_lossy())
-}
-
-/// Compatibility marker while shader-loading call sites migrate to precompiled artifacts.
-///
-/// GLSL compilation now happens in `build.rs`; constructing this value performs no work.
-pub struct ShaderCompiler;
-
-impl ShaderCompiler {
-    pub fn new() -> Result<Self, String> {
-        Ok(Self)
-    }
 }

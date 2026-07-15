@@ -1,7 +1,6 @@
 use super::{precompiled_shader::find_precompiled_shader, struct_layout::*};
 use crate::{
     DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
-    ShaderCompiler,
 };
 use anyhow::Result;
 use ash::vk;
@@ -74,12 +73,8 @@ impl Debug for ShaderModule {
 
 impl ShaderModule {
     /// Create a shader module from SPIR-V artifacts generated during the Rust build.
-    ///
-    /// The compatibility `compiler` argument is unused and will be removed after call sites
-    /// migrate away from the former runtime-GLSL API.
-    pub fn from_glsl(
+    pub fn from_precompiled(
         device: &Device,
-        _compiler: &ShaderCompiler,
         file_path: &str,
         entry_point_name: &str,
     ) -> Result<Self, String> {

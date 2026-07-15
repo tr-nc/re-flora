@@ -58,9 +58,7 @@ use crate::tracer::{
 };
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
-use crate::util::{
-    ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, ShaderCompiler, BENCH,
-};
+use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, BENCH};
 use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
@@ -828,8 +826,6 @@ impl App {
         let window_state = Self::create_window_state(_event_loop, options);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
 
-        let shader_compiler = ShaderCompiler::new().unwrap();
-
         let device = vulkan_ctx.device();
 
         let allocator = Allocator::new_for_context(&vulkan_ctx);
@@ -866,13 +862,11 @@ impl App {
             vulkan_ctx.clone(),
             &window_state.window(),
             allocator.clone(),
-            &shader_compiler,
             swapchain.get_render_pass(),
         );
 
         let plain_builder = PlainBuilder::new(
             vulkan_ctx.clone(),
-            &shader_compiler,
             allocator.clone(),
             CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
             FREE_ATLAS_DIM,
@@ -881,7 +875,6 @@ impl App {
         let mut surface_builder = SurfaceBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
-            &shader_compiler,
             plain_builder.get_resources(),
             VOXEL_DIM_PER_CHUNK,
             chunk_bound,
@@ -903,7 +896,6 @@ impl App {
         let contree_builder = ContreeBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
-            &shader_compiler,
             surface_builder.get_resources(),
             CHUNK_DIM,
             VOXEL_DIM_PER_CHUNK,
@@ -911,12 +903,8 @@ impl App {
             contree_pool_sizes.leaf_pool_size_in_bytes,
         );
 
-        let scene_accel_builder = SceneAccelBuilder::new(
-            vulkan_ctx.clone(),
-            allocator.clone(),
-            &shader_compiler,
-            chunk_bound,
-        )?;
+        let scene_accel_builder =
+            SceneAccelBuilder::new(vulkan_ctx.clone(), allocator.clone(), chunk_bound)?;
 
         let chunk_indices = {
             let mut indices = Vec::new();
@@ -941,7 +929,6 @@ impl App {
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
-            &shader_compiler,
             chunk_bound,
             window_state.window_extent(),
             contree_builder.get_resources(),

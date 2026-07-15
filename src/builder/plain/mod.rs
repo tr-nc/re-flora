@@ -8,7 +8,6 @@ use crate::generated::gpu_structs::{
     VoxelPropertySampleResult as VoxelPropertySampleResultGpu,
 };
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
-use crate::util::ShaderCompiler;
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3, Vec3};
@@ -360,156 +359,134 @@ pub struct PlainBuilder {
 impl PlainBuilder {
     pub fn new(
         vulkan_ctx: VulkanContext,
-        shader_compiler: &ShaderCompiler,
         allocator: Allocator,
         plain_atlas_dim: UVec3,
         free_atlas_dim: UVec3,
     ) -> Self {
         let device = vulkan_ctx.device();
 
-        let buffer_setup_sm = ShaderModule::from_glsl(
+        let buffer_setup_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/buffer_setup.comp",
             "main",
         )
         .unwrap();
-        let chunk_init_sm = ShaderModule::from_glsl(
+        let chunk_init_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/chunk_init.comp",
             "main",
         )
         .unwrap();
-        let chunk_modify_sm = ShaderModule::from_glsl(
+        let chunk_modify_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/chunk_modify.comp",
             "main",
         )
         .unwrap();
-        let chunk_modify_sample_sm = ShaderModule::from_glsl(
+        let chunk_modify_sample_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/chunk_modify_sample.comp",
             "main",
         )
         .unwrap();
-        let chunk_solid_sample_sm = ShaderModule::from_glsl(
+        let chunk_solid_sample_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/chunk_solid_sample.comp",
             "main",
         )
         .unwrap();
-        let model_voxelize_sm = ShaderModule::from_glsl(
+        let model_voxelize_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/model_voxelize.comp",
             "main",
         )
         .unwrap();
-        let heightmap_sm = ShaderModule::from_glsl(
+        let heightmap_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/chunk_heightmap.comp",
             "main",
         )
         .unwrap();
-        let terrain_smooth_heights_sm = ShaderModule::from_glsl(
+        let terrain_smooth_heights_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_smooth_heights.comp",
             "main",
         )
         .unwrap();
-        let terrain_smooth_target_sm = ShaderModule::from_glsl(
+        let terrain_smooth_target_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_smooth_target.comp",
             "main",
         )
         .unwrap();
-        let terrain_smooth_apply_sm = ShaderModule::from_glsl(
+        let terrain_smooth_apply_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_smooth_apply.comp",
             "main",
         )
         .unwrap();
-        let terrain_smooth_mbo_init_sm = ShaderModule::from_glsl(
+        let terrain_smooth_mbo_init_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_smooth_mbo_init.comp",
             "main",
         )
         .unwrap();
-        let terrain_smooth_mbo_diffuse_ab_sm = ShaderModule::from_glsl(
+        let terrain_smooth_mbo_diffuse_ab_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_smooth_mbo_diffuse_ab.comp",
             "main",
         )
         .unwrap();
-        let terrain_smooth_mbo_diffuse_ba_sm = ShaderModule::from_glsl(
+        let terrain_smooth_mbo_diffuse_ba_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_smooth_mbo_diffuse_ba.comp",
             "main",
         )
         .unwrap();
-        let terrain_smooth_mbo_score_sm = ShaderModule::from_glsl(
+        let terrain_smooth_mbo_score_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_smooth_mbo_score.comp",
             "main",
         )
         .unwrap();
-        let terrain_smooth_mbo_apply_sm = ShaderModule::from_glsl(
+        let terrain_smooth_mbo_apply_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_smooth_mbo_apply.comp",
             "main",
         )
         .unwrap();
-        let terrain_moisture_brush_sm = ShaderModule::from_glsl(
+        let terrain_moisture_brush_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_moisture_brush.comp",
             "main",
         )
         .unwrap();
-        let terrain_fertility_brush_sm = ShaderModule::from_glsl(
+        let terrain_fertility_brush_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_fertility_brush.comp",
             "main",
         )
         .unwrap();
-        let terrain_soil_mix_sm = ShaderModule::from_glsl(
+        let terrain_soil_mix_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_soil_mix.comp",
             "main",
         )
         .unwrap();
-        let terrain_moisture_dry_sm = ShaderModule::from_glsl(
+        let terrain_moisture_dry_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_moisture_dry.comp",
             "main",
         )
         .unwrap();
-        let terrain_moisture_spread_sm = ShaderModule::from_glsl(
+        let terrain_moisture_spread_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/terrain_moisture_spread.comp",
             "main",
         )
         .unwrap();
-        let voxel_property_sample_sm = ShaderModule::from_glsl(
+        let voxel_property_sample_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/chunk_writer/voxel_property_sample.comp",
             "main",
         )
