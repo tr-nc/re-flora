@@ -48,7 +48,6 @@ Each package contains the executable plus runtime data directories:
 re-flora(.exe)
 assets/
 config/
-shader/
 README.md
 LICENSE
 LICENSE-ASSETS
@@ -58,8 +57,10 @@ BUILD_INFO.txt
 Release packages also bundle non-system native libraries needed by the binary:
 
 - Windows: `phonon.dll` next to `re-flora.exe`.
-- macOS: `lib/libphonon.dylib`, `lib/libshaderc_shared*.dylib`, `lib/libvulkan.1.dylib`, `lib/libMoltenVK.dylib`, and `vulkan/icd.d/MoltenVK_icd.json`.
-- Fedora/Linux: `lib/libphonon.so` and `lib/libshaderc_shared.so*` with the executable rpath set to `$ORIGIN/lib`.
+- macOS: `lib/libphonon.dylib`, `lib/libvulkan.1.dylib`, `lib/libMoltenVK.dylib`, and `vulkan/icd.d/MoltenVK_icd.json`.
+- Fedora/Linux: `lib/libphonon.so` with the executable rpath set to `$ORIGIN/lib`.
+
+GLSL sources and shaderc are build-time inputs. Optimized and reflection SPIR-V artifacts are embedded in the executable, so release packages do not include `shader/` or a shaderc runtime library.
 
 The CI release build uses `--features no_validation_layer`, so players do not need Vulkan validation layers or the Vulkan SDK just to run the package.
 

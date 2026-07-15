@@ -87,7 +87,5 @@ fn find_project_root(start: PathBuf) -> Option<PathBuf> {
 }
 
 fn is_project_root(path: &Path) -> bool {
-    path.join("assets").is_dir()
-        && path.join("shader").is_dir()
-        && path.join("config").join("gui.toml").is_file()
+    path.join("assets").is_dir() && path.join("config").join("gui.toml").is_file()
 }
