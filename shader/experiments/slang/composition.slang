@@ -1,5 +1,9 @@
+import clouds;
 import color;
-import composition_sky;
+import composition_cloud_reflection;
+import composition_scene;
+import composition_terrarium_glass;
+import composition_terrarium_panels;
 import composition_types;
 import ray;
 import sunlight;
@@ -26,38 +30,6 @@ RWTexture2D<float4> composited_tex;
 readonly RWTexture2D<float4> lens_flare_output_tex;
 [[vk::binding(14, 0)]] Sampler2D sun_sprite_tex;
 [[vk::binding(15, 0)]] Sampler2D cloud_output_tex;
-
-float3 applyScreenClouds(float3 skyColor, float2 screenUv)
-{
-    if (gui_input.clouds_enabled == 0u) return skyColor;
-    float4 clouds = cloud_output_tex.SampleLevel(screenUv, 0.0);
-    return lerp(skyColor, clouds.rgb, clamp(clouds.a, 0.0, 1.0));
-}
-
-float3 combineColors(float rasterDepth, float computeDepth, float4 rasterColor,
-                     float3 denoisedColor, float2 screenUv)
-{
-    bool hasRaster = rasterColor.a > 0.0 && rasterDepth < 1.0;
-    bool hasRayTracing = computeDepth < 1.0;
-    float rayTracingDepth = hasRayTracing ? computeDepth : 1.0;
-    float alpha = clamp(rasterColor.a, 0.0, 1.0);
-
-    if (hasRayTracing)
-    {
-        if (!hasRaster || rasterDepth > rayTracingDepth) return denoisedColor;
-        return rasterColor.rgb + denoisedColor * (1.0 - alpha);
-    }
-    if (hasRaster && alpha >= 0.999) return rasterColor.rgb;
-
-    float3 viewDirection = normalize(generateCameraRay(screenUv,
-                                                       camera_info.view_proj_mat_inv).direction);
-    float3 skyColor = applyScreenClouds(
-        computeSkyWithSunAndStars(viewDirection, sun_info, camera_info,
-                                  starlight_info, sun_sprite_tex),
-        screenUv);
-    if (!hasRaster) return skyColor;
-    return rasterColor.rgb + skyColor * (1.0 - alpha);
-}
 
 float3 sampleLensFlare(float2 screenUv)
 {
@@ -87,8 +59,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float computeDepth = compute_depth_tex[coordinate];
     float4 rasterColor = gfx_output_tex.Load(int3(coordinate, 0));
     float3 denoisedColor = denoiser_spatial_pong_tex[coordinate].rgb;
-    float3 finalColor = combineColors(rasterDepth, computeDepth, rasterColor,
-                                      denoisedColor, screenUv);
+    float3 finalColor = combineSceneColors(
+        rasterDepth, computeDepth, rasterColor, denoisedColor, screenUv,
+        gui_input, sun_info, camera_info, starlight_info,
+        sun_sprite_tex, cloud_output_tex);
     finalColor += sampleLensFlare(screenUv);
 
     float sunVisibility = sunLuminanceFromDirection(sun_info.sun_dir, 1.0);

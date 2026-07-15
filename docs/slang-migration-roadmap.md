@@ -156,7 +156,7 @@ Complete this before scaling native migration far beyond the current candidates.
 ### Phase 2 — decisive native high-risk coverage
 
 - [x] Rewrite the full `tracer.comp` entry point in native Slang, reusing the validated contree/DDA modules.
-- [x] Rewrite the active `composition.comp` production path in native Slang modules after its backend baseline.
+- [x] Rewrite `composition.comp` in native Slang modules after its backend baseline, including its currently disabled panel, glass, volumetric-cloud reflection, and SSR helpers.
 - [ ] Port `flora.vert` + `flora.frag` as the representative complex graphics pair.
 - [ ] Port `player_collider.comp` for an additional synchronization-heavy consumer of traversal modules.
 - [ ] Re-evaluate adoption risk before broad mechanical migration.
@@ -323,7 +323,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 | Native Vulkan performance | Main tracer has order-reversed RTX 3060 Ti evidence; most other candidates have only MoltenVK evidence | Repeat hot-pass benchmarks across additional native Vulkan vendors and drivers |
 | Cross-platform toolchain | CLI path tested on macOS; compiler API and aggregate runtime tested locally on Linux | Pinned compiler install plus Windows/macOS/Linux CI matrix |
 | Full tracer native translation | Native resources, traversal, lighting, materials, preview, and output orchestration pass locally; native `tracer.pass` median was 1.3% above shaderc on RTX 3060 Ti | Recheck the small measured delta on additional drivers while migrating shared modules |
-| Full composition native translation | The active open-tank path, including sky, sun sprite, stars, precomputed clouds, lens flare, and god rays, passes locally; native timing is within 1 us of shaderc on RTX 3060 Ti | Port the currently disabled panel/glass/SSR helper source before re-enabling it or removing the GLSL fallback |
+| Full composition native translation | Active sky/composition plus disabled panel, glass, volumetric-cloud reflection, and SSR logic are split into native modules; temporary helper reactivation was visually equivalent | Keep the helpers disabled until a product decision, and repeat performance gates if they are re-enabled |
 | Complex graphics interfaces | Egui passes; foliage remains | Native flora pair plus interpolation/instance-input validation |
 | Binding source of truth | Explicit declarations plus ABI checker | Decide whether generation from one schema provides enough benefit |
 | Matrix conventions | Native column-major; GLSL frontend row-major lowering | Keep flags centralized and covered by fixed-camera tests |
@@ -337,8 +337,7 @@ Do these in order unless new measurements change the priority:
 
 1. [x] **Compiler-session spike**: the build now uses one dynamically loaded global session; local aggregate checks improved by about 20% with byte-identical artifacts.
 2. [x] **Full native tracer**: the native entry reuses the shared traversal modules and passes ABI, SPIR-V, screenshot, runtime, and local native-Vulkan timing gates.
-3. [x] **Native composition entry**: the active production path uses focused sky, starlight, sunlight, and type modules and passes ABI, SPIR-V, day/night screenshot, runtime, and local native-Vulkan timing gates.
-4. **Inactive composition helpers**: port the open-tank panel, glass, volumetric-cloud reflection, and SSR helpers before they are re-enabled or the GLSL fallback is removed.
-5. **Complex flora graphics pair**: validate instance-rate input, push constants, many resources, shadows, wind sampling, and interpolation.
-6. **Player collider**: validate another synchronization-heavy traversal consumer.
-7. Reassess the roadmap using measured build cost, correctness, and native-code maintainability before beginning family-wide migration.
+3. [x] **Native composition modules**: the active entry and disabled helper paths use focused sky, starlight, sunlight, cloud, panel, glass, SSR, scene, hash, and type modules. ABI, SPIR-V, day/night screenshots, temporary helper reactivation, runtime, and local native-Vulkan timing gates pass.
+4. **Complex flora graphics pair**: validate instance-rate input, push constants, many resources, shadows, wind sampling, and interpolation.
+5. **Player collider**: validate another synchronization-heavy traversal consumer.
+6. Reassess the roadmap using measured build cost, correctness, and native-code maintainability before beginning family-wide migration.
