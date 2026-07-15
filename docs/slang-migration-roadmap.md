@@ -55,6 +55,8 @@ Current aggregate `slang-validation` build:
 
 The validated native entry points are post-processing, sparse surface extraction, contree leaf writing, tracer shadow traversal, and the egui vertex/fragment pair. The main tracer and composition have backend validation only.
 
+The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 16 reflection/optimized artifacts. On the local Linux Vulkan SDK 2025.23.2 toolchain, this reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. All 16 API-produced artifacts were byte-identical to separate `slangc` output, all 152 aggregate artifacts passed Vulkan 1.3 SPIR-V validation, and a hidden release smoke run completed on an NVIDIA RTX 3060 Ti through native Vulkan.
+
 ## Coexistence contract
 
 These invariants must remain true for every migration step:
@@ -144,8 +146,8 @@ For a large or risky GLSL shader, first add a temporary GLSL-through-Slang backe
 
 Complete this before scaling native migration far beyond the current candidates.
 
-- [ ] Measure clean and incremental aggregate build cost as candidate count grows.
-- [ ] Replace two `slangc` process launches per native entry point with a persistent compiler API session, batched invocation, or dependency-aware serialized-module cache.
+- [x] Measure package-clean and shader-touched incremental aggregate build cost for the current candidate set.
+- [x] Replace two `slangc` process launches per selected entry point with one dynamically loaded compiler API global session.
 - [ ] Track imported `.slang` module dependencies precisely enough for incremental rebuilds.
 - [ ] Decide whether explicit declarations plus ABI checking remain the binding source of truth or whether Rust/Slang declarations should be generated from one resource schema.
 - [ ] Keep automatic binding allocation disabled during migration.
@@ -317,9 +319,9 @@ A checked item means a native Slang implementation has passed all applicable loc
 
 | Risk or decision | Current state | Required resolution |
 | --- | --- | --- |
-| Slang process startup | Approximately 178.9 ms per process in the POC; two artifacts per override | Shared compiler session, batching, or cache before broad migration |
+| Slang compiler integration | Process startup is removed locally through one dynamically loaded global session; aggregate checks improved by about 20% | Pin the compiler ABI/version and reproduce the API path on Windows and macOS CI |
 | Native Vulkan performance | Only MoltenVK evidence exists | Windows/Linux order-reversed release benchmarks |
-| Cross-platform toolchain | Vulkan SDK Slang tested only on macOS | Pinned compiler install and CI matrix |
+| Cross-platform toolchain | CLI path tested on macOS; compiler API and aggregate runtime tested locally on Linux | Pinned compiler install plus Windows/macOS/Linux CI matrix |
 | Full tracer native translation | Traversal modules are native; main entry point is GLSL-through-Slang | Complete native resources, lighting, shading, and output orchestration |
 | Full composition native translation | Backend is validated only | Port sky/cloud/glass/SSR logic into focused native modules |
 | Complex graphics interfaces | Egui passes; foliage remains | Native flora pair plus interpolation/instance-input validation |
@@ -333,7 +335,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 
 Do these in order unless new measurements change the priority:
 
-1. **Compiler-session spike**: measure and prototype one-session/batched compilation before adding many more native entry points.
+1. [x] **Compiler-session spike**: the build now uses one dynamically loaded global session; local aggregate checks improved by about 20% with byte-identical artifacts.
 2. **Full native tracer**: reuse `contree_marching.slang`, `scene_marching.slang`, `ray.slang`, and related validated modules.
 3. **Native composition modules**: begin with shared pure functions, then replace the entry point behind its own feature.
 4. **Complex flora graphics pair**: validate instance-rate input, push constants, many resources, shadows, wind sampling, and interpolation.

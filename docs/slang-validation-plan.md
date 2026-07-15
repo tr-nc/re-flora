@@ -184,15 +184,9 @@ Also record optimized SPIR-V byte size and stripped instruction count as diagnos
 
 ## Build-time requirement
 
-The current `slangc` process startup is approximately 3.75 times slower than `glslc` for the proof-of-concept shader. Migration effort may be ignored, but this recurring iteration cost cannot be ignored.
+The original `slangc` process startup was approximately 3.75 times slower than `glslc` for the proof-of-concept shader, and the first mixed build launched it once per artifact. That recurring startup cost is now removed: the build dynamically loads the Slang compiler library once and reuses one global session for all selected reflection and optimized compile requests.
 
-Before making Slang the default for many entry points, replace one-process-per-artifact compilation with one of:
-
-1. a persistent Slang compiler API session;
-2. a combined module/entry-point invocation;
-3. cached serialized modules with dependency-aware invalidation.
-
-The mixed build may use individual `slangc` processes during compatibility experiments, but that is not the final production architecture.
+On the local Linux Slang 2025.23.2 toolchain, three package-clean aggregate checks improved from a 6.29 s median to 5.05 s, while three shader-touched incremental checks improved from 5.83 s to 4.66 s. All 16 API-generated artifacts were byte-identical to equivalent standalone `slangc` output, all 152 aggregate artifacts passed `spirv-val --target-env vulkan1.3`, and an aggregate hidden release smoke run completed on native Vulkan with an NVIDIA RTX 3060 Ti. Exact compiler pinning, dependency-aware invalidation, and cross-platform reproduction remain required before the final default decision.
 
 ## Execution order
 
@@ -217,7 +211,8 @@ The mixed build may use individual `slangc` processes during compatibility exper
 - The production `tracer_shadow.comp` path has been rewritten in native Slang modules under `slang-tracer-shadow`. The modules cover AABB intersection, camera-ray projection, contree traversal, DDA scene traversal, voxel decoding, workgroup stack storage, structured SSBOs, storage images, and matrix uniforms. Fixed-camera shadow output is visually equivalent. Two order-reversed local MoltenVK pairs had native medians 0.8-1.4% lower, within run noise.
 - The egui vertex/fragment pair has been rewritten in native Slang under `slang-egui`. Runtime pipeline-layout merging, three vertex attributes, two interpolants, a matrix push constant, combined image sampler, alpha blending, and UI rendering all pass on MoltenVK. Static UI regions are visually equivalent, with only sparse 1-3-level color differences.
 - `composition.comp`, the largest production entry point, now compiles through Slang's GLSL frontend under `slang-composition-backend`. Its 16-binding ABI passes the automatic GLSL-reference check. Explicit LOD on its two sampled textures avoids requesting compute-derivative capabilities. A 5120x2880 fixed-camera image is visually equivalent, and three order-varied release pairs show no GPU regression: 93 combined GLSL samples had a 286 us median versus 280 us across 99 Slang samples.
-- Remaining primary work is native module conversion of larger tracer/composition logic and compiler-session build-cost evaluation, with a complex foliage graphics pair as additional coverage. Native Vulkan performance and cross-platform CI are explicitly deferred until suitable Windows/Linux hardware is available.
+- The aggregate build now uses one dynamically loaded Slang compiler API global session instead of 16 `slangc` process launches. Local package-clean and shader-touched checks improved by about 20%, all API artifacts matched standalone compiler output byte-for-byte, and Cargo logs the loaded compiler build tag.
+- Remaining primary work is native module conversion of larger tracer/composition logic, with a complex foliage graphics pair as additional coverage. Exact compiler pinning, native Vulkan performance, and cross-platform CI remain open.
 
 ## Decision criteria
 
