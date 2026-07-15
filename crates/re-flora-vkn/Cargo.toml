@@ -27,6 +27,7 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 [features]
 default = []
 no_validation_layer = []
+slang-composition-backend = []
 slang-contree = ["slang-contree-leaf"]
 slang-contree-leaf = []
 slang-egui = []
@@ -36,6 +37,7 @@ slang-surface = []
 slang-tracer-backend = []
 slang-tracer-shadow = []
 slang-validation = [
+    "slang-composition-backend",
     "slang-contree",
     "slang-egui",
     "slang-post-processing",

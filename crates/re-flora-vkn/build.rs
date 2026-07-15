@@ -58,6 +58,15 @@ struct ShaderOverride {
 // compiles from GLSL through shaderc. A feature can replace only that path with
 // native Slang, or with GLSL through Slang for an isolated backend comparison.
 const SHADER_OVERRIDES: &[ShaderOverride] = &[
+    #[cfg(feature = "slang-composition-backend")]
+    ShaderOverride {
+        logical_path: "shader/tracer/composition.comp",
+        source_path: "shader/tracer/composition.comp",
+        include_path: "shader",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::GlslViaSlang,
+        defines: &["COMPOSITION_EXPLICIT_LOD"],
+    },
     #[cfg(feature = "slang-contree-leaf")]
     ShaderOverride {
         logical_path: "shader/builder/contree/leaf_write.comp",

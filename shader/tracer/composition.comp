@@ -70,6 +70,12 @@ layout(set = 0, binding = 15) uniform sampler2D cloud_output_tex;
 #include "../include/sunlight.glsl"
 #include "../include/clouds.glsl"
 
+#ifdef COMPOSITION_EXPLICIT_LOD
+#define COMPOSITION_SAMPLE_2D(texture_sampler, uv) textureLod(texture_sampler, uv, 0.0)
+#else
+#define COMPOSITION_SAMPLE_2D(texture_sampler, uv) texture(texture_sampler, uv)
+#endif
+
 mat3 _make_tbn(vec3 normal, float sun_azimuth) {
     if (abs(normal.y) < 0.99999) {
         vec3 up = vec3(0, 1, 0);
@@ -112,7 +118,7 @@ vec4 _sample_sun_sprite(vec3 view_dir, vec3 sun_dir, float sun_size) {
         return vec4(0.0);
     }
 
-    return texture(sun_sprite_tex, uv);
+    return COMPOSITION_SAMPLE_2D(sun_sprite_tex, uv);
 }
 
 vec3 compute_sky_with_sun_and_stars(vec3 view_dir) {
@@ -167,7 +173,7 @@ vec3 apply_screen_clouds(vec3 sky_color, vec2 screen_uv) {
         return sky_color;
     }
 
-    vec4 clouds = texture(cloud_output_tex, screen_uv);
+    vec4 clouds = COMPOSITION_SAMPLE_2D(cloud_output_tex, screen_uv);
     return mix(sky_color, clouds.rgb, clamp(clouds.a, 0.0, 1.0));
 }
 

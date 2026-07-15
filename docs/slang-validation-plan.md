@@ -40,6 +40,7 @@ Planned feature boundaries:
 | Feature | Slang replacement scope |
 | --- | --- |
 | `slang-post-processing` | Existing simple proof of concept |
+| `slang-composition-backend` | Largest production shader compiled by Slang's GLSL frontend |
 | `slang-surface` | Surface extraction and normal generation candidate |
 | `slang-contree` | Contree construction candidates |
 | `slang-egui` | Native Slang vertex/fragment interface pair |
@@ -109,9 +110,21 @@ Why it matters:
 
 The tracer is the decisive backend optimization comparison. The first stage compiles the existing source and include graph through Slang's GLSL frontend, isolating code generation and runtime compatibility from translation differences. A native Slang/module rewrite remains a separate maintainability experiment if the backend result is acceptable.
 
+### 4. Composition: largest-source backend gate
+
+- GLSL: `shader/tracer/composition.comp`
+- Timing label: `composition.pass`
+- Why it matters:
+  - largest production entry point at 923 lines plus approximately 1,279 lines of includes;
+  - 16 descriptor bindings, six uniform blocks, sampled textures, and formatted storage images;
+  - camera matrices, sky/starlight/cloud paths, analytic terrarium glass, SSR, and branch-heavy per-pixel composition;
+  - full-resolution execution makes small backend regressions measurable.
+
+As with the main tracer, the first stage keeps the GLSL source unchanged and switches only to Slang's GLSL frontend. A later native module rewrite can then be diagnosed separately from backend differences.
+
 ### Secondary coverage
 
-After the three primary gates:
+After the primary gates:
 
 - `shader/tracer/player_collider.comp` for additional shared-memory and synchronization coverage;
 - the egui vertex/fragment pair for graphics-stage interfaces, push constants, vertex formats, interpolation, and combined image samplers;
@@ -201,7 +214,8 @@ The mixed build may use individual `slangc` processes during compatibility exper
 - `tracer.comp` now compiles through Slang's GLSL frontend behind `slang-tracer-backend`. It runs through MoltenVK with the existing four-set descriptor ABI, structured SSBOs, storage images, camera matrices, and include graph. A fixed-camera image is visually equivalent; broad one- to two-level pixel differences and dynamic content prevent byte identity. Two order-reversed timing pairs showed no median regression in the approximately 11 us `tracer.pass`, while tail timing remains too quantized and noisy for a strong conclusion.
 - The production `tracer_shadow.comp` path has been rewritten in native Slang modules under `slang-tracer-shadow`. The modules cover AABB intersection, camera-ray projection, contree traversal, DDA scene traversal, voxel decoding, workgroup stack storage, structured SSBOs, storage images, and matrix uniforms. Fixed-camera shadow output is visually equivalent. Two order-reversed local MoltenVK pairs had native medians 0.8-1.4% lower, within run noise.
 - The egui vertex/fragment pair has been rewritten in native Slang under `slang-egui`. Runtime pipeline-layout merging, three vertex attributes, two interpolants, a matrix push constant, combined image sampler, alpha blending, and UI rendering all pass on MoltenVK. Static UI regions are visually equivalent, with only sparse 1-3-level color differences.
-- Remaining primary work is compiler-session build-cost evaluation and, optionally, a more complex foliage graphics pair. Native Vulkan performance and cross-platform CI are explicitly deferred until suitable Windows/Linux hardware is available.
+- `composition.comp`, the largest production entry point, now compiles through Slang's GLSL frontend under `slang-composition-backend`. Its 16-binding ABI passes the automatic GLSL-reference check. Explicit LOD on its two sampled textures avoids requesting compute-derivative capabilities. A 5120x2880 fixed-camera image is visually equivalent, and three order-varied release pairs show no GPU regression: 93 combined GLSL samples had a 286 us median versus 280 us across 99 Slang samples.
+- Remaining primary work is native module conversion of larger tracer/composition logic and compiler-session build-cost evaluation, with a complex foliage graphics pair as additional coverage. Native Vulkan performance and cross-platform CI are explicitly deferred until suitable Windows/Linux hardware is available.
 
 ## Decision criteria
 

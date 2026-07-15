@@ -26,6 +26,7 @@ Enable an individual replacement or all completed validation candidates with:
 
 ```bash
 cargo check --features slang-post-processing
+cargo check --features slang-composition-backend
 cargo check --features slang-surface
 cargo check --features slang-contree-leaf
 cargo check --features slang-egui
@@ -39,7 +40,7 @@ cargo check --features slang-validation
 The build reports each frontend separately, for example:
 
 ```text
-precompiled 69 shaderc GLSL, 1 Slang GLSL, and 6 native Slang shaders into SPIR-V artifacts
+precompiled 68 shaderc GLSL, 2 Slang GLSL, and 6 native Slang shaders into SPIR-V artifacts
 ```
 
 The logical shader path remains the runtime identity for both languages. Enabling an override compiles the original GLSL reflection artifact as a reference and fails the build if the replacement changes the pipeline ABI: stage, workgroup size, descriptor contract, push constant ranges, stage IO locations/formats/arrays, or interpolation decorations. Override configuration is also checked for duplicate and missing paths, stage mismatches, and missing source/include paths. Detailed buffer member layout is still validated by the existing Rust reflection/resource path at runtime.
@@ -195,6 +196,21 @@ Two order-reversed ten-second hidden timing pairs retained 70 post-startup `trac
 | GLSL / Slang backend | 70 | 11.46 us | 11 us | 25 us | 2-40 us |
 
 The pass is close to the one-microsecond timestamp resolution in this workload. Its combined median did not regress, while the mean increased by 0.73 us and the P95 was noisier. This establishes functional parity and no measurable typical-time regression on MoltenVK, but not tail-latency parity. The optimized, debug-stripped modules contained 3,979 instructions/71,748 bytes from shaderc and 4,261 instructions/75,712 bytes from Slang. Native Vulkan measurements are still required.
+
+## Largest shader through Slang's GLSL frontend
+
+The `slang-composition-backend` feature compiles the 923-line `shader/tracer/composition.comp` and its approximately 1,279 lines of includes with Slang while preserving GLSL as the source language. This validates the largest production entry point independently from the main tracer. Its ABI includes 16 bindings, six uniform blocks, sampled textures, formatted storage images, camera matrices, and full-resolution branch-heavy sky, cloud, glass, SSR, and composition logic.
+
+Slang initially inferred compute-derivative capability from the two implicit texture samples. The feature supplies `COMPOSITION_EXPLICIT_LOD`, selecting `textureLod(..., 0.0)` only for the Slang backend. The resulting module requires no compute-derivative capability and passes `spirv-val --target-env vulkan1.3`. The build-time GLSL-reference check accepts the complete descriptor and compute ABI.
+
+A 5120x2880 fixed-camera screenshot was visually equivalent. Most changed channels differed by one or two 8-bit levels from generated floating-point arithmetic; larger differences were concentrated in moving butterflies and dynamic UI. Three order-varied hidden release pairs produced these combined `composition.pass` results after frame 120:
+
+| Frontend | Samples | Mean | Median | P95 |
+| --- | ---: | ---: | ---: | ---: |
+| GLSL / shaderc | 93 | 290.75 us | 286 us | 348.8 us |
+| GLSL / Slang backend | 99 | 287.74 us | 280 us | 336.6 us |
+
+Run-level medians moved from Slang being 2.0% slower to 3.5% faster as run order and system state changed. The combined delta was `-1.04%` mean and `-2.10%` median, so there is no evidence of a regression. Debug-stripped optimized SPIR-V contained 1,105 instructions/20,452 bytes from shaderc and 1,145 instructions/20,860 bytes from Slang.
 
 ## Compatibility findings
 
