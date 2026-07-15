@@ -455,15 +455,33 @@ fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
 }
 
 fn normalize_buffer_type_name(type_name: &str) -> String {
-    // Slang materializes layout-specific SPIR-V wrapper structs for constant and
-    // structured buffers. Keep the source-level type name as the lookup key so
-    // existing resource definitions work across GLSL and Slang frontends.
+    // Slang materializes frontend- and layout-specific SPIR-V wrapper structs.
+    // Keep the source-level type name as the lookup key so existing resource
+    // definitions work across GLSL and Slang frontends.
+    let source_name = type_name
+        .strip_prefix("SLANG_ParameterGroup_")
+        .unwrap_or(type_name);
     for suffix in ["_std140", "_std430", "_scalar", "_natural"] {
-        if let Some(source_name) = type_name.strip_suffix(suffix) {
+        if let Some(source_name) = source_name.strip_suffix(suffix) {
             return source_name.to_owned();
         }
     }
-    type_name.to_owned()
+    source_name.to_owned()
+}
+
+fn get_slang_matrix_wrapper_type(type_name: &str) -> Option<PlainMemberType> {
+    let storage_type = type_name.strip_prefix("_MatrixStorage_float")?;
+    if storage_type.starts_with("2x2") {
+        Some(PlainMemberType::Mat2)
+    } else if storage_type.starts_with("3x3") {
+        Some(PlainMemberType::Mat3)
+    } else if storage_type.starts_with("4x4") {
+        Some(PlainMemberType::Mat4)
+    } else if storage_type.starts_with("3x4") {
+        Some(PlainMemberType::Mat3x4)
+    } else {
+        None
+    }
 }
 
 fn extract_buffer_layouts(
@@ -517,32 +535,50 @@ fn extract_buffer_layouts(
             let type_description = reflect_member.type_description.as_ref().unwrap();
             let type_flags = &type_description.type_flags;
             let member_type = get_general_member_type(type_flags);
+            let size = reflect_member.size as u64;
+            let offset = reflect_member.offset as u64;
+            let padded_size = reflect_member.padded_size as u64;
 
-            let member: MemberLayout = match member_type {
-                GeneralMemberType::Array | GeneralMemberType::Plain => {
-                    let size = reflect_member.size as u64;
-                    // notice: u64 is not supported yet in the reflect lib, but we use u64 in our code for the best extensibility
-                    let offset = reflect_member.offset as u64;
-                    let padded_size = reflect_member.padded_size as u64;
-
-                    let ty =
-                        get_plain_member_type(type_flags, &type_description.traits, size).unwrap();
-                    MemberLayout::Plain(PlainMemberLayout {
-                        name: member_name.clone(),
-                        ty,
-                        offset,
-                        size,
-                        padded_size,
-                    })
-                }
-                GeneralMemberType::Struct => {
-                    let ty = normalize_buffer_type_name(&type_description.type_name);
-                    let members = parse_members_recursive(&reflect_member.members);
-                    MemberLayout::Struct(StructMemberLayout {
-                        name: member_name.clone(),
-                        ty,
-                        name_member_table: members,
-                    })
+            let member: MemberLayout = if let Some(ty) =
+                get_slang_matrix_wrapper_type(&type_description.type_name)
+            {
+                // Slang's GLSL frontend materializes matrices as nested
+                // `_MatrixStorage_*` structs. Treat the wrapper as the source
+                // matrix so member lookup and absolute offsets match shaderc.
+                MemberLayout::Plain(PlainMemberLayout {
+                    name: member_name.clone(),
+                    ty,
+                    offset,
+                    size,
+                    padded_size,
+                })
+            } else {
+                match member_type {
+                    GeneralMemberType::Array | GeneralMemberType::Plain => {
+                        // notice: u64 is not supported yet in the reflect lib, but we use u64 in our code for the best extensibility
+                        let ty = get_plain_member_type(
+                            type_flags,
+                            &type_description.traits,
+                            size,
+                        )
+                        .unwrap();
+                        MemberLayout::Plain(PlainMemberLayout {
+                            name: member_name.clone(),
+                            ty,
+                            offset,
+                            size,
+                            padded_size,
+                        })
+                    }
+                    GeneralMemberType::Struct => {
+                        let ty = normalize_buffer_type_name(&type_description.type_name);
+                        let members = parse_members_recursive(&reflect_member.members);
+                        MemberLayout::Struct(StructMemberLayout {
+                            name: member_name.clone(),
+                            ty,
+                            name_member_table: members,
+                        })
+                    }
                 }
             };
             result.insert(member_name.clone(), member);
@@ -653,7 +689,9 @@ fn extract_buffer_layouts(
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_buffer_type_name;
+    use super::{
+        get_slang_matrix_wrapper_type, normalize_buffer_type_name, PlainMemberType,
+    };
 
     #[test]
     fn normalizes_slang_layout_wrapper_names() {
@@ -662,7 +700,24 @@ mod tests {
             "U_PostProcessingInfo"
         );
         assert_eq!(normalize_buffer_type_name("B_Leaves_std430"), "B_Leaves");
+        assert_eq!(
+            normalize_buffer_type_name("SLANG_ParameterGroup_U_GuiInput_std140"),
+            "U_GuiInput"
+        );
         assert_eq!(normalize_buffer_type_name("U_CameraInfo"), "U_CameraInfo");
+    }
+
+    #[test]
+    fn recognizes_slang_matrix_storage_wrappers() {
+        assert_eq!(
+            get_slang_matrix_wrapper_type("_MatrixStorage_float4x4_ColMajorstd140"),
+            Some(PlainMemberType::Mat4)
+        );
+        assert_eq!(
+            get_slang_matrix_wrapper_type("_MatrixStorage_float4x4std140"),
+            Some(PlainMemberType::Mat4)
+        );
+        assert_eq!(get_slang_matrix_wrapper_type("U_CameraInfo"), None);
     }
 }
 

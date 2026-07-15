@@ -5,6 +5,10 @@
 #ifndef VSM_GLSL
 #define VSM_GLSL
 
+#ifndef DIRECT_SUN_SHADOW_TEXTURE
+#define DIRECT_SUN_SHADOW_TEXTURE(texture_sampler, uv) texture(texture_sampler, uv)
+#endif
+
 const float MIN_VARIANCE = 1e-5;
 
 // for 4xEVSM, these three factors should be enough
@@ -50,7 +54,7 @@ float get_shadow_weight_vsm_from_map(sampler2D shadow_map_tex, mat4 shadow_cam_v
 
     vec2 evsm_depth = warp_depth(t, get_evsm_exponents());
     // sampled from filtered VSM texture
-    vec4 occluder = texture(shadow_map_tex, uv);
+    vec4 occluder = DIRECT_SUN_SHADOW_TEXTURE(shadow_map_tex, uv);
 
     float positive_contrib = chebyshev_upper_bound(occluder.xz, evsm_depth.x);
     float negative_contrib = chebyshev_upper_bound(occluder.yw, evsm_depth.y);

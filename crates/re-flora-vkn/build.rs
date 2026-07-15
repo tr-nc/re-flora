@@ -6,12 +6,21 @@ use std::process::Command;
 
 const ENTRY_POINT: &str = "main";
 
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+enum SlangSourceLanguage {
+    Slang2025,
+    Glsl,
+}
+
 #[derive(Clone, Copy)]
 struct SlangShaderConfig {
     logical_path: &'static str,
     source_path: &'static str,
     include_path: &'static str,
     stage: &'static str,
+    source_language: SlangSourceLanguage,
+    defines: &'static [&'static str],
 }
 
 const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
@@ -21,6 +30,8 @@ const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
         source_path: "shader/experiments/slang/contree_leaf_write.slang",
         include_path: "shader/experiments/slang",
         stage: "compute",
+        source_language: SlangSourceLanguage::Slang2025,
+        defines: &[],
     },
     #[cfg(feature = "slang-post-processing")]
     SlangShaderConfig {
@@ -28,6 +39,8 @@ const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
         source_path: "shader/experiments/slang/post_processing.slang",
         include_path: "shader/experiments/slang",
         stage: "compute",
+        source_language: SlangSourceLanguage::Slang2025,
+        defines: &[],
     },
     #[cfg(feature = "slang-surface")]
     SlangShaderConfig {
@@ -35,6 +48,17 @@ const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
         source_path: "shader/experiments/slang/make_surface_sparse.slang",
         include_path: "shader/experiments/slang",
         stage: "compute",
+        source_language: SlangSourceLanguage::Slang2025,
+        defines: &[],
+    },
+    #[cfg(feature = "slang-tracer-backend")]
+    SlangShaderConfig {
+        logical_path: "shader/tracer/tracer.comp",
+        source_path: "shader/tracer/tracer.comp",
+        include_path: "shader",
+        stage: "compute",
+        source_language: SlangSourceLanguage::Glsl,
+        defines: &["DIRECT_SUN_SHADOW_EXPLICIT_LOD"],
     },
 ];
 
@@ -188,6 +212,14 @@ fn compile_slang_shader(
     let shader_path = project_root.join(config.source_path);
     let include_path = project_root.join(config.include_path);
     let slangc = find_slangc();
+    // Slang's GLSL frontend lowers column-major GLSL matrices through row-major
+    // storage wrappers. Selecting row-major here preserves GLSL's std140 byte
+    // interpretation; native Slang sources use the project's column-major mode.
+    let matrix_layout_arg = match config.source_language {
+        SlangSourceLanguage::Slang2025 => "-matrix-layout-column-major",
+        SlangSourceLanguage::Glsl => "-matrix-layout-row-major",
+    };
+
     let mut command = Command::new(&slangc);
     command.args([
         shader_path.as_os_str(),
@@ -201,12 +233,21 @@ fn compile_slang_shader(
         ENTRY_POINT.as_ref(),
         "-stage".as_ref(),
         config.stage.as_ref(),
-        "-std".as_ref(),
-        "2025".as_ref(),
-        "-matrix-layout-column-major".as_ref(),
+        matrix_layout_arg.as_ref(),
         "-fvk-use-gl-layout".as_ref(),
         optimization_arg.as_ref(),
     ]);
+    match config.source_language {
+        SlangSourceLanguage::Slang2025 => {
+            command.args(["-std", "2025"]);
+        }
+        SlangSourceLanguage::Glsl => {
+            command.arg("-allow-glsl");
+        }
+    }
+    for define in config.defines {
+        command.arg(format!("-D{define}"));
+    }
     if optimization_level == OptimizationLevel::Zero {
         command.arg("-preserve-params");
     }

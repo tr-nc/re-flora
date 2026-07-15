@@ -55,7 +55,13 @@ slang-contree = ["slang-contree-leaf"]
 slang-contree-leaf = ["re-flora-vkn/slang-contree-leaf"]
 slang-post-processing = ["re-flora-vkn/slang-post-processing"]
 slang-surface = ["re-flora-vkn/slang-surface"]
-slang-validation = ["slang-contree", "slang-post-processing", "slang-surface"]
+slang-tracer-backend = ["re-flora-vkn/slang-tracer-backend"]
+slang-validation = [
+    "slang-contree",
+    "slang-post-processing",
+    "slang-surface",
+    "slang-tracer-backend",
+]
 sync_diagnostics = ["re-flora-vkn/sync_diagnostics"]
 
 [profile.test]

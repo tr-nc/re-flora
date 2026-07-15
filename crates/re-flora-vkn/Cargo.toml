@@ -31,5 +31,11 @@ slang-contree-leaf = []
 slang-poc = ["slang-post-processing"]
 slang-post-processing = []
 slang-surface = []
-slang-validation = ["slang-contree", "slang-post-processing", "slang-surface"]
+slang-tracer-backend = []
+slang-validation = [
+    "slang-contree",
+    "slang-post-processing",
+    "slang-surface",
+    "slang-tracer-backend",
+]
 sync_diagnostics = []

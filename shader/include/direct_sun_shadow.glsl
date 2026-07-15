@@ -1,6 +1,12 @@
 #ifndef DIRECT_SUN_SHADOW_GLSL
 #define DIRECT_SUN_SHADOW_GLSL
 
+#ifdef DIRECT_SUN_SHADOW_EXPLICIT_LOD
+#define DIRECT_SUN_SHADOW_TEXTURE(texture_sampler, uv) textureLod(texture_sampler, uv, 0.0)
+#else
+#define DIRECT_SUN_SHADOW_TEXTURE(texture_sampler, uv) texture(texture_sampler, uv)
+#endif
+
 // Unified direct-sun shadow receiver lookup.
 //
 // Callers choose which shadow sources are meaningful for the current receiver

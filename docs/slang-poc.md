@@ -2,7 +2,7 @@
 
 This experiment incrementally replaces selected GLSL compute shaders with equivalent Slang implementations. The normal build remains GLSL-only, and each replacement can be enabled independently for matched comparison.
 
-The first pass, `shader/tracer/post_processing.comp`, was selected because it runs every frame at the full output resolution, already has a Vulkan timestamp scope, and exercises a uniform buffer, formatted storage images, bounds checks, and a reusable dither module. The second pass, `shader/builder/surface/make_surface_sparse.comp`, covers the difficult shared-memory normal extraction path.
+The first pass, `shader/tracer/post_processing.comp`, was selected because it runs every frame at the full output resolution, already has a Vulkan timestamp scope, and exercises a uniform buffer, formatted storage images, bounds checks, and a reusable dither module. The surface and contree-leaf passes cover difficult shared-memory, synchronization, atomic, and structured-buffer paths. The main tracer is also compiled from its existing GLSL source through Slang's GLSL frontend to isolate backend compatibility and optimization.
 
 ## Requirements
 
@@ -12,7 +12,7 @@ Install `slangc` and make it available through one of:
 2. `$VULKAN_SDK/bin/slangc`, or
 3. `PATH`.
 
-The initial validation used Vulkan SDK 1.4.321.0 and Slang `2025.11-12-gc5295eae2` on macOS. The build pins the Slang 2025 language rules and emits SPIR-V 1.6 with column-major matrices and Vulkan GL-compatible buffer layout.
+The initial validation used Vulkan SDK 1.4.321.0 and Slang `2025.11-12-gc5295eae2` on macOS. Native Slang sources pin the Slang 2025 language rules and column-major matrices. The GLSL frontend uses row-major lowering to preserve the existing GLSL std140 matrix bytes. Both paths emit SPIR-V 1.6 with Vulkan GL-compatible buffer layout.
 
 ## Build and validation
 
@@ -27,6 +27,8 @@ Enable an individual replacement or all completed validation candidates with:
 ```bash
 cargo check --features slang-post-processing
 cargo check --features slang-surface
+cargo check --features slang-contree-leaf
+cargo check --features slang-tracer-backend
 cargo check --features slang-validation
 ```
 
@@ -148,10 +150,31 @@ Reproduce the comparison with the same hidden tree-benchmark command used for th
 scripts/compare_contree_pass.py <glsl-log> <slang-log> --pass leaf_write
 ```
 
-## Compatibility finding
+## Main tracer through Slang's GLSL frontend
 
-Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, while existing GLSL reflection exposes source type names directly. The runtime now normalizes known Slang layout suffixes at the reflection boundary, allowing both frontends to resolve the same resource definitions without shader-specific aliases.
+The fourth candidate replaces the backend for `shader/tracer/tracer.comp` under `slang-tracer-backend` without translating its approximately 2,700 transitive lines to native Slang. This validates the branch-heavy DDA/contree traversal, 28-entry include graph, four descriptor sets, camera matrices, structured SSBOs, storage images, sampler arrays, and lighting paths while keeping source logic shared.
+
+Three frontend compatibility adjustments were required:
+
+- Slang's GLSL parser requires explicit extents on the constant Poisson arrays.
+- Implicit texture sampling in this compute shader caused Slang to request compute-derivative capabilities. The build defines `DIRECT_SUN_SHADOW_EXPLICIT_LOD` only for the Slang backend, selecting `textureLod(..., 0.0)` in the shadow includes without changing the default GLSL build.
+- Slang reflects GLSL parameter groups as `SLANG_ParameterGroup_*` structs and matrices as nested `_MatrixStorage_*` wrappers. Reflection normalization maps these back to the existing resource and matrix layouts. Row-major frontend lowering is required; column-major lowering transposed the uploaded camera matrices and produced an empty traced scene.
+
+A 2560x1440 fixed-camera capture was visually equivalent. The two images were not byte-identical: 649,906 pixels differed, primarily by one or two 8-bit levels from generated floating-point arithmetic and moving/UI content; 21,355 pixels had any channel differ by more than two. No missing terrain, geometry shift, or systematic rendering artifact remained after correcting matrix lowering.
+
+Two order-reversed ten-second hidden timing pairs retained 70 post-startup `tracer.pass` samples per frontend:
+
+| Frontend | Samples | Mean | Median | P95 | Range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GLSL / shaderc | 70 | 10.73 us | 11.5 us | 19 us | 2-21 us |
+| GLSL / Slang backend | 70 | 11.46 us | 11 us | 25 us | 2-40 us |
+
+The pass is close to the one-microsecond timestamp resolution in this workload. Its combined median did not regress, while the mean increased by 0.73 us and the P95 was noisier. This establishes functional parity and no measurable typical-time regression on MoltenVK, but not tail-latency parity. The optimized, debug-stripped modules contained 3,979 instructions/71,748 bytes from shaderc and 4,261 instructions/75,712 bytes from Slang. Native Vulkan measurements are still required.
+
+## Compatibility findings
+
+Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, while existing GLSL reflection exposes source type names directly. Its GLSL frontend additionally adds the `SLANG_ParameterGroup_` prefix and materializes matrices as `_MatrixStorage_*` structs. The runtime normalizes these forms at the reflection boundary, allowing both frontends to resolve the same resource definitions and matrix members without shader-specific aliases.
 
 ## Limits of this result
 
-The surface candidate establishes Slang compatibility with the current shared-memory, barrier, atomic, storage-image, and runtime-array pattern. It does not yet establish suitability for contree's shared prefix allocation, the branch-heavy tracer and its include graph, or graphics stages. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if they are introduced later. The next experiment is `shader/builder/contree/leaf_write.comp`, followed by the dominant contree tree pass and `shader/tracer/tracer.comp`.
+The four compute candidates establish Slang compatibility with the current shared-memory, barrier, atomic, storage-image, runtime-array, structured-SSBO, matrix, and branch-heavy traversal patterns on MoltenVK. The tracer result evaluates Slang code generation through its GLSL frontend, not the maintainability of a native Slang module rewrite. Graphics stages, native Vulkan, cross-platform CI, and combined-session compiler performance remain unvalidated. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.

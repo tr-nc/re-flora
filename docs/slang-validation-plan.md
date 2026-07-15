@@ -42,7 +42,7 @@ Planned feature boundaries:
 | `slang-post-processing` | Existing simple proof of concept |
 | `slang-surface` | Surface extraction and normal generation candidate |
 | `slang-contree` | Contree construction candidates |
-| `slang-tracer` | Main branch-heavy tracing candidate |
+| `slang-tracer-backend` | Main tracer compiled by Slang's GLSL frontend |
 | `slang-validation` | Aggregate of all completed candidates |
 
 The existing `slang-poc` feature will remain as a backward-compatible alias while the build logic is generalized. A single declarative mapping in `crates/re-flora-vkn/build.rs` will own logical path, Slang source, stage, and feature selection. This avoids scattered hard-coded substitutions.
@@ -105,7 +105,7 @@ Why it matters:
 - direct and indirect lighting paths;
 - pressure on compiler inlining, register allocation, and control-flow optimization.
 
-The tracer is the decisive frontend optimization comparison. Its shared GLSL includes should become Slang modules rather than being textually translated into one monolithic file.
+The tracer is the decisive backend optimization comparison. The first stage compiles the existing source and include graph through Slang's GLSL frontend, isolating code generation and runtime compatibility from translation differences. A native Slang/module rewrite remains a separate maintainability experiment if the backend result is acceptable.
 
 ### Secondary coverage
 
@@ -160,7 +160,7 @@ Tracer benchmark shape:
 cargo run --release -- --hidden --mute --auto-exit 10 --perf
 ```
 
-Repeat with `--features slang-tracer`, discard startup frames, and compare `tracer.pass` plus `tracer.render`. Use enough samples to report count, mean, median, P95, range, and percentage delta. Investigate changes larger than normal run-to-run variance; do not accept a regression merely because the generated SPIR-V validates.
+Repeat with `--features slang-tracer-backend`, discard startup frames, and compare `tracer.pass` plus `tracer.render`. Use enough samples to report count, mean, median, P95, range, and percentage delta. Investigate changes larger than normal run-to-run variance; do not accept a regression merely because the generated SPIR-V validates.
 
 Also record optimized SPIR-V byte size and stripped instruction count as diagnostics. They do not override measured GPU time.
 
@@ -183,18 +183,19 @@ The mixed build may use individual `slangc` processes during compatibility exper
 3. Capture matched hidden surface/normal extraction benchmarks.
 4. Port `leaf_write.comp`, measure the contree pass breakdown, then port the dominant contree construction pass.
 5. Capture matched hidden contree benchmarks and correctness evidence.
-6. Port tracer dependencies as Slang modules and then `tracer.comp`.
+6. Compile `tracer.comp` and its existing includes through Slang's GLSL frontend, then evaluate whether a native Slang/module rewrite is warranted.
 7. Capture matched hidden tracer benchmarks on MoltenVK and native Vulkan.
 8. Validate one graphics-stage pair and cross-platform CI.
 9. Decide among Slang default, mixed Slang/GLSL production use, or retaining GLSL as default.
 
 ## Current status
 
-- Build selection is declarative and supports independent `slang-post-processing` and `slang-surface` features plus the aggregate `slang-validation` feature.
+- Build selection is declarative and supports independent post-processing, surface, contree-leaf, and tracer-backend features plus the aggregate `slang-validation` feature.
 - `make_surface_sparse.comp` has been ported and runs successfully through MoltenVK with shared memory, synchronization, atomics, formatted storage images, std140/std430 blocks, and runtime arrays.
 - Matched hidden tree benchmarks produced identical surface workload counts and scene output. Typical GPU time is at parity; run-order-sensitive mean and P95 variation requires more native Vulkan evidence before a performance verdict.
 - `leaf_write.comp`, the measured dominant contree construction shader, has been ported. Matched node/leaf sizes and scene output are identical, and both frontends have a combined 44 us median on MoltenVK.
-- The next primary implementation target is `shader/tracer/tracer.comp`; `tree_write.comp` remains secondary coverage for completing the contree subsystem.
+- `tracer.comp` now compiles through Slang's GLSL frontend behind `slang-tracer-backend`. It runs through MoltenVK with the existing four-set descriptor ABI, structured SSBOs, storage images, camera matrices, and include graph. A fixed-camera image is visually equivalent; broad one- to two-level pixel differences and dynamic content prevent byte identity. Two order-reversed timing pairs showed no median regression in the approximately 11 us `tracer.pass`, while tail timing remains too quantized and noisy for a strong conclusion.
+- Remaining primary gates are a graphics-stage pair, native Vulkan hardware, cross-platform CI, and compiler-session build-cost work.
 
 ## Decision criteria
 

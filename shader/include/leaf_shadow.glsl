@@ -1,6 +1,10 @@
 #ifndef LEAF_SHADOW_GLSL
 #define LEAF_SHADOW_GLSL
 
+#ifndef DIRECT_SUN_SHADOW_TEXTURE
+#define DIRECT_SUN_SHADOW_TEXTURE(texture_sampler, uv) texture(texture_sampler, uv)
+#endif
+
 // Separate moving-leaf shadow path.
 // Requires:
 //   uniform sampler2D leaf_shadow_opacity_blended_tex; // R = light depth * alpha, A = accumulated leaf opacity
@@ -22,7 +26,7 @@ float sample_leaf_shadow_opacity_pcf(vec2 uv, float receiver_depth, bool depth_g
     for (int y = -1; y <= 1; y++) {
         for (int x = -1; x <= 1; x++) {
             vec2 offset = vec2(float(x), float(y)) * radius;
-            vec4 sample_value = texture(leaf_shadow_opacity_blended_tex, uv + offset);
+            vec4 sample_value = DIRECT_SUN_SHADOW_TEXTURE(leaf_shadow_opacity_blended_tex, uv + offset);
             float sample_opacity = clamp(sample_value.a, 0.0, 1.0);
 
             if (depth_gate && sample_opacity > 1e-4) {
@@ -53,7 +57,7 @@ float get_leaf_shadow_transmittance(vec4 voxel_pos_ws, bool receiver_accepts_lea
         return 1.0;
     }
 
-    float mask = texture(leaf_shadow_mask_tex, uv).a;
+    float mask = DIRECT_SUN_SHADOW_TEXTURE(leaf_shadow_mask_tex, uv).a;
     if (mask < LEAF_SHADOW_MASK_SAMPLE_THRESHOLD) {
         return 1.0;
     }
