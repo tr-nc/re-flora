@@ -22,6 +22,13 @@ const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
         include_path: "shader/experiments/slang",
         stage: "compute",
     },
+    #[cfg(feature = "slang-surface")]
+    SlangShaderConfig {
+        logical_path: "shader/builder/surface/make_surface_sparse.comp",
+        source_path: "shader/experiments/slang/make_surface_sparse.slang",
+        include_path: "shader/experiments/slang",
+        stage: "compute",
+    },
 ];
 
 fn main() {

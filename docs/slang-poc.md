@@ -1,8 +1,8 @@
 # Slang shader proof of concept
 
-This experiment replaces only `shader/tracer/post_processing.comp` with an equivalent Slang compute shader. The normal build remains GLSL-only; the replacement is enabled with the `slang-poc` Cargo feature.
+This experiment incrementally replaces selected GLSL compute shaders with equivalent Slang implementations. The normal build remains GLSL-only, and each replacement can be enabled independently for matched comparison.
 
-The pass was selected because it runs every frame at the full output resolution, already has a Vulkan timestamp scope, and exercises a uniform buffer, formatted storage images, bounds checks, and a reusable dither module.
+The first pass, `shader/tracer/post_processing.comp`, was selected because it runs every frame at the full output resolution, already has a Vulkan timestamp scope, and exercises a uniform buffer, formatted storage images, bounds checks, and a reusable dither module. The second pass, `shader/builder/surface/make_surface_sparse.comp`, covers the difficult shared-memory normal extraction path.
 
 ## Requirements
 
@@ -22,12 +22,15 @@ The default build does not invoke Slang:
 cargo check
 ```
 
-Enable the replacement shader with:
+Enable an individual replacement or all completed validation candidates with:
 
 ```bash
-cargo check --features slang-poc
-cargo run --release --features slang-poc -- --hidden --mute --auto-exit 8 --perf
+cargo check --features slang-post-processing
+cargo check --features slang-surface
+cargo check --features slang-validation
 ```
+
+`slang-poc` remains a backward-compatible alias for `slang-post-processing`.
 
 The build emits a summary such as:
 
@@ -78,10 +81,54 @@ A 20-run warm compiler-process measurement produced median times of approximatel
 
 Both matched run logs contained the same pre-existing validation warning that one pipeline layout exposes nine storage images on hardware reporting an eight-image per-stage limit. The Slang replacement did not introduce or change that warning.
 
+## Surface extraction and normal generation
+
+The second candidate replaces `shader/builder/surface/make_surface_sparse.comp` with `shader/experiments/slang/make_surface_sparse.slang` under `slang-surface`. It validates:
+
+- a 512-invocation 8x8x8 workgroup;
+- a 12x12x12 three-dimensional `groupshared` tile;
+- `GroupMemoryBarrierWithGroupSync`;
+- storage-buffer `InterlockedAdd` and `InterlockedOr`;
+- std140 uniform and std430 storage blocks with runtime arrays;
+- read-only and write-only formatted 3D storage images;
+- the nested 5x5x5 normal extraction kernel and bit-packed output.
+
+Slang's `GLSLShaderStorageBuffer<T, Std430DataLayout>` preserves the existing GLSL block ABI and reflection type names. Explicit `readonly` and `writeonly` qualifiers emit the matching SPIR-V `NonWritable` and `NonReadable` decorations. This avoids changing Rust resource allocation while still using Slang modules and entry-point syntax.
+
+Correctness validation used two 50-sample hidden tree benchmarks with each frontend. Every one of the 316 surface dispatch workloads in each matched run had identical chunk, active-voxel, active-brick, and solid-workgroup counts. A 5120x2880 screenshot comparison was identical outside the bottom-right dynamic performance text; all 21 scene differences from the first comparison were confined to that UI text.
+
+For performance comparison, dispatches below 10,000 solid workgroups were excluded so empty upper chunks did not dominate the result. Each run retained 208 heavy dispatches. Two order-reversed matched pairs produced:
+
+| Run order | Mean delta | Median delta | P95 delta |
+| --- | ---: | ---: | ---: |
+| Slang then GLSL | +5.60% | +0.36% | +9.14% |
+| GLSL then Slang | -2.58% | +0.10% | -1.80% |
+
+The stable median is within `+0.4%`, while mean and tail results move substantially with run order because of occasional GPU/OS stalls. The current MoltenVK evidence therefore establishes compatibility and typical-time parity, but it is not yet strong enough to rule out a small tail-latency regression. Native Vulkan measurements and more isolated repeated dispatches remain required.
+
+Reproduce a pair with:
+
+```bash
+RUST_LOG=info,re_flora::builder::surface=debug,re_flora::builder::contree=debug \
+  cargo run --release -- --hidden --mute --tree-bench --tree-bench-samples 50 \
+  --no-tracer --no-shadows --no-denoise --no-god-rays --no-lens-flare \
+  --no-clouds --no-flora --no-particles
+
+RUST_LOG=info,re_flora::builder::surface=debug,re_flora::builder::contree=debug \
+  cargo run --release --features slang-surface -- --hidden --mute \
+  --tree-bench --tree-bench-samples 50 --no-tracer --no-shadows \
+  --no-denoise --no-god-rays --no-lens-flare --no-clouds --no-flora \
+  --no-particles
+
+scripts/compare_surface_pass.py <glsl-log> <slang-log>
+```
+
+The final optimized surface artifact contained 498 SPIR-V instructions from GLSL and 508 from Slang after debug stripping. The remaining difference is small enough that generated-code inspection alone does not explain the run-order-sensitive tail.
+
 ## Compatibility finding
 
 Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, while existing GLSL reflection exposes source type names directly. The runtime now normalizes known Slang layout suffixes at the reflection boundary, allowing both frontends to resolve the same resource definitions without shader-specific aliases.
 
 ## Limits of this result
 
-This validates one small, full-screen compute shader only. It does not establish suitability for the tracer, shared-memory builders, atomics, buffer references, sparse image operations, or graphics stages. The next useful experiment should port one branch-heavy shader and one shared-memory/atomic shader, then repeat correctness checks and GPU timestamp measurements on native Vulkan hardware as well as MoltenVK.
+The surface candidate establishes Slang compatibility with the current shared-memory, barrier, atomic, storage-image, and runtime-array pattern. It does not yet establish suitability for contree's shared prefix allocation, the branch-heavy tracer and its include graph, or graphics stages. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if they are introduced later. The next experiment is `shader/builder/contree/leaf_write.comp`, followed by the dominant contree tree pass and `shader/tracer/tracer.comp`.

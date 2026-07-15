@@ -188,6 +188,13 @@ The mixed build may use individual `slangc` processes during compatibility exper
 8. Validate one graphics-stage pair and cross-platform CI.
 9. Decide among Slang default, mixed Slang/GLSL production use, or retaining GLSL as default.
 
+## Current status
+
+- Build selection is declarative and supports independent `slang-post-processing` and `slang-surface` features plus the aggregate `slang-validation` feature.
+- `make_surface_sparse.comp` has been ported and runs successfully through MoltenVK with shared memory, synchronization, atomics, formatted storage images, std140/std430 blocks, and runtime arrays.
+- Matched hidden tree benchmarks produced identical surface workload counts and scene output. Typical GPU time is at parity; run-order-sensitive mean and P95 variation requires more native Vulkan evidence before a performance verdict.
+- The next implementation target is `shader/builder/contree/leaf_write.comp`.
+
 ## Decision criteria
 
 Adopt Slang as the default when all current production capabilities are covered, difficult shader outputs are equivalent, no material GPU regression remains, cross-platform compilation is reproducible, and compiler-session integration makes normal iteration acceptable.
