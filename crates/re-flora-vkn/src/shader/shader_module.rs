@@ -454,6 +454,18 @@ fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
         .collect()
 }
 
+fn normalize_buffer_type_name(type_name: &str) -> String {
+    // Slang materializes layout-specific SPIR-V wrapper structs for constant and
+    // structured buffers. Keep the source-level type name as the lookup key so
+    // existing resource definitions work across GLSL and Slang frontends.
+    for suffix in ["_std140", "_std430", "_scalar", "_natural"] {
+        if let Some(source_name) = type_name.strip_suffix(suffix) {
+            return source_name.to_owned();
+        }
+    }
+    type_name.to_owned()
+}
+
 fn extract_buffer_layouts(
     reflect_module: &ReflectShaderModule,
 ) -> Result<HashMap<String, BufferLayout>, String> {
@@ -470,7 +482,7 @@ fn extract_buffer_layouts(
         }
 
         let type_description = &binding.type_description.unwrap();
-        let ty = type_description.type_name.clone();
+        let ty = normalize_buffer_type_name(&type_description.type_name);
         let name = binding.name.clone();
         let descriptor_type = binding.descriptor_type;
         let block = binding.block;
@@ -524,7 +536,7 @@ fn extract_buffer_layouts(
                     })
                 }
                 GeneralMemberType::Struct => {
-                    let ty = type_description.type_name.clone();
+                    let ty = normalize_buffer_type_name(&type_description.type_name);
                     let members = parse_members_recursive(&reflect_member.members);
                     MemberLayout::Struct(StructMemberLayout {
                         name: member_name.clone(),
@@ -636,6 +648,21 @@ fn extract_buffer_layouts(
 
             Err("Unsupported plain member type".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_buffer_type_name;
+
+    #[test]
+    fn normalizes_slang_layout_wrapper_names() {
+        assert_eq!(
+            normalize_buffer_type_name("U_PostProcessingInfo_std140"),
+            "U_PostProcessingInfo"
+        );
+        assert_eq!(normalize_buffer_type_name("B_Leaves_std430"), "B_Leaves");
+        assert_eq!(normalize_buffer_type_name("U_CameraInfo"), "U_CameraInfo");
     }
 }
 

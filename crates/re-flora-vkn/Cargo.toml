@@ -26,4 +26,5 @@ shaderc = { version = "0.10.1", features = ["prefer-static-linking"] }
 [features]
 default = []
 no_validation_layer = []
+slang-poc = []
 sync_diagnostics = []

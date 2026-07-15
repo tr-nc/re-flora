@@ -2,8 +2,12 @@ use shaderc::{CompileOptions, Compiler, EnvVersion, OptimizationLevel, ShaderKin
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 const ENTRY_POINT: &str = "main";
+const SLANG_POC_LOGICAL_PATH: &str = "shader/tracer/post_processing.comp";
+const SLANG_POC_SOURCE_PATH: &str = "shader/experiments/slang/post_processing.slang";
+const SLANG_POC_INCLUDE_PATH: &str = "shader/experiments/slang";
 
 fn main() {
     let crate_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -15,6 +19,8 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
 
     println!("cargo:rerun-if-changed={}", shader_root.display());
+    println!("cargo:rerun-if-env-changed=SLANGC");
+    println!("cargo:rerun-if-env-changed=VULKAN_SDK");
 
     let mut shader_paths = Vec::new();
     collect_shader_paths(&shader_root, &mut shader_paths);
@@ -32,29 +38,54 @@ fn main() {
          \tmatch file_path {\n",
     );
 
+    let slang_poc_enabled = cfg!(feature = "slang-poc");
+    let mut slang_shader_count = 0;
     for shader_path in &shader_paths {
         let relative_path = shader_path
             .strip_prefix(project_root)
             .expect("shader path must be under project root");
         let logical_path = path_with_forward_slashes(relative_path);
         let shader_kind = shader_kind(shader_path);
-        let source = fs::read_to_string(shader_path)
-            .unwrap_or_else(|error| panic!("read {}: {error}", shader_path.display()));
+        let use_slang = slang_poc_enabled && logical_path == SLANG_POC_LOGICAL_PATH;
 
-        let reflection_spirv = compile_shader(
-            &compiler,
-            &source,
-            shader_kind,
-            shader_path,
-            OptimizationLevel::Zero,
-        );
-        let optimized_spirv = compile_shader(
-            &compiler,
-            &source,
-            shader_kind,
-            shader_path,
-            OptimizationLevel::Performance,
-        );
+        let (reflection_spirv, optimized_spirv) = if use_slang {
+            slang_shader_count += 1;
+            let slang_path = project_root.join(SLANG_POC_SOURCE_PATH);
+            let include_path = project_root.join(SLANG_POC_INCLUDE_PATH);
+            (
+                compile_slang_shader(
+                    &slang_path,
+                    &include_path,
+                    &out_dir,
+                    OptimizationLevel::Zero,
+                ),
+                compile_slang_shader(
+                    &slang_path,
+                    &include_path,
+                    &out_dir,
+                    OptimizationLevel::Performance,
+                ),
+            )
+        } else {
+            let source = fs::read_to_string(shader_path)
+                .unwrap_or_else(|error| panic!("read {}: {error}", shader_path.display()));
+            (
+                compile_shader(
+                    &compiler,
+                    &source,
+                    shader_kind,
+                    shader_path,
+                    OptimizationLevel::Zero,
+                ),
+                compile_shader(
+                    &compiler,
+                    &source,
+                    shader_kind,
+                    shader_path,
+                    OptimizationLevel::Performance,
+                ),
+            )
+        };
 
         let artifact_path = artifact_root.join(relative_path);
         let reflection_path = append_extension(&artifact_path, "reflection.spv");
@@ -95,9 +126,81 @@ fn main() {
         .expect("write generated precompiled shader registry");
 
     println!(
-        "cargo:warning=precompiled {} GLSL shaders into SPIR-V artifacts",
-        shader_paths.len()
+        "cargo:warning=precompiled {} GLSL shaders and {} Slang shaders into SPIR-V artifacts",
+        shader_paths.len() - slang_shader_count,
+        slang_shader_count,
     );
+}
+
+fn compile_slang_shader(
+    shader_path: &Path,
+    include_path: &Path,
+    out_dir: &Path,
+    optimization_level: OptimizationLevel,
+) -> Vec<u8> {
+    let (optimization_arg, artifact_suffix) = match optimization_level {
+        OptimizationLevel::Zero => ("-O0", "reflection"),
+        OptimizationLevel::Performance => ("-O3", "optimized"),
+        other => panic!("unsupported Slang optimization level: {other:?}"),
+    };
+    let output_path = out_dir.join(format!("slang-poc-post-processing-{artifact_suffix}.spv"));
+    let slangc = find_slangc();
+    let mut command = Command::new(&slangc);
+    command.args([
+        shader_path.as_os_str(),
+        "-I".as_ref(),
+        include_path.as_os_str(),
+        "-target".as_ref(),
+        "spirv".as_ref(),
+        "-profile".as_ref(),
+        "spirv_1_6".as_ref(),
+        "-entry".as_ref(),
+        ENTRY_POINT.as_ref(),
+        "-stage".as_ref(),
+        "compute".as_ref(),
+        "-std".as_ref(),
+        "2025".as_ref(),
+        "-matrix-layout-column-major".as_ref(),
+        "-fvk-use-gl-layout".as_ref(),
+        optimization_arg.as_ref(),
+    ]);
+    if optimization_level == OptimizationLevel::Zero {
+        command.arg("-preserve-params");
+    }
+    command.arg("-o").arg(&output_path);
+
+    let output = command.output().unwrap_or_else(|error| {
+        panic!(
+            "run Slang compiler {} for {}: {error}. Install slangc from the Vulkan SDK or set SLANGC",
+            slangc.display(),
+            shader_path.display(),
+        )
+    });
+    if !output.status.success() {
+        panic!(
+            "compile {} with Slang {optimization_arg}:\n{}{}",
+            shader_path.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    fs::read(&output_path).unwrap_or_else(|error| panic!("read {}: {error}", output_path.display()))
+}
+
+fn find_slangc() -> PathBuf {
+    if let Some(path) = env::var_os("SLANGC") {
+        return PathBuf::from(path);
+    }
+    if let Some(vulkan_sdk) = env::var_os("VULKAN_SDK") {
+        let candidate = PathBuf::from(vulkan_sdk)
+            .join("bin")
+            .join(format!("slangc{}", env::consts::EXE_SUFFIX));
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    PathBuf::from(format!("slangc{}", env::consts::EXE_SUFFIX))
 }
 
 fn collect_shader_paths(directory: &Path, shader_paths: &mut Vec<PathBuf>) {
