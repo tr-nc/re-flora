@@ -1,7 +1,6 @@
 use crate::builder::{ContreeBuilderResources, PlainBuilderResources, SceneAccelBuilderResources};
 use crate::resource::ResourceContainer;
 use crate::tracer::TracerResources;
-use crate::util::ShaderCompiler;
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
@@ -12,290 +11,248 @@ use re_flora_vkn::{
 pub struct PipelineBuilder;
 
 impl PipelineBuilder {
-    pub fn create_shader_modules(
-        vulkan_ctx: &VulkanContext,
-        shader_compiler: &ShaderCompiler,
-    ) -> Result<ShaderModules> {
-        let tracer_sm = ShaderModule::from_glsl(
+    pub fn create_shader_modules(vulkan_ctx: &VulkanContext) -> Result<ShaderModules> {
+        let tracer_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/tracer.comp",
             "main",
         )
         .unwrap();
 
-        let tracer_shadow_sm = ShaderModule::from_glsl(
+        let tracer_shadow_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/tracer_shadow.comp",
             "main",
         )
         .unwrap();
 
-        let shadow_depth_copy_sm = ShaderModule::from_glsl(
+        let shadow_depth_copy_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/shadow_depth_copy.comp",
             "main",
         )
         .unwrap();
 
-        let leaf_shadow_temporal_sm = ShaderModule::from_glsl(
+        let leaf_shadow_temporal_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/leaf_shadow_temporal.comp",
             "main",
         )
         .unwrap();
 
-        let leaf_shadow_mask_sm = ShaderModule::from_glsl(
+        let leaf_shadow_mask_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/leaf_shadow_mask.comp",
             "main",
         )
         .unwrap();
 
-        let vsm_creation_sm = ShaderModule::from_glsl(
+        let vsm_creation_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/vsm_creation.comp",
             "main",
         )
         .unwrap();
 
-        let vsm_blur_h_sm = ShaderModule::from_glsl(
+        let vsm_blur_h_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/vsm_blur_h.comp",
             "main",
         )
         .unwrap();
 
-        let vsm_blur_v_sm = ShaderModule::from_glsl(
+        let vsm_blur_v_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/vsm_blur_v.comp",
             "main",
         )
         .unwrap();
 
-        let god_ray_sm = ShaderModule::from_glsl(
+        let god_ray_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/god_ray.comp",
             "main",
         )
         .unwrap();
 
-        let temporal_sm = ShaderModule::from_glsl(
+        let temporal_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/denoiser/temporal.comp",
             "main",
         )
         .unwrap();
 
-        let spatial_sm = ShaderModule::from_glsl(
+        let spatial_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/denoiser/spatial.comp",
             "main",
         )
         .unwrap();
 
-        let composition_sm = ShaderModule::from_glsl(
+        let composition_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/composition.comp",
             "main",
         )
         .unwrap();
 
-        let cloud_sm = ShaderModule::from_glsl(
-            vulkan_ctx.device(),
-            shader_compiler,
-            "shader/tracer/cloud.comp",
-            "main",
-        )
-        .unwrap();
+        let cloud_sm =
+            ShaderModule::from_precompiled(vulkan_ctx.device(), "shader/tracer/cloud.comp", "main")
+                .unwrap();
 
-        let cloud_shadow_sm = ShaderModule::from_glsl(
+        let cloud_shadow_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/cloud_shadow.comp",
             "main",
         )
         .unwrap();
 
-        let cloud_shadow_temporal_sm = ShaderModule::from_glsl(
+        let cloud_shadow_temporal_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/cloud_shadow_temporal.comp",
             "main",
         )
         .unwrap();
 
-        let cloud_temporal_sm = ShaderModule::from_glsl(
+        let cloud_temporal_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/cloud_temporal.comp",
             "main",
         )
         .unwrap();
 
-        let lens_flare_sm = ShaderModule::from_glsl(
+        let lens_flare_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/lens_flare.comp",
             "main",
         )
         .unwrap();
 
-        let lens_flare_sun_visible_sm = ShaderModule::from_glsl(
+        let lens_flare_sun_visible_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/lens_flare_sun_visible.comp",
             "main",
         )
         .unwrap();
 
-        let lens_flare_downsample_sm = ShaderModule::from_glsl(
+        let lens_flare_downsample_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/lens_flare_downsample.comp",
             "main",
         )
         .unwrap();
 
-        let post_processing_sm = ShaderModule::from_glsl(
+        let post_processing_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/post_processing.comp",
             "main",
         )
         .unwrap();
 
-        let player_collider_sm = ShaderModule::from_glsl(
+        let player_collider_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/player_collider.comp",
             "main",
         )
         .unwrap();
 
-        let terrain_query_sm = ShaderModule::from_glsl(
+        let terrain_query_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/terrain_query.comp",
             "main",
         )
         .unwrap();
 
-        let wind_volume_sm = ShaderModule::from_glsl(
+        let wind_volume_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/tracer/wind_volume.comp",
             "main",
         )
         .unwrap();
 
-        let flora_vert_sm = ShaderModule::from_glsl(
+        let flora_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/foliage/flora.vert",
             "main",
         )
         .unwrap();
 
-        let flora_frag_sm = ShaderModule::from_glsl(
+        let flora_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/foliage/flora.frag",
             "main",
         )
         .unwrap();
 
-        let flora_lod_vert_sm = ShaderModule::from_glsl(
+        let flora_lod_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/foliage/flora_lod.vert",
             "main",
         )
         .unwrap();
 
-        let leaves_vert_sm = ShaderModule::from_glsl(
+        let leaves_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/foliage/leaves.vert",
             "main",
         )
         .unwrap();
 
-        let leaves_lod_vert_sm = ShaderModule::from_glsl(
+        let leaves_lod_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/foliage/leaves_lod.vert",
             "main",
         )
         .unwrap();
 
-        let leaves_shadow_vert_sm = ShaderModule::from_glsl(
+        let leaves_shadow_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/foliage/leaves_shadow.vert",
             "main",
         )
         .unwrap();
 
-        let leaves_shadow_frag_sm = ShaderModule::from_glsl(
+        let leaves_shadow_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/foliage/leaves_shadow.frag",
             "main",
         )
         .unwrap();
 
-        let sprinkler_vert_sm = ShaderModule::from_glsl(
+        let sprinkler_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/props/sprinkler.vert",
             "main",
         )
         .unwrap();
 
-        let particle_lod_textured_vert_sm = ShaderModule::from_glsl(
+        let particle_lod_textured_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/particles/particle_lod_textured.vert",
             "main",
         )
         .unwrap();
-        let particle_lod_textured_frag_sm = ShaderModule::from_glsl(
+        let particle_lod_textured_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/particles/particle_lod_textured.frag",
             "main",
         )
         .unwrap();
-        let water_droplet_frag_sm = ShaderModule::from_glsl(
+        let water_droplet_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/particles/water_droplet.frag",
             "main",
         )
         .unwrap();
 
-        let glass_vert_sm = ShaderModule::from_glsl(
+        let glass_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/terrarium/glass.vert",
             "main",
         )
         .unwrap();
-        let glass_frag_sm = ShaderModule::from_glsl(
+        let glass_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            shader_compiler,
             "shader/terrarium/glass.frag",
             "main",
         )

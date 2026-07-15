@@ -58,6 +58,11 @@ fn packaged_root() -> Option<std::path::PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
+fn vulkan_sdk_root() -> Option<std::path::PathBuf> {
+    std::env::var_os("VULKAN_SDK").map(std::path::PathBuf::from)
+}
+
+#[cfg(target_os = "macos")]
 fn configure_packaged_vulkan_runtime() {
     if std::env::var_os("VK_ICD_FILENAMES").is_some()
         || std::env::var_os("VK_DRIVER_FILES").is_some()
@@ -65,13 +70,17 @@ fn configure_packaged_vulkan_runtime() {
         return;
     }
 
-    let Some(root) = packaged_root() else {
-        return;
-    };
-    let icd_path = root.join("vulkan/icd.d/MoltenVK_icd.json");
-    if icd_path.exists() {
+    let mut candidates = Vec::new();
+    if let Some(root) = packaged_root() {
+        candidates.push(root.join("vulkan/icd.d/MoltenVK_icd.json"));
+    }
+    if let Some(root) = vulkan_sdk_root() {
+        candidates.push(root.join("share/vulkan/icd.d/MoltenVK_icd.json"));
+    }
+
+    if let Some(icd_path) = candidates.into_iter().find(|path| path.exists()) {
         std::env::set_var("VK_ICD_FILENAMES", &icd_path);
-        log::info!("Using packaged MoltenVK ICD: {}", icd_path.display());
+        log::info!("Using MoltenVK ICD: {}", icd_path.display());
     }
 }
 
@@ -80,24 +89,33 @@ fn configure_packaged_vulkan_runtime() {}
 
 #[cfg(target_os = "macos")]
 unsafe fn load_vulkan_entry() -> Result<Entry, ash::LoadingError> {
+    let mut candidates = Vec::new();
     if let Some(root) = packaged_root() {
-        for candidate in [
+        candidates.extend([
             root.join("lib/libvulkan.1.dylib"),
             root.join("lib/libvulkan.dylib"),
-        ] {
-            if candidate.exists() {
-                match Entry::load_from(candidate.as_os_str()) {
-                    Ok(entry) => {
-                        log::info!("Loaded packaged Vulkan loader: {}", candidate.display());
-                        return Ok(entry);
-                    }
-                    Err(err) => {
-                        log::warn!(
-                            "Failed to load packaged Vulkan loader {}: {}",
-                            candidate.display(),
-                            err
-                        );
-                    }
+        ]);
+    }
+    if let Some(root) = vulkan_sdk_root() {
+        candidates.extend([
+            root.join("lib/libvulkan.1.dylib"),
+            root.join("lib/libvulkan.dylib"),
+        ]);
+    }
+
+    for candidate in candidates {
+        if candidate.exists() {
+            match Entry::load_from(candidate.as_os_str()) {
+                Ok(entry) => {
+                    log::info!("Loaded Vulkan loader: {}", candidate.display());
+                    return Ok(entry);
+                }
+                Err(err) => {
+                    log::warn!(
+                        "Failed to load Vulkan loader {}: {}",
+                        candidate.display(),
+                        err
+                    );
                 }
             }
         }

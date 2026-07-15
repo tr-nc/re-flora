@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_NAME = "re-flora"
-PACKAGE_DIRS = ["assets", "config", "shader"]
+PACKAGE_DIRS = ["assets", "config"]
 PACKAGE_FILES = ["README.md", "LICENSE", "LICENSE-ASSETS"]
 
 
@@ -113,20 +113,11 @@ def copy_binary(root: Path, stage_root: Path, target_dir: Path) -> Path:
 
 def runtime_specs(current_platform: str) -> list[RuntimeLibrarySpec]:
     if current_platform == "windows":
-        return [
-            RuntimeLibrarySpec("Steam Audio", ("phonon.dll",)),
-            RuntimeLibrarySpec("shaderc", ("shaderc_shared.dll", "shaderc.dll"), required=False),
-        ]
+        return [RuntimeLibrarySpec("Steam Audio", ("phonon.dll",))]
     if current_platform == "macos":
-        return [
-            RuntimeLibrarySpec("Steam Audio", ("libphonon.dylib",)),
-            RuntimeLibrarySpec("shaderc", ("libshaderc_shared*.dylib",)),
-        ]
+        return [RuntimeLibrarySpec("Steam Audio", ("libphonon.dylib",))]
     if current_platform == "linux":
-        return [
-            RuntimeLibrarySpec("Steam Audio", ("libphonon.so",)),
-            RuntimeLibrarySpec("shaderc", ("libshaderc_shared.so*",)),
-        ]
+        return [RuntimeLibrarySpec("Steam Audio", ("libphonon.so",))]
     return []
 
 

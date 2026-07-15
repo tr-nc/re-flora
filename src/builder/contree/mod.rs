@@ -7,7 +7,6 @@ use super::SurfaceResources;
 use crate::generated::gpu_structs::ContreeBuildInfo;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
-use crate::util::ShaderCompiler;
 use crate::util::{ChunkPopMode, LatestChunkQueue};
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
@@ -691,7 +690,6 @@ impl ContreeBuilder {
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
-        shader_compiler: &ShaderCompiler,
         surfacer_resources: &SurfaceResources,
         chunk_dim: UVec3,
         voxel_dim_per_chunk: UVec3,
@@ -710,48 +708,39 @@ impl ContreeBuilder {
 
         let device = vulkan_ctx.device();
 
-        let contree_buffer_setup_sm = ShaderModule::from_glsl(
+        let contree_buffer_setup_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/contree/buffer_setup.comp",
             "main",
         )
         .unwrap();
-        let contree_leaf_write_sm = ShaderModule::from_glsl(
+        let contree_leaf_write_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/contree/leaf_write.comp",
             "main",
         )
         .unwrap();
-        let contree_tree_write_sm = ShaderModule::from_glsl(
+        let contree_tree_write_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/contree/tree_write.comp",
             "main",
         )
         .unwrap();
-        let contree_buffer_update_sm = ShaderModule::from_glsl(
+        let contree_buffer_update_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/contree/buffer_update.comp",
             "main",
         )
         .unwrap();
-        let contree_last_buffer_update_sm = ShaderModule::from_glsl(
+        let contree_last_buffer_update_sm = ShaderModule::from_precompiled(
             device,
-            shader_compiler,
             "shader/builder/contree/last_buffer_update.comp",
             "main",
         )
         .unwrap();
-        let contree_concat_sm = ShaderModule::from_glsl(
-            device,
-            shader_compiler,
-            "shader/builder/contree/concat.comp",
-            "main",
-        )
-        .unwrap();
+        let contree_concat_sm =
+            ShaderModule::from_precompiled(device, "shader/builder/contree/concat.comp", "main")
+                .unwrap();
 
         let resources = ContreeBuilderResources::new(
             device.clone(),

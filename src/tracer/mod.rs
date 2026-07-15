@@ -56,7 +56,7 @@ use crate::generated::gpu_structs::{PushConstantFlora, PushConstantLeafShadowTem
 use crate::geom::UAabb3;
 use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
-use crate::util::{ShaderCompiler, TimeInfo};
+use crate::util::TimeInfo;
 use crate::wind::WindSource;
 use anyhow::Result;
 use re_flora_vkn::vk;
@@ -545,7 +545,6 @@ impl Tracer {
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
-        shader_compiler: &ShaderCompiler,
         chunk_bound: UAabb3,
         screen_extent: Extent2D,
         contree_builder_resources: &ContreeBuilderResources,
@@ -571,7 +570,7 @@ impl Tracer {
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
-        let shader_modules = PipelineBuilder::create_shader_modules(&vulkan_ctx, shader_compiler)?;
+        let shader_modules = PipelineBuilder::create_shader_modules(&vulkan_ctx)?;
 
         let resources = TracerResources::new(
             &vulkan_ctx,
