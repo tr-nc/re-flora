@@ -32,10 +32,12 @@ slang-poc = ["slang-post-processing"]
 slang-post-processing = []
 slang-surface = []
 slang-tracer-backend = []
+slang-tracer-shadow = []
 slang-validation = [
     "slang-contree",
     "slang-post-processing",
     "slang-surface",
     "slang-tracer-backend",
+    "slang-tracer-shadow",
 ]
 sync_diagnostics = []

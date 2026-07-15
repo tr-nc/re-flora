@@ -43,6 +43,7 @@ Planned feature boundaries:
 | `slang-surface` | Surface extraction and normal generation candidate |
 | `slang-contree` | Contree construction candidates |
 | `slang-tracer-backend` | Main tracer compiled by Slang's GLSL frontend |
+| `slang-tracer-shadow` | Native Slang contree/DDA shadow tracer modules |
 | `slang-validation` | Aggregate of all completed candidates |
 
 The existing `slang-poc` feature will remain as a backward-compatible alias while the build logic is generalized. A single declarative mapping in `crates/re-flora-vkn/build.rs` will own logical path, Slang source, stage, and feature selection. This avoids scattered hard-coded substitutions.
@@ -183,10 +184,11 @@ The mixed build may use individual `slangc` processes during compatibility exper
 3. Capture matched hidden surface/normal extraction benchmarks.
 4. Port `leaf_write.comp`, measure the contree pass breakdown, then port the dominant contree construction pass.
 5. Capture matched hidden contree benchmarks and correctness evidence.
-6. Compile `tracer.comp` and its existing includes through Slang's GLSL frontend, then evaluate whether a native Slang/module rewrite is warranted.
-7. Capture matched hidden tracer benchmarks on MoltenVK and native Vulkan.
-8. Validate one graphics-stage pair and cross-platform CI.
-9. Decide among Slang default, mixed Slang/GLSL production use, or retaining GLSL as default.
+6. Compile `tracer.comp` and its existing includes through Slang's GLSL frontend.
+7. Rewrite the shared contree and DDA traversal as native Slang modules and validate them through `tracer_shadow.comp`.
+8. Validate one graphics-stage pair.
+9. Add native Vulkan performance and cross-platform CI validation when suitable Windows/Linux hardware is available.
+10. Decide among Slang default, mixed Slang/GLSL production use, or retaining GLSL as default.
 
 ## Current status
 
@@ -195,7 +197,8 @@ The mixed build may use individual `slangc` processes during compatibility exper
 - Matched hidden tree benchmarks produced identical surface workload counts and scene output. Typical GPU time is at parity; run-order-sensitive mean and P95 variation requires more native Vulkan evidence before a performance verdict.
 - `leaf_write.comp`, the measured dominant contree construction shader, has been ported. Matched node/leaf sizes and scene output are identical, and both frontends have a combined 44 us median on MoltenVK.
 - `tracer.comp` now compiles through Slang's GLSL frontend behind `slang-tracer-backend`. It runs through MoltenVK with the existing four-set descriptor ABI, structured SSBOs, storage images, camera matrices, and include graph. A fixed-camera image is visually equivalent; broad one- to two-level pixel differences and dynamic content prevent byte identity. Two order-reversed timing pairs showed no median regression in the approximately 11 us `tracer.pass`, while tail timing remains too quantized and noisy for a strong conclusion.
-- Remaining primary gates are a graphics-stage pair, native Vulkan hardware, cross-platform CI, and compiler-session build-cost work.
+- The production `tracer_shadow.comp` path has been rewritten in native Slang modules under `slang-tracer-shadow`. The modules cover AABB intersection, camera-ray projection, contree traversal, DDA scene traversal, voxel decoding, workgroup stack storage, structured SSBOs, storage images, and matrix uniforms. Fixed-camera shadow output is visually equivalent. Two order-reversed local MoltenVK pairs had native medians 0.8-1.4% lower, within run noise.
+- Remaining primary gates are a graphics-stage pair and compiler-session build-cost work. Native Vulkan performance and cross-platform CI are explicitly deferred until suitable Windows/Linux hardware is available.
 
 ## Decision criteria
 

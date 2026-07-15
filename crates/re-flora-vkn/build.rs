@@ -60,6 +60,15 @@ const SLANG_SHADER_CONFIGS: &[SlangShaderConfig] = &[
         source_language: SlangSourceLanguage::Glsl,
         defines: &["DIRECT_SUN_SHADOW_EXPLICIT_LOD"],
     },
+    #[cfg(feature = "slang-tracer-shadow")]
+    SlangShaderConfig {
+        logical_path: "shader/tracer/tracer_shadow.comp",
+        source_path: "shader/experiments/slang/tracer_shadow.slang",
+        include_path: "shader/experiments/slang",
+        stage: "compute",
+        source_language: SlangSourceLanguage::Slang2025,
+        defines: &[],
+    },
 ];
 
 fn main() {
