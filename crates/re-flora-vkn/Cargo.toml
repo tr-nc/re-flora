@@ -21,6 +21,7 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 winit = { version = "0.30", features = ["rwh_05"] }
 
 [build-dependencies]
+blake3 = "1"
 libloading = "0.8"
 shaderc = { version = "0.10.1", features = ["prefer-static-linking"] }
 spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev = "97298067e3b1c9ce05633d78f1183c14a3cc6acc" }

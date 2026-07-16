@@ -113,7 +113,22 @@ The Phase 2 reassessment measured the current 11-entry aggregate against default
 | Package-clean `re-flora-vkn` rebuild | 3.72 s (3.63-4.57) | 6.37 s (6.20-7.31) | +2.66 s / +71.5% |
 | Any-shader-touched rebuild | 3.13 s (3.09-4.22) | 5.54 s (5.47-6.08) | +2.41 s / +76.9% |
 
-The shared session makes the current absolute overhead tolerable for aggregate validation, but every shader-tree touch still recompiles all 76 entry points and all selected native artifacts. Extrapolating that behavior through the remaining migration would make normal iteration unacceptable. The reassessment therefore approves continued staged migration with GLSL still default. The stable `shader/slang/` source move is complete; transitive-import-aware per-entry artifact caching remains the blocker before complete-family migration.
+At reassessment time, every shader-tree touch still recompiled all 76 entry points and all selected native artifacts. The resulting scaling risk made dependency-aware caching a blocker before complete-family migration.
+
+## Dependency-aware artifact cache
+
+Each logical shader now has an `OUT_DIR` cache manifest for its reflection and optimized SPIR-V. shaderc's include callback records resolved transitive GLSL includes, while Slang's compile-request dependency API records resolved transitive module imports. A selected override caches the union of its GLSL ABI-reference graph and replacement graph, so a fallback ABI change cannot bypass comparison. The context includes the target, frontend configuration, Slang build tag, build script, crate manifest, and lockfile. BLAKE3 digests cover dependency contents and both artifacts; the manifest is removed before recompilation and written only after both outputs succeed.
+
+Three Apple M4 Pro samples per case with Slang `2025.11-12-gc5295eae2` produced:
+
+| Aggregate check | Median (range) | Entries compiled/reused | Delta from pre-cache 5.54 s shader-touch median |
+| --- | ---: | ---: | ---: |
+| Package-clean rebuild | 6.73 s (6.66-6.98) | 76 / 0 | not comparable; cache is empty |
+| Mtime-only shader-tree trigger | 2.29 s (2.25-2.34) | 0 / 76 | -58.7% |
+| Edit one GLSL entry (`cloud.comp`) | 2.42 s (2.40-2.67) | 1 / 75 | -56.4% |
+| Edit shared native `color.slang` | 4.03 s (3.98-4.10) | 4 / 72 | -27.2% |
+
+Changing the transitively included `core/viridis.glsl` invalidated only its native-tracer logical entry, proving that GLSL reference dependencies participate. Changing `color.slang` invalidated exactly composition, egui vertex, flora vertex, and the main tracer. Corrupting one cached optimized artifact also invalidated and restored only that entry. A clean rebuild's 152 SPIR-V files were byte-identical to the pre-cache aggregate. This closes the incremental-build blocker while preserving GLSL as the default.
 
 Both matched run logs contained the same pre-existing validation warning that one pipeline layout exposes nine storage images on hardware reporting an eight-image per-stage limit. The Slang replacement did not introduce or change that warning.
 
@@ -306,4 +321,4 @@ Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, 
 
 ## Limits of this result
 
-The candidates establish Slang compatibility with the current shared-memory, uniform-barrier, atomic, storage-image, runtime/fixed-array, structured-SSBO, matrix, branch-heavy traversal, workgroup-reduction, and complex graphics-stage interface patterns. Native Slang modules now cover the main, shadow, and player-collider tracer entries, the full composition source, the complex flora pair, and the egui pair. This is sufficient to continue staged migration, not to switch the default: accepted sources now live under `shader/slang/`, but still need artifact-level incremental build support, while the dynamically loaded API path still needs exact version pinning and Windows/macOS CI coverage. The disabled composition helper source is translated and compile/visual-tested, but would need a fresh performance gate if product behavior re-enables it; the dormant player-collider pass similarly has matched execution/readback rather than production timing evidence. Flora timing is currently aggregate MoltenVK evidence because nested child-scope attribution is unstable; native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
+The candidates establish Slang compatibility with the current shared-memory, uniform-barrier, atomic, storage-image, runtime/fixed-array, structured-SSBO, matrix, branch-heavy traversal, workgroup-reduction, and complex graphics-stage interface patterns. Native Slang modules now cover the main, shadow, and player-collider tracer entries, the full composition source, the complex flora pair, and the egui pair. This is sufficient to continue staged migration, not to switch the default: accepted sources now live under `shader/slang/` and dependency-aware artifact reuse is active, while the dynamically loaded API path still needs exact version pinning and Windows/macOS CI coverage. The disabled composition helper source is translated and compile/visual-tested, but would need a fresh performance gate if product behavior re-enables it; the dormant player-collider pass similarly has matched execution/readback rather than production timing evidence. Flora timing is currently aggregate MoltenVK evidence because nested child-scope attribution is unstable; native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
