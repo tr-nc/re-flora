@@ -67,6 +67,8 @@ slang-contree-concat = ["re-flora-vkn/slang-contree-concat"]
 slang-contree-last-buffer-update = ["re-flora-vkn/slang-contree-last-buffer-update"]
 slang-contree-leaf = ["re-flora-vkn/slang-contree-leaf"]
 slang-contree-tree-write = ["re-flora-vkn/slang-contree-tree-write"]
+slang-denoiser = ["slang-denoiser-temporal"]
+slang-denoiser-temporal = ["re-flora-vkn/slang-denoiser-temporal"]
 slang-egui = ["re-flora-vkn/slang-egui"]
 slang-flora = ["re-flora-vkn/slang-flora"]
 slang-player-collider = ["re-flora-vkn/slang-player-collider"]
@@ -114,6 +116,7 @@ slang-tracer-shadow = ["re-flora-vkn/slang-tracer-shadow"]
 slang-validation = [
     "slang-composition",
     "slang-contree",
+    "slang-denoiser",
     "slang-egui",
     "slang-flora",
     "slang-player-collider",

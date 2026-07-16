@@ -141,6 +141,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-denoiser-temporal")]
+    ShaderOverride {
+        logical_path: "shader/denoiser/temporal.comp",
+        source_path: "shader/slang/denoiser_temporal.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-egui")]
     ShaderOverride {
         logical_path: "shader/egui/egui.vert",

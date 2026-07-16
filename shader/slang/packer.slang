@@ -28,6 +28,15 @@ public uint packNormalV2(float3 normal)
     return quantized.r | (quantized.g << 7u) | (quantized.b << 14u);
 }
 
+public float3 unpackNormalV2(uint packed)
+{
+    uint3 quantized = uint3(
+        packed & 0x7fu,
+        (packed >> 7u) & 0x7fu,
+        (packed >> 14u) & 0x7fu);
+    return float3(quantized) / 127.0 * 2.0 - 1.0;
+}
+
 public uint packRgbe(float3 color)
 {
     float3 positiveColor = max(float3(0.0), color);
@@ -45,4 +54,14 @@ public uint packRgbe(float3 color)
     result |= encoded.g << 9u;
     result |= encoded.b << 18u;
     return result;
+}
+
+public float3 unpackRgbe(uint packed)
+{
+    int exponent = int(packed >> 27u) - 20;
+    float scale = pow(2.0, float(exponent)) / 256.0;
+    return float3(
+        float(packed & 0x1ffu),
+        float((packed >> 9u) & 0x1ffu),
+        float((packed >> 18u) & 0x1ffu)) * scale;
 }

@@ -45,6 +45,8 @@ slang-contree-concat = []
 slang-contree-last-buffer-update = []
 slang-contree-leaf = []
 slang-contree-tree-write = []
+slang-denoiser = ["slang-denoiser-temporal"]
+slang-denoiser-temporal = []
 slang-egui = []
 slang-flora = []
 slang-player-collider = []
@@ -79,6 +81,7 @@ slang-tracer-shadow = []
 slang-validation = [
     "slang-composition",
     "slang-contree",
+    "slang-denoiser",
     "slang-egui",
     "slang-flora",
     "slang-player-collider",
