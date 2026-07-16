@@ -15,6 +15,13 @@ public struct B_ContreeBuildState
     public uint level;
 };
 
+public struct B_LevelDispatchIndirect
+{
+    public uint dispatch_x;
+    public uint dispatch_y;
+    public uint dispatch_z;
+};
+
 public struct B_ContreeBuildResult
 {
     public uint node_len;
@@ -36,3 +43,13 @@ public struct B_CounterForLevels
 {
     public uint data[];
 };
+
+public uint contreeGroupX(uint count, uint groupSize)
+{
+    return (count + groupSize - 1u) / groupSize;
+}
+
+public uint contreeLog4(uint value)
+{
+    return uint(firstbithigh(value)) >> 1u;
+}

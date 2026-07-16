@@ -31,8 +31,13 @@ default = []
 no_validation_layer = []
 slang-composition = []
 slang-composition-backend = []
-slang-contree = ["slang-contree-buffer-setup", "slang-contree-leaf"]
+slang-contree = [
+    "slang-contree-buffer-setup",
+    "slang-contree-buffer-update",
+    "slang-contree-leaf",
+]
 slang-contree-buffer-setup = []
+slang-contree-buffer-update = []
 slang-contree-leaf = []
 slang-egui = []
 slang-flora = []

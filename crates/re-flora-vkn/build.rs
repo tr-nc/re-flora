@@ -96,6 +96,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-contree-buffer-update")]
+    ShaderOverride {
+        logical_path: "shader/builder/contree/buffer_update.comp",
+        source_path: "shader/slang/contree_buffer_update.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-contree-leaf")]
     ShaderOverride {
         logical_path: "shader/builder/contree/leaf_write.comp",

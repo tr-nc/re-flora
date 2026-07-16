@@ -43,25 +43,25 @@ Inventory: **76 entry points** = 61 compute + 9 vertex + 6 fragment.
 
 | State | Entry points | Meaning |
 | --- | ---: | --- |
-| Native Slang complete | 12 | Native source is independently selectable and has passed local gates |
+| Native Slang complete | 13 | Native source is independently selectable and has passed local gates |
 | Slang backend only | 0 | Existing GLSL compiles through Slang; native rewrite remains TODO |
-| GLSL only | 64 | No completed Slang replacement yet |
+| GLSL only | 63 | No completed Slang replacement yet |
 
 Current aggregate `slang-validation` build:
 
 ```text
-64 shaderc GLSL + 0 Slang GLSL + 12 native Slang = 76 entry points
+63 shaderc GLSL + 0 Slang GLSL + 13 native Slang = 76 entry points
 ```
 
-The validated native entry points are post-processing, composition, sparse surface extraction, contree buffer setup and leaf writing, the main, shadow, and player-collider tracer passes, and the egui and flora vertex/fragment pairs. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates.
+The validated native entry points are post-processing, composition, sparse surface extraction, contree buffer setup, level update, and leaf writing, the main, shadow, and player-collider tracer passes, and the egui and flora vertex/fragment pairs. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates.
 
-The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 24 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. The build now also records compiler-resolved transitive dependencies and reuses unchanged reflection/optimized artifacts. Those API-produced artifacts remain byte-identical to uncached output; the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation, and hidden release smoke runs complete through both MoltenVK and native Vulkan.
+The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 26 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. The build now also records compiler-resolved transitive dependencies and reuses unchanged reflection/optimized artifacts. Those API-produced artifacts remain byte-identical to uncached output; the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation, and hidden release smoke runs complete through both MoltenVK and native Vulkan.
 
 ## Phase 2 reassessment
 
 **Decision: continue the staged native migration, but keep GLSL as the default and do not begin family-wide translation until build invalidation and source layout are productionized.**
 
-The decisive candidates cover the largest source, the branch-heavy main tracer, traversal and workgroup synchronization, atomics, runtime and fixed arrays, matrix-heavy resources, formatted storage images, and complex vertex/fragment interfaces. Their ABI, SPIR-V, semantic output, and runtime gates pass. Measured GPU results range from parity to a documented `+1.3%` native main-tracer median (`+0.5%` for the enclosing render scope); no material frame-level regression has appeared. Native code is split across 47 focused files with shared traversal, contree-build layouts, packing, lighting, and type modules rather than entry-point copies. The remaining compiler-specific handling is localized to build/reflection boundaries plus explicit source annotations such as raw Vulkan instance indexing.
+The decisive candidates cover the largest source, the branch-heavy main tracer, traversal and workgroup synchronization, atomics, runtime and fixed arrays, matrix-heavy resources, formatted storage images, and complex vertex/fragment interfaces. Their ABI, SPIR-V, semantic output, and runtime gates pass. Measured GPU results range from parity to a documented `+1.3%` native main-tracer median (`+0.5%` for the enclosing render scope); no material frame-level regression has appeared. Native code is split across 48 focused files with shared traversal, contree-build layouts, packing, lighting, and type modules rather than entry-point copies. The remaining compiler-specific handling is localized to build/reflection boundaries plus explicit source annotations such as raw Vulkan instance indexing.
 
 A fresh three-sample Apple M4 Pro check used order `default, aggregate, aggregate, default, default, aggregate` with Slang `2025.11-12-gc5295eae2`:
 
@@ -246,10 +246,10 @@ A checked item means a native Slang implementation has passed all applicable loc
 - [ ] `shader/builder/chunk_writer/terrain_soil_mix.comp`
 - [ ] `shader/builder/chunk_writer/voxel_property_sample.comp`
 
-### Builder: contree — 2/6 native
+### Builder: contree — 3/6 native
 
 - [x] `shader/builder/contree/buffer_setup.comp` — `slang-contree-buffer-setup`
-- [ ] `shader/builder/contree/buffer_update.comp`
+- [x] `shader/builder/contree/buffer_update.comp` — `slang-contree-buffer-update`
 - [ ] `shader/builder/contree/concat.comp`
 - [ ] `shader/builder/contree/last_buffer_update.comp`
 - [x] `shader/builder/contree/leaf_write.comp` — `slang-contree-leaf`
@@ -342,7 +342,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 | Full composition native translation | Active sky/composition plus disabled panel, glass, volumetric-cloud reflection, and SSR logic are split into native modules; temporary helper reactivation was visually equivalent | Keep the helpers disabled until a product decision, and repeat performance gates if they are re-enabled |
 | Complex graphics interfaces | Egui and the full flora pair pass, including raw Vulkan instance indexing, fixed-array push constants, many resources, and interpolation | Cover the remaining foliage LOD/leaf/shadow vertex paths during family migration |
 | Incremental build scaling | Compiler-reported GLSL/Slang dependency graphs drive per-entry BLAKE3 cache manifests; all-reused, one-GLSL-entry, and four-native-entry aggregate medians are 2.29 s, 2.42 s, and 4.03 s | Preserve dependency capture and artifact-integrity checks as families migrate |
-| Production source layout | All 47 accepted modules and entries live under `shader/slang/`; runtime logical paths remain unchanged | Keep native production sources in this root as families migrate |
+| Production source layout | All 48 accepted modules and entries live under `shader/slang/`; runtime logical paths remain unchanged | Keep native production sources in this root as families migrate |
 | Binding source of truth | Explicit declarations plus automatic GLSL-reference ABI checking are retained | Revisit schema generation only if declaration drift becomes recurring |
 | Matrix conventions | Native column-major; GLSL frontend row-major lowering | Keep flags centralized and covered by fixed-camera tests |
 | Reflection normalization | Slang wrapper names require boundary normalization | Remove only when production reflection no longer emits those forms |
@@ -361,4 +361,4 @@ Do these in order unless new measurements change the priority:
 6. [x] **Phase 2 reassessment**: decisive compatibility and correctness coverage supports continued staged migration, but the default remains GLSL. The reassessment identified production source layout and incremental artifact reuse as explicit Phase 3 blockers; items 7 and 8 close both.
 7. [x] **Production source layout**: all 45 accepted modules and entries now live under the stable `shader/slang/` root without changing logical shader identities.
 8. [x] **Incremental shader artifacts**: shaderc callbacks and Slang's dependency API record the resolved transitive graphs for both the GLSL ABI reference and selected replacement. Per-entry BLAKE3 manifests reuse valid reflection/optimized SPIR-V and detect dependency changes or artifact corruption.
-9. **Complete contree construction**: Phase 3 is in progress. Native buffer setup preserves its seven-binding ABI, initializes the same level offsets and counters, produces matching tree-benchmark workloads, and is independently gated by `slang-contree-buffer-setup`. Port the four remaining entries as separately validated units.
+9. **Complete contree construction**: Phase 3 is in progress. Native buffer setup and level update preserve their seven- and two-binding ABIs, initialize and advance the same state and indirect dispatches, and produce matching tree-benchmark workloads. They are independently gated by `slang-contree-buffer-setup` and `slang-contree-buffer-update`. Port the three remaining entries as separately validated units.

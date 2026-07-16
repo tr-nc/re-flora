@@ -6,13 +6,6 @@ ConstantBuffer<U_ContreeBuildInfo> contree_build_info;
 [[vk::binding(1, 0)]]
 writeonly GLSLShaderStorageBuffer<B_ContreeBuildState, Std430DataLayout> contree_build_state;
 
-struct B_LevelDispatchIndirect
-{
-    uint dispatch_x;
-    uint dispatch_y;
-    uint dispatch_z;
-};
-
 [[vk::binding(2, 0)]]
 writeonly GLSLShaderStorageBuffer<B_LevelDispatchIndirect, Std430DataLayout>
     level_dispatch_indirect;
@@ -30,16 +23,6 @@ writeonly GLSLShaderStorageBuffer<B_ContreeBuildResult, Std430DataLayout> contre
 [[vk::binding(6, 0)]]
 readonly GLSLShaderStorageBuffer<B_MakeSurfaceResult, Std430DataLayout> make_surface_result;
 
-uint groupX64(uint count)
-{
-    return (count + 63u) / 64u;
-}
-
-uint log4(uint value)
-{
-    return uint(firstbithigh(value)) >> 1u;
-}
-
 [shader("compute")]
 [numthreads(1, 1, 1)]
 void main()
@@ -49,9 +32,10 @@ void main()
 
     contree_build_state.prev_dim = previousDimension;
     contree_build_state.curr_dim = currentDimension;
-    contree_build_state.level = log4(currentDimension);
+    contree_build_state.level = contreeLog4(currentDimension);
 
-    level_dispatch_indirect.dispatch_x = max(groupX64(make_surface_result.active_brick_len), 1u);
+    level_dispatch_indirect.dispatch_x =
+        max(contreeGroupX(make_surface_result.active_brick_len, 64u), 1u);
     level_dispatch_indirect.dispatch_y = 1u;
     level_dispatch_indirect.dispatch_z = 1u;
 
