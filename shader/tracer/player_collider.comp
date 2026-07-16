@@ -103,10 +103,6 @@ float gaussian_weight(int x, int y) {
 void main() {
     int id = int(gl_GlobalInvocationID.x);
 
-    if (id >= TOTAL_THREADS) {
-        return;
-    }
-
     if (id < NUM_GROUND_RAYS) {
         int x = id % KERNEL_DIM - RAY_HALF_KERNAL_SIZE;
         int y = id / KERNEL_DIM - RAY_HALF_KERNAL_SIZE;
@@ -137,7 +133,7 @@ void main() {
         MarchingResult res = general_scene_marching(ray);
         float distance = res.is_hit ? min(res.t, COLLISION_RAY_DISTANCE) : COLLISION_RAY_DISTANCE;
         ceiling_results[x + RAY_HALF_KERNAL_SIZE][y + RAY_HALF_KERNAL_SIZE] = distance;
-    } else {
+    } else if (id < TOTAL_THREADS) {
         int ring_index = id - NUM_GROUND_RAYS - NUM_CEILING_RAYS; // 0 to NUM_RING_DISTANCES-1
         vec3 direction = get_ring_direction(ring_index);
 
@@ -151,6 +147,8 @@ void main() {
         ring_collision_distances[ring_index] = distance;
     }
 
+    // The final 14 invocations do not cast rays, but Vulkan barriers must execute
+    // in uniform control flow across the full 64-thread workgroup.
     barrier();
 
     if (id == 0) {

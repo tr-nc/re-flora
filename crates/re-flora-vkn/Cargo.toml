@@ -34,6 +34,7 @@ slang-contree = ["slang-contree-leaf"]
 slang-contree-leaf = []
 slang-egui = []
 slang-flora = []
+slang-player-collider = []
 slang-poc = ["slang-post-processing"]
 slang-post-processing = []
 slang-surface = []
@@ -45,6 +46,7 @@ slang-validation = [
     "slang-contree",
     "slang-egui",
     "slang-flora",
+    "slang-player-collider",
     "slang-post-processing",
     "slang-surface",
     "slang-tracer",

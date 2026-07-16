@@ -43,19 +43,19 @@ Inventory: **76 entry points** = 61 compute + 9 vertex + 6 fragment.
 
 | State | Entry points | Meaning |
 | --- | ---: | --- |
-| Native Slang complete | 10 | Native source is independently selectable and has passed local gates |
+| Native Slang complete | 11 | Native source is independently selectable and has passed local gates |
 | Slang backend only | 0 | Existing GLSL compiles through Slang; native rewrite remains TODO |
-| GLSL only | 66 | No completed Slang replacement yet |
+| GLSL only | 65 | No completed Slang replacement yet |
 
 Current aggregate `slang-validation` build:
 
 ```text
-66 shaderc GLSL + 0 Slang GLSL + 10 native Slang = 76 entry points
+65 shaderc GLSL + 0 Slang GLSL + 11 native Slang = 76 entry points
 ```
 
-The validated native entry points are post-processing, composition, sparse surface extraction, contree leaf writing, the main and shadow tracer passes, and the egui and flora vertex/fragment pairs. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates.
+The validated native entry points are post-processing, composition, sparse surface extraction, contree leaf writing, the main, shadow, and player-collider tracer passes, and the egui and flora vertex/fragment pairs. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates.
 
-The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 20 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. Those 16 API-produced artifacts were byte-identical to separate `slangc` output; the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation, and hidden release smoke runs complete through both MoltenVK and native Vulkan.
+The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 22 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. Those 16 API-produced artifacts were byte-identical to separate `slangc` output; the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation, and hidden release smoke runs complete through both MoltenVK and native Vulkan.
 
 ## Coexistence contract
 
@@ -158,7 +158,7 @@ Complete this before scaling native migration far beyond the current candidates.
 - [x] Rewrite the full `tracer.comp` entry point in native Slang, reusing the validated contree/DDA modules.
 - [x] Rewrite `composition.comp` in native Slang modules after its backend baseline, including its currently disabled panel, glass, volumetric-cloud reflection, and SSR helpers.
 - [x] Port `flora.vert` + `flora.frag` as the representative complex graphics pair.
-- [ ] Port `player_collider.comp` for an additional synchronization-heavy consumer of traversal modules.
+- [x] Port `player_collider.comp` for an additional synchronization-heavy consumer of traversal modules.
 - [ ] Re-evaluate adoption risk before broad mechanical migration.
 
 ### Phase 3 — migrate complete compute families
@@ -291,7 +291,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 - [ ] `shader/terrarium/glass.frag`
 - [ ] `shader/terrarium/glass.vert`
 
-### Tracer — 4/21 native
+### Tracer — 5/21 native
 
 - [ ] `shader/tracer/cloud_shadow_temporal.comp`
 - [ ] `shader/tracer/cloud_shadow.comp`
@@ -304,7 +304,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 - [ ] `shader/tracer/lens_flare_downsample.comp`
 - [ ] `shader/tracer/lens_flare_sun_visible.comp`
 - [ ] `shader/tracer/lens_flare.comp`
-- [ ] `shader/tracer/player_collider.comp`
+- [x] `shader/tracer/player_collider.comp` — `slang-player-collider`
 - [x] `shader/tracer/post_processing.comp` — `slang-post-processing`
 - [ ] `shader/tracer/shadow_depth_copy.comp`
 - [ ] `shader/tracer/terrain_query.comp`
@@ -339,5 +339,5 @@ Do these in order unless new measurements change the priority:
 2. [x] **Full native tracer**: the native entry reuses the shared traversal modules and passes ABI, SPIR-V, screenshot, runtime, and local native-Vulkan timing gates.
 3. [x] **Native composition modules**: the active entry and disabled helper paths use focused sky, starlight, sunlight, cloud, panel, glass, SSR, scene, hash, and type modules. ABI, SPIR-V, day/night screenshots, temporary helper reactivation, runtime, and local native-Vulkan timing gates pass.
 4. [x] **Complex flora graphics pair**: native modules cover fixed-array push constants, raw Vulkan instance indexing, many resources, shadows, wind sampling, and interpolation. ABI, SPIR-V, authored-flora screenshots, runtime, and matched graphics timing gates pass.
-5. **Player collider**: validate another synchronization-heavy traversal consumer.
-6. Reassess the roadmap using measured build cost, correctness, and native-code maintainability before beginning family-wide migration.
+5. [x] **Player collider**: the native pass reuses the shared contree/DDA modules and preserves the five-binding ABI, 64-thread workgroup, per-invocation traversal stacks, fixed-array result buffer, and workgroup reductions. Both frontends now keep all invocations active through the barrier. SPIR-V, pipeline creation, and temporary matched GPU execution/readback gates pass.
+6. **Phase 2 reassessment**: reassess the roadmap using measured build cost, correctness, and native-code maintainability before beginning family-wide migration.

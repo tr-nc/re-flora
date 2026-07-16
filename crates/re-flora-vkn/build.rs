@@ -125,6 +125,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-player-collider")]
+    ShaderOverride {
+        logical_path: "shader/tracer/player_collider.comp",
+        source_path: "shader/experiments/slang/player_collider.slang",
+        include_path: "shader/experiments/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-post-processing")]
     ShaderOverride {
         logical_path: "shader/tracer/post_processing.comp",
