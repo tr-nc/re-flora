@@ -80,6 +80,7 @@ slang-tracer = []
 slang-tracer-backend = []
 slang-tracer-shadow = []
 slang-tracer-shadow-depth-copy = []
+slang-tracer-vsm-blur-h = []
 slang-tracer-vsm-creation = []
 slang-validation = [
     "slang-composition",
@@ -94,6 +95,7 @@ slang-validation = [
     "slang-tracer",
     "slang-tracer-shadow",
     "slang-tracer-shadow-depth-copy",
+    "slang-tracer-vsm-blur-h",
     "slang-tracer-vsm-creation",
 ]
 sync_diagnostics = []

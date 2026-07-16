@@ -321,6 +321,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-tracer-vsm-blur-h")]
+    ShaderOverride {
+        logical_path: "shader/tracer/vsm_blur_h.comp",
+        source_path: "shader/slang/vsm_blur_h.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-tracer-vsm-creation")]
     ShaderOverride {
         logical_path: "shader/tracer/vsm_creation.comp",
