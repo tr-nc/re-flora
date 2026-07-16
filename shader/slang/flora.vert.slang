@@ -3,6 +3,7 @@ import flora_motion;
 import flora_noise;
 import flora_shadow;
 import flora_types;
+import hash;
 import terrain_edit_preview;
 import tracer_types;
 

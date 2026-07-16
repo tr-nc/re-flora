@@ -47,3 +47,13 @@ public float hash13(float3 source)
     uint value = murmurHash13(asuint(source));
     return asfloat((value & 0x007fffffu) | 0x3f800000u) - 1.0;
 }
+
+public uint wellonsHash(uint value)
+{
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    value ^= value >> 16u;
+    return value;
+}

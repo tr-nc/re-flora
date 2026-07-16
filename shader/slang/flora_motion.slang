@@ -2,6 +2,7 @@ module flora_motion;
 
 import flora_noise;
 import flora_types;
+import hash;
 import tracer_types;
 
 static const float FLORA_TWO_PI = 6.28318530718;
