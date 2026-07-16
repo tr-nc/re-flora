@@ -1,6 +1,7 @@
 module tracer_shadowing;
 
 import tracer_types;
+import vsm;
 
 static const float TWO_PI = 6.283185307179586;
 static const int3 BLUE_NOISE_SIZE = int3(128, 128, 64);
@@ -142,24 +143,6 @@ float pcssTransmittance(Sampler2D shadowMap, Sampler2DArray scalarNoise,
     if (blockerDepth < 0.0) return 1.0;
     return pcf(shadowMap, scalarNoise, baseUv, ndc.z,
                (ndc.z - blockerDepth) * (4.0 / 100.0), seed);
-}
-
-float2 evsmExponents()
-{
-    return min(float2(16.0, 5.0), 42.0);
-}
-
-float2 warpDepth(float depth, float2 exponents)
-{
-    depth = 2.0 * depth - 1.0;
-    return float2(exp(exponents.x * depth), -exp(-exponents.y * depth));
-}
-
-float chebyshevUpperBound(float2 moments, float value)
-{
-    float variance = max(moments.y - moments.x * moments.x, 1.0e-5);
-    float difference = (value - moments.x) * 2.0;
-    return value <= moments.x ? 1.0 : variance / (variance + difference * difference);
 }
 
 float vsmTransmittance(Sampler2D vsmMap, float4x4 shadowViewProjection,

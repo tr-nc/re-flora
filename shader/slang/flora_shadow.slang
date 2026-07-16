@@ -2,29 +2,11 @@ module flora_shadow;
 
 import sunlight;
 import tracer_types;
+import vsm;
 
 float4 sampleAtBaseLevel(Sampler2D textureSampler, float2 uv)
 {
     return textureSampler.SampleLevel(uv, 0.0);
-}
-
-float2 evsmExponents()
-{
-    return min(float2(16.0, 5.0), 42.0);
-}
-
-float2 warpDepth(float depth, float2 exponents)
-{
-    depth = 2.0 * depth - 1.0;
-    return float2(exp(exponents.x * depth), -exp(-exponents.y * depth));
-}
-
-float chebyshevUpperBound(float2 moments, float value)
-{
-    float variance = max(moments.y - moments.x * moments.x, 1.0e-5);
-    float difference = (value - moments.x) * 2.0;
-    return value <= moments.x ? 1.0
-                              : variance / (variance + difference * difference);
 }
 
 float terrainShadowTransmittance(Sampler2D vsmMap,
