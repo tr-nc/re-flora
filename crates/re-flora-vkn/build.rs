@@ -114,6 +114,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-contree-last-buffer-update")]
+    ShaderOverride {
+        logical_path: "shader/builder/contree/last_buffer_update.comp",
+        source_path: "shader/slang/contree_last_buffer_update.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-egui")]
     ShaderOverride {
         logical_path: "shader/egui/egui.vert",

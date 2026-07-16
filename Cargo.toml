@@ -56,10 +56,12 @@ slang-composition-backend = ["re-flora-vkn/slang-composition-backend"]
 slang-contree = [
     "slang-contree-buffer-setup",
     "slang-contree-buffer-update",
+    "slang-contree-last-buffer-update",
     "slang-contree-leaf",
 ]
 slang-contree-buffer-setup = ["re-flora-vkn/slang-contree-buffer-setup"]
 slang-contree-buffer-update = ["re-flora-vkn/slang-contree-buffer-update"]
+slang-contree-last-buffer-update = ["re-flora-vkn/slang-contree-last-buffer-update"]
 slang-contree-leaf = ["re-flora-vkn/slang-contree-leaf"]
 slang-egui = ["re-flora-vkn/slang-egui"]
 slang-flora = ["re-flora-vkn/slang-flora"]

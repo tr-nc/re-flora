@@ -18,11 +18,6 @@ readonly RWTexture3D<uint> surface;
 readonly GLSLShaderStorageBuffer<B_NodeOffsetForLevels, Std430DataLayout>
     node_offset_for_levels;
 
-struct B_SparseNodes
-{
-    ContreeNode data[];
-};
-
 [[vk::binding(4, 0)]]
 writeonly GLSLShaderStorageBuffer<B_SparseNodes, Std430DataLayout> sparse_nodes;
 

@@ -1,5 +1,7 @@
 module contree_build;
 
+import contree_node;
+
 public struct U_ContreeBuildInfo
 {
     public uint dim;
@@ -16,6 +18,13 @@ public struct B_ContreeBuildState
 };
 
 public struct B_LevelDispatchIndirect
+{
+    public uint dispatch_x;
+    public uint dispatch_y;
+    public uint dispatch_z;
+};
+
+public struct B_ConcatDispatchIndirect
 {
     public uint dispatch_x;
     public uint dispatch_y;
@@ -42,6 +51,16 @@ public struct B_NodeOffsetForLevels
 public struct B_CounterForLevels
 {
     public uint data[];
+};
+
+public struct B_SparseNodes
+{
+    public ContreeNode data[];
+};
+
+public struct B_DenseNodes
+{
+    public ContreeNode data[];
 };
 
 public uint contreeGroupX(uint count, uint groupSize)
