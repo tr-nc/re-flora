@@ -123,6 +123,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-contree-tree-write")]
+    ShaderOverride {
+        logical_path: "shader/builder/contree/tree_write.comp",
+        source_path: "shader/slang/contree_tree_write.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-egui")]
     ShaderOverride {
         logical_path: "shader/egui/egui.vert",

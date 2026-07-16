@@ -36,11 +36,13 @@ slang-contree = [
     "slang-contree-buffer-update",
     "slang-contree-last-buffer-update",
     "slang-contree-leaf",
+    "slang-contree-tree-write",
 ]
 slang-contree-buffer-setup = []
 slang-contree-buffer-update = []
 slang-contree-last-buffer-update = []
 slang-contree-leaf = []
+slang-contree-tree-write = []
 slang-egui = []
 slang-flora = []
 slang-player-collider = []

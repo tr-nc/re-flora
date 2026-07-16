@@ -65,39 +65,40 @@ uint register_and_get_local_base(uint invocation_cnt, uint local_invocation_idx)
 
 void main() {
     cleanup_shared_invocation_data(gl_LocalInvocationIndex);
-    ivec3 uvi = ivec3(gl_GlobalInvocationID);
-    if (any(greaterThanEqual(uvi, ivec3(contree_build_state.curr_dim)))) {
-        return;
-    }
+    // Inactive edge invocations contribute zero but must reach the prefix-allocation barriers.
+    ivec3 uvi   = ivec3(gl_GlobalInvocationID);
+    bool invocation_active = !any(greaterThanEqual(uvi, ivec3(contree_build_state.curr_dim)));
 
     ContreeNode temp[64];
     uint child_mask_lo = 0u;
     uint child_mask_hi = 0u;
 
-    for (uint yi = 0; yi < 4; yi++) {
-        for (uint zi = 0; zi < 4; zi++) {
-            for (uint xi = 0; xi < 4; xi++) {
-                uint i = xi + zi * 4 + yi * 16;
+    if (invocation_active) {
+        for (uint yi = 0; yi < 4; yi++) {
+            for (uint zi = 0; zi < 4; zi++) {
+                for (uint xi = 0; xi < 4; xi++) {
+                    uint i = xi + zi * 4 + yi * 16;
 
-                uvec3 vpos = uvec3(uvi) * 4 + uvec3(xi, yi, zi);
+                    uvec3 vpos = uvec3(uvi) * 4 + uvec3(xi, yi, zi);
 
-                uint prev_sparse_node_read_offset =
-                    node_offset_for_levels.data[contree_build_state.level + 1];
-                uint prev_idx =
-                    uint(vpos.x) + uint(vpos.z) * contree_build_state.prev_dim +
-                    uint(vpos.y) * contree_build_state.prev_dim * contree_build_state.prev_dim;
-                prev_idx += prev_sparse_node_read_offset;
-                ContreeNode cn = sparse_nodes.data[prev_idx];
-                temp[i]        = cn;
+                    uint prev_sparse_node_read_offset =
+                        node_offset_for_levels.data[contree_build_state.level + 1];
+                    uint prev_idx =
+                        uint(vpos.x) + uint(vpos.z) * contree_build_state.prev_dim +
+                        uint(vpos.y) * contree_build_state.prev_dim * contree_build_state.prev_dim;
+                    prev_idx += prev_sparse_node_read_offset;
+                    ContreeNode cn = sparse_nodes.data[prev_idx];
+                    temp[i]        = cn;
 
-                // the node is valid if non-leaf, or child_mask != 0
-                bool exists = (cn.child_mask_lo != 0u || cn.child_mask_hi != 0u) ||
-                              ((cn.packed_0 & 1u) != 0u);
-                if (exists) {
-                    if (i < 32u) {
-                        child_mask_lo |= (1u << i);
-                    } else {
-                        child_mask_hi |= (1u << (i - 32u));
+                    // the node is valid if non-leaf, or child_mask != 0
+                    bool exists = (cn.child_mask_lo != 0u || cn.child_mask_hi != 0u) ||
+                                  ((cn.packed_0 & 1u) != 0u);
+                    if (exists) {
+                        if (i < 32u) {
+                            child_mask_lo |= (1u << i);
+                        } else {
+                            child_mask_hi |= (1u << (i - 32u));
+                        }
                     }
                 }
             }
@@ -106,9 +107,12 @@ void main() {
 
     uint cnt  = bit_count_dual(child_mask_lo, child_mask_hi);
     uint base = register_and_get_local_base(cnt, gl_LocalInvocationIndex);
+    if (!invocation_active) {
+        return;
+    }
 
     uint sparse_node_write_offset = node_offset_for_levels.data[contree_build_state.level];
-    uint brick_idx                = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
+    uint brick_idx = uint(uvi.x) + uint(uvi.z) * contree_build_state.curr_dim +
                      uint(uvi.y) * contree_build_state.curr_dim * contree_build_state.curr_dim;
     brick_idx += sparse_node_write_offset;
 
