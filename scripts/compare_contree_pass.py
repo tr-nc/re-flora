@@ -65,6 +65,7 @@ def read_samples(path: Path, pass_name: str) -> list[ContreeSample]:
     for line in path.read_text(encoding="utf-8").splitlines():
         if timing_match := TIMING_RE.search(line):
             pass_times = dict(PASS_RE.findall(timing_match.group(3)))
+            pass_times["pass_total"] = timing_match.group(2)
             if pass_name in pass_times:
                 pending[timing_match.group(1)].append(float(pass_times[pass_name]))
             continue

@@ -63,6 +63,11 @@ public struct B_DenseNodes
     public ContreeNode data[];
 };
 
+public struct B_ContreeNodeData
+{
+    public ContreeNode data[];
+};
+
 public uint contreeGroupX(uint count, uint groupSize)
 {
     return (count + groupSize - 1u) / groupSize;
