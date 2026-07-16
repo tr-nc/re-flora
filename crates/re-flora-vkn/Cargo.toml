@@ -51,10 +51,12 @@ slang-player-collider = []
 slang-poc = ["slang-post-processing"]
 slang-post-processing = []
 slang-surface = [
+    "slang-surface-clear-occupancy",
     "slang-surface-make",
     "slang-surface-make-sparse",
     "slang-surface-prepare-sparse-dispatch",
 ]
+slang-surface-clear-occupancy = []
 slang-surface-make = []
 slang-surface-make-sparse = []
 slang-surface-prepare-sparse-dispatch = []
