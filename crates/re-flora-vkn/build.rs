@@ -204,6 +204,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-surface-instances-to-occupancy")]
+    ShaderOverride {
+        logical_path: "shader/builder/surface/instances_to_occupancy.comp",
+        source_path: "shader/slang/instances_to_occupancy.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-surface-make")]
     ShaderOverride {
         logical_path: "shader/builder/surface/make_surface.comp",

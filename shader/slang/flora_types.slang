@@ -10,9 +10,11 @@ public static const uint FLORA_SPECIES_EMBER_BLOOM = 3u;
 public static const uint FLORA_SPECIES_KOCHIA = 4u;
 public static const uint FLORA_SPECIES_TREE_LEAF = 5u;
 public static const uint FLORA_SPECIES_APPLE = 6u;
+public static const uint MAX_FLORA_INSTANCES_PER_SPECIES = 40000u;
 
 public static const uint INSTANCE_SPAWN_INACTIVE = 0xffffffffu;
 public static const uint INSTANCE_GROWTH_PROGRESS_MATURE = 0xffu;
+public static const uint INSTANCE_GROWTH_PROGRESS_REBIRTH = 0x0au;
 
 public static const uint FLORA_VOXEL_MATERIAL_ALLIUM_CORE = 1u;
 public static const uint FLORA_VOXEL_MATERIAL_BITS = 3u;
@@ -61,6 +63,19 @@ public struct FloraSpawnAnimationPose
     public float visibility;
 };
 
+public uint floraSpeciesInstanceOffset(uint speciesIndex)
+{
+    return speciesIndex * MAX_FLORA_INSTANCES_PER_SPECIES;
+}
+
+public uint packInstanceLocalPositionGrowth(uint3 localPosition, uint growthProgress)
+{
+    return (localPosition.x & 0xffu) |
+           ((localPosition.y & 0xffu) << 8u) |
+           ((localPosition.z & 0xffu) << 16u) |
+           ((growthProgress & 0xffu) << 24u);
+}
+
 public uint3 unpackInstanceLocalPosition(uint packedLocalPosition)
 {
     return uint3(packedLocalPosition & 0xffu,
@@ -71,6 +86,22 @@ public uint3 unpackInstanceLocalPosition(uint packedLocalPosition)
 public uint unpackInstanceGrowthProgress(uint packedLocalPosition)
 {
     return (packedLocalPosition >> 24u) & 0xffu;
+}
+
+public uint setInstanceGrowthProgress(uint packedLocalPosition, uint growthProgress)
+{
+    return (packedLocalPosition & 0x00ffffffu) |
+           ((growthProgress & 0xffu) << 24u);
+}
+
+public uint3 instanceWorldPosition(Instance instance, uint3 chunkWorldOffset)
+{
+    return chunkWorldOffset + unpackInstanceLocalPosition(instance.packed_local_pos);
+}
+
+public uint3 instanceWorldPosition(uint packedLocalPosition, uint3 chunkWorldOffset)
+{
+    return chunkWorldOffset + unpackInstanceLocalPosition(packedLocalPosition);
 }
 
 public uint3 surfaceFloraStemWorldPosition(uint packedLocalPosition,
@@ -88,6 +119,21 @@ public uint instanceSeed(uint3 instancePositionVoxels)
     seed ^= seed << 5u;
     seed ^= seed >> 11u;
     return seed;
+}
+
+public void setInstanceLocalPositionGrowth(inout Instance instance,
+                                           uint3 localPosition,
+                                           uint growthProgress)
+{
+    instance.packed_local_pos =
+        packInstanceLocalPositionGrowth(localPosition, growthProgress);
+}
+
+public void initializeFloraInstance(inout Instance instance, uint3 localPosition,
+                                    uint growthProgress, uint spawnStartMs)
+{
+    setInstanceLocalPositionGrowth(instance, localPosition, growthProgress);
+    instance.spawn_start_ms = spawnStartMs;
 }
 
 public uint instanceSpawnAgeMs(uint spawnStartMs, uint nowMs)

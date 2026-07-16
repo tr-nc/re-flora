@@ -73,12 +73,16 @@ slang-player-collider = ["re-flora-vkn/slang-player-collider"]
 slang-post-processing = ["re-flora-vkn/slang-post-processing"]
 slang-surface = [
     "slang-surface-clear-occupancy",
+    "slang-surface-instances-to-occupancy",
     "slang-surface-make",
     "slang-surface-make-sparse",
     "slang-surface-prepare-active-flora-dispatch",
     "slang-surface-prepare-sparse-dispatch",
 ]
 slang-surface-clear-occupancy = ["re-flora-vkn/slang-surface-clear-occupancy"]
+slang-surface-instances-to-occupancy = [
+    "re-flora-vkn/slang-surface-instances-to-occupancy",
+]
 slang-surface-make = ["re-flora-vkn/slang-surface-make"]
 slang-surface-make-sparse = ["re-flora-vkn/slang-surface-make-sparse"]
 slang-surface-prepare-active-flora-dispatch = [

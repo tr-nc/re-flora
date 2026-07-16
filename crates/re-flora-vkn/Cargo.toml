@@ -52,12 +52,14 @@ slang-poc = ["slang-post-processing"]
 slang-post-processing = []
 slang-surface = [
     "slang-surface-clear-occupancy",
+    "slang-surface-instances-to-occupancy",
     "slang-surface-make",
     "slang-surface-make-sparse",
     "slang-surface-prepare-active-flora-dispatch",
     "slang-surface-prepare-sparse-dispatch",
 ]
 slang-surface-clear-occupancy = []
+slang-surface-instances-to-occupancy = []
 slang-surface-make = []
 slang-surface-make-sparse = []
 slang-surface-prepare-active-flora-dispatch = []
