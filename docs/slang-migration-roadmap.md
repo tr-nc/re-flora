@@ -43,19 +43,19 @@ Inventory: **76 entry points** = 61 compute + 9 vertex + 6 fragment.
 
 | State | Entry points | Meaning |
 | --- | ---: | --- |
-| Native Slang complete | 8 | Native source is independently selectable and has passed local gates |
+| Native Slang complete | 10 | Native source is independently selectable and has passed local gates |
 | Slang backend only | 0 | Existing GLSL compiles through Slang; native rewrite remains TODO |
-| GLSL only | 68 | No completed Slang replacement yet |
+| GLSL only | 66 | No completed Slang replacement yet |
 
 Current aggregate `slang-validation` build:
 
 ```text
-68 shaderc GLSL + 0 Slang GLSL + 8 native Slang = 76 entry points
+66 shaderc GLSL + 0 Slang GLSL + 10 native Slang = 76 entry points
 ```
 
-The validated native entry points are post-processing, composition, sparse surface extraction, contree leaf writing, the main and shadow tracer passes, and the egui vertex/fragment pair. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates.
+The validated native entry points are post-processing, composition, sparse surface extraction, contree leaf writing, the main and shadow tracer passes, and the egui and flora vertex/fragment pairs. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates.
 
-The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 16 reflection/optimized artifacts. On the local Linux Vulkan SDK 2025.23.2 toolchain, this reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. All 16 API-produced artifacts were byte-identical to separate `slangc` output, all 152 aggregate artifacts passed Vulkan 1.3 SPIR-V validation, and a hidden release smoke run completed on an NVIDIA RTX 3060 Ti through native Vulkan.
+The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 20 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. Those 16 API-produced artifacts were byte-identical to separate `slangc` output; the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation, and hidden release smoke runs complete through both MoltenVK and native Vulkan.
 
 ## Coexistence contract
 
@@ -157,7 +157,7 @@ Complete this before scaling native migration far beyond the current candidates.
 
 - [x] Rewrite the full `tracer.comp` entry point in native Slang, reusing the validated contree/DDA modules.
 - [x] Rewrite `composition.comp` in native Slang modules after its backend baseline, including its currently disabled panel, glass, volumetric-cloud reflection, and SSR helpers.
-- [ ] Port `flora.vert` + `flora.frag` as the representative complex graphics pair.
+- [x] Port `flora.vert` + `flora.frag` as the representative complex graphics pair.
 - [ ] Port `player_collider.comp` for an additional synchronization-heavy consumer of traversal modules.
 - [ ] Re-evaluate adoption risk before broad mechanical migration.
 
@@ -266,11 +266,11 @@ A checked item means a native Slang implementation has passed all applicable loc
 - [x] `shader/egui/egui.frag` — `slang-egui`
 - [x] `shader/egui/egui.vert` — `slang-egui`
 
-### Foliage — 0/7 native
+### Foliage — 2/7 native
 
 - [ ] `shader/foliage/flora_lod.vert`
-- [ ] `shader/foliage/flora.frag`
-- [ ] `shader/foliage/flora.vert`
+- [x] `shader/foliage/flora.frag` — `slang-flora`
+- [x] `shader/foliage/flora.vert` — `slang-flora`
 - [ ] `shader/foliage/leaves_lod.vert`
 - [ ] `shader/foliage/leaves_shadow.frag`
 - [ ] `shader/foliage/leaves_shadow.vert`
@@ -324,7 +324,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 | Cross-platform toolchain | CLI path tested on macOS; compiler API and aggregate runtime tested locally on Linux | Pinned compiler install plus Windows/macOS/Linux CI matrix |
 | Full tracer native translation | Native resources, traversal, lighting, materials, preview, and output orchestration pass locally; native `tracer.pass` median was 1.3% above shaderc on RTX 3060 Ti | Recheck the small measured delta on additional drivers while migrating shared modules |
 | Full composition native translation | Active sky/composition plus disabled panel, glass, volumetric-cloud reflection, and SSR logic are split into native modules; temporary helper reactivation was visually equivalent | Keep the helpers disabled until a product decision, and repeat performance gates if they are re-enabled |
-| Complex graphics interfaces | Egui passes; foliage remains | Native flora pair plus interpolation/instance-input validation |
+| Complex graphics interfaces | Egui and the full flora pair pass, including raw Vulkan instance indexing, fixed-array push constants, many resources, and interpolation | Cover the remaining foliage LOD/leaf/shadow vertex paths during family migration |
 | Binding source of truth | Explicit declarations plus ABI checker | Decide whether generation from one schema provides enough benefit |
 | Matrix conventions | Native column-major; GLSL frontend row-major lowering | Keep flags centralized and covered by fixed-camera tests |
 | Reflection normalization | Slang wrapper names require boundary normalization | Remove only when production reflection no longer emits those forms |
@@ -338,6 +338,6 @@ Do these in order unless new measurements change the priority:
 1. [x] **Compiler-session spike**: the build now uses one dynamically loaded global session; local aggregate checks improved by about 20% with byte-identical artifacts.
 2. [x] **Full native tracer**: the native entry reuses the shared traversal modules and passes ABI, SPIR-V, screenshot, runtime, and local native-Vulkan timing gates.
 3. [x] **Native composition modules**: the active entry and disabled helper paths use focused sky, starlight, sunlight, cloud, panel, glass, SSR, scene, hash, and type modules. ABI, SPIR-V, day/night screenshots, temporary helper reactivation, runtime, and local native-Vulkan timing gates pass.
-4. **Complex flora graphics pair**: validate instance-rate input, push constants, many resources, shadows, wind sampling, and interpolation.
+4. [x] **Complex flora graphics pair**: native modules cover fixed-array push constants, raw Vulkan instance indexing, many resources, shadows, wind sampling, and interpolation. ABI, SPIR-V, authored-flora screenshots, runtime, and matched graphics timing gates pass.
 5. **Player collider**: validate another synchronization-heavy traversal consumer.
 6. Reassess the roadmap using measured build cost, correctness, and native-code maintainability before beginning family-wide migration.

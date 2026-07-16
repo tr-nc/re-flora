@@ -107,6 +107,24 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-flora")]
+    ShaderOverride {
+        logical_path: "shader/foliage/flora.vert",
+        source_path: "shader/experiments/slang/flora.vert.slang",
+        include_path: "shader/experiments/slang",
+        stage: ShaderStage::Vertex,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
+    #[cfg(feature = "slang-flora")]
+    ShaderOverride {
+        logical_path: "shader/foliage/flora.frag",
+        source_path: "shader/experiments/slang/flora.frag.slang",
+        include_path: "shader/experiments/slang",
+        stage: ShaderStage::Fragment,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-post-processing")]
     ShaderOverride {
         logical_path: "shader/tracer/post_processing.comp",
@@ -533,12 +551,45 @@ fn reflect_block_members(
 ) -> Vec<BlockMemberAbi> {
     members
         .iter()
-        .map(|member| BlockMemberAbi {
-            offset: member.offset,
-            size: member.size,
-            padded_size: member.padded_size,
-            array_dims: member.array.dims.clone(),
-            array_stride: member.array.stride,
+        .map(|member| {
+            // Slang represents imported fixed arrays through a one-member
+            // `_Array_*` wrapper struct. SPIRV-Reflect therefore leaves the
+            // outer block variable's array traits empty even though its nested
+            // `data` member retains the real dimensions and stride. Normalize
+            // that frontend-specific shape without treating runtime arrays as
+            // fixed or ignoring their byte layout.
+            let is_slang_array_wrapper = member
+                .type_description
+                .as_ref()
+                .is_some_and(|description| description.type_name.starts_with("_Array_"));
+            let nested_array = match member.members.as_slice() {
+                [nested]
+                    if is_slang_array_wrapper
+                        && nested.offset == 0
+                        && nested.size == member.size
+                        && !nested.array.dims.is_empty()
+                        && nested.array.dims.iter().all(|dimension| *dimension != 0) =>
+                {
+                    Some(&nested.array)
+                }
+                _ => None,
+            };
+            let reflected_array = if member.array.dims.is_empty() {
+                nested_array
+            } else {
+                Some(&member.array)
+            };
+            let (array_dims, array_stride) = reflected_array
+                .map(|array| (array.dims.clone(), array.stride))
+                .unwrap_or_else(|| (Vec::new(), 0));
+
+            BlockMemberAbi {
+                offset: member.offset,
+                size: member.size,
+                padded_size: member.padded_size,
+                array_dims,
+                array_stride,
+            }
         })
         .collect()
 }

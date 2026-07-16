@@ -33,6 +33,7 @@ slang-composition-backend = []
 slang-contree = ["slang-contree-leaf"]
 slang-contree-leaf = []
 slang-egui = []
+slang-flora = []
 slang-poc = ["slang-post-processing"]
 slang-post-processing = []
 slang-surface = []
@@ -43,6 +44,7 @@ slang-validation = [
     "slang-composition",
     "slang-contree",
     "slang-egui",
+    "slang-flora",
     "slang-post-processing",
     "slang-surface",
     "slang-tracer",

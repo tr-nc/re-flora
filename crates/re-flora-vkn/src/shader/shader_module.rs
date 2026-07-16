@@ -469,6 +469,10 @@ fn normalize_buffer_type_name(type_name: &str) -> String {
     source_name.to_owned()
 }
 
+fn is_slang_array_wrapper_type(type_name: &str) -> bool {
+    type_name.starts_with("_Array_")
+}
+
 fn get_slang_matrix_wrapper_type(type_name: &str) -> Option<PlainMemberType> {
     let storage_type = type_name.strip_prefix("_MatrixStorage_float")?;
     if storage_type.starts_with("2x2") {
@@ -548,6 +552,18 @@ fn extract_buffer_layouts(
                 MemberLayout::Plain(PlainMemberLayout {
                     name: member_name.clone(),
                     ty,
+                    offset,
+                    size,
+                    padded_size,
+                })
+            } else if is_slang_array_wrapper_type(&type_description.type_name) {
+                // Native Slang similarly wraps imported fixed arrays in a
+                // one-member struct. Preserve the outer member's absolute
+                // offset and complete byte range instead of recursing into a
+                // nested `data` member whose offset is relative to the wrapper.
+                MemberLayout::Plain(PlainMemberLayout {
+                    name: member_name.clone(),
+                    ty: PlainMemberType::Array,
                     offset,
                     size,
                     padded_size,
@@ -690,7 +706,8 @@ fn extract_buffer_layouts(
 #[cfg(test)]
 mod tests {
     use super::{
-        get_slang_matrix_wrapper_type, normalize_buffer_type_name, PlainMemberType,
+        get_slang_matrix_wrapper_type, is_slang_array_wrapper_type, normalize_buffer_type_name,
+        PlainMemberType,
     };
 
     #[test]
@@ -705,6 +722,17 @@ mod tests {
             "U_GuiInput"
         );
         assert_eq!(normalize_buffer_type_name("U_CameraInfo"), "U_CameraInfo");
+    }
+
+    #[test]
+    fn recognizes_slang_array_wrappers() {
+        assert!(is_slang_array_wrapper_type(
+            "_Array_std140_vector<float,4>5"
+        ));
+        assert!(is_slang_array_wrapper_type("_Array_std430_uint12"));
+        assert!(!is_slang_array_wrapper_type(
+            "_MatrixStorage_float4x4_ColMajorstd140"
+        ));
     }
 
     #[test]

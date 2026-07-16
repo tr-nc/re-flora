@@ -47,6 +47,7 @@ Planned feature boundaries:
 | `slang-surface` | Surface extraction and normal generation candidate |
 | `slang-contree` | Contree construction candidates |
 | `slang-egui` | Native Slang vertex/fragment interface pair |
+| `slang-flora` | Native complex flora vertex/fragment pair plus motion, color, and shadow modules |
 | `slang-tracer` | Native main tracer resources, lighting, materials, and orchestration |
 | `slang-tracer-backend` | Retained main-tracer GLSL-through-Slang baseline |
 | `slang-tracer-shadow` | Native Slang contree/DDA shadow tracer modules |
@@ -132,7 +133,7 @@ After the primary gates:
 
 - `shader/tracer/player_collider.comp` for additional shared-memory and synchronization coverage;
 - the egui vertex/fragment pair for graphics-stage interfaces, push constants, vertex formats, interpolation, and combined image samplers;
-- one foliage vertex/fragment pair as later graphics-stage complexity coverage;
+- the completed flora vertex/fragment pair for complex graphics-stage resources, fixed arrays, raw Vulkan instance indexing, wind, shadows, and interpolation;
 - optional shader clock support if it is re-enabled;
 - any future buffer-reference or sparse-residency prototype before those features enter production.
 
@@ -188,7 +189,7 @@ Also record optimized SPIR-V byte size and stripped instruction count as diagnos
 
 The original `slangc` process startup was approximately 3.75 times slower than `glslc` for the proof-of-concept shader, and the first mixed build launched it once per artifact. That recurring startup cost is now removed: the build dynamically loads the Slang compiler library once and reuses one global session for all selected reflection and optimized compile requests.
 
-On the local Linux Slang 2025.23.2 toolchain, three package-clean aggregate checks improved from a 6.29 s median to 5.05 s, while three shader-touched incremental checks improved from 5.83 s to 4.66 s. All 16 API-generated artifacts were byte-identical to equivalent standalone `slangc` output, all 152 aggregate artifacts passed `spirv-val --target-env vulkan1.3`, and an aggregate hidden release smoke run completed on native Vulkan with an NVIDIA RTX 3060 Ti. Exact compiler pinning, dependency-aware invalidation, and cross-platform reproduction remain required before the final default decision.
+On the local Linux Slang 2025.23.2 toolchain, three package-clean aggregate checks at the earlier 16-artifact snapshot improved from a 6.29 s median to 5.05 s, while three shader-touched incremental checks improved from 5.83 s to 4.66 s. All 16 API-generated artifacts were byte-identical to equivalent standalone `slangc` output. The current aggregate compiles 20 selected Slang artifacts in the shared session; all 152 aggregate artifacts pass `spirv-val --target-env vulkan1.3`, and aggregate hidden release smoke runs complete through MoltenVK and native Vulkan. Exact compiler pinning, dependency-aware invalidation, and cross-platform reproduction remain required before the final default decision.
 
 ## Execution order
 
@@ -214,9 +215,10 @@ On the local Linux Slang 2025.23.2 toolchain, three package-clean aggregate chec
 - `tracer.comp` retains its GLSL-through-Slang baseline under `slang-tracer-backend` and now has a full native implementation under `slang-tracer`. The native entry reuses resource-independent contree/DDA traversal and focused material, shadowing, preview, transform, packing, projection, and type modules. Its four-set ABI matches automatically, all SPIR-V validates, and a 2880x1620 fixed-camera image is visually equivalent. Two order-reversed RTX 3060 Ti pairs retained 151 shaderc and 152 native post-startup samples: `tracer.pass` medians were 467 us and 473 us (`+1.3%`), while `tracer.render` medians differed by `+0.5%`. The small repeatable pass delta is documented for cross-driver follow-up rather than hidden by aggregate frame noise.
 - The production `tracer_shadow.comp` path has been rewritten in native Slang modules under `slang-tracer-shadow`. The modules cover AABB intersection, camera-ray projection, contree traversal, DDA scene traversal, voxel decoding, workgroup stack storage, structured SSBOs, storage images, and matrix uniforms. Fixed-camera shadow output is visually equivalent. Two order-reversed local MoltenVK pairs had native medians 0.8-1.4% lower, within run noise.
 - The egui vertex/fragment pair has been rewritten in native Slang under `slang-egui`. Runtime pipeline-layout merging, three vertex attributes, two interpolants, a matrix push constant, combined image sampler, alpha blending, and UI rendering all pass on MoltenVK. Static UI regions are visually equivalent, with only sparse 1-3-level color differences.
+- The complex `flora.vert`/`flora.frag` pair has been rewritten under `slang-flora`. It preserves 18 bindings across two sets, fixed-array uniforms and push constants, the raw Vulkan instance index required by nonzero first-instance draws, storage buffers/images, wind sampling, direct-sun shadows, depth offsets, and smooth color interpolation. The automatic ABI gate required fixed-array wrapper normalization at both build-time and runtime reflection boundaries. Matched 25-brush authored-lavender captures are visually equivalent. Two order-reversed six-second MoltenVK pairs retained 19 shaderc and 18 native post-startup `graphics.pass` samples; medians were 2,987 us and 2,934.5 us, while sub-scope attribution was too unstable for a meaningful isolated flora timing. No aggregate graphics regression was measured.
 - `composition.comp`, the largest production entry point, retains its GLSL-through-Slang baseline under `slang-composition-backend` and now has a native implementation under `slang-composition`. Its 16-binding ABI passes the automatic GLSL-reference check, and explicit LOD on sampled textures avoids requesting compute-derivative capabilities. At 2880x1620, day and night captures are visually equivalent: the final modular night/starlight pair differed at only 159 pixels across independent runs, while larger daytime differences were confined to moving leaves and UI. Two order-reversed RTX 3060 Ti pairs retained 146 shaderc and 145 native post-startup samples; both had 62-63 us medians, with the native combined median 1 us higher and within timestamp/run variance. The disabled panel, glass, volumetric-cloud reflection, and SSR paths are fully translated; temporarily re-enabling both GLSL and native implementations produced visually equivalent glass/cloud-reflection captures and valid Vulkan 1.3 SPIR-V.
-- The aggregate build now uses one dynamically loaded Slang compiler API global session instead of 16 `slangc` process launches. Local package-clean and shader-touched checks improved by about 20%, all API artifacts matched standalone compiler output byte-for-byte, and Cargo logs the loaded compiler build tag.
-- Remaining primary shader coverage is a complex foliage graphics pair, followed by another traversal consumer. Exact compiler pinning, broader native-Vulkan performance coverage, and cross-platform CI remain open.
+- The aggregate build now uses one dynamically loaded Slang compiler API global session for all 20 selected compile requests instead of one `slangc` process per artifact. The earlier 16-artifact benchmark improved package-clean and shader-touched checks by about 20%, all measured API artifacts matched standalone compiler output byte-for-byte, and Cargo logs the loaded compiler build tag.
+- Remaining primary shader coverage is the player-collider traversal consumer. Exact compiler pinning, broader native-Vulkan performance coverage, and cross-platform CI remain open.
 
 ## Decision criteria
 
