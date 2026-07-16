@@ -84,7 +84,13 @@ slang-tracer-leaf-shadow = [
 ]
 slang-tracer-leaf-shadow-mask = []
 slang-tracer-leaf-shadow-temporal = []
+slang-tracer-lens-flare = [
+    "slang-tracer-lens-flare-downsample",
+    "slang-tracer-lens-flare-generate",
+    "slang-tracer-lens-flare-sun-visible",
+]
 slang-tracer-lens-flare-downsample = []
+slang-tracer-lens-flare-generate = []
 slang-tracer-lens-flare-sun-visible = []
 slang-tracer-shadow = []
 slang-tracer-shadow-depth-copy = []
@@ -109,8 +115,7 @@ slang-validation = [
     "slang-surface",
     "slang-tracer",
     "slang-tracer-leaf-shadow",
-    "slang-tracer-lens-flare-downsample",
-    "slang-tracer-lens-flare-sun-visible",
+    "slang-tracer-lens-flare",
     "slang-tracer-shadow",
     "slang-tracer-vsm",
 ]

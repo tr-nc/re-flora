@@ -339,6 +339,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-tracer-lens-flare-generate")]
+    ShaderOverride {
+        logical_path: "shader/tracer/lens_flare.comp",
+        source_path: "shader/slang/lens_flare.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-tracer-lens-flare-sun-visible")]
     ShaderOverride {
         logical_path: "shader/tracer/lens_flare_sun_visible.comp",
