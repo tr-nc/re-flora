@@ -1,4 +1,5 @@
 import solid_workgroups;
+import sparse_surface_build;
 import surface_build;
 
 static const uint PREPARE_WORKGROUP_SIZE = 128u;
