@@ -54,11 +54,13 @@ slang-surface = [
     "slang-surface-clear-occupancy",
     "slang-surface-make",
     "slang-surface-make-sparse",
+    "slang-surface-prepare-active-flora-dispatch",
     "slang-surface-prepare-sparse-dispatch",
 ]
 slang-surface-clear-occupancy = []
 slang-surface-make = []
 slang-surface-make-sparse = []
+slang-surface-prepare-active-flora-dispatch = []
 slang-surface-prepare-sparse-dispatch = []
 slang-tracer = []
 slang-tracer-backend = []

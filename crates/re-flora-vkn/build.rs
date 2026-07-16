@@ -222,6 +222,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-surface-prepare-active-flora-dispatch")]
+    ShaderOverride {
+        logical_path: "shader/builder/surface/prepare_active_surface_flora_dispatch.comp",
+        source_path: "shader/slang/prepare_active_surface_flora_dispatch.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-surface-prepare-sparse-dispatch")]
     ShaderOverride {
         logical_path: "shader/builder/surface/prepare_sparse_surface_dispatch.comp",

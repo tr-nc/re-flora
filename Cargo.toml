@@ -75,11 +75,15 @@ slang-surface = [
     "slang-surface-clear-occupancy",
     "slang-surface-make",
     "slang-surface-make-sparse",
+    "slang-surface-prepare-active-flora-dispatch",
     "slang-surface-prepare-sparse-dispatch",
 ]
 slang-surface-clear-occupancy = ["re-flora-vkn/slang-surface-clear-occupancy"]
 slang-surface-make = ["re-flora-vkn/slang-surface-make"]
 slang-surface-make-sparse = ["re-flora-vkn/slang-surface-make-sparse"]
+slang-surface-prepare-active-flora-dispatch = [
+    "re-flora-vkn/slang-surface-prepare-active-flora-dispatch",
+]
 slang-surface-prepare-sparse-dispatch = [
     "re-flora-vkn/slang-surface-prepare-sparse-dispatch",
 ]

@@ -1,11 +1,6 @@
 import surface_build;
 import surface_extraction;
-
-struct B_MakeSurfaceResult
-{
-    uint active_voxel_len;
-    uint active_brick_len;
-};
+import surface_result;
 
 [[vk::binding(0, 0)]]
 ConstantBuffer<U_MakeSurfaceInfo> make_surface_info;
