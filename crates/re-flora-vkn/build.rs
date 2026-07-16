@@ -312,6 +312,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-tracer-cloud")]
+    ShaderOverride {
+        logical_path: "shader/tracer/cloud.comp",
+        source_path: "shader/slang/cloud.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-tracer-cloud-shadow-temporal")]
     ShaderOverride {
         logical_path: "shader/tracer/cloud_shadow_temporal.comp",
