@@ -104,12 +104,12 @@ float cloudFbm3Shape(float3 position)
     return clamp(sum / 1.29, 0.0, 1.0);
 }
 
-float cloudLayerBottom(CloudInputs inputs)
+public float cloudLayerBottom(CloudInputs inputs)
 {
     return min(inputs.gui.cloud_bottom_height, inputs.gui.cloud_top_height - 1.0);
 }
 
-float cloudLayerTop(CloudInputs inputs)
+public float cloudLayerTop(CloudInputs inputs)
 {
     return max(inputs.gui.cloud_top_height, inputs.gui.cloud_bottom_height + 1.0);
 }
@@ -141,7 +141,7 @@ float cloudCoverageAt(CloudInputs inputs, float2 worldXz)
     return clamp(coverage, 0.0, 1.0);
 }
 
-float cloudDensityLowQuality(CloudInputs inputs, float3 worldPosition)
+public float cloudDensityLowQuality(CloudInputs inputs, float3 worldPosition)
 {
     float vertical = cloudHeightGradient(inputs, worldPosition);
     if (vertical <= 0.0) return 0.0;

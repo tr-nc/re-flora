@@ -79,6 +79,13 @@ slang-surface-update-flora-growth = []
 slang-tracer = []
 slang-tracer-backend = []
 slang-tracer-cloud = []
+slang-tracer-clouds = [
+    "slang-tracer-cloud",
+    "slang-tracer-cloud-shadow",
+    "slang-tracer-cloud-shadow-temporal",
+    "slang-tracer-cloud-temporal",
+]
+slang-tracer-cloud-shadow = []
 slang-tracer-cloud-shadow-temporal = []
 slang-tracer-cloud-temporal = []
 slang-tracer-god-ray = []
@@ -120,9 +127,7 @@ slang-validation = [
     "slang-scene-accel",
     "slang-surface",
     "slang-tracer",
-    "slang-tracer-cloud",
-    "slang-tracer-cloud-shadow-temporal",
-    "slang-tracer-cloud-temporal",
+    "slang-tracer-clouds",
     "slang-tracer-god-ray",
     "slang-tracer-leaf-shadow",
     "slang-tracer-lens-flare",
