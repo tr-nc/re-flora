@@ -103,6 +103,7 @@ slang-tracer-vsm = [
 slang-tracer-vsm-blur-h = []
 slang-tracer-vsm-blur-v = []
 slang-tracer-vsm-creation = []
+slang-tracer-wind-volume = []
 slang-validation = [
     "slang-composition",
     "slang-contree",
@@ -118,5 +119,6 @@ slang-validation = [
     "slang-tracer-lens-flare",
     "slang-tracer-shadow",
     "slang-tracer-vsm",
+    "slang-tracer-wind-volume",
 ]
 sync_diagnostics = []
