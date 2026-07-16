@@ -78,6 +78,11 @@ slang-surface-prepare-sparse-dispatch = []
 slang-surface-update-flora-growth = []
 slang-tracer = []
 slang-tracer-backend = []
+slang-tracer-leaf-shadow = [
+    "slang-tracer-leaf-shadow-mask",
+    "slang-tracer-leaf-shadow-temporal",
+]
+slang-tracer-leaf-shadow-mask = []
 slang-tracer-leaf-shadow-temporal = []
 slang-tracer-shadow = []
 slang-tracer-shadow-depth-copy = []
@@ -101,7 +106,7 @@ slang-validation = [
     "slang-scene-accel",
     "slang-surface",
     "slang-tracer",
-    "slang-tracer-leaf-shadow-temporal",
+    "slang-tracer-leaf-shadow",
     "slang-tracer-shadow",
     "slang-tracer-vsm",
 ]
