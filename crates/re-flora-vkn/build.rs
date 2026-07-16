@@ -312,6 +312,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-tracer-god-ray")]
+    ShaderOverride {
+        logical_path: "shader/tracer/god_ray.comp",
+        source_path: "shader/slang/god_ray.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-tracer-leaf-shadow-mask")]
     ShaderOverride {
         logical_path: "shader/tracer/leaf_shadow_mask.comp",

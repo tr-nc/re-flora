@@ -1,6 +1,7 @@
 import aabb;
 import contree_node;
 import marching_result;
+import noise_tex;
 import packer;
 import projection;
 import ray;
