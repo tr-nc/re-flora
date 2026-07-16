@@ -79,6 +79,7 @@ slang-surface-update-flora-growth = []
 slang-tracer = []
 slang-tracer-backend = []
 slang-tracer-shadow = []
+slang-tracer-shadow-depth-copy = []
 slang-validation = [
     "slang-composition",
     "slang-contree",
@@ -91,5 +92,6 @@ slang-validation = [
     "slang-surface",
     "slang-tracer",
     "slang-tracer-shadow",
+    "slang-tracer-shadow-depth-copy",
 ]
 sync_diagnostics = []

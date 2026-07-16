@@ -312,6 +312,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-tracer-shadow-depth-copy")]
+    ShaderOverride {
+        logical_path: "shader/tracer/shadow_depth_copy.comp",
+        source_path: "shader/slang/shadow_depth_copy.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-tracer")]
     ShaderOverride {
         logical_path: "shader/tracer/tracer.comp",
