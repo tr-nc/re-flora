@@ -57,6 +57,21 @@ The validated native entry points are post-processing, composition, sparse surfa
 
 The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 22 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. Those 16 API-produced artifacts were byte-identical to separate `slangc` output; the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation, and hidden release smoke runs complete through both MoltenVK and native Vulkan.
 
+## Phase 2 reassessment
+
+**Decision: continue the staged native migration, but keep GLSL as the default and do not begin family-wide translation until build invalidation and source layout are productionized.**
+
+The decisive candidates cover the largest source, the branch-heavy main tracer, traversal and workgroup synchronization, atomics, runtime and fixed arrays, matrix-heavy resources, formatted storage images, and complex vertex/fragment interfaces. Their ABI, SPIR-V, semantic output, and runtime gates pass. Measured GPU results range from parity to a documented `+1.3%` native main-tracer median (`+0.5%` for the enclosing render scope); no material frame-level regression has appeared. Native code is split across 45 focused files with shared traversal, packing, lighting, and type modules rather than entry-point copies. The remaining compiler-specific handling is localized to build/reflection boundaries plus explicit source annotations such as raw Vulkan instance indexing.
+
+A fresh three-sample Apple M4 Pro check used order `default, aggregate, aggregate, default, default, aggregate` with Slang `2025.11-12-gc5295eae2`:
+
+| Build case | Default GLSL median (range) | 11-entry aggregate median (range) | Aggregate delta |
+| --- | ---: | ---: | ---: |
+| Package-clean `re-flora-vkn` rebuild | 3.72 s (3.63-4.57) | 6.37 s (6.20-7.31) | +2.66 s / +71.5% |
+| Any-shader-touched rebuild | 3.13 s (3.09-4.22) | 5.54 s (5.47-6.08) | +2.41 s / +76.9% |
+
+The absolute aggregate cost is acceptable for validation at 11 entries, but the current build reruns every shader compilation after any shader-tree change. That cost cannot scale linearly to 76 native entries. Before Phase 3, move accepted sources to the stable `shader/slang/` root, then add transitive-import-aware artifact caching so unchanged entry points reuse their reflection and optimized SPIR-V. Explicit resource declarations plus the automatic GLSL-reference ABI gate remain the binding source of truth; schema generation is deferred unless declaration drift becomes a recurring failure. Compiler pinning, broader native-Vulkan evidence, and cross-platform CI remain release/default-switch gates rather than blockers for isolated migration work.
+
 ## Coexistence contract
 
 These invariants must remain true for every migration step:
@@ -148,10 +163,11 @@ Complete this before scaling native migration far beyond the current candidates.
 
 - [x] Measure package-clean and shader-touched incremental aggregate build cost for the current candidate set.
 - [x] Replace two `slangc` process launches per selected entry point with one dynamically loaded compiler API global session.
-- [ ] Track imported `.slang` module dependencies precisely enough for incremental rebuilds.
-- [ ] Decide whether explicit declarations plus ABI checking remain the binding source of truth or whether Rust/Slang declarations should be generated from one resource schema.
-- [ ] Keep automatic binding allocation disabled during migration.
-- [ ] Define where production Slang sources live and move accepted sources out of `shader/experiments/slang/` when the layout is stable.
+- [ ] Track transitive `.slang` imports and reuse unchanged per-entry reflection/optimized artifacts instead of recompiling every shader after any shader-tree change.
+- [x] Retain explicit declarations plus automatic GLSL-reference ABI checking as the binding source of truth; defer schema generation unless drift becomes recurring.
+- [x] Keep automatic binding allocation disabled during migration.
+- [x] Define `shader/slang/` as the production native-source root.
+- [ ] Move accepted sources out of `shader/experiments/slang/` into `shader/slang/` before family-wide migration.
 
 ### Phase 2 — decisive native high-risk coverage
 
@@ -159,11 +175,11 @@ Complete this before scaling native migration far beyond the current candidates.
 - [x] Rewrite `composition.comp` in native Slang modules after its backend baseline, including its currently disabled panel, glass, volumetric-cloud reflection, and SSR helpers.
 - [x] Port `flora.vert` + `flora.frag` as the representative complex graphics pair.
 - [x] Port `player_collider.comp` for an additional synchronization-heavy consumer of traversal modules.
-- [ ] Re-evaluate adoption risk before broad mechanical migration.
+- [x] Re-evaluate adoption risk before broad mechanical migration: continue staged migration with GLSL default, after productionizing source layout and incremental artifact reuse.
 
 ### Phase 3 — migrate complete compute families
 
-Suggested order maximizes reuse and keeps failures local:
+Start only after the accepted Slang sources live under `shader/slang/` and transitive-import-aware artifact caching prevents unrelated shader recompilation. Suggested order then maximizes reuse and keeps failures local:
 
 - [ ] Finish contree construction: 5 remaining entry points.
 - [ ] Finish surface construction: 9 remaining entry points.
@@ -325,11 +341,13 @@ A checked item means a native Slang implementation has passed all applicable loc
 | Full tracer native translation | Native resources, traversal, lighting, materials, preview, and output orchestration pass locally; native `tracer.pass` median was 1.3% above shaderc on RTX 3060 Ti | Recheck the small measured delta on additional drivers while migrating shared modules |
 | Full composition native translation | Active sky/composition plus disabled panel, glass, volumetric-cloud reflection, and SSR logic are split into native modules; temporary helper reactivation was visually equivalent | Keep the helpers disabled until a product decision, and repeat performance gates if they are re-enabled |
 | Complex graphics interfaces | Egui and the full flora pair pass, including raw Vulkan instance indexing, fixed-array push constants, many resources, and interpolation | Cover the remaining foliage LOD/leaf/shadow vertex paths during family migration |
-| Binding source of truth | Explicit declarations plus ABI checker | Decide whether generation from one schema provides enough benefit |
+| Incremental build scaling | At 11 native entries, any shader-tree touch costs a 5.54 s median versus 3.13 s for default GLSL because every artifact is rebuilt | Add transitive-import-aware per-entry artifact caching before Phase 3 |
+| Production source layout | `shader/slang/` is selected; accepted sources still live under `shader/experiments/slang/` | Move accepted sources before adding complete families |
+| Binding source of truth | Explicit declarations plus automatic GLSL-reference ABI checking are retained | Revisit schema generation only if declaration drift becomes recurring |
 | Matrix conventions | Native column-major; GLSL frontend row-major lowering | Keep flags centralized and covered by fixed-camera tests |
 | Reflection normalization | Slang wrapper names require boundary normalization | Remove only when production reflection no longer emits those forms |
 | Storage-image descriptor warning | Existing pipeline exposes 9 images against a reported limit of 8 | Track separately; do not attribute it to Slang |
-| GLSL fallback lifetime | Not decided | Decide at Phase 6; preserve fallback through initial default switch |
+| GLSL fallback lifetime | GLSL remains the default after Phase 2 | Decide final lifetime at Phase 6; preserve fallback through any initial default switch |
 
 ## Next work queue
 
@@ -340,4 +358,7 @@ Do these in order unless new measurements change the priority:
 3. [x] **Native composition modules**: the active entry and disabled helper paths use focused sky, starlight, sunlight, cloud, panel, glass, SSR, scene, hash, and type modules. ABI, SPIR-V, day/night screenshots, temporary helper reactivation, runtime, and local native-Vulkan timing gates pass.
 4. [x] **Complex flora graphics pair**: native modules cover fixed-array push constants, raw Vulkan instance indexing, many resources, shadows, wind sampling, and interpolation. ABI, SPIR-V, authored-flora screenshots, runtime, and matched graphics timing gates pass.
 5. [x] **Player collider**: the native pass reuses the shared contree/DDA modules and preserves the five-binding ABI, 64-thread workgroup, per-invocation traversal stacks, fixed-array result buffer, and workgroup reductions. Both frontends now keep all invocations active through the barrier. SPIR-V, pipeline creation, and temporary matched GPU execution/readback gates pass.
-6. **Phase 2 reassessment**: reassess the roadmap using measured build cost, correctness, and native-code maintainability before beginning family-wide migration.
+6. [x] **Phase 2 reassessment**: decisive compatibility and correctness coverage supports continued staged migration, but the default remains GLSL. Current aggregate build cost is acceptable only at validation scale, so production source layout and incremental artifact reuse are explicit blockers before Phase 3.
+7. **Production source layout**: move accepted modules and entries from `shader/experiments/slang/` to the stable `shader/slang/` root without changing logical shader identities.
+8. **Incremental Slang artifacts**: track transitive imports and cache reflection/optimized SPIR-V per selected entry so an unrelated shader edit does not rebuild all native candidates.
+9. **Complete contree construction**: begin Phase 3 by porting the five remaining contree entry points as separately validated units.
