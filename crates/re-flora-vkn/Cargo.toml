@@ -51,6 +51,7 @@ slang-player-collider = []
 slang-poc = ["slang-post-processing"]
 slang-post-processing = []
 slang-surface = [
+    "slang-surface-active-to-flora-instances",
     "slang-surface-clear-occupancy",
     "slang-surface-edit-occupancy-capsule",
     "slang-surface-instances-to-occupancy",
@@ -61,6 +62,7 @@ slang-surface = [
     "slang-surface-prepare-sparse-dispatch",
     "slang-surface-update-flora-growth",
 ]
+slang-surface-active-to-flora-instances = []
 slang-surface-clear-occupancy = []
 slang-surface-edit-occupancy-capsule = []
 slang-surface-instances-to-occupancy = []

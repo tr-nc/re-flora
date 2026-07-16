@@ -195,6 +195,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-surface-active-to-flora-instances")]
+    ShaderOverride {
+        logical_path: "shader/builder/surface/active_surface_to_flora_instances.comp",
+        source_path: "shader/slang/active_surface_to_flora_instances.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-surface-clear-occupancy")]
     ShaderOverride {
         logical_path: "shader/builder/surface/clear_occupancy.comp",
