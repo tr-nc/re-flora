@@ -137,6 +137,7 @@ slang-tracer-lens-flare-sun-visible = [
 ]
 slang-tracer-shadow = ["re-flora-vkn/slang-tracer-shadow"]
 slang-tracer-shadow-depth-copy = ["re-flora-vkn/slang-tracer-shadow-depth-copy"]
+slang-tracer-terrain-query = ["re-flora-vkn/slang-tracer-terrain-query"]
 slang-tracer-vsm = [
     "slang-tracer-shadow-depth-copy",
     "slang-tracer-vsm-blur-h",
@@ -161,6 +162,7 @@ slang-validation = [
     "slang-tracer-leaf-shadow",
     "slang-tracer-lens-flare",
     "slang-tracer-shadow",
+    "slang-tracer-terrain-query",
     "slang-tracer-vsm",
     "slang-tracer-wind-volume",
 ]
