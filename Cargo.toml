@@ -78,6 +78,7 @@ slang-surface = [
     "slang-surface-make-sparse",
     "slang-surface-prepare-active-flora-dispatch",
     "slang-surface-prepare-sparse-dispatch",
+    "slang-surface-update-flora-growth",
 ]
 slang-surface-clear-occupancy = ["re-flora-vkn/slang-surface-clear-occupancy"]
 slang-surface-instances-to-occupancy = [
@@ -90,6 +91,9 @@ slang-surface-prepare-active-flora-dispatch = [
 ]
 slang-surface-prepare-sparse-dispatch = [
     "re-flora-vkn/slang-surface-prepare-sparse-dispatch",
+]
+slang-surface-update-flora-growth = [
+    "re-flora-vkn/slang-surface-update-flora-growth",
 ]
 slang-tracer = ["re-flora-vkn/slang-tracer"]
 slang-tracer-backend = ["re-flora-vkn/slang-tracer-backend"]

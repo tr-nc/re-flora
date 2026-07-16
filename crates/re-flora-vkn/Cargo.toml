@@ -57,6 +57,7 @@ slang-surface = [
     "slang-surface-make-sparse",
     "slang-surface-prepare-active-flora-dispatch",
     "slang-surface-prepare-sparse-dispatch",
+    "slang-surface-update-flora-growth",
 ]
 slang-surface-clear-occupancy = []
 slang-surface-instances-to-occupancy = []
@@ -64,6 +65,7 @@ slang-surface-make = []
 slang-surface-make-sparse = []
 slang-surface-prepare-active-flora-dispatch = []
 slang-surface-prepare-sparse-dispatch = []
+slang-surface-update-flora-growth = []
 slang-tracer = []
 slang-tracer-backend = []
 slang-tracer-shadow = []

@@ -249,6 +249,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-surface-update-flora-growth")]
+    ShaderOverride {
+        logical_path: "shader/builder/surface/update_flora_growth.comp",
+        source_path: "shader/slang/update_flora_growth.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-tracer")]
     ShaderOverride {
         logical_path: "shader/tracer/tracer.comp",
