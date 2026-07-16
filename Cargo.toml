@@ -116,6 +116,7 @@ slang-tracer-backend = ["re-flora-vkn/slang-tracer-backend"]
 slang-tracer-cloud-shadow-temporal = [
     "re-flora-vkn/slang-tracer-cloud-shadow-temporal",
 ]
+slang-tracer-cloud-temporal = ["re-flora-vkn/slang-tracer-cloud-temporal"]
 slang-tracer-god-ray = ["re-flora-vkn/slang-tracer-god-ray"]
 slang-tracer-leaf-shadow = [
     "slang-tracer-leaf-shadow-mask",
@@ -164,6 +165,7 @@ slang-validation = [
     "slang-surface",
     "slang-tracer",
     "slang-tracer-cloud-shadow-temporal",
+    "slang-tracer-cloud-temporal",
     "slang-tracer-god-ray",
     "slang-tracer-leaf-shadow",
     "slang-tracer-lens-flare",
