@@ -121,6 +121,9 @@ slang-tracer-leaf-shadow-mask = ["re-flora-vkn/slang-tracer-leaf-shadow-mask"]
 slang-tracer-leaf-shadow-temporal = [
     "re-flora-vkn/slang-tracer-leaf-shadow-temporal",
 ]
+slang-tracer-lens-flare-downsample = [
+    "re-flora-vkn/slang-tracer-lens-flare-downsample",
+]
 slang-tracer-shadow = ["re-flora-vkn/slang-tracer-shadow"]
 slang-tracer-shadow-depth-copy = ["re-flora-vkn/slang-tracer-shadow-depth-copy"]
 slang-tracer-vsm = [
@@ -144,6 +147,7 @@ slang-validation = [
     "slang-surface",
     "slang-tracer",
     "slang-tracer-leaf-shadow",
+    "slang-tracer-lens-flare-downsample",
     "slang-tracer-shadow",
     "slang-tracer-vsm",
 ]

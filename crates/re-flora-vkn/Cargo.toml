@@ -84,6 +84,7 @@ slang-tracer-leaf-shadow = [
 ]
 slang-tracer-leaf-shadow-mask = []
 slang-tracer-leaf-shadow-temporal = []
+slang-tracer-lens-flare-downsample = []
 slang-tracer-shadow = []
 slang-tracer-shadow-depth-copy = []
 slang-tracer-vsm = [
@@ -107,6 +108,7 @@ slang-validation = [
     "slang-surface",
     "slang-tracer",
     "slang-tracer-leaf-shadow",
+    "slang-tracer-lens-flare-downsample",
     "slang-tracer-shadow",
     "slang-tracer-vsm",
 ]
