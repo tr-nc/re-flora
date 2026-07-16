@@ -62,8 +62,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-composition")]
     ShaderOverride {
         logical_path: "shader/tracer/composition.comp",
-        source_path: "shader/experiments/slang/composition.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/composition.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Compute,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -83,8 +83,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-contree-leaf")]
     ShaderOverride {
         logical_path: "shader/builder/contree/leaf_write.comp",
-        source_path: "shader/experiments/slang/contree_leaf_write.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/contree_leaf_write.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Compute,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -92,8 +92,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-egui")]
     ShaderOverride {
         logical_path: "shader/egui/egui.vert",
-        source_path: "shader/experiments/slang/egui.vert.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/egui.vert.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Vertex,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -101,8 +101,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-egui")]
     ShaderOverride {
         logical_path: "shader/egui/egui.frag",
-        source_path: "shader/experiments/slang/egui.frag.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/egui.frag.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Fragment,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -110,8 +110,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-flora")]
     ShaderOverride {
         logical_path: "shader/foliage/flora.vert",
-        source_path: "shader/experiments/slang/flora.vert.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/flora.vert.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Vertex,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -119,8 +119,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-flora")]
     ShaderOverride {
         logical_path: "shader/foliage/flora.frag",
-        source_path: "shader/experiments/slang/flora.frag.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/flora.frag.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Fragment,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -128,8 +128,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-player-collider")]
     ShaderOverride {
         logical_path: "shader/tracer/player_collider.comp",
-        source_path: "shader/experiments/slang/player_collider.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/player_collider.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Compute,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -137,8 +137,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-post-processing")]
     ShaderOverride {
         logical_path: "shader/tracer/post_processing.comp",
-        source_path: "shader/experiments/slang/post_processing.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/post_processing.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Compute,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -146,8 +146,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-surface")]
     ShaderOverride {
         logical_path: "shader/builder/surface/make_surface_sparse.comp",
-        source_path: "shader/experiments/slang/make_surface_sparse.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/make_surface_sparse.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Compute,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -155,8 +155,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-tracer")]
     ShaderOverride {
         logical_path: "shader/tracer/tracer.comp",
-        source_path: "shader/experiments/slang/tracer.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/tracer.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Compute,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
@@ -173,8 +173,8 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
     #[cfg(feature = "slang-tracer-shadow")]
     ShaderOverride {
         logical_path: "shader/tracer/tracer_shadow.comp",
-        source_path: "shader/experiments/slang/tracer_shadow.slang",
-        include_path: "shader/experiments/slang",
+        source_path: "shader/slang/tracer_shadow.slang",
+        include_path: "shader/slang",
         stage: ShaderStage::Compute,
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],

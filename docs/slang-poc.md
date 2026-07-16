@@ -113,13 +113,13 @@ The Phase 2 reassessment measured the current 11-entry aggregate against default
 | Package-clean `re-flora-vkn` rebuild | 3.72 s (3.63-4.57) | 6.37 s (6.20-7.31) | +2.66 s / +71.5% |
 | Any-shader-touched rebuild | 3.13 s (3.09-4.22) | 5.54 s (5.47-6.08) | +2.41 s / +76.9% |
 
-The shared session makes the current absolute overhead tolerable for aggregate validation, but every shader-tree touch still recompiles all 76 entry points and all selected native artifacts. Extrapolating that behavior through the remaining migration would make normal iteration unacceptable. The reassessment therefore approves continued staged migration with GLSL still default, while making the stable `shader/slang/` source move and transitive-import-aware per-entry artifact caching blockers before complete-family migration.
+The shared session makes the current absolute overhead tolerable for aggregate validation, but every shader-tree touch still recompiles all 76 entry points and all selected native artifacts. Extrapolating that behavior through the remaining migration would make normal iteration unacceptable. The reassessment therefore approves continued staged migration with GLSL still default. The stable `shader/slang/` source move is complete; transitive-import-aware per-entry artifact caching remains the blocker before complete-family migration.
 
 Both matched run logs contained the same pre-existing validation warning that one pipeline layout exposes nine storage images on hardware reporting an eight-image per-stage limit. The Slang replacement did not introduce or change that warning.
 
 ## Surface extraction and normal generation
 
-The second candidate replaces `shader/builder/surface/make_surface_sparse.comp` with `shader/experiments/slang/make_surface_sparse.slang` under `slang-surface`. It validates:
+The second candidate replaces `shader/builder/surface/make_surface_sparse.comp` with `shader/slang/make_surface_sparse.slang` under `slang-surface`. It validates:
 
 - a 512-invocation 8x8x8 workgroup;
 - a 12x12x12 three-dimensional `groupshared` tile;
@@ -253,7 +253,7 @@ The pass is close to the one-microsecond timestamp resolution in this workload. 
 
 ## Native main tracer
 
-The `slang-tracer` feature replaces the same logical `shader/tracer/tracer.comp` path with `shader/experiments/slang/tracer.slang`. The retained `slang-tracer-backend` feature remains available as a code-generation baseline; if both are requested, the native override takes precedence.
+The `slang-tracer` feature replaces the same logical `shader/tracer/tracer.comp` path with `shader/slang/tracer.slang`. The retained `slang-tracer-backend` feature remains available as a code-generation baseline; if both are requested, the native override takes precedence.
 
 The native entry keeps descriptor declarations and orchestration together while splitting reusable logic into focused modules for types, materials, direct-sun shadowing, terrain-edit preview, transforms, projection, packing, voxel data, and traversal. The contree and scene-marching modules now receive `StructuredBuffer` and scene-image resources from their caller, allowing the main and shadow tracer entries to share one traversal implementation despite their different bindings. The build-time GLSL-reference check accepts all four descriptor sets, 31 bindings, uniform/storage layouts, image formats, and the 8x8 workgroup.
 
@@ -306,4 +306,4 @@ Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, 
 
 ## Limits of this result
 
-The candidates establish Slang compatibility with the current shared-memory, uniform-barrier, atomic, storage-image, runtime/fixed-array, structured-SSBO, matrix, branch-heavy traversal, workgroup-reduction, and complex graphics-stage interface patterns. Native Slang modules now cover the main, shadow, and player-collider tracer entries, the full composition source, the complex flora pair, and the egui pair. This is sufficient to continue staged migration, not to switch the default: accepted sources still need their production move and artifact-level incremental build support, while the dynamically loaded API path still needs exact version pinning and Windows/macOS CI coverage. The disabled composition helper source is translated and compile/visual-tested, but would need a fresh performance gate if product behavior re-enables it; the dormant player-collider pass similarly has matched execution/readback rather than production timing evidence. Flora timing is currently aggregate MoltenVK evidence because nested child-scope attribution is unstable; native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
+The candidates establish Slang compatibility with the current shared-memory, uniform-barrier, atomic, storage-image, runtime/fixed-array, structured-SSBO, matrix, branch-heavy traversal, workgroup-reduction, and complex graphics-stage interface patterns. Native Slang modules now cover the main, shadow, and player-collider tracer entries, the full composition source, the complex flora pair, and the egui pair. This is sufficient to continue staged migration, not to switch the default: accepted sources now live under `shader/slang/`, but still need artifact-level incremental build support, while the dynamically loaded API path still needs exact version pinning and Windows/macOS CI coverage. The disabled composition helper source is translated and compile/visual-tested, but would need a fresh performance gate if product behavior re-enables it; the dormant player-collider pass similarly has matched execution/readback rather than production timing evidence. Flora timing is currently aggregate MoltenVK evidence because nested child-scope attribution is unstable; native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
