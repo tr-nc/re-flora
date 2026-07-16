@@ -115,7 +115,14 @@ slang-tracer = ["re-flora-vkn/slang-tracer"]
 slang-tracer-backend = ["re-flora-vkn/slang-tracer-backend"]
 slang-tracer-shadow = ["re-flora-vkn/slang-tracer-shadow"]
 slang-tracer-shadow-depth-copy = ["re-flora-vkn/slang-tracer-shadow-depth-copy"]
+slang-tracer-vsm = [
+    "slang-tracer-shadow-depth-copy",
+    "slang-tracer-vsm-blur-h",
+    "slang-tracer-vsm-blur-v",
+    "slang-tracer-vsm-creation",
+]
 slang-tracer-vsm-blur-h = ["re-flora-vkn/slang-tracer-vsm-blur-h"]
+slang-tracer-vsm-blur-v = ["re-flora-vkn/slang-tracer-vsm-blur-v"]
 slang-tracer-vsm-creation = ["re-flora-vkn/slang-tracer-vsm-creation"]
 slang-validation = [
     "slang-composition",
@@ -129,9 +136,7 @@ slang-validation = [
     "slang-surface",
     "slang-tracer",
     "slang-tracer-shadow",
-    "slang-tracer-shadow-depth-copy",
-    "slang-tracer-vsm-blur-h",
-    "slang-tracer-vsm-creation",
+    "slang-tracer-vsm",
 ]
 sync_diagnostics = ["re-flora-vkn/sync_diagnostics"]
 
