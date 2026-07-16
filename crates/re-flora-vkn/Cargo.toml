@@ -50,6 +50,7 @@ slang-flora = []
 slang-player-collider = []
 slang-poc = ["slang-post-processing"]
 slang-post-processing = []
+slang-scene-accel = []
 slang-surface = [
     "slang-surface-active-to-flora-instances",
     "slang-surface-clear-occupancy",
@@ -82,6 +83,7 @@ slang-validation = [
     "slang-flora",
     "slang-player-collider",
     "slang-post-processing",
+    "slang-scene-accel",
     "slang-surface",
     "slang-tracer",
     "slang-tracer-shadow",

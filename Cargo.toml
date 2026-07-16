@@ -71,6 +71,7 @@ slang-egui = ["re-flora-vkn/slang-egui"]
 slang-flora = ["re-flora-vkn/slang-flora"]
 slang-player-collider = ["re-flora-vkn/slang-player-collider"]
 slang-post-processing = ["re-flora-vkn/slang-post-processing"]
+slang-scene-accel = ["re-flora-vkn/slang-scene-accel"]
 slang-surface = [
     "slang-surface-active-to-flora-instances",
     "slang-surface-clear-occupancy",
@@ -117,6 +118,7 @@ slang-validation = [
     "slang-flora",
     "slang-player-collider",
     "slang-post-processing",
+    "slang-scene-accel",
     "slang-surface",
     "slang-tracer",
     "slang-tracer-shadow",

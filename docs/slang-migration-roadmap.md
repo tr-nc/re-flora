@@ -43,19 +43,19 @@ Inventory: **76 entry points** = 61 compute + 9 vertex + 6 fragment.
 
 | State | Entry points | Meaning |
 | --- | ---: | --- |
-| Native Slang complete | 25 | Native source is independently selectable and has passed local gates |
+| Native Slang complete | 26 | Native source is independently selectable and has passed local gates |
 | Slang backend only | 0 | Existing GLSL compiles through Slang; native rewrite remains TODO |
-| GLSL only | 51 | No completed Slang replacement yet |
+| GLSL only | 50 | No completed Slang replacement yet |
 
 Current aggregate `slang-validation` build:
 
 ```text
-51 shaderc GLSL + 0 Slang GLSL + 25 native Slang = 76 entry points
+50 shaderc GLSL + 0 Slang GLSL + 26 native Slang = 76 entry points
 ```
 
-The validated native entry points are post-processing, composition, the complete ten-entry surface construction family, the complete six-entry contree construction family, the main, shadow, and player-collider tracer passes, and the egui and flora vertex/fragment pairs. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates. Dense surface extraction remains a compiled production artifact but is not selected by the current `SurfaceBuilder`; its shared extraction core is exercised through the active sparse entry.
+The validated native entry points are post-processing, composition, the complete surface, contree, and scene-acceleration builder families, the main, shadow, and player-collider tracer passes, and the egui and flora vertex/fragment pairs. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates. Dense surface extraction remains a compiled production artifact but is not selected by the current `SurfaceBuilder`; its shared extraction core is exercised through the active sparse entry.
 
-The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 50 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. The build now also records compiler-resolved transitive dependencies and reuses unchanged reflection/optimized artifacts. Those API-produced artifacts remain byte-identical to uncached output, and the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation. The 25-entry aggregate hidden release smoke run completes on native Vulkan; the preceding 16-entry aggregate also passed through MoltenVK.
+The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 52 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. The build now also records compiler-resolved transitive dependencies and reuses unchanged reflection/optimized artifacts. Those API-produced artifacts remain byte-identical to uncached output, and the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation. The 26-entry aggregate hidden release smoke run completes on native Vulkan; the preceding 16-entry aggregate also passed through MoltenVK.
 
 ## Phase 2 reassessment
 
@@ -183,7 +183,7 @@ The production source move and dependency-aware artifact cache are complete, and
 
 - [x] Finish contree construction: all 6 entry points are native.
 - [x] Finish surface construction: all 10 entry points are native.
-- [ ] Migrate scene acceleration: 1 entry point.
+- [x] Migrate scene acceleration: its single entry point is native.
 - [ ] Migrate denoiser: 2 entry points.
 - [ ] Finish tracer compute family: 17 GLSL-only entry points at the current snapshot.
 - [ ] Migrate chunk writer: 21 entry points in small behavior-related groups.
@@ -255,9 +255,9 @@ A checked item means a native Slang implementation has passed all applicable loc
 - [x] `shader/builder/contree/leaf_write.comp` — `slang-contree-leaf`
 - [x] `shader/builder/contree/tree_write.comp` — `slang-contree-tree-write`
 
-### Builder: scene acceleration — 0/1 native
+### Builder: scene acceleration — 1/1 native
 
-- [ ] `shader/builder/scene_accel/update_scene_tex.comp`
+- [x] `shader/builder/scene_accel/update_scene_tex.comp` — `slang-scene-accel`
 
 ### Builder: surface — 10/10 native
 
@@ -342,7 +342,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 | Full composition native translation | Active sky/composition plus disabled panel, glass, volumetric-cloud reflection, and SSR logic are split into native modules; temporary helper reactivation was visually equivalent | Keep the helpers disabled until a product decision, and repeat performance gates if they are re-enabled |
 | Complex graphics interfaces | Egui and the full flora pair pass, including raw Vulkan instance indexing, fixed-array push constants, many resources, and interpolation | Cover the remaining foliage LOD/leaf/shadow vertex paths during family migration |
 | Incremental build scaling | Compiler-reported GLSL/Slang dependency graphs drive per-entry BLAKE3 cache manifests; all-reused, one-GLSL-entry, and four-native-entry aggregate medians are 2.29 s, 2.42 s, and 4.03 s | Preserve dependency capture and artifact-integrity checks as families migrate |
-| Production source layout | All 72 accepted modules and entries live under `shader/slang/`; runtime logical paths remain unchanged | Keep native production sources in this root as families migrate |
+| Production source layout | All 73 accepted modules and entries live under `shader/slang/`; runtime logical paths remain unchanged | Keep native production sources in this root as families migrate |
 | Binding source of truth | Explicit declarations plus automatic GLSL-reference ABI checking are retained | Revisit schema generation only if declaration drift becomes recurring |
 | Matrix conventions | Native column-major; GLSL frontend row-major lowering | Keep flags centralized and covered by fixed-camera tests |
 | Reflection normalization | Slang wrapper names require boundary normalization | Remove only when production reflection no longer emits those forms |
@@ -363,4 +363,5 @@ Do these in order unless new measurements change the priority:
 8. [x] **Incremental shader artifacts**: shaderc callbacks and Slang's dependency API record the resolved transitive graphs for both the GLSL ABI reference and selected replacement. Per-entry BLAKE3 manifests reuse valid reflection/optimized SPIR-V and detect dependency changes or artifact corruption.
 9. [x] **Complete contree construction**: all six entries are native and independently selectable. Their aggregate feature preserves every ABI and all 28 matched node/leaf workloads; the full pipeline median was 107.5 us versus 112.5 us for GLSL. Tree writing retains uniform barrier control flow across inactive edge invocations.
 10. [x] **Complete surface construction**: all ten entries are native and independently selectable. Their aggregate feature passes ABI/SPIR-V/runtime gates; extraction, occupancy editing/regeneration, growth, and active-surface placement have matched semantic output and order-reversed native-Vulkan timing evidence.
-11. **Migrate scene acceleration**: port `update_scene_tex.comp`, then validate scene-offset updates and cleared chunks through the tree benchmark.
+11. [x] **Migrate scene acceleration**: `update_scene_tex.comp` is native, independently selectable, and preserves valid/cleared chunk updates through matched tree workloads and fixed-camera output.
+12. **Migrate denoising**: port `temporal.comp` and `spatial.comp` independently, then validate the pair with fixed-camera screenshots and GPU timing.
