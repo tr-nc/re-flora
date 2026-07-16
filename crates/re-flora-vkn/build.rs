@@ -195,10 +195,19 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
-    #[cfg(feature = "slang-surface")]
+    #[cfg(feature = "slang-surface-make-sparse")]
     ShaderOverride {
         logical_path: "shader/builder/surface/make_surface_sparse.comp",
         source_path: "shader/slang/make_surface_sparse.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
+    #[cfg(feature = "slang-surface-prepare-sparse-dispatch")]
+    ShaderOverride {
+        logical_path: "shader/builder/surface/prepare_sparse_surface_dispatch.comp",
+        source_path: "shader/slang/prepare_sparse_surface_dispatch.slang",
         include_path: "shader/slang",
         stage: ShaderStage::Compute,
         frontend: ShaderFrontend::NativeSlang2025,

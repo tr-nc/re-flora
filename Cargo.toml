@@ -71,7 +71,14 @@ slang-egui = ["re-flora-vkn/slang-egui"]
 slang-flora = ["re-flora-vkn/slang-flora"]
 slang-player-collider = ["re-flora-vkn/slang-player-collider"]
 slang-post-processing = ["re-flora-vkn/slang-post-processing"]
-slang-surface = ["re-flora-vkn/slang-surface"]
+slang-surface = [
+    "slang-surface-make-sparse",
+    "slang-surface-prepare-sparse-dispatch",
+]
+slang-surface-make-sparse = ["re-flora-vkn/slang-surface-make-sparse"]
+slang-surface-prepare-sparse-dispatch = [
+    "re-flora-vkn/slang-surface-prepare-sparse-dispatch",
+]
 slang-tracer = ["re-flora-vkn/slang-tracer"]
 slang-tracer-backend = ["re-flora-vkn/slang-tracer-backend"]
 slang-tracer-shadow = ["re-flora-vkn/slang-tracer-shadow"]

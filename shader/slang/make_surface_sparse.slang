@@ -1,5 +1,6 @@
 import definitions;
 import packer;
+import surface_build;
 import voxel_data;
 import voxel_types;
 
@@ -8,22 +9,8 @@ static const uint GROUP_SIZE_3 = GROUP_SIZE * GROUP_SIZE * GROUP_SIZE;
 static const uint SHARED_SIZE = GROUP_SIZE + 4u;
 static const uint SHARED_SIZE_3 = SHARED_SIZE * SHARED_SIZE * SHARED_SIZE;
 
-struct U_MakeSurfaceInfo
-{
-    uint3 atlas_read_offset;
-    uint3 atlas_read_dim;
-    uint is_crossing_boundary;
-};
-
 [[vk::binding(0, 0)]]
 ConstantBuffer<U_MakeSurfaceInfo> make_surface_info;
-
-struct B_MakeSurfaceResult
-{
-    uint active_voxel_len;
-    uint active_brick_len;
-    uint solid_workgroup_len;
-};
 
 [[vk::binding(1, 0)]]
 GLSLShaderStorageBuffer<B_MakeSurfaceResult, Std430DataLayout> make_surface_result;
@@ -53,11 +40,6 @@ struct B_SurfaceActiveBrickIndices
 [[vk::binding(5, 0)]]
 writeonly GLSLShaderStorageBuffer<B_SurfaceActiveBrickIndices, Std430DataLayout>
     surface_active_brick_indices;
-
-struct B_SurfaceSolidWorkgroupIndices
-{
-    uint data[];
-};
 
 [[vk::binding(6, 0)]]
 readonly GLSLShaderStorageBuffer<B_SurfaceSolidWorkgroupIndices, Std430DataLayout>
