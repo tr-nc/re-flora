@@ -1,25 +1,11 @@
 import bits;
+import contree_build;
 import contree_node;
 
 static const uint WORKGROUP_SIZE = 64u;
 
-struct U_ContreeBuildInfo
-{
-    uint dim;
-    uint max_level;
-    uint node_write_offset;
-    uint leaf_write_offset;
-};
-
 [[vk::binding(0, 0)]]
 ConstantBuffer<U_ContreeBuildInfo> contree_build_info;
-
-struct B_ContreeBuildState
-{
-    uint prev_dim;
-    uint curr_dim;
-    uint level;
-};
 
 [[vk::binding(1, 0)]]
 readonly GLSLShaderStorageBuffer<B_ContreeBuildState, Std430DataLayout> contree_build_state;
@@ -27,11 +13,6 @@ readonly GLSLShaderStorageBuffer<B_ContreeBuildState, Std430DataLayout> contree_
 [[vk::binding(2, 0)]]
 [[vk::image_format("r32ui")]]
 readonly RWTexture3D<uint> surface;
-
-struct B_NodeOffsetForLevels
-{
-    uint data[];
-};
 
 [[vk::binding(3, 0)]]
 readonly GLSLShaderStorageBuffer<B_NodeOffsetForLevels, Std430DataLayout>
@@ -53,20 +34,8 @@ struct B_ContreeLeafData
 [[vk::binding(5, 0)]]
 writeonly GLSLShaderStorageBuffer<B_ContreeLeafData, Std430DataLayout> contree_leaf_data;
 
-struct B_ContreeBuildResult
-{
-    uint node_len;
-    uint leaf_len;
-};
-
 [[vk::binding(6, 0)]]
 GLSLShaderStorageBuffer<B_ContreeBuildResult, Std430DataLayout> contree_build_result;
-
-struct B_MakeSurfaceResult
-{
-    uint active_voxel_len;
-    uint active_brick_len;
-};
 
 [[vk::binding(7, 0)]]
 readonly GLSLShaderStorageBuffer<B_MakeSurfaceResult, Std430DataLayout> make_surface_result;
