@@ -113,6 +113,9 @@ slang-surface-update-flora-growth = [
 ]
 slang-tracer = ["re-flora-vkn/slang-tracer"]
 slang-tracer-backend = ["re-flora-vkn/slang-tracer-backend"]
+slang-tracer-leaf-shadow-temporal = [
+    "re-flora-vkn/slang-tracer-leaf-shadow-temporal",
+]
 slang-tracer-shadow = ["re-flora-vkn/slang-tracer-shadow"]
 slang-tracer-shadow-depth-copy = ["re-flora-vkn/slang-tracer-shadow-depth-copy"]
 slang-tracer-vsm = [
@@ -135,6 +138,7 @@ slang-validation = [
     "slang-scene-accel",
     "slang-surface",
     "slang-tracer",
+    "slang-tracer-leaf-shadow-temporal",
     "slang-tracer-shadow",
     "slang-tracer-vsm",
 ]
