@@ -61,7 +61,7 @@ jobs:
 
       - name: Install macOS build and validation dependencies
         if: runner.os == 'macOS'
-        run: brew install cmake ninja molten-vk spirv-tools vulkan-loader
+        run: brew install cmake ninja molten-vk spirv-tools vulkan-loader vulkan-validationlayers
 
       - name: Install Windows build dependencies
         if: runner.os == 'Windows'
