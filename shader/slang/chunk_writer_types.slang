@@ -46,6 +46,17 @@ public struct B_ChunkSolidSamples
     public uint solid[];
 };
 
+public struct HeightmapEntry
+{
+    public float surface_height;
+    public float base_shape;
+};
+
+public struct B_Heightmap
+{
+    public HeightmapEntry data[];
+};
+
 public struct U_RegionInfo
 {
     public uint3 offset;
