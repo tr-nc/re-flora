@@ -163,6 +163,7 @@ slang-denoiser = ["slang-denoiser-spatial", "slang-denoiser-temporal"]
 slang-denoiser-spatial = ["re-flora-vkn/slang-denoiser-spatial"]
 slang-denoiser-temporal = ["re-flora-vkn/slang-denoiser-temporal"]
 slang-egui = ["re-flora-vkn/slang-egui"]
+slang-foliage-leaves-lod = ["re-flora-vkn/slang-foliage-leaves-lod"]
 slang-foliage-leaves-shadow = [
     "slang-foliage-leaves-shadow-frag",
     "slang-foliage-leaves-shadow-vert",
@@ -285,6 +286,7 @@ slang-validation = [
     "slang-denoiser",
     "slang-egui",
     "slang-flora",
+    "slang-foliage-leaves-lod",
     "slang-foliage-leaves-shadow",
     "slang-foliage-leaves-vert",
     "slang-particles",
