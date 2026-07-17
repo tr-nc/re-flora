@@ -30,6 +30,7 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 default = []
 no_validation_layer = []
 slang-chunk-writer-buffer-setup = []
+slang-chunk-writer-heightmap = []
 slang-chunk-writer-init = []
 slang-chunk-writer-modify-sample = []
 slang-chunk-writer-solid-sample = []
@@ -147,6 +148,7 @@ slang-tracer-vsm-creation = []
 slang-tracer-wind-volume = []
 slang-validation = [
     "slang-chunk-writer-buffer-setup",
+    "slang-chunk-writer-heightmap",
     "slang-chunk-writer-init",
     "slang-chunk-writer-modify-sample",
     "slang-chunk-writer-solid-sample",

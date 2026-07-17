@@ -65,3 +65,27 @@ public float seededClassicGradientNoise2D(float2 point, uint seed)
     float sy = float((seed * 19349663u) & 0xffffu) * 0.217;
     return classicGradientNoise2D(point + float2(sx, sy));
 }
+
+public float fbmClassicGradientNoise2D(float x,
+                                       float y,
+                                       uint seed,
+                                       float frequency,
+                                       int octaves,
+                                       float lacunarity,
+                                       float gain)
+{
+    float sum = 0.0;
+    float amplitude = 1.0;
+    float amplitudeSum = 0.0;
+    float currentFrequency = frequency;
+    for (int i = 0; i < octaves; ++i)
+    {
+        sum += seededClassicGradientNoise2D(
+            float2(x, y) * currentFrequency,
+            seed + uint(i) * 1000u) * amplitude;
+        amplitudeSum += amplitude;
+        currentFrequency *= lacunarity;
+        amplitude *= gain;
+    }
+    return sum / amplitudeSum;
+}

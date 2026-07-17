@@ -75,6 +75,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-chunk-writer-heightmap")]
+    ShaderOverride {
+        logical_path: "shader/builder/chunk_writer/chunk_heightmap.comp",
+        source_path: "shader/slang/chunk_heightmap.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-chunk-writer-init")]
     ShaderOverride {
         logical_path: "shader/builder/chunk_writer/chunk_init.comp",
