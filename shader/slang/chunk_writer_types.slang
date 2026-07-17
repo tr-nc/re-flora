@@ -20,6 +20,21 @@ public struct B_EditRemovalSample
     public float4 positions[EDIT_REMOVAL_SAMPLE_COUNT];
 };
 
+public struct U_ModelVoxelizeInfo
+{
+    public uint3 offset;
+    public uint triangle_count;
+    public uint3 dim;
+    public uint fill_voxel_type;
+    public float3 position_vox;
+    public float surface_thickness_vox;
+};
+
+public struct B_ModelTriangles
+{
+    public float4 data[];
+};
+
 public struct U_VoxelPropertySampleInfo
 {
     public uint4 atlas_offset_property_id;

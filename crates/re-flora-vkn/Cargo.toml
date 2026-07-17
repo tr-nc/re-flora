@@ -32,6 +32,7 @@ no_validation_layer = []
 slang-chunk-writer-buffer-setup = []
 slang-chunk-writer-heightmap = []
 slang-chunk-writer-init = []
+slang-chunk-writer-model-voxelize = []
 slang-chunk-writer-modify-sample = []
 slang-chunk-writer-solid-sample = []
 slang-chunk-writer-voxel-property-sample = []
@@ -150,6 +151,7 @@ slang-validation = [
     "slang-chunk-writer-buffer-setup",
     "slang-chunk-writer-heightmap",
     "slang-chunk-writer-init",
+    "slang-chunk-writer-model-voxelize",
     "slang-chunk-writer-modify-sample",
     "slang-chunk-writer-solid-sample",
     "slang-chunk-writer-terrain-fertility-brush",
