@@ -72,6 +72,9 @@ slang-chunk-writer-terrain-moisture-brush = [
 slang-chunk-writer-terrain-moisture-spread = [
     "re-flora-vkn/slang-chunk-writer-terrain-moisture-spread",
 ]
+slang-chunk-writer-terrain-soil-mix = [
+    "re-flora-vkn/slang-chunk-writer-terrain-soil-mix",
+]
 slang-chunk-writer-terrain-smooth = [
     "slang-chunk-writer-terrain-smooth-apply",
     "slang-chunk-writer-terrain-smooth-heights",
@@ -225,6 +228,7 @@ slang-validation = [
     "slang-chunk-writer-terrain-fertility-brush",
     "slang-chunk-writer-terrain-moisture-brush",
     "slang-chunk-writer-terrain-moisture-spread",
+    "slang-chunk-writer-terrain-soil-mix",
     "slang-chunk-writer-terrain-smooth",
     "slang-chunk-writer-terrain-smooth-mbo",
     "slang-chunk-writer-voxel-property-sample",
