@@ -33,6 +33,12 @@ slang-chunk-writer-buffer-setup = []
 slang-chunk-writer-modify-sample = []
 slang-chunk-writer-solid-sample = []
 slang-chunk-writer-voxel-property-sample = []
+slang-chunk-writer-terrain-smooth = [
+    "slang-chunk-writer-terrain-smooth-apply",
+    "slang-chunk-writer-terrain-smooth-heights",
+    "slang-chunk-writer-terrain-smooth-target",
+]
+slang-chunk-writer-terrain-smooth-apply = []
 slang-chunk-writer-terrain-smooth-heights = []
 slang-chunk-writer-terrain-smooth-target = []
 slang-chunk-writer-terrain-smooth-mbo = [
@@ -138,8 +144,7 @@ slang-validation = [
     "slang-chunk-writer-buffer-setup",
     "slang-chunk-writer-modify-sample",
     "slang-chunk-writer-solid-sample",
-    "slang-chunk-writer-terrain-smooth-heights",
-    "slang-chunk-writer-terrain-smooth-target",
+    "slang-chunk-writer-terrain-smooth",
     "slang-chunk-writer-terrain-smooth-mbo",
     "slang-chunk-writer-voxel-property-sample",
     "slang-composition",
