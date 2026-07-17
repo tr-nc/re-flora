@@ -63,6 +63,9 @@ slang-chunk-writer-solid-sample = [
 slang-chunk-writer-voxel-property-sample = [
     "re-flora-vkn/slang-chunk-writer-voxel-property-sample",
 ]
+slang-chunk-writer-terrain-moisture-brush = [
+    "re-flora-vkn/slang-chunk-writer-terrain-moisture-brush",
+]
 slang-chunk-writer-terrain-smooth = [
     "slang-chunk-writer-terrain-smooth-apply",
     "slang-chunk-writer-terrain-smooth-heights",
@@ -213,6 +216,7 @@ slang-validation = [
     "slang-chunk-writer-buffer-setup",
     "slang-chunk-writer-modify-sample",
     "slang-chunk-writer-solid-sample",
+    "slang-chunk-writer-terrain-moisture-brush",
     "slang-chunk-writer-terrain-smooth",
     "slang-chunk-writer-terrain-smooth-mbo",
     "slang-chunk-writer-voxel-property-sample",
