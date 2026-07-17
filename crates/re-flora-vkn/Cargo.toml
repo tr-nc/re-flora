@@ -105,6 +105,7 @@ slang-foliage-leaves-shadow = [
 ]
 slang-foliage-leaves-shadow-frag = []
 slang-foliage-leaves-shadow-vert = []
+slang-foliage-leaves-vert = []
 slang-flora = []
 slang-particles = [
     "slang-particles-lod-textured",
@@ -198,6 +199,7 @@ slang-validation = [
     "slang-egui",
     "slang-flora",
     "slang-foliage-leaves-shadow",
+    "slang-foliage-leaves-vert",
     "slang-particles",
     "slang-player-collider",
     "slang-post-processing",

@@ -393,6 +393,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-foliage-leaves-vert")]
+    ShaderOverride {
+        logical_path: "shader/foliage/leaves.vert",
+        source_path: "shader/slang/leaves.vert.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-flora")]
     ShaderOverride {
         logical_path: "shader/foliage/flora.frag",

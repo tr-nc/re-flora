@@ -1,15 +1,14 @@
 import flora_types;
 import flora_vertex;
-import surface_flora_vertex;
 
-struct B_ManualFloraInstances
+struct B_TreeLeafInstances
 {
-    Instance data[];
+    TreeLeafInstance data[];
 };
 
 [[vk::binding(0, 1)]]
-readonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
-    manual_flora_instances;
+readonly GLSLShaderStorageBuffer<B_TreeLeafInstances, Std430DataLayout>
+    manual_tree_leaf_instances;
 
 struct VertexInput
 {
@@ -33,23 +32,24 @@ VertexOutput main(VertexInput input)
 
     uint instanceType = floraInstanceType();
     uint3 chunkWorldOffset = floraChunkWorldOffset();
-    Instance instance = manual_flora_instances.data[input.instance_index];
-    uint packedLocalPosition = instance.packed_local_pos;
-    uint3 instancePosition = surfaceFloraStemWorldPosition(
-        packedLocalPosition, chunkWorldOffset);
+    TreeLeafInstance leafInstance =
+        manual_tree_leaf_instances.data[input.instance_index];
+    uint3 leafVoxelWorldPosition = treeLeafWorldPosition(
+        leafInstance.packed_local_pos, chunkWorldOffset);
+    bool isTreeLeaf = instanceType == FLORA_SPECIES_TREE_LEAF;
+    int3 leafVoxelLocalPosition = isTreeLeaf
+        ? unpackTreeLeafVoxelLocalPosition(leafInstance.packed_leaf_local_pos)
+        : voxelLocalPosition;
+    uint3 instancePosition = isTreeLeaf
+        ? uint3(int3(leafVoxelWorldPosition) - leafVoxelLocalPosition)
+        : leafVoxelWorldPosition;
     uint seed = instanceSeed(instancePosition);
-    uint growthProgress = unpackInstanceGrowthProgress(packedLocalPosition);
-    uint3 instanceLocalBase = unpackInstanceLocalPosition(packedLocalPosition);
-    float competitionFactor = floraCompetitionGrowthFactor(
-        instanceLocalBase, instanceType);
-    float environmentFactor = floraEnvironmentGrowthFactor(
-        instanceLocalBase, chunkWorldOffset, instanceType);
     uint voxelInfo = lookupFloraVoxelInfo(
-        instanceType, voxelLocalPosition);
+        instanceType, leafVoxelLocalPosition);
     PreparedFloraVertex prepared = prepareFloraVertex(
-        voxelLocalPosition, voxelInfo, instancePosition, instanceType, seed,
-        growthProgress, competitionFactor, environmentFactor,
-        instance.spawn_start_ms);
+        leafVoxelLocalPosition, voxelInfo, instancePosition, instanceType, seed,
+        INSTANCE_GROWTH_PROGRESS_MATURE, 1.0, 1.0,
+        INSTANCE_SPAWN_INACTIVE);
 
     VertexOutput output;
     if (prepared.should_trim)
@@ -63,11 +63,8 @@ VertexOutput main(VertexInput input)
                             float3(vertexOffset) * FLORA_SCALING_FACTOR;
     output.position = applyFloraDepthOffset(vertexPosition, instancePosition);
     float3 baseColor = sampleFloraBaseColor(
-        prepared.is_grass, instanceType, seed, voxelLocalPosition,
+        prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,
         instancePosition, prepared.color_gradient, voxelInfo);
-    baseColor = applyGrassGrowthStressTint(
-        baseColor, prepared.is_grass,
-        effectiveGrowthPotential(true, competitionFactor, environmentFactor));
     output.color = shadeFloraVertex(
         baseColor, prepared.shadow_weight, prepared.voxel_position);
     return output;
