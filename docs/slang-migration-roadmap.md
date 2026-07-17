@@ -43,19 +43,19 @@ Inventory: **76 entry points** = 61 compute + 9 vertex + 6 fragment.
 
 | State | Entry points | Meaning |
 | --- | ---: | --- |
-| Native Slang complete | 75 | Native source is independently selectable and has passed local gates |
+| Native Slang complete | 76 | Native source is independently selectable and has passed local gates |
 | Slang backend only | 0 | Existing GLSL compiles through Slang; native rewrite remains TODO |
-| GLSL only | 1 | No completed Slang replacement yet |
+| GLSL only | 0 | No completed Slang replacement yet |
 
 Current aggregate `slang-validation` build:
 
 ```text
-1 shaderc GLSL + 0 Slang GLSL + 75 native Slang = 76 entry points
+0 shaderc GLSL + 0 Slang GLSL + 76 native Slang = 76 entry points
 ```
 
 The validated native entry points are post-processing, composition, the complete surface, contree, scene-acceleration, and denoiser compute families, the main, shadow, and player-collider tracer passes, and the egui and flora vertex/fragment pairs. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates. Dense surface extraction remains a compiled production artifact but is not selected by the current `SurfaceBuilder`; its shared extraction core is exercised through the active sparse entry.
 
-The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 150 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. The build now also records compiler-resolved transitive dependencies and reuses unchanged reflection/optimized artifacts. Those API-produced artifacts remain byte-identical to uncached output, and the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation. The 75-entry aggregate hidden release smoke run completes on native Vulkan; the preceding 16-entry aggregate also passed through MoltenVK.
+The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 152 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. The build now also records compiler-resolved transitive dependencies and reuses unchanged reflection/optimized artifacts. Those API-produced artifacts remain byte-identical to uncached output, and the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation. The 76-entry aggregate hidden release smoke run completes on native Vulkan; the preceding 16-entry aggregate also passed through MoltenVK.
 
 ## Phase 2 reassessment
 
@@ -192,7 +192,7 @@ The production source move and dependency-aware artifact cache are complete, and
 
 Graphics shaders must be validated as pipeline pairs even when only one stage changes.
 
-- [ ] Finish foliage: 7 entry points.
+- [x] Finish foliage: all 7 entries are native under `slang-foliage`.
 - [x] Migrate particles: all 3 entries are native under `slang-particles`.
 - [x] Migrate sprinkler props: the single vertex entry is native and its fragment-stage pairing is verified.
 - [x] Migrate terrarium glass: both vertex and fragment entries are native under `slang-terrarium-glass`.
@@ -282,9 +282,9 @@ A checked item means a native Slang implementation has passed all applicable loc
 - [x] `shader/egui/egui.frag` — `slang-egui`
 - [x] `shader/egui/egui.vert` — `slang-egui`
 
-### Foliage — 6/7 native
+### Foliage — 7/7 native
 
-- [ ] `shader/foliage/flora_lod.vert`
+- [x] `shader/foliage/flora_lod.vert` — `slang-foliage-flora-lod`; `slang-foliage` enables all seven entries
 - [x] `shader/foliage/flora.frag` — `slang-flora`
 - [x] `shader/foliage/flora.vert` — `slang-flora`
 - [x] `shader/foliage/leaves_lod.vert` — `slang-foliage-leaves-lod`
@@ -342,7 +342,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 | Full composition native translation | Active sky/composition plus disabled panel, glass, volumetric-cloud reflection, and SSR logic are split into native modules; temporary helper reactivation was visually equivalent | Keep the helpers disabled until a product decision, and repeat performance gates if they are re-enabled |
 | Complex graphics interfaces | Egui and the full flora pair pass, including raw Vulkan instance indexing, fixed-array push constants, many resources, and interpolation | Cover the remaining foliage LOD/leaf/shadow vertex paths during family migration |
 | Incremental build scaling | Compiler-reported GLSL/Slang dependency graphs drive per-entry BLAKE3 cache manifests; all-reused, one-GLSL-entry, and four-native-entry aggregate medians are 2.29 s, 2.42 s, and 4.03 s | Preserve dependency capture and artifact-integrity checks as families migrate |
-| Production source layout | All 132 accepted modules and entries live under `shader/slang/`; runtime logical paths remain unchanged | Keep native production sources in this root as families migrate |
+| Production source layout | All 133 accepted modules and entries live under `shader/slang/`; runtime logical paths remain unchanged | Keep native production sources in this root as families migrate |
 | Binding source of truth | Explicit declarations plus automatic GLSL-reference ABI checking are retained | Revisit schema generation only if declaration drift becomes recurring |
 | Matrix conventions | Native column-major; GLSL frontend row-major lowering | Keep flags centralized and covered by fixed-camera tests |
 | Reflection normalization | Slang wrapper names require boundary normalization | Remove only when production reflection no longer emits those forms |
@@ -367,4 +367,5 @@ Do these in order unless new measurements change the priority:
 12. [x] **Migrate denoising**: temporal and spatial entries are independently selectable and native. The pair passes ABI/SPIR-V/runtime gates, fixed-camera comparison, and order-reversed native-Vulkan timing.
 13. [x] **Finish tracer compute**: all 21 tracer entries are native, including complete VSM, leaf-shadow, lens-flare, cloud, denoiser-adjacent, and utility subfamilies.
 14. [x] **Migrate chunk writer**: all 21 entries are independently selectable and aggregate-valid, including heightmap/classification, edits, model voxelization, sampling, smoothing, and soil-state simulation.
-15. **Continue graphics migration**: sprinkler, particles, and terrarium glass are native; finish foliage.
+15. [x] **Complete graphics migration**: foliage, particles, sprinkler, terrarium glass, and egui are native.
+16. **Run the cross-platform release gate**: pin Slang in CI, validate MoltenVK plus Windows/Linux native Vulkan, and repeat authoritative hot-pass benchmarks across vendors.
