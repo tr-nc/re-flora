@@ -99,6 +99,7 @@ slang-denoiser = ["slang-denoiser-spatial", "slang-denoiser-temporal"]
 slang-denoiser-spatial = []
 slang-denoiser-temporal = []
 slang-egui = []
+slang-foliage-leaves-shadow-frag = []
 slang-flora = []
 slang-particles = [
     "slang-particles-lod-textured",
@@ -191,6 +192,7 @@ slang-validation = [
     "slang-denoiser",
     "slang-egui",
     "slang-flora",
+    "slang-foliage-leaves-shadow-frag",
     "slang-particles",
     "slang-player-collider",
     "slang-post-processing",
