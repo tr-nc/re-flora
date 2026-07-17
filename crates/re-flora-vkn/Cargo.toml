@@ -33,6 +33,7 @@ slang-chunk-writer-buffer-setup = []
 slang-chunk-writer-terrain-smooth-mbo-diffuse-ab = []
 slang-chunk-writer-terrain-smooth-mbo-diffuse-ba = []
 slang-chunk-writer-terrain-smooth-mbo-init = []
+slang-chunk-writer-terrain-smooth-mbo-score = []
 slang-composition = []
 slang-composition-backend = []
 slang-contree = [
@@ -125,6 +126,7 @@ slang-validation = [
     "slang-chunk-writer-terrain-smooth-mbo-diffuse-ab",
     "slang-chunk-writer-terrain-smooth-mbo-diffuse-ba",
     "slang-chunk-writer-terrain-smooth-mbo-init",
+    "slang-chunk-writer-terrain-smooth-mbo-score",
     "slang-composition",
     "slang-contree",
     "slang-denoiser",

@@ -31,3 +31,21 @@ public struct B_TerrainSmoothMboDensityB
 {
     public float data[];
 };
+
+public struct B_TerrainSmoothMboScores
+{
+    public float data[];
+};
+
+public struct B_TerrainSmoothMboHistogram
+{
+    public uint bins[];
+};
+
+public struct B_TerrainSmoothMboResult
+{
+    public uint4 counts;
+    public uint4 counts_extra;
+    public uint4 changed_min;
+    public uint4 changed_max;
+};
