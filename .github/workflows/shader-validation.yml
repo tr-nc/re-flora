@@ -63,6 +63,22 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake ninja molten-vk spirv-tools vulkan-loader vulkan-validationlayers
 
+      - name: Configure macOS Vulkan runtime
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          loader_prefix="$(brew --prefix vulkan-loader)"
+          molten_prefix="$(brew --prefix molten-vk)"
+          layers_prefix="$(brew --prefix vulkan-validationlayers)"
+          icd="$(find "$molten_prefix" -name MoltenVK_icd.json -print -quit)"
+          if [ -z "$icd" ]; then
+            echo "MoltenVK ICD manifest not found under $molten_prefix" >&2
+            exit 1
+          fi
+          echo "VULKAN_SDK=$loader_prefix" >> "$GITHUB_ENV"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+          echo "VK_LAYER_PATH=$layers_prefix/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
       - name: Install Windows build dependencies
         if: runner.os == 'Windows'
         shell: pwsh
