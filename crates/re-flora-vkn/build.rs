@@ -66,6 +66,15 @@ struct CompiledShader {
 // compiles from GLSL through shaderc. A feature can replace only that path with
 // native Slang, or with GLSL through Slang for an isolated backend comparison.
 const SHADER_OVERRIDES: &[ShaderOverride] = &[
+    #[cfg(feature = "slang-chunk-writer-buffer-setup")]
+    ShaderOverride {
+        logical_path: "shader/builder/chunk_writer/buffer_setup.comp",
+        source_path: "shader/slang/chunk_writer_buffer_setup.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-composition")]
     ShaderOverride {
         logical_path: "shader/tracer/composition.comp",

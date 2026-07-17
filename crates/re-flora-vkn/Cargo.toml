@@ -29,6 +29,7 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 [features]
 default = []
 no_validation_layer = []
+slang-chunk-writer-buffer-setup = []
 slang-composition = []
 slang-composition-backend = []
 slang-contree = [
@@ -117,6 +118,7 @@ slang-tracer-vsm-blur-v = []
 slang-tracer-vsm-creation = []
 slang-tracer-wind-volume = []
 slang-validation = [
+    "slang-chunk-writer-buffer-setup",
     "slang-composition",
     "slang-contree",
     "slang-denoiser",

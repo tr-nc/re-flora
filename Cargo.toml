@@ -51,6 +51,9 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 default = []
 no_validation_layer = ["re-flora-vkn/no_validation_layer"]
 slang-poc = ["slang-post-processing"]
+slang-chunk-writer-buffer-setup = [
+    "re-flora-vkn/slang-chunk-writer-buffer-setup",
+]
 slang-composition = ["re-flora-vkn/slang-composition"]
 slang-composition-backend = ["re-flora-vkn/slang-composition-backend"]
 slang-contree = [
@@ -162,6 +165,7 @@ slang-tracer-vsm-blur-v = ["re-flora-vkn/slang-tracer-vsm-blur-v"]
 slang-tracer-vsm-creation = ["re-flora-vkn/slang-tracer-vsm-creation"]
 slang-tracer-wind-volume = ["re-flora-vkn/slang-tracer-wind-volume"]
 slang-validation = [
+    "slang-chunk-writer-buffer-setup",
     "slang-composition",
     "slang-contree",
     "slang-denoiser",
