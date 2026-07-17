@@ -111,6 +111,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-chunk-writer-terrain-moisture-spread")]
+    ShaderOverride {
+        logical_path: "shader/builder/chunk_writer/terrain_moisture_spread.comp",
+        source_path: "shader/slang/terrain_moisture_spread.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-chunk-writer-terrain-smooth-apply")]
     ShaderOverride {
         logical_path: "shader/builder/chunk_writer/terrain_smooth_apply.comp",

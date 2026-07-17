@@ -3,6 +3,14 @@ module terrain_soil;
 import voxel_data;
 import voxel_types;
 
+public struct TerrainMoistureSpreadPushConstants
+{
+    public uint4 offset;
+    public uint4 dim;
+    public float4 spread_params;
+    public uint4 phase_params;
+};
+
 public struct TerrainSoilBrushPushConstants
 {
     public uint4 offset;
