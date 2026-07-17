@@ -1,6 +1,10 @@
 #ifndef CLOUD_SHADOW_GLSL
 #define CLOUD_SHADOW_GLSL
 
+#ifndef DIRECT_SUN_SHADOW_TEXTURE
+#define DIRECT_SUN_SHADOW_TEXTURE(texture_sampler, uv) texture(texture_sampler, uv)
+#endif
+
 // Cheap cloud shadow receiver lookup.
 // Requires:
 //   uniform sampler2D cloud_shadow_tex;
@@ -27,7 +31,7 @@ float get_cloud_shadow_transmittance(vec4 voxel_pos_ws) {
         return 1.0;
     }
 
-    return clamp(texture(cloud_shadow_tex, uv).r, 0.0, 1.0);
+    return clamp(DIRECT_SUN_SHADOW_TEXTURE(cloud_shadow_tex, uv).r, 0.0, 1.0);
 }
 
 #endif // CLOUD_SHADOW_GLSL

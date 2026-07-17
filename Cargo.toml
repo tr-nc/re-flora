@@ -50,6 +50,267 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 [features]
 default = []
 no_validation_layer = ["re-flora-vkn/no_validation_layer"]
+slang-poc = ["slang-post-processing"]
+slang-chunk-writer = [
+    "slang-chunk-writer-buffer-setup",
+    "slang-chunk-writer-heightmap",
+    "slang-chunk-writer-init",
+    "slang-chunk-writer-model-voxelize",
+    "slang-chunk-writer-modify",
+    "slang-chunk-writer-modify-sample",
+    "slang-chunk-writer-solid-sample",
+    "slang-chunk-writer-terrain-fertility-brush",
+    "slang-chunk-writer-terrain-moisture-brush",
+    "slang-chunk-writer-terrain-moisture-dry",
+    "slang-chunk-writer-terrain-moisture-spread",
+    "slang-chunk-writer-terrain-soil-mix",
+    "slang-chunk-writer-terrain-smooth",
+    "slang-chunk-writer-terrain-smooth-mbo",
+    "slang-chunk-writer-voxel-property-sample",
+]
+slang-chunk-writer-buffer-setup = [
+    "re-flora-vkn/slang-chunk-writer-buffer-setup",
+]
+slang-chunk-writer-heightmap = [
+    "re-flora-vkn/slang-chunk-writer-heightmap",
+]
+slang-chunk-writer-init = [
+    "re-flora-vkn/slang-chunk-writer-init",
+]
+slang-chunk-writer-modify = [
+    "re-flora-vkn/slang-chunk-writer-modify",
+]
+slang-chunk-writer-model-voxelize = [
+    "re-flora-vkn/slang-chunk-writer-model-voxelize",
+]
+slang-chunk-writer-modify-sample = [
+    "re-flora-vkn/slang-chunk-writer-modify-sample",
+]
+slang-chunk-writer-solid-sample = [
+    "re-flora-vkn/slang-chunk-writer-solid-sample",
+]
+slang-chunk-writer-voxel-property-sample = [
+    "re-flora-vkn/slang-chunk-writer-voxel-property-sample",
+]
+slang-chunk-writer-terrain-fertility-brush = [
+    "re-flora-vkn/slang-chunk-writer-terrain-fertility-brush",
+]
+slang-chunk-writer-terrain-moisture-brush = [
+    "re-flora-vkn/slang-chunk-writer-terrain-moisture-brush",
+]
+slang-chunk-writer-terrain-moisture-dry = [
+    "re-flora-vkn/slang-chunk-writer-terrain-moisture-dry",
+]
+slang-chunk-writer-terrain-moisture-spread = [
+    "re-flora-vkn/slang-chunk-writer-terrain-moisture-spread",
+]
+slang-chunk-writer-terrain-soil-mix = [
+    "re-flora-vkn/slang-chunk-writer-terrain-soil-mix",
+]
+slang-chunk-writer-terrain-smooth = [
+    "slang-chunk-writer-terrain-smooth-apply",
+    "slang-chunk-writer-terrain-smooth-heights",
+    "slang-chunk-writer-terrain-smooth-target",
+]
+slang-chunk-writer-terrain-smooth-apply = [
+    "re-flora-vkn/slang-chunk-writer-terrain-smooth-apply",
+]
+slang-chunk-writer-terrain-smooth-heights = [
+    "re-flora-vkn/slang-chunk-writer-terrain-smooth-heights",
+]
+slang-chunk-writer-terrain-smooth-target = [
+    "re-flora-vkn/slang-chunk-writer-terrain-smooth-target",
+]
+slang-chunk-writer-terrain-smooth-mbo = [
+    "slang-chunk-writer-terrain-smooth-mbo-apply",
+    "slang-chunk-writer-terrain-smooth-mbo-diffuse-ab",
+    "slang-chunk-writer-terrain-smooth-mbo-diffuse-ba",
+    "slang-chunk-writer-terrain-smooth-mbo-init",
+    "slang-chunk-writer-terrain-smooth-mbo-score",
+]
+slang-chunk-writer-terrain-smooth-mbo-apply = [
+    "re-flora-vkn/slang-chunk-writer-terrain-smooth-mbo-apply",
+]
+slang-chunk-writer-terrain-smooth-mbo-diffuse-ab = [
+    "re-flora-vkn/slang-chunk-writer-terrain-smooth-mbo-diffuse-ab",
+]
+slang-chunk-writer-terrain-smooth-mbo-diffuse-ba = [
+    "re-flora-vkn/slang-chunk-writer-terrain-smooth-mbo-diffuse-ba",
+]
+slang-chunk-writer-terrain-smooth-mbo-init = [
+    "re-flora-vkn/slang-chunk-writer-terrain-smooth-mbo-init",
+]
+slang-chunk-writer-terrain-smooth-mbo-score = [
+    "re-flora-vkn/slang-chunk-writer-terrain-smooth-mbo-score",
+]
+slang-composition = ["re-flora-vkn/slang-composition"]
+slang-composition-backend = ["re-flora-vkn/slang-composition-backend"]
+slang-contree = [
+    "slang-contree-buffer-setup",
+    "slang-contree-buffer-update",
+    "slang-contree-concat",
+    "slang-contree-last-buffer-update",
+    "slang-contree-leaf",
+    "slang-contree-tree-write",
+]
+slang-contree-buffer-setup = ["re-flora-vkn/slang-contree-buffer-setup"]
+slang-contree-buffer-update = ["re-flora-vkn/slang-contree-buffer-update"]
+slang-contree-concat = ["re-flora-vkn/slang-contree-concat"]
+slang-contree-last-buffer-update = ["re-flora-vkn/slang-contree-last-buffer-update"]
+slang-contree-leaf = ["re-flora-vkn/slang-contree-leaf"]
+slang-contree-tree-write = ["re-flora-vkn/slang-contree-tree-write"]
+slang-denoiser = ["slang-denoiser-spatial", "slang-denoiser-temporal"]
+slang-denoiser-spatial = ["re-flora-vkn/slang-denoiser-spatial"]
+slang-denoiser-temporal = ["re-flora-vkn/slang-denoiser-temporal"]
+slang-egui = ["re-flora-vkn/slang-egui"]
+slang-foliage = [
+    "slang-flora",
+    "slang-foliage-flora-lod",
+    "slang-foliage-leaves-lod",
+    "slang-foliage-leaves-shadow",
+    "slang-foliage-leaves-vert",
+]
+slang-foliage-flora-lod = ["re-flora-vkn/slang-foliage-flora-lod"]
+slang-foliage-leaves-lod = ["re-flora-vkn/slang-foliage-leaves-lod"]
+slang-foliage-leaves-shadow = [
+    "slang-foliage-leaves-shadow-frag",
+    "slang-foliage-leaves-shadow-vert",
+]
+slang-foliage-leaves-shadow-frag = ["re-flora-vkn/slang-foliage-leaves-shadow-frag"]
+slang-foliage-leaves-shadow-vert = ["re-flora-vkn/slang-foliage-leaves-shadow-vert"]
+slang-foliage-leaves-vert = ["re-flora-vkn/slang-foliage-leaves-vert"]
+slang-flora = ["re-flora-vkn/slang-flora"]
+slang-particles = [
+    "slang-particles-lod-textured",
+    "slang-particles-water-droplet",
+]
+slang-particles-lod-textured = [
+    "slang-particles-lod-textured-frag",
+    "slang-particles-lod-textured-vert",
+]
+slang-particles-lod-textured-frag = ["re-flora-vkn/slang-particles-lod-textured-frag"]
+slang-particles-lod-textured-vert = ["re-flora-vkn/slang-particles-lod-textured-vert"]
+slang-particles-water-droplet = ["re-flora-vkn/slang-particles-water-droplet"]
+slang-player-collider = ["re-flora-vkn/slang-player-collider"]
+slang-post-processing = ["re-flora-vkn/slang-post-processing"]
+slang-scene-accel = ["re-flora-vkn/slang-scene-accel"]
+slang-sprinkler = ["re-flora-vkn/slang-sprinkler"]
+slang-surface = [
+    "slang-surface-active-to-flora-instances",
+    "slang-surface-clear-occupancy",
+    "slang-surface-edit-occupancy-capsule",
+    "slang-surface-instances-to-occupancy",
+    "slang-surface-make",
+    "slang-surface-make-sparse",
+    "slang-surface-occupancy-to-flora-instances",
+    "slang-surface-prepare-active-flora-dispatch",
+    "slang-surface-prepare-sparse-dispatch",
+    "slang-surface-update-flora-growth",
+]
+slang-surface-active-to-flora-instances = [
+    "re-flora-vkn/slang-surface-active-to-flora-instances",
+]
+slang-surface-clear-occupancy = ["re-flora-vkn/slang-surface-clear-occupancy"]
+slang-surface-edit-occupancy-capsule = [
+    "re-flora-vkn/slang-surface-edit-occupancy-capsule",
+]
+slang-surface-instances-to-occupancy = [
+    "re-flora-vkn/slang-surface-instances-to-occupancy",
+]
+slang-surface-make = ["re-flora-vkn/slang-surface-make"]
+slang-surface-make-sparse = ["re-flora-vkn/slang-surface-make-sparse"]
+slang-surface-occupancy-to-flora-instances = [
+    "re-flora-vkn/slang-surface-occupancy-to-flora-instances",
+]
+slang-surface-prepare-active-flora-dispatch = [
+    "re-flora-vkn/slang-surface-prepare-active-flora-dispatch",
+]
+slang-surface-prepare-sparse-dispatch = [
+    "re-flora-vkn/slang-surface-prepare-sparse-dispatch",
+]
+slang-surface-update-flora-growth = [
+    "re-flora-vkn/slang-surface-update-flora-growth",
+]
+slang-terrarium-glass = [
+    "slang-terrarium-glass-frag",
+    "slang-terrarium-glass-vert",
+]
+slang-terrarium-glass-frag = ["re-flora-vkn/slang-terrarium-glass-frag"]
+slang-terrarium-glass-vert = ["re-flora-vkn/slang-terrarium-glass-vert"]
+slang-tracer = ["re-flora-vkn/slang-tracer"]
+slang-tracer-backend = ["re-flora-vkn/slang-tracer-backend"]
+slang-tracer-cloud = ["re-flora-vkn/slang-tracer-cloud"]
+slang-tracer-clouds = [
+    "slang-tracer-cloud",
+    "slang-tracer-cloud-shadow",
+    "slang-tracer-cloud-shadow-temporal",
+    "slang-tracer-cloud-temporal",
+]
+slang-tracer-cloud-shadow = ["re-flora-vkn/slang-tracer-cloud-shadow"]
+slang-tracer-cloud-shadow-temporal = [
+    "re-flora-vkn/slang-tracer-cloud-shadow-temporal",
+]
+slang-tracer-cloud-temporal = ["re-flora-vkn/slang-tracer-cloud-temporal"]
+slang-tracer-god-ray = ["re-flora-vkn/slang-tracer-god-ray"]
+slang-tracer-leaf-shadow = [
+    "slang-tracer-leaf-shadow-mask",
+    "slang-tracer-leaf-shadow-temporal",
+]
+slang-tracer-leaf-shadow-mask = ["re-flora-vkn/slang-tracer-leaf-shadow-mask"]
+slang-tracer-leaf-shadow-temporal = [
+    "re-flora-vkn/slang-tracer-leaf-shadow-temporal",
+]
+slang-tracer-lens-flare = [
+    "slang-tracer-lens-flare-downsample",
+    "slang-tracer-lens-flare-generate",
+    "slang-tracer-lens-flare-sun-visible",
+]
+slang-tracer-lens-flare-downsample = [
+    "re-flora-vkn/slang-tracer-lens-flare-downsample",
+]
+slang-tracer-lens-flare-generate = [
+    "re-flora-vkn/slang-tracer-lens-flare-generate",
+]
+slang-tracer-lens-flare-sun-visible = [
+    "re-flora-vkn/slang-tracer-lens-flare-sun-visible",
+]
+slang-tracer-shadow = ["re-flora-vkn/slang-tracer-shadow"]
+slang-tracer-shadow-depth-copy = ["re-flora-vkn/slang-tracer-shadow-depth-copy"]
+slang-tracer-terrain-query = ["re-flora-vkn/slang-tracer-terrain-query"]
+slang-tracer-vsm = [
+    "slang-tracer-shadow-depth-copy",
+    "slang-tracer-vsm-blur-h",
+    "slang-tracer-vsm-blur-v",
+    "slang-tracer-vsm-creation",
+]
+slang-tracer-vsm-blur-h = ["re-flora-vkn/slang-tracer-vsm-blur-h"]
+slang-tracer-vsm-blur-v = ["re-flora-vkn/slang-tracer-vsm-blur-v"]
+slang-tracer-vsm-creation = ["re-flora-vkn/slang-tracer-vsm-creation"]
+slang-tracer-wind-volume = ["re-flora-vkn/slang-tracer-wind-volume"]
+slang-validation = [
+    "slang-chunk-writer",
+    "slang-composition",
+    "slang-contree",
+    "slang-denoiser",
+    "slang-egui",
+    "slang-foliage",
+    "slang-particles",
+    "slang-player-collider",
+    "slang-post-processing",
+    "slang-scene-accel",
+    "slang-sprinkler",
+    "slang-surface",
+    "slang-terrarium-glass",
+    "slang-tracer",
+    "slang-tracer-clouds",
+    "slang-tracer-god-ray",
+    "slang-tracer-leaf-shadow",
+    "slang-tracer-lens-flare",
+    "slang-tracer-shadow",
+    "slang-tracer-terrain-query",
+    "slang-tracer-vsm",
+    "slang-tracer-wind-volume",
+]
 sync_diagnostics = ["re-flora-vkn/sync_diagnostics"]
 
 [profile.test]

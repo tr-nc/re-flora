@@ -1,0 +1,197 @@
+name: shader validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/shader-validation.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/re-flora-vkn/**"
+      - "scripts/check_latest_run_log.py"
+      - "scripts/check_slang_roadmap.py"
+      - "scripts/install_slang.py"
+      - "scripts/validate_spirv_artifacts.py"
+      - "shader/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/shader-validation.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/re-flora-vkn/**"
+      - "scripts/check_latest_run_log.py"
+      - "scripts/check_slang_roadmap.py"
+      - "scripts/install_slang.py"
+      - "scripts/validate_spirv_artifacts.py"
+      - "shader/**"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  desktop:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows native compile
+            os: windows-2025-vs2026
+            validate_spirv: false
+            moltenvk_smoke: false
+          - name: macOS MoltenVK
+            os: macos-15
+            validate_spirv: true
+            moltenvk_smoke: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install macOS build and validation dependencies
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja molten-vk spirv-tools vulkan-loader
+
+      - name: Configure macOS Vulkan runtime
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          loader_prefix="$(brew --prefix vulkan-loader)"
+          molten_prefix="$(brew --prefix molten-vk)"
+          molten_library=""
+          for candidate in \
+            "$molten_prefix/lib/libMoltenVK.dylib" \
+            "$molten_prefix/libexec/MoltenVK.xcframework/macos-arm64_x86_64/libMoltenVK.dylib"
+          do
+            if [ -f "$candidate" ]; then
+              molten_library="$candidate"
+              break
+            fi
+          done
+          if [ -z "$molten_library" ]; then
+            echo "MoltenVK library not found under $molten_prefix" >&2
+            exit 1
+          fi
+          icd="$RUNNER_TEMP/MoltenVK_icd.json"
+          python - "$molten_library" "$icd" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          manifest = {
+              "file_format_version": "1.0.0",
+              "ICD": {"library_path": sys.argv[1], "api_version": "1.3.0"},
+          }
+          pathlib.Path(sys.argv[2]).write_text(json.dumps(manifest), encoding="utf-8")
+          PY
+          echo "DYLD_LIBRARY_PATH=$loader_prefix/lib" >> "$GITHUB_ENV"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install cmake ninja -y
+
+      - name: Set up Windows Vulkan SDK
+        if: runner.os == 'Windows'
+        uses: humbletim/setup-vulkan-sdk@v1.2.1
+        with:
+          vulkan-query-version: 1.4.304.1
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: false
+
+      - name: Install pinned Slang
+        shell: bash
+        run: python scripts/install_slang.py --destination "$RUNNER_TEMP/slang" --github-env "$GITHUB_ENV"
+
+      - name: Check default GLSL build
+        run: cargo check --locked
+
+      - name: Check complete native Slang build
+        run: cargo check --locked --features slang-validation
+
+      - name: Audit production shader entry points
+        run: python scripts/check_slang_roadmap.py
+
+      - name: Validate aggregate SPIR-V
+        if: matrix.validate_spirv
+        run: python scripts/validate_spirv_artifacts.py --expected 152
+
+      - name: Smoke test default GLSL through MoltenVK
+        if: matrix.moltenvk_smoke
+        shell: bash
+        run: cargo run --release --locked --features no_validation_layer -- --hidden --mute --auto-exit 0.5
+
+      - name: Check default GLSL run log
+        if: matrix.moltenvk_smoke
+        run: python scripts/check_latest_run_log.py
+
+      - name: Smoke test native Slang through MoltenVK
+        if: matrix.moltenvk_smoke
+        shell: bash
+        run: cargo run --release --locked --features no_validation_layer,slang-validation -- --hidden --mute --auto-exit 0.5
+
+      - name: Check native Slang run log
+        if: matrix.moltenvk_smoke
+        run: python scripts/check_latest_run_log.py
+
+  fedora:
+    name: Fedora native compile
+    runs-on: ubuntu-latest
+    container: fedora:43
+
+    steps:
+      - name: Install build and validation dependencies
+        run: |
+          dnf install -y \
+            alsa-lib-devel \
+            clang-devel \
+            cmake \
+            curl \
+            gcc \
+            gcc-c++ \
+            git \
+            libX11-devel \
+            libxcb-devel \
+            libxkbcommon-devel \
+            make \
+            ninja-build \
+            patch \
+            pkgconf-pkg-config \
+            python3 \
+            spirv-tools \
+            systemd-devel \
+            vulkan-loader-devel \
+            wayland-devel
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pinned Slang
+        run: python3 scripts/install_slang.py --destination "$RUNNER_TEMP/slang" --github-env "$GITHUB_ENV"
+
+      - name: Check default GLSL build
+        run: cargo check --locked
+
+      - name: Check complete native Slang build
+        run: cargo check --locked --features slang-validation
+
+      - name: Audit production shader entry points
+        run: python3 scripts/check_slang_roadmap.py
+
+      - name: Validate aggregate SPIR-V
+        run: python3 scripts/validate_spirv_artifacts.py --expected 152

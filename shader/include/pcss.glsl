@@ -4,6 +4,10 @@
 #ifndef PCSS_GLSL
 #define PCSS_GLSL
 
+#ifndef DIRECT_SUN_SHADOW_TEXTURE
+#define DIRECT_SUN_SHADOW_TEXTURE(texture_sampler, uv) texture(texture_sampler, uv)
+#endif
+
 #include "./core/definitions.glsl"
 #include "./core/sampling.glsl"
 #include "./noise_tex.glsl"
@@ -39,7 +43,7 @@ float pcf(vec2 base_uv, float ref_z, float filter_radius, ivec3 seed) {
     for (int i = 0; i < PCF_SAMPLE_COUNT; ++i) {
         vec2 offset = rot * POISSON_16[i] * filter_radius;
 
-        float sample_z = texture(shadow_map_tex, base_uv + offset).r;
+        float sample_z = DIRECT_SUN_SHADOW_TEXTURE(shadow_map_tex, base_uv + offset).r;
         float vis      = (sample_z + SHADOW_EPSILON > ref_z) ? 1.0 : 0.0;
 
         float weight = 1.0;
@@ -60,7 +64,7 @@ float get_avg_blocker_depth(vec2 base_uv, float ref_z, ivec3 seed) {
     int blocker_cnt   = 0;
     for (int i = 0; i < BLOCKER_SEARCH_SAMPLE_COUNT; ++i) {
         vec2 offset    = rot * POISSON_16[i] * search_width;
-        float sample_z = texture(shadow_map_tex, base_uv + offset).r;
+        float sample_z = DIRECT_SUN_SHADOW_TEXTURE(shadow_map_tex, base_uv + offset).r;
 
         if (sample_z + SHADOW_EPSILON < ref_z) { // sample is an occluder
             blocker_sum += sample_z;

@@ -1,0 +1,384 @@
+# Slang compatibility and performance validation plan
+
+The authoritative migration status, per-entry-point checklist, phased roadmap, and next work queue live in [`slang-migration-roadmap.md`](slang-migration-roadmap.md). This document owns validation policy and evidence; do not duplicate the inventory here.
+
+## Decision to make
+
+Determine whether Slang can become re-flora's primary shader language without losing Vulkan functionality, correctness, or GPU performance. Migration effort is not part of the decision, but recurring build cost, toolchain reliability, runtime behavior, and maintainability are.
+
+The experiment must preserve a mixed-language transition period. GLSL remains the default until the compatibility and performance gates below pass. Every Slang candidate must be independently selectable so its output and timing can be compared with the exact GLSL shader it replaces.
+
+## Current baseline
+
+The project currently has 76 GLSL entry points and approximately 13,500 shader lines. The build embeds reflection and optimized SPIR-V artifacts, so neither frontend is present at runtime.
+
+The first proof of concept replaced `shader/tracer/post_processing.comp` behind a Cargo feature. On Apple M4 Pro through MoltenVK it produced a byte-identical 5120x2880 image and changed the pass mean from 713.67 us to 712.38 us (`-0.18%`). This proves basic build, reflection, dispatch, storage-image, and MoltenVK compatibility, but not compatibility with the difficult shaders.
+
+A fresh source scan shows that the active shader tree currently relies on:
+
+- compute, vertex, and fragment entry points;
+- workgroup `shared` arrays and `barrier()`;
+- `atomicAdd` and `atomicOr` on SSBO and shared state;
+- structured and runtime-sized SSBO arrays;
+- std140/std430-compatible uniform and storage layouts;
+- formatted 2D and 3D storage images, including read-only and write-only access;
+- many descriptor sets and sparse binding numbers;
+- matrix-heavy camera data and explicit column-major compatibility;
+- bit packing, integer shifts, image loads/stores, sampler arrays, and large include graphs.
+
+There is no active `GL_EXT_buffer_reference` or Vulkan sparse-residency texture intrinsic in the current tree. The word `sparse` currently refers to sparse project data structures and work lists, not sparse image residency. Optional shader-clock code exists but is commented out in the tracer. These capabilities should not be claimed as current migration blockers, though they can be tested separately if they are planned for future use.
+
+## Coexistence design
+
+The build will retain one logical shader path and choose its frontend at build time:
+
+- no Slang feature: all logical paths compile from the existing GLSL sources;
+- one candidate feature: only that candidate is replaced by Slang;
+- aggregate validation feature: all completed Slang candidates are enabled together;
+- runtime Rust code, descriptor layouts, and pipeline selection remain unchanged.
+
+Planned feature boundaries:
+
+| Feature | Slang replacement scope |
+| --- | --- |
+| `slang-post-processing` | Existing simple proof of concept |
+| `slang-composition` | Native composition entry plus sky, cloud, panel, glass, and SSR modules |
+| `slang-composition-backend` | Retained composition GLSL-through-Slang baseline |
+| `slang-scene-accel` | Scene-offset texture valid/clear updates |
+| `slang-sprinkler` | Animated, shadowed sprinkler vertex path |
+| `slang-surface` | Complete ten-entry native surface-construction family |
+| `slang-surface-active-to-flora-instances` | Generate flora from compacted active surface bricks |
+| `slang-surface-clear-occupancy` | Flora occupancy-image clearing |
+| `slang-surface-edit-occupancy-capsule` | Add, remove, and trim capsule-shaped flora occupancy edits |
+| `slang-surface-instances-to-occupancy` | Restore current flora instances into occupancy state |
+| `slang-surface-make` | Dense surface extraction through the shared normal-generation core |
+| `slang-surface-make-sparse` | Sparse surface extraction and normal generation |
+| `slang-surface-occupancy-to-flora-instances` | Regenerate flora instances from occupancy state |
+| `slang-surface-prepare-active-flora-dispatch` | Active-surface flora indirect-dispatch preparation |
+| `slang-surface-prepare-sparse-dispatch` | Sparse workgroup filtering and indirect-dispatch preparation |
+| `slang-surface-update-flora-growth` | In-place flora instance growth updates |
+| `slang-chunk-writer` | Complete 21-entry chunk-writer family |
+| `slang-chunk-writer-buffer-setup` | Region indirect-dispatch setup for chunk writes |
+| `slang-chunk-writer-heightmap` | Seeded-FBM terrain-column height generation |
+| `slang-chunk-writer-init` | Heightmap-driven atlas voxel classification |
+| `slang-chunk-writer-modify` | BVH-driven round-cone, cuboid, and sphere atlas editing |
+| `slang-chunk-writer-model-voxelize` | Winding-angle and surface-distance mesh voxelization |
+| `slang-chunk-writer-modify-sample` | Deterministic removal-candidate sampling readback |
+| `slang-chunk-writer-solid-sample` | Low-resolution atlas solidity-grid readback |
+| `slang-chunk-writer-voxel-property-sample` | Brush-bounded moisture and fertility reduction |
+| `slang-chunk-writer-terrain-fertility-brush` | Sparse surface-fertilizer granule application |
+| `slang-chunk-writer-terrain-moisture-brush` | Swept-sphere terrain watering with dithered absorption |
+| `slang-chunk-writer-terrain-moisture-dry` | Surface-leaf moisture evaporation with direct-shadow exposure |
+| `slang-chunk-writer-terrain-moisture-spread` | Phased conservative soil-moisture transfer |
+| `slang-chunk-writer-terrain-soil-mix` | Six-phase moisture/fertility tilling transfer |
+| `slang-chunk-writer-terrain-smooth` | Complete three-entry legacy column smoother |
+| `slang-chunk-writer-terrain-smooth-apply` | Legacy target-height atlas mutation and dirty marking |
+| `slang-chunk-writer-terrain-smooth-heights` | Terrain-column top-height extraction |
+| `slang-chunk-writer-terrain-smooth-target` | Gaussian terrain-column target smoothing |
+| `slang-chunk-writer-terrain-smooth-mbo` | Complete five-entry MBO smoothing pipeline |
+| `slang-chunk-writer-terrain-smooth-mbo-apply` | Thresholded MBO topology application and dirty-workgroup marking |
+| `slang-chunk-writer-terrain-smooth-mbo-diffuse-ab` | Brush-bounded MBO density diffusion from A to B |
+| `slang-chunk-writer-terrain-smooth-mbo-diffuse-ba` | Brush-bounded MBO density diffusion from B to A |
+| `slang-chunk-writer-terrain-smooth-mbo-init` | Initial solid-density field for MBO terrain smoothing |
+| `slang-chunk-writer-terrain-smooth-mbo-score` | MBO candidate scoring and histogram accumulation |
+| `slang-contree` | Aggregate of completed contree construction candidates |
+| `slang-contree-buffer-setup` | Contree level-state, indirect-dispatch, counter, and offset initialization |
+| `slang-contree-buffer-update` | Contree level-state advancement and indirect tree dispatch |
+| `slang-contree-concat` | Final level concatenation and absolute child-offset rewrite |
+| `slang-contree-last-buffer-update` | Root-node seeding and final concat indirect dispatch |
+| `slang-contree-tree-write` | Shared-prefix compaction of intermediate contree levels |
+| `slang-contree-leaf` | Contree sparse-leaf construction and allocation |
+| `slang-denoiser` | Complete temporal and spatial denoiser pair |
+| `slang-denoiser-spatial` | Edge-aware à-trous spatial filtering |
+| `slang-denoiser-temporal` | Motion-reprojected temporal color accumulation |
+| `slang-egui` | Native Slang vertex/fragment interface pair |
+| `slang-foliage` | Complete seven-entry foliage graphics family |
+| `slang-foliage-flora-lod` | Billboard LOD surface-flora vertex path |
+| `slang-flora` | Native complex flora vertex/fragment pair plus motion, color, and shadow modules |
+| `slang-foliage-leaves-lod` | Billboard LOD tree-leaf and fruit vertex path |
+| `slang-foliage-leaves-shadow` | Complete leaf-shadow vertex/fragment pair |
+| `slang-foliage-leaves-shadow-frag` | Premultiplied leaf-shadow opacity/depth fragment path |
+| `slang-foliage-leaves-shadow-vert` | Wind-animated leaf-shadow billboard vertex path |
+| `slang-foliage-leaves-vert` | Full-resolution tree-leaf and fruit voxel vertex path |
+| `slang-particles` | Complete textured-particle and water-droplet family |
+| `slang-particles-lod-textured` | Textured-particle vertex/fragment pair |
+| `slang-particles-lod-textured-frag` | Alpha-tested textured particle fragment path |
+| `slang-particles-lod-textured-vert` | Billboard, lighting, and shadow vertex path |
+| `slang-particles-water-droplet` | Premultiplied water-droplet sprite fragment path |
+| `slang-player-collider` | Native player-collision traversal, workgroup reduction, and fixed-array output |
+| `slang-terrarium-glass` | Complete terrarium glass vertex/fragment pair |
+| `slang-terrarium-glass-frag` | Stylized premultiplied glass shading |
+| `slang-terrarium-glass-vert` | Terrarium glass face classification and interface vertex path |
+| `slang-tracer` | Native main tracer resources, lighting, materials, and orchestration |
+| `slang-tracer-cloud` | Jittered volumetric visible-cloud ray march |
+| `slang-tracer-clouds` | Complete visible-cloud and cloud-shadow generation/resolve subfamily |
+| `slang-tracer-cloud-shadow` | Low-sample Beer-transmittance cloud-shadow generation |
+| `slang-tracer-cloud-shadow-temporal` | Temporal resolve for low-sample cloud-shadow transmittance |
+| `slang-tracer-cloud-temporal` | Reprojected temporal resolve for visible volumetric clouds |
+| `slang-tracer-god-ray` | Depth-limited shadow-map atmospheric ray marching |
+| `slang-tracer-leaf-shadow` | Complete temporal accumulation and influence-mask subfamily |
+| `slang-tracer-leaf-shadow-mask` | Conservative low-resolution leaf-shadow influence mask |
+| `slang-tracer-leaf-shadow-temporal` | Temporal leaf-shadow opacity/depth accumulation |
+| `slang-tracer-lens-flare` | Complete visibility, generation, and downsample subfamily |
+| `slang-tracer-lens-flare-downsample` | Box downsample of the full-resolution lens-flare target |
+| `slang-tracer-lens-flare-generate` | Full-resolution procedural lens-flare generation |
+| `slang-tracer-lens-flare-sun-visible` | Depth-tested visible sun-pixel counting for lens flare |
+| `slang-tracer-wind-volume` | Bucketed procedural wind-volume generation |
+| `slang-tracer-backend` | Retained main-tracer GLSL-through-Slang baseline |
+| `slang-tracer-shadow` | Native Slang contree/DDA shadow tracer modules |
+| `slang-tracer-shadow-depth-copy` | Raster depth copy into the storage shadow map |
+| `slang-tracer-terrain-query` | Batched GPU terrain ray queries through scene/contree marching |
+| `slang-tracer-vsm` | Complete depth-copy, moment-creation, and separable-filter VSM subfamily |
+| `slang-tracer-vsm-blur-h` | Horizontal Gaussian EVSM filtering |
+| `slang-tracer-vsm-blur-v` | Vertical Gaussian filtering and temporal history blend |
+| `slang-tracer-vsm-creation` | Convert shadow depth into four EVSM moments |
+| `slang-validation` | Aggregate of all completed candidates |
+
+The existing `slang-poc` feature remains as a backward-compatible alias. A single declarative override mapping in `crates/re-flora-vkn/build.rs` owns logical path, replacement source, stage, frontend, include root, and defines. The frontend is explicitly either native Slang 2025 or GLSL through Slang; paths without an enabled override remain shaderc GLSL. This avoids scattered hard-coded substitutions and keeps the runtime independent of source language.
+
+Every enabled override is checked against a freshly compiled GLSL reference during the build. The check rejects duplicate or missing logical paths, stage/extension mismatches, missing source/include paths, and differences in shader stage, compute workgroup size, descriptor set/binding/type/count/image contract, top-level buffer member offsets/sizes/array strides, push constant ranges and member layout, stage input/output locations and formats, arrays, or interpolation decorations. Slang sources use explicit `vk::binding` and `vk::image_format` annotations. Existing Rust resource definitions remain the detailed buffer-layout authority, while frontend-specific SPIR-V names are normalized only at the reflection boundary.
+
+## Key shader candidates
+
+### 1. Surface extraction and normal generation: first implementation
+
+- GLSL: `shader/builder/surface/make_surface_sparse.comp`
+- Timing label: `make_surface_sparse` in `[PERF][SURFACE_PASS_TIMING]`
+- Why it matters:
+  - 8x8x8 workgroup with 512 invocations;
+  - 12x12x12 three-dimensional shared-memory tile;
+  - workgroup barrier;
+  - `atomicAdd` and `atomicOr` on storage buffers;
+  - formatted read-only and write-only 3D storage images;
+  - nested loops performing the 5x5x5 normal extraction kernel;
+  - bit packing and runtime SSBO arrays.
+
+This is the best first compatibility gate because one shader covers shared memory, barriers, atomics, storage images, normal extraction, and meaningful GPU work.
+
+### 2. Contree construction: second implementation
+
+Primary files:
+
+- `shader/builder/contree/leaf_write.comp`
+- `shader/builder/contree/tree_write.comp`
+
+Timing labels:
+
+- `leaf_write`
+- `tree_write_0` through `tree_write_7`
+- total `[PERF][CONTREE_PASS_TIMING] pass_total`
+
+Why they matter:
+
+- shared prefix-sum scratch storage and shared group base;
+- multiple barriers;
+- global atomics that allocate node and leaf ranges;
+- structured node SSBOs and runtime arrays;
+- per-invocation 64-element temporary arrays;
+- dynamic dispatch state across multiple tree levels.
+
+`leaf_write.comp` is the first compatibility target. Baseline pass timings will determine whether `tree_write.comp` or another contree pass dominates total construction time; the dominant pass is then the performance target. The complete contree pipeline does not need to be rewritten merely to measure an isolated replacement.
+
+### 3. Main tracer: third implementation
+
+- GLSL: `shader/tracer/tracer.comp`
+- Timing label: `tracer.pass` inside the broader `tracer.render` scope
+
+Why it matters:
+
+- branch-heavy ray and DDA traversal;
+- shared per-invocation contree marching stacks;
+- a large transitive include graph;
+- four descriptor sets and many texture/image formats;
+- structured buffers, matrices, samplers, sampler arrays, and storage outputs;
+- direct and indirect lighting paths;
+- pressure on compiler inlining, register allocation, and control-flow optimization.
+
+The tracer is the decisive backend optimization comparison. The first stage compiles the existing source and include graph through Slang's GLSL frontend, isolating code generation and runtime compatibility from translation differences. The accepted second stage is a native Slang entry point split into focused type, material, shadowing, preview, transform, packing, projection, and traversal modules.
+
+### 4. Composition: largest-source backend and native gate
+
+- GLSL: `shader/tracer/composition.comp`
+- Timing label: `composition.pass`
+- Why it matters:
+  - largest production entry point at 923 lines plus approximately 1,279 lines of includes;
+  - 16 descriptor bindings, six uniform blocks, sampled textures, and formatted storage images;
+  - camera matrices, sky/starlight/cloud paths, analytic terrarium glass, SSR, and branch-heavy per-pixel composition;
+  - full-resolution execution makes small backend regressions measurable.
+
+As with the main tracer, the first stage keeps the GLSL source unchanged and switches only to Slang's GLSL frontend. The accepted second stage replaces the active production path with native entry, scene, sky, sunlight, starlight, cloud, hash, and type modules. The currently disabled open-tank panel, glass, volumetric-cloud reflection, and SSR helpers are also translated into resource-parameterized modules and were validated through temporary reactivation without changing production behavior.
+
+### Secondary coverage
+
+After the primary gates:
+
+- the completed `shader/tracer/player_collider.comp` for additional shared-memory and synchronization coverage;
+- the egui vertex/fragment pair for graphics-stage interfaces, push constants, vertex formats, interpolation, and combined image samplers;
+- the completed flora vertex/fragment pair for complex graphics-stage resources, fixed arrays, raw Vulkan instance indexing, wind, shadows, and interpolation;
+- optional shader clock support if it is re-enabled;
+- any future buffer-reference or sparse-residency prototype before those features enter production.
+
+## Validation gates
+
+Each candidate must pass all applicable gates before the next candidate becomes the focus.
+
+### Build and SPIR-V
+
+- default `cargo check` succeeds without locating or invoking `slangc`;
+- candidate and aggregate feature builds succeed on macOS, Windows, and Fedora CI;
+- `spirv-val` accepts reflection and optimized artifacts;
+- descriptor sets, bindings, descriptor types, image formats, workgroup size, and buffer member offsets match the GLSL contract;
+- required SPIR-V capabilities and extensions are compared rather than assumed;
+- compiler version and flags are logged and pinned for reproducibility.
+
+### Correctness
+
+- hidden release runs complete successfully on MoltenVK and native Vulkan;
+- no Slang-specific validation-layer errors appear;
+- deterministic screenshots are compared byte-for-byte when possible and with an explicit tolerance otherwise;
+- surface active voxel/brick counts match;
+- contree node/leaf counts and rendered traversal results match;
+- tracer output attachments and final screenshots match under a fixed camera and fixed configuration;
+- nondeterministic atomic allocation order is judged by semantic output, not raw buffer byte order alone.
+
+### Performance
+
+Performance evidence comes only from release-mode hidden runs. Debug builds and compile-time unit tests are not performance evidence.
+
+Use matched runs from the same worktree and configuration. Alternate frontend order when collecting repeated trials to reduce thermal and temporal bias.
+
+Surface and contree benchmark shape:
+
+```bash
+RUST_LOG=info,re_flora::builder::surface=debug,re_flora::builder::contree=debug \
+  cargo run --release -- --hidden --mute --tree-bench --tree-bench-samples 20
+```
+
+Repeat with the candidate feature. Compare per-pass GPU timestamp labels, pass totals, active counts, and end-to-end tree benchmark time.
+
+Tracer benchmark shape:
+
+```bash
+cargo run --release -- --hidden --mute --auto-exit 10 --perf
+```
+
+Repeat with `--features slang-tracer-backend` for the backend-only baseline and `--features slang-tracer` for the native candidate, discard startup frames, and compare `tracer.pass` plus `tracer.render`. Use enough samples to report count, mean, median, P95, range, and percentage delta. Investigate changes larger than normal run-to-run variance; do not accept a regression merely because the generated SPIR-V validates.
+
+Also record optimized SPIR-V byte size and stripped instruction count as diagnostics. They do not override measured GPU time.
+
+## Build-time requirement
+
+The original `slangc` process startup was approximately 3.75 times slower than `glslc` for the proof-of-concept shader, and the first mixed build launched it once per artifact. That recurring startup cost is now removed: the build dynamically loads the Slang compiler library once and reuses one global session for all selected reflection and optimized compile requests.
+
+On the local Linux Slang 2025.23.2 toolchain, three package-clean aggregate checks at the earlier 16-artifact snapshot improved from a 6.29 s median to 5.05 s, while three shader-touched incremental checks improved from 5.83 s to 4.66 s. All 16 API-generated artifacts were byte-identical to equivalent standalone `slangc` output. The current aggregate compiles 152 selected Slang artifacts in the shared session, and all 152 aggregate artifacts pass `spirv-val --target-env vulkan1.3`. The current 76-entry aggregate hidden release smoke run completes on native Vulkan; the preceding 16-entry aggregate also passed through MoltenVK.
+
+The Phase 2 reassessment also compared the current 11-entry aggregate against the default build on Apple M4 Pro using three order-interleaved samples per frontend. Package-clean medians were 3.72 s for default GLSL and 6.37 s for the aggregate; shader-touched medians were 3.13 s and 5.54 s. This exposed all-entry recompilation as the blocker before broad family migration.
+
+The build now records shaderc's resolved includes and Slang's resolved module dependencies for each logical entry. A selected replacement tracks both its GLSL ABI reference and native graph. BLAKE3 manifests bind those files, target/frontend/compiler context, and both SPIR-V artifacts. Three-sample aggregate medians are now 2.29 s with all 76 entries reused, 2.42 s when one GLSL entry recompiles, and 4.03 s when a shared native module recompiles four entries. Package-clean checks remain comparable at 6.73 s. Dependency-edit, artifact-corruption, byte-equivalence, and SPIR-V validation checks pass. Exact compiler pinning and cross-platform reproduction remain required before the final default decision.
+
+## Execution order
+
+1. Generalize the existing feature-gated build mapping while preserving the default GLSL build.
+2. Port and validate `make_surface_sparse.comp`.
+3. Capture matched hidden surface/normal extraction benchmarks.
+4. Port `leaf_write.comp`, measure the contree pass breakdown, then port the dominant contree construction pass.
+5. Capture matched hidden contree benchmarks and correctness evidence.
+6. Compile `tracer.comp` and its existing includes through Slang's GLSL frontend.
+7. Rewrite the shared contree and DDA traversal as native Slang modules and validate them through `tracer_shadow.comp`.
+8. Rewrite the full main tracer with reusable native modules and validate it against both frontend baselines.
+9. Rewrite the active composition path with reusable native sky and starlight modules and validate it against both frontend baselines.
+10. Validate complex graphics-stage pairs.
+11. Port the player-collider traversal and synchronization consumer.
+12. Reassess the decisive coverage before beginning family-wide migration.
+13. Move accepted sources to the production tree and add compiler-resolved per-entry artifact caching.
+14. Add broader native Vulkan performance coverage and cross-platform CI validation.
+15. Decide among Slang default, mixed Slang/GLSL production use, or retaining GLSL as default.
+
+## Current status
+
+- Build selection is declarative and supports independent per-shader-family features plus the aggregate `slang-validation` feature. The source-language-neutral logical path is preserved, and every active override now receives an automatic build-time pipeline ABI comparison against its GLSL reference.
+- `make_surface_sparse.comp` has been ported and runs successfully through MoltenVK with shared memory, synchronization, atomics, formatted storage images, std140/std430 blocks, and runtime arrays.
+- Matched hidden tree benchmarks produced identical surface workload counts and scene output. Typical GPU time is at parity; run-order-sensitive mean and P95 variation requires more native Vulkan evidence before a performance verdict.
+- `prepare_sparse_surface_dispatch.comp` is native under `slang-surface-prepare-sparse-dispatch`, while `slang-surface` aggregates it with both extraction entries. The entry preserves six descriptors, the 128x1x1 workgroup, atlas-dimension lookup, solid-workgroup bit filtering, compacted index allocation, and atomic indirect-dispatch maximum. Four order-reversed five-sample native-Vulkan tree benchmarks matched all 44 surface workloads per run. Filtering to 28 heavy workloads per run gave a 7 us combined median for both frontends and 6-8 us ranges; the pass is too short for stronger performance conclusions.
+- `make_surface.comp` is native under `slang-surface-make`. It and the accepted sparse entry share halo preload, occlusion, 5x5x5 normal extraction, packing, and brick-index logic while retaining their distinct result layouts and dispatch mapping. Its six descriptors, 8x8x8 workgroup, storage-image formats, atomics, capabilities, and top-level layouts pass the automatic gate and Vulkan 1.3 validation. The current runtime selects only the sparse entry, so direct dense dispatch is not an applicable production runtime gate; a matched sparse tree benchmark exercises the shared core and preserves all 44 workloads.
+- `clear_occupancy.comp` is native under `slang-surface-clear-occupancy`. Its uniform, read/write `r32ui` image, 8x8x8 workgroup, bounds check, and zero store pass the ABI and SPIR-V gates. A temporary Grass Mix mode for the existing authored-flora benchmark exercised the production flora-edit dispatch. Twenty-five matched native-Vulkan edits produced identical before/after/appended instance counters through both frontends; clear-pass medians were 169 us for GLSL and 161 us for native Slang, with outliers moving in both directions across shorter order-reversed runs.
+- `prepare_active_surface_flora_dispatch.comp` is native under `slang-surface-prepare-active-flora-dispatch`. It preserves two storage buffers, a 1x1x1 workgroup, 64 invocations per active brick, 128 invocations per flora group, and the minimum-one-group empty-chunk contract. Temporarily enabling `place_flora` during initial loading exercised all eight chunks in four order-reversed runs. The four non-empty chunks produced identical five-species instance counts through every frontend; both frontends had a 3 us combined median for the preparation pass.
+- `instances_to_occupancy.comp` is native under `slang-surface-instances-to-occupancy`. It establishes shared native `flora_types.slang` instance packing and `flora_occupancy.slang` occupancy encoding while preserving its uniform, read/write `r32ui` image, storage buffer, and 128x1x1 workgroup ABI. Two order-reversed Grass Mix flora-edit pairs covered 35 edits per frontend. All before/after/appended counters matched; the 24-sample full-run pass median was 4 us for both frontends, and the shorter reverse run also had 4 us medians despite one native timestamp outlier.
+- `update_flora_growth.comp` is native under `slang-surface-update-flora-growth`. Shared `flora_surface_build.slang` and `grass_growth_potential.slang` modules preserve its fixed-array result, mutable instance buffer, packed competition buffer, and 128x1x1 workgroup ABI. A temporary add/trim/grow benchmark produced identical order-independent packed-position hashes, instance counters, and growing flags for 25 steps per frontend. Both frontends had 6 us pass medians; GLSL had isolated 322 us timestamp outliers in the final order-reversed pair.
+- `edit_occupancy_capsule.comp` is native under `slang-surface-edit-occupancy-capsule`. Shared gradient-noise, flora-placement, planting-policy, hash, occupancy, instance, growth-potential, and voxel-data modules preserve its three operating modes and four-descriptor 8x8x8 ABI. Four 25-step order-reversed runs exercised both add and trim. All 200 canonical output hashes plus trim counts/growing flags matched; second-in-order medians rose from roughly 126 to 143 us for either frontend, while the first-in-order pair was 125-127 us.
+- `occupancy_to_flora_instances.comp` is native under `slang-surface-occupancy-to-flora-instances`. Shared placement selection and existing occupancy/flora/voxel modules preserve its six descriptors, five-element result array, two `r32ui` images, storage-buffer atomics, and 8x8x8 workgroup. Four order-reversed 25-edit runs matched all canonical instance hashes and counters; pass medians were 213/219 us in the first pair and 208/211 us in the reverse pair. A separate ten-step run matched every preserve-existing-placement hash and had identical 211 us medians.
+- `active_surface_to_flora_instances.comp` completes the surface family under `slang-surface-active-to-flora-instances`. It preserves seven descriptors, active-brick decoding, the 128x1x1 workgroup, placement selection, instance allocation, and growth-limit handling. Four forced-loading runs in order `GLSL, Slang, Slang, GLSL` matched every per-species count and canonical position/growth hash across four non-empty chunks per run. Both frontends had a combined 46 us pass median and 44-53 us range. With the complete `slang-surface` aggregate, 25 Grass Mix edits matched the default's canonical results and a five-sample tree benchmark matched all workloads; 28 heavy extraction passes had 600/601 us default/native medians.
+- `leaf_write.comp`, the measured dominant contree construction shader, has been ported. Matched node/leaf sizes and scene output are identical, and both frontends have a combined 44 us median on MoltenVK.
+- `buffer_setup.comp`, `buffer_update.comp`, and `last_buffer_update.comp` are native under independent contree features. They share contree-build layouts and helpers with leaf writing, preserve their seven-, two-, and five-descriptor ABIs and 1x1x1 workgroups, and produce matching node/leaf workloads in hidden tree benchmarks. The 28-sample local medians were 9 us for setup and 2 us for both update passes with both frontends; these state passes are correctness-sensitive but too short for meaningful isolated performance conclusions.
+- `tree_write.comp` is native under `slang-contree-tree-write`. Its six descriptors, 4x4x4 workgroup, shared prefix allocation, atomics, and 64-node per-invocation temporary array pass the ABI and runtime gates. All three measured tree levels matched 28 node/leaf workloads; GLSL/native medians were 20/20, 14/13, and 8/7 us. Both sources now route inactive edge invocations through every barrier before returning.
+- `concat.comp` completes the six-entry native contree family. Its six descriptors, 256x1x1 workgroup, fixed ten-level upper-bound array, and relative-to-absolute child offset rewrite pass the gates. The isolated concat median was 3 us for both frontends. With all six entries enabled, all 28 workloads matched and the full contree pipeline median was 107.5 us versus 112.5 us for GLSL.
+- `tracer.comp` retains its GLSL-through-Slang baseline under `slang-tracer-backend` and now has a full native implementation under `slang-tracer`. The native entry reuses resource-independent contree/DDA traversal and focused material, shadowing, preview, transform, packing, projection, and type modules. Its four-set ABI matches automatically, all SPIR-V validates, and a 2880x1620 fixed-camera image is visually equivalent. Two order-reversed RTX 3060 Ti pairs retained 151 shaderc and 152 native post-startup samples: `tracer.pass` medians were 467 us and 473 us (`+1.3%`), while `tracer.render` medians differed by `+0.5%`. The small repeatable pass delta is documented for cross-driver follow-up rather than hidden by aggregate frame noise.
+- The production `tracer_shadow.comp` path has been rewritten in native Slang modules under `slang-tracer-shadow`. The modules cover AABB intersection, camera-ray projection, contree traversal, DDA scene traversal, voxel decoding, workgroup stack storage, structured SSBOs, storage images, and matrix uniforms. Fixed-camera shadow output is visually equivalent. Two order-reversed local MoltenVK pairs had native medians 0.8-1.4% lower, within run noise.
+- The egui vertex/fragment pair has been rewritten in native Slang under `slang-egui`. Runtime pipeline-layout merging, three vertex attributes, two interpolants, a matrix push constant, combined image sampler, alpha blending, and UI rendering all pass on MoltenVK. Static UI regions are visually equivalent, with only sparse 1-3-level color differences.
+- The complex `flora.vert`/`flora.frag` pair has been rewritten under `slang-flora`. It preserves 18 bindings across two sets, fixed-array uniforms and push constants, the raw Vulkan instance index required by nonzero first-instance draws, storage buffers/images, wind sampling, direct-sun shadows, depth offsets, and smooth color interpolation. The automatic ABI gate required fixed-array wrapper normalization at both build-time and runtime reflection boundaries. Matched 25-brush authored-lavender captures are visually equivalent. Two order-reversed six-second MoltenVK pairs retained 19 shaderc and 18 native post-startup `graphics.pass` samples; medians were 2,987 us and 2,934.5 us, while sub-scope attribution was too unstable for a meaningful isolated flora timing. No aggregate graphics regression was measured.
+- `player_collider.comp` has been rewritten under `slang-player-collider` by reusing the native contree/DDA modules. Its five descriptors, 64x1x1 workgroup, fixed-array result layout, per-invocation traversal stacks, and workgroup reduction pass the ABI gate and SPIR-V validation. The GLSL fallback and native source both keep all 64 invocations active through the barrier instead of allowing the 14 non-ray invocations to return early. The production pass is dormant after collision moved to CPU, so no hot-pass benchmark applies; temporary matched dispatch/readback at a fixed in-world origin produced identical `0.7693079` ground distance and `2.0` ceiling/ring distances through both frontends.
+- `composition.comp`, the largest production entry point, retains its GLSL-through-Slang baseline under `slang-composition-backend` and now has a native implementation under `slang-composition`. Its 16-binding ABI passes the automatic GLSL-reference check, and explicit LOD on sampled textures avoids requesting compute-derivative capabilities. At 2880x1620, day and night captures are visually equivalent: the final modular night/starlight pair differed at only 159 pixels across independent runs, while larger daytime differences were confined to moving leaves and UI. Two order-reversed RTX 3060 Ti pairs retained 146 shaderc and 145 native post-startup samples; both had 62-63 us medians, with the native combined median 1 us higher and within timestamp/run variance. The disabled panel, glass, volumetric-cloud reflection, and SSR paths are fully translated; temporarily re-enabling both GLSL and native implementations produced visually equivalent glass/cloud-reflection captures and valid Vulkan 1.3 SPIR-V.
+- `update_scene_tex.comp` completes scene acceleration under `slang-scene-accel`. Its 1x1x1 workgroup, 24-byte uniform, and write-only `rg32ui` 3D image pass the ABI and SPIR-V gates. Five tree-benchmark samples matched all surface/contree workloads and fixed-camera output remained visually equivalent; the pass writes only exact integer offsets or zero and is too short for isolated timing.
+- `temporal.comp` is native under `slang-denoiser-temporal`. It preserves eleven descriptors, integer combined samplers with explicitly unknown sampled-image formats, `r8ui`/`r11f_g11f_b10f` storage images, and the 8x8x1 workgroup. Matched six-second runs retained 54 post-startup `denoiser.pass` samples each; medians were 413 us GLSL and 410 us native. Fixed-camera frontend differences were within same-frontend repeat variation.
+- `spatial.comp` completes denoising under `slang-denoiser-spatial`. It preserves the push constant, three descriptor sets, twelve sampled/storage resources, 8x8x1 workgroup, ping-pong iteration, and edge-aware weights. Two order-reversed pairs had native `denoiser.pass` medians 0.7-1.5% below GLSL; the complete native pair was within 0.24%. Its fixed-camera RMSE was lower than same-frontend repeat variation.
+- `shadow_depth_copy.comp` is native under `slang-tracer-shadow-depth-copy`. Its combined depth sampler, write-only `r32f` image, and 8x8x1 workgroup pass the gates. Matched runs had identical 18 us medians; fixed-camera RMSE was below same-frontend repeat variation.
+- `vsm_creation.comp` is native under `slang-tracer-vsm-creation`. A shared `vsm.slang` module now owns EVSM exponents, depth warping, and Chebyshev bounds for creation, tracer, and flora consumers. Its three storage images and 8x8x1 workgroup pass the gates; matched `vsm_filtering.pass` medians were 345/345.5 us and fixed-camera RMSE was below repeat noise.
+- `vsm_blur_h.comp` is native under `slang-tracer-vsm-blur-h`. Shared `vsm_filtering.slang` owns the capped-radius Gaussian kernel used by both blur directions. Its three images, 12-byte push constant, and 8x8x1 workgroup pass; the aggregate VSM median was 342 us versus 345 us GLSL and fixed-camera RMSE remained below repeat noise.
+- `vsm_blur_v.comp` completes the VSM subfamily under `slang-tracer-vsm-blur-v`; `slang-tracer-vsm` enables all four passes. It preserves four images, vertical filtering, reset handling, and temporal blending. Isolated and complete-native VSM medians were 343 and 341 us versus 345 us GLSL; fixed-camera RMSE remained below repeat noise.
+- `leaf_shadow_temporal.comp` is native under `slang-tracer-leaf-shadow-temporal`. Its two sampled opacity maps, `rgba8` output, 8-byte push constant, reset path, and 8x8x1 workgroup pass. Matched runs had identical 90 us medians and 89-90 us ranges.
+- `leaf_shadow_mask.comp` completes the subfamily under `slang-tracer-leaf-shadow-mask`; `slang-tracer-leaf-shadow` enables both passes. Its 3x3-cell/2x2-subcell conservative dilation preserves the two-resource 8x8x1 ABI. Isolated and aggregate mask medians were 62 us through both frontends; aggregate temporal remained 90 us.
+- `lens_flare_downsample.comp` is native under `slang-tracer-lens-flare-downsample`. Its two `r11f_g11f_b10f` storage images, source-footprint clamping, box accumulation, and 8x8x1 workgroup pass. Same-extent medians were 7 us GLSL and 6 us native; fixed-camera RMSE (`0.00876`) matched native repeat variation (`0.00872`).
+- `lens_flare_sun_visible.comp` is native under `slang-tracer-lens-flare-sun-visible`. Sun/camera buffers, depth/sprite resources, `r32f` depth reads, `r32ui` atomic count, and the 8x8x1 workgroup pass. Matched medians were 7 us through both frontends; RMSE (`0.00870`) remained below repeat variation (`0.00872`).
+- `lens_flare.comp` completes the subfamily under `slang-tracer-lens-flare-generate`; `slang-tracer-lens-flare` enables all three entries. A sun-facing fixed-time run exercised the nonzero procedural path: generation medians remained 13 us in isolation and aggregate, and aggregate RMSE (`0.00929`) stayed below repeat variation (`0.00937`).
+- `wind_volume.comp` is native under `slang-tracer-wind-volume`, with procedural source sampling extracted to `wind_volume_sample.slang`. Four bindings, 8-byte push constants, `rg16f` volume writes, 4x4x4 workgroups, bucket addressing, and seeded FBM pass. Active-dispatch medians were 7 us through both frontends; RMSE (`0.00621`) remained below repeat variation (`0.00641`).
+- `terrain_query.comp` is native under `slang-tracer-terrain-query` and reuses native `scene_marching.slang`. Its six bindings, 64x1x1 workgroup, query validity, direction guard, and contree traversal pass. Four reference rays produced identical hit/miss classifications and exact hit positions; synchronized query medians were about 347 us through both frontends.
+- `god_ray.comp` is native under `slang-tracer-god-ray`; blue-noise helpers were extracted to `noise_tex.slang`. Camera/shadow/environment/god-ray uniforms, depth and shadow resources, blue noise, `r32f` output, and 8x8x1 workgroup pass. Order-reversed medians were 47 us GLSL and 49 us native (+4.3%, +2 us); RMSE (`0.00368`) remained below repeat variation (`0.00390`).
+- `cloud_shadow_temporal.comp` is native under `slang-tracer-cloud-shadow-temporal`. Its GUI buffer, raw/history samplers, write-only `r16f` output, 4-byte reset push constant, neighborhood clamping, and 8x8x1 workgroup pass. With the dormant cloud path temporarily enabled, grouped shadow medians remained 9 us; RMSE (`0.00870`) matched native repeat variation (`0.00864`) within `0.00006`.
+- `cloud_temporal.comp` is native under `slang-tracer-cloud-temporal`. Its camera/history ABI, reprojection, 3x3 envelope, disocclusion weighting, and `rgba16f` output pass. With clouds and cloud uniforms temporarily re-enabled, grouped medians were 132.5 us GLSL and 133 us native (+0.4%); cloud-visible RMSE (`0.00290`) was below repeat variation (`0.00917`).
+- `cloud.comp` is native under `slang-tracer-cloud` and directly consumes the existing native cloud/noise/ray modules. Five descriptors, `rgba16f` raw output, jitter, and 8x8x1 workgroup pass. With visibly nonzero clouds, grouped medians improved from 132.5 us GLSL to 130 us native (-1.9%); RMSE (`0.00374`) remained below repeat variation (`0.00905`).
+- `cloud_shadow.comp` completes the tracer family under `slang-tracer-cloud-shadow`; `slang-tracer-clouds` enables all four cloud entries. It reuses native cloud density and ray/noise modules while preserving six descriptors, `r16f` output, animated jitter, Beer integration, and 8x8x1 workgroups. Isolated/aggregate shadow medians were 31 us versus 32 us GLSL (-3.1%); complete-cloud medians were 31 and 131 us versus 32 and 132.5 us. Aggregate RMSE (`0.00891`) remained below repeat variation (`0.00922`).
+- `chunk_writer/buffer_setup.comp` begins the chunk-writer family under `slang-chunk-writer-buffer-setup`. Its 1x1x1 workgroup, 32-byte region uniform, 12-byte write-only indirect buffer, and per-axis divide-round-up pass. Five matched tree workloads retained exact region offsets, dimensions, and voxel counts through the indirect consumers.
+- `terrain_smooth_mbo_init.comp` is native under `slang-chunk-writer-terrain-smooth-mbo-init`; shared MBO layout and pure helpers live in `chunk_writer_types.slang` and `terrain_smooth_mbo.slang`. Four bindings, 8x8x8 workgroups, atlas voxel classification, and mirrored A/B density writes pass. A matched 68³ smoothing workload produced identical 35,860 candidates, 18,482 target solids, threshold 518, eight changed voxels, and exact changed bounds.
+- `terrain_smooth_mbo_diffuse_ab.comp` is native under `slang-chunk-writer-terrain-smooth-mbo-diffuse-ab`. It preserves four bindings, 8x8x8 workgroups, mutable-voxel/brush gating, edge fallback, and weighted six-neighbor diffusion. The same 68³ end-to-end workload retained every histogram/threshold/change counter and bound exactly.
+- `terrain_smooth_mbo_diffuse_ba.comp` is native under `slang-chunk-writer-terrain-smooth-mbo-diffuse-ba`, mirroring the accepted A-to-B ABI and behavior. The matched 68³ smoothing workload again retained all candidate, target, threshold, tie, change, volume, and bound outputs exactly.
+- `terrain_smooth_mbo_score.comp` is native under `slang-chunk-writer-terrain-smooth-mbo-score`. Six bindings, candidate gating, deadband, score bins, and atomic candidate/solid/histogram accumulation pass. The matched workload retained 35,860 candidates, 18,482 target solids, threshold bin 518, and all final edit outputs exactly.
+- `terrain_smooth_mbo_apply.comp` completes the subfamily under `slang-chunk-writer-terrain-smooth-mbo-apply`; `slang-chunk-writer-terrain-smooth-mbo` enables all five entries. Five bindings, threshold/tie decisions, material selection, atlas writes, change-bound atomics, and solid-workgroup marking pass. Isolated and aggregate 68³ workloads exactly matched all deterministic outputs.
+- `chunk_modify_sample.comp` is native under `slang-chunk-writer-modify-sample`. Its 4-byte push constant, bindings 6-8, 50-wide workgroup, sample-count clamp, zero-fill path, Murmur candidate selection, and fixed/runtime buffer layouts pass. Matched surface-removal runs both reported 187 removed dirt voxels, 187 inserted empty voxels, and 50 valid in-brush samples; candidate append order is intentionally atomic and nondeterministic.
+- `chunk_solid_sample.comp` is native under `slang-chunk-writer-solid-sample`. Its 48-byte uniform, read-only storage-image contract, runtime output array, center-of-source-block mapping, bounds handling, and 8x8x8 workgroup pass. Full-atlas 256³ to 32³ A/B readbacks exactly matched 32,768 values, 13,790 solid samples, and FNV hash `f19bf9e9d5dcbc7b`.
+- `voxel_property_sample.comp` is native under `slang-chunk-writer-voxel-property-sample`. Its 64-byte uniform, 32-byte result, read-only atlas contract, spherical/type/property gating, two groupshared reductions, workgroup barriers, and global atomics pass. A/B queries exactly matched moisture count/sum 4,447/0 and fertility 4,447/4,447.
+- `terrain_smooth_heights.comp` is native under `slang-chunk-writer-terrain-smooth-heights`; `terrain_smooth.slang` owns the legacy smoother's shared layouts and terrain classification. Its 64-byte uniform, runtime column buffer, read-only atlas, top-down height search, and 8x8x1 workgroup pass. A temporarily restored complete legacy pipeline exactly matched 1,457 changed voxels.
+- `terrain_smooth_target.comp` is native under `slang-chunk-writer-terrain-smooth-target`. Its brush and valid-column gating, bounded two-dimensional Gaussian kernel, falloff/strength blend, delta clamp/deadband, and 8x8x1 workgroup pass. The restored complete legacy pipeline again exactly matched 1,457 changed voxels.
+- `terrain_smooth_apply.comp` completes the legacy subfamily under `slang-chunk-writer-terrain-smooth-apply`; `slang-chunk-writer-terrain-smooth` enables all three entries. Five bindings, raise/lower material rules, atlas-state packing, solid-workgroup marking, and changed-count atomics pass. Both isolated-apply and complete-native runs exactly matched 1,457 changed voxels.
+- `terrain_moisture_brush.comp` is native under `slang-chunk-writer-terrain-moisture-brush`; `terrain_soil.slang` owns shared brush/hash/soil helpers for the remaining soil passes. Its 64-byte push constant, swept/directional brush paths, near-surface search, two-scale dither, stochastic quantization, atlas-state preservation, and 8x8x8 workgroup pass. A/B brushing and readback exactly matched count 7,778 and moisture sum 1,101.
+- `terrain_fertility_brush.comp` is native under `slang-chunk-writer-terrain-fertility-brush`. Its shared 64-byte push constant, swept brush, exposed-surface test, six-neighbor local-maximum granules, seeded coverage, state-preserving fertility update, and 8x8x8 workgroup pass. A/B brushing and readback exactly matched count 12,440 and fertility sum 12,480.
+- `terrain_moisture_spread.comp` is native under `slang-chunk-writer-terrain-moisture-spread`. Its 64-byte push constant, axis/parity pair partition, two-level gradient guard, saturation mobility, vertical directional bias, conservative state transfer, and 8x8x8 workgroup pass. Six-phase A/B region dispatches exactly matched moisture sum 1,101 and atlas FNV hash `06e50bc4c49179d7`.
+- `terrain_soil_mix.comp` is native under `slang-chunk-writer-terrain-soil-mix`. Its shared brush push constant, six non-overlapping pair phases, swept falloff, independent moisture/fertility transfer probabilities, conservative two-voxel state updates, and 8x8x8 workgroup pass. Seeded brush/mix A/B runs exactly matched state sum 138,601 and atlas FNV hash `c72cd9f2f9ebe857`.
+- `chunk_init.comp` is native under `slang-chunk-writer-init`. Its 32-byte region uniform, runtime heightmap, write-only atlas contract, soil/rock transition dither, atlas-state initialization, solid-workgroup marking, and 4x4x4 workgroup pass. Full 256³ startup A/B readbacks exactly matched all type counts and atlas FNV hash `997d9aba9cc5831f`.
+- `chunk_heightmap.comp` is native under `slang-chunk-writer-heightmap`; shared `gradient_noise.slang` now exposes amplitude-normalized seeded FBM. Its region/heightmap layouts, large/medium/fine terrain layers, coastline helpers, duplicate base/surface outputs, and 8x8x1 workgroup pass. Full startup classification again exactly matched all type counts and atlas FNV hash `997d9aba9cc5831f`.
+- `model_voxelize.comp` is native under `slang-chunk-writer-model-voxelize`. Its 48-byte uniform, runtime triangle stream, winding solid-angle classification, complete point-triangle distance regions, surface shell, atlas packing, solid-workgroup marking, and 8x8x8 workgroup pass. A/B tetrahedron dispatches exactly matched 1,016 filled voxels and regional FNV hash `d2f1c029626a874d`.
+- `chunk_modify.comp` is native under `slang-chunk-writer-modify`. Its nine bindings, BVH stack traversal, round-cone/cuboid/sphere branches, surface placement/removal gates, target/write limits, rollback atomics, candidate output, state-aware atlas fill, and dirty marking pass. A/B runs covering startup round cones plus explicit cuboid and surface-sphere edits exactly matched 204 dirt removals/additions and full-atlas FNV hash `ff2c473cd7fffe6b`.
+- `terrain_moisture_dry.comp` completes the family under `slang-chunk-writer-terrain-moisture-dry`; `slang-chunk-writer` enables all 21 entries. Its 80-byte push constant, ten bindings, compact surface-leaf lookup, moisture/residual rolls, surface normals, atlas ray fallback, VSM/leaf/cloud exposure, and state-preserving write pass. Forced no-shadow A/B and complete-native family runs exactly matched moisture sum 740 and regional FNV hash `3ae07d53cd0b5f87`.
+- `sprinkler.vert` is native under `slang-sprinkler`. Seven vertex inputs, eleven descriptors with sparse bindings, alternating tick-driven arm extension, shared stylized VSM/leaf/cloud lighting, sRGB conversion, edit-preview tint, and the existing fragment pairing pass. Matched placed-sprinkler screenshots had RMSE 0.006983 versus 0.006757 same-frontend repeat variation and were visually equivalent.
+- `glass.vert` is native under `slang-terrarium-glass-vert`. Five vertex inputs, eight outputs with required flat interpolation, 32-byte push constant, 400-byte camera uniform, face near/far alpha selection, normalized normals, and view direction pass. Fixed-preset screenshot RMSE was 0.007116 versus 0.006819 same-frontend repeat variation, with visual equivalence.
+- `glass.frag` completes the pair under `slang-terrarium-glass-frag`; `slang-terrarium-glass` enables both stages. Its optimized six-input interface, flat fields, UV/core/corner edge classes, two-sided Fresnel, sky/sun reflection, spectral edge tint, part-specific alpha, and premultiplication pass. Fragment-only and complete-pair screenshot RMSE were 0.003862 and 0.006825 versus 0.007654 same-frontend repeat variation.
+- `water_droplet.frag` is native under `slang-particles-water-droplet`. Its three-input interface, flat texture-array index, combined image sampler, sampled alpha, and premultiplied output pass. A 35,000-particle fixed-preset screenshot had RMSE 0.007693 versus 0.009458 same-frontend repeat variation.
+- `particle_lod_textured.frag` is native under `slang-particles-lod-textured-frag`. Its three varyings, texture-array lookup, discard-free alpha test, premultiplied output, and masked far-depth write pass. Fixed-preset RMSE was 0.005994, comparable to 0.005939 same-GLSL repeat variation, with visual equivalence.
+- `particle_lod_textured.vert` completes the family under `slang-particles-lod-textured-vert`; pair and family aggregates are `slang-particles-lod-textured` and `slang-particles`. Its five inputs, packed voxel corners, camera billboard, hashed depth offset, VSM/leaf/cloud shadows, directional shading, sprite flip bit, and three outputs pass. Vertex-only and complete-family screenshot RMSE were 0.006424 and 0.006351 versus 0.007198 same-frontend repeat variation.
+- `leaves_shadow.frag` is native under `slang-foliage-leaves-shadow-frag`. Its opacity varying, fragment-depth clamp, depth-premultiplied red channel, and accumulated alpha output pass. Fixed-preset RMSE was 0.009281 versus 0.009179 same-frontend repeat variation, with visual equivalence across moving foliage.
+- `leaves_shadow.vert` completes the pair under `slang-foliage-leaves-shadow-vert`; `slang-foliage-leaves-shadow` enables both stages. Its packed corner and tree-leaf instance decoding, voxel lookup, wind sampling, apple swing/leaf paddling, shadow-camera billboard, opacity, and stable depth tie-break pass. Vertex-only and complete-pair screenshot RMSE were 0.008853 and 0.008955 versus a 0.006925 repeat in the dynamic foliage scene, with visual equivalence.
+- `leaves.vert` is native under `slang-foliage-leaves-vert`. It preserves tree-leaf/fruit instance reconstruction, shared growth/wind preparation, exact voxel geometry, hashed depth offset, palette, lighting, and edit-preview tint. Common main-pass logic was extracted from `flora.vert.slang` into `flora_vertex.slang`, while surface-only competition/moisture bindings live in `surface_flora_vertex.slang`; the existing `slang-flora` ABI still passes. Fixed-preset RMSE was 0.008667 versus 0.008127 same-frontend repeat variation, with visual equivalence.
+- `leaves_lod.vert` is native under `slang-foliage-leaves-lod`. It reuses the accepted leaf instance, growth/wind, palette, lighting, and preview path while replacing cube corners with the camera-facing area-matched billboard. Fixed-preset RMSE was 0.009184 versus 0.008430 same-frontend repeat variation, with visual equivalence in the dynamic tree scene.
+- `flora_lod.vert` completes all production entries under `slang-foliage-flora-lod`; `slang-foliage` enables the seven-entry graphics family. It reuses the accepted surface-flora instance, competition/moisture growth, spawn/wind, color, shadow, and preview path with the area-matched billboard projection. LOD-only and complete-family screenshot RMSE were 0.008674 and 0.006726 versus 0.006649 same-frontend repeat variation, with visual equivalence.
+- The aggregate build now uses one dynamically loaded Slang compiler API global session for all 152 selected compile requests instead of one `slangc` process per artifact. The earlier 16-artifact benchmark improved package-clean and shader-touched checks by about 20%, all measured API artifacts matched standalone compiler output byte-for-byte, and Cargo logs the loaded compiler build tag.
+- Phase 5 CI is configured in `.github/workflows/shader-validation.yml`. `scripts/install_slang.py` selects official v2025.23 archives for Linux x86_64/aarch64, macOS x86_64/aarch64, and Windows x86_64, verifies fixed SHA-256 digests, and exports the exact compiler/library paths. macOS, Windows, and Fedora jobs check both default GLSL and the 76-entry native aggregate; macOS and Fedora validate all 152 SPIR-V artifacts, and macOS runs both frontends through hidden release MoltenVK smokes with log inspection. Hosted results remain pending until the workflow is pushed and run.
+- The completed 76-entry aggregate has an order-reversed RTX 3060 Ti release gate. Across 128 GLSL and 127 native post-startup samples, `frame.render` medians were 2842.5 and 2853 us (`+0.37%`), `tracer.render` medians were 1590 and 1601 us (`+0.69%`), and the known `tracer.pass` delta was 466 versus 471 us (`+1.07%`). Graphics and composition medians were unchanged at 36 and 62 us; no material frame-level regression is present on this driver.
+- Compiler-reported transitive dependency graphs now drive per-entry reflection/optimized SPIR-V caches. Cache hits verify dependency, context, and artifact digests; a native override includes its GLSL ABI-reference dependencies. Targeted GLSL, transitive GLSL, shared native module, and corrupted-artifact invalidation tests recompiled only affected entries, while all 152 clean outputs matched pre-cache bytes.
+- The migration now covers all 76 production entries: difficult capabilities and semantic gates pass, and no material frame-level GPU regression is present. GLSL remains the default while hosted cross-platform results, broader native-Vulkan vendor coverage, and the final default-switch decision remain open. All 133 accepted sources live under `shader/slang/`, dependency-aware artifact reuse is active, and explicit declarations plus automatic ABI checking remain the binding source of truth.
+
+## Decision criteria
+
+The Phase 2 decision is to continue isolated and family-by-family native migration while retaining GLSL as the default. This is approval to continue migration, not approval for a default switch. The source layout and build invalidation are now productionized, so Phase 3 family migration can begin. Compiler pinning, cross-platform CI, and broader native-Vulkan timing remain Phase 5/default-switch gates.
+
+Adopt Slang as the default when all current production capabilities are covered, difficult shader outputs are equivalent, no material GPU regression remains, cross-platform compilation is reproducible, and compiler-session integration makes normal iteration acceptable.
+
+Keep a mixed production build if Slang is clearly beneficial for most modules but one or two Vulkan-specific shaders require fragile workarounds. Retain GLSL as default if the tracer or construction passes regress materially, correctness depends on compiler-version-specific behavior, or CI/toolchain reliability remains worse than the maintainability benefit.

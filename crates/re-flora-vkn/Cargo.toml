@@ -21,9 +21,207 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 winit = { version = "0.30", features = ["rwh_05"] }
 
 [build-dependencies]
+blake3 = "1"
+libloading = "0.8"
 shaderc = { version = "0.10.1", features = ["prefer-static-linking"] }
+spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev = "97298067e3b1c9ce05633d78f1183c14a3cc6acc" }
 
 [features]
 default = []
 no_validation_layer = []
+slang-chunk-writer = [
+    "slang-chunk-writer-buffer-setup",
+    "slang-chunk-writer-heightmap",
+    "slang-chunk-writer-init",
+    "slang-chunk-writer-model-voxelize",
+    "slang-chunk-writer-modify",
+    "slang-chunk-writer-modify-sample",
+    "slang-chunk-writer-solid-sample",
+    "slang-chunk-writer-terrain-fertility-brush",
+    "slang-chunk-writer-terrain-moisture-brush",
+    "slang-chunk-writer-terrain-moisture-dry",
+    "slang-chunk-writer-terrain-moisture-spread",
+    "slang-chunk-writer-terrain-soil-mix",
+    "slang-chunk-writer-terrain-smooth",
+    "slang-chunk-writer-terrain-smooth-mbo",
+    "slang-chunk-writer-voxel-property-sample",
+]
+slang-chunk-writer-buffer-setup = []
+slang-chunk-writer-heightmap = []
+slang-chunk-writer-init = []
+slang-chunk-writer-modify = []
+slang-chunk-writer-model-voxelize = []
+slang-chunk-writer-modify-sample = []
+slang-chunk-writer-solid-sample = []
+slang-chunk-writer-voxel-property-sample = []
+slang-chunk-writer-terrain-fertility-brush = []
+slang-chunk-writer-terrain-moisture-brush = []
+slang-chunk-writer-terrain-moisture-dry = []
+slang-chunk-writer-terrain-moisture-spread = []
+slang-chunk-writer-terrain-soil-mix = []
+slang-chunk-writer-terrain-smooth = [
+    "slang-chunk-writer-terrain-smooth-apply",
+    "slang-chunk-writer-terrain-smooth-heights",
+    "slang-chunk-writer-terrain-smooth-target",
+]
+slang-chunk-writer-terrain-smooth-apply = []
+slang-chunk-writer-terrain-smooth-heights = []
+slang-chunk-writer-terrain-smooth-target = []
+slang-chunk-writer-terrain-smooth-mbo = [
+    "slang-chunk-writer-terrain-smooth-mbo-apply",
+    "slang-chunk-writer-terrain-smooth-mbo-diffuse-ab",
+    "slang-chunk-writer-terrain-smooth-mbo-diffuse-ba",
+    "slang-chunk-writer-terrain-smooth-mbo-init",
+    "slang-chunk-writer-terrain-smooth-mbo-score",
+]
+slang-chunk-writer-terrain-smooth-mbo-apply = []
+slang-chunk-writer-terrain-smooth-mbo-diffuse-ab = []
+slang-chunk-writer-terrain-smooth-mbo-diffuse-ba = []
+slang-chunk-writer-terrain-smooth-mbo-init = []
+slang-chunk-writer-terrain-smooth-mbo-score = []
+slang-composition = []
+slang-composition-backend = []
+slang-contree = [
+    "slang-contree-buffer-setup",
+    "slang-contree-buffer-update",
+    "slang-contree-concat",
+    "slang-contree-last-buffer-update",
+    "slang-contree-leaf",
+    "slang-contree-tree-write",
+]
+slang-contree-buffer-setup = []
+slang-contree-buffer-update = []
+slang-contree-concat = []
+slang-contree-last-buffer-update = []
+slang-contree-leaf = []
+slang-contree-tree-write = []
+slang-denoiser = ["slang-denoiser-spatial", "slang-denoiser-temporal"]
+slang-denoiser-spatial = []
+slang-denoiser-temporal = []
+slang-egui = []
+slang-foliage = [
+    "slang-flora",
+    "slang-foliage-flora-lod",
+    "slang-foliage-leaves-lod",
+    "slang-foliage-leaves-shadow",
+    "slang-foliage-leaves-vert",
+]
+slang-foliage-flora-lod = []
+slang-foliage-leaves-lod = []
+slang-foliage-leaves-shadow = [
+    "slang-foliage-leaves-shadow-frag",
+    "slang-foliage-leaves-shadow-vert",
+]
+slang-foliage-leaves-shadow-frag = []
+slang-foliage-leaves-shadow-vert = []
+slang-foliage-leaves-vert = []
+slang-flora = []
+slang-particles = [
+    "slang-particles-lod-textured",
+    "slang-particles-water-droplet",
+]
+slang-particles-lod-textured = [
+    "slang-particles-lod-textured-frag",
+    "slang-particles-lod-textured-vert",
+]
+slang-particles-lod-textured-frag = []
+slang-particles-lod-textured-vert = []
+slang-particles-water-droplet = []
+slang-player-collider = []
+slang-poc = ["slang-post-processing"]
+slang-post-processing = []
+slang-scene-accel = []
+slang-sprinkler = []
+slang-surface = [
+    "slang-surface-active-to-flora-instances",
+    "slang-surface-clear-occupancy",
+    "slang-surface-edit-occupancy-capsule",
+    "slang-surface-instances-to-occupancy",
+    "slang-surface-make",
+    "slang-surface-make-sparse",
+    "slang-surface-occupancy-to-flora-instances",
+    "slang-surface-prepare-active-flora-dispatch",
+    "slang-surface-prepare-sparse-dispatch",
+    "slang-surface-update-flora-growth",
+]
+slang-surface-active-to-flora-instances = []
+slang-surface-clear-occupancy = []
+slang-surface-edit-occupancy-capsule = []
+slang-surface-instances-to-occupancy = []
+slang-surface-make = []
+slang-surface-make-sparse = []
+slang-surface-occupancy-to-flora-instances = []
+slang-surface-prepare-active-flora-dispatch = []
+slang-surface-prepare-sparse-dispatch = []
+slang-surface-update-flora-growth = []
+slang-terrarium-glass = [
+    "slang-terrarium-glass-frag",
+    "slang-terrarium-glass-vert",
+]
+slang-terrarium-glass-frag = []
+slang-terrarium-glass-vert = []
+slang-tracer = []
+slang-tracer-backend = []
+slang-tracer-cloud = []
+slang-tracer-clouds = [
+    "slang-tracer-cloud",
+    "slang-tracer-cloud-shadow",
+    "slang-tracer-cloud-shadow-temporal",
+    "slang-tracer-cloud-temporal",
+]
+slang-tracer-cloud-shadow = []
+slang-tracer-cloud-shadow-temporal = []
+slang-tracer-cloud-temporal = []
+slang-tracer-god-ray = []
+slang-tracer-leaf-shadow = [
+    "slang-tracer-leaf-shadow-mask",
+    "slang-tracer-leaf-shadow-temporal",
+]
+slang-tracer-leaf-shadow-mask = []
+slang-tracer-leaf-shadow-temporal = []
+slang-tracer-lens-flare = [
+    "slang-tracer-lens-flare-downsample",
+    "slang-tracer-lens-flare-generate",
+    "slang-tracer-lens-flare-sun-visible",
+]
+slang-tracer-lens-flare-downsample = []
+slang-tracer-lens-flare-generate = []
+slang-tracer-lens-flare-sun-visible = []
+slang-tracer-shadow = []
+slang-tracer-shadow-depth-copy = []
+slang-tracer-terrain-query = []
+slang-tracer-vsm = [
+    "slang-tracer-shadow-depth-copy",
+    "slang-tracer-vsm-blur-h",
+    "slang-tracer-vsm-blur-v",
+    "slang-tracer-vsm-creation",
+]
+slang-tracer-vsm-blur-h = []
+slang-tracer-vsm-blur-v = []
+slang-tracer-vsm-creation = []
+slang-tracer-wind-volume = []
+slang-validation = [
+    "slang-chunk-writer",
+    "slang-composition",
+    "slang-contree",
+    "slang-denoiser",
+    "slang-egui",
+    "slang-foliage",
+    "slang-particles",
+    "slang-player-collider",
+    "slang-post-processing",
+    "slang-scene-accel",
+    "slang-sprinkler",
+    "slang-surface",
+    "slang-terrarium-glass",
+    "slang-tracer",
+    "slang-tracer-clouds",
+    "slang-tracer-god-ray",
+    "slang-tracer-leaf-shadow",
+    "slang-tracer-lens-flare",
+    "slang-tracer-shadow",
+    "slang-tracer-terrain-query",
+    "slang-tracer-vsm",
+    "slang-tracer-wind-volume",
+]
 sync_diagnostics = []
