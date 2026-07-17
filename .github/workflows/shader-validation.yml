@@ -61,7 +61,7 @@ jobs:
 
       - name: Install macOS build and validation dependencies
         if: runner.os == 'macOS'
-        run: brew install cmake ninja molten-vk spirv-tools vulkan-loader vulkan-validationlayers
+        run: brew install cmake ninja molten-vk spirv-tools vulkan-loader
 
       - name: Configure macOS Vulkan runtime
         if: runner.os == 'macOS'
@@ -69,7 +69,6 @@ jobs:
         run: |
           loader_prefix="$(brew --prefix vulkan-loader)"
           molten_prefix="$(brew --prefix molten-vk)"
-          layers_prefix="$(brew --prefix vulkan-validationlayers)"
           molten_library=""
           for candidate in \
             "$molten_prefix/lib/libMoltenVK.dylib" \
@@ -98,7 +97,6 @@ jobs:
           PY
           echo "DYLD_LIBRARY_PATH=$loader_prefix/lib" >> "$GITHUB_ENV"
           echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
-          echo "VK_LAYER_PATH=$layers_prefix/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
 
       - name: Install Windows build dependencies
         if: runner.os == 'Windows'
@@ -133,7 +131,7 @@ jobs:
       - name: Smoke test default GLSL through MoltenVK
         if: matrix.moltenvk_smoke
         shell: bash
-        run: cargo run --release --locked -- --hidden --mute --auto-exit 0.5
+        run: cargo run --release --locked --features no_validation_layer -- --hidden --mute --auto-exit 0.5
 
       - name: Check default GLSL run log
         if: matrix.moltenvk_smoke
@@ -142,7 +140,7 @@ jobs:
       - name: Smoke test native Slang through MoltenVK
         if: matrix.moltenvk_smoke
         shell: bash
-        run: cargo run --release --locked --features slang-validation -- --hidden --mute --auto-exit 0.5
+        run: cargo run --release --locked --features no_validation_layer,slang-validation -- --hidden --mute --auto-exit 0.5
 
       - name: Check native Slang run log
         if: matrix.moltenvk_smoke
