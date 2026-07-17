@@ -24,6 +24,7 @@ public static const uint DIRECT_SUN_SHADOW_SOURCE_ALL =
     DIRECT_SUN_SHADOW_SOURCE_TERRAIN |
     DIRECT_SUN_SHADOW_SOURCE_LEAF |
     DIRECT_SUN_SHADOW_SOURCE_CLOUD;
+public static const uint DIRECT_TERRAIN_SHADOW_VSM = 1u;
 public static const uint DIRECT_TERRAIN_SHADOW_GUI = 3u;
 public static const uint DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE = 1u << 0u;
 
@@ -199,6 +200,48 @@ bool sourceEnabled(DirectSunShadowReceiver receiver, uint source)
 {
     return (receiver.source_mask & source) != 0u &&
            (receiver.available_mask & source) != 0u;
+}
+
+public float directSunShadowTransmittanceVsmLeafCloud(
+    DirectSunShadowReceiver receiver,
+    U_GuiInput gui,
+    float4x4 shadowViewProjection,
+    Sampler2D vsmMap,
+    Sampler2D leafOpacityMap,
+    Sampler2D leafMaskMap,
+    Sampler2D cloudShadowMap)
+{
+    float terrainShadow = 1.0;
+    if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_TERRAIN))
+    {
+        terrainShadow = vsmTransmittance(
+            vsmMap, shadowViewProjection, receiver.world_position);
+    }
+
+    float leafShadow = 1.0;
+    if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_LEAF))
+    {
+        bool depthGate =
+            (receiver.flags & DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE) != 0u;
+        leafShadow = leafTransmittance(
+            leafOpacityMap,
+            leafMaskMap,
+            gui,
+            shadowViewProjection,
+            receiver.world_position,
+            depthGate);
+    }
+
+    float cloudShadow = 1.0;
+    if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_CLOUD))
+    {
+        cloudShadow = cloudTransmittance(
+            cloudShadowMap,
+            gui,
+            shadowViewProjection,
+            receiver.world_position);
+    }
+    return terrainShadow * leafShadow * cloudShadow;
 }
 
 public float directSunShadowTransmittance(

@@ -51,6 +51,23 @@ spirv-reflect = { git = "https://github.com/gwihlidal/spirv-reflect-rs.git", rev
 default = []
 no_validation_layer = ["re-flora-vkn/no_validation_layer"]
 slang-poc = ["slang-post-processing"]
+slang-chunk-writer = [
+    "slang-chunk-writer-buffer-setup",
+    "slang-chunk-writer-heightmap",
+    "slang-chunk-writer-init",
+    "slang-chunk-writer-model-voxelize",
+    "slang-chunk-writer-modify",
+    "slang-chunk-writer-modify-sample",
+    "slang-chunk-writer-solid-sample",
+    "slang-chunk-writer-terrain-fertility-brush",
+    "slang-chunk-writer-terrain-moisture-brush",
+    "slang-chunk-writer-terrain-moisture-dry",
+    "slang-chunk-writer-terrain-moisture-spread",
+    "slang-chunk-writer-terrain-soil-mix",
+    "slang-chunk-writer-terrain-smooth",
+    "slang-chunk-writer-terrain-smooth-mbo",
+    "slang-chunk-writer-voxel-property-sample",
+]
 slang-chunk-writer-buffer-setup = [
     "re-flora-vkn/slang-chunk-writer-buffer-setup",
 ]
@@ -80,6 +97,9 @@ slang-chunk-writer-terrain-fertility-brush = [
 ]
 slang-chunk-writer-terrain-moisture-brush = [
     "re-flora-vkn/slang-chunk-writer-terrain-moisture-brush",
+]
+slang-chunk-writer-terrain-moisture-dry = [
+    "re-flora-vkn/slang-chunk-writer-terrain-moisture-dry",
 ]
 slang-chunk-writer-terrain-moisture-spread = [
     "re-flora-vkn/slang-chunk-writer-terrain-moisture-spread",
@@ -234,20 +254,7 @@ slang-tracer-vsm-blur-v = ["re-flora-vkn/slang-tracer-vsm-blur-v"]
 slang-tracer-vsm-creation = ["re-flora-vkn/slang-tracer-vsm-creation"]
 slang-tracer-wind-volume = ["re-flora-vkn/slang-tracer-wind-volume"]
 slang-validation = [
-    "slang-chunk-writer-buffer-setup",
-    "slang-chunk-writer-heightmap",
-    "slang-chunk-writer-init",
-    "slang-chunk-writer-model-voxelize",
-    "slang-chunk-writer-modify",
-    "slang-chunk-writer-modify-sample",
-    "slang-chunk-writer-solid-sample",
-    "slang-chunk-writer-terrain-fertility-brush",
-    "slang-chunk-writer-terrain-moisture-brush",
-    "slang-chunk-writer-terrain-moisture-spread",
-    "slang-chunk-writer-terrain-soil-mix",
-    "slang-chunk-writer-terrain-smooth",
-    "slang-chunk-writer-terrain-smooth-mbo",
-    "slang-chunk-writer-voxel-property-sample",
+    "slang-chunk-writer",
     "slang-composition",
     "slang-contree",
     "slang-denoiser",

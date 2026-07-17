@@ -3,6 +3,15 @@ module terrain_soil;
 import voxel_data;
 import voxel_types;
 
+public struct TerrainMoistureDryPushConstants
+{
+    public uint4 offset;
+    public uint4 dim;
+    public float4 dry_params;
+    public float4 sun_dir_params;
+    public uint4 shadow_params;
+};
+
 public struct TerrainMoistureSpreadPushConstants
 {
     public uint4 offset;
