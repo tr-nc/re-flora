@@ -1,5 +1,25 @@
 module chunk_writer_types;
 
+public static const uint EDIT_STATS_VOXEL_TYPE_COUNT = 8u;
+public static const uint EDIT_REMOVAL_SAMPLE_COUNT = 50u;
+
+public struct B_EditStats
+{
+    public uint removed_counts[EDIT_STATS_VOXEL_TYPE_COUNT];
+    public uint added_counts[EDIT_STATS_VOXEL_TYPE_COUNT];
+};
+
+public struct B_EditRemovalCandidates
+{
+    public float4 positions[];
+};
+
+public struct B_EditRemovalSample
+{
+    public uint sample_count;
+    public float4 positions[EDIT_REMOVAL_SAMPLE_COUNT];
+};
+
 public struct U_RegionInfo
 {
     public uint3 offset;

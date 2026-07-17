@@ -21,7 +21,7 @@ public float hash11(float source)
     return asfloat((value & 0x007fffffu) | 0x3f800000u) - 1.0;
 }
 
-uint murmurHash12(uint2 source)
+public uint murmurHash12(uint2 source)
 {
     const uint multiplier = 0x5bd1e995u;
     uint value = 1190494759u;
