@@ -384,6 +384,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-particles-lod-textured-frag")]
+    ShaderOverride {
+        logical_path: "shader/particles/particle_lod_textured.frag",
+        source_path: "shader/slang/particle_lod_textured.frag.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-particles-water-droplet")]
     ShaderOverride {
         logical_path: "shader/particles/water_droplet.frag",
