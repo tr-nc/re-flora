@@ -96,7 +96,7 @@ jobs:
           }
           pathlib.Path(sys.argv[2]).write_text(json.dumps(manifest), encoding="utf-8")
           PY
-          echo "VULKAN_SDK=$loader_prefix" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$loader_prefix/lib" >> "$GITHUB_ENV"
           echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
           echo "VK_LAYER_PATH=$layers_prefix/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
 
