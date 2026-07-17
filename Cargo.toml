@@ -167,6 +167,7 @@ slang-flora = ["re-flora-vkn/slang-flora"]
 slang-player-collider = ["re-flora-vkn/slang-player-collider"]
 slang-post-processing = ["re-flora-vkn/slang-post-processing"]
 slang-scene-accel = ["re-flora-vkn/slang-scene-accel"]
+slang-sprinkler = ["re-flora-vkn/slang-sprinkler"]
 slang-surface = [
     "slang-surface-active-to-flora-instances",
     "slang-surface-clear-occupancy",
@@ -263,6 +264,7 @@ slang-validation = [
     "slang-player-collider",
     "slang-post-processing",
     "slang-scene-accel",
+    "slang-sprinkler",
     "slang-surface",
     "slang-tracer",
     "slang-tracer-clouds",

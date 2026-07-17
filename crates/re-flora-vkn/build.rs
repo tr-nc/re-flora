@@ -411,6 +411,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-sprinkler")]
+    ShaderOverride {
+        logical_path: "shader/props/sprinkler.vert",
+        source_path: "shader/slang/sprinkler.vert.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-surface-active-to-flora-instances")]
     ShaderOverride {
         logical_path: "shader/builder/surface/active_surface_to_flora_instances.comp",
