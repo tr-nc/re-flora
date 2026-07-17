@@ -56,6 +56,32 @@ public struct Instance
     public uint spawn_start_ms;
 };
 
+public struct TreeLeafInstance
+{
+    public uint packed_local_pos;
+    public uint packed_leaf_local_pos;
+};
+
+public uint3 unpackTreeLeafLocalPosition(uint packedLocalPosition)
+{
+    return uint3(packedLocalPosition & 0x3ffu,
+                 (packedLocalPosition >> 10u) & 0x3ffu,
+                 (packedLocalPosition >> 20u) & 0x3ffu);
+}
+
+public int3 unpackTreeLeafVoxelLocalPosition(uint packedLeafLocalPosition)
+{
+    return int3(int(packedLeafLocalPosition & 0x3ffu) - 512,
+                int((packedLeafLocalPosition >> 10u) & 0x3ffu) - 512,
+                int((packedLeafLocalPosition >> 20u) & 0x3ffu) - 512);
+}
+
+public uint3 treeLeafWorldPosition(uint packedLocalPosition,
+                                   uint3 chunkWorldOffset)
+{
+    return chunkWorldOffset + unpackTreeLeafLocalPosition(packedLocalPosition);
+}
+
 public struct FloraSpawnAnimationPose
 {
     public float3 translation_voxels;
