@@ -54,6 +54,16 @@ slang-poc = ["slang-post-processing"]
 slang-chunk-writer-buffer-setup = [
     "re-flora-vkn/slang-chunk-writer-buffer-setup",
 ]
+slang-chunk-writer-terrain-smooth-mbo = [
+    "slang-chunk-writer-terrain-smooth-mbo-apply",
+    "slang-chunk-writer-terrain-smooth-mbo-diffuse-ab",
+    "slang-chunk-writer-terrain-smooth-mbo-diffuse-ba",
+    "slang-chunk-writer-terrain-smooth-mbo-init",
+    "slang-chunk-writer-terrain-smooth-mbo-score",
+]
+slang-chunk-writer-terrain-smooth-mbo-apply = [
+    "re-flora-vkn/slang-chunk-writer-terrain-smooth-mbo-apply",
+]
 slang-chunk-writer-terrain-smooth-mbo-diffuse-ab = [
     "re-flora-vkn/slang-chunk-writer-terrain-smooth-mbo-diffuse-ab",
 ]
@@ -178,10 +188,7 @@ slang-tracer-vsm-creation = ["re-flora-vkn/slang-tracer-vsm-creation"]
 slang-tracer-wind-volume = ["re-flora-vkn/slang-tracer-wind-volume"]
 slang-validation = [
     "slang-chunk-writer-buffer-setup",
-    "slang-chunk-writer-terrain-smooth-mbo-diffuse-ab",
-    "slang-chunk-writer-terrain-smooth-mbo-diffuse-ba",
-    "slang-chunk-writer-terrain-smooth-mbo-init",
-    "slang-chunk-writer-terrain-smooth-mbo-score",
+    "slang-chunk-writer-terrain-smooth-mbo",
     "slang-composition",
     "slang-contree",
     "slang-denoiser",
