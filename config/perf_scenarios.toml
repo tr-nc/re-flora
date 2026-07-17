@@ -1,0 +1,86 @@
+version = 1
+
+[scenario.render-steady]
+description = "Settled fixed-camera rendering with Vulkan GPU frame scopes"
+args = ["--hidden", "--mute", "--perf", "--camera-snapshot", "player-default", "--auto-exit", "12"]
+env = {}
+warmup_frame = 120
+required_markers = ["[PERF][GPU_FRAME_SCOPE]"]
+
+[[scenario.render-steady.metric]]
+name = "frame.render"
+source = "gpu_scope"
+key = "frame.render"
+min_samples = 120
+budget_percent = 2.0
+
+[[scenario.render-steady.metric]]
+name = "tracer.render"
+source = "gpu_scope"
+key = "tracer.render"
+min_samples = 120
+budget_percent = 2.0
+
+[[scenario.render-steady.metric]]
+name = "tracer.shadow_prepass"
+source = "gpu_scope"
+key = "tracer.shadow_prepass"
+min_samples = 120
+budget_percent = 3.0
+
+[[scenario.render-steady.metric]]
+name = "composition.pass"
+source = "gpu_scope"
+key = "composition.pass"
+min_samples = 120
+budget_percent = 3.0
+
+[scenario.surface-rebuild]
+description = "Deterministic tree replacement with surface construction pass timings"
+args = ["--hidden", "--mute", "--perf", "--tree-bench", "--tree-bench-samples", "10"]
+env = { RUST_LOG = "info,re_flora::builder::surface=debug" }
+warmup_frame = 0
+required_markers = ["[PERF][SURFACE_BUILD]", "[PERF][TREE_BENCH_SUMMARY]"]
+match_surface_workload = true
+
+[[scenario.surface-rebuild.metric]]
+name = "surface.build"
+source = "gpu_job_scope"
+key = "surface.build"
+min_samples = 1
+budget_percent = 3.0
+
+[[scenario.surface-rebuild.metric]]
+name = "surface.make_sparse"
+source = "surface_pass"
+key = "make_surface_sparse"
+min_samples = 1
+budget_percent = 3.0
+
+[[scenario.surface-rebuild.metric]]
+name = "tree.replace_deferred_total"
+source = "tree_bench"
+key = "replace_deferred_total"
+min_samples = 8
+budget_percent = 5.0
+
+[scenario.tree-replace]
+description = "Deterministic end-to-end tree replacement construction workload"
+args = ["--hidden", "--mute", "--perf", "--tree-bench", "--tree-bench-samples", "10"]
+env = {}
+warmup_frame = 0
+required_markers = ["[PERF][TREE_BENCH_SUMMARY]"]
+
+[[scenario.tree-replace.metric]]
+name = "tree.replace_deferred_total"
+source = "tree_bench"
+key = "replace_deferred_total"
+min_samples = 8
+budget_percent = 5.0
+
+[[scenario.tree-replace.metric]]
+name = "surface.build"
+source = "gpu_job_scope"
+key = "surface.build"
+min_samples = 1
+budget_percent = 3.0
