@@ -100,7 +100,16 @@ slang-denoiser-spatial = []
 slang-denoiser-temporal = []
 slang-egui = []
 slang-flora = []
+slang-particles = [
+    "slang-particles-lod-textured",
+    "slang-particles-water-droplet",
+]
+slang-particles-lod-textured = [
+    "slang-particles-lod-textured-frag",
+    "slang-particles-lod-textured-vert",
+]
 slang-particles-lod-textured-frag = []
+slang-particles-lod-textured-vert = []
 slang-particles-water-droplet = []
 slang-player-collider = []
 slang-poc = ["slang-post-processing"]
@@ -182,8 +191,7 @@ slang-validation = [
     "slang-denoiser",
     "slang-egui",
     "slang-flora",
-    "slang-particles-lod-textured-frag",
-    "slang-particles-water-droplet",
+    "slang-particles",
     "slang-player-collider",
     "slang-post-processing",
     "slang-scene-accel",

@@ -164,7 +164,16 @@ slang-denoiser-spatial = ["re-flora-vkn/slang-denoiser-spatial"]
 slang-denoiser-temporal = ["re-flora-vkn/slang-denoiser-temporal"]
 slang-egui = ["re-flora-vkn/slang-egui"]
 slang-flora = ["re-flora-vkn/slang-flora"]
+slang-particles = [
+    "slang-particles-lod-textured",
+    "slang-particles-water-droplet",
+]
+slang-particles-lod-textured = [
+    "slang-particles-lod-textured-frag",
+    "slang-particles-lod-textured-vert",
+]
 slang-particles-lod-textured-frag = ["re-flora-vkn/slang-particles-lod-textured-frag"]
+slang-particles-lod-textured-vert = ["re-flora-vkn/slang-particles-lod-textured-vert"]
 slang-particles-water-droplet = ["re-flora-vkn/slang-particles-water-droplet"]
 slang-player-collider = ["re-flora-vkn/slang-player-collider"]
 slang-post-processing = ["re-flora-vkn/slang-post-processing"]
@@ -269,8 +278,7 @@ slang-validation = [
     "slang-denoiser",
     "slang-egui",
     "slang-flora",
-    "slang-particles-lod-textured-frag",
-    "slang-particles-water-droplet",
+    "slang-particles",
     "slang-player-collider",
     "slang-post-processing",
     "slang-scene-accel",
