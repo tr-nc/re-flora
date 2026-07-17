@@ -336,7 +336,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 | Risk or decision | Current state | Required resolution |
 | --- | --- | --- |
 | Slang compiler integration | Process startup is removed locally through one dynamically loaded global session; aggregate checks improved by about 20% | Pin the compiler ABI/version and reproduce the API path on Windows and macOS CI |
-| Native Vulkan performance | Main tracer has order-reversed RTX 3060 Ti evidence; most other candidates have only MoltenVK evidence | Repeat hot-pass benchmarks across additional native Vulkan vendors and drivers |
+| Native Vulkan performance | Complete 76-entry RTX 3060 Ti gate: `frame.render` median +0.37%, `tracer.render` +0.69%, graphics/composition unchanged; no material frame regression | Repeat hot-pass benchmarks across additional native Vulkan vendors and drivers |
 | Cross-platform toolchain | CLI path tested on macOS; compiler API and aggregate runtime tested locally on Linux | Pinned compiler install plus Windows/macOS/Linux CI matrix |
 | Full tracer native translation | Native resources, traversal, lighting, materials, preview, and output orchestration pass locally; native `tracer.pass` median was 1.3% above shaderc on RTX 3060 Ti | Recheck the small measured delta on additional drivers while migrating shared modules |
 | Full composition native translation | Active sky/composition plus disabled panel, glass, volumetric-cloud reflection, and SSR logic are split into native modules; temporary helper reactivation was visually equivalent | Keep the helpers disabled until a product decision, and repeat performance gates if they are re-enabled |
