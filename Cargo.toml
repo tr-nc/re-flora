@@ -57,6 +57,9 @@ slang-chunk-writer-buffer-setup = [
 slang-chunk-writer-modify-sample = [
     "re-flora-vkn/slang-chunk-writer-modify-sample",
 ]
+slang-chunk-writer-solid-sample = [
+    "re-flora-vkn/slang-chunk-writer-solid-sample",
+]
 slang-chunk-writer-terrain-smooth-mbo = [
     "slang-chunk-writer-terrain-smooth-mbo-apply",
     "slang-chunk-writer-terrain-smooth-mbo-diffuse-ab",
@@ -192,6 +195,7 @@ slang-tracer-wind-volume = ["re-flora-vkn/slang-tracer-wind-volume"]
 slang-validation = [
     "slang-chunk-writer-buffer-setup",
     "slang-chunk-writer-modify-sample",
+    "slang-chunk-writer-solid-sample",
     "slang-chunk-writer-terrain-smooth-mbo",
     "slang-composition",
     "slang-contree",

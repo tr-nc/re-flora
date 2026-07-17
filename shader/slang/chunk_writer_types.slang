@@ -20,6 +20,18 @@ public struct B_EditRemovalSample
     public float4 positions[EDIT_REMOVAL_SAMPLE_COUNT];
 };
 
+public struct U_ChunkSolidSampleInfo
+{
+    public uint3 atlas_offset;
+    public uint3 atlas_dim;
+    public uint3 sample_dim;
+};
+
+public struct B_ChunkSolidSamples
+{
+    public uint solid[];
+};
+
 public struct U_RegionInfo
 {
     public uint3 offset;
