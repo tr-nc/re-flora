@@ -102,6 +102,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-chunk-writer-modify")]
+    ShaderOverride {
+        logical_path: "shader/builder/chunk_writer/chunk_modify.comp",
+        source_path: "shader/slang/chunk_modify.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-chunk-writer-modify-sample")]
     ShaderOverride {
         logical_path: "shader/builder/chunk_writer/chunk_modify_sample.comp",

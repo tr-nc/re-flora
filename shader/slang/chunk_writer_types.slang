@@ -20,6 +20,68 @@ public struct B_EditRemovalSample
     public float4 positions[EDIT_REMOVAL_SAMPLE_COUNT];
 };
 
+public struct BvhNode
+{
+    public float3 aabb_min;
+    public float3 aabb_max;
+    public uint offset;
+};
+
+public struct RoundCone
+{
+    public float3 center_a;
+    public float radius_a;
+    public float3 center_b;
+    public float radius_b;
+};
+
+public struct Cuboid
+{
+    public float3 min_corner;
+    public float _pad0;
+    public float3 max_corner;
+    public float _pad1;
+};
+
+public struct Sphere
+{
+    public float3 center;
+    public float radius;
+};
+
+public struct U_ChunkModifyInfo
+{
+    public uint3 offset;
+    public uint3 dim;
+    public uint fill_voxel_type;
+    public uint target_voxel_type;
+    public uint primitive_kind;
+    public uint surface_only;
+    public uint max_write_count;
+    public uint4 max_removed_counts_0_3;
+    public uint4 max_removed_counts_4_7;
+};
+
+public struct B_BvhNodes
+{
+    public BvhNode data[];
+};
+
+public struct B_RoundCones
+{
+    public RoundCone data[];
+};
+
+public struct B_Cuboids
+{
+    public Cuboid data[];
+};
+
+public struct B_Spheres
+{
+    public Sphere data[];
+};
+
 public struct U_ModelVoxelizeInfo
 {
     public uint3 offset;
