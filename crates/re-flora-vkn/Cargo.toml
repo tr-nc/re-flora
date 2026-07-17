@@ -100,6 +100,7 @@ slang-denoiser-spatial = []
 slang-denoiser-temporal = []
 slang-egui = []
 slang-flora = []
+slang-particles-water-droplet = []
 slang-player-collider = []
 slang-poc = ["slang-post-processing"]
 slang-post-processing = []
@@ -180,6 +181,7 @@ slang-validation = [
     "slang-denoiser",
     "slang-egui",
     "slang-flora",
+    "slang-particles-water-droplet",
     "slang-player-collider",
     "slang-post-processing",
     "slang-scene-accel",
