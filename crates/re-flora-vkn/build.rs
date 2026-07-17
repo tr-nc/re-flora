@@ -138,6 +138,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-chunk-writer-voxel-property-sample")]
+    ShaderOverride {
+        logical_path: "shader/builder/chunk_writer/voxel_property_sample.comp",
+        source_path: "shader/slang/voxel_property_sample.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Compute,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-composition")]
     ShaderOverride {
         logical_path: "shader/tracer/composition.comp",

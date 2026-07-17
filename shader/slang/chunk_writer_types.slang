@@ -20,6 +20,20 @@ public struct B_EditRemovalSample
     public float4 positions[EDIT_REMOVAL_SAMPLE_COUNT];
 };
 
+public struct U_VoxelPropertySampleInfo
+{
+    public uint4 atlas_offset_property_id;
+    public uint4 atlas_dim_target_mask;
+    public float4 center_radius;
+    public uint4 options;
+};
+
+public struct B_VoxelPropertySampleResult
+{
+    public uint4 stats;
+    public uint4 extra;
+};
+
 public struct U_ChunkSolidSampleInfo
 {
     public uint3 atlas_offset;
