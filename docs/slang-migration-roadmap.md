@@ -154,8 +154,8 @@ For a large or risky GLSL shader, first add a temporary GLSL-through-Slang backe
 - [x] Validate storage images, uniforms, shared memory, barriers, atomics, structured/runtime SSBOs, matrices, traversal, and basic graphics stages on MoltenVK.
 - [x] Add automatic frontend ABI comparison.
 - [x] Distinguish native Slang from GLSL-through-Slang in build output.
-- [ ] Pin and log an approved Slang compiler version in the build/CI contract.
-- [ ] Add a portable SPIR-V validation command or CI step for every selected artifact.
+- [x] Pin and log an approved Slang compiler version in the build/CI contract: `scripts/install_slang.py` installs official v2025.23 archives by platform with fixed SHA-256 digests.
+- [x] Add a portable SPIR-V validation command or CI step for every selected artifact: `scripts/validate_spirv_artifacts.py` validates the complete 152-artifact set.
 
 ### Phase 1 — production build architecture
 
@@ -200,8 +200,8 @@ Graphics shaders must be validated as pipeline pairs even when only one stage ch
 
 ### Phase 5 — cross-platform release gate
 
-- [ ] Install and pin Slang in macOS, Windows, and Fedora CI.
-- [ ] Run default GLSL, each current candidate class, and aggregate Slang builds in CI.
+- [x] Install and pin Slang in macOS, Windows, and Fedora CI through `.github/workflows/shader-validation.yml` and the checksum-verified v2025.23 installer.
+- [ ] Observe successful hosted default GLSL and complete aggregate Slang checks on macOS, Windows, and Fedora; the workflow is configured, but its first remote run is pending.
 - [ ] Validate MoltenVK on macOS and native Vulkan on at least one Windows and one Linux GPU/driver.
 - [ ] Repeat authoritative hot-pass benchmarks on native Vulkan.
 - [ ] Confirm descriptor limits, image formats, subgroup/workgroup behavior, and graphics interpolation across drivers.
@@ -368,4 +368,4 @@ Do these in order unless new measurements change the priority:
 13. [x] **Finish tracer compute**: all 21 tracer entries are native, including complete VSM, leaf-shadow, lens-flare, cloud, denoiser-adjacent, and utility subfamilies.
 14. [x] **Migrate chunk writer**: all 21 entries are independently selectable and aggregate-valid, including heightmap/classification, edits, model voxelization, sampling, smoothing, and soil-state simulation.
 15. [x] **Complete graphics migration**: foliage, particles, sprinkler, terrarium glass, and egui are native.
-16. **Run the cross-platform release gate**: pin Slang in CI, validate MoltenVK plus Windows/Linux native Vulkan, and repeat authoritative hot-pass benchmarks across vendors.
+16. **Run the cross-platform release gate**: the pinned macOS/Windows/Fedora compile matrix and macOS default/native MoltenVK smokes are configured; observe hosted results, then add Windows/Linux GPU runs and repeat authoritative hot-pass benchmarks across vendors.

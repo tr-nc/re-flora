@@ -8,14 +8,21 @@ The first pass, `shader/tracer/post_processing.comp`, was selected because it ru
 
 ## Requirements
 
-Install a Slang distribution that includes both `slangc` and the compiler shared library. The build locates the library through:
+Install a Slang distribution that includes both `slangc` and the compiler shared library. For the checksum-pinned v2025.23 release used by CI:
+
+```bash
+python scripts/install_slang.py
+export SLANGC="$PWD/.tools/slang-2025.23/bin/slangc"
+```
+
+The installer supports Linux x86_64/aarch64, macOS x86_64/aarch64, and Windows x86_64. It verifies platform-specific SHA-256 digests before extraction; setting `SLANGC` is sufficient for the build to locate the adjacent shared library. The build locates the library through:
 
 1. the `SLANG_LIB` environment variable,
 2. a library beside or under the installation containing `SLANGC`,
 3. `$VULKAN_SDK`, or
 4. the installation containing `slangc` on `PATH`.
 
-The build dynamically loads the compiler API only when a Slang feature is enabled. A default build does not locate or load Slang. The initial validation used Vulkan SDK 1.4.321.0 and Slang `2025.11-12-gc5295eae2` on macOS; the shared-session build-cost validation used Vulkan SDK Slang `2025.23.2` on Linux. Native Slang sources pin the Slang 2025 language rules and column-major matrices. The GLSL frontend uses row-major lowering to preserve the existing GLSL std140 matrix bytes. Both paths emit SPIR-V 1.6 with Vulkan GL-compatible buffer layout.
+The build dynamically loads the compiler API only when a Slang feature is enabled. A default build does not locate or load Slang. The initial validation used Vulkan SDK 1.4.321.0 and Slang `2025.11-12-gc5295eae2` on macOS; the shared-session build-cost validation used Vulkan SDK Slang `2025.23.2` on Linux. The portable CI contract pins official Slang v2025.23 archives, which also pass the complete local aggregate build. Native Slang sources pin the Slang 2025 language rules and column-major matrices. The GLSL frontend uses row-major lowering to preserve the existing GLSL std140 matrix bytes. Both paths emit SPIR-V 1.6 with Vulkan GL-compatible buffer layout.
 
 ## Build and validation
 
@@ -808,4 +815,4 @@ Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, 
 
 ## Limits of this result
 
-The candidates establish Slang compatibility with the current shared-memory, uniform-barrier, atomic, storage-image, runtime/fixed-array, structured-SSBO, matrix, branch-heavy traversal, workgroup-reduction, and complex graphics-stage interface patterns. Native Slang modules now cover the main, shadow, and player-collider tracer entries, the full composition source, the complex flora pair, and the egui pair. This is sufficient to continue staged migration, not to switch the default: accepted sources now live under `shader/slang/` and dependency-aware artifact reuse is active, while the dynamically loaded API path still needs exact version pinning and Windows/macOS CI coverage. The disabled composition helper source is translated and compile/visual-tested, but would need a fresh performance gate if product behavior re-enables it; the dormant player-collider pass similarly has matched execution/readback rather than production timing evidence. Flora timing is currently aggregate MoltenVK evidence because nested child-scope attribution is unstable; native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
+The candidates establish Slang compatibility with the current shared-memory, uniform-barrier, atomic, storage-image, runtime/fixed-array, structured-SSBO, matrix, branch-heavy traversal, workgroup-reduction, and complex graphics-stage interface patterns. Native Slang modules cover all 76 production entries. Accepted sources live under `shader/slang/`, dependency-aware artifact reuse is active, and official Slang v2025.23 archives are checksum-pinned for the macOS, Windows, and Fedora validation matrix. The default should not switch until that hosted workflow succeeds and additional Windows/Linux native-Vulkan vendor coverage is recorded. The disabled composition helper source is translated and compile/visual-tested, but would need a fresh performance gate if product behavior re-enables it; the dormant player-collider pass similarly has matched execution/readback rather than production timing evidence. Flora timing is currently aggregate MoltenVK evidence because nested child-scope attribution is unstable; native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
