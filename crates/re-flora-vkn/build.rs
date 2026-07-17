@@ -654,6 +654,15 @@ const SHADER_OVERRIDES: &[ShaderOverride] = &[
         frontend: ShaderFrontend::NativeSlang2025,
         defines: &[],
     },
+    #[cfg(feature = "slang-terrarium-glass-vert")]
+    ShaderOverride {
+        logical_path: "shader/terrarium/glass.vert",
+        source_path: "shader/slang/terrarium_glass.vert.slang",
+        include_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+        frontend: ShaderFrontend::NativeSlang2025,
+        defines: &[],
+    },
     #[cfg(feature = "slang-tracer")]
     ShaderOverride {
         logical_path: "shader/tracer/tracer.comp",

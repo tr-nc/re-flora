@@ -204,6 +204,7 @@ slang-surface-prepare-sparse-dispatch = [
 slang-surface-update-flora-growth = [
     "re-flora-vkn/slang-surface-update-flora-growth",
 ]
+slang-terrarium-glass-vert = ["re-flora-vkn/slang-terrarium-glass-vert"]
 slang-tracer = ["re-flora-vkn/slang-tracer"]
 slang-tracer-backend = ["re-flora-vkn/slang-tracer-backend"]
 slang-tracer-cloud = ["re-flora-vkn/slang-tracer-cloud"]
@@ -266,6 +267,7 @@ slang-validation = [
     "slang-scene-accel",
     "slang-sprinkler",
     "slang-surface",
+    "slang-terrarium-glass-vert",
     "slang-tracer",
     "slang-tracer-clouds",
     "slang-tracer-god-ray",

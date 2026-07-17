@@ -127,6 +127,7 @@ slang-surface-occupancy-to-flora-instances = []
 slang-surface-prepare-active-flora-dispatch = []
 slang-surface-prepare-sparse-dispatch = []
 slang-surface-update-flora-growth = []
+slang-terrarium-glass-vert = []
 slang-tracer = []
 slang-tracer-backend = []
 slang-tracer-cloud = []
@@ -179,6 +180,7 @@ slang-validation = [
     "slang-scene-accel",
     "slang-sprinkler",
     "slang-surface",
+    "slang-terrarium-glass-vert",
     "slang-tracer",
     "slang-tracer-clouds",
     "slang-tracer-god-ray",
