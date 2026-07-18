@@ -144,12 +144,14 @@ impl IrrigationNetwork {
         self.powered_nodes = self.connected_nodes();
     }
 
+    #[cfg(test)]
     fn segment_is_connected(&self, segment: &PipeSegment) -> bool {
         self.powered_nodes.contains(&segment.start_node)
             && self.powered_nodes.contains(&segment.end_node)
     }
 
-    pub(super) fn segment_is_powered(&self, segment_id: u32) -> bool {
+    #[cfg(test)]
+    fn segment_is_powered(&self, segment_id: u32) -> bool {
         self.segments
             .iter()
             .find(|segment| segment.id == segment_id)
@@ -359,10 +361,6 @@ impl SprinklerEmitter {
             animation_tick: 0,
             animation_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
         }
-    }
-
-    pub(super) fn id(&self) -> u32 {
-        self.id
     }
 
     pub(super) fn set_animation_clock(&mut self, tick: u32, tick_seconds: f32) {
