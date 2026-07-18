@@ -49,3 +49,23 @@ Native Slang A/B results with matching workload signatures:
 | `tree.replace_deferred_total` | 13.290 ms | 12.775 ms | -3.88% | -2.81% |
 
 Report: `target/perf/slang-surface-integer-ab/` (local benchmark artifact, not tracked).
+
+## Rejected compact normal estimator
+
+A measured experiment changed the occupancy-weighted normal neighborhood from 5×5×5 to 3×3×3. It reduced `surface.make_sparse` by 18.14% and `surface.build` by 13.45%, but it also produced visibly less smooth terrain shading. The changed normals could additionally alter natural flora placement through the surface-flatness policy. The compact estimator was therefore rejected rather than retaining a visual and gameplay tradeoff for a construction-only optimization.
+
+## Packed shared occupancy rows
+
+The retained estimator preserves the smooth 5×5×5 neighborhood and its exact integer normal sum. Each 12-voxel X row in the workgroup halo is stored as an occupancy bit mask, while the central 8-voxel type rows use packed four-bit voxel types. For each surface voxel, 25 shared row loads and population counts reproduce the same X, Y, and Z moments as visiting all 125 voxels individually. Shared surface source data falls from 6,912 bytes to 832 bytes per workgroup.
+
+The five-bit X-moment identity and all Y/Z population contributions were exhaustively checked for every row pattern and offset combination. Matching ordered active-voxel, active-brick, and solid-workgroup signatures passed the release benchmark comparison. Because the resulting integer sum, normalization, and Oct16 packing path are unchanged, terrain normals and flora placement retain the smooth reference behavior.
+
+### RTX 3060 Ti, packed rows versus smooth reference
+
+| Metric | Baseline median | Candidate median | Median delta | p95 delta |
+|---|---:|---:|---:|---:|
+| `surface.build` | 732.0 µs | 597.0 µs | -18.44% | -23.87% |
+| `surface.make_sparse` | 540.0 µs | 411.5 µs | -23.80% | -29.16% |
+| `tree.replace_deferred_total` | 12.775 ms | 12.475 ms | -2.35% | -5.47% |
+
+The optimized sparse SPIR-V grew from 10,692 to 12,368 bytes. Fixed-camera repeat RMSE was 0.00946 for the reference and 0.00779 for packed rows; cross-build RMSE ranged from 0.00595 to 0.01070, within same-build render variation. Report: `target/perf/surface-packed-smooth-ab/`; local screenshots: `/tmp/surface-{smooth,packed}-{1,2}.png`.
