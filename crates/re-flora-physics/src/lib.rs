@@ -1,18 +1,110 @@
-use glam::{IVec3, UVec3};
+use glam::{IVec3, Quat, UVec3, Vec3};
 use rapier3d::prelude::{
-    ColliderBuilder, ColliderHandle, IVector, PhysicsWorld, SharedShape, Vector, Voxels,
+    ColliderBuilder, ColliderHandle, IVector, PhysicsWorld, Pose, RigidBodyBuilder,
+    RigidBodyHandle, Rotation, SharedShape, Vector, Voxels,
 };
 #[cfg(test)]
 use rapier3d::prelude::{AxisMask, VoxelState};
 use std::collections::HashMap;
 
 pub const STATIC_VOXEL_BRICK_DIM: u32 = 32;
+pub const DEFAULT_FIXED_STEP_SECONDS: f32 = 1.0 / 120.0;
+pub const DEFAULT_MAX_SUBSTEPS: u32 = 8;
 const STATIC_VOXEL_BRICK_VOLUME: usize =
     STATIC_VOXEL_BRICK_DIM as usize * STATIC_VOXEL_BRICK_DIM as usize * STATIC_VOXEL_BRICK_DIM as usize;
 const OCCUPANCY_WORD_COUNT: usize = STATIC_VOXEL_BRICK_VOLUME.div_ceil(u64::BITS as usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StaticVoxelBrickId(pub IVec3);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DynamicBodyId(u64);
+
+impl DynamicBodyId {
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum DynamicColliderShape {
+    Sphere { radius: f32 },
+    ConvexHull { points: Vec<Vec3> },
+}
+
+#[derive(Clone, Debug)]
+pub struct DynamicBodyDesc {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub linear_velocity: Vec3,
+    pub angular_velocity: Vec3,
+    pub collider: DynamicColliderShape,
+    pub mass: f32,
+    pub friction: f32,
+    pub restitution: f32,
+    pub linear_damping: f32,
+    pub angular_damping: f32,
+    pub ccd_enabled: bool,
+    pub can_sleep: bool,
+}
+
+impl DynamicBodyDesc {
+    pub fn sphere(position: Vec3, radius: f32) -> Self {
+        Self {
+            position,
+            rotation: Quat::IDENTITY,
+            linear_velocity: Vec3::ZERO,
+            angular_velocity: Vec3::ZERO,
+            collider: DynamicColliderShape::Sphere { radius },
+            mass: 1.0,
+            friction: 0.8,
+            restitution: 0.05,
+            linear_damping: 0.1,
+            angular_damping: 0.1,
+            ccd_enabled: true,
+            can_sleep: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DynamicBodyState {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub linear_velocity: Vec3,
+    pub angular_velocity: Vec3,
+    pub sleeping: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FixedStepResult {
+    pub steps: u32,
+    pub simulated_seconds: f32,
+    pub dropped_seconds: f32,
+    pub interpolation_alpha: f32,
+}
+
+#[derive(Clone, Debug, thiserror::Error, PartialEq)]
+pub enum DynamicBodyError {
+    #[error("dynamic body {field} must be finite")]
+    NonFinite { field: &'static str },
+    #[error("dynamic body {field} must be at least zero, got {value}")]
+    Negative {
+        field: &'static str,
+        value: f32,
+    },
+    #[error("dynamic body {field} must be greater than zero, got {value}")]
+    NonPositive {
+        field: &'static str,
+        value: f32,
+    },
+    #[error("dynamic body rotation must have non-zero length")]
+    ZeroRotation,
+    #[error("convex hull points do not form a three-dimensional convex shape")]
+    InvalidConvexHull,
+    #[error("dynamic body identifier space is exhausted")]
+    IdExhausted,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BrickOccupancy {
@@ -133,6 +225,22 @@ impl BrickOccupancy {
         }
         changes
     }
+
+    fn filled_local_bounds(&self) -> Option<(IVec3, IVec3)> {
+        let mut mins = IVec3::splat(STATIC_VOXEL_BRICK_DIM as i32);
+        let mut maxs = IVec3::ZERO;
+        let mut found = false;
+        for index in 0..STATIC_VOXEL_BRICK_VOLUME {
+            if !self.contains_index(index) {
+                continue;
+            }
+            let voxel = local_coords(index).as_ivec3();
+            mins = mins.min(voxel);
+            maxs = maxs.max(voxel + IVec3::ONE);
+            found = true;
+        }
+        found.then_some((mins, maxs))
+    }
 }
 
 impl Default for BrickOccupancy {
@@ -168,6 +276,11 @@ pub struct CollisionWorld {
     physics: PhysicsWorld,
     static_bricks: HashMap<StaticVoxelBrickId, StaticVoxelBrick>,
     static_brick_revisions: HashMap<StaticVoxelBrickId, u64>,
+    dynamic_bodies: HashMap<DynamicBodyId, RigidBodyHandle>,
+    next_dynamic_body_id: u64,
+    fixed_step_seconds: f32,
+    max_substeps: u32,
+    fixed_step_accumulator: f32,
 }
 
 impl Default for CollisionWorld {
@@ -178,10 +291,137 @@ impl Default for CollisionWorld {
 
 impl CollisionWorld {
     pub fn new() -> Self {
+        let mut physics = PhysicsWorld::new();
+        physics.integration_parameters.dt = DEFAULT_FIXED_STEP_SECONDS;
         Self {
-            physics: PhysicsWorld::new(),
+            physics,
             static_bricks: HashMap::new(),
             static_brick_revisions: HashMap::new(),
+            dynamic_bodies: HashMap::new(),
+            next_dynamic_body_id: 1,
+            fixed_step_seconds: DEFAULT_FIXED_STEP_SECONDS,
+            max_substeps: DEFAULT_MAX_SUBSTEPS,
+            fixed_step_accumulator: 0.0,
+        }
+    }
+
+    pub fn set_gravity(&mut self, gravity: Vec3) -> Result<(), DynamicBodyError> {
+        validate_finite_vec3("gravity", gravity)?;
+        self.physics.gravity = to_rapier_vec(gravity);
+        Ok(())
+    }
+
+    pub fn gravity(&self) -> Vec3 {
+        from_rapier_vec(self.physics.gravity)
+    }
+
+    pub fn set_fixed_step(
+        &mut self,
+        fixed_step_seconds: f32,
+        max_substeps: u32,
+    ) -> Result<(), DynamicBodyError> {
+        validate_positive("fixed_step_seconds", fixed_step_seconds)?;
+        if max_substeps == 0 {
+            return Err(DynamicBodyError::NonPositive {
+                field: "max_substeps",
+                value: 0.0,
+            });
+        }
+        self.fixed_step_seconds = fixed_step_seconds;
+        self.max_substeps = max_substeps;
+        self.fixed_step_accumulator = 0.0;
+        self.physics.integration_parameters.dt = fixed_step_seconds;
+        Ok(())
+    }
+
+    pub fn fixed_step_seconds(&self) -> f32 {
+        self.fixed_step_seconds
+    }
+
+    pub fn dynamic_body_count(&self) -> usize {
+        self.dynamic_bodies.len()
+    }
+
+    pub fn spawn_dynamic_body(
+        &mut self,
+        desc: DynamicBodyDesc,
+    ) -> Result<DynamicBodyId, DynamicBodyError> {
+        let rotation = validate_dynamic_body_desc(&desc)?;
+        let shape = build_dynamic_shape(&desc.collider)?;
+        let id = DynamicBodyId(self.next_dynamic_body_id);
+        self.next_dynamic_body_id = self
+            .next_dynamic_body_id
+            .checked_add(1)
+            .ok_or(DynamicBodyError::IdExhausted)?;
+
+        let body = RigidBodyBuilder::dynamic()
+            .pose(Pose::from_parts(to_rapier_vec(desc.position), rotation))
+            .linvel(to_rapier_vec(desc.linear_velocity))
+            .angvel(to_rapier_vec(desc.angular_velocity))
+            .linear_damping(desc.linear_damping)
+            .angular_damping(desc.angular_damping)
+            .ccd_enabled(desc.ccd_enabled)
+            .can_sleep(desc.can_sleep)
+            .user_data(id.get() as u128);
+        let collider = ColliderBuilder::new(shape)
+            .mass(desc.mass)
+            .friction(desc.friction)
+            .restitution(desc.restitution)
+            .user_data(id.get() as u128);
+        let (body_handle, _) = self.physics.insert(body, collider);
+        self.dynamic_bodies.insert(id, body_handle);
+        Ok(id)
+    }
+
+    pub fn remove_dynamic_body(&mut self, id: DynamicBodyId) -> bool {
+        let Some(handle) = self.dynamic_bodies.remove(&id) else {
+            return false;
+        };
+        self.physics.remove_body(handle).is_some()
+    }
+
+    pub fn dynamic_body_state(&self, id: DynamicBodyId) -> Option<DynamicBodyState> {
+        let body = &self.physics.bodies[*self.dynamic_bodies.get(&id)?];
+        Some(DynamicBodyState {
+            position: from_rapier_vec(body.translation()),
+            rotation: from_rapier_rotation(*body.rotation()),
+            linear_velocity: from_rapier_vec(body.linvel()),
+            angular_velocity: from_rapier_vec(body.angvel()),
+            sleeping: body.is_sleeping(),
+        })
+    }
+
+    pub fn advance(&mut self, elapsed_seconds: f32) -> FixedStepResult {
+        if !elapsed_seconds.is_finite() || elapsed_seconds <= 0.0 {
+            return FixedStepResult {
+                steps: 0,
+                simulated_seconds: 0.0,
+                dropped_seconds: 0.0,
+                interpolation_alpha: self.fixed_step_accumulator / self.fixed_step_seconds,
+            };
+        }
+
+        self.fixed_step_accumulator += elapsed_seconds;
+        let max_accumulated = self.fixed_step_seconds * self.max_substeps as f32;
+        let dropped_seconds = (self.fixed_step_accumulator - max_accumulated).max(0.0);
+        self.fixed_step_accumulator = self.fixed_step_accumulator.min(max_accumulated);
+
+        let mut steps = 0;
+        while steps < self.max_substeps
+            && self.fixed_step_accumulator >= self.fixed_step_seconds
+        {
+            self.physics.step();
+            self.fixed_step_accumulator =
+                (self.fixed_step_accumulator - self.fixed_step_seconds).max(0.0);
+            steps += 1;
+        }
+
+        FixedStepResult {
+            steps,
+            simulated_seconds: steps as f32 * self.fixed_step_seconds,
+            dropped_seconds,
+            interpolation_alpha: (self.fixed_step_accumulator / self.fixed_step_seconds)
+                .clamp(0.0, 1.0),
         }
     }
 
@@ -245,6 +485,9 @@ impl CollisionWorld {
     }
 
     fn insert_new_brick(&mut self, id: StaticVoxelBrickId, occupancy: BrickOccupancy) {
+        let changed_bounds = occupancy
+            .filled_local_bounds()
+            .map(|bounds| brick_local_bounds_to_world(id, bounds));
         let mut voxels = Voxels::new(Vector::splat(1.0), &occupancy.filled_rapier_voxels());
 
         for direction in FACE_NEIGHBORS {
@@ -274,6 +517,9 @@ impl CollisionWorld {
                 collider,
             },
         );
+        if let Some((mins, maxs)) = changed_bounds {
+            self.wake_dynamic_bodies_in_aabb(mins, maxs);
+        }
     }
 
     fn update_existing_brick(
@@ -282,6 +528,8 @@ impl CollisionWorld {
         occupancy: BrickOccupancy,
         changes: &[VoxelChange],
     ) -> StaticVoxelBrickUpdate {
+        let changed_bounds = voxel_changes_local_bounds(changes)
+            .map(|bounds| brick_local_bounds_to_world(id, bounds));
         let collider = self
             .static_bricks
             .get(&id)
@@ -333,6 +581,9 @@ impl CollisionWorld {
             self.physics.remove_collider(collider);
             self.static_bricks.remove(&id);
         }
+        if let Some((mins, maxs)) = changed_bounds {
+            self.wake_dynamic_bodies_in_aabb(mins, maxs);
+        }
 
         StaticVoxelBrickUpdate::Applied {
             changed_voxels: changes.len(),
@@ -350,6 +601,31 @@ impl CollisionWorld {
 
     fn set_brick_voxels(&mut self, collider: ColliderHandle, voxels: Voxels) {
         self.physics.colliders[collider].set_shape(SharedShape::new(voxels));
+    }
+
+    fn wake_dynamic_bodies_in_aabb(&mut self, mins: Vec3, maxs: Vec3) -> usize {
+        let mut handles = Vec::new();
+        let prediction_distance = self.physics.integration_parameters.prediction_distance();
+        for handle in self.dynamic_bodies.values().copied() {
+            let body = &self.physics.bodies[handle];
+            let intersects = body.colliders().iter().copied().any(|collider_handle| {
+                let aabb = self.physics.colliders[collider_handle]
+                    .compute_collision_aabb(prediction_distance);
+                aabbs_intersect(
+                    from_rapier_vec(aabb.mins),
+                    from_rapier_vec(aabb.maxs),
+                    mins,
+                    maxs,
+                )
+            });
+            if intersects {
+                handles.push(handle);
+            }
+        }
+        for handle in handles.iter().copied() {
+            self.physics.bodies[handle].wake_up(true);
+        }
+        handles.len()
     }
 
     #[cfg(test)]
@@ -409,12 +685,182 @@ fn voxel_is_on_face(voxel: IVec3, direction: IVec3) -> bool {
         || (direction.z > 0 && voxel.z == max)
 }
 
+fn validate_dynamic_body_desc(desc: &DynamicBodyDesc) -> Result<Rotation, DynamicBodyError> {
+    validate_finite_vec3("position", desc.position)?;
+    validate_finite_vec3("linear_velocity", desc.linear_velocity)?;
+    validate_finite_vec3("angular_velocity", desc.angular_velocity)?;
+    validate_positive("mass", desc.mass)?;
+    validate_nonnegative("friction", desc.friction)?;
+    validate_nonnegative("restitution", desc.restitution)?;
+    validate_nonnegative("linear_damping", desc.linear_damping)?;
+    validate_nonnegative("angular_damping", desc.angular_damping)?;
+    if !desc.rotation.is_finite() {
+        return Err(DynamicBodyError::NonFinite { field: "rotation" });
+    }
+    let max_component = desc
+        .rotation
+        .to_array()
+        .into_iter()
+        .map(f32::abs)
+        .fold(0.0_f32, f32::max);
+    if max_component <= f32::MIN_POSITIVE {
+        return Err(DynamicBodyError::ZeroRotation);
+    }
+    let scaled_rotation = Quat::from_xyzw(
+        desc.rotation.x / max_component,
+        desc.rotation.y / max_component,
+        desc.rotation.z / max_component,
+        desc.rotation.w / max_component,
+    );
+    Ok(to_rapier_rotation(scaled_rotation.normalize()))
+}
+
+fn build_dynamic_shape(shape: &DynamicColliderShape) -> Result<SharedShape, DynamicBodyError> {
+    match shape {
+        DynamicColliderShape::Sphere { radius } => {
+            validate_positive("sphere radius", *radius)?;
+            Ok(SharedShape::ball(*radius))
+        }
+        DynamicColliderShape::ConvexHull { points } => {
+            for point in points {
+                validate_finite_vec3("convex hull point", *point)?;
+            }
+            if !points_form_three_dimensional_shape(points) {
+                return Err(DynamicBodyError::InvalidConvexHull);
+            }
+            SharedShape::convex_hull(
+                &points
+                    .iter()
+                    .copied()
+                    .map(to_rapier_vec)
+                    .collect::<Vec<_>>(),
+            )
+            .ok_or(DynamicBodyError::InvalidConvexHull)
+        }
+    }
+}
+
+fn points_form_three_dimensional_shape(points: &[Vec3]) -> bool {
+    const RELATIVE_EPSILON: f32 = 1.0e-5;
+    let Some(&origin) = points.first() else {
+        return false;
+    };
+    let (mins, maxs) = points.iter().copied().fold(
+        (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+        |(mins, maxs), point| (mins.min(point), maxs.max(point)),
+    );
+    let scale = (maxs - mins).length();
+    if scale <= f32::MIN_POSITIVE {
+        return false;
+    }
+    let tolerance = scale * RELATIVE_EPSILON;
+    let Some(axis) = points
+        .iter()
+        .copied()
+        .map(|point| point - origin)
+        .find(|offset| offset.length() > tolerance)
+    else {
+        return false;
+    };
+    let Some(normal) = points
+        .iter()
+        .copied()
+        .map(|point| axis.cross(point - origin))
+        .find(|normal| normal.length() > tolerance * axis.length())
+    else {
+        return false;
+    };
+    let normal = normal.normalize();
+    points
+        .iter()
+        .copied()
+        .any(|point| normal.dot(point - origin).abs() > tolerance)
+}
+
+fn validate_finite_vec3(field: &'static str, value: Vec3) -> Result<(), DynamicBodyError> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(DynamicBodyError::NonFinite { field })
+    }
+}
+
+fn validate_positive(field: &'static str, value: f32) -> Result<(), DynamicBodyError> {
+    if !value.is_finite() {
+        Err(DynamicBodyError::NonFinite { field })
+    } else if value <= 0.0 {
+        Err(DynamicBodyError::NonPositive { field, value })
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_nonnegative(field: &'static str, value: f32) -> Result<(), DynamicBodyError> {
+    if !value.is_finite() {
+        Err(DynamicBodyError::NonFinite { field })
+    } else if value < 0.0 {
+        Err(DynamicBodyError::Negative { field, value })
+    } else {
+        Ok(())
+    }
+}
+
+fn to_rapier_vec(value: Vec3) -> Vector {
+    Vector::from_array(value.to_array())
+}
+
+fn from_rapier_vec(value: Vector) -> Vec3 {
+    Vec3::from_array(value.to_array())
+}
+
+fn to_rapier_rotation(value: Quat) -> Rotation {
+    Rotation::from_xyzw(value.x, value.y, value.z, value.w)
+}
+
+fn from_rapier_rotation(value: Rotation) -> Quat {
+    Quat::from_xyzw(value.x, value.y, value.z, value.w)
+}
+
+fn voxel_changes_local_bounds(changes: &[VoxelChange]) -> Option<(IVec3, IVec3)> {
+    let first = changes.first()?.local_voxel;
+    let mut mins = first;
+    let mut maxs = first + IVec3::ONE;
+    for change in &changes[1..] {
+        mins = mins.min(change.local_voxel);
+        maxs = maxs.max(change.local_voxel + IVec3::ONE);
+    }
+    Some((mins, maxs))
+}
+
+fn brick_local_bounds_to_world(
+    id: StaticVoxelBrickId,
+    local_bounds: (IVec3, IVec3),
+) -> (Vec3, Vec3) {
+    let origin = id.0 * STATIC_VOXEL_BRICK_DIM as i32;
+    (
+        (origin + local_bounds.0).as_vec3(),
+        (origin + local_bounds.1).as_vec3(),
+    )
+}
+
+fn aabbs_intersect(a_mins: Vec3, a_maxs: Vec3, b_mins: Vec3, b_maxs: Vec3) -> bool {
+    a_mins.cmple(b_maxs).all() && b_mins.cmple(a_maxs).all()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn one_voxel(local: UVec3) -> BrickOccupancy {
         BrickOccupancy::from_filled_voxels([local])
+    }
+
+    fn two_layer_floor() -> BrickOccupancy {
+        BrickOccupancy::from_filled_voxels((0..2).flat_map(|y| {
+            (0..STATIC_VOXEL_BRICK_DIM).flat_map(move |z| {
+                (0..STATIC_VOXEL_BRICK_DIM).map(move |x| UVec3::new(x, y, z))
+            })
+        }))
     }
 
     fn free_faces(world: &CollisionWorld, id: StaticVoxelBrickId, local: IVec3) -> AxisMask {
@@ -522,5 +968,142 @@ mod tests {
             }
         );
         assert_eq!(world.static_brick_count(), 0);
+    }
+
+    #[test]
+    fn fixed_step_accumulates_partial_frames_and_caps_catch_up() {
+        let mut world = CollisionWorld::new();
+        world.set_gravity(Vec3::ZERO).unwrap();
+        let mut desc = DynamicBodyDesc::sphere(Vec3::ZERO, 0.5);
+        desc.linear_velocity = Vec3::new(12.0, 0.0, 0.0);
+        desc.linear_damping = 0.0;
+        desc.angular_damping = 0.0;
+        let body = world.spawn_dynamic_body(desc).unwrap();
+        let half_step = world.fixed_step_seconds() * 0.5;
+
+        assert_eq!(world.advance(half_step).steps, 0);
+        assert_eq!(world.advance(half_step).steps, 1);
+        let state = world.dynamic_body_state(body).unwrap();
+        assert!((state.position.x - 0.1).abs() < 1.0e-4);
+
+        let capped = world.advance(1.0);
+        assert_eq!(capped.steps, DEFAULT_MAX_SUBSTEPS);
+        assert!(capped.dropped_seconds > 0.9);
+        assert!(capped.interpolation_alpha <= 1.0);
+    }
+
+    #[test]
+    fn dynamic_body_ids_are_stable_and_removal_is_idempotent() {
+        let mut world = CollisionWorld::new();
+        let first = world
+            .spawn_dynamic_body(DynamicBodyDesc::sphere(Vec3::ZERO, 1.0))
+            .unwrap();
+        let second = world
+            .spawn_dynamic_body(DynamicBodyDesc::sphere(Vec3::X, 1.0))
+            .unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(world.dynamic_body_count(), 2);
+        assert!(world.remove_dynamic_body(first));
+        assert!(!world.remove_dynamic_body(first));
+        assert!(world.dynamic_body_state(first).is_none());
+        assert!(world.dynamic_body_state(second).is_some());
+    }
+
+    #[test]
+    fn rejects_flat_convex_hulls() {
+        let mut world = CollisionWorld::new();
+        let mut desc = DynamicBodyDesc::sphere(Vec3::ZERO, 1.0);
+        desc.collider = DynamicColliderShape::ConvexHull {
+            points: vec![Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::X + Vec3::Y],
+        };
+
+        assert_eq!(
+            world.spawn_dynamic_body(desc),
+            Err(DynamicBodyError::InvalidConvexHull)
+        );
+        assert_eq!(world.dynamic_body_count(), 0);
+    }
+
+    #[test]
+    fn accepts_small_convex_hulls_and_stably_normalizes_large_rotations() {
+        let mut world = CollisionWorld::new();
+        let scale = 1.0e-3;
+        let mut desc = DynamicBodyDesc::sphere(Vec3::ZERO, 1.0);
+        desc.collider = DynamicColliderShape::ConvexHull {
+            points: vec![
+                Vec3::ZERO,
+                Vec3::X * scale,
+                Vec3::Y * scale,
+                Vec3::Z * scale,
+            ],
+        };
+        desc.rotation = Quat::from_xyzw(f32::MAX, f32::MAX, 0.0, f32::MAX);
+
+        let body = world.spawn_dynamic_body(desc).unwrap();
+        let rotation = world.dynamic_body_state(body).unwrap().rotation;
+        assert!(rotation.is_finite());
+        assert!((rotation.length_squared() - 1.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn dynamic_sphere_rolls_across_a_combined_brick_seam() {
+        let mut world = CollisionWorld::new();
+        world.upsert_static_voxel_brick(
+            StaticVoxelBrickId(IVec3::ZERO),
+            1,
+            two_layer_floor(),
+        );
+        world.upsert_static_voxel_brick(
+            StaticVoxelBrickId(IVec3::X),
+            1,
+            two_layer_floor(),
+        );
+        let mut desc = DynamicBodyDesc::sphere(Vec3::new(20.0, 4.005, 16.0), 2.0);
+        desc.linear_velocity = Vec3::new(4.0, 0.0, 0.0);
+        desc.angular_velocity = Vec3::new(0.0, 0.0, -2.0);
+        desc.linear_damping = 0.0;
+        desc.angular_damping = 0.0;
+        desc.restitution = 0.0;
+        desc.can_sleep = false;
+        let body = world.spawn_dynamic_body(desc).unwrap();
+
+        let mut max_abs_vertical_velocity_near_seam = 0.0_f32;
+        for _ in 0..720 {
+            assert_eq!(world.advance(DEFAULT_FIXED_STEP_SECONDS).steps, 1);
+            let state = world.dynamic_body_state(body).unwrap();
+            if (28.0..=36.0).contains(&state.position.x) {
+                max_abs_vertical_velocity_near_seam =
+                    max_abs_vertical_velocity_near_seam.max(state.linear_velocity.y.abs());
+            }
+        }
+        let state = world.dynamic_body_state(body).unwrap();
+        assert!(state.position.x > 40.0, "final state: {state:?}");
+        assert!(
+            max_abs_vertical_velocity_near_seam < 0.02,
+            "vertical seam kick: {max_abs_vertical_velocity_near_seam}"
+        );
+    }
+
+    #[test]
+    fn intersecting_terrain_edit_wakes_a_sleeping_body() {
+        let brick = StaticVoxelBrickId(IVec3::ZERO);
+        let mut world = CollisionWorld::new();
+        world.upsert_static_voxel_brick(brick, 1, one_voxel(UVec3::ZERO));
+        let body = world
+            .spawn_dynamic_body(DynamicBodyDesc::sphere(
+                Vec3::new(0.5, 1.501, 0.5),
+                0.5,
+            ))
+            .unwrap();
+        let handle = world.dynamic_bodies[&body];
+        let collider = world.physics.bodies[handle].colliders()[0];
+        assert!(world.physics.colliders[collider].compute_aabb().mins.y > 1.0);
+        world.physics.bodies[handle].sleep();
+        assert!(world.dynamic_body_state(body).unwrap().sleeping);
+
+        world.remove_static_voxel_brick(brick, 2);
+
+        assert!(!world.dynamic_body_state(body).unwrap().sleeping);
     }
 }
