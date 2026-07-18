@@ -3299,6 +3299,7 @@ dependencies = [
  "png",
  "rand 0.10.1",
  "rapier3d",
+ "re-flora-physics",
  "re-flora-shader-build",
  "re-flora-terrain-collider",
  "re-flora-vkn",
@@ -3312,6 +3313,15 @@ dependencies = [
  "toml",
  "uuid",
  "winit",
+]
+
+[[package]]
+name = "re-flora-physics"
+version = "0.1.0"
+dependencies = [
+ "glam 0.32.1",
+ "rapier3d",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
