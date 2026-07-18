@@ -224,7 +224,6 @@ impl IrrigationNetwork {
         let point_voxels = world_position * VOXELS_PER_WORLD_UNIT;
         self.segments
             .iter()
-            .filter(|segment| self.segment_is_connected(segment))
             .filter_map(|segment| {
                 let start = self.node(segment.start_node)?.position_voxels.as_vec3();
                 let end = self.node(segment.end_node)?.position_voxels.as_vec3();
@@ -627,7 +626,7 @@ impl App {
         let attachment = self
             .irrigation_network
             .nearest_attachment(cursor_position)
-            .ok_or_else(|| anyhow!("sprinkler must attach to a powered irrigation pipe"))?;
+            .ok_or_else(|| anyhow!("sprinkler must attach to an irrigation pipe"))?;
         let base_position = attachment.position_voxels / VOXELS_PER_WORLD_UNIT;
         let nozzle_position =
             base_position + Vec3::Y * (SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT);
@@ -779,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn sprinkler_attaches_to_middle_of_powered_pipe() {
+    fn sprinkler_attaches_to_middle_of_pipe() {
         let mut network = IrrigationNetwork::default();
         let drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
         network
@@ -791,13 +790,10 @@ mod tests {
 
         assert!(network.segment_is_powered(attachment.segment_id));
         assert!((attachment.position_voxels.x / VOXELS_PER_WORLD_UNIT - 0.625).abs() < 0.01);
-        network.source_node = None;
-        network.refresh_connectivity();
-        assert!(!network.segment_is_powered(attachment.segment_id));
     }
 
     #[test]
-    fn disconnected_pipe_and_removed_source_do_not_power_attachments() {
+    fn sprinkler_attachment_does_not_require_a_powered_pipe() {
         let mut network = IrrigationNetwork::default();
         let source = network.upsert_node(IVec3::ZERO, IrrigationNodeKind::Source);
         network.source_node = Some(source);
@@ -811,9 +807,17 @@ mod tests {
         network.refresh_connectivity();
 
         let near_disconnected = Vec3::new(110.0, 0.0, 0.0) / VOXELS_PER_WORLD_UNIT;
-        assert!(network.nearest_attachment(near_disconnected).is_none());
+        let attachment = network.nearest_attachment(near_disconnected).unwrap();
+        assert!(!network.segment_is_powered(attachment.segment_id));
+
         network.source_node = None;
         network.refresh_connectivity();
+        assert!(network.nearest_attachment(near_disconnected).is_some());
+    }
+
+    #[test]
+    fn sprinkler_attachment_requires_an_existing_pipe() {
+        let network = IrrigationNetwork::default();
         assert!(network.nearest_attachment(Vec3::ZERO).is_none());
     }
 }
