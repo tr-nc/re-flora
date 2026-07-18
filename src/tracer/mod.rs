@@ -15,6 +15,9 @@ pub use sprinkler_resources::*;
 mod irrigation_pipe_resources;
 pub use irrigation_pipe_resources::*;
 
+mod geometry_preview_resources;
+pub use geometry_preview_resources::*;
+
 mod denoiser_resources;
 pub use denoiser_resources::*;
 
@@ -36,7 +39,7 @@ use pipeline_builder::*;
 mod buffer_updater;
 use buffer_updater::*;
 
-use glam::{IVec3, Mat4, UVec3, Vec2, Vec3};
+use glam::{IVec3, Mat4, UVec3, Vec2, Vec3, Vec4};
 use winit::event::KeyEvent;
 
 const LEAF_INSTANCE_TYPE: u32 = crate::flora::species::TREE_LEAF_RENDER_SPECIES_INDEX;
@@ -450,6 +453,7 @@ pub struct Tracer {
     particle_resources: ParticleRendererResources,
     sprinkler_resources: SprinklerRendererResources,
     irrigation_pipe_resources: IrrigationPipeRendererResources,
+    geometry_preview_resources: GeometryPreviewRendererResources,
 
     camera: Camera,
     camera_view_mat_prev_frame: Mat4,
@@ -599,6 +603,8 @@ impl Tracer {
             SprinklerRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let irrigation_pipe_resources =
             IrrigationPipeRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
+        let geometry_preview_resources =
+            GeometryPreviewRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
 
         let compute_pipelines = PipelineBuilder::create_compute_pipelines(
             &vulkan_ctx,
@@ -687,6 +693,7 @@ impl Tracer {
             particle_resources,
             sprinkler_resources,
             irrigation_pipe_resources,
+            geometry_preview_resources,
             camera,
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
@@ -921,6 +928,10 @@ impl Tracer {
             &tracer_resources,
         );
         update_graphics_fn(&self.graphics_pipelines.sprinkler_ppl, &tracer_resources);
+        update_graphics_fn(
+            &self.graphics_pipelines.geometry_preview_ppl,
+            &tracer_resources,
+        );
         update_graphics_fn(&self.graphics_pipelines.particle_ppl, &tracer_resources);
         update_graphics_fn(
             &self.graphics_pipelines.water_droplet_ppl,
@@ -1435,7 +1446,8 @@ impl Tracer {
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
-            || self.irrigation_pipe_resources.instance_count > 0;
+            || self.irrigation_pipe_resources.instance_count > 0
+            || self.geometry_preview_resources.has_visible_mesh();
 
         if render_flags.enable_flora {
             Self::with_gpu_scope(
@@ -1610,7 +1622,8 @@ impl Tracer {
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
-            || self.irrigation_pipe_resources.instance_count > 0;
+            || self.irrigation_pipe_resources.instance_count > 0
+            || self.geometry_preview_resources.has_visible_mesh();
 
         if render_flags.enable_flora {
             assert_eq!(
@@ -1870,7 +1883,8 @@ impl Tracer {
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
-            || self.irrigation_pipe_resources.instance_count > 0;
+            || self.irrigation_pipe_resources.instance_count > 0
+            || self.geometry_preview_resources.has_visible_mesh();
         if !has_graphics_pass {
             self.resources
                 .extent_dependent_resources
@@ -2066,6 +2080,11 @@ impl Tracer {
         {
             self.graphics_pipelines
                 .sprinkler_ppl
+                .record_texture_transitions(cmdbuf);
+        }
+        if self.geometry_preview_resources.has_visible_mesh() {
+            self.graphics_pipelines
+                .geometry_preview_ppl
                 .record_texture_transitions(cmdbuf);
         }
         if enable_particles {
@@ -2409,6 +2428,40 @@ impl Tracer {
                 None,
             );
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), sprinklers_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        }
+
+        if self.geometry_preview_resources.has_visible_mesh() {
+            let preview_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.geometry_preview",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            let pipeline = &self.graphics_pipelines.geometry_preview_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            let resources = &self.geometry_preview_resources.pipe;
+            cmdbuf.bind_index_buffer_u32(&resources.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
+            pipeline.record_indexed(
+                cmdbuf,
+                resources.indices_len,
+                resources.instance_count,
+                0,
+                0,
+                0,
+                None,
+            );
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), preview_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
                     cmdbuf,
@@ -3255,6 +3308,21 @@ impl Tracer {
 
     pub fn upload_irrigation_pipes(&mut self, data: &IrrigationPipeRenderData) -> Result<()> {
         self.irrigation_pipe_resources.upload(data)
+    }
+
+    pub fn upload_irrigation_pipe_preview(
+        &mut self,
+        data: &IrrigationPipeRenderData,
+    ) -> Result<()> {
+        let mesh = build_pipe_preview_mesh(data)?;
+        self.geometry_preview_resources.pipe.upload(&mesh)?;
+        self.geometry_preview_resources
+            .pipe
+            .show(Vec3::ZERO, Vec4::ONE)
+    }
+
+    pub fn clear_irrigation_pipe_preview(&mut self) {
+        self.geometry_preview_resources.pipe.clear();
     }
 
     pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {

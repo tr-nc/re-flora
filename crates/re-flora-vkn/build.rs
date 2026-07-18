@@ -284,7 +284,7 @@ fn write_if_changed(path: &Path, contents: &[u8]) {
 }
 
 fn validate_native_shaders(project_root: &Path) {
-    assert_eq!(NATIVE_SHADERS.len(), 76, "native shader inventory changed");
+    assert_eq!(NATIVE_SHADERS.len(), 78, "native shader inventory changed");
     let mut logical_paths = BTreeSet::new();
     let mut source_paths = BTreeSet::new();
     for shader in NATIVE_SHADERS {

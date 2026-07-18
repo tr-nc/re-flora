@@ -68,6 +68,7 @@ pub(super) struct PipeAttachment {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PipeDrag {
     pub start_voxels: IVec3,
+    pub end_voxels: IVec3,
 }
 
 #[derive(Debug, Default)]
@@ -175,12 +176,14 @@ impl IrrigationNetwork {
         if self.source_node.is_none() {
             return Some(PipeDrag {
                 start_voxels: snapped,
+                end_voxels: snapped,
             });
         }
         self.nearest_node(snapped.as_vec3(), PIPE_START_MAX_DISTANCE_VOXELS)
             .and_then(|id| self.node(id))
             .map(|node| PipeDrag {
                 start_voxels: node.position_voxels,
+                end_voxels: node.position_voxels,
             })
     }
 
@@ -249,25 +252,20 @@ impl IrrigationNetwork {
             .map(|(_, attachment)| attachment)
     }
 
-    pub(super) fn preview_render_data(
-        &self,
-        drag: PipeDrag,
-        world_end: Vec3,
-    ) -> IrrigationPipeRenderData {
-        let mut data = self.render_data();
-        if data.source_position.is_none() {
-            data.source_position = Some(drag.start_voxels.as_vec3() / VOXELS_PER_WORLD_UNIT);
-        }
-        let end = Self::snap_surface_position(world_end);
-        data.segments.extend(
-            orthogonal_pipe_route(drag.start_voxels, end)
+    pub(super) fn preview_render_data(&self, drag: PipeDrag) -> IrrigationPipeRenderData {
+        IrrigationPipeRenderData {
+            source_position: self
+                .source_node
+                .is_none()
+                .then_some(drag.start_voxels.as_vec3() / VOXELS_PER_WORLD_UNIT),
+            segments: orthogonal_pipe_route(drag.start_voxels, drag.end_voxels)
                 .into_iter()
                 .map(|(start, end)| IrrigationPipeRenderSegment {
                     start: start.as_vec3() / VOXELS_PER_WORLD_UNIT,
                     end: end.as_vec3() / VOXELS_PER_WORLD_UNIT,
-                }),
-        );
-        data
+                })
+                .collect(),
+        }
     }
 
     pub(super) fn render_data(&self) -> IrrigationPipeRenderData {
@@ -528,11 +526,10 @@ impl App {
     pub(super) fn begin_pipe_drag(&mut self, world_position: Vec3) {
         self.active_pipe_drag = self.irrigation_network.begin_drag(world_position);
         if let Some(drag) = self.active_pipe_drag {
-            if let Err(err) = self.tracer.upload_irrigation_pipes(
-                &self
-                    .irrigation_network
-                    .preview_render_data(drag, world_position),
-            ) {
+            if let Err(err) = self
+                .tracer
+                .upload_irrigation_pipe_preview(&self.irrigation_network.preview_render_data(drag))
+            {
                 log::error!("Failed to show irrigation pipe preview: {err}");
             }
         } else {
@@ -541,22 +538,28 @@ impl App {
     }
 
     pub(super) fn update_pipe_drag_preview(&mut self, world_position: Vec3) -> Result<()> {
-        let Some(drag) = self.active_pipe_drag else {
+        let Some(drag) = self.active_pipe_drag.as_mut() else {
             return Ok(());
         };
-        self.tracer.upload_irrigation_pipes(
-            &self
-                .irrigation_network
-                .preview_render_data(drag, world_position),
-        )
+        let end_voxels = IrrigationNetwork::snap_surface_position(world_position);
+        if drag.end_voxels == end_voxels {
+            return Ok(());
+        }
+        drag.end_voxels = end_voxels;
+        self.tracer
+            .upload_irrigation_pipe_preview(&self.irrigation_network.preview_render_data(*drag))
     }
 
     pub(super) fn finish_pipe_drag(&mut self, world_position: Vec3) -> Result<()> {
         let Some(drag) = self.active_pipe_drag.take() else {
             return Ok(());
         };
-        self.irrigation_network.commit_drag(drag, world_position)?;
-        self.upload_irrigation_network()?;
+        let result = self
+            .irrigation_network
+            .commit_drag(drag, world_position)
+            .and_then(|()| self.upload_irrigation_network());
+        self.tracer.clear_irrigation_pipe_preview();
+        result?;
         log::info!(
             "Committed irrigation pipe route from {:?}",
             drag.start_voxels
@@ -566,9 +569,7 @@ impl App {
 
     pub(super) fn cancel_pipe_drag(&mut self) {
         if self.active_pipe_drag.take().is_some() {
-            if let Err(err) = self.upload_irrigation_network() {
-                log::error!("Failed to clear irrigation pipe preview: {err}");
-            }
+            self.tracer.clear_irrigation_pipe_preview();
         }
     }
 
@@ -743,13 +744,35 @@ mod tests {
     #[test]
     fn pipe_preview_does_not_commit_topology() {
         let network = IrrigationNetwork::default();
-        let drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
-        let preview = network.preview_render_data(drag, Vec3::new(0.75, 0.25, 0.5));
+        let mut drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
+        drag.end_voxels = IrrigationNetwork::snap_surface_position(Vec3::new(0.75, 0.25, 0.5));
+        let preview = network.preview_render_data(drag);
 
         assert!(preview.source_position.is_some());
         assert_eq!(preview.segments.len(), 1);
         assert!(network.source_node.is_none());
         assert!(network.segments.is_empty());
+    }
+
+    #[test]
+    fn pipe_preview_excludes_the_committed_network() {
+        let mut network = IrrigationNetwork::default();
+        let first_drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
+        network
+            .commit_drag(first_drag, Vec3::new(0.75, 0.25, 0.5))
+            .unwrap();
+        let committed_segment_count = network.segments.len();
+        let start = network.nodes.last().unwrap().position_voxels;
+        let drag = PipeDrag {
+            start_voxels: start,
+            end_voxels: start + IVec3::new(4, 3, 2),
+        };
+
+        let preview = network.preview_render_data(drag);
+
+        assert_eq!(preview.source_position, None);
+        assert_eq!(preview.segments.len(), 3);
+        assert!(committed_segment_count > 0);
     }
 
     #[test]

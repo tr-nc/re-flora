@@ -1,0 +1,340 @@
+use anyhow::{anyhow, ensure, Result};
+use bytemuck::{Pod, Zeroable};
+use glam::{Vec3, Vec4};
+use re_flora_vkn::vk;
+use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
+
+use crate::resource::Resource;
+
+use super::{IrrigationPipeRenderData, IrrigationPipeRenderSegment};
+
+const VOXEL_SCALE: f32 = 1.0 / 256.0;
+const PIPE_HALF_WIDTH: f32 = 1.5 * VOXEL_SCALE;
+const PIPE_END_CAP: f32 = 0.5 * VOXEL_SCALE;
+const PIPE_PREVIEW_COLOR: Vec4 = Vec4::new(0.08, 0.62, 1.0, 0.38);
+const PIPE_SOURCE_PREVIEW_COLOR: Vec4 = Vec4::new(0.12, 0.82, 1.0, 0.46);
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct GeometryPreviewVertex {
+    pub position: [f32; 3],
+    pub color_alpha: [f32; 4],
+}
+
+impl GeometryPreviewVertex {
+    pub fn new(position: Vec3, color_alpha: Vec4) -> Self {
+        Self {
+            position: position.to_array(),
+            color_alpha: color_alpha.to_array(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct GeometryPreviewMesh {
+    pub vertices: Vec<GeometryPreviewVertex>,
+    pub indices: Vec<u32>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct GeometryPreviewInstanceGpu {
+    base_position: [f32; 3],
+    tint: [f32; 4],
+}
+
+impl GeometryPreviewInstanceGpu {
+    fn new(base_position: Vec3, tint: Vec4) -> Self {
+        Self {
+            base_position: base_position.to_array(),
+            tint: tint.to_array(),
+        }
+    }
+}
+
+pub struct GeometryPreviewMeshResources {
+    device: Device,
+    allocator: Allocator,
+    vertex_capacity: usize,
+    index_capacity: usize,
+    pub vertices: Resource<Buffer>,
+    pub indices: Resource<Buffer>,
+    pub indices_len: u32,
+    pub instances: Resource<Buffer>,
+    pub instance_count: u32,
+}
+
+impl GeometryPreviewMeshResources {
+    fn new(device: Device, allocator: Allocator) -> Self {
+        let vertices = Self::new_buffer::<GeometryPreviewVertex>(
+            device.clone(),
+            allocator.clone(),
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            1,
+        );
+        let indices = Self::new_buffer::<u32>(
+            device.clone(),
+            allocator.clone(),
+            vk::BufferUsageFlags::INDEX_BUFFER,
+            1,
+        );
+        let instances = Self::new_buffer::<GeometryPreviewInstanceGpu>(
+            device.clone(),
+            allocator.clone(),
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            1,
+        );
+        Self {
+            device,
+            allocator,
+            vertex_capacity: 1,
+            index_capacity: 1,
+            vertices: Resource::new(vertices),
+            indices: Resource::new(indices),
+            indices_len: 0,
+            instances: Resource::new(instances),
+            instance_count: 0,
+        }
+    }
+
+    fn new_buffer<T>(
+        device: Device,
+        allocator: Allocator,
+        usage: vk::BufferUsageFlags,
+        capacity: usize,
+    ) -> Buffer {
+        Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(usage),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<T>() * capacity) as u64,
+        )
+    }
+
+    pub fn upload(&mut self, mesh: &GeometryPreviewMesh) -> Result<()> {
+        ensure!(
+            mesh.vertices.len() <= u32::MAX as usize,
+            "geometry preview vertex count exceeds u32 index range"
+        );
+        ensure!(
+            mesh.indices
+                .iter()
+                .all(|index| (*index as usize) < mesh.vertices.len()),
+            "geometry preview contains an out-of-range index"
+        );
+        self.ensure_capacity(mesh.vertices.len(), mesh.indices.len())?;
+        if !mesh.vertices.is_empty() {
+            self.vertices.fill(&mesh.vertices)?;
+            self.indices.fill(&mesh.indices)?;
+        }
+        self.indices_len = mesh.indices.len() as u32;
+        if self.indices_len == 0 {
+            self.instance_count = 0;
+        }
+        Ok(())
+    }
+
+    pub fn show(&mut self, base_position: Vec3, tint: Vec4) -> Result<()> {
+        ensure!(base_position.is_finite(), "preview position must be finite");
+        ensure!(tint.is_finite(), "preview tint must be finite");
+        self.instances
+            .fill(&[GeometryPreviewInstanceGpu::new(base_position, tint)])?;
+        self.instance_count = u32::from(self.indices_len > 0);
+        Ok(())
+    }
+
+    pub fn clear(&mut self) {
+        self.instance_count = 0;
+    }
+
+    fn ensure_capacity(&mut self, vertex_count: usize, index_count: usize) -> Result<()> {
+        if vertex_count > self.vertex_capacity {
+            self.vertex_capacity = vertex_count
+                .checked_next_power_of_two()
+                .ok_or_else(|| anyhow!("geometry preview vertex capacity overflow"))?;
+            *self.vertices = Self::new_buffer::<GeometryPreviewVertex>(
+                self.device.clone(),
+                self.allocator.clone(),
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                self.vertex_capacity,
+            );
+        }
+        if index_count > self.index_capacity {
+            self.index_capacity = index_count
+                .checked_next_power_of_two()
+                .ok_or_else(|| anyhow!("geometry preview index capacity overflow"))?;
+            *self.indices = Self::new_buffer::<u32>(
+                self.device.clone(),
+                self.allocator.clone(),
+                vk::BufferUsageFlags::INDEX_BUFFER,
+                self.index_capacity,
+            );
+        }
+        Ok(())
+    }
+}
+
+pub struct GeometryPreviewRendererResources {
+    pub pipe: GeometryPreviewMeshResources,
+}
+
+impl GeometryPreviewRendererResources {
+    pub fn new(device: Device, allocator: Allocator) -> Self {
+        Self {
+            pipe: GeometryPreviewMeshResources::new(device, allocator),
+        }
+    }
+
+    pub fn has_visible_mesh(&self) -> bool {
+        self.pipe.instance_count > 0
+    }
+}
+
+pub fn build_pipe_preview_mesh(data: &IrrigationPipeRenderData) -> Result<GeometryPreviewMesh> {
+    let mut mesh = GeometryPreviewMesh::default();
+    if let Some(source) = data.source_position {
+        ensure!(source.is_finite(), "pipe preview source must be finite");
+        append_box(
+            &mut mesh,
+            source - Vec3::splat(PIPE_HALF_WIDTH),
+            source + Vec3::splat(PIPE_HALF_WIDTH),
+            PIPE_SOURCE_PREVIEW_COLOR,
+        );
+    }
+    for segment in &data.segments {
+        append_pipe_segment(&mut mesh, *segment)?;
+    }
+    Ok(mesh)
+}
+
+fn append_pipe_segment(
+    mesh: &mut GeometryPreviewMesh,
+    segment: IrrigationPipeRenderSegment,
+) -> Result<()> {
+    ensure!(
+        segment.start.is_finite() && segment.end.is_finite(),
+        "pipe preview segment position must be finite"
+    );
+    let delta = segment.end - segment.start;
+    let changed_axes = u32::from(delta.x.abs() > f32::EPSILON)
+        + u32::from(delta.y.abs() > f32::EPSILON)
+        + u32::from(delta.z.abs() > f32::EPSILON);
+    ensure!(
+        changed_axes == 1,
+        "pipe preview segment must be non-empty and axis aligned: {:?} -> {:?}",
+        segment.start,
+        segment.end
+    );
+
+    let mut min = segment.start.min(segment.end) - Vec3::splat(PIPE_HALF_WIDTH);
+    let mut max = segment.start.max(segment.end) + Vec3::splat(PIPE_HALF_WIDTH);
+    if delta.x != 0.0 {
+        min.x = segment.start.x.min(segment.end.x) - PIPE_END_CAP;
+        max.x = segment.start.x.max(segment.end.x) + PIPE_END_CAP;
+    } else if delta.y != 0.0 {
+        min.y = segment.start.y.min(segment.end.y) - PIPE_END_CAP;
+        max.y = segment.start.y.max(segment.end.y) + PIPE_END_CAP;
+    } else {
+        min.z = segment.start.z.min(segment.end.z) - PIPE_END_CAP;
+        max.z = segment.start.z.max(segment.end.z) + PIPE_END_CAP;
+    }
+    append_box(mesh, min, max, PIPE_PREVIEW_COLOR);
+    Ok(())
+}
+
+pub(crate) fn append_box(mesh: &mut GeometryPreviewMesh, min: Vec3, max: Vec3, color_alpha: Vec4) {
+    let faces = [
+        [
+            Vec3::new(max.x, min.y, min.z),
+            Vec3::new(max.x, max.y, min.z),
+            Vec3::new(max.x, max.y, max.z),
+            Vec3::new(max.x, min.y, max.z),
+        ],
+        [
+            Vec3::new(min.x, min.y, max.z),
+            Vec3::new(min.x, max.y, max.z),
+            Vec3::new(min.x, max.y, min.z),
+            Vec3::new(min.x, min.y, min.z),
+        ],
+        [
+            Vec3::new(min.x, max.y, min.z),
+            Vec3::new(min.x, max.y, max.z),
+            Vec3::new(max.x, max.y, max.z),
+            Vec3::new(max.x, max.y, min.z),
+        ],
+        [
+            Vec3::new(min.x, min.y, max.z),
+            Vec3::new(min.x, min.y, min.z),
+            Vec3::new(max.x, min.y, min.z),
+            Vec3::new(max.x, min.y, max.z),
+        ],
+        [
+            Vec3::new(max.x, min.y, max.z),
+            Vec3::new(max.x, max.y, max.z),
+            Vec3::new(min.x, max.y, max.z),
+            Vec3::new(min.x, min.y, max.z),
+        ],
+        [
+            Vec3::new(min.x, min.y, min.z),
+            Vec3::new(min.x, max.y, min.z),
+            Vec3::new(max.x, max.y, min.z),
+            Vec3::new(max.x, min.y, min.z),
+        ],
+    ];
+    for positions in faces {
+        let base = mesh.vertices.len() as u32;
+        mesh.vertices
+            .extend(positions.map(|position| GeometryPreviewVertex::new(position, color_alpha)));
+        mesh.indices
+            .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pipe_preview_uses_one_box_per_route_segment() {
+        let data = IrrigationPipeRenderData {
+            source_position: Some(Vec3::ZERO),
+            segments: vec![
+                IrrigationPipeRenderSegment {
+                    start: Vec3::ZERO,
+                    end: Vec3::X,
+                },
+                IrrigationPipeRenderSegment {
+                    start: Vec3::X,
+                    end: Vec3::X + Vec3::Z,
+                },
+            ],
+        };
+        let mesh = build_pipe_preview_mesh(&data).unwrap();
+
+        assert_eq!(mesh.vertices.len(), 3 * 24);
+        assert_eq!(mesh.indices.len(), 3 * 36);
+    }
+
+    #[test]
+    fn pipe_preview_preserves_three_voxel_cross_section() {
+        let mesh = build_pipe_preview_mesh(&IrrigationPipeRenderData {
+            source_position: None,
+            segments: vec![IrrigationPipeRenderSegment {
+                start: Vec3::ZERO,
+                end: Vec3::X,
+            }],
+        })
+        .unwrap();
+        let positions = mesh
+            .vertices
+            .iter()
+            .map(|vertex| Vec3::from_array(vertex.position))
+            .collect::<Vec<_>>();
+        let min = positions.iter().copied().reduce(Vec3::min).unwrap();
+        let max = positions.iter().copied().reduce(Vec3::max).unwrap();
+
+        assert!((max.y - min.y - 3.0 * VOXEL_SCALE).abs() < 1.0e-6);
+        assert!((max.z - min.z - 3.0 * VOXEL_SCALE).abs() < 1.0e-6);
+    }
+}

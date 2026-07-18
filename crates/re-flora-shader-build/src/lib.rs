@@ -328,6 +328,18 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
+        logical_path: "shader/preview/geometry_preview.frag",
+        source_path: "shader/slang/geometry_preview.frag.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
+        logical_path: "shader/preview/geometry_preview.vert",
+        source_path: "shader/slang/geometry_preview.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
         logical_path: "shader/builder/surface/active_surface_to_flora_instances.comp",
         source_path: "shader/slang/active_surface_to_flora_instances.slang",
         module_path: "shader/slang",
