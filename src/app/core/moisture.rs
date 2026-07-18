@@ -204,6 +204,10 @@ impl App {
         let sprinkler_states = self
             .sprinkler_records
             .iter()
+            .filter(|sprinkler| {
+                self.irrigation_network
+                    .segment_is_powered(sprinkler.pipe_segment_id)
+            })
             .map(|sprinkler| (sprinkler.base_position, sprinkler.animation_phase))
             .collect::<Vec<_>>();
         let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;

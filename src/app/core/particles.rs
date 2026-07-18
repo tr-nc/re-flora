@@ -434,9 +434,20 @@ impl App {
             wind_time,
         );
         let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
+        let powered_sprinkler_ids = self
+            .sprinkler_records
+            .iter()
+            .filter(|record| {
+                self.irrigation_network
+                    .segment_is_powered(record.pipe_segment_id)
+            })
+            .map(|record| record.id)
+            .collect::<Vec<_>>();
         for emitter in &mut self.sprinkler_emitters {
-            emitter.set_animation_clock(self.flora_tick, world_tick_seconds);
-            emitter.update(&mut self.particle_system, dt, wind_time);
+            if powered_sprinkler_ids.contains(&emitter.id()) {
+                emitter.set_animation_clock(self.flora_tick, world_tick_seconds);
+                emitter.update(&mut self.particle_system, dt, wind_time);
+            }
         }
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 

@@ -12,6 +12,9 @@ pub use particle_texture_layout::*;
 mod sprinkler_resources;
 pub use sprinkler_resources::*;
 
+mod irrigation_pipe_resources;
+pub use irrigation_pipe_resources::*;
+
 mod denoiser_resources;
 pub use denoiser_resources::*;
 
@@ -420,6 +423,7 @@ pub struct Tracer {
     resources: TracerResources,
     particle_resources: ParticleRendererResources,
     sprinkler_resources: SprinklerRendererResources,
+    irrigation_pipe_resources: IrrigationPipeRendererResources,
 
     camera: Camera,
     camera_view_mat_prev_frame: Mat4,
@@ -567,6 +571,8 @@ impl Tracer {
             ParticleRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let sprinkler_resources =
             SprinklerRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
+        let irrigation_pipe_resources =
+            IrrigationPipeRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
 
         let compute_pipelines = PipelineBuilder::create_compute_pipelines(
             &vulkan_ctx,
@@ -654,6 +660,7 @@ impl Tracer {
             resources,
             particle_resources,
             sprinkler_resources,
+            irrigation_pipe_resources,
             camera,
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
@@ -1401,7 +1408,8 @@ impl Tracer {
 
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
-            || self.sprinkler_resources.instance_count > 0;
+            || self.sprinkler_resources.instance_count > 0
+            || self.irrigation_pipe_resources.instance_count > 0;
 
         if render_flags.enable_flora {
             Self::with_gpu_scope(
@@ -1575,7 +1583,8 @@ impl Tracer {
         let enable_glass = false;
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
-            || self.sprinkler_resources.instance_count > 0;
+            || self.sprinkler_resources.instance_count > 0
+            || self.irrigation_pipe_resources.instance_count > 0;
 
         if render_flags.enable_flora {
             assert_eq!(
@@ -1834,7 +1843,8 @@ impl Tracer {
     ) {
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
-            || self.sprinkler_resources.instance_count > 0;
+            || self.sprinkler_resources.instance_count > 0
+            || self.irrigation_pipe_resources.instance_count > 0;
         if !has_graphics_pass {
             self.resources
                 .extent_dependent_resources
@@ -2025,7 +2035,9 @@ impl Tracer {
                 pipeline.record_texture_transitions(cmdbuf);
             }
         }
-        if self.sprinkler_resources.instance_count > 0 {
+        if self.sprinkler_resources.instance_count > 0
+            || self.irrigation_pipe_resources.instance_count > 0
+        {
             self.graphics_pipelines
                 .sprinkler_ppl
                 .record_texture_transitions(cmdbuf);
@@ -2311,6 +2323,40 @@ impl Tracer {
                 );
             }
         } // end enable_flora
+
+        if self.irrigation_pipe_resources.instance_count > 0 {
+            let pipes_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.irrigation_pipes",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            let resources = &self.irrigation_pipe_resources;
+            let pipeline = &self.graphics_pipelines.sprinkler_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(&resources.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
+            pipeline.record_indexed(
+                cmdbuf,
+                resources.indices_len,
+                resources.instance_count,
+                0,
+                0,
+                0,
+                None,
+            );
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), pipes_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        }
 
         if self.sprinkler_resources.instance_count > 0 {
             let sprinklers_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
@@ -3179,6 +3225,10 @@ impl Tracer {
 
     pub fn upload_sprinklers(&mut self, instances: &[SprinklerRenderInstance]) -> Result<()> {
         self.sprinkler_resources.upload(instances)
+    }
+
+    pub fn upload_irrigation_pipes(&mut self, data: &IrrigationPipeRenderData) -> Result<()> {
+        self.irrigation_pipe_resources.upload(data)
     }
 
     pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {
