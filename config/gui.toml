@@ -2112,64 +2112,66 @@ value = "#D36BAE"
 name = "Kochia"
 
 [[section.param]]
-id = "kochia_inner_yellow_color"
+id = "kochia_color_a"
 kind = "color"
-label = "Inner Yellow"
+label = "Color A"
 type = "Color"
 
 [section.param.data]
 value = "#D6AEA0"
 
 [[section.param]]
-id = "kochia_transition_coral_color"
+id = "kochia_color_b"
 kind = "color"
-label = "Transition Coral"
-type = "Color"
-
-[section.param.data]
-value = "#D17B7B"
-
-[[section.param]]
-id = "kochia_outer_red_color"
-kind = "color"
-label = "Outer Red"
+label = "Color B"
 type = "Color"
 
 [section.param.data]
 value = "#FFACB1"
 
 [[section.param]]
-id = "kochia_yellow_core_end"
+id = "kochia_bottom_diameter_voxels"
 kind = "float"
-label = "Yellow Core End"
+label = "Bottom Diameter (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.11
-min = 0
-max = 0.55
+value = 5.6
+min = 1
+max = 16
 
 [[section.param]]
-id = "kochia_red_shell_start"
+id = "kochia_waist_diameter_voxels"
 kind = "float"
-label = "Red Shell Start"
+label = "Waist Diameter (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.79
-min = 0.5
-max = 0.95
+value = 11.6
+min = 1
+max = 16
 
 [[section.param]]
-id = "kochia_instance_color_variation"
+id = "kochia_top_diameter_voxels"
 kind = "float"
-label = "Red Tone Instance Variation"
+label = "Top Diameter (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.2
-min = 0
-max = 1
+value = 3.8
+min = 1
+max = 16
+
+[[section.param]]
+id = "kochia_waist_height"
+kind = "float"
+label = "Waist Height"
+type = "Float"
+
+[section.param.data]
+value = 0.65
+min = 0.1
+max = 0.9
 
 [[section.param]]
 id = "kochia_bottom_darkening"

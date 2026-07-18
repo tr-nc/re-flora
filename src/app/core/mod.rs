@@ -2893,6 +2893,22 @@ impl App {
                                 .kochia_voxel_value_variation
                                 .value,
                             branch_count: self.debug_settings.adjustables.kochia_branch_count.value,
+                            bottom_diameter_voxels: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_bottom_diameter_voxels
+                                .value,
+                            waist_diameter_voxels: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_waist_diameter_voxels
+                                .value,
+                            top_diameter_voxels: self
+                                .debug_settings
+                                .adjustables
+                                .kochia_top_diameter_voxels
+                                .value,
+                            waist_height: self.debug_settings.adjustables.kochia_waist_height.value,
                         },
                         self.debug_settings
                             .adjustables
@@ -3185,27 +3201,8 @@ impl App {
                             ),
                         ),
                         "kochia" => kochia_color_tables(
-                            color_to_vec3(
-                                self.debug_settings
-                                    .adjustables
-                                    .kochia_inner_yellow_color
-                                    .value,
-                            ),
-                            color_to_vec3(
-                                self.debug_settings
-                                    .adjustables
-                                    .kochia_transition_coral_color
-                                    .value,
-                            ),
-                            color_to_vec3(
-                                self.debug_settings.adjustables.kochia_outer_red_color.value,
-                            ),
-                            self.debug_settings.adjustables.kochia_yellow_core_end.value,
-                            self.debug_settings.adjustables.kochia_red_shell_start.value,
-                            self.debug_settings
-                                .adjustables
-                                .kochia_instance_color_variation
-                                .value,
+                            color_to_vec3(self.debug_settings.adjustables.kochia_color_a.value),
+                            color_to_vec3(self.debug_settings.adjustables.kochia_color_b.value),
                         ),
                         _ => {
                             let bottom = Color32::from_rgb(

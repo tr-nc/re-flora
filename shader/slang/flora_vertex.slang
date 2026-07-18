@@ -301,8 +301,11 @@ public PreparedFloraVertex prepareFloraVertex(
         spawnPose.visibility = 1.0;
     }
 
+    float3 posedVoxelLocalPosition = isKochia
+        ? kochiaProfiledVoxelPosition(gui_input, voxelLocalPosition)
+        : float3(voxelLocalPosition);
     result.anchor_position =
-        (float3(voxelLocalPosition) + windOffset + spawnPose.translation_voxels) *
+        (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *
         FLORA_SCALING_FACTOR + instancePosition;
     result.voxel_position = result.anchor_position + 0.5 * FLORA_SCALING_FACTOR;
     result.shadow_weight = stylizedVoxelShadowWeight(
@@ -341,11 +344,16 @@ public float3 sampleFloraBaseColor(bool isGrass, uint instanceType, uint seed,
 
     if (instanceType == FLORA_SPECIES_KOCHIA)
     {
-        float3 warmRed = unpackLinearRgb10(pc.height_light_color_rgb10[colorRow]);
-        float paletteValue = constructFloat01(wellonsHash(seed ^ 0xD1B54A32u));
-        float3 kochiaColor = lerp(darkHeightColor, warmRed, paletteValue);
+        float3 colorB = unpackLinearRgb10(pc.height_light_color_rgb10[colorRow]);
         uint animationGroup = floraVoxelAnimationGroup(voxelInfo);
         uint branchSeed = wellonsHash(seed ^ (animationGroup * 0x9E3779B9u));
+        float branchPalette = constructFloat01(branchSeed ^ 0xD1B54A32u);
+        float voxelPalette = signedUnitNoise(
+            float4(float3(voxelLocalPosition) * 0.35, float(seed ^ branchSeed))).x *
+            0.5 + 0.5;
+        float paletteValue = floraSmootherstep(
+            clamp(branchPalette * 0.72 + voxelPalette * 0.28, 0.0, 1.0));
+        float3 kochiaColor = lerp(darkHeightColor, colorB, paletteValue);
         float branchNoise = constructFloat01(branchSeed) * 2.0 - 1.0;
         float voxelNoise = signedUnitNoise(
             float4(float3(voxelLocalPosition), float(seed ^ branchSeed))).z;

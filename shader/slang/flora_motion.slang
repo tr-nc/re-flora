@@ -118,6 +118,48 @@ public uint floraGroupedStemWindSeed(uint seed, uint animationGroup)
     return seed + (animationGroup > 0u ? animationGroup - 1u : 0u);
 }
 
+public float kochiaProfileRadius(float height, float bottomDiameter,
+                                 float waistDiameter, float topDiameter,
+                                 float waistHeight)
+{
+    float waist = clamp(waistHeight, 0.05, 0.95);
+    float radius;
+    if (height <= waist)
+    {
+        float lower = floraSmootherstep(height / waist);
+        radius = lerp(bottomDiameter, waistDiameter, lower) * 0.5;
+    }
+    else
+    {
+        float upper = floraSmootherstep((height - waist) / (1.0 - waist));
+        radius = lerp(waistDiameter, topDiameter, upper) * 0.5;
+    }
+    return max(radius, 0.05);
+}
+
+public float3 kochiaProfiledVoxelPosition(U_GuiInput gui, int3 voxelLocalPosition)
+{
+    static const float CANONICAL_BOTTOM_DIAMETER = 5.6;
+    static const float CANONICAL_WAIST_DIAMETER = 11.6;
+    static const float CANONICAL_TOP_DIAMETER = 3.8;
+    static const float CANONICAL_WAIST_HEIGHT = 0.65;
+    static const float MAX_HEIGHT_INDEX = 13.0;
+
+    float height = clamp(float(voxelLocalPosition.y) / MAX_HEIGHT_INDEX, 0.0, 1.0);
+    float canonicalRadius = kochiaProfileRadius(
+        height, CANONICAL_BOTTOM_DIAMETER, CANONICAL_WAIST_DIAMETER,
+        CANONICAL_TOP_DIAMETER, CANONICAL_WAIST_HEIGHT);
+    float targetRadius = kochiaProfileRadius(
+        height, gui.kochia_bottom_diameter_voxels,
+        gui.kochia_waist_diameter_voxels, gui.kochia_top_diameter_voxels,
+        gui.kochia_waist_height);
+    float radialScale = targetRadius / canonicalRadius;
+    float3 profiledPosition = float3(voxelLocalPosition);
+    profiledPosition.x *= radialScale;
+    profiledPosition.z *= radialScale;
+    return profiledPosition;
+}
+
 public float floraSpeciesVoxelWindAffectMultiplier(U_GuiInput gui,
                                                     uint instanceType)
 {

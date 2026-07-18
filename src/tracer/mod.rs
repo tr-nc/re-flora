@@ -260,41 +260,13 @@ pub fn solid_flora_height_color_tables(
     [table, table]
 }
 
-pub fn kochia_color_tables(
-    inner_yellow_srgb: Vec3,
-    transition_coral_srgb: Vec3,
-    outer_red_srgb: Vec3,
-    yellow_core_end: f32,
-    red_shell_start: f32,
-    instance_color_variation: f32,
-) -> FloraHeightColorTables {
-    let inner_yellow = srgb_to_linear_color(inner_yellow_srgb);
-    let transition_coral = srgb_to_linear_color(transition_coral_srgb);
-    let outer_red = srgb_to_linear_color(outer_red_srgb);
-    let core_end = yellow_core_end.clamp(0.0, 1.0);
-    let shell_start = red_shell_start.clamp(core_end + 1e-3, 1.0);
-    let variation = instance_color_variation.clamp(0.0, 1.0);
-    let mut red_table = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
-    let mut warm_red_table = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
-
-    for row in 0..FLORA_HEIGHT_COLOR_TABLE_LEN {
-        let shell_t = row as f32 / (FLORA_HEIGHT_COLOR_TABLE_LEN - 1) as f32;
-        let base_color = if shell_t <= core_end {
-            inner_yellow
-        } else if shell_t < shell_start {
-            let transition_t = (shell_t - core_end) / (shell_start - core_end);
-            inner_yellow.lerp(transition_coral, transition_t)
-        } else {
-            let outer_t = (shell_t - shell_start) / (1.0 - shell_start).max(1e-3);
-            transition_coral.lerp(outer_red, outer_t)
-        };
-        let outer_t = ((shell_t - shell_start) / (1.0 - shell_start).max(1e-3)).clamp(0.0, 1.0);
-        let warm_red_variant = base_color.lerp(transition_coral, outer_t * variation);
-        red_table[row] = pack_linear_rgb10(base_color);
-        warm_red_table[row] = pack_linear_rgb10(warm_red_variant);
-    }
-
-    [red_table, warm_red_table]
+pub fn kochia_color_tables(color_a_srgb: Vec3, color_b_srgb: Vec3) -> FloraHeightColorTables {
+    let color_a = pack_linear_rgb10(srgb_to_linear_color(color_a_srgb));
+    let color_b = pack_linear_rgb10(srgb_to_linear_color(color_b_srgb));
+    [
+        [color_a; FLORA_HEIGHT_COLOR_TABLE_LEN],
+        [color_b; FLORA_HEIGHT_COLOR_TABLE_LEN],
+    ]
 }
 
 pub fn allium_height_color_tables(
@@ -330,21 +302,12 @@ mod flora_color_tests {
     use super::*;
 
     #[test]
-    fn kochia_palette_keeps_its_core_yellow_and_varies_its_outer_shell() {
-        let tables = kochia_color_tables(
-            Vec3::new(0.84, 0.72, 0.30),
-            Vec3::new(0.83, 0.42, 0.33),
-            Vec3::new(0.85, 0.32, 0.37),
-            0.2,
-            0.78,
-            1.0,
-        );
+    fn kochia_palette_contains_two_height_independent_colors() {
+        let tables = kochia_color_tables(Vec3::new(0.84, 0.72, 0.30), Vec3::new(0.85, 0.32, 0.37));
 
-        assert_eq!(tables[0][0], tables[1][0]);
-        assert_ne!(
-            tables[0][FLORA_HEIGHT_COLOR_TABLE_LEN - 1],
-            tables[1][FLORA_HEIGHT_COLOR_TABLE_LEN - 1]
-        );
+        assert_ne!(tables[0][0], tables[1][0]);
+        assert!(tables[0].iter().all(|color| *color == tables[0][0]));
+        assert!(tables[1].iter().all(|color| *color == tables[1][0]));
     }
 }
 
@@ -412,6 +375,10 @@ pub struct KochiaVisualParams {
     pub branch_value_variation: f32,
     pub voxel_value_variation: f32,
     pub branch_count: u32,
+    pub bottom_diameter_voxels: f32,
+    pub waist_diameter_voxels: f32,
+    pub top_diameter_voxels: f32,
+    pub waist_height: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

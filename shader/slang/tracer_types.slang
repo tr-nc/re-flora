@@ -44,6 +44,10 @@ public struct U_GuiInput
     public float kochia_branch_value_variation;
     public float kochia_voxel_value_variation;
     public uint kochia_branch_count;
+    public float kochia_bottom_diameter_voxels;
+    public float kochia_waist_diameter_voxels;
+    public float kochia_top_diameter_voxels;
+    public float kochia_waist_height;
     public float leaf_paddle_amplitude_voxels;
     public float leaf_paddle_primary_speed;
     public float leaf_paddle_secondary_speed;
