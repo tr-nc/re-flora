@@ -2299,7 +2299,7 @@ impl App {
 
                         egui::Area::new("collision_probe_panel".into())
                             .order(egui::Order::Foreground)
-                            .anchor(egui::Align2::RIGHT_TOP, egui::Vec2::new(-16.0, 16.0))
+                            .anchor(egui::Align2::LEFT_TOP, egui::Vec2::new(16.0, 16.0))
                             .show(ctx, |ui| {
                                 let probe_frame = egui::containers::Frame {
                                     fill: PANEL_DARK,
