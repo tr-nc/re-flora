@@ -166,22 +166,6 @@ pub struct ContreeCpuVoxelBlock {
     pub source_dependencies: Vec<ContreeCpuVoxelSourceDependency>,
 }
 
-/// A regular, cell-centered sampling of the canonical CPU terrain source.
-///
-/// `source_voxel_min..source_voxel_min + source_voxel_dim` identifies the
-/// exact terrain-voxel region. `dim` is the (potentially lower-resolution)
-/// output grid. Samples use x-fastest order and the same integer cell-center
-/// mapping as the former GPU atlas sampler.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ContreeCpuVoxelGrid {
-    pub source_voxel_min: UVec3,
-    pub source_voxel_dim: UVec3,
-    pub dim: UVec3,
-    pub voxel_dim_per_chunk: UVec3,
-    pub voxel_types: Vec<u8>,
-    pub source_dependencies: Vec<ContreeCpuVoxelSourceDependency>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContreeCpuVoxelBlockNotReady {
     pub voxel_min: UVec3,
@@ -194,12 +178,6 @@ pub struct ContreeCpuVoxelBlockNotReady {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContreeCpuVoxelBlockExport {
     Ready(ContreeCpuVoxelBlock),
-    NotReady(ContreeCpuVoxelBlockNotReady),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ContreeCpuVoxelGridExport {
-    Ready(ContreeCpuVoxelGrid),
     NotReady(ContreeCpuVoxelBlockNotReady),
 }
 
@@ -247,111 +225,23 @@ impl ContreeCpuRayQuerySnapshot {
         voxel_min: UVec3,
         dim: UVec3,
     ) -> std::result::Result<ContreeCpuVoxelBlockExport, ContreeCpuVoxelBlockExportError> {
-        validate_voxel_export_bounds(self.chunk_dim, self.voxel_dim_per_chunk, voxel_min, dim)?;
-        let voxel_max = checked_uvec3_add(voxel_min, dim)
-            .expect("validated voxel export bounds must not overflow");
-        let element_count = checked_voxel_count(dim)
-            .ok_or(ContreeCpuVoxelBlockExportError::ElementCountOverflow { dim })?;
-        let (source_dependencies, pending_chunks) =
-            self.voxel_source_dependencies(voxel_min, voxel_max);
-
-        if !pending_chunks.is_empty() {
-            return Ok(ContreeCpuVoxelBlockExport::NotReady(
-                ContreeCpuVoxelBlockNotReady {
-                    voxel_min,
-                    dim,
-                    voxel_dim_per_chunk: self.voxel_dim_per_chunk,
-                    pending_chunks,
-                    source_dependencies,
-                },
-            ));
-        }
-
-        let mut voxel_types = Vec::with_capacity(element_count);
-        for z in voxel_min.z..voxel_max.z {
-            for y in voxel_min.y..voxel_max.y {
-                for x in voxel_min.x..voxel_max.x {
-                    voxel_types.push(self.voxel_type_at(UVec3::new(x, y, z)));
-                }
-            }
-        }
-
-        Ok(ContreeCpuVoxelBlockExport::Ready(ContreeCpuVoxelBlock {
-            voxel_min,
-            dim,
-            voxel_dim_per_chunk: self.voxel_dim_per_chunk,
-            voxel_types,
-            source_dependencies,
-        }))
-    }
-
-    /// Samples a terrain-voxel region into a regular lower-resolution grid.
-    ///
-    /// For each output axis, sample `i` reads source voxel
-    /// `floor(((2 * i + 1) * source_dim) / (2 * sample_dim))`. This is a
-    /// deterministic cell-center mapping and preserves the old GPU water
-    /// collider sampling locations exactly (for example 256 -> 32 samples
-    /// source voxels 4, 12, ..., 252).
-    pub fn export_resampled_voxel_grid(
-        &self,
-        source_voxel_min: UVec3,
-        source_voxel_dim: UVec3,
-        dim: UVec3,
-    ) -> std::result::Result<ContreeCpuVoxelGridExport, ContreeCpuVoxelBlockExportError> {
-        validate_voxel_export_bounds(
-            self.chunk_dim,
-            self.voxel_dim_per_chunk,
-            source_voxel_min,
-            source_voxel_dim,
-        )?;
         if dim.cmpeq(UVec3::ZERO).any() {
             return Err(ContreeCpuVoxelBlockExportError::ZeroDimension { dim });
         }
+        let voxel_max = checked_uvec3_add(voxel_min, dim)
+            .ok_or(ContreeCpuVoxelBlockExportError::BoundsOverflow { voxel_min, dim })?;
+        let world_voxel_dim = checked_uvec3_mul(self.chunk_dim, self.voxel_dim_per_chunk)
+            .ok_or(ContreeCpuVoxelBlockExportError::BoundsOverflow { voxel_min, dim })?;
+        if voxel_max.cmpgt(world_voxel_dim).any() {
+            return Err(ContreeCpuVoxelBlockExportError::OutOfBounds {
+                voxel_min,
+                dim,
+                world_voxel_dim,
+            });
+        }
         let element_count = checked_voxel_count(dim)
             .ok_or(ContreeCpuVoxelBlockExportError::ElementCountOverflow { dim })?;
-        let source_voxel_max = checked_uvec3_add(source_voxel_min, source_voxel_dim)
-            .expect("validated voxel export bounds must not overflow");
-        let (source_dependencies, pending_chunks) =
-            self.voxel_source_dependencies(source_voxel_min, source_voxel_max);
-        if !pending_chunks.is_empty() {
-            return Ok(ContreeCpuVoxelGridExport::NotReady(
-                ContreeCpuVoxelBlockNotReady {
-                    voxel_min: source_voxel_min,
-                    dim: source_voxel_dim,
-                    voxel_dim_per_chunk: self.voxel_dim_per_chunk,
-                    pending_chunks,
-                    source_dependencies,
-                },
-            ));
-        }
 
-        let sample_x = resampled_source_voxels(source_voxel_min.x, source_voxel_dim.x, dim.x);
-        let sample_y = resampled_source_voxels(source_voxel_min.y, source_voxel_dim.y, dim.y);
-        let sample_z = resampled_source_voxels(source_voxel_min.z, source_voxel_dim.z, dim.z);
-        let mut voxel_types = Vec::with_capacity(element_count);
-        for &z in &sample_z {
-            for &y in &sample_y {
-                for &x in &sample_x {
-                    voxel_types.push(self.voxel_type_at(UVec3::new(x, y, z)));
-                }
-            }
-        }
-
-        Ok(ContreeCpuVoxelGridExport::Ready(ContreeCpuVoxelGrid {
-            source_voxel_min,
-            source_voxel_dim,
-            dim,
-            voxel_dim_per_chunk: self.voxel_dim_per_chunk,
-            voxel_types,
-            source_dependencies,
-        }))
-    }
-
-    fn voxel_source_dependencies(
-        &self,
-        voxel_min: UVec3,
-        voxel_max: UVec3,
-    ) -> (Vec<ContreeCpuVoxelSourceDependency>, Vec<UVec3>) {
         let chunk_min = voxel_min / self.voxel_dim_per_chunk;
         let chunk_max = (voxel_max - UVec3::ONE) / self.voxel_dim_per_chunk;
         let mut source_dependencies = Vec::new();
@@ -379,57 +269,56 @@ impl ContreeCpuRayQuerySnapshot {
                 }
             }
         }
-        (source_dependencies, pending_chunks)
-    }
 
-    fn voxel_type_at(&self, voxel: UVec3) -> u8 {
-        let chunk_idx = voxel / self.voxel_dim_per_chunk;
-        if !scene_chunk_present_in_grid(self.chunk_dim, &self.cpu_scene_chunks, chunk_idx) {
-            return 0;
+        if !pending_chunks.is_empty() {
+            return Ok(ContreeCpuVoxelBlockExport::NotReady(
+                ContreeCpuVoxelBlockNotReady {
+                    voxel_min,
+                    dim,
+                    voxel_dim_per_chunk: self.voxel_dim_per_chunk,
+                    pending_chunks,
+                    source_dependencies,
+                },
+            ));
         }
-        let local_voxel = voxel % self.voxel_dim_per_chunk;
-        let point = chunk_idx.as_vec3()
-            + (local_voxel.as_vec3() + Vec3::splat(0.5)) / self.voxel_dim_per_chunk.as_vec3();
-        query_cached_chunk_cpu_voxel_type(
-            self.cpu_chunk_caches
-                .get(&chunk_idx)
-                .expect("ready scene chunks must have a CPU cache"),
-            point,
-        )
-    }
-}
 
-fn validate_voxel_export_bounds(
-    chunk_dim: UVec3,
-    voxel_dim_per_chunk: UVec3,
-    voxel_min: UVec3,
-    dim: UVec3,
-) -> std::result::Result<(), ContreeCpuVoxelBlockExportError> {
-    if dim.cmpeq(UVec3::ZERO).any() {
-        return Err(ContreeCpuVoxelBlockExportError::ZeroDimension { dim });
-    }
-    let voxel_max = checked_uvec3_add(voxel_min, dim)
-        .ok_or(ContreeCpuVoxelBlockExportError::BoundsOverflow { voxel_min, dim })?;
-    let world_voxel_dim = checked_uvec3_mul(chunk_dim, voxel_dim_per_chunk)
-        .ok_or(ContreeCpuVoxelBlockExportError::BoundsOverflow { voxel_min, dim })?;
-    if voxel_max.cmpgt(world_voxel_dim).any() {
-        return Err(ContreeCpuVoxelBlockExportError::OutOfBounds {
+        let mut voxel_types = Vec::with_capacity(element_count);
+        for z in voxel_min.z..voxel_max.z {
+            for y in voxel_min.y..voxel_max.y {
+                for x in voxel_min.x..voxel_max.x {
+                    let voxel = UVec3::new(x, y, z);
+                    let chunk_idx = voxel / self.voxel_dim_per_chunk;
+                    let voxel_type = if !scene_chunk_present_in_grid(
+                        self.chunk_dim,
+                        &self.cpu_scene_chunks,
+                        chunk_idx,
+                    ) {
+                        0
+                    } else {
+                        let local_voxel = voxel % self.voxel_dim_per_chunk;
+                        let point = chunk_idx.as_vec3()
+                            + (local_voxel.as_vec3() + Vec3::splat(0.5))
+                                / self.voxel_dim_per_chunk.as_vec3();
+                        query_cached_chunk_cpu_voxel_type(
+                            self.cpu_chunk_caches
+                                .get(&chunk_idx)
+                                .expect("ready scene chunks must have a CPU cache"),
+                            point,
+                        )
+                    };
+                    voxel_types.push(voxel_type);
+                }
+            }
+        }
+
+        Ok(ContreeCpuVoxelBlockExport::Ready(ContreeCpuVoxelBlock {
             voxel_min,
             dim,
-            world_voxel_dim,
-        });
+            voxel_dim_per_chunk: self.voxel_dim_per_chunk,
+            voxel_types,
+            source_dependencies,
+        }))
     }
-    Ok(())
-}
-
-fn resampled_source_voxels(source_min: u32, source_dim: u32, sample_dim: u32) -> Vec<u32> {
-    (0..sample_dim)
-        .map(|sample| {
-            let source_offset =
-                ((u64::from(sample) * 2 + 1) * u64::from(source_dim)) / (u64::from(sample_dim) * 2);
-            source_min + source_offset.min(u64::from(source_dim - 1)) as u32
-        })
-        .collect()
 }
 
 fn checked_uvec3_add(lhs: UVec3, rhs: UVec3) -> Option<UVec3> {
@@ -2288,18 +2177,6 @@ mod tests {
         }
     }
 
-    fn ready_grid(export: ContreeCpuVoxelGridExport) -> ContreeCpuVoxelGrid {
-        match export {
-            ContreeCpuVoxelGridExport::Ready(grid) => grid,
-            ContreeCpuVoxelGridExport::NotReady(not_ready) => {
-                panic!(
-                    "expected ready grid, pending {:?}",
-                    not_ready.pending_chunks
-                )
-            }
-        }
-    }
-
     #[test]
     fn max_node_buffer_size_matches_full_contree_node_levels() {
         let node_chunk_size = ContreeBuilder::max_node_buffer_size_in_bytes(UVec3::splat(256));
@@ -2454,106 +2331,6 @@ mod tests {
                 },
             ]
         );
-    }
-
-    #[test]
-    fn resampled_grid_uses_gpu_compatible_cell_center_indices() {
-        let samples = resampled_source_voxels(0, 256, 32);
-
-        assert_eq!(samples.len(), 32);
-        assert_eq!(samples[0], 4);
-        assert_eq!(samples[1], 12);
-        assert_eq!(samples[31], 252);
-        assert!(samples.windows(2).all(|pair| pair[1] - pair[0] == 8));
-    }
-
-    #[test]
-    fn resampled_grid_exports_voxel_types_in_x_fastest_order() {
-        let chunk = UVec3::ZERO;
-        let cache = leaf_cache(chunk, &[(UVec3::new(1, 0, 0), 2), (UVec3::new(3, 0, 0), 7)]);
-        let snapshot = voxel_snapshot(
-            UVec3::ONE,
-            UVec3::splat(4),
-            &[chunk],
-            &[(chunk, cache)],
-            &[(chunk, 9)],
-            &[],
-        );
-
-        let grid = ready_grid(
-            snapshot
-                .export_resampled_voxel_grid(UVec3::ZERO, UVec3::new(4, 1, 1), UVec3::new(2, 1, 1))
-                .unwrap(),
-        );
-
-        assert_eq!(grid.voxel_types, vec![2, 7]);
-        assert_eq!(grid.source_voxel_dim, UVec3::new(4, 1, 1));
-        assert_eq!(grid.dim, UVec3::new(2, 1, 1));
-    }
-
-    #[test]
-    fn resampled_grid_dependencies_are_ordered_across_chunks() {
-        let left = UVec3::ZERO;
-        let right = UVec3::X;
-        let left_cache = leaf_cache(left, &[(UVec3::new(3, 0, 0), 2)]);
-        let right_cache = leaf_cache(right, &[(UVec3::new(0, 0, 0), 7)]);
-        let snapshot = voxel_snapshot(
-            UVec3::new(2, 1, 1),
-            UVec3::splat(4),
-            &[left, right],
-            &[(left, left_cache), (right, right_cache)],
-            &[(left, 5), (right, 11)],
-            &[],
-        );
-
-        let grid = ready_grid(
-            snapshot
-                .export_resampled_voxel_grid(
-                    UVec3::new(3, 0, 0),
-                    UVec3::new(2, 1, 1),
-                    UVec3::new(2, 1, 1),
-                )
-                .unwrap(),
-        );
-
-        assert_eq!(grid.voxel_types, vec![2, 7]);
-        assert_eq!(
-            grid.source_dependencies,
-            vec![
-                ContreeCpuVoxelSourceDependency {
-                    chunk_idx: left,
-                    source_revision: Some(5),
-                    is_present: true,
-                },
-                ContreeCpuVoxelSourceDependency {
-                    chunk_idx: right,
-                    source_revision: Some(11),
-                    is_present: true,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn resampled_grid_reports_present_source_without_cache_as_not_ready() {
-        let chunk = UVec3::ZERO;
-        let snapshot = voxel_snapshot(
-            UVec3::ONE,
-            UVec3::splat(256),
-            &[chunk],
-            &[],
-            &[(chunk, 4)],
-            &[],
-        );
-
-        let ContreeCpuVoxelGridExport::NotReady(not_ready) = snapshot
-            .export_resampled_voxel_grid(UVec3::ZERO, UVec3::splat(256), UVec3::splat(32))
-            .unwrap()
-        else {
-            panic!("present scene chunk without a cache must not export as empty");
-        };
-        assert_eq!(not_ready.pending_chunks, vec![chunk]);
-        assert_eq!(not_ready.source_dependencies[0].source_revision, Some(4));
     }
 
     #[test]
