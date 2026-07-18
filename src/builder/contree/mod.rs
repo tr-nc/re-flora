@@ -30,7 +30,7 @@ use re_flora_vkn::PipelineStage;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::TimestampQueryPool;
 use re_flora_vkn::VulkanContext;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     mpsc, Arc, RwLock,
@@ -137,10 +137,66 @@ pub struct ContreeCpuRayHit {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct ContreeCpuRayQuerySnapshot {
     chunk_dim: UVec3,
+    voxel_dim_per_chunk: UVec3,
     cpu_scene_chunks: Vec<Option<UVec3>>,
     cpu_chunk_caches: HashMap<UVec3, Arc<CpuChunkCache>>,
+    cpu_chunk_source_revisions: HashMap<UVec3, u64>,
+    unfinished_cpu_chunk_caches: HashSet<UVec3>,
+}
+
+pub type ContreeCpuVoxelSourceSnapshot = ContreeCpuRayQuerySnapshot;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContreeCpuVoxelSourceDependency {
+    pub chunk_idx: UVec3,
+    pub source_revision: Option<u64>,
+    pub is_present: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContreeCpuVoxelBlock {
+    pub voxel_min: UVec3,
+    pub dim: UVec3,
+    pub voxel_dim_per_chunk: UVec3,
+    /// X varies fastest, followed by Y, then Z.
+    pub voxel_types: Vec<u8>,
+    pub source_dependencies: Vec<ContreeCpuVoxelSourceDependency>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContreeCpuVoxelBlockNotReady {
+    pub voxel_min: UVec3,
+    pub dim: UVec3,
+    pub voxel_dim_per_chunk: UVec3,
+    pub pending_chunks: Vec<UVec3>,
+    pub source_dependencies: Vec<ContreeCpuVoxelSourceDependency>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContreeCpuVoxelBlockExport {
+    Ready(ContreeCpuVoxelBlock),
+    NotReady(ContreeCpuVoxelBlockNotReady),
+}
+
+#[derive(Clone, Copy, Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ContreeCpuVoxelBlockExportError {
+    #[error("voxel block dimensions must all be non-zero, got {dim:?}")]
+    ZeroDimension { dim: UVec3 },
+    #[error("voxel block bounds overflow: min={voxel_min:?} dim={dim:?}")]
+    BoundsOverflow { voxel_min: UVec3, dim: UVec3 },
+    #[error(
+        "voxel block is outside terrain bounds: min={voxel_min:?} dim={dim:?} world_dim={world_voxel_dim:?}"
+    )]
+    OutOfBounds {
+        voxel_min: UVec3,
+        dim: UVec3,
+        world_voxel_dim: UVec3,
+    },
+    #[error("voxel block element count does not fit in memory: dim={dim:?}")]
+    ElementCountOverflow { dim: UVec3 },
 }
 
 #[allow(dead_code)]
@@ -163,6 +219,129 @@ impl ContreeCpuRayQuerySnapshot {
             point,
         )
     }
+
+    pub fn export_voxel_block(
+        &self,
+        voxel_min: UVec3,
+        dim: UVec3,
+    ) -> std::result::Result<ContreeCpuVoxelBlockExport, ContreeCpuVoxelBlockExportError> {
+        if dim.cmpeq(UVec3::ZERO).any() {
+            return Err(ContreeCpuVoxelBlockExportError::ZeroDimension { dim });
+        }
+        let voxel_max = checked_uvec3_add(voxel_min, dim)
+            .ok_or(ContreeCpuVoxelBlockExportError::BoundsOverflow { voxel_min, dim })?;
+        let world_voxel_dim = checked_uvec3_mul(self.chunk_dim, self.voxel_dim_per_chunk)
+            .ok_or(ContreeCpuVoxelBlockExportError::BoundsOverflow { voxel_min, dim })?;
+        if voxel_max.cmpgt(world_voxel_dim).any() {
+            return Err(ContreeCpuVoxelBlockExportError::OutOfBounds {
+                voxel_min,
+                dim,
+                world_voxel_dim,
+            });
+        }
+        let element_count = checked_voxel_count(dim)
+            .ok_or(ContreeCpuVoxelBlockExportError::ElementCountOverflow { dim })?;
+
+        let chunk_min = voxel_min / self.voxel_dim_per_chunk;
+        let chunk_max = (voxel_max - UVec3::ONE) / self.voxel_dim_per_chunk;
+        let mut source_dependencies = Vec::new();
+        let mut pending_chunks = Vec::new();
+        for chunk_z in chunk_min.z..=chunk_max.z {
+            for chunk_y in chunk_min.y..=chunk_max.y {
+                for chunk_x in chunk_min.x..=chunk_max.x {
+                    let chunk_idx = UVec3::new(chunk_x, chunk_y, chunk_z);
+                    let is_present = scene_chunk_present_in_grid(
+                        self.chunk_dim,
+                        &self.cpu_scene_chunks,
+                        chunk_idx,
+                    );
+                    source_dependencies.push(ContreeCpuVoxelSourceDependency {
+                        chunk_idx,
+                        source_revision: self.cpu_chunk_source_revisions.get(&chunk_idx).copied(),
+                        is_present,
+                    });
+                    if is_present
+                        && (self.unfinished_cpu_chunk_caches.contains(&chunk_idx)
+                            || !self.cpu_chunk_caches.contains_key(&chunk_idx))
+                    {
+                        pending_chunks.push(chunk_idx);
+                    }
+                }
+            }
+        }
+
+        if !pending_chunks.is_empty() {
+            return Ok(ContreeCpuVoxelBlockExport::NotReady(
+                ContreeCpuVoxelBlockNotReady {
+                    voxel_min,
+                    dim,
+                    voxel_dim_per_chunk: self.voxel_dim_per_chunk,
+                    pending_chunks,
+                    source_dependencies,
+                },
+            ));
+        }
+
+        let mut voxel_types = Vec::with_capacity(element_count);
+        for z in voxel_min.z..voxel_max.z {
+            for y in voxel_min.y..voxel_max.y {
+                for x in voxel_min.x..voxel_max.x {
+                    let voxel = UVec3::new(x, y, z);
+                    let chunk_idx = voxel / self.voxel_dim_per_chunk;
+                    let voxel_type = if !scene_chunk_present_in_grid(
+                        self.chunk_dim,
+                        &self.cpu_scene_chunks,
+                        chunk_idx,
+                    ) {
+                        0
+                    } else {
+                        let local_voxel = voxel % self.voxel_dim_per_chunk;
+                        let point = chunk_idx.as_vec3()
+                            + (local_voxel.as_vec3() + Vec3::splat(0.5))
+                                / self.voxel_dim_per_chunk.as_vec3();
+                        query_cached_chunk_cpu_voxel_type(
+                            self.cpu_chunk_caches
+                                .get(&chunk_idx)
+                                .expect("ready scene chunks must have a CPU cache"),
+                            point,
+                        )
+                    };
+                    voxel_types.push(voxel_type);
+                }
+            }
+        }
+
+        Ok(ContreeCpuVoxelBlockExport::Ready(ContreeCpuVoxelBlock {
+            voxel_min,
+            dim,
+            voxel_dim_per_chunk: self.voxel_dim_per_chunk,
+            voxel_types,
+            source_dependencies,
+        }))
+    }
+}
+
+fn checked_uvec3_add(lhs: UVec3, rhs: UVec3) -> Option<UVec3> {
+    Some(UVec3::new(
+        lhs.x.checked_add(rhs.x)?,
+        lhs.y.checked_add(rhs.y)?,
+        lhs.z.checked_add(rhs.z)?,
+    ))
+}
+
+fn checked_uvec3_mul(lhs: UVec3, rhs: UVec3) -> Option<UVec3> {
+    Some(UVec3::new(
+        lhs.x.checked_mul(rhs.x)?,
+        lhs.y.checked_mul(rhs.y)?,
+        lhs.z.checked_mul(rhs.z)?,
+    ))
+}
+
+fn checked_voxel_count(dim: UVec3) -> Option<usize> {
+    let count = u64::from(dim.x)
+        .checked_mul(u64::from(dim.y))?
+        .checked_mul(u64::from(dim.z))?;
+    usize::try_from(count).ok()
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1126,11 +1305,30 @@ impl ContreeBuilder {
 
     #[allow(dead_code)]
     pub fn cpu_ray_query_snapshot(&self) -> ContreeCpuRayQuerySnapshot {
+        let mut unfinished_cpu_chunk_caches = HashSet::new();
+        for y in 0..self.chunk_dim.y {
+            for z in 0..self.chunk_dim.z {
+                for x in 0..self.chunk_dim.x {
+                    let chunk_idx = UVec3::new(x, y, z);
+                    if self.cpu_chunk_cache_queue.has_unfinished_work(chunk_idx) {
+                        unfinished_cpu_chunk_caches.insert(chunk_idx);
+                    }
+                }
+            }
+        }
         ContreeCpuRayQuerySnapshot {
             chunk_dim: self.chunk_dim,
+            voxel_dim_per_chunk: self.voxel_dim_per_chunk,
             cpu_scene_chunks: self.cpu_scene_chunks.clone(),
             cpu_chunk_caches: self.cpu_chunk_caches.clone(),
+            cpu_chunk_source_revisions: self.cpu_chunk_source_revisions.clone(),
+            unfinished_cpu_chunk_caches,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn cpu_voxel_source_snapshot(&self) -> ContreeCpuVoxelSourceSnapshot {
+        self.cpu_ray_query_snapshot()
     }
 
     pub fn query_terrain_ray_cpu(&self, origin: Vec3, direction: Vec3) -> Option<ContreeCpuRayHit> {
@@ -1918,6 +2116,67 @@ fn decode_cpu_chunk_cache_job(job: CpuChunkCacheWorkerJob) -> Result<CpuChunkCac
 mod tests {
     use super::*;
 
+    fn leaf_cache(chunk_idx: UVec3, entries: &[(UVec3, u32)]) -> Arc<CpuChunkCache> {
+        let mut entries = entries.to_vec();
+        entries.sort_by_key(|(voxel, _)| voxel.x + voxel.z * 4 + voxel.y * 16);
+        let mut child_mask_lo = 0;
+        let mut child_mask_hi = 0;
+        let mut leaves = Vec::with_capacity(entries.len());
+        for (voxel, raw_voxel_data) in entries {
+            assert!(voxel.cmplt(UVec3::splat(4)).all());
+            let child_idx = voxel.x + voxel.z * 4 + voxel.y * 16;
+            if child_idx < 32 {
+                child_mask_lo |= 1 << child_idx;
+            } else {
+                child_mask_hi |= 1 << (child_idx - 32);
+            }
+            leaves.push(raw_voxel_data);
+        }
+        Arc::new(CpuChunkCache {
+            chunk_idx,
+            nodes: vec![CpuContreeNode {
+                packed_0: 1,
+                child_mask_lo,
+                child_mask_hi,
+            }],
+            leaves,
+        })
+    }
+
+    fn voxel_snapshot(
+        chunk_dim: UVec3,
+        voxel_dim_per_chunk: UVec3,
+        present_chunks: &[UVec3],
+        caches: &[(UVec3, Arc<CpuChunkCache>)],
+        revisions: &[(UVec3, u64)],
+        unfinished_chunks: &[UVec3],
+    ) -> ContreeCpuVoxelSourceSnapshot {
+        let mut cpu_scene_chunks = vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize];
+        for &chunk_idx in present_chunks {
+            cpu_scene_chunks[scene_chunk_flat_index(chunk_dim, chunk_idx)] = Some(chunk_idx);
+        }
+        ContreeCpuRayQuerySnapshot {
+            chunk_dim,
+            voxel_dim_per_chunk,
+            cpu_scene_chunks,
+            cpu_chunk_caches: caches.iter().cloned().collect(),
+            cpu_chunk_source_revisions: revisions.iter().copied().collect(),
+            unfinished_cpu_chunk_caches: unfinished_chunks.iter().copied().collect(),
+        }
+    }
+
+    fn ready_block(export: ContreeCpuVoxelBlockExport) -> ContreeCpuVoxelBlock {
+        match export {
+            ContreeCpuVoxelBlockExport::Ready(block) => block,
+            ContreeCpuVoxelBlockExport::NotReady(not_ready) => {
+                panic!(
+                    "expected ready block, pending {:?}",
+                    not_ready.pending_chunks
+                )
+            }
+        }
+    }
+
     #[test]
     fn max_node_buffer_size_matches_full_contree_node_levels() {
         let node_chunk_size = ContreeBuilder::max_node_buffer_size_in_bytes(UVec3::splat(256));
@@ -1938,6 +2197,158 @@ mod tests {
         assert_eq!(pool_sizes.leaf_chunk_size_in_bytes, 10 * 1024 * 1024);
         assert_eq!(pool_sizes.node_pool_size_in_bytes, 19 * 3_195_660);
         assert_eq!(pool_sizes.leaf_pool_size_in_bytes, 190 * 1024 * 1024);
+    }
+
+    #[test]
+    fn voxel_block_exports_masked_types_and_x_fastest_order() {
+        let chunk = UVec3::ZERO;
+        let cache = leaf_cache(
+            chunk,
+            &[
+                (UVec3::new(0, 0, 0), 0xF2),
+                (UVec3::new(1, 0, 0), 3),
+                (UVec3::new(0, 1, 0), 4),
+                (UVec3::new(1, 1, 0), 5),
+                (UVec3::new(0, 0, 1), 6),
+                (UVec3::new(0, 1, 1), 8),
+                (UVec3::new(1, 1, 1), 9),
+            ],
+        );
+        let snapshot = voxel_snapshot(
+            UVec3::ONE,
+            UVec3::splat(4),
+            &[chunk],
+            &[(chunk, cache)],
+            &[(chunk, 12)],
+            &[],
+        );
+
+        let block = ready_block(
+            snapshot
+                .export_voxel_block(UVec3::ZERO, UVec3::splat(2))
+                .unwrap(),
+        );
+
+        assert_eq!(block.voxel_types, vec![2, 3, 4, 5, 6, 0, 8, 9]);
+        assert_eq!(block.voxel_dim_per_chunk, UVec3::splat(4));
+        assert_eq!(
+            block.source_dependencies,
+            vec![ContreeCpuVoxelSourceDependency {
+                chunk_idx: chunk,
+                source_revision: Some(12),
+                is_present: true,
+            }]
+        );
+        assert!(snapshot.query_terrain_occupancy_cpu(Vec3::splat(0.125)));
+        assert!(!snapshot.query_terrain_occupancy_cpu(Vec3::new(0.375, 0.125, 0.375)));
+    }
+
+    #[test]
+    fn empty_scene_chunk_is_ready_but_present_missing_cache_is_not_ready() {
+        let chunk = UVec3::ZERO;
+        let empty_snapshot =
+            voxel_snapshot(UVec3::ONE, UVec3::splat(256), &[], &[], &[(chunk, 3)], &[]);
+        let empty = ready_block(
+            empty_snapshot
+                .export_voxel_block(UVec3::ZERO, UVec3::splat(32))
+                .unwrap(),
+        );
+        assert_eq!(empty.voxel_types.len(), 32 * 32 * 32);
+        assert!(empty.voxel_types.iter().all(|voxel_type| *voxel_type == 0));
+
+        let missing_snapshot = voxel_snapshot(
+            UVec3::ONE,
+            UVec3::splat(256),
+            &[chunk],
+            &[],
+            &[(chunk, 4)],
+            &[],
+        );
+        let ContreeCpuVoxelBlockExport::NotReady(not_ready) = missing_snapshot
+            .export_voxel_block(UVec3::ZERO, UVec3::splat(32))
+            .unwrap()
+        else {
+            panic!("present scene chunk without a cache must not export as empty");
+        };
+        assert_eq!(not_ready.pending_chunks, vec![chunk]);
+        assert_eq!(not_ready.source_dependencies[0].source_revision, Some(4));
+        assert!(not_ready.source_dependencies[0].is_present);
+    }
+
+    #[test]
+    fn unfinished_rebuild_is_not_ready_even_with_an_old_cache() {
+        let chunk = UVec3::ZERO;
+        let cache = leaf_cache(chunk, &[(UVec3::ZERO, 2)]);
+        let snapshot = voxel_snapshot(
+            UVec3::ONE,
+            UVec3::splat(4),
+            &[chunk],
+            &[(chunk, cache)],
+            &[(chunk, 8)],
+            &[chunk],
+        );
+
+        assert!(matches!(
+            snapshot.export_voxel_block(UVec3::ZERO, UVec3::ONE),
+            Ok(ContreeCpuVoxelBlockExport::NotReady(_))
+        ));
+    }
+
+    #[test]
+    fn voxel_block_crosses_chunk_boundary_with_revision_dependencies() {
+        let left = UVec3::ZERO;
+        let right = UVec3::X;
+        let left_cache = leaf_cache(left, &[(UVec3::new(3, 0, 0), 2)]);
+        let right_cache = leaf_cache(right, &[(UVec3::new(0, 0, 0), 7)]);
+        let snapshot = voxel_snapshot(
+            UVec3::new(2, 1, 1),
+            UVec3::splat(4),
+            &[left, right],
+            &[(left, left_cache), (right, right_cache)],
+            &[(left, 5), (right, 11)],
+            &[],
+        );
+
+        let block = ready_block(
+            snapshot
+                .export_voxel_block(UVec3::new(3, 0, 0), UVec3::new(2, 1, 1))
+                .unwrap(),
+        );
+
+        assert_eq!(block.voxel_types, vec![2, 7]);
+        assert_eq!(
+            block.source_dependencies,
+            vec![
+                ContreeCpuVoxelSourceDependency {
+                    chunk_idx: left,
+                    source_revision: Some(5),
+                    is_present: true,
+                },
+                ContreeCpuVoxelSourceDependency {
+                    chunk_idx: right,
+                    source_revision: Some(11),
+                    is_present: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn voxel_block_rejects_zero_overflow_and_out_of_bounds_requests() {
+        let snapshot = voxel_snapshot(UVec3::ONE, UVec3::splat(4), &[], &[], &[], &[]);
+
+        assert!(matches!(
+            snapshot.export_voxel_block(UVec3::ZERO, UVec3::new(1, 0, 1)),
+            Err(ContreeCpuVoxelBlockExportError::ZeroDimension { .. })
+        ));
+        assert!(matches!(
+            snapshot.export_voxel_block(UVec3::splat(u32::MAX), UVec3::ONE),
+            Err(ContreeCpuVoxelBlockExportError::BoundsOverflow { .. })
+        ));
+        assert!(matches!(
+            snapshot.export_voxel_block(UVec3::new(3, 0, 0), UVec3::new(2, 1, 1)),
+            Err(ContreeCpuVoxelBlockExportError::OutOfBounds { .. })
+        ));
     }
 }
 
@@ -2144,13 +2555,17 @@ fn query_terrain_occupancy_against_state(
 }
 
 fn query_cached_chunk_cpu_occupancy(cache: &CpuChunkCache, point: Vec3) -> bool {
+    query_cached_chunk_cpu_voxel_type(cache, point) != 0
+}
+
+fn query_cached_chunk_cpu_voxel_type(cache: &CpuChunkCache, point: Vec3) -> u8 {
     if cache.nodes.is_empty() {
-        return false;
+        return 0;
     }
 
     let local_pos = point - cache.chunk_idx.as_vec3() + Vec3::ONE;
     if local_pos.cmplt(Vec3::ONE).any() || local_pos.cmpge(Vec3::splat(2.0)).any() {
-        return false;
+        return 0;
     }
 
     let mut scale_exp = 21i32;
@@ -2158,29 +2573,28 @@ fn query_cached_chunk_cpu_occupancy(cache: &CpuChunkCache, point: Vec3) -> bool 
     for _ in 0..16 {
         let Some(child_idx) = get_node_cell_index(local_pos, scale_exp).map(|idx| idx as u32)
         else {
-            return false;
+            return 0;
         };
         if !child_mask_test(node, child_idx) {
-            return false;
+            return 0;
         }
 
         let bits = child_mask_bitcount_below(node, child_idx);
         let child_addr = ((node.packed_0 >> 1) + bits) as usize;
         if is_leaf(node) {
-            return cache
-                .leaves
-                .get(child_addr)
-                .is_some_and(|voxel| *voxel != 0);
+            return cache.leaves.get(child_addr).map_or(0, |voxel| {
+                (*voxel & crate::builder::VOXEL_TYPE_MASK as u32) as u8
+            });
         }
 
         let Some(next_node) = cache.nodes.get(child_addr).copied() else {
-            return false;
+            return 0;
         };
         node = next_node;
         scale_exp -= 2;
     }
 
-    false
+    0
 }
 
 fn query_cached_chunk_cpu_ray(
