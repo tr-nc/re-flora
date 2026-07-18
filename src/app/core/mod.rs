@@ -10,6 +10,7 @@ mod lifecycle;
 mod loading;
 mod moisture;
 mod particles;
+mod physics;
 mod placeables;
 mod planting;
 mod player_tools;
@@ -27,6 +28,7 @@ use self::frame_timing::{
 };
 use self::loading::{LoadingPhase, LoadingState};
 use self::particles::TreeLeafEmitter;
+use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerEmitter, SprinklerRecord};
 use self::player_tools::PlayerToolState;
 use self::terrain_rebuild::{ChunkRebuildRequest, TerrainChunkRebuildInFlight};
@@ -163,6 +165,7 @@ pub struct App {
     surface_builder: SurfaceBuilder,
     contree_builder: ContreeBuilder,
     scene_accel_builder: SceneAccelBuilder,
+    terrain_physics: TerrainPhysics,
 
     debug_settings: DebugSettings,
     debug_tree_pos: Vec3,
@@ -1182,6 +1185,7 @@ impl App {
             surface_builder,
             contree_builder,
             scene_accel_builder,
+            terrain_physics: TerrainPhysics::new(),
 
             is_resize_pending: false,
             time_info: TimeInfo::default(),
@@ -1949,6 +1953,10 @@ impl App {
                         VOXEL_DIM_PER_CHUNK,
                     );
                 });
+                if self.loading_state.is_none() {
+                    self.terrain_physics
+                        .try_import_startup_terrain_brick(&self.contree_builder);
+                }
                 cpu_timings.time(FrameCpuScope::TerrainSource, || {
                     self.process_terrain_sdf_source_updates();
                 });
