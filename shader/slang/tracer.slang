@@ -158,72 +158,10 @@ float3 indirectLighting(float3 albedo, float3 primaryNormal,
     return shadowRayColor(shadowRay, indirectSeed) * cosine * sampleAlbedo * albedo;
 }
 
-bool treePreviewBillboardHit(Ray ray, out float outputDistance, out float3 outputPosition,
-                             out float3 outputNormal, out float3 outputColor)
-{
-    outputDistance = 0.0;
-    outputPosition = float3(0.0);
-    outputNormal = float3(0.0, 0.0, 1.0);
-    outputColor = float3(0.0);
-    if (terrain_edit_preview.enabled == 0u || terrain_edit_preview.shape != 2u ||
-        terrain_edit_preview.radius <= 0.0) return false;
-
-    float height = max(terrain_edit_preview.radius * 2.6, 0.16);
-    float halfWidth = height * 0.34;
-    float3 center = terrain_edit_preview.center + float3(0.0, height * 0.58, 0.0);
-    float3 toCamera = normalize(camera_info.pos.xyz - center);
-    if (dot(toCamera, toCamera) <= 1.0e-6) toCamera = -ray.direction;
-
-    float3 up = float3(0.0, 1.0, 0.0);
-    float3 right = normalize(cross(up, toCamera));
-    if (dot(right, right) <= 1.0e-6) right = float3(1.0, 0.0, 0.0);
-    float3 normal = normalize(cross(right, up));
-    if (dot(normal, toCamera) < 0.0) normal = -normal;
-
-    float denominator = dot(ray.direction, normal);
-    if (abs(denominator) <= 1.0e-5) return false;
-    float distance = dot(center - ray.origin, normal) / denominator;
-    if (distance <= 0.0) return false;
-
-    float3 hit = ray.origin + ray.direction * distance;
-    float3 local = hit - center;
-    float x = dot(local, right);
-    float y = dot(local, up);
-    float normalizedY = (y + height * 0.5) / height;
-    if (normalizedY < 0.0 || normalizedY > 1.0) return false;
-
-    float triangleHalfWidth = halfWidth * (1.0 - normalizedY);
-    if (abs(x) > triangleHalfWidth) return false;
-    float edge = smoothstep(0.0, 0.10,
-        min(normalizedY, 1.0 - abs(x) / max(triangleHalfWidth, 1.0e-4)));
-    float3 color = lerp(float3(0.16, 0.34, 0.16), terrain_edit_preview.color, 0.65) *
-                   lerp(0.72, 1.12, normalizedY) * edge;
-    if (y < -height * 0.22 && abs(x) < halfWidth * 0.15)
-        color = float3(0.45, 0.25, 0.11);
-
-    outputDistance = distance;
-    outputPosition = hit;
-    outputNormal = normal;
-    outputColor = color;
-    return true;
-}
-
 float depthFromWorldPosition(float3 worldPosition)
 {
     float4 ndc = mul(camera_info.view_proj_mat, float4(worldPosition, 1.0));
     return ndc.z / ndc.w;
-}
-
-void outputTreePreview(out float3 color, out float depth, out float3 normal,
-                       out float3 position, out uint voxelId, out bool isHit,
-                       float3 previewColor, float3 previewPosition, float3 previewNormal)
-{
-    depth = depthFromWorldPosition(previewPosition);
-    color = previewColor;
-    normal = previewNormal;
-    position = previewPosition;
-    voxelId = 0u;
-    isHit = true;
 }
 
 void getPixelColor(out float3 color, out float depth, out float3 primaryNormal,
@@ -231,36 +169,15 @@ void getPixelColor(out float3 color, out float depth, out float3 primaryNormal,
                    out bool primaryIsHit, Ray ray, int3 seed,
                    uint localInvocationIndex)
 {
-    float previewDistance;
-    float3 previewPosition;
-    float3 previewNormal;
-    float3 previewColor;
-    bool previewHit = treePreviewBillboardHit(ray, previewDistance, previewPosition,
-                                               previewNormal, previewColor);
     MarchingResult result = generalSceneMarching(ray, localInvocationIndex);
     if (!result.is_hit)
     {
-        if (previewHit)
-        {
-            outputTreePreview(color, depth, primaryNormal, primaryPosition,
-                              primaryVoxelId, primaryIsHit, previewColor,
-                              previewPosition, previewNormal);
-            return;
-        }
         depth = 1.0;
         color = float3(0.0);
         primaryNormal = float3(0.0);
         primaryPosition = float3(0.0);
         primaryVoxelId = 0u;
         primaryIsHit = false;
-        return;
-    }
-
-    if (previewHit && previewDistance < length(result.position - ray.origin))
-    {
-        outputTreePreview(color, depth, primaryNormal, primaryPosition,
-                          primaryVoxelId, primaryIsHit, previewColor,
-                          previewPosition, previewNormal);
         return;
     }
 

@@ -6,7 +6,7 @@ public float terrainEditPreviewTint(U_TerrainEditPreview preview, float3 centerP
 {
     if (preview.enabled == 0u || preview.radius <= 0.0) return 0.0;
 
-    float distance = preview.shape == 1u || preview.shape == 2u
+    float distance = preview.shape == 1u
         ? length(centerPosition.xz - preview.center.xz)
         : length(centerPosition - preview.center);
     float edge = max(preview.radius * 0.12, 0.002);

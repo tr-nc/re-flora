@@ -15,7 +15,7 @@ const PIPE_PREVIEW_COLOR: Vec4 = Vec4::new(0.08, 0.62, 1.0, 0.38);
 const PIPE_SOURCE_PREVIEW_COLOR: Vec4 = Vec4::new(0.12, 0.82, 1.0, 0.46);
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct GeometryPreviewVertex {
     pub position: [f32; 3],
     pub color_alpha: [f32; 4],
@@ -30,7 +30,7 @@ impl GeometryPreviewVertex {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct GeometryPreviewMesh {
     pub vertices: Vec<GeometryPreviewVertex>,
     pub indices: Vec<u32>,
@@ -177,17 +177,19 @@ impl GeometryPreviewMeshResources {
 
 pub struct GeometryPreviewRendererResources {
     pub pipe: GeometryPreviewMeshResources,
+    pub tree: GeometryPreviewMeshResources,
 }
 
 impl GeometryPreviewRendererResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         Self {
-            pipe: GeometryPreviewMeshResources::new(device, allocator),
+            pipe: GeometryPreviewMeshResources::new(device.clone(), allocator.clone()),
+            tree: GeometryPreviewMeshResources::new(device, allocator),
         }
     }
 
     pub fn has_visible_mesh(&self) -> bool {
-        self.pipe.instance_count > 0
+        self.pipe.instance_count > 0 || self.tree.instance_count > 0
     }
 }
 

@@ -1,10 +1,12 @@
-use glam::Vec3;
+use glam::{Vec3, Vec4};
 
 use crate::{
     geom::RoundCone,
     tree_gen::{Tree, TreeDesc},
     util::stable_perpendicular_basis,
 };
+
+use super::{GeometryPreviewMesh, GeometryPreviewVertex};
 
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 const TRUNK_SIDE_COUNT: usize = 4;
@@ -13,50 +15,18 @@ const TRUNK_INDICES_PER_CONE: usize = TRUNK_SIDE_COUNT * 6;
 const MAX_LEAF_CLUSTERS: usize = 32;
 const LEAF_VERTICES_PER_CLUSTER: usize = 6;
 const LEAF_INDICES_PER_CLUSTER: usize = 24;
-const TRUNK_BLUEPRINT_COLOR: [f32; 4] = [0.12, 0.55, 0.95, 0.90];
-const LEAF_BLUEPRINT_COLOR: [f32; 4] = [0.24, 0.82, 1.00, 0.62];
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct TreePreviewVertex {
-    pub position: [f32; 3],
-    pub color_rgba: [f32; 4],
-}
-
-impl TreePreviewVertex {
-    fn new(position: Vec3, color_rgba: [f32; 4]) -> Self {
-        Self {
-            position: position.to_array(),
-            color_rgba,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct TreePreviewMesh {
-    pub vertices: Vec<TreePreviewVertex>,
-    pub indices: Vec<u32>,
-}
-
-impl TreePreviewMesh {
-    pub fn is_empty(&self) -> bool {
-        self.indices.is_empty()
-    }
-
-    pub fn triangle_count(&self) -> usize {
-        self.indices.len() / 3
-    }
-}
+const TRUNK_BLUEPRINT_COLOR: Vec4 = Vec4::new(0.12, 0.55, 0.95, 0.54);
+const LEAF_BLUEPRINT_COLOR: Vec4 = Vec4::new(0.24, 0.82, 1.00, 0.32);
 
 /// Builds a deterministic, low-poly tree preview in world-local coordinates.
 ///
 /// The source tree remains the same voxel-space procedural tree used by normal placement.
 /// Each valid trunk cone becomes a four-sided frustum, while a bounded sample of leaf anchors
 /// becomes simple octahedral canopy markers.
-pub fn build_tree_preview_mesh(desc: &TreeDesc) -> TreePreviewMesh {
+pub fn build_tree_preview_mesh(desc: &TreeDesc) -> GeometryPreviewMesh {
     let tree = Tree::new(desc.clone());
     let leaf_cluster_count = tree.relative_leaf_positions().len().min(MAX_LEAF_CLUSTERS);
-    let mut mesh = TreePreviewMesh {
+    let mut mesh = GeometryPreviewMesh {
         vertices: Vec::with_capacity(
             tree.trunks()
                 .len()
@@ -89,7 +59,7 @@ pub fn build_tree_preview_mesh(desc: &TreeDesc) -> TreePreviewMesh {
     mesh
 }
 
-fn append_trunk_cone(mesh: &mut TreePreviewMesh, cone: &RoundCone) {
+fn append_trunk_cone(mesh: &mut GeometryPreviewMesh, cone: &RoundCone) {
     let center_a = cone.center_a() / VOXELS_PER_WORLD_UNIT;
     let center_b = cone.center_b() / VOXELS_PER_WORLD_UNIT;
     let radius_a = cone.radius_a() / VOXELS_PER_WORLD_UNIT;
@@ -129,10 +99,10 @@ fn append_trunk_cone(mesh: &mut TreePreviewMesh, cone: &RoundCone) {
     };
 
     mesh.vertices.extend(
-        start_positions.map(|position| TreePreviewVertex::new(position, TRUNK_BLUEPRINT_COLOR)),
+        start_positions.map(|position| GeometryPreviewVertex::new(position, TRUNK_BLUEPRINT_COLOR)),
     );
     mesh.vertices.extend(
-        end_positions.map(|position| TreePreviewVertex::new(position, TRUNK_BLUEPRINT_COLOR)),
+        end_positions.map(|position| GeometryPreviewVertex::new(position, TRUNK_BLUEPRINT_COLOR)),
     );
 
     for side in 0..TRUNK_SIDE_COUNT as u32 {
@@ -146,7 +116,7 @@ fn append_trunk_cone(mesh: &mut TreePreviewMesh, cone: &RoundCone) {
     }
 }
 
-fn append_leaf_cluster(mesh: &mut TreePreviewMesh, center: Vec3, radius: f32) {
+fn append_leaf_cluster(mesh: &mut GeometryPreviewMesh, center: Vec3, radius: f32) {
     if !center.is_finite() || !radius.is_finite() || radius <= 0.0 {
         return;
     }
@@ -159,8 +129,9 @@ fn append_leaf_cluster(mesh: &mut TreePreviewMesh, center: Vec3, radius: f32) {
         return;
     };
 
-    mesh.vertices
-        .extend(positions.map(|position| TreePreviewVertex::new(position, LEAF_BLUEPRINT_COLOR)));
+    mesh.vertices.extend(
+        positions.map(|position| GeometryPreviewVertex::new(position, LEAF_BLUEPRINT_COLOR)),
+    );
     mesh.indices.extend(
         [
             2, 0, 4, 2, 4, 1, 2, 1, 5, 2, 5, 0, 3, 4, 0, 3, 1, 4, 3, 5, 1, 3, 0, 5,
@@ -169,7 +140,7 @@ fn append_leaf_cluster(mesh: &mut TreePreviewMesh, center: Vec3, radius: f32) {
     );
 }
 
-fn next_vertex_base(mesh: &TreePreviewMesh, vertex_count: usize) -> Option<u32> {
+fn next_vertex_base(mesh: &GeometryPreviewMesh, vertex_count: usize) -> Option<u32> {
     let last_index = mesh
         .vertices
         .len()
@@ -189,7 +160,7 @@ mod tests {
         let first = build_tree_preview_mesh(&desc);
         let second = build_tree_preview_mesh(&desc);
 
-        assert!(!first.is_empty());
+        assert!(!first.indices.is_empty());
         assert_eq!(first, second);
     }
 
@@ -199,7 +170,7 @@ mod tests {
 
         assert!(mesh.vertices.iter().all(|vertex| {
             vertex.position.iter().all(|value| value.is_finite())
-                && vertex.color_rgba.iter().all(|value| value.is_finite())
+                && vertex.color_alpha.iter().all(|value| value.is_finite())
         }));
         assert_eq!(mesh.indices.len() % 3, 0);
         assert!(mesh
@@ -210,7 +181,7 @@ mod tests {
 
     #[test]
     fn degenerate_and_non_finite_cones_are_skipped() {
-        let mut mesh = TreePreviewMesh::default();
+        let mut mesh = GeometryPreviewMesh::default();
         append_trunk_cone(&mut mesh, &RoundCone::new(1.0, Vec3::ZERO, 1.0, Vec3::ZERO));
         append_trunk_cone(
             &mut mesh,
@@ -221,13 +192,13 @@ mod tests {
             &RoundCone::new(1.0, Vec3::ZERO, 1.0, Vec3::splat(f32::MAX)),
         );
 
-        assert!(mesh.is_empty());
+        assert!(mesh.indices.is_empty());
         assert!(mesh.vertices.is_empty());
     }
 
     #[test]
     fn trunk_coordinates_convert_from_voxels_to_world_local() {
-        let mut mesh = TreePreviewMesh::default();
+        let mut mesh = GeometryPreviewMesh::default();
         append_trunk_cone(
             &mut mesh,
             &RoundCone::new(16.0, Vec3::ZERO, 16.0, Vec3::Y * 256.0),
@@ -259,7 +230,7 @@ mod tests {
         assert!(preview_leaf_cluster_count <= MAX_LEAF_CLUSTERS);
         assert!(preview_leaf_triangle_count < tree.relative_leaf_placements().len());
         assert_eq!(
-            mesh.triangle_count(),
+            mesh.indices.len() / 3,
             tree.trunks().len() * TRUNK_SIDE_COUNT * 2 + preview_leaf_triangle_count
         );
     }

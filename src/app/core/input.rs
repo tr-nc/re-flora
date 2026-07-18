@@ -15,7 +15,6 @@ use crate::builder::ChunkModifyStats;
 use crate::flora::species;
 use crate::tracer::{PlayerCollisionResult, TerrainEditPreviewShape};
 use glam::{Vec2, Vec3};
-use rand::RngExt;
 use std::time::{Duration, Instant};
 use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
@@ -774,8 +773,7 @@ impl App {
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
         if self.is_place_tool_selected() {
             match self.current_placeable_kind() {
-                PlaceableKind::Tree => TerrainEditPreviewShape::TreeBillboard,
-                PlaceableKind::Sprinkler | PlaceableKind::Pipe => {
+                PlaceableKind::Tree | PlaceableKind::Sprinkler | PlaceableKind::Pipe => {
                     TerrainEditPreviewShape::SurfaceCircle
                 }
             }
@@ -1686,8 +1684,7 @@ impl App {
                 }
                 match self.current_placeable_kind() {
                     PlaceableKind::Tree => {
-                        let mut tree_desc = self.debug_settings.tree.desc.clone();
-                        tree_desc.branching.seed = rand::rng().random::<u64>();
+                        let tree_desc = self.tree_placement_preview_desc.clone();
                         if let Err(err) = self.add_tree(
                             tree_desc,
                             TreePlacement::World(center),
@@ -1696,6 +1693,9 @@ impl App {
                             log::error!("Failed to plant tree: {}", err);
                         } else {
                             log::info!("Planted tree at {:?}", center);
+                            if let Err(err) = self.advance_tree_placement_preview() {
+                                log::error!("Failed to prepare the next tree preview: {err}");
+                            }
                         }
                     }
                     PlaceableKind::Sprinkler => {

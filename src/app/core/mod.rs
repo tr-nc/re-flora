@@ -50,12 +50,14 @@ use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
+use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
     allium_height_color_tables, grass_flora_height_color_tables, kochia_color_tables,
     solid_flora_height_color_tables, CloudGuiParams, FruitMotionParams, GlassGuiParams,
     KochiaMotionParams, KochiaVisualParams, TerrainRayQuery, Tracer, TracerDesc, WindGuiParams,
     DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
+use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
 use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, BENCH};
@@ -66,6 +68,7 @@ use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
+use rand::RngExt;
 use std::collections::HashMap;
 
 use re_flora_vkn::{
@@ -163,6 +166,7 @@ pub struct App {
 
     debug_settings: DebugSettings,
     debug_tree_pos: Vec3,
+    tree_placement_preview_desc: TreeDesc,
     config_panel_visible: bool,
     camera_snapshots: CameraSnapshotLibrary,
     camera_snapshot_draft_name: String,
@@ -1033,6 +1037,8 @@ impl App {
         let editable_center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
         let debug_tree_pos = Vec3::new(editable_center.x, 0.2, editable_center.z);
         let debug_settings = DebugSettings::load();
+        let mut tree_placement_preview_desc = debug_settings.tree.desc.clone();
+        tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         let mut render_flags = RenderFlags::from(options);
         if render_flags.enable_flora {
             render_flags.enable_leaves = debug_settings.tree.render_leaves;
@@ -1184,6 +1190,7 @@ impl App {
 
             debug_settings,
             debug_tree_pos,
+            tree_placement_preview_desc,
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
             prev_bound: Default::default(),
@@ -1286,8 +1293,27 @@ impl App {
 
         app.configure_gui_font()?;
         app.load_item_panel_icons()?;
+        app.rebuild_tree_placement_preview()?;
 
         Ok(app)
+    }
+
+    fn rebuild_tree_placement_preview(&mut self) -> Result<()> {
+        let mesh = build_tree_preview_mesh(&self.tree_placement_preview_desc);
+        self.tracer.upload_tree_geometry_preview(&mesh)
+    }
+
+    fn sync_tree_placement_preview_from_gui(&mut self) -> Result<()> {
+        let seed = self.tree_placement_preview_desc.branching.seed;
+        self.tree_placement_preview_desc = self.debug_settings.tree.desc.clone();
+        self.tree_placement_preview_desc.branching.seed = seed;
+        self.rebuild_tree_placement_preview()
+    }
+
+    pub(super) fn advance_tree_placement_preview(&mut self) -> Result<()> {
+        self.tree_placement_preview_desc = self.debug_settings.tree.desc.clone();
+        self.tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
+        self.rebuild_tree_placement_preview()
     }
 
     fn configure_gui_font(&mut self) -> Result<()> {
@@ -2058,6 +2084,26 @@ impl App {
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_hover = self.terrain_edit_hover();
+                let show_tree_preview = self.is_place_tool_selected()
+                    && self.current_placeable_kind() == placeables::PlaceableKind::Tree;
+                if show_tree_preview {
+                    if let Some(hover) = terrain_edit_hover {
+                        let tint = if hover.is_editable {
+                            Vec4::ONE
+                        } else {
+                            Vec4::new(5.0, 0.08, 0.08, 1.0)
+                        };
+                        if let Err(err) = self.tracer.show_tree_geometry_preview(hover.center, tint)
+                        {
+                            self.tracer.clear_tree_geometry_preview();
+                            log::error!("Failed to position tree geometry preview: {err}");
+                        }
+                    } else {
+                        self.tracer.clear_tree_geometry_preview();
+                    }
+                } else {
+                    self.tracer.clear_tree_geometry_preview();
+                }
                 let water_status_text = self
                     .water_sim
                     .status_text(self.water_particle_handoff_main_thread_ms);
@@ -2534,6 +2580,9 @@ impl App {
                         Err(err) => {
                             log::error!("Failed to update tuning tree from GUI sliders: {}", err)
                         }
+                    }
+                    if let Err(err) = self.sync_tree_placement_preview_from_gui() {
+                        log::error!("Failed to rebuild tree geometry preview: {err}");
                     }
                 }
 

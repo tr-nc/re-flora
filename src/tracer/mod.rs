@@ -112,7 +112,6 @@ pub struct WindGuiParams {
 pub enum TerrainEditPreviewShape {
     Sphere,
     SurfaceCircle,
-    TreeBillboard,
 }
 
 impl TerrainEditPreviewShape {
@@ -120,7 +119,6 @@ impl TerrainEditPreviewShape {
         match self {
             Self::Sphere => 0,
             Self::SurfaceCircle => 1,
-            Self::TreeBillboard => 2,
         }
     }
 }
@@ -2451,18 +2449,25 @@ impl Tracer {
             let pipeline = &self.graphics_pipelines.geometry_preview_ppl;
             pipeline.record_bind(cmdbuf);
             pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-            let resources = &self.geometry_preview_resources.pipe;
-            cmdbuf.bind_index_buffer_u32(&resources.indices);
-            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
-            pipeline.record_indexed(
-                cmdbuf,
-                resources.indices_len,
-                resources.instance_count,
-                0,
-                0,
-                0,
-                None,
-            );
+            for resources in [
+                &self.geometry_preview_resources.pipe,
+                &self.geometry_preview_resources.tree,
+            ] {
+                if resources.instance_count == 0 {
+                    continue;
+                }
+                cmdbuf.bind_index_buffer_u32(&resources.indices);
+                cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
+                pipeline.record_indexed(
+                    cmdbuf,
+                    resources.indices_len,
+                    resources.instance_count,
+                    0,
+                    0,
+                    0,
+                    None,
+                );
+            }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), preview_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
@@ -3325,6 +3330,20 @@ impl Tracer {
 
     pub fn clear_irrigation_pipe_preview(&mut self) {
         self.geometry_preview_resources.pipe.clear();
+    }
+
+    pub fn upload_tree_geometry_preview(&mut self, mesh: &GeometryPreviewMesh) -> Result<()> {
+        self.geometry_preview_resources.tree.upload(mesh)
+    }
+
+    pub fn show_tree_geometry_preview(&mut self, base_position: Vec3, tint: Vec4) -> Result<()> {
+        self.geometry_preview_resources
+            .tree
+            .show(base_position, tint)
+    }
+
+    pub fn clear_tree_geometry_preview(&mut self) {
+        self.geometry_preview_resources.tree.clear();
     }
 
     pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {
