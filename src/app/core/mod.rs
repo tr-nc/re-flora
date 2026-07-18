@@ -560,18 +560,28 @@ impl WorldBuildBackend for App {
             BuildEdit::RebuildMesh(bound) => {
                 let chunk_ids =
                     world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
-                self.enqueue_deferred_chunk_rebuilds(&chunk_ids);
+                if self.enqueue_deferred_chunk_rebuilds(&chunk_ids) {
+                    self.terrain_physics.mark_terrain_voxel_bound_dirty(bound);
+                }
             }
             BuildEdit::RebuildMeshWithoutFlora(bound) => {
                 let chunk_ids =
                     world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
-                self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids);
+                if self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids) {
+                    self.terrain_physics.mark_terrain_voxel_bound_dirty(bound);
+                }
             }
             BuildEdit::RebuildChunks(chunk_ids) => {
-                self.enqueue_deferred_chunk_rebuilds(&chunk_ids);
+                if self.enqueue_deferred_chunk_rebuilds(&chunk_ids) {
+                    self.terrain_physics
+                        .mark_terrain_chunks_dirty(&chunk_ids, VOXEL_DIM_PER_CHUNK);
+                }
             }
             BuildEdit::RebuildChunksWithoutFlora(chunk_ids) => {
-                self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids);
+                if self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids) {
+                    self.terrain_physics
+                        .mark_terrain_chunks_dirty(&chunk_ids, VOXEL_DIM_PER_CHUNK);
+                }
             }
         }
         Ok(())
@@ -1955,7 +1965,7 @@ impl App {
                 });
                 if self.loading_state.is_none() {
                     self.terrain_physics
-                        .try_import_startup_terrain_brick(&self.contree_builder);
+                        .process_terrain_collider_updates(&self.contree_builder);
                 }
                 cpu_timings.time(FrameCpuScope::TerrainSource, || {
                     self.process_terrain_sdf_source_updates();

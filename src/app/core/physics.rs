@@ -4,18 +4,22 @@ use anyhow::Context;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_physics::{
     BrickOccupancy, CollisionWorld, DynamicBodyDesc, DynamicBodyId, DynamicColliderShape,
-    StaticVoxelBrickId, STATIC_VOXEL_BRICK_DIM,
+    StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 const STARTUP_TERRAIN_BRICK_ID: StaticVoxelBrickId = StaticVoxelBrickId(IVec3::new(8, 3, 8));
+#[cfg(test)]
 const STARTUP_TERRAIN_BRICK_MIN: UVec3 = UVec3::new(256, 96, 256);
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 // Keep the probe inside the only terrain-collision brick currently imported, but place it on the
 // camera-facing side of the startup tree so the trunk does not hide the eight-voxel probe fruit.
 const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(276.0, 152.0, 280.0);
 const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
+// Release measurements put one real 32-cubed Contree export plus Rapier update at about 1.2 ms.
+// Keeping this at one avoids terrain edits turning a single render frame into an unbounded scan.
+const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 1;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum StartupTerrainBrickState {
@@ -25,9 +29,74 @@ enum StartupTerrainBrickState {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DirtyTerrainBrickWork {
+    id: StaticVoxelBrickId,
+    request_revision: u64,
+}
+
+#[derive(Debug, Default)]
+struct DirtyTerrainBrickQueue {
+    pending: VecDeque<StaticVoxelBrickId>,
+    latest_revisions: HashMap<StaticVoxelBrickId, u64>,
+    next_revision: u64,
+}
+
+impl DirtyTerrainBrickQueue {
+    fn push(&mut self, id: StaticVoxelBrickId) -> u64 {
+        self.next_revision = self
+            .next_revision
+            .checked_add(1)
+            .expect("terrain collider request revision space exhausted");
+        if self
+            .latest_revisions
+            .insert(id, self.next_revision)
+            .is_none()
+        {
+            self.pending.push_back(id);
+        }
+        self.next_revision
+    }
+
+    fn front(&self) -> Option<DirtyTerrainBrickWork> {
+        let id = *self.pending.front()?;
+        Some(DirtyTerrainBrickWork {
+            id,
+            request_revision: *self
+                .latest_revisions
+                .get(&id)
+                .expect("pending terrain collider brick must have a revision"),
+        })
+    }
+
+    fn complete(&mut self, work: DirtyTerrainBrickWork) {
+        if self.latest_revisions.get(&work.id).copied() != Some(work.request_revision) {
+            self.defer(work.id);
+            return;
+        }
+        self.pop_expected_front(work.id);
+        self.latest_revisions.remove(&work.id);
+    }
+
+    fn defer(&mut self, id: StaticVoxelBrickId) {
+        self.pop_expected_front(id);
+        self.pending.push_back(id);
+    }
+
+    fn pop_expected_front(&mut self, id: StaticVoxelBrickId) {
+        let popped = self.pending.pop_front();
+        debug_assert_eq!(popped, Some(id));
+    }
+
+    fn len(&self) -> usize {
+        self.pending.len()
+    }
+}
+
 pub(super) struct TerrainPhysics {
     collision_world: CollisionWorld,
     startup_brick_state: StartupTerrainBrickState,
+    dirty_terrain_bricks: DirtyTerrainBrickQueue,
     collision_probe_body: Option<DynamicBodyId>,
     collision_probe_mesh_uploaded: bool,
 }
@@ -38,12 +107,15 @@ impl TerrainPhysics {
         collision_world
             .set_gravity(COLLISION_PROBE_GRAVITY_VOXELS)
             .expect("collision probe gravity constant must be valid");
-        Self {
+        let mut terrain_physics = Self {
             collision_world,
             startup_brick_state: StartupTerrainBrickState::Pending,
+            dirty_terrain_bricks: DirtyTerrainBrickQueue::default(),
             collision_probe_body: None,
             collision_probe_mesh_uploaded: false,
-        }
+        };
+        terrain_physics.mark_terrain_brick_dirty(STARTUP_TERRAIN_BRICK_ID);
+        terrain_physics
     }
 
     pub(super) fn collision_probe_ready(&self) -> bool {
@@ -160,47 +232,95 @@ impl TerrainPhysics {
             .context("updating collision probe geometry")
     }
 
-    pub(super) fn try_import_startup_terrain_brick(&mut self, contree_builder: &ContreeBuilder) {
-        if self.startup_brick_state != StartupTerrainBrickState::Pending {
-            return;
+    pub(super) fn mark_terrain_voxel_bound_dirty(&mut self, bound: crate::geom::UAabb3) {
+        for id in terrain_brick_ids_for_inclusive_uvec_aabb(bound.min(), bound.max()) {
+            self.mark_terrain_brick_dirty(id);
         }
+    }
 
-        let total_start = Instant::now();
-        let export_start = Instant::now();
-        let snapshot = contree_builder.cpu_voxel_source_snapshot();
-        let export = snapshot.export_voxel_block(
-            STARTUP_TERRAIN_BRICK_MIN,
-            UVec3::splat(STATIC_VOXEL_BRICK_DIM),
+    pub(super) fn mark_terrain_chunks_dirty(&mut self, chunk_ids: &[UVec3], chunk_dim: UVec3) {
+        for &chunk_id in chunk_ids {
+            let min = (chunk_id * chunk_dim).as_ivec3();
+            let max = min + chunk_dim.as_ivec3();
+            for id in terrain_brick_ids_for_voxel_aabb(min, max) {
+                self.mark_terrain_brick_dirty(id);
+            }
+        }
+    }
+
+    fn mark_terrain_brick_dirty(&mut self, id: StaticVoxelBrickId) {
+        let request_revision = self.dirty_terrain_bricks.push(id);
+        log::debug!(
+            "[COLLISION][TERRAIN_BRICK] queued id={id:?} request_revision={request_revision} pending={}",
+            self.dirty_terrain_bricks.len(),
         );
-        let export_elapsed = export_start.elapsed();
+    }
 
-        let block = match export {
-            Ok(ContreeCpuVoxelBlockExport::Ready(block)) => block,
-            Ok(ContreeCpuVoxelBlockExport::NotReady(_)) => return,
-            Err(err) => {
-                log::error!(
-                    "[COLLISION][TERRAIN_BRICK] export failed id={:?} min={:?} dim={} error={err}",
-                    STARTUP_TERRAIN_BRICK_ID,
-                    STARTUP_TERRAIN_BRICK_MIN,
-                    STATIC_VOXEL_BRICK_DIM,
+    pub(super) fn process_terrain_collider_updates(&mut self, contree_builder: &ContreeBuilder) {
+        for _ in 0..MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME {
+            let Some(work) = self.dirty_terrain_bricks.front() else {
+                break;
+            };
+            if !self.try_refresh_terrain_brick(contree_builder, work) {
+                self.dirty_terrain_bricks.defer(work.id);
+            }
+        }
+    }
+
+    /// Returns true when the work item reached a terminal result and was removed from the queue.
+    /// A CPU Contree cache miss is explicitly non-terminal and remains queued for a later frame.
+    fn try_refresh_terrain_brick(
+        &mut self,
+        contree_builder: &ContreeBuilder,
+        work: DirtyTerrainBrickWork,
+    ) -> bool {
+        let total_start = Instant::now();
+        let brick_min = work.id.0 * STATIC_VOXEL_BRICK_DIM as i32;
+        let brick_min_u = match UVec3::try_from(brick_min) {
+            Ok(min) => min,
+            Err(_) => {
+                self.finish_failed_terrain_brick(
+                    work,
+                    format!("brick has negative voxel minimum {brick_min:?}"),
                 );
-                self.startup_brick_state = StartupTerrainBrickState::Failed;
-                return;
+                return true;
             }
         };
 
-        let revision = match single_source_revision(&block) {
+        let export_start = Instant::now();
+        let snapshot = contree_builder.cpu_voxel_source_snapshot();
+        let export = snapshot.export_voxel_block(brick_min_u, UVec3::splat(STATIC_VOXEL_BRICK_DIM));
+        let export_elapsed = export_start.elapsed();
+        let block = match export {
+            Ok(ContreeCpuVoxelBlockExport::Ready(block)) => block,
+            Ok(ContreeCpuVoxelBlockExport::NotReady(not_ready)) => {
+                log::debug!(
+                    "[COLLISION][TERRAIN_BRICK] deferred id={:?} request_revision={} pending_chunks={:?} export_ms={:.3} pending={}",
+                    work.id,
+                    work.request_revision,
+                    not_ready.pending_chunks,
+                    export_elapsed.as_secs_f64() * 1_000.0,
+                    self.dirty_terrain_bricks.len(),
+                );
+                return false;
+            }
+            Err(err) => {
+                self.finish_failed_terrain_brick(work, format!("export failed: {err}"));
+                return true;
+            }
+        };
+
+        let source_revision = match single_source_revision(&block) {
             Ok(revision) => revision,
             Err(err) => {
-                log::error!(
-                    "[COLLISION][TERRAIN_BRICK] source dependency validation failed id={:?} min={:?} dim={} dependencies={:?} error={err}",
-                    STARTUP_TERRAIN_BRICK_ID,
-                    STARTUP_TERRAIN_BRICK_MIN,
-                    STATIC_VOXEL_BRICK_DIM,
-                    block.source_dependencies,
+                self.finish_failed_terrain_brick(
+                    work,
+                    format!(
+                        "source dependency validation failed: {err}; dependencies={:?}",
+                        block.source_dependencies
+                    ),
                 );
-                self.startup_brick_state = StartupTerrainBrickState::Failed;
-                return;
+                return true;
             }
         };
 
@@ -208,42 +328,108 @@ impl TerrainPhysics {
         let occupancy = match BrickOccupancy::from_x_fastest_voxel_types(&block.voxel_types) {
             Ok(occupancy) => occupancy,
             Err(err) => {
-                log::error!(
-                    "[COLLISION][TERRAIN_BRICK] occupancy build failed id={:?} min={:?} dim={} error={err}",
-                    STARTUP_TERRAIN_BRICK_ID,
-                    STARTUP_TERRAIN_BRICK_MIN,
-                    STATIC_VOXEL_BRICK_DIM,
-                );
-                self.startup_brick_state = StartupTerrainBrickState::Failed;
-                return;
+                self.finish_failed_terrain_brick(work, format!("occupancy build failed: {err}"));
+                return true;
             }
         };
         let occupancy_elapsed = occupancy_start.elapsed();
         let solid_count = occupancy.filled_count();
 
         let physics_start = Instant::now();
-        let update = self.collision_world.upsert_static_voxel_brick(
-            STARTUP_TERRAIN_BRICK_ID,
-            revision,
-            occupancy,
-        );
+        let update =
+            self.collision_world
+                .upsert_static_voxel_brick(work.id, source_revision, occupancy);
         let physics_elapsed = physics_start.elapsed();
+        let changed_voxels = match update {
+            StaticVoxelBrickUpdate::Applied { changed_voxels, .. } => changed_voxels,
+            StaticVoxelBrickUpdate::Unchanged | StaticVoxelBrickUpdate::Stale { .. } => 0,
+        };
 
-        self.startup_brick_state = StartupTerrainBrickState::Imported;
+        self.dirty_terrain_bricks.complete(work);
+        if work.id == STARTUP_TERRAIN_BRICK_ID
+            && !matches!(update, StaticVoxelBrickUpdate::Stale { .. })
+        {
+            self.startup_brick_state = StartupTerrainBrickState::Imported;
+        }
         log::info!(
-            "[COLLISION][TERRAIN_BRICK] imported id={:?} min={:?} dim={} dependencies={:?} solids={} update={:?} export_ms={:.3} occupancy_ms={:.3} physics_ms={:.3} total_ms={:.3}",
-            STARTUP_TERRAIN_BRICK_ID,
-            STARTUP_TERRAIN_BRICK_MIN,
-            STATIC_VOXEL_BRICK_DIM,
+            "[COLLISION][TERRAIN_BRICK] refreshed id={:?} min={:?} request_revision={} source_revision={} dependencies={:?} solids={} changed_voxels={} update={:?} export_ms={:.3} occupancy_ms={:.3} physics_ms={:.3} total_ms={:.3} pending={}",
+            work.id,
+            brick_min_u,
+            work.request_revision,
+            source_revision,
             block.source_dependencies,
             solid_count,
+            changed_voxels,
             update,
             export_elapsed.as_secs_f64() * 1_000.0,
             occupancy_elapsed.as_secs_f64() * 1_000.0,
             physics_elapsed.as_secs_f64() * 1_000.0,
             total_start.elapsed().as_secs_f64() * 1_000.0,
+            self.dirty_terrain_bricks.len(),
+        );
+        true
+    }
+
+    fn finish_failed_terrain_brick(&mut self, work: DirtyTerrainBrickWork, error: String) {
+        self.dirty_terrain_bricks.complete(work);
+        if work.id == STARTUP_TERRAIN_BRICK_ID {
+            self.startup_brick_state = StartupTerrainBrickState::Failed;
+        }
+        log::error!(
+            "[COLLISION][TERRAIN_BRICK] refresh failed id={:?} request_revision={} error={} pending={}",
+            work.id,
+            work.request_revision,
+            error,
+            self.dirty_terrain_bricks.len(),
         );
     }
+}
+
+fn terrain_brick_ids_for_voxel_aabb(min: IVec3, max_exclusive: IVec3) -> Vec<StaticVoxelBrickId> {
+    if min.cmpge(max_exclusive).any() {
+        return Vec::new();
+    }
+    let dim = STATIC_VOXEL_BRICK_DIM as i32;
+    let first = min.div_euclid(IVec3::splat(dim));
+    let last = (max_exclusive - IVec3::ONE).div_euclid(IVec3::splat(dim));
+    let mut ids = Vec::new();
+    for z in first.z..=last.z {
+        for y in first.y..=last.y {
+            for x in first.x..=last.x {
+                ids.push(StaticVoxelBrickId(IVec3::new(x, y, z)));
+            }
+        }
+    }
+    ids
+}
+
+fn terrain_brick_ids_for_inclusive_uvec_aabb(
+    min: UVec3,
+    max_inclusive: UVec3,
+) -> Vec<StaticVoxelBrickId> {
+    if min.cmpgt(max_inclusive).any() {
+        return Vec::new();
+    }
+    let Some(max_exclusive) = max_inclusive
+        .x
+        .checked_add(1)
+        .zip(max_inclusive.y.checked_add(1))
+        .zip(max_inclusive.z.checked_add(1))
+        .map(|((x, y), z)| UVec3::new(x, y, z))
+    else {
+        log::error!(
+            "[COLLISION][TERRAIN_BRICK] inclusive voxel bound overflows: min={min:?} max={max_inclusive:?}"
+        );
+        return Vec::new();
+    };
+    let (Ok(min), Ok(max_exclusive)) = (IVec3::try_from(min), IVec3::try_from(max_exclusive))
+    else {
+        log::error!(
+            "[COLLISION][TERRAIN_BRICK] voxel bound exceeds signed collider coordinates: min={min:?} max_exclusive={max_exclusive:?}"
+        );
+        return Vec::new();
+    };
+    terrain_brick_ids_for_voxel_aabb(min, max_exclusive)
 }
 
 fn collision_probe_convex_points() -> Vec<Vec3> {
@@ -266,9 +452,6 @@ fn single_source_revision(block: &ContreeCpuVoxelBlock) -> Result<u64, &'static 
     let [dependency] = block.source_dependencies.as_slice() else {
         return Err("expected exactly one source dependency");
     };
-    if !dependency.is_present {
-        return Err("source chunk is not present");
-    }
     dependency
         .source_revision
         .ok_or("source chunk has no revision")
@@ -296,6 +479,95 @@ mod tests {
         assert_eq!(
             STARTUP_TERRAIN_BRICK_ID.0.as_uvec3() * STATIC_VOXEL_BRICK_DIM,
             STARTUP_TERRAIN_BRICK_MIN
+        );
+    }
+
+    #[test]
+    fn dirty_brick_queue_coalesces_to_the_latest_request_revision() {
+        let id = StaticVoxelBrickId(IVec3::new(8, 3, 8));
+        let mut queue = DirtyTerrainBrickQueue::default();
+        assert_eq!(queue.push(id), 1);
+        assert_eq!(queue.push(id), 2);
+        assert_eq!(queue.len(), 1);
+
+        let work = queue.front().unwrap();
+        assert_eq!(work.request_revision, 2);
+        queue.complete(work);
+        assert_eq!(queue.len(), 0);
+    }
+
+    #[test]
+    fn deferred_brick_work_remains_queued_for_retry() {
+        let first = StaticVoxelBrickId(IVec3::new(8, 3, 8));
+        let second = StaticVoxelBrickId(IVec3::new(9, 3, 8));
+        let mut queue = DirtyTerrainBrickQueue::default();
+        queue.push(first);
+        queue.push(second);
+
+        let not_ready = queue.front().unwrap();
+        queue.defer(not_ready.id);
+
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.front().unwrap().id, second);
+        queue.complete(queue.front().unwrap());
+        assert_eq!(queue.front().unwrap().id, first);
+    }
+
+    #[test]
+    fn stale_completion_does_not_drop_a_newer_coalesced_request() {
+        let id = StaticVoxelBrickId(IVec3::new(8, 3, 8));
+        let mut queue = DirtyTerrainBrickQueue::default();
+        queue.push(id);
+        let old = queue.front().unwrap();
+        queue.push(id);
+
+        queue.complete(old);
+
+        assert_eq!(queue.len(), 1);
+        assert!(queue.front().unwrap().request_revision > old.request_revision);
+    }
+
+    #[test]
+    fn voxel_aabb_to_bricks_uses_exclusive_max_and_euclidean_negative_division() {
+        assert_eq!(
+            terrain_brick_ids_for_voxel_aabb(IVec3::ZERO, IVec3::splat(32)),
+            vec![StaticVoxelBrickId(IVec3::ZERO)]
+        );
+        assert_eq!(
+            terrain_brick_ids_for_voxel_aabb(IVec3::splat(32), IVec3::splat(33)),
+            vec![StaticVoxelBrickId(IVec3::ONE)]
+        );
+        assert_eq!(
+            terrain_brick_ids_for_voxel_aabb(IVec3::splat(-32), IVec3::ZERO),
+            vec![StaticVoxelBrickId(IVec3::splat(-1))]
+        );
+        assert_eq!(
+            terrain_brick_ids_for_voxel_aabb(IVec3::splat(-1), IVec3::ONE),
+            vec![
+                StaticVoxelBrickId(IVec3::new(-1, -1, -1)),
+                StaticVoxelBrickId(IVec3::new(0, -1, -1)),
+                StaticVoxelBrickId(IVec3::new(-1, 0, -1)),
+                StaticVoxelBrickId(IVec3::new(0, 0, -1)),
+                StaticVoxelBrickId(IVec3::new(-1, -1, 0)),
+                StaticVoxelBrickId(IVec3::new(0, -1, 0)),
+                StaticVoxelBrickId(IVec3::new(-1, 0, 0)),
+                StaticVoxelBrickId(IVec3::ZERO),
+            ]
+        );
+    }
+
+    #[test]
+    fn inclusive_voxel_aabb_marks_the_brick_containing_its_maximum_voxel() {
+        assert_eq!(
+            terrain_brick_ids_for_inclusive_uvec_aabb(UVec3::new(31, 7, 9), UVec3::new(32, 7, 9),),
+            vec![
+                StaticVoxelBrickId(IVec3::new(0, 0, 0)),
+                StaticVoxelBrickId(IVec3::new(1, 0, 0)),
+            ]
+        );
+        assert_eq!(
+            terrain_brick_ids_for_inclusive_uvec_aabb(UVec3::splat(32), UVec3::splat(32)),
+            vec![StaticVoxelBrickId(IVec3::ONE)]
         );
     }
 
@@ -331,6 +603,17 @@ mod tests {
         }]);
 
         assert_eq!(single_source_revision(&block), Ok(42));
+    }
+
+    #[test]
+    fn accepts_revision_from_an_absent_source_chunk_for_empty_tombstones() {
+        let block = block_with_dependencies(vec![ContreeCpuVoxelSourceDependency {
+            chunk_idx: UVec3::new(1, 0, 1),
+            source_revision: Some(43),
+            is_present: false,
+        }]);
+
+        assert_eq!(single_source_revision(&block), Ok(43));
     }
 
     #[test]

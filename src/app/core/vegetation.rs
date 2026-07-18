@@ -1258,9 +1258,9 @@ impl App {
                     )?,
                 _ => unreachable!("terrain surface removal compiled into unexpected edit type"),
             };
-            if stats.stats.removed_counts.iter().any(|&count| count > 0)
-                || stats.stats.added_counts.iter().any(|&count| count > 0)
-            {
+            let terrain_changed = stats.stats.removed_counts.iter().any(|&count| count > 0)
+                || stats.stats.added_counts.iter().any(|&count| count > 0);
+            if terrain_changed {
                 self.request_vsm_history_reset();
             }
             let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
@@ -1277,6 +1277,10 @@ impl App {
                     chunk_ids: rebuild_chunk_ids,
                 },
             )?;
+            if terrain_changed {
+                self.terrain_physics
+                    .mark_terrain_voxel_bound_dirty(rebuild_bound);
+            }
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
                 .lock()
@@ -1317,9 +1321,9 @@ impl App {
                     )?,
                 _ => unreachable!("terrain surface placement compiled into unexpected edit type"),
             };
-            if stats.stats.removed_counts.iter().any(|&count| count > 0)
-                || stats.stats.added_counts.iter().any(|&count| count > 0)
-            {
+            let terrain_changed = stats.stats.removed_counts.iter().any(|&count| count > 0)
+                || stats.stats.added_counts.iter().any(|&count| count > 0);
+            if terrain_changed {
                 self.request_vsm_history_reset();
             }
             let _modify_elapsed = modify_start.elapsed();
@@ -1328,7 +1332,7 @@ impl App {
                 rebuild_bound,
                 super::VOXEL_DIM_PER_CHUNK,
             );
-            self.enqueue_deferred_flora_preserving_chunk_rebuilds(
+            let rebuilt = self.enqueue_deferred_flora_preserving_chunk_rebuilds(
                 &rebuild_chunk_ids,
                 world_ops::FloraBrushEdit {
                     start: edit.center,
@@ -1338,6 +1342,10 @@ impl App {
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             );
+            if terrain_changed && rebuilt {
+                self.terrain_physics
+                    .mark_terrain_voxel_bound_dirty(rebuild_bound);
+            }
             let _mesh_elapsed = mesh_start.elapsed();
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
@@ -1378,7 +1386,10 @@ impl App {
                 )?;
             }
             SurfaceOccupantClearPath::TerrainRebuild { chunk_ids } => {
-                self.enqueue_deferred_flora_preserving_chunk_rebuilds(&chunk_ids, flora_edit);
+                anyhow::ensure!(
+                    self.enqueue_deferred_flora_preserving_chunk_rebuilds(&chunk_ids, flora_edit),
+                    "terrain rebuild failed while clearing surface occupants"
+                );
             }
         }
 
@@ -1432,7 +1443,10 @@ impl App {
         self.request_vsm_history_reset();
         let rebuild_chunk_ids =
             world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
-        self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
+        if self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids) {
+            self.terrain_physics
+                .mark_terrain_voxel_bound_dirty(rebuild_bound);
+        }
         Ok(())
     }
 

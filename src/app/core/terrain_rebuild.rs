@@ -39,32 +39,35 @@ enum TerrainChunkRebuildStage {
 }
 
 impl App {
-    pub(super) fn enqueue_deferred_chunk_rebuilds(&mut self, chunk_ids: &[UVec3]) {
+    pub(super) fn enqueue_deferred_chunk_rebuilds(&mut self, chunk_ids: &[UVec3]) -> bool {
         if chunk_ids.is_empty() {
-            return;
+            return false;
         }
 
-        self.rebuild_visible_chunk_batch_synchronously(chunk_ids);
+        self.rebuild_visible_chunk_batch_synchronously(chunk_ids)
     }
 
-    pub(super) fn enqueue_deferred_chunk_rebuilds_without_flora(&mut self, chunk_ids: &[UVec3]) {
+    pub(super) fn enqueue_deferred_chunk_rebuilds_without_flora(
+        &mut self,
+        chunk_ids: &[UVec3],
+    ) -> bool {
         if chunk_ids.is_empty() {
-            return;
+            return false;
         }
 
-        self.rebuild_visible_chunk_batch_without_flora_synchronously(chunk_ids);
+        self.rebuild_visible_chunk_batch_without_flora_synchronously(chunk_ids)
     }
 
     pub(super) fn enqueue_deferred_flora_preserving_chunk_rebuilds(
         &mut self,
         chunk_ids: &[UVec3],
         flora_edit: world_ops::FloraBrushEdit,
-    ) {
+    ) -> bool {
         if chunk_ids.is_empty() {
-            return;
+            return false;
         }
 
-        self.rebuild_visible_flora_preserving_chunk_batch_synchronously(chunk_ids, flora_edit);
+        self.rebuild_visible_flora_preserving_chunk_batch_synchronously(chunk_ids, flora_edit)
     }
 
     fn prepare_visible_sync_rebuild(&mut self, chunk_ids: &[UVec3]) -> bool {
@@ -80,14 +83,14 @@ impl App {
         true
     }
 
-    fn rebuild_visible_chunk_batch_synchronously(&mut self, chunk_ids: &[UVec3]) {
+    fn rebuild_visible_chunk_batch_synchronously(&mut self, chunk_ids: &[UVec3]) -> bool {
         let sync_start = Instant::now();
         if !self.prepare_visible_sync_rebuild(chunk_ids) {
             log::error!(
                 "[SYNC_VISIBLE_REBUILD] failed to prepare synchronous rebuild; leaving visible terrain unchanged for chunks {:?}",
                 chunk_ids,
             );
-            return;
+            return false;
         }
         let result = world_ops::mesh_generate_chunks(
             &mut self.surface_builder,
@@ -109,6 +112,7 @@ impl App {
                     elapsed_ms,
                     chunk_ids,
                 );
+                true
             }
             Err(err) => {
                 log::error!(
@@ -118,18 +122,22 @@ impl App {
                     chunk_ids,
                     err,
                 );
+                false
             }
         }
     }
 
-    fn rebuild_visible_chunk_batch_without_flora_synchronously(&mut self, chunk_ids: &[UVec3]) {
+    fn rebuild_visible_chunk_batch_without_flora_synchronously(
+        &mut self,
+        chunk_ids: &[UVec3],
+    ) -> bool {
         let sync_start = Instant::now();
         if !self.prepare_visible_sync_rebuild(chunk_ids) {
             log::error!(
                 "[SYNC_VISIBLE_REBUILD] failed to prepare synchronous no-flora rebuild; leaving visible terrain unchanged for chunks {:?}",
                 chunk_ids,
             );
-            return;
+            return false;
         }
         let result = world_ops::mesh_generate_chunks_without_flora(
             &mut self.surface_builder,
@@ -151,6 +159,7 @@ impl App {
                     elapsed_ms,
                     chunk_ids,
                 );
+                true
             }
             Err(err) => {
                 log::error!(
@@ -160,6 +169,7 @@ impl App {
                     chunk_ids,
                     err,
                 );
+                false
             }
         }
     }
@@ -168,14 +178,14 @@ impl App {
         &mut self,
         chunk_ids: &[UVec3],
         flora_edit: world_ops::FloraBrushEdit,
-    ) {
+    ) -> bool {
         let sync_start = Instant::now();
         if !self.prepare_visible_sync_rebuild(chunk_ids) {
             log::error!(
                 "[SYNC_VISIBLE_REBUILD] failed to prepare synchronous preserve-flora rebuild; leaving visible terrain unchanged for chunks {:?}",
                 chunk_ids,
             );
-            return;
+            return false;
         }
         let mut rebuilt = 0usize;
         let mut failed = false;
@@ -214,6 +224,7 @@ impl App {
             failed,
             chunk_ids,
         );
+        !failed && rebuilt == chunk_ids.len()
     }
 
     pub(super) fn deferred_chunk_rebuilds_idle(&self) -> bool {
@@ -847,6 +858,11 @@ impl App {
             .complete(inflight.chunk_id, inflight.revision);
         if is_latest {
             self.schedule_terrain_sdf_source_refresh(inflight.chunk_id);
+            // Deferred rebuild requests no longer retain their original voxel AABB. Fall back to
+            // the rebuilt terrain chunk only on successful publication; precise synchronous edit
+            // paths enqueue their original bound instead.
+            self.terrain_physics
+                .mark_terrain_chunks_dirty(&[inflight.chunk_id], VOXEL_DIM_PER_CHUNK);
             self.request_vsm_history_reset();
         }
 
