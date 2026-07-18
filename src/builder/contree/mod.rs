@@ -220,6 +220,18 @@ impl ContreeCpuRayQuerySnapshot {
         )
     }
 
+    pub fn chunk_source_dependency(
+        &self,
+        chunk_idx: UVec3,
+    ) -> Option<ContreeCpuVoxelSourceDependency> {
+        cpu_chunk_source_dependency(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_source_revisions,
+            chunk_idx,
+        )
+    }
+
     pub fn export_voxel_block(
         &self,
         voxel_min: UVec3,
@@ -1299,6 +1311,18 @@ impl ContreeBuilder {
         self.cpu_chunk_source_revisions.get(&chunk_idx).copied()
     }
 
+    pub fn cpu_chunk_source_dependency(
+        &self,
+        chunk_idx: UVec3,
+    ) -> Option<ContreeCpuVoxelSourceDependency> {
+        cpu_chunk_source_dependency(
+            self.chunk_dim,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_source_revisions,
+            chunk_idx,
+        )
+    }
+
     pub fn take_cpu_chunk_source_updates(&mut self) -> Vec<ContreeCpuChunkSourceUpdate> {
         std::mem::take(&mut self.cpu_chunk_source_updates)
     }
@@ -2276,6 +2300,38 @@ mod tests {
     }
 
     #[test]
+    fn chunk_source_dependency_reports_canonical_presence_and_revision() {
+        let present = UVec3::ZERO;
+        let absent = UVec3::X;
+        let snapshot = voxel_snapshot(
+            UVec3::new(2, 1, 1),
+            UVec3::splat(4),
+            &[present],
+            &[],
+            &[(present, 5), (absent, 9)],
+            &[],
+        );
+
+        assert_eq!(
+            snapshot.chunk_source_dependency(present),
+            Some(ContreeCpuVoxelSourceDependency {
+                chunk_idx: present,
+                source_revision: Some(5),
+                is_present: true,
+            })
+        );
+        assert_eq!(
+            snapshot.chunk_source_dependency(absent),
+            Some(ContreeCpuVoxelSourceDependency {
+                chunk_idx: absent,
+                source_revision: Some(9),
+                is_present: false,
+            })
+        );
+        assert_eq!(snapshot.chunk_source_dependency(UVec3::new(2, 0, 0)), None);
+    }
+
+    #[test]
     fn unfinished_rebuild_is_not_ready_even_with_an_old_cache() {
         let chunk = UVec3::ZERO;
         let cache = leaf_cache(chunk, &[(UVec3::ZERO, 2)]);
@@ -2621,6 +2677,22 @@ fn scene_chunk_present_in_grid(
     chunk_idx: UVec3,
 ) -> bool {
     cpu_scene_chunks[scene_chunk_flat_index(chunk_dim, chunk_idx)].is_some()
+}
+
+fn cpu_chunk_source_dependency(
+    chunk_dim: UVec3,
+    cpu_scene_chunks: &[Option<UVec3>],
+    source_revisions: &HashMap<UVec3, u64>,
+    chunk_idx: UVec3,
+) -> Option<ContreeCpuVoxelSourceDependency> {
+    if chunk_idx.cmpge(chunk_dim).any() {
+        return None;
+    }
+    Some(ContreeCpuVoxelSourceDependency {
+        chunk_idx,
+        source_revision: source_revisions.get(&chunk_idx).copied(),
+        is_present: scene_chunk_present_in_grid(chunk_dim, cpu_scene_chunks, chunk_idx),
+    })
 }
 
 fn scene_chunk_flat_index(chunk_dim: UVec3, chunk_idx: UVec3) -> usize {

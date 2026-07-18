@@ -102,9 +102,6 @@ impl App {
         let elapsed_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
         match result {
             Ok(()) => {
-                for &chunk_id in chunk_ids {
-                    self.schedule_terrain_sdf_source_refresh(chunk_id);
-                }
                 self.request_vsm_history_reset();
                 log::info!(
                     "[PERF][SYNC_VISIBLE_REBUILD] chunks {} total {:.2}ms preserve_flora=false chunk_ids={:?}",
@@ -149,9 +146,6 @@ impl App {
         let elapsed_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
         match result {
             Ok(()) => {
-                for &chunk_id in chunk_ids {
-                    self.schedule_terrain_sdf_source_refresh(chunk_id);
-                }
                 self.request_vsm_history_reset();
                 log::info!(
                     "[PERF][SYNC_VISIBLE_REBUILD] chunks {} total {:.2}ms preserve_flora=false place_flora=false chunk_ids={:?}",
@@ -200,7 +194,6 @@ impl App {
             ) {
                 Ok(()) => {
                     rebuilt += 1;
-                    self.schedule_terrain_sdf_source_refresh(chunk_id);
                 }
                 Err(err) => {
                     failed = true;
@@ -857,7 +850,6 @@ impl App {
         self.deferred_chunk_rebuilds
             .complete(inflight.chunk_id, inflight.revision);
         if is_latest {
-            self.schedule_terrain_sdf_source_refresh(inflight.chunk_id);
             // Deferred rebuild requests no longer retain their original voxel AABB. Fall back to
             // the rebuilt terrain chunk only on successful publication; precise synchronous edit
             // paths enqueue their original bound instead.

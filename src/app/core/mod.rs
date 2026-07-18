@@ -35,7 +35,6 @@ use self::terrain_rebuild::{ChunkRebuildRequest, TerrainChunkRebuildInFlight};
 use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRecord, TreeVariationConfig};
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
-use crate::app::cpu_solid_voxels::CpuSolidVoxelStore;
 use crate::app::environment;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldBuildBackend, WorldEditPlan};
@@ -123,9 +122,6 @@ fn advance_time_of_day(
     let time_speed = 1.0 / (day_cycle_minutes * 60.0);
     (current_time_of_day + elapsed_ticks as f32 * world_tick_seconds * time_speed) % 1.0
 }
-
-#[derive(Clone, Copy, Debug, Default)]
-struct TerrainSdfColliderRebuildRequest;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct WaterTerrainCacheRebuildRequest;
@@ -230,9 +226,9 @@ pub struct App {
     water_runtime_overrides: water::WaterRuntimeOverrides,
     water_terrain_initialized: bool,
     water_terrain_collider_cache_rebuild_pending: bool,
-    cpu_solid_voxels: CpuSolidVoxelStore,
     deferred_terrain_sdf_source_refreshes: LatestChunkQueue<water::TerrainSdfSourceRefreshRequest>,
-    deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue<TerrainSdfColliderRebuildRequest>,
+    deferred_terrain_sdf_collider_rebuilds:
+        LatestChunkQueue<water::TerrainSdfColliderRebuildRequest>,
     deferred_water_terrain_cache_rebuilds: LatestChunkQueue<WaterTerrainCacheRebuildRequest>,
     terrain_sdf_built_source_revisions: HashMap<UVec3, water::TerrainSdfSourceRevision>,
     terrain_sdf_source_refresh_inflight: Option<water::TerrainSdfSourceRefreshInFlight>,
@@ -1259,7 +1255,6 @@ impl App {
             water_runtime_overrides,
             water_terrain_initialized: false,
             water_terrain_collider_cache_rebuild_pending: false,
-            cpu_solid_voxels: CpuSolidVoxelStore::default(),
             deferred_terrain_sdf_source_refreshes: LatestChunkQueue::default(),
             deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue::default(),
             deferred_water_terrain_cache_rebuilds: LatestChunkQueue::default(),
