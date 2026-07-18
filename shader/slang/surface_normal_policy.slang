@@ -1,5 +1,8 @@
 module surface_normal_policy;
 
-public static const int SURFACE_NORMAL_SMOOTH_RADIUS = 2;
-public static const int SURFACE_NORMAL_COMPACT_RADIUS = 1;
-public static const int SURFACE_NORMAL_RADIUS = SURFACE_NORMAL_COMPACT_RADIUS;
+// The packed-row X-moment implementation is specialized for this smooth radius.
+public static const int SURFACE_NORMAL_RADIUS = 2;
+public static const uint SURFACE_NORMAL_WINDOW_WIDTH =
+    uint(SURFACE_NORMAL_RADIUS * 2 + 1);
+public static const uint SURFACE_NORMAL_WINDOW_MASK =
+    (1u << SURFACE_NORMAL_WINDOW_WIDTH) - 1u;
