@@ -1,10 +1,10 @@
 use super::placeables::PlaceableKind;
 use super::ui_style::{
     FERTILIZER_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT,
-    PLACEABLE_PANEL_SLOT_COUNT, PLACE_TOOL_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX,
-    SOIL_INSPECTOR_SLOT_INDEX, SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX,
-    STAFF_SLOT_INDEX, TILLER_SLOT_INDEX, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX,
-    WATERING_SLOT_INDEX,
+    PIPE_PLACEABLE_SLOT_INDEX, PIPE_SLOT_INDEX, PLACEABLE_PANEL_SLOT_COUNT, PLACE_TOOL_SLOT_INDEX,
+    SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX,
+    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, TILLER_SLOT_INDEX,
+    TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
 };
 use super::App;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
@@ -645,6 +645,7 @@ impl App {
 
     pub(super) fn clear_selected_tool(&mut self) {
         if self.player_tools.selected_item_panel_slot.is_some() {
+            self.cancel_pipe_drag();
             self.player_tools.selected_item_panel_slot = None;
             self.reset_staff_stroke_tracking();
             self.reset_watering_stroke_tracking();
@@ -679,6 +680,8 @@ impl App {
             self.select_placeable_tool(TREE_PLACEABLE_SLOT_INDEX);
         } else if slot_idx == SPRINKLER_SLOT_INDEX {
             self.select_placeable_tool(SPRINKLER_PLACEABLE_SLOT_INDEX);
+        } else if slot_idx == PIPE_SLOT_INDEX {
+            self.select_placeable_tool(PIPE_PLACEABLE_SLOT_INDEX);
         } else if slot_idx == HAND_SLOT_INDEX
             || Some(slot_idx) == self.player_tools.selected_item_panel_slot
         {
@@ -702,6 +705,9 @@ impl App {
             return;
         }
 
+        if slot_idx != self.player_tools.selected_placeable_panel_slot {
+            self.cancel_pipe_drag();
+        }
         if self.is_place_tool_selected()
             && slot_idx == self.player_tools.selected_placeable_panel_slot
         {
@@ -819,7 +825,9 @@ impl App {
         if self.is_place_tool_selected() {
             match self.current_placeable_kind() {
                 PlaceableKind::Tree => TerrainEditPreviewShape::TreeBillboard,
-                PlaceableKind::Sprinkler => TerrainEditPreviewShape::SurfaceCircle,
+                PlaceableKind::Sprinkler | PlaceableKind::Pipe => {
+                    TerrainEditPreviewShape::SurfaceCircle
+                }
             }
         } else {
             TerrainEditPreviewShape::Sphere
@@ -1681,6 +1689,39 @@ impl App {
         }
     }
 
+    pub(super) fn try_update_pipe_drag_preview(&mut self) {
+        if self.active_pipe_drag.is_none() {
+            return;
+        }
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) if terrain_edit_endpoint_within_editable_chunk(center) => {
+                if let Err(err) = self.update_pipe_drag_preview(center) {
+                    log::error!("Failed to update irrigation pipe preview: {err}");
+                }
+            }
+            Ok(_) => {}
+            Err(err) => log::error!("Pipe placement preview query failed: {err}"),
+        }
+    }
+
+    pub(super) fn try_finish_pipe_drag(&mut self) {
+        if self.active_pipe_drag.is_none() {
+            return;
+        }
+        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
+            Ok(Some(center)) if terrain_edit_endpoint_within_editable_chunk(center) => {
+                if let Err(err) = self.finish_pipe_drag(center) {
+                    log::error!("Failed to place irrigation pipe: {err}");
+                }
+            }
+            Ok(_) => self.cancel_pipe_drag(),
+            Err(err) => {
+                self.cancel_pipe_drag();
+                log::error!("Pipe placement release query failed: {err}");
+            }
+        }
+    }
+
     pub(super) fn try_placeable_placement(&mut self) {
         if !self.terrain_edit_pointer_available() || !self.is_place_tool_selected() {
             self.stop_terrain_edit_loop_sound();
@@ -1712,6 +1753,7 @@ impl App {
                             log::error!("Failed to place sprinkler: {}", err);
                         }
                     }
+                    PlaceableKind::Pipe => self.begin_pipe_drag(center),
                 }
             }
             Ok(None) => {

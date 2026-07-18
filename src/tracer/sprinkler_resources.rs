@@ -22,11 +22,29 @@ const CAP_EDGE_EXPANSION_VOXELS: f32 = 0.2;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct SprinklerVertex {
-    position: [f32; 3],
-    voxel_center: [f32; 3],
-    shading_normal: [f32; 3],
-    color_srgb: [f32; 3],
-    animation_direction: [f32; 3],
+    pub(crate) position: [f32; 3],
+    pub(crate) voxel_center: [f32; 3],
+    pub(crate) shading_normal: [f32; 3],
+    pub(crate) color_srgb: [f32; 3],
+    pub(crate) animation_direction: [f32; 3],
+}
+
+impl SprinklerVertex {
+    pub(crate) fn new(
+        position: Vec3,
+        center: Vec3,
+        shading_normal: Vec3,
+        color_srgb: Vec3,
+        animation_direction: Vec3,
+    ) -> Self {
+        Self {
+            position: position.to_array(),
+            voxel_center: center.to_array(),
+            shading_normal: shading_normal.to_array(),
+            color_srgb: color_srgb.to_array(),
+            animation_direction: animation_direction.to_array(),
+        }
+    }
 }
 
 #[repr(C)]
@@ -34,6 +52,15 @@ pub struct SprinklerVertex {
 pub struct SprinklerInstanceGpu {
     base_position: [f32; 3],
     animation_phase: f32,
+}
+
+impl SprinklerInstanceGpu {
+    pub(crate) fn static_mode() -> Self {
+        Self {
+            base_position: Vec3::ZERO.to_array(),
+            animation_phase: 0.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -166,12 +193,14 @@ fn append_voxel(
     let shading_normal = voxel_center_voxels.normalize_or_zero();
     let base = vertices.len() as u32;
 
-    vertices.extend(VOXEL_VERTICES.map(|offset| SprinklerVertex {
-        position: ((voxel_min_voxels + offset.as_vec3()) * VOXEL_SCALE).to_array(),
-        voxel_center: voxel_center.to_array(),
-        shading_normal: shading_normal.to_array(),
-        color_srgb: color_srgb.to_array(),
-        animation_direction: animation_direction.to_array(),
+    vertices.extend(VOXEL_VERTICES.map(|offset| {
+        SprinklerVertex::new(
+            (voxel_min_voxels + offset.as_vec3()) * VOXEL_SCALE,
+            voxel_center,
+            shading_normal,
+            color_srgb,
+            animation_direction,
+        )
     }));
     indices.extend(CUBE_INDICES.map(|index| base + index));
 }
