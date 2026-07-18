@@ -1992,6 +1992,13 @@ impl App {
                     }
                 }
                 let frame_delta_time = self.time_info.delta_time();
+                if let Err(err) = self
+                    .terrain_physics
+                    .advance_collision_probe(frame_delta_time, &mut self.tracer)
+                {
+                    log::error!("Failed to advance collision probe: {err:#}");
+                    self.terrain_physics.clear_collision_probe(&mut self.tracer);
+                }
                 let time_since_start = self.time_info.time_since_start();
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
@@ -2089,6 +2096,11 @@ impl App {
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_flora_paint_selection_index = None;
+                let collision_probe_ready = self.terrain_physics.collision_probe_ready();
+                let collision_probe_active = self.terrain_physics.collision_probe_active();
+                let collision_probe_status = self.terrain_physics.collision_probe_status();
+                let mut drop_collision_probe_requested = false;
+                let mut clear_collision_probe_requested = false;
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_hover = self.terrain_edit_hover();
@@ -2284,6 +2296,63 @@ impl App {
                                 });
                         }
                         self.config_panel_visible = config_panel_open;
+
+                        egui::Area::new("collision_probe_panel".into())
+                            .order(egui::Order::Foreground)
+                            .anchor(egui::Align2::LEFT_TOP, egui::Vec2::new(16.0, 16.0))
+                            .show(ctx, |ui| {
+                                let probe_frame = egui::containers::Frame {
+                                    fill: PANEL_DARK,
+                                    inner_margin: egui::Margin::symmetric(12, 10),
+                                    corner_radius: egui::CornerRadius::same(0),
+                                    shadow: egui::epaint::Shadow {
+                                        offset: [4, 4],
+                                        blur: 0,
+                                        spread: 0,
+                                        color: SHADOW_COLOR,
+                                    },
+                                    stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
+                                    ..Default::default()
+                                };
+
+                                probe_frame.show(ui, |ui| {
+                                    ui.set_min_width(220.0);
+                                    ui.label(
+                                        RichText::new("Collision Probe")
+                                            .color(GOLD_ACCENT)
+                                            .monospace()
+                                            .size(12.0),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(collision_probe_status.as_str())
+                                            .color(SAGE_ACCENT)
+                                            .monospace()
+                                            .size(11.0),
+                                    );
+                                    ui.add_space(6.0);
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .add_enabled(
+                                                collision_probe_ready,
+                                                egui::Button::new("Drop Apple Probe"),
+                                            )
+                                            .clicked()
+                                        {
+                                            drop_collision_probe_requested = true;
+                                        }
+                                        if ui
+                                            .add_enabled(
+                                                collision_probe_active,
+                                                egui::Button::new("Clear"),
+                                            )
+                                            .clicked()
+                                        {
+                                            clear_collision_probe_requested = true;
+                                        }
+                                    });
+                                });
+                            });
 
                         let item_panel_slots = [
                             ItemPanelSlot {
@@ -2569,6 +2638,14 @@ impl App {
                         draw_center_cross_mark(ctx);
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
+                if clear_collision_probe_requested {
+                    self.terrain_physics.clear_collision_probe(&mut self.tracer);
+                }
+                if drop_collision_probe_requested {
+                    if let Err(err) = self.terrain_physics.drop_collision_probe(&mut self.tracer) {
+                        log::error!("Failed to drop collision probe: {err:#}");
+                    }
+                }
                 self.sync_cursor_with_panels();
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);

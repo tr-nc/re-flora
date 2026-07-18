@@ -1,12 +1,21 @@
 use crate::builder::{ContreeBuilder, ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport};
-use glam::{IVec3, UVec3};
+use crate::tracer::{collision_probe_apple_offsets, Tracer};
+use anyhow::Context;
+use glam::{IVec3, UVec3, Vec3};
 use re_flora_physics::{
-    BrickOccupancy, CollisionWorld, StaticVoxelBrickId, STATIC_VOXEL_BRICK_DIM,
+    BrickOccupancy, CollisionWorld, DynamicBodyDesc, DynamicBodyId, DynamicColliderShape,
+    StaticVoxelBrickId, STATIC_VOXEL_BRICK_DIM,
 };
+use std::collections::HashSet;
 use std::time::Instant;
 
 const STARTUP_TERRAIN_BRICK_ID: StaticVoxelBrickId = StaticVoxelBrickId(IVec3::new(8, 3, 8));
 const STARTUP_TERRAIN_BRICK_MIN: UVec3 = UVec3::new(256, 96, 256);
+const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
+// Keep the probe inside the only terrain-collision brick currently imported, but place it on the
+// camera-facing side of the startup tree so the trunk does not hide the eight-voxel probe fruit.
+const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(276.0, 152.0, 280.0);
+const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum StartupTerrainBrickState {
@@ -19,14 +28,136 @@ enum StartupTerrainBrickState {
 pub(super) struct TerrainPhysics {
     collision_world: CollisionWorld,
     startup_brick_state: StartupTerrainBrickState,
+    collision_probe_body: Option<DynamicBodyId>,
+    collision_probe_mesh_uploaded: bool,
 }
 
 impl TerrainPhysics {
     pub(super) fn new() -> Self {
+        let mut collision_world = CollisionWorld::new();
+        collision_world
+            .set_gravity(COLLISION_PROBE_GRAVITY_VOXELS)
+            .expect("collision probe gravity constant must be valid");
         Self {
-            collision_world: CollisionWorld::new(),
+            collision_world,
             startup_brick_state: StartupTerrainBrickState::Pending,
+            collision_probe_body: None,
+            collision_probe_mesh_uploaded: false,
         }
+    }
+
+    pub(super) fn collision_probe_ready(&self) -> bool {
+        self.startup_brick_state == StartupTerrainBrickState::Imported
+    }
+
+    pub(super) fn collision_probe_active(&self) -> bool {
+        self.collision_probe_body.is_some()
+    }
+
+    pub(super) fn collision_probe_status(&self) -> String {
+        match self.startup_brick_state {
+            StartupTerrainBrickState::Pending => "Terrain collider loading...".to_owned(),
+            StartupTerrainBrickState::Failed => "Terrain collider failed to load".to_owned(),
+            StartupTerrainBrickState::Imported => {
+                let Some(id) = self.collision_probe_body else {
+                    return "Ready".to_owned();
+                };
+                let Some(state) = self.collision_world.dynamic_body_state(id) else {
+                    return "Probe body unavailable".to_owned();
+                };
+                let position = state.position / VOXELS_PER_WORLD_UNIT;
+                let speed = state.linear_velocity.length() / VOXELS_PER_WORLD_UNIT;
+                let motion = if state.sleeping { "resting" } else { "moving" };
+                format!(
+                    "{motion} at ({:.3}, {:.3}, {:.3})\nspeed {:.2} world units/s",
+                    position.x, position.y, position.z, speed
+                )
+            }
+        }
+    }
+
+    pub(super) fn drop_collision_probe(&mut self, tracer: &mut Tracer) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.collision_probe_ready(),
+            "terrain collision brick is not ready"
+        );
+
+        self.clear_collision_probe(tracer);
+        if !self.collision_probe_mesh_uploaded {
+            tracer
+                .upload_collision_probe_geometry()
+                .context("uploading collision probe geometry")?;
+            self.collision_probe_mesh_uploaded = true;
+        }
+
+        let collider_points = collision_probe_convex_points();
+        let collider_point_count = collider_points.len();
+        let mut desc = DynamicBodyDesc::sphere(COLLISION_PROBE_SPAWN_VOXELS, 4.0);
+        desc.collider = DynamicColliderShape::ConvexHull {
+            points: collider_points,
+        };
+        desc.linear_velocity = Vec3::new(7.0, 0.0, 2.0);
+        desc.angular_velocity = Vec3::new(3.2, 1.7, -4.0);
+        desc.friction = 0.85;
+        desc.restitution = 0.08;
+        desc.linear_damping = 0.08;
+        desc.angular_damping = 0.12;
+        desc.ccd_enabled = true;
+
+        let body = self
+            .collision_world
+            .spawn_dynamic_body(desc)
+            .context("spawning collision probe body")?;
+        let state = self
+            .collision_world
+            .dynamic_body_state(body)
+            .context("reading newly spawned collision probe body")?;
+        if let Err(err) = tracer
+            .show_collision_probe_geometry(state.position / VOXELS_PER_WORLD_UNIT, state.rotation)
+        {
+            self.collision_world.remove_dynamic_body(body);
+            return Err(err).context("showing collision probe geometry");
+        }
+        self.collision_probe_body = Some(body);
+        log::info!(
+            "[COLLISION][PROBE] dropped body={} spawn_voxels={:?} convex_points={}",
+            body.get(),
+            COLLISION_PROBE_SPAWN_VOXELS,
+            collider_point_count,
+        );
+        Ok(())
+    }
+
+    pub(super) fn clear_collision_probe(&mut self, tracer: &mut Tracer) {
+        if let Some(body) = self.collision_probe_body.take() {
+            self.collision_world.remove_dynamic_body(body);
+        }
+        tracer.clear_collision_probe_geometry();
+    }
+
+    pub(super) fn advance_collision_probe(
+        &mut self,
+        frame_delta_time: f32,
+        tracer: &mut Tracer,
+    ) -> anyhow::Result<()> {
+        let Some(body) = self.collision_probe_body else {
+            return Ok(());
+        };
+        let step = self.collision_world.advance(frame_delta_time);
+        if step.dropped_seconds > 0.0 {
+            log::warn!(
+                "[COLLISION][PROBE] physics hitch dropped {:.3} ms",
+                step.dropped_seconds * 1_000.0
+            );
+        }
+        let Some(state) = self.collision_world.dynamic_body_state(body) else {
+            self.collision_probe_body = None;
+            tracer.clear_collision_probe_geometry();
+            anyhow::bail!("collision probe body disappeared from physics world");
+        };
+        tracer
+            .show_collision_probe_geometry(state.position / VOXELS_PER_WORLD_UNIT, state.rotation)
+            .context("updating collision probe geometry")
     }
 
     pub(super) fn try_import_startup_terrain_brick(&mut self, contree_builder: &ContreeBuilder) {
@@ -115,6 +246,22 @@ impl TerrainPhysics {
     }
 }
 
+fn collision_probe_convex_points() -> Vec<Vec3> {
+    let mut corners = HashSet::new();
+    for voxel in collision_probe_apple_offsets() {
+        for x in 0..=1 {
+            for y in 0..=1 {
+                for z in 0..=1 {
+                    corners.insert(voxel + IVec3::new(x, y, z));
+                }
+            }
+        }
+    }
+    let mut corners = corners.into_iter().collect::<Vec<_>>();
+    corners.sort_unstable_by_key(|corner| (corner.x, corner.y, corner.z));
+    corners.into_iter().map(IVec3::as_vec3).collect()
+}
+
 fn single_source_revision(block: &ContreeCpuVoxelBlock) -> Result<u64, &'static str> {
     let [dependency] = block.source_dependencies.as_slice() else {
         return Err("expected exactly one source dependency");
@@ -150,6 +297,29 @@ mod tests {
             STARTUP_TERRAIN_BRICK_ID.0.as_uvec3() * STATIC_VOXEL_BRICK_DIM,
             STARTUP_TERRAIN_BRICK_MIN
         );
+    }
+
+    #[test]
+    fn collision_probe_convex_points_cover_visible_apple_bounds() {
+        let points = collision_probe_convex_points();
+        let min = points.iter().copied().reduce(Vec3::min).unwrap();
+        let max = points.iter().copied().reduce(Vec3::max).unwrap();
+
+        assert!(points.len() > collision_probe_apple_offsets().len());
+        assert_eq!(min, Vec3::splat(-4.0));
+        assert_eq!(max, Vec3::splat(4.0));
+    }
+
+    #[test]
+    fn collision_probe_spawns_inside_imported_brick_xz_bounds() {
+        let probe_radius = Vec3::splat(4.0);
+        let brick_min = STARTUP_TERRAIN_BRICK_MIN.as_vec3();
+        let brick_max = brick_min + Vec3::splat(STATIC_VOXEL_BRICK_DIM as f32);
+
+        assert!((COLLISION_PROBE_SPAWN_VOXELS - probe_radius).x >= brick_min.x);
+        assert!((COLLISION_PROBE_SPAWN_VOXELS - probe_radius).z >= brick_min.z);
+        assert!((COLLISION_PROBE_SPAWN_VOXELS + probe_radius).x <= brick_max.x);
+        assert!((COLLISION_PROBE_SPAWN_VOXELS + probe_radius).z <= brick_max.z);
     }
 
     #[test]

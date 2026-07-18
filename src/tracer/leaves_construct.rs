@@ -164,42 +164,97 @@ pub fn generate_indexed_single_voxel_leaf(
 /// this mesh instead of stamping fruit into the terrain voxel field.
 pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<FloraMeshData> {
     const MAX_LENGTH: u32 = 2;
-    const BODY_RADIUS_XZ: f32 = 2.0;
-    const BODY_RADIUS_Y: f32 = 2.0;
-    const MIN_VOXEL: i32 = -2;
-    const MAX_VOXEL: i32 = 1;
 
     let mut mesh = FloraMeshData::new(MAX_LENGTH);
 
-    for x in MIN_VOXEL..=MAX_VOXEL {
-        for y in MIN_VOXEL..=MAX_VOXEL {
-            for z in MIN_VOXEL..=MAX_VOXEL {
-                let p = Vec3::new(
-                    (x as f32 + 0.5) / BODY_RADIUS_XZ,
-                    (y as f32 + 0.5) / BODY_RADIUS_Y,
-                    (z as f32 + 0.5) / BODY_RADIUS_XZ,
-                );
-                let shape = p.length_squared();
+    for pos in voxel_apple_offsets() {
+        let vertex_offset = mesh.vertices.len() as u32;
+        let color_gradient = ((pos.y + MAX_LENGTH as i32) as f32
+            / (MAX_LENGTH as f32 * 2.0).max(1.0))
+        .clamp(0.0, 1.0);
+        append_indexed_cube_data_with_info(
+            &mut mesh.vertices,
+            &mut mesh.indices,
+            &mut mesh.voxel_infos,
+            pos,
+            vertex_offset,
+            FloraVoxelInfo::new(color_gradient, 1.0, color_gradient, 0),
+            is_lod_used,
+        )?;
+    }
 
-                if shape <= 1.0 {
-                    let pos = IVec3::new(x, y, z);
-                    let vertex_offset = mesh.vertices.len() as u32;
-                    let color_gradient = ((y + MAX_LENGTH as i32) as f32
-                        / (MAX_LENGTH as f32 * 2.0).max(1.0))
-                    .clamp(0.0, 1.0);
-                    append_indexed_cube_data_with_info(
-                        &mut mesh.vertices,
-                        &mut mesh.indices,
-                        &mut mesh.voxel_infos,
-                        pos,
-                        vertex_offset,
-                        FloraVoxelInfo::new(color_gradient, 1.0, color_gradient, 0),
-                        is_lod_used,
-                    )?;
+    Ok(mesh)
+}
+
+/// The shared raster description used by attached apple rendering, collision-probe
+/// rendering, and the dynamic convex collider.
+pub fn voxel_apple_offsets() -> Vec<IVec3> {
+    const BODY_RADIUS: f32 = 2.0;
+    let mut offsets = Vec::with_capacity(32);
+    for x in -2..=1 {
+        for y in -2..=1 {
+            for z in -2..=1 {
+                let center = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
+                if (center / BODY_RADIUS).length_squared() <= 1.0 {
+                    offsets.push(IVec3::new(x, y, z));
                 }
             }
         }
     }
+    offsets
+}
 
-    Ok(mesh)
+/// A two-times debug derivation of the regular apple. Each source voxel expands into eight
+/// standard-size voxels, so the probe is easier to see without breaking the scene's voxel scale.
+pub fn collision_probe_apple_offsets() -> Vec<IVec3> {
+    const SCALE: i32 = 2;
+    let source_offsets = voxel_apple_offsets();
+    let mut offsets = Vec::with_capacity(source_offsets.len() * SCALE.pow(3) as usize);
+    for source in source_offsets {
+        let min = source * SCALE;
+        for x in 0..SCALE {
+            for y in 0..SCALE {
+                for z in 0..SCALE {
+                    offsets.push(min + IVec3::new(x, y, z));
+                }
+            }
+        }
+    }
+    offsets
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    #[test]
+    fn voxel_apple_description_is_unique_and_centered() {
+        let offsets = voxel_apple_offsets();
+        let unique = offsets.iter().copied().collect::<HashSet<_>>();
+
+        assert_eq!(offsets.len(), 32);
+        assert_eq!(unique.len(), offsets.len());
+        for offset in offsets {
+            assert!(unique.contains(&(-offset - IVec3::ONE)));
+        }
+    }
+
+    #[test]
+    fn collision_probe_apple_is_two_times_bigger_with_unit_voxels() {
+        let offsets = collision_probe_apple_offsets();
+        let unique = offsets.iter().copied().collect::<HashSet<_>>();
+
+        assert_eq!(offsets.len(), voxel_apple_offsets().len() * 8);
+        assert_eq!(unique.len(), offsets.len());
+        assert_eq!(
+            offsets.iter().map(|offset| offset.min_element()).min(),
+            Some(-4)
+        );
+        assert_eq!(
+            offsets.iter().map(|offset| offset.max_element()).max(),
+            Some(3)
+        );
+    }
 }
