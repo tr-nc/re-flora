@@ -11,7 +11,7 @@ use crate::{
 const PIPE_SEGMENT_CAPACITY: usize = 1_024;
 const VERTICES_PER_BOX: usize = 24;
 const INDICES_PER_BOX: usize = 36;
-const PIPE_RADIUS: f32 = 0.65 / 256.0;
+const PIPE_RADIUS: f32 = 1.5 / 256.0;
 const SOURCE_HALF_EXTENT: f32 = 1.5 / 256.0;
 const PIPE_COLOR_SRGB: Vec3 = Vec3::new(0.56, 0.59, 0.60);
 const SOURCE_COLOR_SRGB: Vec3 = Vec3::new(0.34, 0.48, 0.52);
@@ -94,13 +94,8 @@ impl IrrigationPipeRendererResources {
             );
         }
         for segment in &data.segments {
-            append_box(
-                &mut vertices,
-                &mut indices,
-                segment.start.min(segment.end) - Vec3::splat(PIPE_RADIUS),
-                segment.start.max(segment.end) + Vec3::splat(PIPE_RADIUS),
-                PIPE_COLOR_SRGB,
-            );
+            let (min, max) = pipe_segment_bounds(*segment);
+            append_box(&mut vertices, &mut indices, min, max, PIPE_COLOR_SRGB);
         }
 
         if !vertices.is_empty() {
@@ -111,6 +106,13 @@ impl IrrigationPipeRendererResources {
         self.instance_count = u32::from(!indices.is_empty());
         Ok(())
     }
+}
+
+fn pipe_segment_bounds(segment: IrrigationPipeRenderSegment) -> (Vec3, Vec3) {
+    (
+        segment.start.min(segment.end) - Vec3::splat(PIPE_RADIUS),
+        segment.start.max(segment.end) + Vec3::splat(PIPE_RADIUS),
+    )
 }
 
 fn append_box(
@@ -209,5 +211,17 @@ mod tests {
         assert!(vertices
             .iter()
             .all(|vertex| vertex.color_srgb == PIPE_COLOR_SRGB.to_array()));
+    }
+
+    #[test]
+    fn pipe_segment_is_three_voxels_wide() {
+        let (min, max) = pipe_segment_bounds(IrrigationPipeRenderSegment {
+            start: Vec3::ZERO,
+            end: Vec3::X,
+        });
+
+        let width_voxels = (max - min) * 256.0;
+        assert_eq!(width_voxels.y, 3.0);
+        assert_eq!(width_voxels.z, 3.0);
     }
 }
