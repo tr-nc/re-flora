@@ -2,6 +2,7 @@ module surface_extraction;
 
 import definitions;
 import packer;
+import surface_normal_policy;
 import voxel_data;
 import voxel_types;
 
@@ -138,11 +139,11 @@ bool isOccluded(int3 workgroupBase, int3 voxelIndex)
 float3 calculateNormal(int3 workgroupBase, int3 voxelIndex)
 {
     int3 normalSum = int3(0);
-    for (int z = -2; z <= 2; ++z)
+    for (int z = -SURFACE_NORMAL_RADIUS; z <= SURFACE_NORMAL_RADIUS; ++z)
     {
-        for (int y = -2; y <= 2; ++y)
+        for (int y = -SURFACE_NORMAL_RADIUS; y <= SURFACE_NORMAL_RADIUS; ++y)
         {
-            for (int x = -2; x <= 2; ++x)
+            for (int x = -SURFACE_NORMAL_RADIUS; x <= SURFACE_NORMAL_RADIUS; ++x)
             {
                 int3 offset = int3(x, y, z);
                 if (isSolid(voxelAtLocalIndex(workgroupBase, voxelIndex + offset)))
