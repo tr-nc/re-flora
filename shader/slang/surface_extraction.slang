@@ -137,7 +137,7 @@ bool isOccluded(int3 workgroupBase, int3 voxelIndex)
 
 float3 calculateNormal(int3 workgroupBase, int3 voxelIndex)
 {
-    float3 normal = float3(0.0);
+    int3 normalSum = int3(0);
     for (int z = -2; z <= 2; ++z)
     {
         for (int y = -2; y <= 2; ++y)
@@ -147,12 +147,13 @@ float3 calculateNormal(int3 workgroupBase, int3 voxelIndex)
                 int3 offset = int3(x, y, z);
                 if (isSolid(voxelAtLocalIndex(workgroupBase, voxelIndex + offset)))
                 {
-                    normal += float3(offset);
+                    normalSum += offset;
                 }
             }
         }
     }
 
+    float3 normal = float3(normalSum);
     float normalLengthSquared = dot(normal, normal);
     return normalLengthSquared > EPSILON * EPSILON
         ? -normal * rsqrt(normalLengthSquared)

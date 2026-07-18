@@ -35,3 +35,17 @@ The optimization is implemented only in the native Slang source of truth. Legacy
 | `tree.replace_deferred_total` | 13.905 ms | 13.355 ms | -3.96% | +0.38% |
 
 Report: `target/perf/slang-surface-aggregation-ab/` (local benchmark artifact, not tracked).
+
+## Integer normal accumulation
+
+The smooth 5×5×5 estimator now sums integer voxel offsets into `int3` and converts once before normalization. Every component is an exact integer in a small bounded range, so this is mathematically equivalent to adding the same integer offsets as floats and leaves packed normals and appearance unchanged. Legacy GLSL remains untouched.
+
+Native Slang A/B results with matching workload signatures:
+
+| Metric | Baseline median | Candidate median | Median delta | p95 delta |
+|---|---:|---:|---:|---:|
+| `surface.build` | 738.0 µs | 722.0 µs | -2.17% | -6.26% |
+| `surface.make_sparse` | 538.0 µs | 530.5 µs | -1.39% | -7.02% |
+| `tree.replace_deferred_total` | 13.290 ms | 12.775 ms | -3.88% | -2.81% |
+
+Report: `target/perf/slang-surface-integer-ab/` (local benchmark artifact, not tracked).
