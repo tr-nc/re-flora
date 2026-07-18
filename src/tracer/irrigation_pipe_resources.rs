@@ -15,7 +15,8 @@ const INDICES_PER_BOX: usize = 36;
 const INITIAL_PIPE_VOXEL_CAPACITY: usize = PIPE_SEGMENT_CAPACITY + 1;
 const VOXEL_SCALE: f32 = 1.0 / 256.0;
 const VOXEL_HALF_EXTENT: f32 = VOXEL_SCALE * 0.5;
-const PIPE_CROSS_SECTION_RADIUS_VOXELS: i32 = 1;
+pub const IRRIGATION_PIPE_RADIUS_VOXELS: f32 = 1.5;
+const PIPE_CROSS_SECTION_GRID_RADIUS: i32 = (IRRIGATION_PIPE_RADIUS_VOXELS - 0.5) as i32;
 const PIPE_COLOR_SRGB: Vec3 = Vec3::new(0.56, 0.59, 0.60);
 const SOURCE_COLOR_SRGB: Vec3 = Vec3::new(0.34, 0.48, 0.52);
 
@@ -183,8 +184,11 @@ fn collect_pipe_voxels(data: &IrrigationPipeRenderData) -> Result<BTreeMap<(i32,
         let length = delta.abs().max_element();
         for step in 0..=length {
             let centerline = start + direction * step;
-            for first in -PIPE_CROSS_SECTION_RADIUS_VOXELS..=PIPE_CROSS_SECTION_RADIUS_VOXELS {
-                for second in -PIPE_CROSS_SECTION_RADIUS_VOXELS..=PIPE_CROSS_SECTION_RADIUS_VOXELS {
+            for first in -PIPE_CROSS_SECTION_GRID_RADIUS..=PIPE_CROSS_SECTION_GRID_RADIUS {
+                for second in -PIPE_CROSS_SECTION_GRID_RADIUS..=PIPE_CROSS_SECTION_GRID_RADIUS {
+                    if !pipe_cross_section_contains(first, second) {
+                        continue;
+                    }
                     let offset = if delta.x != 0 {
                         IVec3::new(0, first, second)
                     } else if delta.y != 0 {
@@ -199,6 +203,11 @@ fn collect_pipe_voxels(data: &IrrigationPipeRenderData) -> Result<BTreeMap<(i32,
     }
 
     Ok(voxels)
+}
+
+fn pipe_cross_section_contains(first: i32, second: i32) -> bool {
+    let center_radius = IRRIGATION_PIPE_RADIUS_VOXELS - 0.5;
+    (first * first + second * second) as f32 <= center_radius * center_radius
 }
 
 fn world_position_to_voxel(position: Vec3) -> Result<IVec3> {
@@ -344,10 +353,21 @@ mod tests {
     }
 
     #[test]
+    fn pipe_cross_section_is_a_discrete_circle_without_square_corners() {
+        assert!(pipe_cross_section_contains(0, 0));
+        assert!(pipe_cross_section_contains(1, 0));
+        assert!(pipe_cross_section_contains(-1, 0));
+        assert!(pipe_cross_section_contains(0, 1));
+        assert!(pipe_cross_section_contains(0, -1));
+        assert!(!pipe_cross_section_contains(1, 1));
+        assert!(!pipe_cross_section_contains(-1, -1));
+    }
+
+    #[test]
     fn pipe_mesh_uses_unit_voxels_with_independent_light_samples() {
         let (vertices, indices, voxel_count) = build_pipe_voxel_mesh(&x_axis_pipe(2)).unwrap();
 
-        assert_eq!(voxel_count, 3 * 3 * 3);
+        assert_eq!(voxel_count, 3 * 5);
         assert_eq!(vertices.len(), voxel_count * VERTICES_PER_BOX);
         assert_eq!(indices.len(), voxel_count * INDICES_PER_BOX);
 
@@ -383,7 +403,7 @@ mod tests {
         data.source_position = Some(Vec3::ZERO);
         let voxels = collect_pipe_voxels(&data).unwrap();
 
-        assert_eq!(voxels.len(), 36);
+        assert_eq!(voxels.len(), 32);
         assert_eq!(
             voxels
                 .values()
@@ -396,7 +416,7 @@ mod tests {
                 .values()
                 .filter(|color| **color == PIPE_COLOR_SRGB)
                 .count(),
-            9
+            5
         );
     }
 
