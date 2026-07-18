@@ -314,6 +314,32 @@ mod flora_color_tests {
     }
 }
 
+#[cfg(test)]
+mod default_camera_tests {
+    use super::*;
+
+    #[test]
+    fn default_camera_pose_frames_requested_focus_from_above() {
+        let bound = UAabb3::new(UVec3::ZERO, UVec3::splat(2));
+        let focus = Vec3::new(1.0, 0.5, 1.0);
+        let (position, yaw_deg, pitch_deg) = Tracer::default_camera_pose_for_bound(bound, focus);
+
+        assert_eq!(position.x, focus.x);
+        assert!(position.y > focus.y);
+        assert!(position.z > focus.z);
+
+        let yaw = yaw_deg.to_radians();
+        let pitch = pitch_deg.to_radians();
+        let camera_front = Vec3::new(
+            yaw.sin() * pitch.cos(),
+            pitch.sin(),
+            -yaw.cos() * pitch.cos(),
+        )
+        .normalize();
+        assert!(camera_front.distance((focus - position).normalize()) < 1.0e-6);
+    }
+}
+
 pub fn grass_flora_height_color_tables(
     bottom_dark_srgb: Vec3,
     bottom_light_srgb: Vec3,

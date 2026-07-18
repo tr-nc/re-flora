@@ -264,9 +264,9 @@ pub struct App {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum CameraControlMode {
-    #[default]
     FreeFly,
     Walk,
+    #[default]
     OrbitEdit,
 }
 
@@ -3661,8 +3661,8 @@ mod tests {
     }
 
     #[test]
-    fn camera_control_mode_defaults_to_free_fly() {
-        assert_eq!(CameraControlMode::default(), CameraControlMode::FreeFly);
+    fn camera_control_mode_defaults_to_orbit_edit() {
+        assert_eq!(CameraControlMode::default(), CameraControlMode::OrbitEdit);
     }
 
     #[test]
