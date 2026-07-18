@@ -1,3 +1,4 @@
+use rapier3d::parry::shape::AxisMask;
 use rapier3d::prelude::*;
 use std::{
     fs,
@@ -15,6 +16,7 @@ const FRICTION: Real = 0.8;
 const RESTITUTION: Real = 0.05;
 const DAMPING: Real = 0.1;
 const PENETRATION_THRESHOLD: Real = 0.01;
+const SEAM_BOUNCE_THRESHOLD: Real = 0.01;
 
 fn main() {
     println!(
@@ -43,7 +45,7 @@ fn main() {
     let terrain_insert = insert_started.elapsed();
 
     let body_build_started = Instant::now();
-    let ball_handles = insert_ball_grid(&mut world);
+    let ball_handles = insert_ball_count(&mut world, BALL_COUNT);
     let body_build = body_build_started.elapsed();
     let rss_after_build_kib = resident_set_kib();
 
@@ -74,6 +76,18 @@ fn main() {
         })
         .count();
     let (penetrations, max_penetration) = penetration_stats(&world, PENETRATION_THRESHOLD);
+    let scaling_100 = ScalingResult {
+        bodies: BALL_COUNT,
+        body_build,
+        step_total: total_step_time,
+        step_avg: avg_step,
+        step_p95: p95_step,
+        step_max: max_step,
+        sleeping,
+        escaped,
+        penetrations,
+        max_penetration,
+    };
 
     println!(
         "{PREFIX} event=build terrain_voxels={} terrain_build_us={} terrain_insert_us={} \
@@ -168,14 +182,46 @@ fn main() {
         sleep.final_angular_speed,
     );
 
-    let all_valid = edit_removed_filled_voxel && ccd.passed && rolling.passed && sleep.passed;
+    let isolated_brick_seam = validate_brick_seam(false);
+    print_brick_seam(&isolated_brick_seam);
+    let combined_brick_seam = validate_brick_seam(true);
+    print_brick_seam(&combined_brick_seam);
+
+    let boundary_edit = validate_boundary_edit_neighbor_states();
+    println!(
+        "{PREFIX} event=validation test=boundary_voxel_edit passed={} \
+         before_left_x_pos_hidden={} before_right_x_neg_hidden={} \
+         stale_right_x_neg_hidden_without_propagate={} updated_right_x_neg_exposed={} \
+         updated_left_inner_x_pos_exposed={} removed_voxel_empty={} \
+         required_api=propagate_voxel_change",
+        boundary_edit.passed,
+        boundary_edit.before_left_x_pos_hidden,
+        boundary_edit.before_right_x_neg_hidden,
+        boundary_edit.stale_right_x_neg_hidden_without_propagate,
+        boundary_edit.updated_right_x_neg_exposed,
+        boundary_edit.updated_left_inner_x_pos_exposed,
+        boundary_edit.removed_voxel_empty,
+    );
+
+    let scaling_10 = benchmark_scaling(10);
+    let scaling_1000 = benchmark_scaling(1_000);
+    print_scaling(&scaling_10);
+    print_scaling(&scaling_100);
+    print_scaling(&scaling_1000);
+
+    let all_valid = edit_removed_filled_voxel
+        && ccd.passed
+        && rolling.passed
+        && sleep.passed
+        && combined_brick_seam.passed
+        && boundary_edit.passed;
     let memory_bytes = memory_delta(rss_before_kib, rss_after_build_kib).map(|kib| kib * 1024);
     println!(
         "{PREFIX} brick_dim=32 voxel_size=1 sphere_radius=2 bodies=100 steps=600 dt=0.008333 \
          build_ms={:.6} edit_ms={:.6} step_total_ms={:.6} step_avg_us={:.3} memory_bytes={} \
          penetrations={} seam_stalls={} step_p95_us={} max_penetration={:.6} ccd_pass={} \
-         sleep_pass={} rolling_pass={} sleeping={} escaped={} rapier_version=0.34.0 \
-         parry_version=0.29.0 features=default_dim3_f32_std",
+         sleep_pass={} rolling_pass={} brick_seam_pass={} boundary_edit_pass={} sleeping={} \
+         escaped={} rapier_version=0.34.0 parry_version=0.29.0 features=default_dim3_f32_std",
         terrain_build.as_secs_f64() * 1_000.0,
         edit_time.as_secs_f64() * 1_000.0,
         total_step_time.as_secs_f64() * 1_000.0,
@@ -188,6 +234,8 @@ fn main() {
         ccd.passed,
         sleep.passed,
         rolling.passed,
+        combined_brick_seam.passed,
+        boundary_edit.passed,
         sleeping,
         escaped,
     );
@@ -240,23 +288,330 @@ fn ball_collider_builder() -> ColliderBuilder {
         .restitution(RESTITUTION)
 }
 
-fn insert_ball_grid(world: &mut PhysicsWorld) -> Vec<RigidBodyHandle> {
-    let mut handles = Vec::with_capacity(BALL_COUNT);
-    for layer in 0..4 {
-        for z in 0..5 {
-            for x in 0..5 {
-                let position = Vector::new(
-                    4.0 + x as Real * 6.0,
-                    7.0 + layer as Real * 5.0,
-                    4.0 + z as Real * 6.0,
-                );
-                let (body, _) = world.insert(ball_body_builder(position), ball_collider_builder());
-                handles.push(body);
-            }
-        }
+fn insert_ball_count(world: &mut PhysicsWorld, count: usize) -> Vec<RigidBodyHandle> {
+    let mut handles = Vec::with_capacity(count);
+    for index in 0..count {
+        let layer = index / 25;
+        let index_in_layer = index % 25;
+        let z = index_in_layer / 5;
+        let x = index_in_layer % 5;
+        let position = Vector::new(
+            4.0 + x as Real * 6.0,
+            7.0 + layer as Real * 5.0,
+            4.0 + z as Real * 6.0,
+        );
+        let (body, _) = world.insert(ball_body_builder(position), ball_collider_builder());
+        handles.push(body);
     }
-    assert_eq!(handles.len(), BALL_COUNT);
+    assert_eq!(handles.len(), count);
     handles
+}
+
+#[derive(Debug)]
+struct ScalingResult {
+    bodies: usize,
+    body_build: Duration,
+    step_total: Duration,
+    step_avg: Duration,
+    step_p95: Duration,
+    step_max: Duration,
+    sleeping: usize,
+    escaped: usize,
+    penetrations: usize,
+    max_penetration: Real,
+}
+
+fn benchmark_scaling(body_count: usize) -> ScalingResult {
+    let mut world = configured_world();
+    insert_terrain(&mut world);
+    let build_started = Instant::now();
+    let handles = insert_ball_count(&mut world, body_count);
+    let body_build = build_started.elapsed();
+    let mut step_times = Vec::with_capacity(BENCH_STEPS);
+    for _ in 0..BENCH_STEPS {
+        let started = Instant::now();
+        world.step();
+        step_times.push(started.elapsed());
+    }
+    scaling_result(body_count, body_build, &step_times, &world, &handles)
+}
+
+fn scaling_result(
+    body_count: usize,
+    body_build: Duration,
+    step_times: &[Duration],
+    world: &PhysicsWorld,
+    handles: &[RigidBodyHandle],
+) -> ScalingResult {
+    let step_total: Duration = step_times.iter().copied().sum();
+    let sleeping = handles
+        .iter()
+        .filter(|&&handle| world.bodies[handle].is_sleeping())
+        .count();
+    let escaped = handles
+        .iter()
+        .filter(|&&handle| {
+            let p = world.bodies[handle].translation();
+            p.x < -BALL_RADIUS
+                || p.x > BRICK_SIZE as Real + BALL_RADIUS
+                || p.y < -BALL_RADIUS
+                || p.z < -BALL_RADIUS
+                || p.z > BRICK_SIZE as Real + BALL_RADIUS
+        })
+        .count();
+    let (penetrations, max_penetration) = penetration_stats(world, PENETRATION_THRESHOLD);
+    ScalingResult {
+        bodies: body_count,
+        body_build,
+        step_total,
+        step_avg: step_total / step_times.len() as u32,
+        step_p95: percentile_duration(step_times, 0.95),
+        step_max: step_times.iter().copied().max().unwrap_or_default(),
+        sleeping,
+        escaped,
+        penetrations,
+        max_penetration,
+    }
+}
+
+fn print_scaling(result: &ScalingResult) {
+    println!(
+        "{PREFIX} event=scaling bodies={} steps={BENCH_STEPS} body_build_ms={:.6} \
+         step_total_ms={:.6} step_avg_us={:.3} step_p95_us={} step_max_us={} sleeping={} \
+         active={} escaped={} penetrations={} max_penetration={:.6}",
+        result.bodies,
+        result.body_build.as_secs_f64() * 1_000.0,
+        result.step_total.as_secs_f64() * 1_000.0,
+        result.step_avg.as_secs_f64() * 1_000_000.0,
+        result.step_p95.as_micros(),
+        result.step_max.as_micros(),
+        result.sleeping,
+        result.bodies - result.sleeping,
+        result.escaped,
+        result.penetrations,
+        result.max_penetration,
+    );
+}
+
+fn adjacent_floor_shapes(combine_neighbor_states: bool) -> (Voxels, Voxels) {
+    let coords = flat_floor_voxels();
+    let mut left = Voxels::new(Vector::splat(1.0), &coords);
+    let mut right = Voxels::new(Vector::splat(1.0), &coords);
+    if combine_neighbor_states {
+        left.combine_voxel_states(&mut right, IVector::new(BRICK_SIZE, 0, 0));
+    }
+    (left, right)
+}
+
+fn insert_adjacent_floor_bricks(world: &mut PhysicsWorld, combine_neighbor_states: bool) {
+    let (left, right) = adjacent_floor_shapes(combine_neighbor_states);
+    world.insert_collider(
+        ColliderBuilder::new(SharedShape::new(left))
+            .friction(FRICTION)
+            .restitution(0.0),
+        None,
+    );
+    world.insert_collider(
+        ColliderBuilder::new(SharedShape::new(right))
+            .translation(Vector::new(BRICK_SIZE as Real, 0.0, 0.0))
+            .friction(FRICTION)
+            .restitution(0.0),
+        None,
+    );
+}
+
+#[derive(Debug)]
+struct BrickSeamValidation {
+    combined_neighbor_states: bool,
+    passed: bool,
+    steps: usize,
+    crossing_step: Option<usize>,
+    start_x: Real,
+    final_x: Real,
+    seam_stalls: usize,
+    backward_steps: usize,
+    max_abs_vy_near_seam: Real,
+    max_abs_delta_vx_near_seam: Real,
+    max_height_error_near_seam: Real,
+}
+
+fn validate_brick_seam(combine_neighbor_states: bool) -> BrickSeamValidation {
+    const STEPS: usize = 720;
+    const START_X: Real = 20.0;
+    const START_VX: Real = 4.0;
+    const SEAM_X: Real = BRICK_SIZE as Real;
+    let expected_center_y = FLOOR_LAYERS as Real + BALL_RADIUS;
+    let mut world = configured_world();
+    insert_adjacent_floor_bricks(&mut world, combine_neighbor_states);
+    let (ball, _) = world.insert(
+        RigidBodyBuilder::dynamic()
+            .translation(Vector::new(START_X, expected_center_y + 0.005, 16.0))
+            .linvel(Vector::new(START_VX, 0.0, 0.0))
+            .angvel(Vector::new(0.0, 0.0, -START_VX / BALL_RADIUS))
+            .linear_damping(0.0)
+            .angular_damping(0.0)
+            .ccd_enabled(true)
+            .can_sleep(false),
+        ball_collider_builder().restitution(0.0),
+    );
+
+    let mut previous_x = START_X;
+    let mut previous_vx = START_VX;
+    let mut crossing_step = None;
+    let mut seam_stalls = 0;
+    let mut backward_steps = 0;
+    let mut max_abs_vy_near_seam: Real = 0.0;
+    let mut max_abs_delta_vx_near_seam: Real = 0.0;
+    let mut max_height_error_near_seam: Real = 0.0;
+    for step in 0..STEPS {
+        world.step();
+        let body = &world.bodies[ball];
+        let position = body.translation();
+        let velocity = body.linvel();
+        if previous_x < SEAM_X && position.x >= SEAM_X {
+            crossing_step = Some(step + 1);
+        }
+        if position.x + 1.0e-5 < previous_x {
+            backward_steps += 1;
+        }
+        if step >= 30 && position.x - previous_x < START_VX * DT * 0.5 {
+            seam_stalls += 1;
+        }
+        if (SEAM_X - 4.0..=SEAM_X + 4.0).contains(&position.x) {
+            max_abs_vy_near_seam = max_abs_vy_near_seam.max(velocity.y.abs());
+            max_abs_delta_vx_near_seam =
+                max_abs_delta_vx_near_seam.max((velocity.x - previous_vx).abs());
+            max_height_error_near_seam =
+                max_height_error_near_seam.max((position.y - expected_center_y).abs());
+        }
+        previous_x = position.x;
+        previous_vx = velocity.x;
+    }
+
+    let final_x = world.bodies[ball].translation().x;
+    let passed = crossing_step.is_some()
+        && final_x > SEAM_X + 8.0
+        && seam_stalls == 0
+        && backward_steps == 0
+        && max_abs_vy_near_seam < SEAM_BOUNCE_THRESHOLD
+        && max_abs_delta_vx_near_seam < 0.1
+        && max_height_error_near_seam < 0.1;
+    BrickSeamValidation {
+        combined_neighbor_states: combine_neighbor_states,
+        passed,
+        steps: STEPS,
+        crossing_step,
+        start_x: START_X,
+        final_x,
+        seam_stalls,
+        backward_steps,
+        max_abs_vy_near_seam,
+        max_abs_delta_vx_near_seam,
+        max_height_error_near_seam,
+    }
+}
+
+fn print_brick_seam(result: &BrickSeamValidation) {
+    let neighbor_states = if result.combined_neighbor_states {
+        "combined"
+    } else {
+        "isolated"
+    };
+    println!(
+        "{PREFIX} event=validation test=adjacent_brick_seam neighbor_states={} passed={} \
+         steps={} seam_x={} crossing_step={} start_x={:.6} final_x={:.6} seam_stalls={} \
+         backward_steps={} bounce_detected={} bounce_threshold={:.3} \
+         max_abs_vy_near_seam={:.6} max_abs_delta_vx_near_seam={:.6} \
+         max_height_error_near_seam={:.6} required_api=combine_voxel_states",
+        neighbor_states,
+        result.passed,
+        result.steps,
+        BRICK_SIZE,
+        result
+            .crossing_step
+            .map(|step| step.to_string())
+            .unwrap_or_else(|| "none".to_owned()),
+        result.start_x,
+        result.final_x,
+        result.seam_stalls,
+        result.backward_steps,
+        result.max_abs_vy_near_seam >= SEAM_BOUNCE_THRESHOLD,
+        SEAM_BOUNCE_THRESHOLD,
+        result.max_abs_vy_near_seam,
+        result.max_abs_delta_vx_near_seam,
+        result.max_height_error_near_seam,
+    );
+}
+
+#[derive(Debug)]
+struct BoundaryEditValidation {
+    passed: bool,
+    before_left_x_pos_hidden: bool,
+    before_right_x_neg_hidden: bool,
+    stale_right_x_neg_hidden_without_propagate: bool,
+    updated_right_x_neg_exposed: bool,
+    updated_left_inner_x_pos_exposed: bool,
+    removed_voxel_empty: bool,
+}
+
+fn validate_boundary_edit_neighbor_states() -> BoundaryEditValidation {
+    let origin_shift = IVector::new(BRICK_SIZE, 0, 0);
+    let removed = IVector::new(BRICK_SIZE - 1, FLOOR_LAYERS - 1, BRICK_SIZE / 2);
+    let right_neighbor = IVector::new(0, FLOOR_LAYERS - 1, BRICK_SIZE / 2);
+    let left_inner = removed - IVector::X;
+    let (left, right) = adjacent_floor_shapes(true);
+    let before_left_x_pos_hidden = !left
+        .voxel_state(removed)
+        .expect("left boundary voxel")
+        .free_faces()
+        .contains(AxisMask::X_POS);
+    let before_right_x_neg_hidden = !right
+        .voxel_state(right_neighbor)
+        .expect("right boundary voxel")
+        .free_faces()
+        .contains(AxisMask::X_NEG);
+
+    let mut stale_left = left.clone();
+    let stale_right = right.clone();
+    stale_left.set_voxel(removed, false);
+    let stale_right_x_neg_hidden_without_propagate = !stale_right
+        .voxel_state(right_neighbor)
+        .expect("stale right boundary voxel")
+        .free_faces()
+        .contains(AxisMask::X_NEG);
+
+    let mut updated_left = left;
+    let mut updated_right = right;
+    updated_left.set_voxel(removed, false);
+    updated_left.propagate_voxel_change(&mut updated_right, removed, origin_shift);
+    let updated_right_x_neg_exposed = updated_right
+        .voxel_state(right_neighbor)
+        .expect("updated right boundary voxel")
+        .free_faces()
+        .contains(AxisMask::X_NEG);
+    let updated_left_inner_x_pos_exposed = updated_left
+        .voxel_state(left_inner)
+        .expect("updated left inner voxel")
+        .free_faces()
+        .contains(AxisMask::X_POS);
+    let removed_voxel_empty = updated_left
+        .voxel_state(removed)
+        .is_some_and(VoxelState::is_empty);
+    let passed = before_left_x_pos_hidden
+        && before_right_x_neg_hidden
+        && stale_right_x_neg_hidden_without_propagate
+        && updated_right_x_neg_exposed
+        && updated_left_inner_x_pos_exposed
+        && removed_voxel_empty;
+    BoundaryEditValidation {
+        passed,
+        before_left_x_pos_hidden,
+        before_right_x_neg_hidden,
+        stale_right_x_neg_hidden_without_propagate,
+        updated_right_x_neg_exposed,
+        updated_left_inner_x_pos_exposed,
+        removed_voxel_empty,
+    }
 }
 
 #[derive(Debug)]
@@ -503,5 +858,24 @@ mod tests {
     fn percentile_uses_nearest_rank() {
         let samples = (1..=100).map(Duration::from_micros).collect::<Vec<_>>();
         assert_eq!(percentile_duration(&samples, 0.95).as_micros(), 95);
+    }
+
+    #[test]
+    fn combining_adjacent_bricks_hides_the_shared_faces() {
+        let (left, right) = adjacent_floor_shapes(true);
+        let left_state = left
+            .voxel_state(IVector::new(31, 1, 16))
+            .expect("left boundary voxel");
+        let right_state = right
+            .voxel_state(IVector::new(0, 1, 16))
+            .expect("right boundary voxel");
+        assert!(!left_state.free_faces().contains(AxisMask::X_POS));
+        assert!(!right_state.free_faces().contains(AxisMask::X_NEG));
+    }
+
+    #[test]
+    fn boundary_edit_propagates_to_the_adjacent_brick() {
+        let validation = validate_boundary_edit_neighbor_states();
+        assert!(validation.passed, "{validation:?}");
     }
 }
