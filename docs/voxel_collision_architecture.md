@@ -65,6 +65,24 @@ Face-neighbors are sufficient for Parry's face-state bits. An edit on a brick ed
 
 The 1000-body workload was deliberately unresolved after 600 steps. It produced 550 contact pairs deeper than 0.01 voxel, with a maximum depth of 0.02124 voxel. Dense fruit piles therefore need a separate release benchmark before solver iterations or pile behavior are finalized.
 
+### Real Contree brick measurement
+
+The first app-integrated source probe imported the 32-cubed brick at voxel minimum
+`(256, 96, 256)`, collision-brick ID `(8, 3, 8)`. This brick contains the base of
+the startup tuning tree and depends only on terrain source chunk `(1, 0, 1)`.
+
+In a hidden release run on the same tested machine, source revision 2 produced 1,215
+solid voxels. Exact Contree export took 0.975 ms, occupancy packing took 0.013 ms,
+Rapier voxel collider insertion took 0.202 ms, and the complete import took 1.190 ms.
+An isolated worker run measured 0.937 ms, 0.014 ms, 0.171 ms, and 1.122 ms
+respectively, so the result was repeatable at the scale needed for scheduling.
+
+This measurement supports budgeted CPU-cache extraction as the initial production
+path. It does not justify rebuilding an unbounded number of bricks in one frame:
+terrain synchronization still needs a revisioned queue and a per-frame work budget.
+The GPU readback fallback is not needed unless later complex-scene measurements show
+that decoded-cache traversal dominates that budget.
+
 ## Fruit collider experiment
 
 The current raster apple contains 32 unit cubes selected from a four-voxel-diameter sphere. Four rigid collider descriptions were tested against the native voxel floor.
@@ -124,6 +142,13 @@ Dynamic fruit rendering needs orientation as well as position. The existing stat
 
 Each step should remain independently validated and committed. Do not remove the coarse water SDF as part of this work.
 
+The implementation currently completes steps 1 through 3 and the collision-world
+portion of step 4: Rapier is pinned, exact Contree block export exists, static bricks
+combine and propagate boundary state, dynamic bodies use a capped 120 Hz fixed step,
+and terrain edits wake sleeping bodies in collision-prediction range. The app imports
+one startup brick as an end-to-end measurement. Multi-brick streaming and terrain-edit
+queue integration remain the next production step before fruit state is connected.
+
 ## Experiment provenance
 
 The isolated worker commits used to produce these results were:
@@ -132,4 +157,3 @@ The isolated worker commits used to produce these results were:
 - `5aef2a63`: triangle-mesh comparison and internal-edge A/B test;
 - `d36044f9`: custom narrow-phase lower bound;
 - `73e2276e`: fruit shape and resting-orientation comparison.
-
