@@ -2,7 +2,7 @@
 
 For migration status, completion criteria, the 76-entry-point checklist, and next tasks, see [`slang-migration-roadmap.md`](slang-migration-roadmap.md). This document is the operator guide and technical evidence record.
 
-This experiment incrementally replaces selected GLSL compute shaders with equivalent Slang implementations. The normal build remains GLSL-only, and each replacement can be enabled independently for matched comparison.
+This document records the incremental replacement of GLSL shaders with native Slang. Native Slang is now the normal development build and source of truth; the completed GLSL implementation is retained temporarily as a frozen fallback and ABI reference.
 
 The first pass, `shader/tracer/post_processing.comp`, was selected because it runs every frame at the full output resolution, already has a Vulkan timestamp scope, and exercises a uniform buffer, formatted storage images, bounds checks, and a reusable dither module. The surface and contree-leaf passes cover difficult shared-memory, synchronization, atomic, and structured-buffer paths. The main tracer first established a GLSL-through-Slang backend baseline and now also has a complete native Slang implementation.
 
@@ -22,17 +22,18 @@ The installer supports Linux x86_64/aarch64, macOS x86_64/aarch64, and Windows x
 3. `$VULKAN_SDK`, or
 4. the installation containing `slangc` on `PATH`.
 
-The build dynamically loads the compiler API only when a Slang feature is enabled. A default build does not locate or load Slang. The initial validation used Vulkan SDK 1.4.321.0 and Slang `2025.11-12-gc5295eae2` on macOS; the shared-session build-cost validation used Vulkan SDK Slang `2025.23.2` on Linux. The portable CI contract pins official Slang v2025.23 archives, which also pass the complete local aggregate build. Native Slang sources pin the Slang 2025 language rules and column-major matrices. The GLSL frontend uses row-major lowering to preserve the existing GLSL std140 matrix bytes. Both paths emit SPIR-V 1.6 with Vulkan GL-compatible buffer layout.
+The build dynamically loads the compiler API when a Slang feature is enabled. The default feature set now enables the complete native Slang inventory; `--no-default-features` avoids locating or loading Slang and selects the frozen GLSL fallback. The initial validation used Vulkan SDK 1.4.321.0 and Slang `2025.11-12-gc5295eae2` on macOS; the shared-session build-cost validation used Vulkan SDK Slang `2025.23.2` on Linux. The portable CI contract pins official Slang v2025.23 archives, which also pass the complete local aggregate build. Native Slang sources pin the Slang 2025 language rules and column-major matrices. The GLSL frontend uses row-major lowering to preserve the existing GLSL std140 matrix bytes. Both paths emit SPIR-V 1.6 with Vulkan GL-compatible buffer layout.
 
 ## Build and validation
 
-The default build does not invoke Slang:
+The default build compiles the complete native Slang inventory. The explicit fallback compiles GLSL through shaderc:
 
 ```bash
 cargo check
+cargo check --no-default-features
 ```
 
-Enable an individual replacement or all completed validation candidates with:
+For isolated frontend comparisons, disable defaults and then enable an individual replacement:
 
 ```bash
 cargo check --features slang-post-processing

@@ -55,11 +55,13 @@ Current aggregate `slang-validation` build:
 
 The validated native entry points are post-processing, composition, the complete surface, contree, scene-acceleration, and denoiser compute families, the main, shadow, and player-collider tracer passes, and the egui and flora vertex/fragment pairs. The retained composition and main-tracer backend features remain available as frontend baselines but are no longer backend-only candidates. Dense surface extraction remains a compiled production artifact but is not selected by the current `SurfaceBuilder`; its shared extraction core is exercised through the active sparse entry.
 
+Native Slang is now the default frontend and the sole source of truth for new shader development. Legacy GLSL remains temporarily available through `--no-default-features` as a frozen fallback and ABI reference; new behavior and optimizations are not developed there.
+
 The aggregate build now dynamically loads the Slang compiler library once and reuses one global compiler session for all 152 selected reflection/optimized artifacts. At the earlier 16-artifact snapshot, the local Linux Vulkan SDK 2025.23.2 toolchain reduced the median package-clean aggregate check from 6.29 s to 5.05 s and the median shader-touched incremental check from 5.83 s to 4.66 s. The build now also records compiler-resolved transitive dependencies and reuses unchanged reflection/optimized artifacts. Those API-produced artifacts remain byte-identical to uncached output, and the current aggregate's 152 artifacts pass Vulkan 1.3 SPIR-V validation. The 76-entry aggregate hidden release smoke run completes on native Vulkan; the preceding 16-entry aggregate also passed through MoltenVK.
 
-## Phase 2 reassessment
+## Phase 2 reassessment (historical)
 
-**Decision: continue the staged native migration, but keep GLSL as the default and do not begin family-wide translation until build invalidation and source layout are productionized.**
+**At this phase the decision was to continue the staged native migration while keeping GLSL as the default until build invalidation and source layout were productionized. Those prerequisites and the full inventory migration are now complete; the later default decision above supersedes this historical state.**
 
 The decisive candidates cover the largest source, the branch-heavy main tracer, traversal and workgroup synchronization, atomics, runtime and fixed arrays, matrix-heavy resources, formatted storage images, and complex vertex/fragment interfaces. Their ABI, SPIR-V, semantic output, and runtime gates pass. Measured GPU results range from parity to a documented `+1.3%` native main-tracer median (`+0.5%` for the enclosing render scope); no material frame-level regression has appeared. Native code is split across 51 focused files with shared traversal, contree-build layouts, packing, lighting, and type modules rather than entry-point copies. The remaining compiler-specific handling is localized to build/reflection boundaries plus explicit source annotations such as raw Vulkan instance indexing.
 
@@ -77,8 +79,8 @@ At reassessment time, the aggregate reran every shader compilation after any sha
 These invariants must remain true for every migration step:
 
 1. **Stable logical identity**: Rust requests the existing path such as `shader/tracer/tracer.comp`; it does not branch on source language.
-2. **GLSL remains the default during migration**: a default build neither locates nor invokes `slangc`.
-3. **Independent replacement**: one feature selects one shader or one inseparable graphics-stage pair; unrelated shaders remain GLSL.
+2. **Native Slang is the development default**: default builds select the complete native inventory through `slang-validation`.
+3. **Frozen GLSL fallback**: `--no-default-features` selects legacy GLSL for rollback and ABI comparison only; new shader behavior is implemented in Slang.
 4. **Single override registry**: `crates/re-flora-vkn/build.rs` owns logical path, source path, stage, frontend, include root, and defines.
 5. **Explicit frontend**: an override is either native Slang 2025 or GLSL through Slang. Backend validation is never labeled native completion.
 6. **Runtime neutrality**: both frontends emit embedded SPIR-V and use the same `ShaderModule::from_precompiled()` path.
@@ -86,8 +88,8 @@ These invariants must remain true for every migration step:
 8. **Explicit Vulkan declarations**: native Slang uses `vk::binding`, `vk::location`, `vk::image_format`, push-constant annotations, and explicit read/write qualifiers.
 9. **Fixed layout policy**: Vulkan SPIR-V 1.6, `-fvk-use-gl-layout`, column-major native Slang, and row-major lowering only for Slang's GLSL frontend.
 10. **Automatic ABI gate**: enabled replacements must match the GLSL reference for stage, workgroup size, descriptors, image contract, top-level buffer layout, push constants, and graphics-stage IO/interpolation.
-11. **Aggregate only after validation**: add a candidate to `slang-validation` only after its individual feature passes.
-12. **Immediate rollback**: disabling the candidate feature must restore the exact GLSL logical path without Rust code changes.
+11. **Aggregate coverage**: every production entry remains in `slang-validation`, which is enabled by default.
+12. **Immediate rollback**: `--no-default-features` restores the GLSL logical paths without Rust code changes.
 
 ## Per-migration workflow
 
@@ -209,11 +211,11 @@ Graphics shaders must be validated as pipeline pairs even when only one stage ch
 
 ### Phase 6 — default switch and cleanup
 
-- [ ] Confirm all 76 inventory items are native-complete.
-- [ ] Confirm aggregate build, tests, screenshots, semantic checks, and benchmarks pass.
-- [ ] Decide whether Slang becomes the default or the project remains intentionally mixed.
-- [ ] If switching, add an explicit GLSL fallback mode before inverting the default.
-- [ ] Keep the fallback for an agreed stabilization period; do not delete GLSL in the default-switch commit.
+- [x] Confirm all 76 inventory items are native-complete.
+- [x] Confirm aggregate build, tests, screenshots, semantic checks, and benchmarks pass.
+- [x] Make native Slang the default and sole source of truth for new shader development.
+- [x] Preserve explicit GLSL fallback mode through `--no-default-features`.
+- [x] Keep the fallback for a stabilization period; do not delete GLSL in the default-switch commit.
 - [ ] Remove backend-only experiment features and obsolete reflection workarounds only after no active path uses them.
 - [ ] Move accepted Slang modules to their final production directory and update documentation.
 - [ ] Make the final decision in a small, reversible commit.
@@ -347,7 +349,7 @@ A checked item means a native Slang implementation has passed all applicable loc
 | Matrix conventions | Native column-major; GLSL frontend row-major lowering | Keep flags centralized and covered by fixed-camera tests |
 | Reflection normalization | Slang wrapper names require boundary normalization | Remove only when production reflection no longer emits those forms |
 | Storage-image descriptor warning | Existing pipeline exposes 9 images against a reported limit of 8 | Track separately; do not attribute it to Slang |
-| GLSL fallback lifetime | GLSL remains the default after Phase 2 | Decide final lifetime at Phase 6; preserve fallback through any initial default switch |
+| GLSL fallback lifetime | Native Slang is default; GLSL is frozen behind `--no-default-features` | Remove only after the agreed stabilization period and after replacing its ABI-reference role |
 
 ## Next work queue
 
