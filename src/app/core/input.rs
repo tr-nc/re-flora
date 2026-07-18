@@ -1,4 +1,4 @@
-use super::placeables::PlaceableKind;
+use super::placeables::{PipeRayHit, PlaceableKind, SprinklerPlacementTarget};
 use super::ui_style::{
     FERTILIZER_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT,
     PIPE_PLACEABLE_SLOT_INDEX, PIPE_SLOT_INDEX, PLACEABLE_PANEL_SLOT_COUNT, PLACE_TOOL_SLOT_INDEX,
@@ -54,6 +54,22 @@ fn terrain_edit_endpoint_within_editable_chunk(center: Vec3) -> bool {
 
 fn terrain_brush_endpoint_within_editable_chunk(edit: TerrainBrushEdit) -> bool {
     INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(edit)
+}
+
+fn select_sprinkler_placement_target(
+    terrain_hit: Option<(f32, Vec3)>,
+    pipe_hit: Option<PipeRayHit>,
+) -> Option<SprinklerPlacementTarget> {
+    match (terrain_hit, pipe_hit) {
+        (Some((terrain_distance, _)), Some(pipe_hit)) if pipe_hit.distance <= terrain_distance => {
+            Some(SprinklerPlacementTarget::Pipe(pipe_hit.attachment))
+        }
+        (Some((_, terrain_position)), _) => {
+            Some(SprinklerPlacementTarget::Terrain(terrain_position))
+        }
+        (None, Some(pipe_hit)) => Some(SprinklerPlacementTarget::Pipe(pipe_hit.attachment)),
+        (None, None) => None,
+    }
 }
 
 const TERRAIN_EDIT_PREVIEW_VALID_COLOR: Vec3 = Vec3::new(0.45, 0.86, 1.0);
@@ -1008,6 +1024,30 @@ impl App {
             .filter(|hit| (*hit - origin).length() <= max_distance))
     }
 
+    fn query_sprinkler_placement_target(
+        &self,
+        max_distance: f32,
+    ) -> Option<SprinklerPlacementTarget> {
+        if max_distance <= 0.0 {
+            return None;
+        }
+        let (origin, direction) = self.terrain_edit_ray()?;
+        let direction = direction.normalize_or_zero();
+        if direction == Vec3::ZERO {
+            return None;
+        }
+
+        let terrain_hit = self
+            .query_terrain_ray_cpu(origin, direction)
+            .map(|hit| ((hit.position - origin).length(), hit.position))
+            .filter(|(distance, _)| *distance <= max_distance);
+        let pipe_hit = self
+            .irrigation_network
+            .ray_attachment(origin, direction, max_distance);
+
+        select_sprinkler_placement_target(terrain_hit, pipe_hit)
+    }
+
     pub(super) fn query_player_collision_cpu(&self) -> PlayerCollisionResult {
         let player_pos = self.tracer.camera_position();
         let camera_front = self.tracer.camera_front();
@@ -1350,6 +1390,20 @@ impl App {
             return None;
         }
 
+        if self.is_place_tool_selected()
+            && self.current_placeable_kind() == PlaceableKind::Sprinkler
+        {
+            return self
+                .query_sprinkler_placement_target(super::SHOVEL_RAY_QUERY_DISTANCE)
+                .map(|target| {
+                    let center = target.position();
+                    TerrainEditHover {
+                        center,
+                        is_editable: terrain_edit_endpoint_within_editable_chunk(center),
+                    }
+                });
+        }
+
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(hit) => hit.map(|center| TerrainEditHover {
                 center,
@@ -1676,13 +1730,28 @@ impl App {
             return;
         }
 
+        let placeable_kind = self.current_placeable_kind();
+        if placeable_kind == PlaceableKind::Sprinkler {
+            self.stop_terrain_edit_loop_sound();
+            if let Some(target) =
+                self.query_sprinkler_placement_target(super::SHOVEL_RAY_QUERY_DISTANCE)
+            {
+                if terrain_edit_endpoint_within_editable_chunk(target.position()) {
+                    if let Err(err) = self.apply_sprinkler_placement(target) {
+                        log::error!("Failed to place sprinkler: {}", err);
+                    }
+                }
+            }
+            return;
+        }
+
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.stop_terrain_edit_loop_sound();
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     return;
                 }
-                match self.current_placeable_kind() {
+                match placeable_kind {
                     PlaceableKind::Tree => {
                         let tree_desc = self.tree_placement_preview_desc.clone();
                         if let Err(err) = self.add_tree(
@@ -1698,11 +1767,7 @@ impl App {
                             }
                         }
                     }
-                    PlaceableKind::Sprinkler => {
-                        if let Err(err) = self.apply_sprinkler_placement(center) {
-                            log::error!("Failed to place sprinkler: {}", err);
-                        }
-                    }
+                    PlaceableKind::Sprinkler => unreachable!("sprinkler placement handled above"),
                     PlaceableKind::Pipe => self.begin_pipe_drag(center),
                 }
             }
@@ -1731,7 +1796,11 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{orbit_focus_from_view_ray, orbit_focus_pan_delta, orbit_offset_to_spherical};
+    use super::{
+        orbit_focus_from_view_ray, orbit_focus_pan_delta, orbit_offset_to_spherical,
+        select_sprinkler_placement_target,
+    };
+    use crate::app::core::placeables::{PipeAttachment, PipeRayHit, SprinklerPlacementTarget};
     use glam::{Vec2, Vec3};
 
     fn assert_near(actual: f32, expected: f32) {
@@ -1797,5 +1866,48 @@ mod tests {
         assert_near(focus_direction.y, direction.y);
         assert_near(focus_direction.z, direction.z);
         assert_near((focus - origin).length(), 2.0);
+    }
+
+    #[test]
+    fn sprinkler_target_prefers_a_pipe_in_front_of_terrain() {
+        let pipe_hit = PipeRayHit {
+            distance: 1.0,
+            attachment: PipeAttachment {
+                segment_id: 7,
+                position_voxels: Vec3::new(10.0, 20.0, 30.0),
+            },
+        };
+
+        let target = select_sprinkler_placement_target(
+            Some((2.0, Vec3::new(0.5, 0.25, 0.5))),
+            Some(pipe_hit),
+        )
+        .unwrap();
+
+        let SprinklerPlacementTarget::Pipe(attachment) = target else {
+            panic!("frontmost pipe should win");
+        };
+        assert_eq!(attachment.segment_id, 7);
+    }
+
+    #[test]
+    fn sprinkler_target_keeps_terrain_in_front_of_a_pipe() {
+        let terrain_position = Vec3::new(0.5, 0.25, 0.5);
+        let pipe_hit = PipeRayHit {
+            distance: 2.0,
+            attachment: PipeAttachment {
+                segment_id: 7,
+                position_voxels: Vec3::new(10.0, 20.0, 30.0),
+            },
+        };
+
+        let target =
+            select_sprinkler_placement_target(Some((1.0, terrain_position)), Some(pipe_hit))
+                .unwrap();
+
+        let SprinklerPlacementTarget::Terrain(position) = target else {
+            panic!("frontmost terrain should win");
+        };
+        assert_eq!(position, terrain_position);
     }
 }

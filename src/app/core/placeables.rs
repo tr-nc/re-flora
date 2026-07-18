@@ -7,6 +7,7 @@ use crate::particles::{
 };
 use crate::tracer::{
     IrrigationPipeRenderData, IrrigationPipeRenderSegment, SprinklerRenderInstance,
+    IRRIGATION_PIPE_END_CAP_VOXELS, IRRIGATION_PIPE_RADIUS_VOXELS,
 };
 use anyhow::{anyhow, Result};
 use glam::{IVec3, Vec3, Vec4};
@@ -36,7 +37,6 @@ const SPRINKLER_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::ne
 const SPRINKLER_GRASS_SUPPRESSION_RADIUS_VOXELS: u32 = 10;
 const SPRINKLER_GRASS_SUPPRESSION_MIN_LEVEL: u8 = 0;
 const SPRINKLER_GRASS_INFLUENCE_ID_PREFIX: u64 = 0x5350_524B_0000_0000;
-const PIPE_ATTACHMENT_MAX_DISTANCE_VOXELS: f32 = 8.0;
 const PIPE_START_MAX_DISTANCE_VOXELS: f32 = 8.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +63,27 @@ pub(super) struct PipeSegment {
 pub(super) struct PipeAttachment {
     pub segment_id: u32,
     pub position_voxels: Vec3,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct PipeRayHit {
+    pub distance: f32,
+    pub attachment: PipeAttachment,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum SprinklerPlacementTarget {
+    Terrain(Vec3),
+    Pipe(PipeAttachment),
+}
+
+impl SprinklerPlacementTarget {
+    pub(super) fn position(self) -> Vec3 {
+        match self {
+            Self::Terrain(position) => position,
+            Self::Pipe(attachment) => attachment.position_voxels / VOXELS_PER_WORLD_UNIT,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -225,31 +246,59 @@ impl IrrigationNetwork {
         Ok(())
     }
 
-    pub(super) fn nearest_attachment(&self, world_position: Vec3) -> Option<PipeAttachment> {
-        let point_voxels = world_position * VOXELS_PER_WORLD_UNIT;
+    pub(super) fn ray_attachment(
+        &self,
+        ray_origin: Vec3,
+        ray_direction: Vec3,
+        max_distance: f32,
+    ) -> Option<PipeRayHit> {
+        if !ray_origin.is_finite()
+            || !ray_direction.is_finite()
+            || !max_distance.is_finite()
+            || max_distance <= 0.0
+        {
+            return None;
+        }
+        let ray_direction = ray_direction.normalize_or_zero();
+        if ray_direction == Vec3::ZERO {
+            return None;
+        }
+        let radius = IRRIGATION_PIPE_RADIUS_VOXELS / VOXELS_PER_WORLD_UNIT;
+        let end_cap = IRRIGATION_PIPE_END_CAP_VOXELS / VOXELS_PER_WORLD_UNIT;
         self.segments
             .iter()
             .filter_map(|segment| {
-                let start = self.node(segment.start_node)?.position_voxels.as_vec3();
-                let end = self.node(segment.end_node)?.position_voxels.as_vec3();
-                let axis = end - start;
-                let length_sq = axis.length_squared();
-                if length_sq <= f32::EPSILON {
+                let start_voxels = self.node(segment.start_node)?.position_voxels.as_vec3();
+                let end_voxels = self.node(segment.end_node)?.position_voxels.as_vec3();
+                let start = start_voxels / VOXELS_PER_WORLD_UNIT;
+                let end = end_voxels / VOXELS_PER_WORLD_UNIT;
+                let segment_direction = (end - start).normalize_or_zero();
+                if segment_direction == Vec3::ZERO {
                     return None;
                 }
-                let t = ((point_voxels - start).dot(axis) / length_sq).clamp(0.0, 1.0);
-                let attachment = start + axis * t;
-                let distance_sq = attachment.distance_squared(point_voxels);
-                (distance_sq <= PIPE_ATTACHMENT_MAX_DISTANCE_VOXELS.powi(2)).then_some((
-                    distance_sq,
-                    PipeAttachment {
+                let distance = ray_capped_cylinder_intersection_distance(
+                    ray_origin,
+                    ray_direction,
+                    start - segment_direction * end_cap,
+                    end + segment_direction * end_cap,
+                    radius,
+                )?;
+                if distance > max_distance {
+                    return None;
+                }
+                let hit_voxels = (ray_origin + ray_direction * distance) * VOXELS_PER_WORLD_UNIT;
+                let axis = end_voxels - start_voxels;
+                let length_sq = axis.length_squared();
+                let t = ((hit_voxels - start_voxels).dot(axis) / length_sq).clamp(0.0, 1.0);
+                Some(PipeRayHit {
+                    distance,
+                    attachment: PipeAttachment {
                         segment_id: segment.id,
-                        position_voxels: attachment,
+                        position_voxels: start_voxels + axis * t,
                     },
-                ))
+                })
             })
-            .min_by(|left, right| left.0.total_cmp(&right.0))
-            .map(|(_, attachment)| attachment)
+            .min_by(|left, right| left.distance.total_cmp(&right.distance))
     }
 
     pub(super) fn preview_render_data(&self, drag: PipeDrag) -> IrrigationPipeRenderData {
@@ -287,6 +336,73 @@ impl IrrigationNetwork {
                 .collect(),
         }
     }
+}
+
+fn ray_capped_cylinder_intersection_distance(
+    ray_origin: Vec3,
+    ray_direction: Vec3,
+    cylinder_start: Vec3,
+    cylinder_end: Vec3,
+    radius: f32,
+) -> Option<f32> {
+    let ray_direction = ray_direction.normalize_or_zero();
+    let axis = cylinder_end - cylinder_start;
+    let axis_length = axis.length();
+    if ray_direction == Vec3::ZERO
+        || !axis_length.is_finite()
+        || axis_length <= f32::EPSILON
+        || !radius.is_finite()
+        || radius <= 0.0
+    {
+        return None;
+    }
+
+    let axis_direction = axis / axis_length;
+    let origin_from_start = ray_origin - cylinder_start;
+    let origin_axial = origin_from_start.dot(axis_direction);
+    let direction_axial = ray_direction.dot(axis_direction);
+    let origin_radial = origin_from_start - axis_direction * origin_axial;
+    let direction_radial = ray_direction - axis_direction * direction_axial;
+    let radius_sq = radius * radius;
+
+    if (0.0..=axis_length).contains(&origin_axial) && origin_radial.length_squared() <= radius_sq {
+        return Some(0.0);
+    }
+
+    let mut closest = f32::INFINITY;
+    let quadratic_a = direction_radial.length_squared();
+    if quadratic_a > f32::EPSILON {
+        let quadratic_b = 2.0 * origin_radial.dot(direction_radial);
+        let quadratic_c = origin_radial.length_squared() - radius_sq;
+        let discriminant = quadratic_b * quadratic_b - 4.0 * quadratic_a * quadratic_c;
+        if discriminant >= 0.0 {
+            let sqrt_discriminant = discriminant.sqrt();
+            for distance in [
+                (-quadratic_b - sqrt_discriminant) / (2.0 * quadratic_a),
+                (-quadratic_b + sqrt_discriminant) / (2.0 * quadratic_a),
+            ] {
+                let axial = origin_axial + direction_axial * distance;
+                if distance >= 0.0 && (0.0..=axis_length).contains(&axial) {
+                    closest = closest.min(distance);
+                }
+            }
+        }
+    }
+
+    if direction_axial.abs() > f32::EPSILON {
+        for cap_axial in [0.0, axis_length] {
+            let distance = (cap_axial - origin_axial) / direction_axial;
+            if distance < 0.0 {
+                continue;
+            }
+            let cap_hit = origin_from_start + ray_direction * distance - axis_direction * cap_axial;
+            if cap_hit.length_squared() <= radius_sq {
+                closest = closest.min(distance);
+            }
+        }
+    }
+
+    closest.is_finite().then_some(closest)
 }
 
 fn orthogonal_pipe_route(start: IVec3, end: IVec3) -> Vec<(IVec3, IVec3)> {
@@ -334,7 +450,7 @@ pub(super) struct SprinklerRecord {
     pub base_position: Vec3,
     pub nozzle_position: Vec3,
     pub animation_phase: f32,
-    pub pipe_segment_id: u32,
+    pub pipe_segment_id: Option<u32>,
 }
 
 pub(super) struct SprinklerEmitter {
@@ -621,12 +737,15 @@ impl App {
         Ok(removed_count)
     }
 
-    pub(super) fn apply_sprinkler_placement(&mut self, cursor_position: Vec3) -> Result<()> {
-        let attachment = self
-            .irrigation_network
-            .nearest_attachment(cursor_position)
-            .ok_or_else(|| anyhow!("sprinkler must attach to an irrigation pipe"))?;
-        let base_position = attachment.position_voxels / VOXELS_PER_WORLD_UNIT;
+    pub(super) fn apply_sprinkler_placement(
+        &mut self,
+        target: SprinklerPlacementTarget,
+    ) -> Result<()> {
+        let base_position = target.position();
+        let pipe_segment_id = match target {
+            SprinklerPlacementTarget::Terrain(_) => None,
+            SprinklerPlacementTarget::Pipe(attachment) => Some(attachment.segment_id),
+        };
         let nozzle_position =
             base_position + Vec3::Y * (SPRINKLER_NOZZLE_HEIGHT_VOXELS / VOXELS_PER_WORLD_UNIT);
 
@@ -658,7 +777,7 @@ impl App {
             base_position,
             nozzle_position,
             animation_phase,
-            pipe_segment_id: attachment.segment_id,
+            pipe_segment_id,
         });
         self.sprinkler_emitters
             .push(SprinklerEmitter::new(id, nozzle_position, animation_phase));
@@ -799,22 +918,30 @@ mod tests {
     }
 
     #[test]
-    fn sprinkler_attaches_to_middle_of_pipe() {
+    fn sprinkler_ray_attaches_to_middle_of_pipe() {
         let mut network = IrrigationNetwork::default();
         let drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
         network
             .commit_drag(drag, Vec3::new(0.75, 0.25, 0.5))
             .unwrap();
+        let pipe_y = network
+            .node(network.segments[0].start_node)
+            .unwrap()
+            .position_voxels
+            .y as f32
+            / VOXELS_PER_WORLD_UNIT;
         let attachment = network
-            .nearest_attachment(Vec3::new(0.625, 0.25, 0.5))
+            .ray_attachment(Vec3::new(0.625, pipe_y + 0.25, 0.5), Vec3::NEG_Y, 1.0)
             .unwrap();
 
-        assert!(network.segment_is_powered(attachment.segment_id));
-        assert!((attachment.position_voxels.x / VOXELS_PER_WORLD_UNIT - 0.625).abs() < 0.01);
+        assert!(network.segment_is_powered(attachment.attachment.segment_id));
+        assert!(
+            (attachment.attachment.position_voxels.x / VOXELS_PER_WORLD_UNIT - 0.625).abs() < 0.01
+        );
     }
 
     #[test]
-    fn sprinkler_attachment_does_not_require_a_powered_pipe() {
+    fn sprinkler_ray_does_not_require_a_powered_pipe() {
         let mut network = IrrigationNetwork::default();
         let source = network.upsert_node(IVec3::ZERO, IrrigationNodeKind::Source);
         network.source_node = Some(source);
@@ -827,18 +954,77 @@ mod tests {
         });
         network.refresh_connectivity();
 
-        let near_disconnected = Vec3::new(110.0, 0.0, 0.0) / VOXELS_PER_WORLD_UNIT;
-        let attachment = network.nearest_attachment(near_disconnected).unwrap();
-        assert!(!network.segment_is_powered(attachment.segment_id));
+        let attachment = network
+            .ray_attachment(
+                Vec3::new(110.0, 20.0, 0.0) / VOXELS_PER_WORLD_UNIT,
+                Vec3::NEG_Y,
+                1.0,
+            )
+            .unwrap();
+        assert!(!network.segment_is_powered(attachment.attachment.segment_id));
 
         network.source_node = None;
         network.refresh_connectivity();
-        assert!(network.nearest_attachment(near_disconnected).is_some());
+        assert!(network
+            .ray_attachment(
+                Vec3::new(110.0, 20.0, 0.0) / VOXELS_PER_WORLD_UNIT,
+                Vec3::NEG_Y,
+                1.0,
+            )
+            .is_some());
     }
 
     #[test]
-    fn sprinkler_attachment_requires_an_existing_pipe() {
+    fn sprinkler_ray_requires_an_existing_pipe() {
         let network = IrrigationNetwork::default();
-        assert!(network.nearest_attachment(Vec3::ZERO).is_none());
+        assert!(network.ray_attachment(Vec3::Y, Vec3::NEG_Y, 2.0).is_none());
+    }
+
+    #[test]
+    fn sprinkler_ray_does_not_snap_from_a_nearby_miss() {
+        let mut network = IrrigationNetwork::default();
+        let drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
+        network
+            .commit_drag(drag, Vec3::new(0.75, 0.25, 0.5))
+            .unwrap();
+        let segment = network.segments[0];
+        let pipe_y = network.node(segment.start_node).unwrap().position_voxels.y as f32
+            / VOXELS_PER_WORLD_UNIT;
+        let miss_z = 0.5 + (IRRIGATION_PIPE_RADIUS_VOXELS + 0.25) / VOXELS_PER_WORLD_UNIT;
+
+        assert!(network
+            .ray_attachment(Vec3::new(0.625, pipe_y + 0.25, miss_z), Vec3::NEG_Y, 1.0,)
+            .is_none());
+    }
+
+    #[test]
+    fn sprinkler_ray_selects_the_frontmost_pipe() {
+        let mut network = IrrigationNetwork::default();
+        let low_start = network.upsert_node(IVec3::new(100, 100, 0), IrrigationNodeKind::Junction);
+        let low_end = network.upsert_node(IVec3::new(120, 100, 0), IrrigationNodeKind::Junction);
+        let high_start = network.upsert_node(IVec3::new(100, 200, 0), IrrigationNodeKind::Junction);
+        let high_end = network.upsert_node(IVec3::new(120, 200, 0), IrrigationNodeKind::Junction);
+        network.segments.extend([
+            PipeSegment {
+                id: 1,
+                start_node: low_start,
+                end_node: low_end,
+            },
+            PipeSegment {
+                id: 2,
+                start_node: high_start,
+                end_node: high_end,
+            },
+        ]);
+
+        let hit = network
+            .ray_attachment(
+                Vec3::new(110.0, 256.0, 0.0) / VOXELS_PER_WORLD_UNIT,
+                Vec3::NEG_Y,
+                2.0,
+            )
+            .unwrap();
+
+        assert_eq!(hit.attachment.segment_id, 2);
     }
 }

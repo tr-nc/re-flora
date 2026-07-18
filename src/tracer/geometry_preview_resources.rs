@@ -6,11 +6,14 @@ use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 
 use crate::{resource::Resource, util::stable_perpendicular_basis};
 
-use super::{IrrigationPipeRenderData, IrrigationPipeRenderSegment, IRRIGATION_PIPE_RADIUS_VOXELS};
+use super::{
+    IrrigationPipeRenderData, IrrigationPipeRenderSegment, IRRIGATION_PIPE_END_CAP_VOXELS,
+    IRRIGATION_PIPE_RADIUS_VOXELS,
+};
 
 const VOXEL_SCALE: f32 = 1.0 / 256.0;
 const PIPE_RADIUS: f32 = IRRIGATION_PIPE_RADIUS_VOXELS * VOXEL_SCALE;
-const PIPE_END_CAP: f32 = 0.5 * VOXEL_SCALE;
+const PIPE_END_CAP: f32 = IRRIGATION_PIPE_END_CAP_VOXELS * VOXEL_SCALE;
 const PIPE_PREVIEW_SIDE_COUNT: u32 = 12;
 const PIPE_PREVIEW_COLOR: Vec4 = Vec4::new(0.08, 0.62, 1.0, 0.38);
 const PIPE_SOURCE_PREVIEW_COLOR: Vec4 = Vec4::new(0.12, 0.82, 1.0, 0.46);
