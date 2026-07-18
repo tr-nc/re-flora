@@ -1,11 +1,7 @@
-use super::{
-    App, TerrainSdfColliderRebuildRequest, WaterTerrainCacheRebuildRequest, CHUNK_DIM,
-    VOXEL_DIM_PER_CHUNK,
-};
-use crate::app::cpu_solid_voxels::CpuSolidVoxelChunk;
+use super::{App, WaterTerrainCacheRebuildRequest, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::app::GuiAdjustables;
-use crate::builder::{ChunkSolidSampleJob, ChunkSolidSampleResult, VOXEL_TYPE_ROCK};
+use crate::builder::{ChunkSolidSampleJob, ContreeCpuVoxelSourceDependency, VOXEL_TYPE_ROCK};
 use crate::util::ChunkPopMode;
 use crate::AppOptions;
 use glam::{IVec3, UVec3, Vec2, Vec3};
@@ -23,8 +19,6 @@ use std::{
 const TERRAIN_SDF_COLLIDER_DIM: UVec3 = UVec3::new(32, 32, 32);
 const TERRAIN_SDF_COLLIDER_SOURCE: &str = "gpu-sampled-solid-grid";
 const TERRAIN_SDF_SOURCE_REFRESH_COALESCE_DELAY: Duration = Duration::from_millis(150);
-const TERRAIN_SDF_SOURCE_LOW_PRIORITY_DELAY: Duration = Duration::from_secs(2);
-const WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS: f32 = 8.0;
 const WATER_TERRAIN_ACTIVE_MAX_SUBSTEPS: usize = 2;
 mod runtime;
 pub(super) use runtime::AsyncWaterSim;
@@ -197,14 +191,29 @@ fn finite_clamped(value: f32, min: f32, max: f32, fallback: f32) -> f32 {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct TerrainSdfSourceRevision {
-    dependencies: Vec<(UVec3, u64)>,
+    dependencies: Vec<ContreeCpuVoxelSourceDependency>,
 }
 
 pub(super) struct TerrainSdfSourceRefreshInFlight {
     chunk_id: UVec3,
     revision: u64,
+    source_revision: TerrainSdfSourceRevision,
     submitted_at: Instant,
     job: ChunkSolidSampleJob,
+}
+
+#[derive(Clone, Debug)]
+struct TerrainSdfSolidGrid {
+    chunk_id: UVec3,
+    dim: UVec3,
+    solid: Vec<bool>,
+    solid_count: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct TerrainSdfColliderRebuildRequest {
+    source_revision: TerrainSdfSourceRevision,
+    source: TerrainSdfSolidGrid,
 }
 
 pub(super) struct TerrainSdfColliderWorkerJob {
@@ -212,7 +221,7 @@ pub(super) struct TerrainSdfColliderWorkerJob {
     chunk_id: IVec3,
     revision: u64,
     source_revision: TerrainSdfSourceRevision,
-    solid_chunk: std::sync::Arc<CpuSolidVoxelChunk>,
+    source: TerrainSdfSolidGrid,
 }
 
 pub(super) struct TerrainSdfColliderWorkerResult {
@@ -291,10 +300,14 @@ impl App {
         );
     }
 
-    pub(super) fn enqueue_deferred_terrain_sdf_collider_rebuild(&mut self, chunk_id: UVec3) {
+    fn enqueue_deferred_terrain_sdf_collider_rebuild(
+        &mut self,
+        chunk_id: UVec3,
+        request: TerrainSdfColliderRebuildRequest,
+    ) {
         let revision = self
             .deferred_terrain_sdf_collider_rebuilds
-            .push(chunk_id, TerrainSdfColliderRebuildRequest);
+            .push(chunk_id, request);
         log::debug!(
             "[QUEUE][TERRAIN_SDF_COLLIDER] enqueue chunk {:?} revision {} pending={} active={}",
             chunk_id,
@@ -352,7 +365,7 @@ impl App {
         self.schedule_terrain_sdf_source_refresh_after(chunk_id, Duration::ZERO);
     }
 
-    pub(super) fn schedule_terrain_sdf_source_refresh(&mut self, chunk_id: UVec3) {
+    fn schedule_terrain_sdf_source_refresh(&mut self, chunk_id: UVec3) {
         self.schedule_terrain_sdf_source_refresh_after(
             chunk_id,
             TERRAIN_SDF_SOURCE_REFRESH_COALESCE_DELAY,
@@ -373,54 +386,19 @@ impl App {
             return;
         }
 
-        let delay = self.terrain_sdf_source_refresh_delay_for_activity(chunk_id, delay);
         self.enqueue_deferred_terrain_sdf_source_refresh(chunk_id, delay);
     }
 
-    fn terrain_sdf_source_refresh_delay_for_activity(
-        &self,
-        chunk_id: UVec3,
-        base_delay: Duration,
-    ) -> Duration {
-        if base_delay.is_zero() {
-            return base_delay;
-        }
-
-        let Some((particle_min_ws, particle_max_ws)) = self.water_sim.particle_bounds_ws() else {
-            log::debug!(
-                "[WATER][TERRAIN] low-priority collider source refresh for chunk {:?}: no active water particles",
-                chunk_id,
-            );
-            return base_delay.max(TERRAIN_SDF_SOURCE_LOW_PRIORITY_DELAY);
-        };
-
-        let halo_ws = (self.water_sim.dx * WATER_TERRAIN_ACTIVE_PARTICLE_HALO_CELLS).max(0.0);
-        let active_min_ws = particle_min_ws - Vec3::splat(halo_ws);
-        let active_max_ws = particle_max_ws + Vec3::splat(halo_ws);
-        if water_terrain_chunk_key_intersects_box_grid_domain(
-            chunk_id,
-            active_min_ws,
-            active_max_ws,
-        ) {
-            return base_delay;
-        }
-
-        log::debug!(
-            "[WATER][TERRAIN] low-priority collider source refresh for chunk {:?}: outside active water bounds {:?}..{:?} halo={:.3}",
-            chunk_id,
-            particle_min_ws,
-            particle_max_ws,
-            halo_ws,
-        );
-        base_delay.max(TERRAIN_SDF_SOURCE_LOW_PRIORITY_DELAY)
-    }
-
     pub(super) fn process_terrain_sdf_source_updates(&mut self) {
-        // Water collider invalidation is driven by edit bounds. The collider
-        // source itself is a low-res CPU solid grid sampled directly from the
-        // GPU atlas, so drain contree notifications here only to keep the
-        // surface-ray cache from accumulating stale update records.
-        let _ = self.contree_builder.take_cpu_chunk_source_updates();
+        for update in self.contree_builder.take_cpu_chunk_source_updates() {
+            log::debug!(
+                "[WATER][TERRAIN] canonical source update chunk {:?} source_rev={} present={}",
+                update.chunk_idx,
+                update.revision,
+                update.is_present,
+            );
+            self.schedule_terrain_sdf_source_refresh(update.chunk_idx);
+        }
         self.process_deferred_terrain_sdf_source_refreshes();
     }
 
@@ -436,18 +414,35 @@ impl App {
 
         let focus = self.water_terrain_focus_ws();
         let now = Instant::now();
+        let contree_builder = &self.contree_builder;
         let Some(work) = self.deferred_terrain_sdf_source_refreshes.pop_if_payload(
             ChunkPopMode::NearestWithAging {
                 focus,
                 chunk_extent: UVec3::ONE,
             },
-            |_, request| request.ready_at <= now,
+            |chunk_id, request| {
+                request.ready_at <= now && contree_builder.cpu_chunk_query_source_ready(chunk_id)
+            },
         ) else {
             return;
         };
 
         let chunk_id = work.chunk_id;
         let revision = work.revision;
+        let Some(source_dependency) = self.contree_builder.cpu_chunk_source_dependency(chunk_id)
+        else {
+            log::warn!(
+                "[WATER][TERRAIN] skipped invalid canonical source chunk {:?} request_rev={}",
+                chunk_id,
+                revision,
+            );
+            self.deferred_terrain_sdf_source_refreshes
+                .complete(chunk_id, revision);
+            return;
+        };
+        let source_revision = TerrainSdfSourceRevision {
+            dependencies: vec![source_dependency],
+        };
         match self.submit_terrain_sdf_solid_sample_chunk(chunk_id) {
             Ok(Some(job)) => {
                 let sample_count = job.sample_count();
@@ -458,13 +453,15 @@ impl App {
                 self.terrain_sdf_source_refresh_inflight = Some(TerrainSdfSourceRefreshInFlight {
                     chunk_id,
                     revision,
+                    source_revision: source_revision.clone(),
                     submitted_at: Instant::now(),
                     job,
                 });
                 log::debug!(
-                    "[QUEUE][TERRAIN_SDF_SOURCE] submit async chunk {:?} revision {} atlas_offset={:?} source_dim={:?} sample_dim={:?} samples={} readback_bytes={} pending={} active={}",
+                    "[QUEUE][TERRAIN_SDF_SOURCE] submit async chunk {:?} revision {} source={:?} atlas_offset={:?} source_dim={:?} sample_dim={:?} samples={} readback_bytes={} pending={} active={}",
                     chunk_id,
                     revision,
+                    source_revision,
                     atlas_offset,
                     atlas_dim,
                     sample_dim,
@@ -543,27 +540,55 @@ impl App {
             return;
         }
 
+        let current_source_revision = self
+            .contree_builder
+            .cpu_chunk_source_dependency(chunk_id)
+            .map(|dependency| TerrainSdfSourceRevision {
+                dependencies: vec![dependency],
+            });
+        if current_source_revision.as_ref() != Some(&active.source_revision) {
+            log::debug!(
+                "[WATER][TERRAIN] discarded stale GPU solid source chunk {:?} request_rev={} submitted_source={:?} current_source={:?} age={:.2}ms",
+                chunk_id,
+                revision,
+                active.source_revision,
+                current_source_revision,
+                age_ms,
+            );
+            self.deferred_terrain_sdf_source_refreshes
+                .complete(chunk_id, revision);
+            self.schedule_terrain_sdf_source_refresh(chunk_id);
+            return;
+        }
+
         match self.finish_terrain_sdf_solid_sample_chunk(chunk_id, active.job) {
-            Ok(source_refresh) => {
-                let source_revision = terrain_sdf_source_revision(&self.cpu_solid_voxels, chunk_id);
+            Ok(source) => {
+                let source_revision = active.source_revision;
                 let already_built = self.terrain_sdf_built_source_revisions.get(&chunk_id)
                     == Some(&source_revision);
-                if source_refresh.changed || !already_built {
+                if !already_built {
                     log::debug!(
-                        "[QUEUE][TERRAIN_SDF_SOURCE] ready chunk {:?} revision {} source_rev={} changed={} already_built={}",
+                        "[QUEUE][TERRAIN_SDF_SOURCE] ready chunk {:?} revision {} source={:?} solid_samples={}/{} already_built={}",
                         chunk_id,
                         revision,
-                        source_refresh.revision,
-                        source_refresh.changed,
+                        source_revision,
+                        source.solid_count,
+                        source.solid.len(),
                         already_built,
                     );
-                    self.enqueue_deferred_terrain_sdf_collider_rebuild(chunk_id);
+                    self.enqueue_deferred_terrain_sdf_collider_rebuild(
+                        chunk_id,
+                        TerrainSdfColliderRebuildRequest {
+                            source_revision,
+                            source,
+                        },
+                    );
                 } else {
                     log::debug!(
-                        "[QUEUE][TERRAIN_SDF_SOURCE] skipped unchanged chunk {:?} revision {} source_rev={} pending={} active={}",
+                        "[QUEUE][TERRAIN_SDF_SOURCE] skipped already-built canonical source chunk {:?} revision {} source={:?} pending={} active={}",
                         chunk_id,
                         revision,
-                        source_refresh.revision,
+                        source_revision,
                         self.deferred_terrain_sdf_source_refreshes.len(),
                         self.deferred_terrain_sdf_source_refreshes.active_len(),
                     );
@@ -839,11 +864,8 @@ impl App {
         let (result_tx, result_rx) = mpsc::channel();
         thread::spawn(move || {
             while let Ok(job) = job_rx.recv() {
-                let build = build_terrain_sdf_collider_chunk(
-                    job.solid_chunk.as_ref(),
-                    job.chunk_id,
-                    job.revision,
-                );
+                let build =
+                    build_terrain_sdf_collider_chunk(&job.source, job.chunk_id, job.revision);
                 let result = TerrainSdfColliderWorkerResult {
                     chunk_key: job.chunk_key,
                     chunk_id: job.chunk_id,
@@ -902,6 +924,10 @@ impl App {
 
         let chunk_key = work.chunk_id;
         let revision = work.revision;
+        let TerrainSdfColliderRebuildRequest {
+            source_revision,
+            source,
+        } = work.payload;
         let Some(chunk_id) = water_terrain_chunk_work_key_to_id(chunk_key) else {
             log::warn!(
                 "[WATER][TERRAIN] skipped invalid queued collider chunk {:?} rev {}",
@@ -913,18 +939,6 @@ impl App {
             return;
         };
 
-        let Some(solid_chunk) = self.cpu_solid_voxels.get(chunk_key) else {
-            log::warn!(
-                "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: missing solid source",
-                chunk_id,
-                revision,
-            );
-            self.deferred_terrain_sdf_collider_rebuilds
-                .complete(chunk_key, revision);
-            return;
-        };
-
-        let source_revision = terrain_sdf_source_revision(&self.cpu_solid_voxels, chunk_key);
         if self.terrain_sdf_built_source_revisions.get(&chunk_key) == Some(&source_revision) {
             log::debug!(
                 "[QUEUE][TERRAIN_SDF_COLLIDER] skip unchanged solid source chunk {:?} revision {} source={:?}",
@@ -937,7 +951,7 @@ impl App {
             return;
         }
 
-        if solid_chunk.solid_count() == 0 {
+        if source.solid_count == 0 {
             let removed = self.remove_empty_water_terrain_collider_chunk(chunk_id);
             log::debug!(
                 "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: empty solid source chunk {:?} removed_stale_collider={}",
@@ -959,7 +973,7 @@ impl App {
             chunk_id,
             revision,
             source_revision,
-            solid_chunk,
+            source,
         };
         self.terrain_sdf_collider_build_inflight = true;
         if let Err(err) = self.terrain_sdf_collider_job_tx.send(job) {
@@ -1167,40 +1181,29 @@ impl App {
         &mut self,
         chunk_id: UVec3,
         job: ChunkSolidSampleJob,
-    ) -> anyhow::Result<TerrainSdfSourceRefresh> {
+    ) -> anyhow::Result<TerrainSdfSolidGrid> {
         let total_start = Instant::now();
         let sample_result = self
             .plain_builder
             .finish_chunk_atlas_solid_grid_sample(job)?;
-        self.store_terrain_sdf_solid_sample_chunk(chunk_id, sample_result, total_start)
-    }
-
-    fn store_terrain_sdf_solid_sample_chunk(
-        &mut self,
-        chunk_id: UVec3,
-        sample_result: ChunkSolidSampleResult,
-        total_start: Instant,
-    ) -> anyhow::Result<TerrainSdfSourceRefresh> {
         let convert_start = Instant::now();
-        let voxel_types = sample_result
+        let solid = sample_result
             .samples
             .iter()
-            .map(|&solid| if solid == 0 { 0 } else { 1 })
-            .collect::<Vec<u8>>();
+            .map(|&solid| solid != 0)
+            .collect::<Vec<bool>>();
         let convert_elapsed = convert_start.elapsed();
-        let store_start = Instant::now();
-        let (chunk, changed) = self.cpu_solid_voxels.upsert_from_voxel_types(
+        let solid_count = solid.iter().filter(|&&sample| sample).count();
+        let source = TerrainSdfSolidGrid {
             chunk_id,
-            TERRAIN_SDF_COLLIDER_DIM,
-            &voxel_types,
-        )?;
-        let store_elapsed = store_start.elapsed();
+            dim: TERRAIN_SDF_COLLIDER_DIM,
+            solid,
+            solid_count,
+        };
         log::info!(
-            "[WATER][TERRAIN] refreshed GPU solid source chunk {:?} rev {} changed={} solid_samples {}/{} source_dim {:?} atlas_offset={:?} atlas_dim={:?} sample_dim={:?} readback_samples={}/{} readback_bytes={} gpu_prepare={:.3}ms gpu_submit={:.3}ms gpu_completion_latency={:.3}ms gpu_readback={:.3}ms gpu_convert={:.3}ms gpu_sample_total={:.3}ms convert={:.3}ms store={:.3}ms total={:.3}ms",
+            "[WATER][TERRAIN] refreshed GPU filled-solid grid chunk {:?} solid_samples {}/{} source_dim {:?} atlas_offset={:?} atlas_dim={:?} sample_dim={:?} readback_samples={}/{} readback_bytes={} gpu_prepare={:.3}ms gpu_submit={:.3}ms gpu_completion_latency={:.3}ms gpu_readback={:.3}ms gpu_convert={:.3}ms gpu_sample_total={:.3}ms convert={:.3}ms total={:.3}ms",
             chunk_id,
-            chunk.revision(),
-            changed,
-            chunk.solid_count(),
+            source.solid_count,
             TERRAIN_SDF_COLLIDER_DIM.x as usize
                 * TERRAIN_SDF_COLLIDER_DIM.y as usize
                 * TERRAIN_SDF_COLLIDER_DIM.z as usize,
@@ -1218,13 +1221,9 @@ impl App {
             sample_result.convert_ms,
             sample_result.total_ms,
             convert_elapsed.as_secs_f64() * 1000.0,
-            store_elapsed.as_secs_f64() * 1000.0,
             total_start.elapsed().as_secs_f64() * 1000.0,
         );
-        Ok(TerrainSdfSourceRefresh {
-            revision: chunk.revision(),
-            changed,
-        })
+        Ok(source)
     }
 }
 
@@ -1236,12 +1235,6 @@ impl TerrainSdfSourceRefreshRequest {
             pending
         }
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct TerrainSdfSourceRefresh {
-    revision: u64,
-    changed: bool,
 }
 
 fn water_edit_soak_step(step: usize) -> Option<WaterEditSoakStep> {
@@ -1272,7 +1265,7 @@ fn water_edit_soak_step(step: usize) -> Option<WaterEditSoakStep> {
 }
 
 fn build_terrain_sdf_collider_chunk(
-    solid_chunk: &CpuSolidVoxelChunk,
+    source: &TerrainSdfSolidGrid,
     chunk_id: IVec3,
     revision: u64,
 ) -> Option<TerrainSdfColliderBuild> {
@@ -1283,16 +1276,15 @@ fn build_terrain_sdf_collider_chunk(
         * (TERRAIN_SDF_COLLIDER_DIM.z as usize);
 
     let solid_start = Instant::now();
-    let (solid_samples, solid_stats) = water_terrain_solid_samples(
-        solid_chunk,
-        TERRAIN_SDF_COLLIDER_DIM,
-        bounds_min_ws,
-        bounds_max_ws,
-    );
+    debug_assert_eq!(source.dim, TERRAIN_SDF_COLLIDER_DIM);
+    let solid_stats = WaterTerrainSolidSampleStats {
+        source_chunk: source.chunk_id,
+        source_dim: source.dim,
+        source_solid_voxels: source.solid_count,
+    };
     let solid_ms = solid_start.elapsed().as_secs_f32() * 1000.0;
-    let count_start = Instant::now();
-    let solid_sample_count = solid_samples.iter().filter(|&&solid| solid).count();
-    let count_ms = count_start.elapsed().as_secs_f32() * 1000.0;
+    let count_ms = 0.0;
+    let solid_sample_count = source.solid_count;
     if solid_sample_count == 0 {
         log::warn!(
             "[WATER][TERRAIN] skipped collider chunk {:?} rev {}: no 3D terrain solid samples were found build_ms={:.2}",
@@ -1308,7 +1300,7 @@ fn build_terrain_sdf_collider_chunk(
         TERRAIN_SDF_COLLIDER_DIM,
         bounds_min_ws,
         bounds_max_ws,
-        &solid_samples,
+        &source.solid,
     );
     let sdf_ms = sdf_start.elapsed().as_secs_f32() * 1000.0;
 
@@ -1344,31 +1336,6 @@ fn build_terrain_sdf_collider_chunk(
     })
 }
 
-fn water_terrain_solid_samples(
-    solid_chunk: &CpuSolidVoxelChunk,
-    dim: UVec3,
-    bounds_min_ws: Vec3,
-    bounds_max_ws: Vec3,
-) -> (Vec<bool>, WaterTerrainSolidSampleStats) {
-    let mut solid = vec![false; grid_len(dim)];
-    let stats = WaterTerrainSolidSampleStats {
-        source_chunk: solid_chunk.chunk_id(),
-        source_dim: solid_chunk.dim(),
-        source_solid_voxels: solid_chunk.solid_count(),
-    };
-
-    for z in 0..dim.z {
-        for y in 0..dim.y {
-            for x in 0..dim.x {
-                let point_ws = grid_sample_position(bounds_min_ws, bounds_max_ws, dim, x, y, z);
-                solid[grid_index(dim, x, y, z)] = solid_chunk.sample_solid_ws(point_ws);
-            }
-        }
-    }
-
-    (solid, stats)
-}
-
 struct TerrainSdfColliderBuild {
     chunk: WaterTerrainColliderChunk,
     bounds_min_ws: Vec3,
@@ -1400,15 +1367,6 @@ struct WaterTerrainSolidSampleStats {
 fn water_terrain_chunk_bounds_ws(chunk_id: IVec3) -> (Vec3, Vec3) {
     let min_ws = chunk_id.as_vec3();
     (min_ws, min_ws + Vec3::ONE)
-}
-
-fn terrain_sdf_source_revision(
-    cpu_solid_voxels: &crate::app::cpu_solid_voxels::CpuSolidVoxelStore,
-    chunk_key: UVec3,
-) -> TerrainSdfSourceRevision {
-    TerrainSdfSourceRevision {
-        dependencies: vec![(chunk_key, cpu_solid_voxels.revision(chunk_key).unwrap_or(0))],
-    }
 }
 
 fn water_terrain_chunk_strictly_overlaps_box(
@@ -1467,26 +1425,12 @@ fn hash_sdf_samples(sdf_ws: &[f32]) -> u64 {
     })
 }
 
-fn grid_sample_position(
-    bounds_min_ws: Vec3,
-    bounds_max_ws: Vec3,
-    dim: UVec3,
-    x: u32,
-    y: u32,
-    z: u32,
-) -> Vec3 {
-    let t = Vec3::new(
-        x as f32 / (dim.x - 1) as f32,
-        y as f32 / (dim.y - 1) as f32,
-        z as f32 / (dim.z - 1) as f32,
-    );
-    bounds_min_ws + (bounds_max_ws - bounds_min_ws) * t
-}
-
+#[cfg(test)]
 fn grid_len(dim: UVec3) -> usize {
     (dim.x as usize) * (dim.y as usize) * (dim.z as usize)
 }
 
+#[cfg(test)]
 fn grid_index(dim: UVec3, x: u32, y: u32, z: u32) -> usize {
     ((z as usize * dim.y as usize + y as usize) * dim.x as usize) + x as usize
 }
@@ -1631,24 +1575,43 @@ mod tests {
     }
 
     #[test]
-    fn source_revision_depends_only_on_same_chunk() {
-        let mut store = crate::app::cpu_solid_voxels::CpuSolidVoxelStore::default();
-        store
-            .upsert_from_voxel_types(UVec3::new(1, 0, 1), UVec3::ONE, &[7])
-            .unwrap();
+    fn source_revision_tracks_canonical_contree_dependency() {
+        let chunk_idx = UVec3::new(1, 0, 1);
+        let revision = |source_revision| TerrainSdfSourceRevision {
+            dependencies: vec![ContreeCpuVoxelSourceDependency {
+                chunk_idx,
+                source_revision: Some(source_revision),
+                is_present: true,
+            }],
+        };
 
-        assert_eq!(
-            terrain_sdf_source_revision(&store, UVec3::new(1, 0, 1)),
-            TerrainSdfSourceRevision {
-                dependencies: vec![(UVec3::new(1, 0, 1), 1)]
+        assert_ne!(revision(7), revision(8));
+        assert_eq!(revision(8), revision(8));
+    }
+
+    #[test]
+    fn sdf_builder_consumes_immutable_gpu_filled_solid_grid() {
+        let dim = TERRAIN_SDF_COLLIDER_DIM;
+        let mut solid = vec![false; grid_len(dim)];
+        for z in 0..dim.z {
+            for y in 0..8 {
+                for x in 0..dim.x {
+                    solid[grid_index(dim, x, y, z)] = true;
+                }
             }
-        );
-        assert_eq!(
-            terrain_sdf_source_revision(&store, UVec3::new(1, 1, 1)),
-            TerrainSdfSourceRevision {
-                dependencies: vec![(UVec3::new(1, 1, 1), 0)]
-            }
-        );
+        }
+        let source = TerrainSdfSolidGrid {
+            chunk_id: UVec3::ZERO,
+            dim,
+            solid,
+            solid_count: 32 * 8 * 32,
+        };
+
+        let build = build_terrain_sdf_collider_chunk(&source, IVec3::ZERO, 3).unwrap();
+
+        assert_eq!(build.stats.solid_sample_count, source.solid_count);
+        assert!(build.chunk.sdf_ws[grid_index(dim, 16, 2, 16)] < -0.1);
+        assert!(build.chunk.sdf_ws[grid_index(dim, 16, 24, 16)] > 0.1);
     }
 
     #[test]

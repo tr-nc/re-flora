@@ -170,7 +170,6 @@ impl WaterSimParticleSnapshot {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct WaterSimSnapshot {
     pub(crate) particles: Vec<WaterSimParticleSnapshot>,
-    particle_bounds_ws: Option<(Vec3, Vec3)>,
     particle_count: usize,
     sim_time_seconds: f32,
     worker_update_ms: f32,
@@ -298,7 +297,6 @@ impl AsyncWaterSim {
                 .take()
                 .unwrap_or_else(|| WaterSimSnapshot {
                     particles: vec![WaterSimParticleSnapshot::invisible(); snapshot.particle_count],
-                    particle_bounds_ws: snapshot.particle_bounds_ws,
                     particle_count: snapshot.particle_count,
                     sim_time_seconds: snapshot.sim_time_seconds,
                     worker_update_ms: snapshot.worker_update_ms,
@@ -317,7 +315,6 @@ impl AsyncWaterSim {
                 *display_particle = particle;
             }
         }
-        display_snapshot.particle_bounds_ws = snapshot.particle_bounds_ws;
         display_snapshot.particle_count = snapshot.particle_count;
         display_snapshot.sim_time_seconds = snapshot.sim_time_seconds;
         display_snapshot.worker_update_ms = snapshot.worker_update_ms;
@@ -331,12 +328,6 @@ impl AsyncWaterSim {
         self.latest_snapshot
             .as_ref()
             .map_or(&[], |snapshot| snapshot.particles.as_slice())
-    }
-
-    pub(crate) fn particle_bounds_ws(&self) -> Option<(Vec3, Vec3)> {
-        self.latest_snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.particle_bounds_ws)
     }
 
     pub(crate) fn status_text(&self, handoff_main_thread_ms: Option<f32>) -> String {
@@ -720,8 +711,6 @@ fn publish_water_sim_snapshot(
             / publish_bucket_count
     };
 
-    let mut min_ws = Vec3::splat(f32::INFINITY);
-    let mut max_ws = Vec3::splat(f32::NEG_INFINITY);
     let mut particles = Vec::with_capacity(publish_count);
     for (particle_index, particle) in sim.particles.iter().enumerate() {
         if publish_all_particles || particle_index % publish_bucket_count == publish_bucket_index {
@@ -730,16 +719,10 @@ fn publish_water_sim_snapshot(
                 velocity: particle.v,
             });
         }
-        if particle.x.is_finite() {
-            min_ws = min_ws.min(particle.x);
-            max_ws = max_ws.max(particle.x);
-        }
     }
-    let particle_bounds_ws = min_ws.is_finite().then_some((min_ws, max_ws));
     let snapshot = WaterSimSnapshot {
         particle_count,
         particles,
-        particle_bounds_ws,
         sim_time_seconds: sim.sim_time_seconds,
         worker_update_ms,
         worker_substeps,
