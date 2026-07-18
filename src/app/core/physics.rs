@@ -12,7 +12,9 @@ use std::time::Instant;
 const STARTUP_TERRAIN_BRICK_ID: StaticVoxelBrickId = StaticVoxelBrickId(IVec3::new(8, 3, 8));
 const STARTUP_TERRAIN_BRICK_MIN: UVec3 = UVec3::new(256, 96, 256);
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
-const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(264.0, 144.0, 264.0);
+// Keep the probe inside the only terrain-collision brick currently imported, but place it on the
+// camera-facing side of the startup tree so the trunk does not hide the four-voxel fruit.
+const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(276.0, 152.0, 280.0);
 const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -306,6 +308,18 @@ mod tests {
         assert!(points.len() > voxel_apple_offsets().len());
         assert_eq!(min, Vec3::splat(-2.0));
         assert_eq!(max, Vec3::splat(2.0));
+    }
+
+    #[test]
+    fn collision_probe_spawns_inside_imported_brick_xz_bounds() {
+        let probe_radius = Vec3::splat(2.0);
+        let brick_min = STARTUP_TERRAIN_BRICK_MIN.as_vec3();
+        let brick_max = brick_min + Vec3::splat(STATIC_VOXEL_BRICK_DIM as f32);
+
+        assert!((COLLISION_PROBE_SPAWN_VOXELS - probe_radius).x >= brick_min.x);
+        assert!((COLLISION_PROBE_SPAWN_VOXELS - probe_radius).z >= brick_min.z);
+        assert!((COLLISION_PROBE_SPAWN_VOXELS + probe_radius).x <= brick_max.x);
+        assert!((COLLISION_PROBE_SPAWN_VOXELS + probe_radius).z <= brick_max.z);
     }
 
     #[test]
