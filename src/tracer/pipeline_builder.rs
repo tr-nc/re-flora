@@ -238,6 +238,24 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let dynamic_fruit_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/dynamic_fruit.vert",
+            "main",
+        )
+        .unwrap();
+        let dynamic_fruit_shadow_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/dynamic_fruit_shadow.vert",
+            "main",
+        )
+        .unwrap();
+        let dynamic_fruit_shadow_frag_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/dynamic_fruit_shadow.frag",
+            "main",
+        )
+        .unwrap();
 
         let particle_lod_textured_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -305,6 +323,9 @@ impl PipelineBuilder {
             sprinkler_vert_sm,
             geometry_preview_vert_sm,
             geometry_preview_frag_sm,
+            dynamic_fruit_vert_sm,
+            dynamic_fruit_shadow_vert_sm,
+            dynamic_fruit_shadow_frag_sm,
             particle_lod_textured_vert_sm,
             particle_lod_textured_frag_sm,
             water_droplet_frag_sm,
@@ -574,6 +595,38 @@ impl PipelineBuilder {
             },
         );
 
+        let dynamic_fruit_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.dynamic_fruit_vert_sm,
+            &shader_modules.flora_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            Some(4),
+            pool,
+            &[resources],
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+
+        let dynamic_fruit_shadow_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.dynamic_fruit_shadow_vert_sm,
+            &shader_modules.dynamic_fruit_shadow_frag_sm,
+            &render_passes.render_pass_depth,
+            Some(4),
+            pool,
+            &[resources],
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+
         let particle_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
             &shader_modules.particle_lod_textured_vert_sm,
@@ -626,6 +679,8 @@ impl PipelineBuilder {
             leaves_shadow_lod_ppl,
             sprinkler_ppl,
             geometry_preview_ppl,
+            dynamic_fruit_ppl,
+            dynamic_fruit_shadow_ppl,
             particle_ppl,
             water_droplet_ppl,
             glass_ppl,
@@ -775,6 +830,9 @@ pub struct ShaderModules {
     pub sprinkler_vert_sm: ShaderModule,
     pub geometry_preview_vert_sm: ShaderModule,
     pub geometry_preview_frag_sm: ShaderModule,
+    pub dynamic_fruit_vert_sm: ShaderModule,
+    pub dynamic_fruit_shadow_vert_sm: ShaderModule,
+    pub dynamic_fruit_shadow_frag_sm: ShaderModule,
     pub particle_lod_textured_vert_sm: ShaderModule,
     pub particle_lod_textured_frag_sm: ShaderModule,
     pub water_droplet_frag_sm: ShaderModule,
@@ -822,6 +880,8 @@ pub struct GraphicsPipelines {
     pub leaves_shadow_lod_ppl: GraphicsPipeline,
     pub sprinkler_ppl: GraphicsPipeline,
     pub geometry_preview_ppl: GraphicsPipeline,
+    pub dynamic_fruit_ppl: GraphicsPipeline,
+    pub dynamic_fruit_shadow_ppl: GraphicsPipeline,
     pub particle_ppl: GraphicsPipeline,
     pub water_droplet_ppl: GraphicsPipeline,
     pub glass_ppl: GraphicsPipeline,

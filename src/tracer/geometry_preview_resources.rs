@@ -1,6 +1,6 @@
 use anyhow::{anyhow, ensure, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::{Quat, Vec3, Vec4};
+use glam::{Vec3, Vec4};
 use re_flora_vkn::vk;
 use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 
@@ -17,8 +17,6 @@ const PIPE_END_CAP: f32 = IRRIGATION_PIPE_END_CAP_VOXELS * VOXEL_SCALE;
 const PIPE_PREVIEW_SIDE_COUNT: u32 = 12;
 const PIPE_PREVIEW_COLOR: Vec4 = Vec4::new(0.08, 0.62, 1.0, 0.38);
 const PIPE_SOURCE_PREVIEW_COLOR: Vec4 = Vec4::new(0.12, 0.82, 1.0, 0.46);
-const PROBE_APPLE_BOTTOM_COLOR: Vec4 = Vec4::new(0.48, 0.025, 0.018, 1.0);
-const PROBE_APPLE_TOP_COLOR: Vec4 = Vec4::new(0.95, 0.06, 0.035, 1.0);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
@@ -47,15 +45,13 @@ pub struct GeometryPreviewMesh {
 struct GeometryPreviewInstanceGpu {
     base_position: [f32; 3],
     tint: [f32; 4],
-    rotation: [f32; 4],
 }
 
 impl GeometryPreviewInstanceGpu {
-    fn new(base_position: Vec3, tint: Vec4, rotation: Quat) -> Self {
+    fn new(base_position: Vec3, tint: Vec4) -> Self {
         Self {
             base_position: base_position.to_array(),
             tint: tint.to_array(),
-            rotation: rotation.to_array(),
         }
     }
 }
@@ -144,28 +140,10 @@ impl GeometryPreviewMeshResources {
     }
 
     pub fn show(&mut self, base_position: Vec3, tint: Vec4) -> Result<()> {
-        self.show_transform(base_position, Quat::IDENTITY, tint)
-    }
-
-    pub fn show_transform(
-        &mut self,
-        base_position: Vec3,
-        rotation: Quat,
-        tint: Vec4,
-    ) -> Result<()> {
         ensure!(base_position.is_finite(), "preview position must be finite");
-        ensure!(rotation.is_finite(), "preview rotation must be finite");
-        ensure!(
-            rotation.length_squared() > f32::EPSILON,
-            "preview rotation must have non-zero length"
-        );
         ensure!(tint.is_finite(), "preview tint must be finite");
-        let rotation = rotation.normalize();
-        self.instances.fill(&[GeometryPreviewInstanceGpu::new(
-            base_position,
-            tint,
-            rotation,
-        )])?;
+        self.instances
+            .fill(&[GeometryPreviewInstanceGpu::new(base_position, tint)])?;
         self.instance_count = u32::from(self.indices_len > 0);
         Ok(())
     }
@@ -204,34 +182,19 @@ impl GeometryPreviewMeshResources {
 pub struct GeometryPreviewRendererResources {
     pub pipe: GeometryPreviewMeshResources,
     pub tree: GeometryPreviewMeshResources,
-    pub collision_probe: GeometryPreviewMeshResources,
 }
 
 impl GeometryPreviewRendererResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         Self {
             pipe: GeometryPreviewMeshResources::new(device.clone(), allocator.clone()),
-            tree: GeometryPreviewMeshResources::new(device.clone(), allocator.clone()),
-            collision_probe: GeometryPreviewMeshResources::new(device, allocator),
+            tree: GeometryPreviewMeshResources::new(device, allocator),
         }
     }
 
     pub fn has_visible_mesh(&self) -> bool {
-        self.pipe.instance_count > 0
-            || self.tree.instance_count > 0
-            || self.collision_probe.instance_count > 0
+        self.pipe.instance_count > 0 || self.tree.instance_count > 0
     }
-}
-
-pub fn build_collision_probe_apple_mesh() -> GeometryPreviewMesh {
-    let mut mesh = GeometryPreviewMesh::default();
-    for voxel in super::collision_probe_apple_offsets() {
-        let color_t = ((voxel.y + 4) as f32 / 7.0).clamp(0.0, 1.0);
-        let color = PROBE_APPLE_BOTTOM_COLOR.lerp(PROBE_APPLE_TOP_COLOR, color_t);
-        let min = voxel.as_vec3() * VOXEL_SCALE;
-        append_box(&mut mesh, min, min + Vec3::splat(VOXEL_SCALE), color);
-    }
-    mesh
 }
 
 pub fn build_pipe_preview_mesh(data: &IrrigationPipeRenderData) -> Result<GeometryPreviewMesh> {
@@ -394,24 +357,7 @@ mod tests {
 
     #[test]
     fn preview_instance_layout_stays_compact() {
-        assert_eq!(size_of::<GeometryPreviewInstanceGpu>(), 44);
-    }
-
-    #[test]
-    fn collision_probe_mesh_matches_shared_apple_description() {
-        let mesh = build_collision_probe_apple_mesh();
-        assert_eq!(mesh.vertices.len(), 32 * 8 * 24);
-        assert_eq!(mesh.indices.len(), 32 * 8 * 36);
-
-        let positions = mesh
-            .vertices
-            .iter()
-            .map(|vertex| Vec3::from_array(vertex.position))
-            .collect::<Vec<_>>();
-        let min = positions.iter().copied().reduce(Vec3::min).unwrap();
-        let max = positions.iter().copied().reduce(Vec3::max).unwrap();
-        assert_eq!(min, Vec3::splat(-4.0 * VOXEL_SCALE));
-        assert_eq!(max, Vec3::splat(4.0 * VOXEL_SCALE));
+        assert_eq!(size_of::<GeometryPreviewInstanceGpu>(), 28);
     }
 
     #[test]
