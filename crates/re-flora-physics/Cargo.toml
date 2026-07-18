@@ -1,0 +1,9 @@
+[package]
+name = "re-flora-physics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glam = "0.32.1"
+rapier3d = "0.34.0"
+thiserror = "2.0.18"

@@ -6,6 +6,8 @@
 __pycache__/
 /resource_container_derive/target/
 /resource_container_derive/Cargo.lock
+/crates/re-flora-physics/target/
+/crates/re-flora-physics/Cargo.lock
 .gitnexus
 CLAUDE.md
 CLAUDE.local.md
