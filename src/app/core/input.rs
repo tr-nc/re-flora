@@ -75,39 +75,15 @@ fn orbit_planar_camera_axes(camera_front: Vec3) -> (Vec3, Vec3) {
     (planar_front, planar_right)
 }
 
-fn orbit_focus_pan_delta(drag_delta_physical: Vec2, camera_front: Vec3, distance: f32) -> Vec3 {
+fn orbit_focus_pan_delta(drag_delta_physical: Vec2, camera_front: Vec3) -> Vec3 {
     if !drag_delta_physical.is_finite() || drag_delta_physical.length_squared() <= f32::EPSILON {
         return Vec3::ZERO;
     }
 
     let (planar_front, planar_right) = orbit_planar_camera_axes(camera_front);
-    let pan_scale = distance.clamp(
-        super::ORBIT_CAMERA_MIN_DISTANCE,
-        super::ORBIT_CAMERA_MAX_DISTANCE,
-    ) * super::ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE;
 
-    (planar_front * drag_delta_physical.y - planar_right * drag_delta_physical.x) * pan_scale
-}
-
-fn orbit_anchored_pan_delta(anchor: Vec3, ray_origin: Vec3, ray_direction: Vec3) -> Option<Vec3> {
-    if !anchor.is_finite()
-        || !ray_origin.is_finite()
-        || !ray_direction.is_finite()
-        || ray_direction.length_squared() <= f32::EPSILON
-        || ray_direction.y.abs() <= 0.01
-    {
-        return None;
-    }
-
-    let distance_to_anchor_height = (anchor.y - ray_origin.y) / ray_direction.y;
-    if !distance_to_anchor_height.is_finite() || distance_to_anchor_height <= 0.0 {
-        return None;
-    }
-
-    let desired_origin_xz = Vec2::new(anchor.x, anchor.z)
-        - Vec2::new(ray_direction.x, ray_direction.z) * distance_to_anchor_height;
-    let delta_xz = desired_origin_xz - Vec2::new(ray_origin.x, ray_origin.z);
-    Some(Vec3::new(delta_xz.x, 0.0, delta_xz.y))
+    (planar_front * drag_delta_physical.y - planar_right * drag_delta_physical.x)
+        * super::ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PHYSICAL_PIXEL
 }
 
 fn orbit_focus_from_view_ray(
@@ -189,6 +165,7 @@ impl App {
         self.tracer.reset_camera_input();
         self.orbit_keyboard_pan_input.reset();
         self.reset_orbit_mouse_drag();
+        self.orbit_mouse_pan_smoother.reset();
         self.mouse_wheel_dolly.reset();
     }
 
@@ -287,6 +264,7 @@ impl App {
                 .update_camera(frame_delta_time, false, Some(player_collision));
         } else {
             self.update_orbit_keyboard_camera_pan(frame_delta_time);
+            self.update_orbit_mouse_camera_pan(frame_delta_time);
         }
         self.update_mouse_wheel_camera_dolly(frame_delta_time);
     }
@@ -368,8 +346,20 @@ impl App {
         self.orbit_mouse_drag_held = false;
         self.orbit_mouse_drag_button = None;
         self.orbit_mouse_drag_pan_active = false;
-        self.orbit_mouse_drag_anchor = None;
         self.orbit_mouse_drag_last_position_physical = None;
+    }
+
+    fn update_orbit_mouse_camera_pan(&mut self, frame_delta_time: f32) {
+        if !self.orbit_mouse_drag_available() {
+            self.reset_orbit_mouse_drag();
+            self.orbit_mouse_pan_smoother.reset();
+            return;
+        }
+
+        let pan_delta = self.orbit_mouse_pan_smoother.advance(frame_delta_time);
+        if pan_delta.length_squared() > f32::EPSILON {
+            self.translate_orbit_camera(pan_delta);
+        }
     }
 
     fn screen_center_camera_ray(&self) -> Option<(Vec3, Vec3)> {
@@ -411,7 +401,6 @@ impl App {
                 self.orbit_mouse_drag_held = true;
                 self.orbit_mouse_drag_button = Some(button);
                 self.orbit_mouse_drag_pan_active = true;
-                self.orbit_mouse_drag_anchor = self.orbit_mouse_pan_anchor();
                 self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
                 true
             }
@@ -423,7 +412,7 @@ impl App {
                 self.orbit_mouse_drag_held = true;
                 self.orbit_mouse_drag_button = Some(button);
                 self.orbit_mouse_drag_pan_active = false;
-                self.orbit_mouse_drag_anchor = None;
+                self.orbit_mouse_pan_smoother.reset();
                 self.acquire_orbit_focus_from_screen_center();
                 self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
                 true
@@ -448,6 +437,7 @@ impl App {
         }
         if !self.orbit_mouse_drag_available() {
             self.reset_orbit_mouse_drag();
+            self.orbit_mouse_pan_smoother.reset();
             return;
         }
 
@@ -462,14 +452,11 @@ impl App {
             return;
         }
 
-        self.apply_orbit_mouse_drag_delta(drag_delta, position_physical);
+        self.apply_orbit_mouse_drag_delta(drag_delta);
     }
 
-    fn apply_orbit_mouse_drag_delta(&mut self, drag_delta_physical: Vec2, position_physical: Vec2) {
+    fn apply_orbit_mouse_drag_delta(&mut self, drag_delta_physical: Vec2) {
         if self.orbit_mouse_drag_pan_active {
-            if self.apply_orbit_mouse_anchored_pan(position_physical) {
-                return;
-            }
             self.apply_orbit_mouse_pan_delta(drag_delta_physical);
             return;
         }
@@ -480,50 +467,13 @@ impl App {
         self.apply_orbit_camera_spherical(azimuth, elevation, distance);
     }
 
-    fn orbit_mouse_pan_anchor(&self) -> Option<Vec3> {
-        let (origin, direction) = self.terrain_edit_ray()?;
-        if direction.length_squared() <= f32::EPSILON {
-            return None;
-        }
-
-        self.query_terrain_ray_cpu(origin, direction)
-            .map(|hit| hit.position)
-            .filter(|hit| (*hit - origin).length() <= super::SHOVEL_RAY_QUERY_DISTANCE)
-    }
-
-    fn apply_orbit_mouse_anchored_pan(&mut self, position_physical: Vec2) -> bool {
-        let Some(anchor) = self.orbit_mouse_drag_anchor else {
-            return false;
-        };
-
-        let Some((origin, direction)) = self
-            .tracer
-            .camera_ray_from_screen_position(position_physical, self.window_state.window_extent())
-        else {
-            return false;
-        };
-        let Some(pan_delta) = orbit_anchored_pan_delta(anchor, origin, direction) else {
-            return false;
-        };
-        if pan_delta.length_squared() <= f32::EPSILON {
-            return true;
-        }
-
-        self.translate_orbit_camera(pan_delta);
-        true
-    }
-
     fn apply_orbit_mouse_pan_delta(&mut self, drag_delta_physical: Vec2) {
-        let position = self.tracer.camera_position();
-        let focus = self.orbit_camera_focus;
-        let distance = (position - focus).length();
-        let pan_delta =
-            orbit_focus_pan_delta(drag_delta_physical, self.tracer.camera_front(), distance);
+        let pan_delta = orbit_focus_pan_delta(drag_delta_physical, self.tracer.camera_front());
         if pan_delta.length_squared() <= f32::EPSILON {
             return;
         }
 
-        self.translate_orbit_camera(pan_delta);
+        self.orbit_mouse_pan_smoother.add_delta(pan_delta);
     }
 
     fn translate_orbit_camera(&mut self, delta: Vec3) {
@@ -1781,10 +1731,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        orbit_anchored_pan_delta, orbit_focus_from_view_ray, orbit_focus_pan_delta,
-        orbit_offset_to_spherical,
-    };
+    use super::{orbit_focus_from_view_ray, orbit_focus_pan_delta, orbit_offset_to_spherical};
     use glam::{Vec2, Vec3};
 
     fn assert_near(actual: f32, expected: f32) {
@@ -1806,7 +1753,7 @@ mod tests {
 
     #[test]
     fn orbit_focus_pan_delta_stays_on_xz_plane() {
-        let delta = orbit_focus_pan_delta(Vec2::new(24.0, -16.0), Vec3::new(0.2, -0.9, -0.4), 2.0);
+        let delta = orbit_focus_pan_delta(Vec2::new(24.0, -16.0), Vec3::new(0.2, -0.9, -0.4));
 
         assert_near(delta.y, 0.0);
         assert!(delta.x.abs() > 0.0 || delta.z.abs() > 0.0);
@@ -1814,39 +1761,12 @@ mod tests {
 
     #[test]
     fn orbit_focus_pan_delta_uses_camera_planar_axes() {
-        let delta = orbit_focus_pan_delta(Vec2::new(10.0, -20.0), -Vec3::Z, 1.0);
-        let scale = super::super::ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE;
+        let delta = orbit_focus_pan_delta(Vec2::new(10.0, -20.0), -Vec3::Z);
+        let scale = super::super::ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PHYSICAL_PIXEL;
 
         assert_near(delta.x, -10.0 * scale);
         assert_near(delta.y, 0.0);
         assert_near(delta.z, 20.0 * scale);
-    }
-
-    #[test]
-    fn orbit_anchored_pan_delta_keeps_anchor_under_ray_on_xz_plane() {
-        let anchor = Vec3::new(0.5, 0.25, 0.5);
-        let ray_origin = Vec3::new(0.0, 1.25, 0.0);
-        let ray_direction = Vec3::new(0.25, -0.5, 0.1).normalize();
-        let delta = orbit_anchored_pan_delta(anchor, ray_origin, ray_direction).unwrap();
-
-        assert_near(delta.y, 0.0);
-        let shifted_origin = ray_origin + delta;
-        let t = (anchor.y - shifted_origin.y) / ray_direction.y;
-        let hit = shifted_origin + ray_direction * t;
-        assert_near(hit.x, anchor.x);
-        assert_near(hit.y, anchor.y);
-        assert_near(hit.z, anchor.z);
-    }
-
-    #[test]
-    fn orbit_anchored_pan_delta_rejects_near_horizontal_rays() {
-        let delta = orbit_anchored_pan_delta(
-            Vec3::new(0.5, 0.25, 0.5),
-            Vec3::new(0.0, 1.25, 0.0),
-            Vec3::new(1.0, 0.001, 0.0),
-        );
-
-        assert!(delta.is_none());
     }
 
     #[test]

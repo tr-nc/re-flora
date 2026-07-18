@@ -146,8 +146,8 @@ pub struct App {
     orbit_mouse_drag_held: bool,
     orbit_mouse_drag_button: Option<MouseButton>,
     orbit_mouse_drag_pan_active: bool,
-    orbit_mouse_drag_anchor: Option<Vec3>,
     orbit_mouse_drag_last_position_physical: Option<Vec2>,
+    orbit_mouse_pan_smoother: OrbitMousePanSmoother,
     mouse_wheel_dolly: MouseWheelDollySmoother,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -348,6 +348,50 @@ impl OrbitKeyboardPanInput {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+struct OrbitMousePanSmoother {
+    current_delta: Vec3,
+    target_delta: Vec3,
+}
+
+impl OrbitMousePanSmoother {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn add_delta(&mut self, delta: Vec3) {
+        if delta.is_finite() {
+            self.target_delta += delta;
+        }
+    }
+
+    fn advance(&mut self, frame_delta_time: f32) -> Vec3 {
+        if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
+            return Vec3::ZERO;
+        }
+
+        let remaining_delta = self.target_delta - self.current_delta;
+        if remaining_delta.length_squared() <= ORBIT_CAMERA_MOUSE_PAN_SNAP_DISTANCE.powi(2) {
+            self.reset();
+            return remaining_delta;
+        }
+
+        let alpha = (1.0 - (-ORBIT_CAMERA_MOUSE_PAN_INTERPOLATION_RATE * frame_delta_time).exp())
+            .clamp(0.0, 1.0);
+        let mut advanced_delta = remaining_delta * alpha;
+        self.current_delta += advanced_delta;
+
+        let remaining_after_advance = self.target_delta - self.current_delta;
+        if remaining_after_advance.length_squared() <= ORBIT_CAMERA_MOUSE_PAN_SNAP_DISTANCE.powi(2)
+        {
+            advanced_delta += remaining_after_advance;
+            self.reset();
+        }
+
+        advanced_delta
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 struct MouseWheelDollySmoother {
     current_lines: f32,
     target_lines: f32,
@@ -544,7 +588,9 @@ const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
 const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
 const ORBIT_CAMERA_FOCUS_RAY_QUERY_DISTANCE: f32 = 10.0;
 const ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL: f32 = 0.005;
-const ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PIXEL_AT_UNIT_DISTANCE: f32 = 0.001;
+const ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PHYSICAL_PIXEL: f32 = 0.001;
+const ORBIT_CAMERA_MOUSE_PAN_INTERPOLATION_RATE: f32 = 14.0;
+const ORBIT_CAMERA_MOUSE_PAN_SNAP_DISTANCE: f32 = 0.00001;
 const ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE: f32 = 0.45;
 const CENTER_CROSS_MARK_ARM_LENGTH: f32 = 8.0;
 const CENTER_CROSS_MARK_GAP: f32 = 3.0;
@@ -1112,8 +1158,8 @@ impl App {
             orbit_mouse_drag_held: false,
             orbit_mouse_drag_button: None,
             orbit_mouse_drag_pan_active: false,
-            orbit_mouse_drag_anchor: None,
             orbit_mouse_drag_last_position_physical: None,
+            orbit_mouse_pan_smoother: OrbitMousePanSmoother::default(),
             mouse_wheel_dolly: MouseWheelDollySmoother::default(),
             modifiers: ModifiersState::default(),
             perf_logging: options.perf,
@@ -3569,8 +3615,10 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::{
-        advance_time_of_day, App, CameraControlMode, MouseWheelDollySmoother, OrbitKeyboardPanInput,
+        advance_time_of_day, App, CameraControlMode, MouseWheelDollySmoother,
+        OrbitKeyboardPanInput, OrbitMousePanSmoother,
     };
+    use glam::Vec3;
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
     use winit::keyboard::KeyCode;
 
@@ -3644,6 +3692,26 @@ mod tests {
         assert!((direction.length() - 1.0).abs() <= 0.0001);
         assert!(direction.x > 0.0);
         assert!(direction.z > 0.0);
+    }
+
+    #[test]
+    fn orbit_mouse_pan_smoother_eases_and_preserves_full_delta() {
+        let mut smoother = OrbitMousePanSmoother::default();
+        let target_delta = Vec3::new(0.25, 0.0, -0.1);
+        smoother.add_delta(target_delta);
+
+        let first_step = smoother.advance(1.0 / 60.0);
+        assert!(first_step.length() > 0.0);
+        assert!(first_step.length() < target_delta.length());
+
+        let mut total_advanced = first_step;
+        for _ in 0..120 {
+            total_advanced += smoother.advance(1.0 / 60.0);
+        }
+
+        assert!((total_advanced - target_delta).length() <= 0.0001);
+        assert_eq!(smoother.current_delta, Vec3::ZERO);
+        assert_eq!(smoother.target_delta, Vec3::ZERO);
     }
 
     #[test]
