@@ -204,6 +204,25 @@ pub fn voxel_apple_offsets() -> Vec<IVec3> {
     offsets
 }
 
+/// A two-times debug derivation of the regular apple. Each source voxel expands into eight
+/// standard-size voxels, so the probe is easier to see without breaking the scene's voxel scale.
+pub fn collision_probe_apple_offsets() -> Vec<IVec3> {
+    const SCALE: i32 = 2;
+    let source_offsets = voxel_apple_offsets();
+    let mut offsets = Vec::with_capacity(source_offsets.len() * SCALE.pow(3) as usize);
+    for source in source_offsets {
+        let min = source * SCALE;
+        for x in 0..SCALE {
+            for y in 0..SCALE {
+                for z in 0..SCALE {
+                    offsets.push(min + IVec3::new(x, y, z));
+                }
+            }
+        }
+    }
+    offsets
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -220,5 +239,22 @@ mod tests {
         for offset in offsets {
             assert!(unique.contains(&(-offset - IVec3::ONE)));
         }
+    }
+
+    #[test]
+    fn collision_probe_apple_is_two_times_bigger_with_unit_voxels() {
+        let offsets = collision_probe_apple_offsets();
+        let unique = offsets.iter().copied().collect::<HashSet<_>>();
+
+        assert_eq!(offsets.len(), voxel_apple_offsets().len() * 8);
+        assert_eq!(unique.len(), offsets.len());
+        assert_eq!(
+            offsets.iter().map(|offset| offset.min_element()).min(),
+            Some(-4)
+        );
+        assert_eq!(
+            offsets.iter().map(|offset| offset.max_element()).max(),
+            Some(3)
+        );
     }
 }

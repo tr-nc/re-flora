@@ -34,7 +34,7 @@ pub mod voxel_encoding;
 mod voxel_geometry;
 
 mod leaves_construct;
-pub use leaves_construct::voxel_apple_offsets;
+pub use leaves_construct::collision_probe_apple_offsets;
 
 mod pipeline_builder;
 use pipeline_builder::*;

@@ -1,5 +1,5 @@
 use crate::builder::{ContreeBuilder, ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport};
-use crate::tracer::{voxel_apple_offsets, Tracer};
+use crate::tracer::{collision_probe_apple_offsets, Tracer};
 use anyhow::Context;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_physics::{
@@ -13,7 +13,7 @@ const STARTUP_TERRAIN_BRICK_ID: StaticVoxelBrickId = StaticVoxelBrickId(IVec3::n
 const STARTUP_TERRAIN_BRICK_MIN: UVec3 = UVec3::new(256, 96, 256);
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 // Keep the probe inside the only terrain-collision brick currently imported, but place it on the
-// camera-facing side of the startup tree so the trunk does not hide the four-voxel fruit.
+// camera-facing side of the startup tree so the trunk does not hide the eight-voxel probe fruit.
 const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(276.0, 152.0, 280.0);
 const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
 
@@ -92,7 +92,7 @@ impl TerrainPhysics {
 
         let collider_points = collision_probe_convex_points();
         let collider_point_count = collider_points.len();
-        let mut desc = DynamicBodyDesc::sphere(COLLISION_PROBE_SPAWN_VOXELS, 2.0);
+        let mut desc = DynamicBodyDesc::sphere(COLLISION_PROBE_SPAWN_VOXELS, 4.0);
         desc.collider = DynamicColliderShape::ConvexHull {
             points: collider_points,
         };
@@ -248,7 +248,7 @@ impl TerrainPhysics {
 
 fn collision_probe_convex_points() -> Vec<Vec3> {
     let mut corners = HashSet::new();
-    for voxel in voxel_apple_offsets() {
+    for voxel in collision_probe_apple_offsets() {
         for x in 0..=1 {
             for y in 0..=1 {
                 for z in 0..=1 {
@@ -305,14 +305,14 @@ mod tests {
         let min = points.iter().copied().reduce(Vec3::min).unwrap();
         let max = points.iter().copied().reduce(Vec3::max).unwrap();
 
-        assert!(points.len() > voxel_apple_offsets().len());
-        assert_eq!(min, Vec3::splat(-2.0));
-        assert_eq!(max, Vec3::splat(2.0));
+        assert!(points.len() > collision_probe_apple_offsets().len());
+        assert_eq!(min, Vec3::splat(-4.0));
+        assert_eq!(max, Vec3::splat(4.0));
     }
 
     #[test]
     fn collision_probe_spawns_inside_imported_brick_xz_bounds() {
-        let probe_radius = Vec3::splat(2.0);
+        let probe_radius = Vec3::splat(4.0);
         let brick_min = STARTUP_TERRAIN_BRICK_MIN.as_vec3();
         let brick_max = brick_min + Vec3::splat(STATIC_VOXEL_BRICK_DIM as f32);
 

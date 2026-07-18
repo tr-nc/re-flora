@@ -225,8 +225,8 @@ impl GeometryPreviewRendererResources {
 
 pub fn build_collision_probe_apple_mesh() -> GeometryPreviewMesh {
     let mut mesh = GeometryPreviewMesh::default();
-    for voxel in super::voxel_apple_offsets() {
-        let color_t = ((voxel.y + 2) as f32 / 3.0).clamp(0.0, 1.0);
+    for voxel in super::collision_probe_apple_offsets() {
+        let color_t = ((voxel.y + 4) as f32 / 7.0).clamp(0.0, 1.0);
         let color = PROBE_APPLE_BOTTOM_COLOR.lerp(PROBE_APPLE_TOP_COLOR, color_t);
         let min = voxel.as_vec3() * VOXEL_SCALE;
         append_box(&mut mesh, min, min + Vec3::splat(VOXEL_SCALE), color);
@@ -400,8 +400,8 @@ mod tests {
     #[test]
     fn collision_probe_mesh_matches_shared_apple_description() {
         let mesh = build_collision_probe_apple_mesh();
-        assert_eq!(mesh.vertices.len(), 32 * 24);
-        assert_eq!(mesh.indices.len(), 32 * 36);
+        assert_eq!(mesh.vertices.len(), 32 * 8 * 24);
+        assert_eq!(mesh.indices.len(), 32 * 8 * 36);
 
         let positions = mesh
             .vertices
@@ -410,8 +410,8 @@ mod tests {
             .collect::<Vec<_>>();
         let min = positions.iter().copied().reduce(Vec3::min).unwrap();
         let max = positions.iter().copied().reduce(Vec3::max).unwrap();
-        assert_eq!(min, Vec3::splat(-2.0 * VOXEL_SCALE));
-        assert_eq!(max, Vec3::splat(2.0 * VOXEL_SCALE));
+        assert_eq!(min, Vec3::splat(-4.0 * VOXEL_SCALE));
+        assert_eq!(max, Vec3::splat(4.0 * VOXEL_SCALE));
     }
 
     #[test]
