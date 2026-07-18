@@ -18,6 +18,8 @@ pub use irrigation_pipe_resources::*;
 mod geometry_preview_resources;
 pub use geometry_preview_resources::*;
 
+pub mod tree_preview_mesh;
+
 mod denoiser_resources;
 pub use denoiser_resources::*;
 
