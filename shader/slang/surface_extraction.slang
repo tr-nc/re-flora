@@ -14,6 +14,37 @@ static const uint SURFACE_SHARED_SIZE_3 =
 
 groupshared uint surface_shared_data
     [SURFACE_SHARED_SIZE][SURFACE_SHARED_SIZE][SURFACE_SHARED_SIZE];
+groupshared uint surface_workgroup_active_voxel_count;
+groupshared uint surface_workgroup_active_brick_mask;
+
+public void resetSurfaceWorkgroupAggregation(uint localInvocationIndex)
+{
+    if (localInvocationIndex == 0u)
+    {
+        surface_workgroup_active_voxel_count = 0u;
+        surface_workgroup_active_brick_mask = 0u;
+    }
+}
+
+public void recordActiveSurfaceVoxel(uint3 localInvocationId)
+{
+    uint ignored;
+    InterlockedAdd(surface_workgroup_active_voxel_count, 1u, ignored);
+    uint3 localBrick = localInvocationId / 4u;
+    uint localBrickIndex = localBrick.x + localBrick.z * 2u + localBrick.y * 4u;
+    InterlockedOr(surface_workgroup_active_brick_mask,
+                  1u << localBrickIndex, ignored);
+}
+
+public uint surfaceWorkgroupActiveVoxelCount()
+{
+    return surface_workgroup_active_voxel_count;
+}
+
+public uint surfaceWorkgroupActiveBrickMask()
+{
+    return surface_workgroup_active_brick_mask;
+}
 
 uint voxelHashBucketFromBlueNoise(int3 worldPosition)
 {
@@ -130,10 +161,9 @@ float3 calculateNormal(int3 workgroupBase, int3 voxelIndex)
 
 public bool extractSurfaceVoxel(int3 workgroupBase, int3 voxelIndex,
                                 int3 atlasReadOffset, uint3 atlasReadDimension,
-                                out uint properties, out uint brickIndex)
+                                out uint properties)
 {
     properties = 0u;
-    brickIndex = 0u;
     if (any(voxelIndex >= int3(atlasReadDimension)))
     {
         return false;
@@ -150,10 +180,5 @@ public bool extractSurfaceVoxel(int3 workgroupBase, int3 voxelIndex,
     uint normalBits = packNormalOct16(normal);
     uint hashId = voxelHashBucketFromBlueNoise(worldPosition);
     properties = packVoxelSurfaceData(voxelType, normalBits, hashId);
-
-    uint3 brickCoordinate = uint3(voxelIndex) >> 2u;
-    uint brickDimension = atlasReadDimension.x >> 2u;
-    brickIndex = brickCoordinate.x + brickCoordinate.z * brickDimension +
-                 brickCoordinate.y * brickDimension * brickDimension;
     return true;
 }

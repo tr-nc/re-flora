@@ -1,0 +1,37 @@
+# Surface-construction hot-path optimization
+
+This report records measured experiments on the sparse surface extraction path. Release-mode RTX 3060 Ti runs are authoritative; all A/B comparisons use `surface-rebuild` in `A,B,B,A` order.
+
+## Existing timing attribution
+
+The surface builder already timestamps these GPU passes independently:
+
+- surface image clear;
+- active-brick flag clear;
+- sparse dispatch preparation;
+- sparse surface extraction;
+- optional flora dispatch preparation;
+- optional active-surface-to-flora conversion.
+
+`[PERF][SURFACE_BUILD_PASS_TIMING]` exposes each pass and `[PERF][GPU_JOB_SCOPE]` exposes the full `surface.build` job. The benchmark suite also rejects construction comparisons unless ordered chunk signatures match for active voxels, active bricks, and solid workgroups.
+
+## Workgroup aggregation
+
+The retained optimization replaces global atomics per active voxel with workgroup-local aggregation:
+
+- active voxels increment one shared counter and one global counter per workgroup;
+- active voxels set one of eight shared 4×4×4 local-brick bits;
+- invocation zero reserves the complete active-brick output range once and publishes each active local brick once;
+- all invocations remain live through the final workgroup barrier.
+
+The optimization is implemented only in the native Slang source of truth. Legacy GLSL fallback sources remain unchanged. Active voxel, active brick, and solid workgroup signatures matched exactly across all order-reversed runs.
+
+### RTX 3060 Ti, native Slang workgroup aggregation
+
+| Metric | Baseline median | Candidate median | Median delta | p95 delta |
+|---|---:|---:|---:|---:|
+| `surface.build` | 709.5 µs | 700.0 µs | -1.34% | -4.71% |
+| `surface.make_sparse` | 516.5 µs | 510.0 µs | -1.26% | -5.19% |
+| `tree.replace_deferred_total` | 13.905 ms | 13.355 ms | -3.96% | +0.38% |
+
+Report: `target/perf/slang-surface-aggregation-ab/` (local benchmark artifact, not tracked).
