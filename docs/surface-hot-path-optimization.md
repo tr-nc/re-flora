@@ -24,7 +24,7 @@ The retained optimization replaces global atomics per active voxel with workgrou
 - invocation zero reserves the complete active-brick output range once and publishes each active local brick once;
 - all invocations remain live through the final workgroup barrier.
 
-The optimization is implemented only in the native Slang source of truth. Legacy GLSL fallback sources remain unchanged. Active voxel, active brick, and solid workgroup signatures matched exactly across all order-reversed runs.
+The optimization is implemented in the native Slang source of truth. Active voxel, active brick, and solid workgroup signatures matched exactly across all order-reversed runs. The legacy comparison source used for these measurements was removed after the native-only transition.
 
 ### RTX 3060 Ti, native Slang workgroup aggregation
 
@@ -38,7 +38,7 @@ Report: `target/perf/slang-surface-aggregation-ab/` (local benchmark artifact, n
 
 ## Integer normal accumulation
 
-The smooth 5×5×5 estimator now sums integer voxel offsets into `int3` and converts once before normalization. Every component is an exact integer in a small bounded range, so this is mathematically equivalent to adding the same integer offsets as floats and leaves packed normals and appearance unchanged. Legacy GLSL remains untouched.
+The smooth 5×5×5 estimator now sums integer voxel offsets into `int3` and converts once before normalization. Every component is an exact integer in a small bounded range, so this is mathematically equivalent to adding the same integer offsets as floats and leaves packed normals and appearance unchanged.
 
 Native Slang A/B results with matching workload signatures:
 

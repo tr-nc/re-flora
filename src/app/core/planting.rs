@@ -169,10 +169,8 @@ mod tests {
     #[test]
     fn cpu_and_shader_planting_policies_both_require_dirt() {
         assert!(is_plantable_surface_voxel_type(VOXEL_TYPE_DIRT));
-        let shader_policy = include_str!("../../../shader/include/flora_surface_planting.glsl");
-        assert!(shader_policy.contains(
-            "is_flora_surface_plantable(uint voxel_type) { return voxel_type == VOXEL_TYPE_DIRT; }"
-        ));
+        let shader_policy = include_str!("../../../shader/slang/flora_surface_planting.slang");
+        assert!(shader_policy.contains("return voxelType == VOXEL_TYPE_DIRT;"));
     }
 
     #[test]

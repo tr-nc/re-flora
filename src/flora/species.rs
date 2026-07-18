@@ -278,20 +278,21 @@ pub fn assert_species_limit() {
 mod tests {
     use super::*;
 
-    fn flora_registry_glsl_const(name: &str) -> u32 {
-        let registry = include_str!("../../shader/include/flora_registry.glsl");
+    fn flora_registry_slang_const(name: &str) -> u32 {
+        let registry = include_str!("../../shader/slang/flora_types.slang");
         let line = registry
             .lines()
             .find(|line| line.contains(&format!("const uint {name}")))
-            .unwrap_or_else(|| panic!("missing {name} in flora_registry.glsl"));
+            .unwrap_or_else(|| panic!("missing {name} in flora_types.slang"));
         let (_, value) = line
             .split_once('=')
-            .unwrap_or_else(|| panic!("missing '=' for {name} in flora_registry.glsl"));
+            .unwrap_or_else(|| panic!("missing '=' for {name} in flora_types.slang"));
         value
             .trim()
             .trim_end_matches(';')
+            .trim_end_matches('u')
             .parse()
-            .unwrap_or_else(|err| panic!("failed to parse {name} from flora_registry.glsl: {err}"))
+            .unwrap_or_else(|err| panic!("failed to parse {name} from flora_types.slang: {err}"))
     }
 
     #[test]
@@ -334,12 +335,12 @@ mod tests {
 
     #[test]
     fn moisture_growth_samples_the_stored_supporting_voxel() {
-        let environment_shader = include_str!("../../shader/include/flora_environment.glsl");
-        assert!(environment_shader.contains("chunk_world_offset + local_base"));
-        assert!(!environment_shader.contains("local_base -"));
+        let environment_shader = include_str!("../../shader/slang/surface_flora_vertex.slang");
+        assert!(environment_shader.contains("chunkWorldOffset + localBase"));
+        assert!(!environment_shader.contains("localBase -"));
 
-        let flora_shader = include_str!("../../shader/foliage/flora_common.glsl");
-        assert!(flora_shader.contains("min(competition_growth_factor, environment_growth_factor)"));
+        let flora_shader = include_str!("../../shader/slang/flora_vertex.slang");
+        assert!(flora_shader.contains("min(competitionFactor, environmentFactor)"));
         assert!(flora_shader.contains("gui_input.flora_growth_override_enabled != 0u"));
         assert!(flora_shader.contains("clamp(gui_input.flora_growth_override, 0.0, 1.0)"));
     }
@@ -348,15 +349,15 @@ mod tests {
     fn render_only_species_indices_match_shader_registry() {
         assert_eq!(
             species_count() as u32,
-            flora_registry_glsl_const("FLORA_SPECIES_COUNT")
+            flora_registry_slang_const("FLORA_SPECIES_COUNT")
         );
         assert_eq!(
             TREE_LEAF_RENDER_SPECIES_INDEX,
-            flora_registry_glsl_const("FLORA_SPECIES_TREE_LEAF")
+            flora_registry_slang_const("FLORA_SPECIES_TREE_LEAF")
         );
         assert_eq!(
             APPLE_RENDER_SPECIES_INDEX,
-            flora_registry_glsl_const("FLORA_SPECIES_APPLE")
+            flora_registry_slang_const("FLORA_SPECIES_APPLE")
         );
     }
 }

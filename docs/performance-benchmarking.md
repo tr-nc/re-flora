@@ -12,7 +12,7 @@ python scripts/perf_suite.py run render-steady \
   --output target/perf/baseline.json
 ```
 
-The command builds `re-flora` in release mode unless `--binary` points to an existing release binary. Use `--features slang-validation` to benchmark the full native-Slang aggregate.
+The command builds `re-flora` in release mode unless `--binary` points to an existing release binary. Every build uses the complete native Slang shader inventory.
 
 Available initial scenarios:
 

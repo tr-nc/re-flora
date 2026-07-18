@@ -1,5 +1,7 @@
 # Curated `dev` feature selection
 
+> Historical integration record: the frozen GLSL fallback described here was removed after the native-only transition completed.
+
 This branch starts from `main` at `f15f29f2` and imports only changes that preserve rendered appearance. Native Slang is the shader source of truth; legacy GLSL fallback sources are unchanged.
 
 ## Selected

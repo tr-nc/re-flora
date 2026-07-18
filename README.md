@@ -15,8 +15,16 @@ Re: Flora is a cozy voxel game prototype about shaping terrain, planting flora, 
 - Vulkan development packages:
   - Linux: `libvulkan-dev` + `vulkan-tools` (or distro equivalent)
   - Windows: [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#vulkansdk)
+- Slang 2025 compiler and shared library, supplied by a compatible Vulkan SDK or installed with `python3 scripts/install_slang.py`
 
 Official release packages bundle Steam Audio and other non-system native libraries. Players only need a Vulkan-capable GPU/driver; the macOS package also bundles MoltenVK.
+
+If your Vulkan SDK does not provide Slang, install the pinned compiler and point the build at it:
+
+```bash
+python3 scripts/install_slang.py
+export SLANGC="$PWD/.tools/slang-2025.23/bin/slangc"
+```
 
 **Build and run:**
 

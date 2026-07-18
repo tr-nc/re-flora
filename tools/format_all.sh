@@ -21,7 +21,7 @@ echo "Starting formatting rust code"
 cargo fmt
 
 # --- CONFIGURATION ---
-FILE_EXTENSIONS=("*.vert" "*.frag" "*.comp" "*.glsl")
+FILE_EXTENSIONS=("*.slang")
 
 # --- SCRIPT LOGIC ---
 echo
@@ -37,12 +37,9 @@ fi
 
 files=()
 if command -v rg >/dev/null 2>&1; then
-    mapfile -t files < <(rg --files -g "${FILE_EXTENSIONS[0]}" -g "${FILE_EXTENSIONS[1]}" \
-        -g "${FILE_EXTENSIONS[2]}" -g "${FILE_EXTENSIONS[3]}" || true)
+    mapfile -t files < <(rg --files -g "${FILE_EXTENSIONS[0]}" || true)
 else
-    mapfile -t files < <(find . -type f \( -name "${FILE_EXTENSIONS[0]}" \
-        -o -name "${FILE_EXTENSIONS[1]}" -o -name "${FILE_EXTENSIONS[2]}" \
-        -o -name "${FILE_EXTENSIONS[3]}" \))
+    mapfile -t files < <(find . -type f -name "${FILE_EXTENSIONS[0]}")
 fi
 
 total_files=${#files[@]}

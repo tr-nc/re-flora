@@ -1884,29 +1884,25 @@ mod tests {
 
     #[test]
     fn grass_competition_factor_is_target_species_aware() {
-        let growth_shader = include_str!("../../../shader/include/grass_growth_potential.glsl");
-        assert!(
-            growth_shader.contains("return is_grass ? grass_growth_potential(local_base) : 1.0;")
-        );
+        let growth_shader = include_str!("../../../shader/slang/grass_growth_potential.slang");
+        assert!(growth_shader.contains("return isGrass ? grassGrowthPotential(localBase) : 1.0;"));
 
         for vertex_shader in [
-            include_str!("../../../shader/foliage/flora.vert"),
-            include_str!("../../../shader/foliage/flora_lod.vert"),
+            include_str!("../../../shader/slang/flora_lod.vert.slang"),
+            include_str!("../../../shader/slang/flora.vert.slang"),
         ] {
-            assert!(vertex_shader
-                .contains("flora_competition_growth_factor(instance_local_base, pc.instance_ty)"));
+            assert!(vertex_shader.contains("floraCompetitionGrowthFactor("));
         }
     }
 
     #[test]
     fn growth_refresh_preserves_instances_before_reading_shared_surface() {
-        let shader =
-            include_str!("../../../shader/builder/surface/occupancy_to_flora_instances.comp");
+        let shader = include_str!("../../../shader/slang/occupancy_to_flora_instances.slang");
         let preserve_branch = shader
             .find("if (occupancy_to_instances_info.preserve_existing_placements != 0u)")
             .expect("missing preserve-existing growth refresh branch");
         let surface_read = shader
-            .find("uint surface_data = imageLoad(surface, base_local).r;")
+            .find("uint surfaceData = surface[baseLocal];")
             .expect("missing surface staging read");
         assert!(
             preserve_branch < surface_read,

@@ -455,18 +455,14 @@ fn u8_to_u32(byte_code: &[u8]) -> Vec<u32> {
 }
 
 fn normalize_buffer_type_name(type_name: &str) -> String {
-    // Slang materializes frontend- and layout-specific SPIR-V wrapper structs.
-    // Keep the source-level type name as the lookup key so existing resource
-    // definitions work across GLSL and Slang frontends.
-    let source_name = type_name
-        .strip_prefix("SLANG_ParameterGroup_")
-        .unwrap_or(type_name);
+    // Slang materializes layout-specific SPIR-V wrapper structs. Keep the
+    // source-level type name as the lookup key for Rust resource definitions.
     for suffix in ["_std140", "_std430", "_scalar", "_natural"] {
-        if let Some(source_name) = source_name.strip_suffix(suffix) {
+        if let Some(source_name) = type_name.strip_suffix(suffix) {
             return source_name.to_owned();
         }
     }
-    source_name.to_owned()
+    type_name.to_owned()
 }
 
 fn is_slang_array_wrapper_type(type_name: &str) -> bool {
@@ -546,9 +542,9 @@ fn extract_buffer_layouts(
             let member: MemberLayout = if let Some(ty) =
                 get_slang_matrix_wrapper_type(&type_description.type_name)
             {
-                // Slang's GLSL frontend materializes matrices as nested
-                // `_MatrixStorage_*` structs. Treat the wrapper as the source
-                // matrix so member lookup and absolute offsets match shaderc.
+                // Slang materializes matrices as nested `_MatrixStorage_*`
+                // structs. Treat the wrapper as the source matrix so member
+                // lookup and absolute offsets match the native declaration.
                 MemberLayout::Plain(PlainMemberLayout {
                     name: member_name.clone(),
                     ty,
@@ -680,7 +676,7 @@ fn extract_buffer_layouts(
             }
 
             if type_flags.contains(ReflectTypeFlags::INT) {
-                // "bool" in GLSL is 32-bit in SPIR-V, typically stored as int.
+                // Shader booleans are 32-bit in SPIR-V, typically stored as integers.
                 let signed = numeric.scalar.signedness;
                 if size == 4 {
                     return if signed == 1 {
@@ -717,10 +713,6 @@ mod tests {
             "U_PostProcessingInfo"
         );
         assert_eq!(normalize_buffer_type_name("B_Leaves_std430"), "B_Leaves");
-        assert_eq!(
-            normalize_buffer_type_name("SLANG_ParameterGroup_U_GuiInput_std140"),
-            "U_GuiInput"
-        );
         assert_eq!(normalize_buffer_type_name("U_CameraInfo"), "U_CameraInfo");
     }
 

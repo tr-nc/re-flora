@@ -7,9 +7,10 @@ on:
       - ".github/workflows/shader-validation.yml"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
-      - "scripts/check_slang_roadmap.py"
+      - "scripts/check_shader_manifest.py"
       - "scripts/install_slang.py"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
@@ -20,9 +21,10 @@ on:
       - ".github/workflows/shader-validation.yml"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "crates/re-flora-shader-build/**"
       - "crates/re-flora-vkn/**"
       - "scripts/check_latest_run_log.py"
-      - "scripts/check_slang_roadmap.py"
+      - "scripts/check_shader_manifest.py"
       - "scripts/install_slang.py"
       - "scripts/validate_spirv_artifacts.py"
       - "shader/**"
@@ -115,32 +117,20 @@ jobs:
         shell: bash
         run: python scripts/install_slang.py --destination "$RUNNER_TEMP/slang" --github-env "$GITHUB_ENV"
 
-      - name: Check default GLSL build
+      - name: Check native Slang build
         run: cargo check --locked
 
-      - name: Check complete native Slang build
-        run: cargo check --locked --features slang-validation
-
       - name: Audit production shader entry points
-        run: python scripts/check_slang_roadmap.py
+        run: python3 scripts/check_shader_manifest.py
 
       - name: Validate aggregate SPIR-V
         if: matrix.validate_spirv
         run: python scripts/validate_spirv_artifacts.py --expected 152
 
-      - name: Smoke test default GLSL through MoltenVK
-        if: matrix.moltenvk_smoke
-        shell: bash
-        run: cargo run --release --locked --features no_validation_layer -- --hidden --mute --auto-exit 0.5
-
-      - name: Check default GLSL run log
-        if: matrix.moltenvk_smoke
-        run: python scripts/check_latest_run_log.py
-
       - name: Smoke test native Slang through MoltenVK
         if: matrix.moltenvk_smoke
         shell: bash
-        run: cargo run --release --locked --features no_validation_layer,slang-validation -- --hidden --mute --auto-exit 0.5
+        run: cargo run --release --locked --features no_validation_layer -- --hidden --mute --auto-exit 0.5
 
       - name: Check native Slang run log
         if: matrix.moltenvk_smoke
@@ -184,14 +174,11 @@ jobs:
       - name: Install pinned Slang
         run: python3 scripts/install_slang.py --destination "$RUNNER_TEMP/slang" --github-env "$GITHUB_ENV"
 
-      - name: Check default GLSL build
+      - name: Check native Slang build
         run: cargo check --locked
 
-      - name: Check complete native Slang build
-        run: cargo check --locked --features slang-validation
-
       - name: Audit production shader entry points
-        run: python3 scripts/check_slang_roadmap.py
+        run: python3 scripts/check_shader_manifest.py
 
       - name: Validate aggregate SPIR-V
         run: python3 scripts/validate_spirv_artifacts.py --expected 152

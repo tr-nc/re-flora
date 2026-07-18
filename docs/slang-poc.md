@@ -1,142 +1,31 @@
-# Slang shader proof of concept
+# Slang shader migration evidence
 
-For migration status, completion criteria, the 76-entry-point checklist, and next tasks, see [`slang-migration-roadmap.md`](slang-migration-roadmap.md). This document is the operator guide and technical evidence record.
+> Historical record: the feature names, GLSL paths, frontend A/B commands, and shaderc comparisons below describe the completed migration and are no longer available in the current tree. Native Slang is now unconditional, all legacy GLSL sources and per-family frontend features have been removed, and the active build/validation contract lives in [`slang-migration-roadmap.md`](slang-migration-roadmap.md) and [`slang-validation-plan.md`](slang-validation-plan.md).
 
-This document records the incremental replacement of GLSL shaders with native Slang. Native Slang is now the normal development build and source of truth; the completed GLSL implementation is retained temporarily as a frozen fallback and ABI reference.
+This document preserves the incremental correctness, visual-equivalence, ABI, build-cost, and performance evidence used to move all 76 production entry points from GLSL to native Slang. It is not an operator guide for current commands.
 
-The first pass, `shader/tracer/post_processing.comp`, was selected because it runs every frame at the full output resolution, already has a Vulkan timestamp scope, and exercises a uniform buffer, formatted storage images, bounds checks, and a reusable dither module. The surface and contree-leaf passes cover difficult shared-memory, synchronization, atomic, and structured-buffer paths. The main tracer first established a GLSL-through-Slang backend baseline and now also has a complete native Slang implementation.
-
-## Requirements
+## Current requirements
 
 Install a Slang distribution that includes both `slangc` and the compiler shared library. For the checksum-pinned v2025.23 release used by CI:
 
 ```bash
-python scripts/install_slang.py
+python3 scripts/install_slang.py
 export SLANGC="$PWD/.tools/slang-2025.23/bin/slangc"
 ```
 
-The installer supports Linux x86_64/aarch64, macOS x86_64/aarch64, and Windows x86_64. It verifies platform-specific SHA-256 digests before extraction; setting `SLANGC` is sufficient for the build to locate the adjacent shared library. The build locates the library through:
+The installer supports Linux x86_64/aarch64, macOS x86_64/aarch64, and Windows x86_64. It verifies platform-specific SHA-256 digests before extraction. The build locates the shared library through `SLANG_LIB`, beside `SLANGC`, under `VULKAN_SDK`, or beside `slangc` on `PATH`.
 
-1. the `SLANG_LIB` environment variable,
-2. a library beside or under the installation containing `SLANGC`,
-3. `$VULKAN_SDK`, or
-4. the installation containing `slangc` on `PATH`.
-
-The build dynamically loads the compiler API when a Slang feature is enabled. The default feature set now enables the complete native Slang inventory; `--no-default-features` avoids locating or loading Slang and selects the frozen GLSL fallback. The initial validation used Vulkan SDK 1.4.321.0 and Slang `2025.11-12-gc5295eae2` on macOS; the shared-session build-cost validation used Vulkan SDK Slang `2025.23.2` on Linux. The portable CI contract pins official Slang v2025.23 archives, which also pass the complete local aggregate build. Native Slang sources pin the Slang 2025 language rules and column-major matrices. The GLSL frontend uses row-major lowering to preserve the existing GLSL std140 matrix bytes. Both paths emit SPIR-V 1.6 with Vulkan GL-compatible buffer layout.
-
-## Build and validation
-
-The default build compiles the complete native Slang inventory. The explicit fallback compiles GLSL through shaderc:
+The current build always compiles the complete native inventory:
 
 ```bash
+python3 scripts/check_shader_manifest.py
 cargo check
-cargo check --no-default-features
 ```
 
-For isolated frontend comparisons, disable defaults and then enable an individual replacement:
+`--no-default-features` uses the same native Slang inventory. The removed `slang-*` feature switches and GLSL fallback commands mentioned later are retained only as migration history.
 
-```bash
-cargo check --features slang-post-processing
-cargo check --features slang-chunk-writer-buffer-setup
-cargo check --features slang-chunk-writer-heightmap
-cargo check --features slang-chunk-writer-init
-cargo check --features slang-chunk-writer-model-voxelize
-cargo check --features slang-chunk-writer-modify
-cargo check --features slang-chunk-writer-modify-sample
-cargo check --features slang-chunk-writer-solid-sample
-cargo check --features slang-chunk-writer-voxel-property-sample
-cargo check --features slang-chunk-writer
-cargo check --features slang-chunk-writer-terrain-smooth-heights
-cargo check --features slang-chunk-writer-terrain-smooth-target
-cargo check --features slang-chunk-writer-terrain-smooth-apply
-cargo check --features slang-chunk-writer-terrain-smooth
-cargo check --features slang-chunk-writer-terrain-moisture-brush
-cargo check --features slang-chunk-writer-terrain-fertility-brush
-cargo check --features slang-chunk-writer-terrain-moisture-dry
-cargo check --features slang-chunk-writer-terrain-moisture-spread
-cargo check --features slang-chunk-writer-terrain-soil-mix
-cargo check --features slang-chunk-writer-terrain-smooth-mbo-init
-cargo check --features slang-chunk-writer-terrain-smooth-mbo-diffuse-ab
-cargo check --features slang-chunk-writer-terrain-smooth-mbo-diffuse-ba
-cargo check --features slang-chunk-writer-terrain-smooth-mbo-score
-cargo check --features slang-chunk-writer-terrain-smooth-mbo-apply
-cargo check --features slang-chunk-writer-terrain-smooth-mbo
-cargo check --features slang-scene-accel
-cargo check --features slang-sprinkler
-cargo check --features slang-terrarium-glass-vert
-cargo check --features slang-terrarium-glass-frag
-cargo check --features slang-terrarium-glass
-cargo check --features slang-composition
-cargo check --features slang-composition-backend
-cargo check --features slang-surface-active-to-flora-instances
-cargo check --features slang-surface-clear-occupancy
-cargo check --features slang-surface-edit-occupancy-capsule
-cargo check --features slang-surface-instances-to-occupancy
-cargo check --features slang-surface-make
-cargo check --features slang-surface-make-sparse
-cargo check --features slang-surface-occupancy-to-flora-instances
-cargo check --features slang-surface-prepare-active-flora-dispatch
-cargo check --features slang-surface-prepare-sparse-dispatch
-cargo check --features slang-surface-update-flora-growth
-cargo check --features slang-surface
-cargo check --features slang-contree-leaf
-cargo check --features slang-denoiser-spatial
-cargo check --features slang-denoiser-temporal
-cargo check --features slang-denoiser
-cargo check --features slang-egui
-cargo check --features slang-flora
-cargo check --features slang-foliage-flora-lod
-cargo check --features slang-foliage-leaves-lod
-cargo check --features slang-foliage-leaves-shadow-frag
-cargo check --features slang-foliage-leaves-shadow-vert
-cargo check --features slang-foliage-leaves-shadow
-cargo check --features slang-foliage-leaves-vert
-cargo check --features slang-foliage
-cargo check --features slang-particles-lod-textured-frag
-cargo check --features slang-particles-lod-textured-vert
-cargo check --features slang-particles-lod-textured
-cargo check --features slang-particles-water-droplet
-cargo check --features slang-particles
-cargo check --features slang-player-collider
-cargo check --features slang-tracer
-cargo check --features slang-tracer-backend
-cargo check --features slang-tracer-leaf-shadow-mask
-cargo check --features slang-tracer-leaf-shadow-temporal
-cargo check --features slang-tracer-leaf-shadow
-cargo check --features slang-tracer-lens-flare-downsample
-cargo check --features slang-tracer-lens-flare-generate
-cargo check --features slang-tracer-lens-flare-sun-visible
-cargo check --features slang-tracer-lens-flare
-cargo check --features slang-tracer-wind-volume
-cargo check --features slang-tracer-terrain-query
-cargo check --features slang-tracer-god-ray
-cargo check --features slang-tracer-cloud-shadow-temporal
-cargo check --features slang-tracer-cloud-temporal
-cargo check --features slang-tracer-cloud
-cargo check --features slang-tracer-cloud-shadow
-cargo check --features slang-tracer-clouds
-cargo check --features slang-tracer-shadow
-cargo check --features slang-tracer-shadow-depth-copy
-cargo check --features slang-tracer-vsm-blur-h
-cargo check --features slang-tracer-vsm-blur-v
-cargo check --features slang-tracer-vsm-creation
-cargo check --features slang-tracer-vsm
-cargo check --features slang-validation
-```
+## Historical comparison methodology
 
-`slang-poc` remains a backward-compatible alias for `slang-post-processing`.
-
-The build reports each frontend separately, for example:
-
-```text
-precompiled 0 shaderc GLSL, 0 Slang GLSL, and 76 native Slang shaders into SPIR-V artifacts
-```
-
-The logical shader path remains the runtime identity for both languages. Enabling an override compiles the original GLSL reflection artifact as a reference and fails the build if the replacement changes the pipeline ABI: stage, workgroup size, descriptor contract, top-level buffer member byte layout and array stride, push constant ranges/member layout, stage IO locations/formats/arrays, or interpolation decorations. Override configuration is also checked for duplicate and missing paths, stage mismatches, and missing source/include paths. Nested compiler-specific matrix wrappers and the final Rust resource mapping are still validated by the existing reflection/resource path at runtime.
-
-The Slang compiler validates generated SPIR-V by default. Runtime validation additionally covers SPIR-V reflection, descriptor names and bindings, uniform layout lookup, Vulkan pipeline creation, dispatch, and MoltenVK execution.
-
-## Comparing GPU time
 
 Run matched release-mode samples from the same worktree and note the two run-log paths:
 
@@ -837,4 +726,4 @@ Slang names SPIR-V buffer-layout wrapper types with suffixes such as `_std140`, 
 
 ## Limits of this result
 
-The candidates establish Slang compatibility with the current shared-memory, uniform-barrier, atomic, storage-image, runtime/fixed-array, structured-SSBO, matrix, branch-heavy traversal, workgroup-reduction, and complex graphics-stage interface patterns. Native Slang modules cover all 76 production entries. Accepted sources live under `shader/slang/`, dependency-aware artifact reuse is active, and official Slang v2025.23 archives are checksum-pinned for the macOS, Windows, and Fedora validation matrix. The default should not switch until that hosted workflow succeeds and additional Windows/Linux native-Vulkan vendor coverage is recorded. The disabled composition helper source is translated and compile/visual-tested, but would need a fresh performance gate if product behavior re-enables it; the dormant player-collider pass similarly has matched execution/readback rather than production timing evidence. Flora timing is currently aggregate MoltenVK evidence because nested child-scope attribution is unstable; native Vulkan timing should be repeated across additional GPU vendors and drivers. The current source tree does not actively use buffer references or Vulkan sparse-residency intrinsics; those should be tested if introduced later.
+The migration evidence established Slang compatibility with the project's shared-memory, uniform-barrier, atomic, storage-image, runtime/fixed-array, structured-buffer, matrix, branch-heavy traversal, workgroup-reduction, and graphics-stage interface patterns. Native Slang now covers all 76 production entries, dependency-aware artifact reuse is active, and official Slang v2025.23 archives are checksum-pinned for CI. The later default switch and legacy-source removal are complete. Disabled composition helpers still require a fresh performance gate if product behavior re-enables them; the dormant player-collider pass similarly has matched execution/readback rather than production timing evidence. Broader native-Vulkan vendor timing remains useful for future performance work.

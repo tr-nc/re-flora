@@ -1,3 +1,4 @@
+use re_flora_shader_build::{NativeSlangCompiler, OptimizationLevel, NATIVE_SHADERS};
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs;
@@ -667,113 +668,38 @@ fn generate_gui_adjustables() {
 // gpu_structs codegen - phase 1
 // ============================================================================
 
-/// All GLSL shader source files to reflect, relative to the project root.
-const SHADER_FILES: &[(&str, shaderc::ShaderKind)] = &[
-    (
-        "shader/builder/chunk_writer/buffer_setup.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/chunk_writer/chunk_modify.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/chunk_writer/chunk_modify_sample.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/chunk_writer/chunk_solid_sample.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/chunk_writer/voxel_property_sample.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/chunk_writer/model_voxelize.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/contree/buffer_setup.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/scene_accel/update_scene_tex.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/surface/clear_occupancy.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/surface/edit_occupancy_capsule.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/surface/instances_to_occupancy.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/surface/make_surface.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/builder/surface/occupancy_to_flora_instances.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    ("shader/tracer/tracer.comp", shaderc::ShaderKind::Compute),
-    (
-        "shader/tracer/tracer_shadow.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/tracer/leaf_shadow_temporal.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/tracer/leaf_shadow_mask.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/tracer/vsm_blur_h.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/tracer/vsm_blur_v.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/tracer/composition.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    ("shader/tracer/god_ray.comp", shaderc::ShaderKind::Compute),
-    (
-        "shader/tracer/post_processing.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/tracer/player_collider.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/tracer/terrain_query.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/tracer/wind_volume.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    (
-        "shader/denoiser/temporal.comp",
-        shaderc::ShaderKind::Compute,
-    ),
-    ("shader/denoiser/spatial.comp", shaderc::ShaderKind::Compute),
-    ("shader/foliage/flora.vert", shaderc::ShaderKind::Vertex),
-    ("shader/foliage/flora_lod.vert", shaderc::ShaderKind::Vertex),
-    (
-        "shader/foliage/leaves_shadow.vert",
-        shaderc::ShaderKind::Vertex,
-    ),
+/// Logical native Slang entry points reflected for CPU/GPU struct generation.
+const SHADER_FILES: &[&str] = &[
+    "shader/builder/chunk_writer/buffer_setup.comp",
+    "shader/builder/chunk_writer/chunk_modify.comp",
+    "shader/builder/chunk_writer/chunk_modify_sample.comp",
+    "shader/builder/chunk_writer/chunk_solid_sample.comp",
+    "shader/builder/chunk_writer/voxel_property_sample.comp",
+    "shader/builder/chunk_writer/model_voxelize.comp",
+    "shader/builder/contree/buffer_setup.comp",
+    "shader/builder/scene_accel/update_scene_tex.comp",
+    "shader/builder/surface/clear_occupancy.comp",
+    "shader/builder/surface/edit_occupancy_capsule.comp",
+    "shader/builder/surface/instances_to_occupancy.comp",
+    "shader/builder/surface/make_surface.comp",
+    "shader/builder/surface/occupancy_to_flora_instances.comp",
+    "shader/tracer/tracer.comp",
+    "shader/tracer/tracer_shadow.comp",
+    "shader/tracer/leaf_shadow_temporal.comp",
+    "shader/tracer/leaf_shadow_mask.comp",
+    "shader/tracer/vsm_blur_h.comp",
+    "shader/tracer/vsm_blur_v.comp",
+    "shader/tracer/composition.comp",
+    "shader/tracer/god_ray.comp",
+    "shader/tracer/post_processing.comp",
+    "shader/tracer/player_collider.comp",
+    "shader/tracer/terrain_query.comp",
+    "shader/tracer/wind_volume.comp",
+    "shader/denoiser/temporal.comp",
+    "shader/denoiser/spatial.comp",
+    "shader/foliage/flora.vert",
+    "shader/foliage/flora_lod.vert",
+    "shader/foliage/leaves_shadow.vert",
 ];
 
 // ---- type model (mirrors the runtime PlainMemberType) ----------------------
@@ -813,41 +739,12 @@ struct PlainField {
 
 #[derive(Debug, Clone)]
 struct StructLayout {
-    /// Type name as in GLSL (e.g. `U_CameraInfo`)
+    /// Reflected shader type name (e.g. `U_CameraInfo`)
     type_name: String,
     /// Ordered by offset
     fields: Vec<PlainField>,
     /// Total size in bytes (offset of last field + its padded_size)
     total_size: u32,
-}
-
-// ---- shaderc include callback (mirrors compiler.rs) -------------------------
-
-fn build_include_callback(
-    requested_source: &str,
-    include_type: shaderc::IncludeType,
-    requesting_source: &str,
-    _depth: usize,
-) -> Result<shaderc::ResolvedInclude, String> {
-    let base = match include_type {
-        shaderc::IncludeType::Relative => Path::new(requesting_source)
-            .parent()
-            .ok_or_else(|| format!("{requesting_source} has no parent"))?
-            .to_owned(),
-        shaderc::IncludeType::Standard => {
-            return Err("standard includes not supported".into());
-        }
-    };
-    let full_path = base
-        .join(requested_source)
-        .canonicalize()
-        .map_err(|e| format!("{requested_source}: {e}"))?;
-    let content =
-        std::fs::read_to_string(&full_path).map_err(|e| format!("{}: {e}", full_path.display()))?;
-    Ok(shaderc::ResolvedInclude {
-        resolved_name: full_path.to_string_lossy().into_owned(),
-        content,
-    })
 }
 
 // ---- spirv-reflect helpers --------------------------------------------------
@@ -926,29 +823,73 @@ fn reflect_field_type(
     None
 }
 
+fn normalize_shader_type_name(type_name: &str) -> String {
+    for suffix in ["_std140", "_std430", "_scalar", "_natural"] {
+        if let Some(source_name) = type_name.strip_suffix(suffix) {
+            return source_name.to_owned();
+        }
+    }
+    type_name.to_owned()
+}
+
+fn slang_matrix_wrapper_type(type_name: &str) -> Option<FieldType> {
+    let storage_type = type_name.strip_prefix("_MatrixStorage_float")?;
+    if storage_type.starts_with("2x2") {
+        Some(FieldType::Mat2)
+    } else if storage_type.starts_with("3x3") {
+        Some(FieldType::Mat3)
+    } else if storage_type.starts_with("4x4") {
+        Some(FieldType::Mat4)
+    } else if storage_type.starts_with("3x4") {
+        Some(FieldType::Mat3x4)
+    } else {
+        None
+    }
+}
+
 fn flatten_block_members(
     members: &[spirv_reflect::types::ReflectBlockVariable],
     fields: &mut Vec<PlainField>,
 ) {
-    for m in members {
-        let td = match &m.type_description {
-            Some(td) => td,
-            None => continue,
+    for member in members {
+        let Some(type_description) = &member.type_description else {
+            continue;
         };
-        if td.type_flags.contains(ReflectTypeFlags::STRUCT) {
-            // recurse into nested struct, members share the parent offset space
-            flatten_block_members(&m.members, fields);
+        let wrapper_type = slang_matrix_wrapper_type(&type_description.type_name).or_else(|| {
+            type_description
+                .type_name
+                .starts_with("_Array_")
+                .then_some(FieldType::Array)
+        });
+        if let Some(ty) = wrapper_type {
+            fields.push(PlainField {
+                name: member.name.clone(),
+                ty,
+                offset: member.offset,
+                size: member.size,
+                padded_size: member.padded_size,
+            });
+        } else if type_description
+            .type_flags
+            .contains(ReflectTypeFlags::STRUCT)
+        {
+            // Wrapper and nested-struct member offsets are relative to their parent.
+            // The generated CPU structs only consume the top-level shader blocks reflected here.
+            flatten_block_members(&member.members, fields);
         } else {
-            let ty = match reflect_field_type(&td.type_flags, &td.traits, m.size) {
-                Some(t) => t,
-                None => continue,
+            let Some(ty) = reflect_field_type(
+                &type_description.type_flags,
+                &type_description.traits,
+                member.size,
+            ) else {
+                continue;
             };
             fields.push(PlainField {
-                name: m.name.clone(),
+                name: member.name.clone(),
                 ty,
-                offset: m.offset,
-                size: m.size,
-                padded_size: m.padded_size,
+                offset: member.offset,
+                size: member.size,
+                padded_size: member.padded_size,
             });
         }
     }
@@ -981,28 +922,7 @@ fn push_constant_type_name(path: &str) -> String {
     format!("PushConstant{}", to_pascal_case(stem))
 }
 
-fn reflect_shader(source: &str, kind: shaderc::ShaderKind, path: &str) -> Vec<StructLayout> {
-    let compiler = shaderc::Compiler::new().expect("shaderc compiler");
-    let mut opts = shaderc::CompileOptions::new().expect("shaderc options");
-    opts.set_target_env(
-        shaderc::TargetEnv::Vulkan,
-        shaderc::EnvVersion::Vulkan1_3 as u32,
-    );
-    opts.set_target_spirv(shaderc::SpirvVersion::V1_6);
-    opts.set_source_language(shaderc::SourceLanguage::GLSL);
-    opts.set_optimization_level(shaderc::OptimizationLevel::Zero);
-    opts.set_include_callback(build_include_callback);
-
-    let artifact = match compiler.compile_into_spirv(source, kind, path, "main", Some(&opts)) {
-        Ok(a) => a,
-        Err(e) => {
-            // emit a warning but don't abort; partial failures shouldn't break the build
-            println!("cargo:warning=gpu_structs codegen: failed to compile {path}: {e}");
-            return Vec::new();
-        }
-    };
-
-    let spirv_bytes = artifact.as_binary_u8();
+fn reflect_shader(spirv_bytes: &[u8], path: &str) -> Vec<StructLayout> {
     let module = match spirv_reflect::ShaderModule::load_u8_data(spirv_bytes) {
         Ok(m) => m,
         Err(e) => {
@@ -1024,11 +944,16 @@ fn reflect_shader(source: &str, kind: shaderc::ShaderKind, path: &str) -> Vec<St
             continue;
         }
         let type_name = match &binding.type_description {
-            Some(td) => td.type_name.clone(),
+            Some(type_description) => normalize_shader_type_name(&type_description.type_name),
             None => continue,
         };
+        // Native StructuredBuffer<T> resources expose the Slang wrapper name here;
+        // only named CPU/GPU ABI blocks participate in Rust struct generation.
+        if !type_name.starts_with("U_") && !type_name.starts_with("B_") {
+            continue;
+        }
         // skip pure GPU-internal read-only storage buffers that the CPU never writes
-        // (contree, terrain query info, scene tex – identified by `B_Contree*`, `B_Scene*`)
+        // (contree and scene tex – identified by `B_Contree*`, `B_Scene*`)
         // We still include B_PlayerCollisionResult (CPU reads it back).
         if type_name.starts_with("B_Contree") || type_name == "B_SceneTex" {
             continue;
@@ -1127,11 +1052,12 @@ fn field_size(ty: &FieldType) -> u32 {
 
 /// Strip the `U_` / `B_` prefix and convert `PascalCase` from `CamelCase`.
 /// e.g. `U_CameraInfo` -> `CameraInfo`, `B_PlayerCollisionResult` -> `PlayerCollisionResult`
-fn struct_name(glsl_type_name: &str) -> String {
-    let stripped = glsl_type_name
+fn struct_name(shader_type_name: &str) -> String {
+    let shader_type_name = normalize_shader_type_name(shader_type_name);
+    let stripped = shader_type_name
         .strip_prefix("U_")
-        .or_else(|| glsl_type_name.strip_prefix("B_"))
-        .unwrap_or(glsl_type_name);
+        .or_else(|| shader_type_name.strip_prefix("B_"))
+        .unwrap_or(&shader_type_name);
     stripped.to_owned()
 }
 
@@ -1142,7 +1068,7 @@ fn emit_struct(layout: &StructLayout) -> String {
     let mut code = String::new();
 
     code.push_str(&format!(
-        "/// Auto-generated from `{}` (GLSL source of truth).\n",
+        "/// Auto-generated from `{}` (native Slang source of truth).\n",
         layout.type_name
     ));
     code.push_str("#[repr(C)]\n");
@@ -1201,33 +1127,24 @@ fn generate_gpu_structs() {
     let out_dir = root.join("src").join("auto-generated");
     fs::create_dir_all(&out_dir).expect("create src/auto-generated");
 
-    // mark all shader source files as inputs so cargo reruns when they change
-    for (rel, _) in SHADER_FILES {
-        println!("cargo:rerun-if-changed={}", root.join(rel).display());
-    }
-    // also watch the shader include directory
+    // Native Slang modules and entry points are the sole shader inputs.
     println!(
         "cargo:rerun-if-changed={}",
-        shader_root.join("include").display()
+        shader_root.join("slang").display()
     );
 
     // collect all layouts across all shaders, deduplicating by type name
     // BTreeMap for deterministic output order
     let mut all_layouts: BTreeMap<String, StructLayout> = BTreeMap::new();
 
-    for (rel, kind) in SHADER_FILES {
-        let path = root.join(rel);
-        let source = match fs::read_to_string(&path) {
-            Ok(s) => s,
-            Err(e) => {
-                println!(
-                    "cargo:warning=gpu_structs codegen: cannot read {}: {e}",
-                    path.display()
-                );
-                continue;
-            }
-        };
-        let layouts = reflect_shader(&source, *kind, &path.to_string_lossy());
+    let compiler = NativeSlangCompiler::new();
+    for logical_path in SHADER_FILES {
+        let shader = NATIVE_SHADERS
+            .iter()
+            .find(|shader| shader.logical_path == *logical_path)
+            .unwrap_or_else(|| panic!("missing native shader manifest entry for {logical_path}"));
+        let compiled = compiler.compile_shader(shader, &root, OptimizationLevel::Zero);
+        let layouts = reflect_shader(&compiled.spirv, logical_path);
         for layout in layouts {
             let existing = all_layouts
                 .entry(layout.type_name.clone())
@@ -1249,7 +1166,9 @@ fn generate_gpu_structs() {
         "// ============================================================================\n",
     );
     code.push_str("// !!! DO NOT EDIT THIS FILE BY HAND !!!\n");
-    code.push_str("// Generated by build.rs::generate_gpu_structs from GLSL shader sources.\n");
+    code.push_str(
+        "// Generated by build.rs::generate_gpu_structs from native Slang shader sources.\n",
+    );
     code.push_str(
         "// ============================================================================\n\n",
     );
@@ -1308,11 +1227,6 @@ fn main() {
     // Tell Cargo to rerun this script if these files/directories change.
     // config/gui.toml drives GuiAdjustables codegen.
     println!("cargo:rerun-if-changed=config/gui.toml");
-
-    // All shader files drive gpu_structs codegen.
-    for (path, _) in SHADER_FILES {
-        println!("cargo:rerun-if-changed={}", path);
-    }
 
     dump_env();
 

@@ -47,8 +47,8 @@ class Summary:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("baseline", type=Path, help="GLSL tree-benchmark run log")
-    parser.add_argument("candidate", type=Path, help="Slang tree-benchmark run log")
+    parser.add_argument("baseline", type=Path, help="baseline tree-benchmark run log")
+    parser.add_argument("candidate", type=Path, help="candidate tree-benchmark run log")
     parser.add_argument("--pass", dest="pass_name", default="leaf_write", help="pass label")
     parser.add_argument(
         "--min-leaf-bytes",

@@ -11,6 +11,9 @@ set -euo pipefail
 
 echo "=== Re-Flora macOS Bootstrap ==="
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SLANG_ROOT="$PROJECT_ROOT/.tools/slang-2025.23"
+
 # ── Install dependencies via Homebrew ──────────────────────────────────────────
 
 BREW_PACKAGES=(
@@ -18,7 +21,6 @@ BREW_PACKAGES=(
     vulkan-loader
     vulkan-validationlayers
     molten-vk
-    shaderc
     cmake
 )
 
@@ -31,6 +33,8 @@ for pkg in "${BREW_PACKAGES[@]}"; do
         brew install "$pkg"
     fi
 done
+
+python3 "$PROJECT_ROOT/scripts/install_slang.py" --destination "$SLANG_ROOT"
 
 # ── Configure environment variables ───────────────────────────────────────────
 
@@ -46,9 +50,9 @@ export DYLD_LIBRARY_PATH="/opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/lib$
 export DYLD_FALLBACK_LIBRARY_PATH="/opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
 export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
 export VK_LAYER_PATH="/opt/homebrew/opt/vulkan-validationlayers/share/vulkan/explicit_layer.d"
-export SHADERC_LIB_DIR="/opt/homebrew/lib"
 export LIBRARY_PATH="/opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
 export CMAKE_POLICY_VERSION_MINIMUM="3.5"'
+ENV_BLOCK+=$'\nexport SLANGC="'"$SLANG_ROOT"'/bin/slangc"'
 
 # Export for the current shell session
 eval "$ENV_BLOCK"
@@ -61,6 +65,9 @@ if [ -n "$SHELL_RC" ]; then
         echo ""
         echo "Environment variables added to $SHELL_RC"
     else
+        if ! grep -q '^export SLANGC=' "$SHELL_RC" 2>/dev/null; then
+            echo "export SLANGC=\"$SLANG_ROOT/bin/slangc\"" >> "$SHELL_RC"
+        fi
         echo ""
         echo "Environment variables already present in $SHELL_RC"
     fi
@@ -93,6 +100,12 @@ if [ -d "$VK_LAYER_PATH" ]; then
     echo "  ✓ Vulkan validation layers found"
 else
     echo "  ⚠ Validation layers not found (build with --features no_validation_layer)"
+fi
+
+if [ -x "$SLANGC" ]; then
+    echo "  ✓ Slang compiler found"
+else
+    echo "  ✗ Slang compiler not found at $SLANGC"
 fi
 
 echo ""

@@ -15,7 +15,7 @@ rem    run this script, or in any parent directory.
 rem
 rem Configuration:
 rem - Edit the "FILE_EXTENSIONS" variable below to change or add file types.
-rem   Separate extensions with a space (e.g., "*.glsl *.hlsl").
+rem   Separate extensions with a space.
 rem ============================================================================
 
 echo.
@@ -24,8 +24,7 @@ cargo fmt
 
 rem --- CONFIGURATION ---
 rem Define the file extensions to format. Use a space-separated list.
-rem You can add more extensions here, like *.glsl
-set "FILE_EXTENSIONS=*.vert *.frag *.comp *.glsl"
+set "FILE_EXTENSIONS=*.slang"
 
 rem --- SCRIPT LOGIC ---
 echo.

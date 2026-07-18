@@ -17,7 +17,7 @@ public struct StarlightInfo
     public float saturation;
 };
 
-float3 glslMod(float3 value, float divisor)
+float3 positiveMod(float3 value, float divisor)
 {
     return value - divisor * floor(value / divisor);
 }
@@ -33,7 +33,7 @@ float3 starNestEffect(float3 viewDirection, StarlightInfo info)
     for (int volumeStep = 0; volumeStep < info.volsteps; volumeStep++)
     {
         float3 position = from + distance * direction * 0.5;
-        position = abs(float3(info.tile) - glslMod(position, info.tile * 2.0));
+        position = abs(float3(info.tile) - positiveMod(position, info.tile * 2.0));
 
         float previousLength = 0.0;
         float accumulation = 0.0;
