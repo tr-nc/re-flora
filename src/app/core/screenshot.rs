@@ -5,6 +5,14 @@ use re_flora_vkn::{
 };
 use std::{borrow::Cow, path::Path, time::Instant};
 
+#[cfg(target_os = "linux")]
+use std::time::Duration;
+
+struct ClipboardCopyOutcome {
+    backend: &'static str,
+    encoded_bytes: Option<usize>,
+}
+
 pub(super) enum ScreenshotDestination {
     File(String),
     Clipboard,
@@ -19,7 +27,47 @@ pub(super) struct ScreenshotReadback {
 }
 
 #[cfg(target_os = "linux")]
-fn copy_rgba_to_wayland_clipboard(width: u32, height: u32, rgba: &[u8]) -> Result<()> {
+fn encode_clipboard_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>> {
+    let mut png_data = Vec::with_capacity(rgba.len() / 2);
+    {
+        let mut encoder = png::Encoder::new(&mut png_data, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        // Fastest uses PNG's Up filter and fdeflate, keeping 4K clipboard images
+        // small enough for paste targets without bringing back slow DEFLATE levels.
+        encoder.set_compression(png::Compression::Fastest);
+        let mut writer = encoder.write_header()?;
+        writer.write_image_data(rgba)?;
+    }
+    Ok(png_data)
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_wayland_clipboard_image(expected_png: &[u8]) -> Result<()> {
+    use std::process::Command;
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        match Command::new("wl-paste")
+            .args(["--type", "image/png"])
+            .output()
+        {
+            Ok(output) if output.status.success() && output.stdout == expected_png => {
+                return Ok(());
+            }
+            Ok(_) => {}
+            Err(err) => return Err(err).context("failed to query Wayland clipboard types"),
+        }
+
+        if Instant::now() >= deadline {
+            anyhow::bail!("Wayland clipboard did not serve the copied image/png within 3 seconds");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn copy_rgba_to_wayland_clipboard(width: u32, height: u32, rgba: &[u8]) -> Result<usize> {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
@@ -27,18 +75,7 @@ fn copy_rgba_to_wayland_clipboard(width: u32, height: u32, rgba: &[u8]) -> Resul
         anyhow::bail!("not running under Wayland");
     }
 
-    let mut png_data = Vec::with_capacity(rgba.len() / 2);
-    {
-        let mut encoder = png::Encoder::new(&mut png_data, width, height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        // Clipboard latency matters more than transfer size; 4K DEFLATE compression
-        // dominated the capture at roughly one second on the target machine.
-        encoder.set_compression(png::Compression::NoCompression);
-        encoder.set_filter(png::Filter::NoFilter);
-        let mut writer = encoder.write_header()?;
-        writer.write_image_data(rgba)?;
-    }
+    let png_data = encode_clipboard_png(width, height, rgba)?;
 
     let mut child = Command::new("wl-copy")
         .args(["--type", "image/png"])
@@ -55,24 +92,38 @@ fn copy_rgba_to_wayland_clipboard(width: u32, height: u32, rgba: &[u8]) -> Resul
     if !status.success() {
         anyhow::bail!("wl-copy exited with {status}");
     }
-    Ok(())
+    // wl-copy forks its clipboard owner. Its parent can exit successfully before
+    // the daemon has actually replaced the previous selection, so paste the PNG
+    // back and verify its bytes before reporting success to the user.
+    wait_for_wayland_clipboard_image(&png_data)?;
+    Ok(png_data.len())
 }
 
-fn copy_rgba_to_clipboard(width: u32, height: u32, rgba: Vec<u8>) -> Result<()> {
+fn copy_rgba_to_clipboard(width: u32, height: u32, rgba: Vec<u8>) -> Result<ClipboardCopyOutcome> {
     #[cfg(target_os = "linux")]
-    if copy_rgba_to_wayland_clipboard(width, height, &rgba).is_ok() {
-        return Ok(());
+    match copy_rgba_to_wayland_clipboard(width, height, &rgba) {
+        Ok(encoded_bytes) => {
+            return Ok(ClipboardCopyOutcome {
+                backend: "wl-copy",
+                encoded_bytes: Some(encoded_bytes),
+            });
+        }
+        Err(err) => log::warn!(
+            "[SCREENSHOT] Wayland image clipboard failed; trying native fallback: {err:#}"
+        ),
     }
 
-    arboard::Clipboard::new()
-        .and_then(|mut clipboard| {
-            clipboard.set_image(arboard::ImageData {
-                width: width as usize,
-                height: height as usize,
-                bytes: Cow::Owned(rgba),
-            })
+    arboard::Clipboard::new().and_then(|mut clipboard| {
+        clipboard.set_image(arboard::ImageData {
+            width: width as usize,
+            height: height as usize,
+            bytes: Cow::Owned(rgba),
         })
-        .map_err(Into::into)
+    })?;
+    Ok(ClipboardCopyOutcome {
+        backend: "arboard",
+        encoded_bytes: None,
+    })
 }
 
 impl App {
@@ -170,11 +221,16 @@ impl App {
                     }
                     ScreenshotDestination::Clipboard => {
                         match copy_rgba_to_clipboard(readback.width, readback.height, rgba_data) {
-                            Ok(()) => log::info!(
-                                "[SCREENSHOT] Copied {}x{} image to clipboard in {:.1}ms (readback {:.1}ms, BGRA conversion {:.1}ms)",
+                            Ok(outcome) => log::info!(
+                                "[SCREENSHOT] Copied {}x{} image to clipboard via {} in {:.1}ms (PNG {}, readback {:.1}ms, BGRA conversion {:.1}ms)",
                                 readback.width,
                                 readback.height,
+                                outcome.backend,
                                 started.elapsed().as_secs_f64() * 1000.0,
+                                outcome
+                                    .encoded_bytes
+                                    .map(|bytes| format!("{:.1} MiB", bytes as f64 / 1_048_576.0))
+                                    .unwrap_or_else(|| "size unavailable".to_owned()),
                                 readback_elapsed.as_secs_f64() * 1000.0,
                                 convert_elapsed.as_secs_f64() * 1000.0,
                             ),
@@ -188,5 +244,34 @@ impl App {
             }
             Err(err) => log::error!("[SCREENSHOT] GPU readback failed: {}", err),
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::encode_clipboard_png;
+
+    #[test]
+    fn clipboard_png_is_compressed_and_round_trips() {
+        let width = 256;
+        let height = 256;
+        let mut rgba = Vec::with_capacity(width * height * 4);
+        for y in 0..height {
+            for x in 0..width {
+                rgba.extend_from_slice(&[
+                    ((x / 16) * 11) as u8,
+                    ((y / 16) * 13) as u8,
+                    (((x + y) / 32) * 17) as u8,
+                    255,
+                ]);
+            }
+        }
+
+        let encoded = encode_clipboard_png(width as u32, height as u32, &rgba).unwrap();
+        assert!(encoded.len() < rgba.len() / 4);
+
+        let decoded = image::load_from_memory(&encoded).unwrap().into_rgba8();
+        assert_eq!(decoded.dimensions(), (width as u32, height as u32));
+        assert_eq!(decoded.into_raw(), rgba);
     }
 }
