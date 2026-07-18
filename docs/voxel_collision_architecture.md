@@ -110,17 +110,37 @@ For the intended art direction, use the convex hull for apples. It visibly tumbl
 - collision groups and material properties;
 - explicit wake-up around terrain edits.
 
-The terrain source and consumers remain separate:
+Contree's decoded CPU source is the canonical owner of terrain presence and source
+revisions. Both collision paths use those revisions for invalidation and stale-work
+rejection, but they deliberately derive different occupancy representations:
 
 ```text
-terrain atlas / Contree revision
-    -> exact collision-brick source -> CollisionWorld / rigid bodies
-    -> coarse 32-cubed source       -> water SDF / particle collision
+revisioned Contree CPU terrain source
+    |-- sparse surface-shell voxel block
+    |       -> exact 32-cubed Rapier voxel bricks
+    |       -> CollisionWorld / rigid bodies
+    |
+    `-- chunk dirty notification + source dependency revision
+            -> async GPU atlas filled-solid sample
+            -> immutable 32-cubed solid grid
+            -> water SDF + normal grid + ghost density
+            -> particle collision
 ```
 
-The existing CPU Contree cache already contains exact voxel types and chunk revisions. The preferred source path is an efficient block export from that decoded cache. Before committing to the extraction algorithm, benchmark a real 32-cubed terrain block in release mode. A 32-cubed exact GPU atlas readback is a viable first fallback because the project already has asynchronous solid-grid sampling, but it adds another delayed GPU-to-CPU data path.
+The semantic split is required. The CPU Contree cache represents the sparse visible
+surface shell and is appropriate for exact terrain-aligned Rapier contact. It does
+not preserve the filled interior needed to compute a correctly signed distance field:
+in a direct experiment it produced only 109-296 occupied samples in affected terrain
+chunks, rather than the 12,844-17,322 filled samples from the GPU atlas, and reduced
+the deepest negative SDF from roughly `-0.5` to `-0.016`. Water therefore continues
+to sample filled-solid occupancy from the GPU atlas.
 
-Do not repurpose `CpuSolidVoxelStore` without changing its semantics: today it stores the water system's coarse 32-cubed sample for an entire 256-cubed terrain chunk, not an exact 32-cubed terrain subregion.
+This is one revision/invalidation system, not one interchangeable voxel payload. A
+water sample captures the Contree source dependency before GPU submission and is
+discarded if that dependency changes before readback completes. The immutable sampled
+grid then travels with the queued SDF build, so water no longer owns a parallel
+`CpuSolidVoxelStore`, duplicate chunk revision counter, or second long-lived occupancy
+cache.
 
 ## Fruit state and rendering
 
@@ -142,12 +162,13 @@ Dynamic fruit rendering needs orientation as well as position. The existing stat
 
 Each step should remain independently validated and committed. Do not remove the coarse water SDF as part of this work.
 
-The implementation currently completes steps 1 through 3 and the collision-world
-portion of step 4: Rapier is pinned, exact Contree block export exists, static bricks
-combine and propagate boundary state, dynamic bodies use a capped 120 Hz fixed step,
-and terrain edits wake sleeping bodies in collision-prediction range. The app imports
-one startup brick as an end-to-end measurement. Multi-brick streaming and terrain-edit
-queue integration remain the next production step before fruit state is connected.
+The implementation currently completes steps 1 through 4: exact Contree block export
+feeds a budgeted, revisioned multi-brick queue; terrain edit paths dirty the affected
+bricks; and published changes combine boundary state and wake nearby sleeping bodies.
+The capped 120 Hz dynamic-body path is also exposed through the GUI as a lit, rotating
+convex-fruit collision probe. Step 5 remains incomplete: attached fruit still needs
+stable registry state and a real attached-to-dynamic drop transition. High-count fruit
+validation from step 6 also remains future work.
 
 ## Experiment provenance
 
