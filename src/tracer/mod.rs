@@ -18,6 +18,9 @@ pub use irrigation_pipe_resources::*;
 mod geometry_preview_resources;
 pub use geometry_preview_resources::*;
 
+mod dynamic_fruit_resources;
+pub use dynamic_fruit_resources::*;
+
 pub mod tree_preview_mesh;
 
 mod denoiser_resources;
@@ -455,6 +458,7 @@ pub struct Tracer {
     sprinkler_resources: SprinklerRendererResources,
     irrigation_pipe_resources: IrrigationPipeRendererResources,
     geometry_preview_resources: GeometryPreviewRendererResources,
+    dynamic_fruit_resources: DynamicFruitRendererResources,
 
     camera: Camera,
     camera_view_mat_prev_frame: Mat4,
@@ -606,6 +610,8 @@ impl Tracer {
             IrrigationPipeRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let geometry_preview_resources =
             GeometryPreviewRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
+        let dynamic_fruit_resources =
+            DynamicFruitRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
 
         let compute_pipelines = PipelineBuilder::create_compute_pipelines(
             &vulkan_ctx,
@@ -695,6 +701,7 @@ impl Tracer {
             sprinkler_resources,
             irrigation_pipe_resources,
             geometry_preview_resources,
+            dynamic_fruit_resources,
             camera,
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
@@ -1435,6 +1442,14 @@ impl Tracer {
                 MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
             )],
         );
+        let depth_to_compute_barrier = PipelineBarrier::new(
+            PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
+            PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                MemoryAccess::SHADER_READ,
+            )],
+        );
 
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
@@ -1448,7 +1463,8 @@ impl Tracer {
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
             || self.irrigation_pipe_resources.instance_count > 0
-            || self.geometry_preview_resources.has_visible_mesh();
+            || self.geometry_preview_resources.has_visible_mesh()
+            || self.dynamic_fruit_resources.instance_count > 0;
 
         if render_flags.enable_flora {
             Self::with_gpu_scope(
@@ -1520,6 +1536,17 @@ impl Tracer {
         }
 
         if render_flags.enable_shadows && update_shadow_map {
+            let dynamic_fruit_shadow_changed = self.dynamic_fruit_resources.take_shadow_changed();
+            if self.dynamic_fruit_resources.instance_count > 0 {
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "dynamic_fruit_shadow.pass",
+                    || self.record_dynamic_fruit_shadow_pass(cmdbuf),
+                );
+                depth_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            }
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -1546,7 +1573,7 @@ impl Tracer {
                         cmdbuf,
                         vsm_blur_radius,
                         vsm_temporal_alpha,
-                        reset_vsm_history,
+                        reset_vsm_history || dynamic_fruit_shadow_changed,
                     )
                 },
             );
@@ -1624,7 +1651,8 @@ impl Tracer {
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
             || self.irrigation_pipe_resources.instance_count > 0
-            || self.geometry_preview_resources.has_visible_mesh();
+            || self.geometry_preview_resources.has_visible_mesh()
+            || self.dynamic_fruit_resources.instance_count > 0;
 
         if render_flags.enable_flora {
             assert_eq!(
@@ -1885,7 +1913,8 @@ impl Tracer {
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
             || self.irrigation_pipe_resources.instance_count > 0
-            || self.geometry_preview_resources.has_visible_mesh();
+            || self.geometry_preview_resources.has_visible_mesh()
+            || self.dynamic_fruit_resources.instance_count > 0;
         if !has_graphics_pass {
             self.resources
                 .extent_dependent_resources
@@ -2086,6 +2115,11 @@ impl Tracer {
         if self.geometry_preview_resources.has_visible_mesh() {
             self.graphics_pipelines
                 .geometry_preview_ppl
+                .record_texture_transitions(cmdbuf);
+        }
+        if self.dynamic_fruit_resources.instance_count > 0 {
+            self.graphics_pipelines
+                .dynamic_fruit_ppl
                 .record_texture_transitions(cmdbuf);
         }
         if enable_particles {
@@ -2453,7 +2487,6 @@ impl Tracer {
             for resources in [
                 &self.geometry_preview_resources.pipe,
                 &self.geometry_preview_resources.tree,
-                &self.geometry_preview_resources.collision_probe,
             ] {
                 if resources.instance_count == 0 {
                     continue;
@@ -2471,6 +2504,40 @@ impl Tracer {
                 );
             }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), preview_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        }
+
+        if self.dynamic_fruit_resources.instance_count > 0 {
+            let fruit_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.dynamic_fruit",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            let resources = &self.dynamic_fruit_resources;
+            let pipeline = &self.graphics_pipelines.dynamic_fruit_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(&resources.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
+            pipeline.record_indexed(
+                cmdbuf,
+                resources.indices_len,
+                resources.instance_count,
+                0,
+                0,
+                0,
+                None,
+            );
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), fruit_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
                     cmdbuf,
@@ -2737,6 +2804,52 @@ impl Tracer {
         }
 
         self.render_target_leaf_shadow_opacity.record_end(cmdbuf);
+    }
+
+    fn record_dynamic_fruit_shadow_pass(&self, cmdbuf: &CommandBuffer) {
+        let resources = &self.dynamic_fruit_resources;
+        if resources.instance_count == 0 {
+            return;
+        }
+
+        let pipeline = &self.graphics_pipelines.dynamic_fruit_shadow_ppl;
+        pipeline.record_texture_transitions(cmdbuf);
+
+        let clear_values: [vk::ClearValue; 0] = [];
+        self.render_target_depth_only
+            .record_begin(cmdbuf, &clear_values);
+
+        let shadow_extent = self
+            .resources
+            .shadow
+            .shadow_map_depth_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        let viewport = Viewport::from_extent(shadow_extent.as_extent_2d().unwrap());
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: shadow_extent.width,
+                height: shadow_extent.height,
+            },
+        };
+
+        pipeline.record_bind(cmdbuf);
+        pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+        cmdbuf.bind_index_buffer_u32(&resources.indices);
+        cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
+        pipeline.record_indexed(
+            cmdbuf,
+            resources.indices_len,
+            resources.instance_count,
+            0,
+            0,
+            0,
+            None,
+        );
+
+        self.render_target_depth_only.record_end(cmdbuf);
     }
 
     fn record_tracer_shadow_pass(&self, cmdbuf: &CommandBuffer) {
@@ -3349,10 +3462,9 @@ impl Tracer {
     }
 
     pub fn upload_collision_probe_geometry(&mut self) -> Result<()> {
-        let mesh = build_collision_probe_apple_mesh();
-        self.geometry_preview_resources
-            .collision_probe
-            .upload(&mesh)
+        // The formal dynamic-fruit mesh is immutable and uploaded once with Tracer resources.
+        debug_assert!(self.dynamic_fruit_resources.indices_len > 0);
+        Ok(())
     }
 
     pub fn show_collision_probe_geometry(
@@ -3360,13 +3472,11 @@ impl Tracer {
         position: Vec3,
         rotation: glam::Quat,
     ) -> Result<()> {
-        self.geometry_preview_resources
-            .collision_probe
-            .show_transform(position, rotation, Vec4::ONE)
+        self.dynamic_fruit_resources.show(position, rotation)
     }
 
     pub fn clear_collision_probe_geometry(&mut self) {
-        self.geometry_preview_resources.collision_probe.clear();
+        self.dynamic_fruit_resources.clear();
     }
 
     pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {

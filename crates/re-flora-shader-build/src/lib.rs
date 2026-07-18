@@ -286,6 +286,24 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
+        logical_path: "shader/props/dynamic_fruit.vert",
+        source_path: "shader/slang/dynamic_fruit.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/props/dynamic_fruit_shadow.vert",
+        source_path: "shader/slang/dynamic_fruit_shadow.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/props/dynamic_fruit_shadow.frag",
+        source_path: "shader/slang/dynamic_fruit_shadow.frag.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
         logical_path: "shader/particles/particle_lod_textured.frag",
         source_path: "shader/slang/particle_lod_textured.frag.slang",
         module_path: "shader/slang",

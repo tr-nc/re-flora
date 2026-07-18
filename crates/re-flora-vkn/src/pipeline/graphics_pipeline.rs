@@ -2,8 +2,8 @@ use super::descriptor_set_utils;
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, Device, FormatOverride, MergeWithEq, PipelineLayout, RenderPass,
-    ResourceContainer, ResourceState,
-    ResourceStatePolicy, ResourceStateTracker, ShaderModule, Texture, Viewport, WriteDescriptorSet,
+    RenderPassDesc, ResourceContainer, ResourceState, ResourceStatePolicy, ResourceStateTracker,
+    ShaderModule, Texture, Viewport, WriteDescriptorSet,
 };
 use anyhow::{Context, Result};
 use ash::vk;
@@ -205,7 +205,7 @@ impl GraphicsPipeline {
             .alpha_to_coverage_enable(false)
             .alpha_to_one_enable(false);
 
-        let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::default()
+        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::default()
             .color_write_mask(
                 vk::ColorComponentFlags::R
                     | vk::ColorComponentFlags::G
@@ -218,7 +218,12 @@ impl GraphicsPipeline {
             .color_blend_op(vk::BlendOp::ADD)
             .src_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_DST_ALPHA)
             .dst_alpha_blend_factor(vk::BlendFactor::ONE)
-            .alpha_blend_op(vk::BlendOp::ADD)];
+            .alpha_blend_op(vk::BlendOp::ADD);
+        let color_blend_attachments =
+            vec![
+                color_blend_attachment;
+                first_subpass_color_attachment_count(render_pass.get_desc())
+            ];
         let color_blending_info = vk::PipelineColorBlendStateCreateInfo::default()
             .logic_op_enable(false)
             .logic_op(vk::LogicOp::COPY)
@@ -682,6 +687,12 @@ impl GraphicsPipeline {
     }
 }
 
+fn first_subpass_color_attachment_count(desc: &RenderPassDesc) -> usize {
+    desc.subpasses
+        .first()
+        .map_or(0, |subpass| subpass.color_attachments.len())
+}
+
 fn graphics_texture_binding_state(descriptor_type: vk::DescriptorType) -> Option<ResourceState> {
     match descriptor_type {
         vk::DescriptorType::STORAGE_IMAGE => Some(ResourceState::storage_image_read_write()),
@@ -712,4 +723,30 @@ fn find_unique_texture(
         }
     }
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AttachmentReference, SubpassDesc, TextureLayout};
+
+    #[test]
+    fn color_blend_attachment_count_matches_first_subpass() {
+        assert_eq!(
+            first_subpass_color_attachment_count(&RenderPassDesc::default()),
+            0
+        );
+
+        let desc = RenderPassDesc {
+            subpasses: vec![SubpassDesc {
+                color_attachments: vec![AttachmentReference {
+                    attachment: 0,
+                    layout: TextureLayout::COLOR_ATTACHMENT,
+                }],
+                depth_stencil_attachment: None,
+            }],
+            ..Default::default()
+        };
+        assert_eq!(first_subpass_color_attachment_count(&desc), 1);
+    }
 }
