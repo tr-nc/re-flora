@@ -34,6 +34,7 @@ pub mod voxel_encoding;
 mod voxel_geometry;
 
 mod leaves_construct;
+pub use leaves_construct::voxel_apple_offsets;
 
 mod pipeline_builder;
 use pipeline_builder::*;
@@ -2452,6 +2453,7 @@ impl Tracer {
             for resources in [
                 &self.geometry_preview_resources.pipe,
                 &self.geometry_preview_resources.tree,
+                &self.geometry_preview_resources.collision_probe,
             ] {
                 if resources.instance_count == 0 {
                     continue;
@@ -3344,6 +3346,27 @@ impl Tracer {
 
     pub fn clear_tree_geometry_preview(&mut self) {
         self.geometry_preview_resources.tree.clear();
+    }
+
+    pub fn upload_collision_probe_geometry(&mut self) -> Result<()> {
+        let mesh = build_collision_probe_apple_mesh();
+        self.geometry_preview_resources
+            .collision_probe
+            .upload(&mesh)
+    }
+
+    pub fn show_collision_probe_geometry(
+        &mut self,
+        position: Vec3,
+        rotation: glam::Quat,
+    ) -> Result<()> {
+        self.geometry_preview_resources
+            .collision_probe
+            .show_transform(position, rotation, Vec4::ONE)
+    }
+
+    pub fn clear_collision_probe_geometry(&mut self) {
+        self.geometry_preview_resources.collision_probe.clear();
     }
 
     pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {
