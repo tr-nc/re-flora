@@ -101,6 +101,28 @@ fn orbit_focus_pan_delta(drag_delta_physical: Vec2, camera_front: Vec3) -> Vec3 
         * super::ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PHYSICAL_PIXEL
 }
 
+fn orbit_rotation_delta(drag_delta_physical: Vec2) -> Vec3 {
+    if !drag_delta_physical.is_finite() || drag_delta_physical.length_squared() <= f32::EPSILON {
+        return Vec3::ZERO;
+    }
+
+    Vec3::new(-drag_delta_physical.x, drag_delta_physical.y, 0.0)
+        * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL
+}
+
+fn clamp_orbit_elevation_delta(
+    current_elevation: f32,
+    pending_elevation_delta: f32,
+    requested_elevation_delta: f32,
+) -> f32 {
+    let target_elevation =
+        (current_elevation + pending_elevation_delta + requested_elevation_delta).clamp(
+            -super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
+            super::ORBIT_CAMERA_MAX_ELEVATION_RAD,
+        );
+    target_elevation - current_elevation - pending_elevation_delta
+}
+
 fn orbit_keyboard_pan_speed(distance: f32) -> f32 {
     let distance = distance.clamp(
         super::ORBIT_CAMERA_MIN_DISTANCE,
@@ -196,6 +218,7 @@ impl App {
         self.orbit_keyboard_pan_input.reset();
         self.reset_orbit_mouse_drag();
         self.orbit_pan_smoother.reset();
+        self.orbit_rotation_smoother.reset();
         self.mouse_wheel_dolly.reset();
     }
 
@@ -303,7 +326,7 @@ impl App {
             }
         } else {
             self.queue_orbit_keyboard_camera_pan(frame_delta_time);
-            self.update_orbit_camera_pan(frame_delta_time);
+            self.update_orbit_camera_motion(frame_delta_time);
         }
         self.update_mouse_wheel_camera_dolly(frame_delta_time);
     }
@@ -383,16 +406,27 @@ impl App {
         self.orbit_mouse_drag_last_position_physical = None;
     }
 
-    fn update_orbit_camera_pan(&mut self, frame_delta_time: f32) {
+    fn update_orbit_camera_motion(&mut self, frame_delta_time: f32) {
         if !self.orbit_mouse_drag_available() {
             self.reset_orbit_mouse_drag();
             self.orbit_pan_smoother.reset();
+            self.orbit_rotation_smoother.reset();
             return;
         }
 
         let pan_delta = self.orbit_pan_smoother.advance(frame_delta_time);
         if pan_delta.length_squared() > f32::EPSILON {
             self.translate_orbit_camera(pan_delta);
+        }
+
+        let rotation_delta = self.orbit_rotation_smoother.advance(frame_delta_time);
+        if rotation_delta.length_squared() > f32::EPSILON {
+            let (azimuth, elevation, distance) = self.orbit_camera_spherical();
+            self.apply_orbit_camera_spherical(
+                azimuth + rotation_delta.x,
+                elevation + rotation_delta.y,
+                distance,
+            );
         }
     }
 
@@ -432,6 +466,7 @@ impl App {
                 if self.orbit_mouse_drag_available() && button == MouseButton::Middle =>
             {
                 self.stop_terrain_edit_loop_sound();
+                self.orbit_rotation_smoother.reset();
                 self.orbit_mouse_drag_held = true;
                 self.orbit_mouse_drag_button = Some(button);
                 self.orbit_mouse_drag_pan_active = true;
@@ -447,6 +482,7 @@ impl App {
                 self.orbit_mouse_drag_button = Some(button);
                 self.orbit_mouse_drag_pan_active = false;
                 self.orbit_pan_smoother.reset();
+                self.orbit_rotation_smoother.reset();
                 self.acquire_orbit_focus_from_screen_center();
                 self.orbit_mouse_drag_last_position_physical = self.cursor_position_physical;
                 true
@@ -472,6 +508,7 @@ impl App {
         if !self.orbit_mouse_drag_available() {
             self.reset_orbit_mouse_drag();
             self.orbit_pan_smoother.reset();
+            self.orbit_rotation_smoother.reset();
             return;
         }
 
@@ -495,10 +532,16 @@ impl App {
             return;
         }
 
-        let (mut azimuth, mut elevation, distance) = self.orbit_camera_spherical();
-        azimuth -= drag_delta_physical.x * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
-        elevation += drag_delta_physical.y * super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
-        self.apply_orbit_camera_spherical(azimuth, elevation, distance);
+        let mut rotation_delta = orbit_rotation_delta(drag_delta_physical);
+        let (_, elevation, _) = self.orbit_camera_spherical();
+        rotation_delta.y = clamp_orbit_elevation_delta(
+            elevation,
+            self.orbit_rotation_smoother.pending_delta().y,
+            rotation_delta.y,
+        );
+        if rotation_delta.length_squared() > f32::EPSILON {
+            self.orbit_rotation_smoother.add_delta(rotation_delta);
+        }
     }
 
     fn apply_orbit_mouse_pan_delta(&mut self, drag_delta_physical: Vec2) {
@@ -1737,8 +1780,9 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::{
-        orbit_focus_from_view_ray, orbit_focus_pan_delta, orbit_keyboard_pan_speed,
-        orbit_offset_to_spherical, select_sprinkler_placement_target,
+        clamp_orbit_elevation_delta, orbit_focus_from_view_ray, orbit_focus_pan_delta,
+        orbit_keyboard_pan_speed, orbit_offset_to_spherical, orbit_rotation_delta,
+        select_sprinkler_placement_target,
     };
     use crate::app::core::placeables::{PipeAttachment, PipeRayHit, SprinklerPlacementTarget};
     use glam::{Vec2, Vec3};
@@ -1776,6 +1820,25 @@ mod tests {
         assert_near(delta.x, -10.0 * scale);
         assert_near(delta.y, 0.0);
         assert_near(delta.z, 20.0 * scale);
+    }
+
+    #[test]
+    fn orbit_rotation_delta_maps_mouse_axes_to_azimuth_and_elevation() {
+        let delta = orbit_rotation_delta(Vec2::new(10.0, -20.0));
+        let scale = super::super::ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL;
+
+        assert_near(delta.x, -10.0 * scale);
+        assert_near(delta.y, -20.0 * scale);
+        assert_near(delta.z, 0.0);
+    }
+
+    #[test]
+    fn orbit_rotation_smoothing_does_not_accumulate_past_elevation_limits() {
+        let max = super::super::ORBIT_CAMERA_MAX_ELEVATION_RAD;
+
+        assert_near(clamp_orbit_elevation_delta(max - 0.1, 0.0, 0.3), 0.1);
+        assert_near(clamp_orbit_elevation_delta(-max + 0.1, 0.0, -0.3), -0.1);
+        assert_near(clamp_orbit_elevation_delta(max - 0.2, 0.1, 0.3), 0.1);
     }
 
     #[test]

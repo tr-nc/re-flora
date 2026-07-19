@@ -148,7 +148,8 @@ pub struct App {
     orbit_mouse_drag_button: Option<MouseButton>,
     orbit_mouse_drag_pan_active: bool,
     orbit_mouse_drag_last_position_physical: Option<Vec2>,
-    orbit_pan_smoother: OrbitPanSmoother,
+    orbit_pan_smoother: OrbitDeltaSmoother,
+    orbit_rotation_smoother: OrbitDeltaSmoother,
     mouse_wheel_dolly: MouseWheelDollySmoother,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -351,12 +352,12 @@ impl OrbitKeyboardPanInput {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-struct OrbitPanSmoother {
+struct OrbitDeltaSmoother {
     current_delta: Vec3,
     target_delta: Vec3,
 }
 
-impl OrbitPanSmoother {
+impl OrbitDeltaSmoother {
     fn reset(&mut self) {
         *self = Self::default();
     }
@@ -367,24 +368,28 @@ impl OrbitPanSmoother {
         }
     }
 
+    fn pending_delta(&self) -> Vec3 {
+        self.target_delta - self.current_delta
+    }
+
     fn advance(&mut self, frame_delta_time: f32) -> Vec3 {
         if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
             return Vec3::ZERO;
         }
 
-        let remaining_delta = self.target_delta - self.current_delta;
-        if remaining_delta.length_squared() <= ORBIT_CAMERA_PAN_SNAP_DISTANCE.powi(2) {
+        let remaining_delta = self.pending_delta();
+        if remaining_delta.length_squared() <= ORBIT_CAMERA_DELTA_SNAP_DISTANCE.powi(2) {
             self.reset();
             return remaining_delta;
         }
 
-        let alpha =
-            (1.0 - (-ORBIT_CAMERA_PAN_INTERPOLATION_RATE * frame_delta_time).exp()).clamp(0.0, 1.0);
+        let alpha = (1.0 - (-ORBIT_CAMERA_DELTA_INTERPOLATION_RATE * frame_delta_time).exp())
+            .clamp(0.0, 1.0);
         let mut advanced_delta = remaining_delta * alpha;
         self.current_delta += advanced_delta;
 
         let remaining_after_advance = self.target_delta - self.current_delta;
-        if remaining_after_advance.length_squared() <= ORBIT_CAMERA_PAN_SNAP_DISTANCE.powi(2) {
+        if remaining_after_advance.length_squared() <= ORBIT_CAMERA_DELTA_SNAP_DISTANCE.powi(2) {
             advanced_delta += remaining_after_advance;
             self.reset();
         }
@@ -601,8 +606,8 @@ const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
 const ORBIT_CAMERA_FOCUS_RAY_QUERY_DISTANCE: f32 = 10.0;
 const ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL: f32 = 0.005;
 const ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PHYSICAL_PIXEL: f32 = 0.001;
-const ORBIT_CAMERA_PAN_INTERPOLATION_RATE: f32 = 14.0;
-const ORBIT_CAMERA_PAN_SNAP_DISTANCE: f32 = 0.00001;
+const ORBIT_CAMERA_DELTA_INTERPOLATION_RATE: f32 = 14.0;
+const ORBIT_CAMERA_DELTA_SNAP_DISTANCE: f32 = 0.00001;
 const ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE: f32 = 0.9;
 const ORBIT_CAMERA_KEYBOARD_PAN_FAR_ZOOM_BOOST_START: f32 = 0.95;
 const ORBIT_CAMERA_KEYBOARD_PAN_FAR_ZOOM_MAX_MULTIPLIER: f32 = 1.6;
@@ -1180,7 +1185,8 @@ impl App {
             orbit_mouse_drag_button: None,
             orbit_mouse_drag_pan_active: false,
             orbit_mouse_drag_last_position_physical: None,
-            orbit_pan_smoother: OrbitPanSmoother::default(),
+            orbit_pan_smoother: OrbitDeltaSmoother::default(),
+            orbit_rotation_smoother: OrbitDeltaSmoother::default(),
             mouse_wheel_dolly: MouseWheelDollySmoother::default(),
             modifiers: ModifiersState::default(),
             perf_logging: options.perf,
@@ -3807,8 +3813,8 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::{
-        advance_time_of_day, App, CameraControlMode, MouseWheelDollySmoother,
-        OrbitKeyboardPanInput, OrbitPanSmoother,
+        advance_time_of_day, App, CameraControlMode, MouseWheelDollySmoother, OrbitDeltaSmoother,
+        OrbitKeyboardPanInput,
     };
     use glam::Vec3;
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
@@ -3887,8 +3893,8 @@ mod tests {
     }
 
     #[test]
-    fn orbit_pan_smoother_eases_and_preserves_full_delta() {
-        let mut smoother = OrbitPanSmoother::default();
+    fn orbit_delta_smoother_eases_and_preserves_full_delta() {
+        let mut smoother = OrbitDeltaSmoother::default();
         let target_delta = Vec3::new(0.25, 0.0, -0.1);
         smoother.add_delta(target_delta);
 
@@ -3907,8 +3913,8 @@ mod tests {
     }
 
     #[test]
-    fn orbit_pan_smoother_preserves_continuous_keyboard_distance() {
-        let mut smoother = OrbitPanSmoother::default();
+    fn orbit_delta_smoother_preserves_continuous_keyboard_distance() {
+        let mut smoother = OrbitDeltaSmoother::default();
         let frame_delta_time = 1.0 / 60.0;
         let velocity = Vec3::new(0.9, 0.0, -0.4);
         let mut total_advanced = Vec3::ZERO;
