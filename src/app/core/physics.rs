@@ -1,4 +1,5 @@
 use crate::builder::{ContreeBuilder, ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport};
+use crate::gameplay::camera::{PlayerWalkMovementRequest, PlayerWalkMovementResult};
 use crate::tracer::{
     collision_probe_apple_offsets, voxel_apple_offsets, DynamicFruitRenderInstance, Tracer,
     TREE_FRUIT_MAX_RADIUS_VOXELS,
@@ -6,8 +7,8 @@ use crate::tracer::{
 use anyhow::Context;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_physics::{
-    BrickOccupancy, CollisionWorld, DynamicBodyDesc, DynamicBodyId, DynamicColliderShape,
-    StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
+    BrickOccupancy, CapsuleCharacterMove, CollisionWorld, DynamicBodyDesc, DynamicBodyId,
+    DynamicColliderShape, StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -16,6 +17,8 @@ const STARTUP_TERRAIN_BRICK_ID: StaticVoxelBrickId = StaticVoxelBrickId(IVec3::n
 #[cfg(test)]
 const STARTUP_TERRAIN_BRICK_MIN: UVec3 = UVec3::new(256, 96, 256);
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
+const PLAYER_CAPSULE_RADIUS_VOXELS: f32 = 4.0;
+const PLAYER_CAPSULE_HALF_HEIGHT_VOXELS: f32 = 8.0;
 // Keep the probe inside the only terrain-collision brick currently imported, but place it on the
 // camera-facing side of the startup tree so the trunk does not hide the probe fruit.
 const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(276.0, 152.0, 280.0);
@@ -24,6 +27,17 @@ const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WO
 // Keeping this at one avoids terrain edits turning a single render frame into an unbounded scan.
 const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 1;
 const WORLD_TERRAIN_COLLIDER_IMPORT_BUDGET: Duration = Duration::from_millis(25);
+
+fn player_capsule_center_voxels(camera_position: Vec3, camera_height: f32) -> Vec3 {
+    let foot_y = camera_position.y - camera_height;
+    Vec3::new(
+        camera_position.x,
+        foot_y
+            + (PLAYER_CAPSULE_HALF_HEIGHT_VOXELS + PLAYER_CAPSULE_RADIUS_VOXELS)
+                / VOXELS_PER_WORLD_UNIT,
+        camera_position.z,
+    ) * VOXELS_PER_WORLD_UNIT
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct TreeFruitSpec {
@@ -211,6 +225,30 @@ impl TerrainPhysics {
 
     pub(super) fn collision_probe_ready(&self) -> bool {
         self.startup_brick_state == StartupTerrainBrickState::Imported
+    }
+
+    pub(super) fn move_player_capsule(
+        &mut self,
+        request: PlayerWalkMovementRequest,
+        frame_delta_time: f32,
+    ) -> anyhow::Result<PlayerWalkMovementResult> {
+        let capsule_center =
+            player_capsule_center_voxels(request.camera_position, request.camera_height);
+        let movement = self
+            .collision_world
+            .move_capsule_character(CapsuleCharacterMove {
+                center: capsule_center,
+                radius: PLAYER_CAPSULE_RADIUS_VOXELS,
+                half_height: PLAYER_CAPSULE_HALF_HEIGHT_VOXELS,
+                desired_translation: request.desired_translation * VOXELS_PER_WORLD_UNIT,
+                dt: frame_delta_time,
+            })
+            .context("moving the player capsule through terrain")?;
+
+        Ok(PlayerWalkMovementResult {
+            translation: movement.translation / VOXELS_PER_WORLD_UNIT,
+            grounded: movement.grounded,
+        })
     }
 
     pub(super) fn collision_probe_active(&self) -> bool {
@@ -659,6 +697,10 @@ impl TerrainPhysics {
             }
         }
 
+        // Build the character-query BVH incrementally with the collider import. Otherwise the
+        // first switch to walk mode would have to index the whole world in one gameplay frame.
+        self.collision_world.sync_capsule_character_queries();
+
         let import = self
             .world_collider_import
             .as_ref()
@@ -1045,6 +1087,22 @@ mod tests {
         assert_eq!(
             STARTUP_TERRAIN_BRICK_ID.0.as_uvec3() * STATIC_VOXEL_BRICK_DIM,
             STARTUP_TERRAIN_BRICK_MIN
+        );
+    }
+
+    #[test]
+    fn player_capsule_bottom_stays_at_the_camera_foot_position() {
+        let camera_position = Vec3::new(1.25, 0.75, 0.5);
+        let camera_height = 0.08;
+        let center = player_capsule_center_voxels(camera_position, camera_height);
+        let capsule_bottom =
+            center.y - PLAYER_CAPSULE_HALF_HEIGHT_VOXELS - PLAYER_CAPSULE_RADIUS_VOXELS;
+
+        assert_eq!(center.x, camera_position.x * VOXELS_PER_WORLD_UNIT);
+        assert_eq!(center.z, camera_position.z * VOXELS_PER_WORLD_UNIT);
+        assert!(
+            (capsule_bottom / VOXELS_PER_WORLD_UNIT - (camera_position.y - camera_height)).abs()
+                < 1.0e-6
         );
     }
 

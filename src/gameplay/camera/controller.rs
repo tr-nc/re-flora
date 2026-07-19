@@ -2,7 +2,7 @@ use super::{
     audio::PlayerAudioController, head_bob::HeadBob, movement::MovementState, stride::StrideCycle,
     vectors::CameraVectors, CameraDesc,
 };
-use crate::{audio::SpatialSoundManager, tracer::PlayerCollisionResult};
+use crate::audio::SpatialSoundManager;
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use re_flora_vkn::Extent2D;
@@ -31,6 +31,26 @@ pub struct CameraPose {
     pub yaw_deg: f32,
     pub pitch_deg: f32,
     pub fov_deg: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlayerWalkMovementRequest {
+    pub camera_position: Vec3,
+    pub camera_height: f32,
+    pub desired_translation: Vec3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlayerWalkMovementResult {
+    pub translation: Vec3,
+    pub grounded: bool,
+}
+
+impl PlayerWalkMovementResult {
+    pub const BLOCKED: Self = Self {
+        translation: Vec3::ZERO,
+        grounded: false,
+    };
 }
 
 pub struct Camera {
@@ -272,169 +292,108 @@ impl Camera {
         self.stride_cycle.reset();
     }
 
-    pub fn update_transform_walk_mode(
-        &mut self,
-        frame_delta_time: f32,
-        collision_result: PlayerCollisionResult,
-    ) {
-        const GRAVITY_G: f32 = 2.0; // gravity acceleration (m/s²)
-        const JUMP_IMPULSE: f32 = 0.5; // initial jump velocity (m/s)
-        const GROUND_EPSILON: f32 = 0.01; // tolerance when comparing to ground
-        const Y_SMOOTHING_ALPHA: f32 = 0.2; // fraction used to lerp camera height to ground
-        const COLLISION_THRESHOLD: f32 = 0.03; // minimum distance to obstacle before stopping
-        const MAX_COLLISION_ITERATIONS: usize = 3; // maximum collision resolution iterations
+    pub fn prepare_walk_movement(&mut self, frame_delta_time: f32) -> PlayerWalkMovementRequest {
+        const GRAVITY_G: f32 = 2.0;
+        const JUMP_IMPULSE: f32 = 0.5;
+        const GROUND_STICK_VELOCITY: f32 = 0.05;
+        const GROUND_ACCELERATION: f32 = 20.0;
+        const AIR_ACCELERATION: f32 = 10.0;
 
         if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
-            return;
+            return PlayerWalkMovementRequest {
+                camera_position: self.position,
+                camera_height: self.desc.camera_height,
+                desired_translation: Vec3::ZERO,
+            };
         }
 
-        // Compute horizontal movement basis (XZ plane).
         let (front, right) = self.movement_basis();
         let input_velocity = self.movement_state.get_velocity(front, right, Vec3::ZERO);
-
-        // Detect whether the player is on the ground.
-        let is_on_ground = collision_result.ground_distance
-            <= self.desc.camera_height + GROUND_EPSILON
-            && self.rigidbody.velocity.y <= 0.0;
-
-        // Update rigidbody grounded state.
-        self.rigidbody.is_grounded = is_on_ground;
-
-        // Convert input to acceleration forces.
-        const GROUND_ACCELERATION: f32 = 20.0; // m/s² - how fast you accelerate on ground
-        const AIR_ACCELERATION: f32 = 10.0; // m/s² - how fast you accelerate in air
-
-        let acceleration_force = if is_on_ground {
+        let acceleration_force = if self.rigidbody.is_grounded {
             GROUND_ACCELERATION
         } else {
             AIR_ACCELERATION
         };
-
-        // Calculate desired horizontal velocity.
         let desired_horizontal_velocity = Vec3::new(input_velocity.x, 0.0, input_velocity.z);
         let current_horizontal_velocity =
             Vec3::new(self.rigidbody.velocity.x, 0.0, self.rigidbody.velocity.z);
-
-        // Calculate velocity difference and convert to acceleration.
-        let velocity_difference = desired_horizontal_velocity - current_horizontal_velocity;
-        let acceleration = velocity_difference * acceleration_force;
-
-        // Apply acceleration to velocity using delta time.
+        let acceleration =
+            (desired_horizontal_velocity - current_horizontal_velocity) * acceleration_force;
         self.rigidbody.velocity.x += acceleration.x * frame_delta_time;
         self.rigidbody.velocity.z += acceleration.z * frame_delta_time;
 
-        // Handle vertical physics.
-        if is_on_ground {
-            // Clamp any remaining downward velocity when touching ground.
-            if self.vertical_velocity < 0.0 {
-                self.vertical_velocity = 0.0;
-            }
-
-            if self.movement_state.jump_requested {
-                // Launch the jump.
-                self.vertical_velocity = JUMP_IMPULSE;
-                self.rigidbody.velocity.y = JUMP_IMPULSE;
-                // Play jump sound once, immediately when leaving the ground.
-                let current_speed = self.rigidbody.velocity.length();
-                let foot_position = Vec3::new(
-                    self.position.x,
-                    self.position.y - self.desc.camera_height,
-                    self.position.z,
-                );
-                self.player_audio_controller
-                    .play_jumping(current_speed, foot_position);
-            } else {
-                // Stick to ground smoothly.
-                let ground_level_y = self.position.y - collision_result.ground_distance;
-                let target_camera_y = ground_level_y + self.desc.camera_height;
-                self.position.y += (target_camera_y - self.position.y) * Y_SMOOTHING_ALPHA;
-                self.rigidbody.velocity.y = 0.0;
-            }
+        if self.rigidbody.is_grounded && self.movement_state.jump_requested {
+            self.vertical_velocity = JUMP_IMPULSE;
+            self.rigidbody.is_grounded = false;
+            let current_speed = self.rigidbody.velocity.length();
+            let foot_position = Vec3::new(
+                self.position.x,
+                self.position.y - self.desc.camera_height,
+                self.position.z,
+            );
+            self.player_audio_controller
+                .play_jumping(current_speed, foot_position);
+        } else if self.rigidbody.is_grounded {
+            // Keep a slight downward component so the KCC can preserve stable ground contact.
+            self.vertical_velocity = -GROUND_STICK_VELOCITY;
         } else {
-            // Airborne: apply gravity.
             self.vertical_velocity -= GRAVITY_G * frame_delta_time;
-            self.rigidbody.velocity.y = self.vertical_velocity;
-            // Track speed before landing for landing sound volume.
+        }
+        self.rigidbody.velocity.y = self.vertical_velocity;
+
+        self.rigidbody.velocity.x *= self.rigidbody.drag;
+        self.rigidbody.velocity.z *= self.rigidbody.drag;
+        if !self.rigidbody.is_grounded {
             self.pre_landing_speed = self.rigidbody.velocity.length();
         }
 
-        // Apply drag to horizontal velocity.
-        self.rigidbody.velocity.x *= self.rigidbody.drag;
-        self.rigidbody.velocity.z *= self.rigidbody.drag;
+        PlayerWalkMovementRequest {
+            camera_position: self.position,
+            camera_height: self.desc.camera_height,
+            desired_translation: self.rigidbody.velocity * frame_delta_time,
+        }
+    }
 
-        // Prevent upward movement when there is no headroom.
-        if self.rigidbody.velocity.y > 0.0 {
-            let max_upward_displacement =
-                (collision_result.ceiling_distance - COLLISION_THRESHOLD).max(0.0);
-            let max_upward_velocity = max_upward_displacement / frame_delta_time.max(f32::EPSILON);
-
-            if self.rigidbody.velocity.y > max_upward_velocity {
-                self.rigidbody.velocity.y = max_upward_velocity;
-                self.vertical_velocity = self.vertical_velocity.min(max_upward_velocity);
-            }
+    pub fn apply_walk_movement(
+        &mut self,
+        frame_delta_time: f32,
+        request: PlayerWalkMovementRequest,
+        result: PlayerWalkMovementResult,
+    ) {
+        if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
+            return;
         }
 
-        // Resolve horizontal collisions only (preserve vertical velocity for gravity).
-        let mut horizontal_velocity =
-            Vec3::new(self.rigidbody.velocity.x, 0.0, self.rigidbody.velocity.z);
-        let vertical_velocity = self.rigidbody.velocity.y;
-        let mut collision_iterations = 0;
+        self.position += result.translation;
 
-        while collision_iterations < MAX_COLLISION_ITERATIONS {
-            let collision_detected = self.resolve_horizontal_collision_step(
-                &mut horizontal_velocity,
-                &collision_result,
-                COLLISION_THRESHOLD,
-                frame_delta_time,
-            );
-
-            if !collision_detected {
-                break;
-            }
-
-            collision_iterations += 1;
+        let grounded = result.grounded && self.vertical_velocity <= 0.0;
+        let upward_blocked = request.desired_translation.y > 0.0
+            && result.translation.y + f32::EPSILON < request.desired_translation.y;
+        if grounded || upward_blocked {
+            self.vertical_velocity = 0.0;
         }
+        self.rigidbody.velocity.x = result.translation.x / frame_delta_time;
+        self.rigidbody.velocity.y = self.vertical_velocity;
+        self.rigidbody.velocity.z = result.translation.z / frame_delta_time;
+        self.rigidbody.is_grounded = grounded;
 
-        if collision_iterations >= MAX_COLLISION_ITERATIONS {
-            horizontal_velocity = Vec3::ZERO;
-        }
-
-        // Combine resolved horizontal velocity with preserved vertical velocity.
-        let resolved_velocity = Vec3::new(
-            horizontal_velocity.x,
-            vertical_velocity,
-            horizontal_velocity.z,
-        );
-        self.rigidbody.velocity = resolved_velocity;
-
-        // Integrate position.
-        let position_delta = self.rigidbody.velocity * frame_delta_time;
-        self.position += position_delta;
-
-        // Audio: foot-steps, jump, land.
         let is_moving = self.movement_state.is_moving_horizontally();
         let is_running = self.movement_state.is_boosted;
-
-        let just_landed = is_on_ground && !self.was_on_ground;
+        let foot_position = Vec3::new(
+            self.position.x,
+            self.position.y - self.desc.camera_height,
+            self.position.z,
+        );
+        let just_landed = grounded && !self.was_on_ground;
         if just_landed {
             if is_moving {
-                // Moving when touching ground: treat as an immediate step.
-                let current_speed = self.rigidbody.velocity.length();
-                let foot_position = Vec3::new(
-                    self.position.x,
-                    self.position.y - self.desc.camera_height,
-                    self.position.z,
+                self.player_audio_controller.play_step(
+                    is_running,
+                    self.rigidbody.velocity.length(),
+                    foot_position,
                 );
-                self.player_audio_controller
-                    .play_step(is_running, current_speed, foot_position);
                 self.stride_cycle.restart_after_step();
             } else {
-                // Still: play landing sound only.
-                let foot_position = Vec3::new(
-                    self.position.x,
-                    self.position.y - self.desc.camera_height,
-                    self.position.z,
-                );
                 self.player_audio_controller
                     .play_landing(self.pre_landing_speed, foot_position);
             }
@@ -442,32 +401,26 @@ impl Camera {
 
         let stride = self.stride_cycle.update(
             frame_delta_time,
-            is_on_ground && is_moving,
+            grounded && is_moving,
             is_running,
             self.player_audio_controller.walk_interval(),
             self.player_audio_controller.run_interval(),
         );
-
-        let current_speed = self.rigidbody.velocity.length();
-        let foot_position = Vec3::new(
-            self.position.x,
-            self.position.y - self.desc.camera_height,
-            self.position.z,
-        );
         if stride.just_step {
-            self.player_audio_controller
-                .play_step(is_running, current_speed, foot_position);
+            self.player_audio_controller.play_step(
+                is_running,
+                self.rigidbody.velocity.length(),
+                foot_position,
+            );
         }
-
         self.head_bob.update(
             stride.phase,
-            is_on_ground && is_moving,
+            grounded && is_moving,
             is_running,
             &self.desc.head_bob,
             frame_delta_time,
         );
-
-        self.was_on_ground = is_on_ground;
+        self.was_on_ground = grounded;
     }
 
     #[allow(dead_code)]
@@ -492,116 +445,5 @@ impl Camera {
         self.pre_landing_speed = 0.0;
         self.head_bob.reset();
         self.stride_cycle.reset();
-    }
-
-    /// Resolve a single horizontal collision step using the ray-cast collision system.
-    /// Returns true if a collision was detected and resolved.
-    fn resolve_horizontal_collision_step(
-        &self,
-        horizontal_velocity: &mut Vec3,
-        collision_result: &PlayerCollisionResult,
-        collision_threshold: f32,
-        frame_delta_time: f32,
-    ) -> bool {
-        let num_rings = collision_result.ring_distances.len();
-        if num_rings == 0 {
-            return false;
-        }
-
-        let velocity_magnitude = horizontal_velocity.length();
-
-        // Skip collision if velocity is too small.
-        if velocity_magnitude < 0.001 {
-            return false;
-        }
-
-        // Calculate movement direction in XZ plane.
-        let (front, right) = self.movement_basis();
-        let camera_front_2d = Vec2::new(front.x, front.z).normalize();
-        let camera_right_2d = Vec2::new(right.x, right.z).normalize();
-        let movement_2d = Vec2::new(horizontal_velocity.x, horizontal_velocity.z);
-
-        // Project movement onto camera basis.
-        let forward_component = movement_2d.dot(camera_front_2d);
-        let right_component = movement_2d.dot(camera_right_2d);
-
-        // Calculate movement angle relative to camera front.
-        let movement_angle = right_component.atan2(forward_component);
-
-        let mut collision_detected = false;
-        let mut collision_normal = Vec3::ZERO;
-        let mut min_distance = f32::INFINITY;
-
-        // Check all ring rays for collisions.
-        for i in 0..num_rings {
-            let ring_distance = collision_result.ring_distances[i];
-
-            // Calculate ring direction angle.
-            let ring_angle = if i == 0 {
-                0.0 // forward direction
-            } else {
-                2.0 * std::f32::consts::PI * (i - 1) as f32 / (num_rings - 1) as f32
-            };
-
-            // Calculate angle difference between movement and ring.
-            let mut angle_diff = (movement_angle - ring_angle).abs();
-            angle_diff = angle_diff.min(2.0 * std::f32::consts::PI - angle_diff);
-
-            // Use a wider collision cone for better collision detection.
-            let collision_cone_angle = std::f32::consts::PI * 0.6; // 108 degrees
-            let weight = (1.0 - angle_diff / collision_cone_angle).max(0.0);
-
-            if weight > 0.0 && ring_distance < collision_threshold {
-                collision_detected = true;
-
-                // Calculate horizontal collision normal from ring direction.
-                let ring_direction = Vec3::new(
-                    front.x * ring_angle.cos() + right.x * ring_angle.sin(),
-                    0.0, // Keep collision normal horizontal only
-                    front.z * ring_angle.cos() + right.z * ring_angle.sin(),
-                );
-
-                // Weight the collision normal by the angular alignment.
-                collision_normal += ring_direction * weight;
-                min_distance = min_distance.min(ring_distance);
-            }
-        }
-
-        if collision_detected {
-            // Normalize the collision normal (horizontal only).
-            collision_normal = collision_normal.normalize();
-
-            // Calculate penetration depth.
-            let penetration_depth = collision_threshold - min_distance;
-
-            // Apply horizontal collision response for sliding.
-            if penetration_depth > 0.0 {
-                // Separate from collision by moving away from collision normal.
-                let separation_distance = penetration_depth * 1.1; // Add small margin
-                let separation_velocity = collision_normal * separation_distance / frame_delta_time;
-
-                // Project horizontal velocity onto collision normal to get collision component.
-                let velocity_along_normal = horizontal_velocity.dot(collision_normal);
-
-                if velocity_along_normal < 0.0 {
-                    // Project velocity onto the collision tangent plane for sliding.
-                    let collision_velocity = collision_normal * velocity_along_normal;
-                    *horizontal_velocity -= collision_velocity; // Remove the component going into the wall
-
-                    // Add separation velocity to prevent interpenetration.
-                    *horizontal_velocity += separation_velocity;
-                }
-            } else {
-                // Simple velocity projection for approaching collision (sliding).
-                let velocity_along_normal = horizontal_velocity.dot(collision_normal);
-                if velocity_along_normal < 0.0 {
-                    // Project velocity onto tangent plane to allow sliding.
-                    let collision_velocity = collision_normal * velocity_along_normal;
-                    *horizontal_velocity -= collision_velocity;
-                }
-            }
-        }
-
-        collision_detected
     }
 }

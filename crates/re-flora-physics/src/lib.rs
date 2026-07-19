@@ -578,6 +578,14 @@ impl CollisionWorld {
         })
     }
 
+    /// Applies pending static-terrain changes to the character-query acceleration structure.
+    ///
+    /// Character movement calls this automatically. Loading code may call it proactively so a
+    /// large terrain import is distributed across loading frames instead of the first player move.
+    pub fn sync_capsule_character_queries(&mut self) {
+        self.sync_capsule_character_broad_phase();
+    }
+
     pub fn static_brick_count(&self) -> usize {
         self.static_bricks.len()
     }
