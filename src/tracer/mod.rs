@@ -3467,15 +3467,6 @@ impl Tracer {
         Ok(())
     }
 
-    pub fn show_collision_probe_geometry(
-        &mut self,
-        position: Vec3,
-        rotation: glam::Quat,
-    ) -> Result<()> {
-        self.dynamic_fruit_resources
-            .show(&[DynamicFruitRenderInstance::new(position, rotation, 2.0)])
-    }
-
     pub fn show_dynamic_fruit_geometry(
         &mut self,
         instances: &[DynamicFruitRenderInstance],
@@ -3750,14 +3741,19 @@ impl Tracer {
         &mut self,
         surface_resources: &mut SurfaceResources,
         tree_id: u32,
-        apple_positions: &[UVec3],
+        apples: &[(UVec3, f32)],
     ) -> Result<()> {
-        let apple_instances = apple_positions
+        // This path is also used when a pending fruit atomically transitions to the dynamic
+        // renderer. Wait before replacing the per-tree instance buffer still referenced by an
+        // earlier frame.
+        self.vulkan_ctx.device().wait_idle();
+        let apple_instances = apples
             .iter()
-            .copied()
-            .map(|world_pos| TreeRenderInstanceData {
+            .map(|&(world_pos, scale)| TreeRenderInstanceData {
                 world_pos,
-                leaf_local_pos: IVec3::ZERO,
+                // Apples do not use the leaf-local offset. Reuse its signed 10-bit x field for
+                // a compact per-instance scale consumed only by the apple shader path.
+                leaf_local_pos: IVec3::new((scale.clamp(0.0, 1.0) * 511.0).round() as i32, 0, 0),
             })
             .collect::<Vec<_>>();
         let tree_apple_instance =

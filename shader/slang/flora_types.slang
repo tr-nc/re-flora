@@ -76,6 +76,12 @@ public int3 unpackTreeLeafVoxelLocalPosition(uint packedLeafLocalPosition)
                 int((packedLeafLocalPosition >> 20u) & 0x3ffu) - 512);
 }
 
+public float unpackTreeFruitScale(uint packedLeafLocalPosition)
+{
+    int encodedScale = unpackTreeLeafVoxelLocalPosition(packedLeafLocalPosition).x;
+    return clamp(float(max(encodedScale, 0)) / 511.0, 0.0, 1.0);
+}
+
 public uint3 treeLeafWorldPosition(uint packedLocalPosition,
                                    uint3 chunkWorldOffset)
 {

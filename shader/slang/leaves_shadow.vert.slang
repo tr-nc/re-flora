@@ -198,6 +198,12 @@ VertexOutput main(VertexInput input)
         instancePosition;
     float3 voxelPosition = anchorPosition + 0.5 * SCALING_FACTOR;
     float3 vertexPosition = billboardVertexPosition(voxelPosition, vertexOffset);
+    if (isApple)
+    {
+        float scale = unpackTreeFruitScale(leafInstance.packed_leaf_local_pos);
+        float3 fruitBase = instancePosition + windOffset * SCALING_FACTOR;
+        vertexPosition = fruitBase + (vertexPosition - fruitBase) * scale;
+    }
 
     VertexOutput output;
     output.position = mul(

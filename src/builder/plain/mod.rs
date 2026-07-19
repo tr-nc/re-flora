@@ -2187,7 +2187,22 @@ impl PlainBuilder {
         round_cones: &[RoundCone],
         fill_voxel_type: u32,
     ) -> Result<()> {
-        self.chunk_modify_round_cones_with_voxel_type(bvh_nodes, round_cones, fill_voxel_type)
+        self.chunk_modify_round_cones_with_voxel_type(bvh_nodes, round_cones, fill_voxel_type, None)
+    }
+
+    pub fn chunk_replace_voxel_type_in_round_cones(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        round_cones: &[RoundCone],
+        target_voxel_type: u32,
+        fill_voxel_type: u32,
+    ) -> Result<()> {
+        self.chunk_modify_round_cones_with_voxel_type(
+            bvh_nodes,
+            round_cones,
+            fill_voxel_type,
+            Some(target_voxel_type),
+        )
     }
 
     pub fn chunk_modify_cuboids(
@@ -2385,6 +2400,7 @@ impl PlainBuilder {
         bvh_nodes: &[BvhNode],
         round_cones: &[RoundCone],
         fill_voxel_type: u32,
+        target_voxel_type: Option<u32>,
     ) -> Result<()> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
@@ -2395,7 +2411,7 @@ impl PlainBuilder {
             offset,
             dim,
             fill_voxel_type,
-            None,
+            target_voxel_type,
             PRIMITIVE_KIND_ROUND_CONE,
             false,
             None,

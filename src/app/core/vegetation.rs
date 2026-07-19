@@ -1,3 +1,4 @@
+use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
 use super::App;
 use crate::app::world_edits::{
@@ -5,7 +6,9 @@ use crate::app::world_edits::{
     TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit, WorldEditPlan,
 };
 use crate::app::world_ops;
-use crate::builder::{ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_OAK_WOOD};
+use crate::builder::{
+    ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY, VOXEL_TYPE_OAK_WOOD,
+};
 use crate::flora::species;
 use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
@@ -362,14 +365,21 @@ impl TerrainSurfaceRemovalService {
 
 struct CompiledTreePlacement {
     trunk_voxel_edit: VoxelEdit,
+    trunk_geometry: TreeTrunkGeometry,
     rebuild_bound: UAabb3,
     tree_pos: Vec3,
     this_bound: UAabb3,
     quantized_leaf_positions: Vec<UVec3>,
     quantized_leaf_render_positions: Vec<UVec3>,
     leaf_render_local_positions: Vec<IVec3>,
-    quantized_apple_positions: Vec<UVec3>,
+    fruit_specs: Vec<TreeFruitSpec>,
     world_leaf_positions: Vec<Vec3>,
+}
+
+#[derive(Clone, Debug)]
+struct TreeTrunkGeometry {
+    bvh_nodes: Vec<crate::geom::BvhNode>,
+    round_cones: Vec<RoundCone>,
 }
 
 struct TreePlacementService;
@@ -435,13 +445,14 @@ fn centered_variation(mean: f32, variation: f32, unit_sample: f32) -> f32 {
     mean + (unit_sample * 2.0 - 1.0) * variation
 }
 
-fn quantized_apple_positions(
+fn tree_fruit_specs(
     tree_desc: &TreeDesc,
     tree_pos_voxels: Vec3,
     leaf_positions: &[UVec3],
-) -> Vec<UVec3> {
+    position_scale: f32,
+) -> Vec<TreeFruitSpec> {
     let seed = tree_desc.branching.seed;
-    let mut apple_positions = HashSet::new();
+    let mut fruits = Vec::new();
     for (leaf_index, leaf_pos) in leaf_positions.iter().copied().enumerate() {
         if unit_hash(seed, leaf_index, 0xA511_E9B3, leaf_pos)
             >= tree_desc.fruit_spawn_probability.clamp(0.0, 1.0)
@@ -469,21 +480,59 @@ fn quantized_apple_positions(
             tree_desc.fruit_down_offset_variance_voxels.max(0.0),
             unit_hash(seed, leaf_index, 0x68E3_1DA4, leaf_pos),
         );
-        let apple_pos = leaf_pos_voxels
+        let mature_apple_pos = leaf_pos_voxels
             + Vec3::new(
                 hang_dir.x * side_offset,
                 -hang_offset,
                 hang_dir.y * side_offset,
             );
+        let apple_pos =
+            tree_pos_voxels + (mature_apple_pos - tree_pos_voxels) * position_scale.max(0.0);
         if apple_pos.min_element() < 0.0 {
             continue;
         }
-        apple_positions.insert(apple_pos.round().as_uvec3());
+        let position_voxels = apple_pos.round().as_uvec3();
+        let grow_start_age = 0.52 + unit_hash(seed, leaf_index, 0xD1B5_4A35, leaf_pos) * 0.12;
+        let full_growth_age =
+            grow_start_age + 0.10 + unit_hash(seed, leaf_index, 0x94D0_49BB, leaf_pos) * 0.06;
+        let drop_age = (0.82 + unit_hash(seed, leaf_index, 0x369D_EA0F, leaf_pos) * 0.16)
+            .max(full_growth_age + 0.06)
+            .min(0.99);
+        let horizontal_velocity = Vec2::new(
+            unit_hash(seed, leaf_index, 0xDB4F_0B91, leaf_pos) * 2.0 - 1.0,
+            unit_hash(seed, leaf_index, 0xBBE0_56B5, leaf_pos) * 2.0 - 1.0,
+        ) * 7.0;
+        let angular_velocity = Vec3::new(
+            unit_hash(seed, leaf_index, 0xA0F2_EC75, leaf_pos) * 5.0 - 2.5,
+            unit_hash(seed, leaf_index, 0x89E1_82A5, leaf_pos) * 5.0 - 2.5,
+            unit_hash(seed, leaf_index, 0xC6BC_2796, leaf_pos) * 5.0 - 2.5,
+        );
+        let id_high = mix_u32(
+            seed as u32 ^ (seed >> 32) as u32 ^ (leaf_index as u32).wrapping_mul(0x9E37_79B9),
+        );
+        let id_low = mix_u32(
+            leaf_pos.x.wrapping_mul(0x85EB_CA6B)
+                ^ leaf_pos.y.wrapping_mul(0xC2B2_AE35)
+                ^ leaf_pos.z.wrapping_mul(0x27D4_EB2F),
+        );
+        fruits.push(TreeFruitSpec {
+            id: ((id_high as u64) << 32) | id_low as u64,
+            position_voxels,
+            grow_start_age,
+            full_growth_age,
+            drop_age,
+            linear_velocity_voxels: Vec3::new(
+                horizontal_velocity.x,
+                -unit_hash(seed, leaf_index, 0x4CF5_AD43, leaf_pos) * 2.0,
+                horizontal_velocity.y,
+            ),
+            angular_velocity,
+        });
     }
 
-    let mut apple_positions = apple_positions.into_iter().collect::<Vec<_>>();
-    apple_positions.sort_by_key(|pos| (pos.x, pos.y, pos.z));
-    apple_positions
+    fruits.sort_by_key(|fruit| fruit.id);
+    fruits.dedup_by_key(|fruit| fruit.id);
+    fruits
 }
 
 impl TreePlacementService {
@@ -495,6 +544,7 @@ impl TreePlacementService {
     ) -> CompiledTreePlacement {
         let tree_desc = mature_tree_desc.at_age(tree_age);
         let tree = Tree::new(tree_desc.clone());
+        let mature_tree = Tree::new(mature_tree_desc.clone());
         let mut round_cones = Vec::with_capacity(tree.trunks().len());
         for tree_trunk in tree.trunks() {
             let mut round_cone = tree_trunk.clone();
@@ -562,22 +612,41 @@ impl TreePlacementService {
         quantized_leaf_render_data.dedup_by_key(|(pos, _)| *pos);
         let (quantized_leaf_render_positions, leaf_render_local_positions) =
             quantized_leaf_render_data.into_iter().unzip();
-        let quantized_apple_positions =
-            quantized_apple_positions(&tree_desc, tree_pos * 256.0, &quantized_leaf_positions);
+        let mature_leaf_positions = mature_tree
+            .relative_leaf_positions()
+            .iter()
+            .map(|position| (*position + tree_pos * 256.0).round().as_uvec3())
+            .collect::<Vec<_>>();
+        let position_scale = if mature_tree_desc.size.abs() > f32::EPSILON {
+            tree_desc.size / mature_tree_desc.size
+        } else {
+            1.0
+        };
+        let fruit_specs = tree_fruit_specs(
+            &mature_tree_desc,
+            tree_pos * 256.0,
+            &mature_leaf_positions,
+            position_scale,
+        );
 
+        let trunk_geometry = TreeTrunkGeometry {
+            bvh_nodes: bvh_nodes.clone(),
+            round_cones: round_cones.clone(),
+        };
         CompiledTreePlacement {
             trunk_voxel_edit: VoxelEdit::StampRoundCones {
                 bvh_nodes,
                 round_cones,
                 voxel_type: VOXEL_TYPE_CHERRY_WOOD,
             },
+            trunk_geometry,
             rebuild_bound: this_bound.union_with(&extra_rebuild_bound),
             tree_pos,
             this_bound,
             quantized_leaf_positions,
             quantized_leaf_render_positions,
             leaf_render_local_positions,
-            quantized_apple_positions,
+            fruit_specs,
             world_leaf_positions,
         }
     }
@@ -731,9 +800,31 @@ fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
 pub(super) struct TreeRecord {
     position: Vec3,
     bound: UAabb3,
+    mature_desc: TreeDesc,
+    trunk_geometry: TreeTrunkGeometry,
 }
 
 impl App {
+    pub(super) fn refresh_attached_tree_fruits(&mut self, tree_ids: &[u32]) -> Result<()> {
+        for &tree_id in tree_ids {
+            if !self.tree_records.contains_key(&tree_id) {
+                continue;
+            }
+            let apples = self
+                .terrain_physics
+                .attached_tree_fruits(tree_id, self.debug_settings.adjustables.tree_age.value)
+                .into_iter()
+                .map(|fruit| (fruit.position_voxels, fruit.scale))
+                .collect::<Vec<_>>();
+            self.tracer
+                .add_tree_apples(&mut self.surface_builder.resources, tree_id, &apples)?;
+        }
+        if !tree_ids.is_empty() {
+            self.request_vsm_history_reset();
+        }
+        Ok(())
+    }
+
     #[allow(dead_code)]
     pub(super) fn generate_procedural_trees(&mut self) -> Result<()> {
         self.clear_procedural_trees()?;
@@ -806,6 +897,8 @@ impl App {
     pub(super) fn remove_tree(&mut self, tree_id: u32) -> Result<()> {
         self.tracer
             .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
+        self.terrain_physics
+            .unregister_tree_fruits(tree_id, &mut self.tracer)?;
         self.request_vsm_history_reset();
         self.tree_audio_manager.remove_tree(tree_id);
         self.remove_leaf_emitter(tree_id);
@@ -854,6 +947,119 @@ impl App {
         self.replace_tuned_tree_with_rebuild_mode(true)
     }
 
+    pub(super) fn stage_tuned_tree_desc_from_gui(&mut self) -> bool {
+        if let Some(record) = self.tree_records.get_mut(&self.single_tree_id) {
+            record.mature_desc = self.debug_settings.tree.desc.clone();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(super) fn update_all_tree_ages_from_gui(&mut self) -> Result<()> {
+        let records = self
+            .tree_records
+            .iter()
+            .map(|(&tree_id, record)| (tree_id, record.clone()))
+            .collect::<Vec<_>>();
+        if records.is_empty() {
+            return Ok(());
+        }
+
+        // Remove every old tree first. This avoids one tree's smaller replacement being erased by
+        // a later overlapping old-tree removal. The targeted edit only clears cherry wood inside
+        // the recorded trunk cones, preserving terrain and unrelated voxel materials.
+        for (tree_id, record) in &records {
+            self.tracer
+                .remove_tree_leaves(&mut self.surface_builder.resources, *tree_id)?;
+            self.tree_audio_manager.remove_tree(*tree_id);
+            self.remove_leaf_emitter(*tree_id);
+            self.plain_builder.chunk_replace_voxel_type_in_round_cones(
+                &record.trunk_geometry.bvh_nodes,
+                &record.trunk_geometry.round_cones,
+                VOXEL_TYPE_CHERRY_WOOD,
+                VOXEL_TYPE_EMPTY,
+            )?;
+        }
+
+        let tree_age = self.debug_settings.adjustables.tree_age.value;
+        let total_start = Instant::now();
+        let mut replacements = Vec::with_capacity(records.len());
+        let mut rebuild_chunk_ids = Vec::new();
+        for (tree_id, record) in records {
+            let compile_start = Instant::now();
+            let compiled = TreePlacementService::compile(
+                record.mature_desc.clone(),
+                record.position,
+                UAabb3::default(),
+                tree_age,
+            );
+            let compile_elapsed = compile_start.elapsed();
+            let trunk_count = compiled.trunk_geometry.round_cones.len();
+            let trunk_geometry = compiled.trunk_geometry.clone();
+            let trunk_start = Instant::now();
+            self.execute_edit_plan(WorldEditPlan::with_voxel(compiled.trunk_voxel_edit.clone()))?;
+            let trunk_elapsed = trunk_start.elapsed();
+            rebuild_chunk_ids
+                .extend(self.tree_rebuild_chunk_ids(record.bound, compiled.this_bound));
+            replacements.push((
+                tree_id,
+                record.mature_desc,
+                compiled,
+                compile_elapsed,
+                trunk_elapsed,
+                trunk_count,
+                trunk_geometry,
+            ));
+        }
+
+        let mut seen = HashSet::new();
+        rebuild_chunk_ids.retain(|chunk_id| seen.insert(*chunk_id));
+        let rebuild_start = Instant::now();
+        self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
+        let rebuild_elapsed = rebuild_start.elapsed();
+
+        for (
+            tree_id,
+            mature_desc,
+            compiled,
+            compile_elapsed,
+            trunk_elapsed,
+            trunk_count,
+            trunk_geometry,
+        ) in replacements
+        {
+            self.finish_tree_placement(
+                tree_id,
+                compiled.tree_pos,
+                compiled.this_bound,
+                compiled.rebuild_bound,
+                rebuild_chunk_ids.len(),
+                &compiled.quantized_leaf_positions,
+                &compiled.quantized_leaf_render_positions,
+                &compiled.leaf_render_local_positions,
+                &compiled.fruit_specs,
+                &compiled.world_leaf_positions,
+                total_start,
+                compile_elapsed,
+                trunk_elapsed,
+                rebuild_elapsed,
+                trunk_count,
+                false,
+                mature_desc,
+                trunk_geometry,
+            )?;
+        }
+
+        log::info!(
+            "Rebuilt {} trees at global age {:.3} across {} chunks",
+            self.tree_records.len(),
+            tree_age,
+            rebuild_chunk_ids.len(),
+        );
+        Ok(())
+    }
+
     fn replace_tuned_tree_with_rebuild_mode(&mut self, defer_rebuild: bool) -> Result<()> {
         self.replace_single_tree_with_rebuild_mode(
             self.debug_settings.tree.desc.clone(),
@@ -890,7 +1096,8 @@ impl App {
         let mut old_remove_ms = 0.0;
         let mut old_clear_ms = 0.0;
 
-        let old_bound = if let Some(record) = self.tree_records.remove(&self.single_tree_id) {
+        let old_record = self.tree_records.remove(&self.single_tree_id);
+        let old_bound = if let Some(record) = old_record.as_ref() {
             let old_remove_start = Instant::now();
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, self.single_tree_id)?;
@@ -902,6 +1109,7 @@ impl App {
             UAabb3::default()
         };
 
+        let mature_tree_desc = tree_desc.clone();
         let compile_start = Instant::now();
         let compiled = TreePlacementService::compile(
             tree_desc,
@@ -919,15 +1127,16 @@ impl App {
             VoxelEdit::StampRoundCones { round_cones, .. } => round_cones.len(),
             _ => 0,
         };
+        let trunk_geometry = compiled.trunk_geometry.clone();
 
-        if old_bound.has_size() {
+        if let Some(record) = old_record {
             let old_clear_start = Instant::now();
-            self.execute_edit_plan(WorldEditPlan::with_voxel(VoxelEdit::ClearVoxelRegion(
-                ClearVoxelRegionEdit {
-                    offset: old_bound.min(),
-                    dim: old_bound.max() - old_bound.min(),
-                },
-            )))?;
+            self.plain_builder.chunk_replace_voxel_type_in_round_cones(
+                &record.trunk_geometry.bvh_nodes,
+                &record.trunk_geometry.round_cones,
+                VOXEL_TYPE_CHERRY_WOOD,
+                VOXEL_TYPE_EMPTY,
+            )?;
             old_clear_ms = old_clear_start.elapsed().as_secs_f32() * 1000.0;
         }
 
@@ -967,7 +1176,7 @@ impl App {
             &compiled.quantized_leaf_positions,
             &compiled.quantized_leaf_render_positions,
             &compiled.leaf_render_local_positions,
-            &compiled.quantized_apple_positions,
+            &compiled.fruit_specs,
             &compiled.world_leaf_positions,
             total_start,
             compile_elapsed,
@@ -975,6 +1184,8 @@ impl App {
             rebuild_elapsed,
             trunk_count,
             true,
+            mature_tree_desc,
+            trunk_geometry,
         )?;
         self.prev_bound = self.prev_bound.union_with(&old_bound);
 
@@ -1729,7 +1940,7 @@ impl App {
         quantized_leaf_positions: &[UVec3],
         quantized_leaf_render_positions: &[UVec3],
         leaf_render_local_positions: &[IVec3],
-        quantized_apple_positions: &[UVec3],
+        fruit_specs: &[TreeFruitSpec],
         world_leaf_positions: &[Vec3],
         total_start: Instant,
         compile_elapsed: std::time::Duration,
@@ -1737,6 +1948,8 @@ impl App {
         rebuild_elapsed: std::time::Duration,
         trunk_count: usize,
         benchmark_gui_tree: bool,
+        mature_desc: TreeDesc,
+        trunk_geometry: TreeTrunkGeometry,
     ) -> Result<()> {
         let add_leaves_start = Instant::now();
         self.tracer.add_tree_leaves(
@@ -1745,10 +1958,22 @@ impl App {
             quantized_leaf_render_positions,
             leaf_render_local_positions,
         )?;
+        self.terrain_physics.register_tree_fruits(
+            tree_id,
+            fruit_specs.to_vec(),
+            self.debug_settings.adjustables.tree_age.value,
+            &mut self.tracer,
+        )?;
+        let attached_fruits = self
+            .terrain_physics
+            .attached_tree_fruits(tree_id, self.debug_settings.adjustables.tree_age.value)
+            .into_iter()
+            .map(|fruit| (fruit.position_voxels, fruit.scale))
+            .collect::<Vec<_>>();
         self.tracer.add_tree_apples(
             &mut self.surface_builder.resources,
             tree_id,
-            quantized_apple_positions,
+            &attached_fruits,
         )?;
         self.request_vsm_history_reset();
         let add_leaves_elapsed = add_leaves_start.elapsed();
@@ -1792,6 +2017,8 @@ impl App {
             TreeRecord {
                 position: tree_pos,
                 bound: this_bound,
+                mature_desc,
+                trunk_geometry,
             },
         );
 
@@ -1817,7 +2044,7 @@ impl App {
                 trunk_count,
                 quantized_leaf_positions.len(),
                 quantized_leaf_render_positions.len(),
-                quantized_apple_positions.len(),
+                fruit_specs.len(),
                 leaf_clusters.len(),
                 rebuild_chunk_count,
                 rebuild_bound,
@@ -1851,6 +2078,7 @@ impl App {
             self.single_tree_id
         };
 
+        let mature_tree_desc = tree_desc.clone();
         let compile_start = Instant::now();
         let compiled = TreePlacementService::compile(
             tree_desc,
@@ -1870,6 +2098,7 @@ impl App {
             VoxelEdit::StampRoundCones { round_cones, .. } => round_cones.len(),
             _ => 0,
         };
+        let trunk_geometry = compiled.trunk_geometry.clone();
 
         let trunk_start = Instant::now();
         self.execute_edit_plan(WorldEditPlan::with_voxel(compiled.trunk_voxel_edit))?;
@@ -1906,7 +2135,7 @@ impl App {
             &compiled.quantized_leaf_positions,
             &compiled.quantized_leaf_render_positions,
             &compiled.leaf_render_local_positions,
-            &compiled.quantized_apple_positions,
+            &compiled.fruit_specs,
             &compiled.world_leaf_positions,
             total_start,
             compile_elapsed,
@@ -1914,6 +2143,8 @@ impl App {
             rebuild_elapsed,
             trunk_count,
             benchmark_gui_tree,
+            mature_tree_desc,
+            trunk_geometry,
         )
     }
 }
@@ -1942,12 +2173,43 @@ mod tests {
             ..TreeDesc::default()
         };
 
-        let fruit = quantized_apple_positions(&desc, tree_pos_voxels, &branch_anchors);
+        let fruit = tree_fruit_specs(&desc, tree_pos_voxels, &branch_anchors, 1.0);
 
         assert_eq!(
-            fruit,
-            vec![UVec3::new(90, 123, 100), UVec3::new(110, 113, 100)]
+            fruit
+                .iter()
+                .map(|fruit| fruit.position_voxels)
+                .collect::<HashSet<_>>(),
+            HashSet::from([UVec3::new(90, 123, 100), UVec3::new(110, 113, 100)])
         );
+    }
+
+    #[test]
+    fn fruit_lifecycle_thresholds_are_deterministic_ordered_and_varied() {
+        let tree_pos_voxels = Vec3::new(100.0, 100.0, 100.0);
+        let branch_anchors = (0..24)
+            .map(|index| UVec3::new(80 + index, 120 + index % 5, 90 + index % 7))
+            .collect::<Vec<_>>();
+        let desc = TreeDesc {
+            fruit_spawn_probability: 1.0,
+            ..TreeDesc::default()
+        };
+
+        let first = tree_fruit_specs(&desc, tree_pos_voxels, &branch_anchors, 1.0);
+        let second = tree_fruit_specs(&desc, tree_pos_voxels, &branch_anchors, 1.0);
+
+        assert_eq!(first, second);
+        assert!(first.len() > 8);
+        assert!(first.iter().all(|fruit| {
+            fruit.grow_start_age < fruit.full_growth_age
+                && fruit.full_growth_age < fruit.drop_age
+                && fruit.drop_age <= 0.99
+        }));
+        let distinct_drop_millis = first
+            .iter()
+            .map(|fruit| (fruit.drop_age * 1_000.0).round() as u32)
+            .collect::<HashSet<_>>();
+        assert!(distinct_drop_millis.len() > 4);
     }
 
     #[test]
