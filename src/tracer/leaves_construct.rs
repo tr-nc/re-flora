@@ -9,7 +9,7 @@ pub const DEFAULT_LEAF_INNER_DENSITY: f32 = 0.5;
 pub const DEFAULT_LEAF_OUTER_DENSITY: f32 = 0.25;
 pub const DEFAULT_LEAF_INNER_RADIUS: f32 = 8.0;
 pub const DEFAULT_LEAF_OUTER_RADIUS: f32 = 16.0;
-pub const TREE_FRUIT_MAX_RADIUS_VOXELS: u32 = 3;
+pub const TREE_FRUIT_MAX_RADIUS_VOXELS: u32 = 2;
 
 #[derive(Debug, Clone)]
 pub struct LeafVoxelShape {
@@ -256,15 +256,14 @@ mod tests {
         let radius_two = voxel_apple_offsets_for_radius(2)
             .into_iter()
             .collect::<HashSet<_>>();
-        let radius_three = voxel_apple_offsets_for_radius(3)
-            .into_iter()
-            .collect::<HashSet<_>>();
 
         assert_eq!(radius_one.len(), 8);
         assert!(radius_one.is_subset(&radius_two));
-        assert!(radius_two.is_subset(&radius_three));
         assert!(radius_one.len() < radius_two.len());
-        assert!(radius_two.len() < radius_three.len());
+        assert_eq!(
+            voxel_apple_offsets_for_radius(TREE_FRUIT_MAX_RADIUS_VOXELS + 1),
+            voxel_apple_offsets()
+        );
     }
 
     #[test]

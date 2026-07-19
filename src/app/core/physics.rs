@@ -849,9 +849,9 @@ mod tests {
         let fruit = fruit_spec();
         assert_eq!(fruit.attached_radius_voxels(0.54), None);
         assert_eq!(fruit.attached_radius_voxels(0.55), Some(1));
-        assert_eq!(fruit.attached_radius_voxels(0.60), Some(2));
-        assert_eq!(fruit.attached_radius_voxels(0.675), Some(3));
-        assert_eq!(fruit.attached_radius_voxels(0.70), Some(3));
+        assert_eq!(fruit.attached_radius_voxels(0.60), Some(1));
+        assert_eq!(fruit.attached_radius_voxels(0.625), Some(2));
+        assert_eq!(fruit.attached_radius_voxels(0.70), Some(2));
         assert_eq!(fruit.attached_radius_voxels(0.88), None);
     }
 
