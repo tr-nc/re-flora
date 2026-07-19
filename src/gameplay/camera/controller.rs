@@ -8,6 +8,39 @@ use glam::{Mat4, Vec2, Vec3, Vec4};
 use re_flora_vkn::Extent2D;
 use winit::event::KeyEvent;
 
+const GROUNDED_CAMERA_HEIGHT_SMOOTHING_SPEED: f32 = 14.0;
+const MAX_SMOOTHED_GROUND_VERTICAL_TRANSLATION: f32 = 1.5 / 256.0;
+const MAX_GROUNDED_CAMERA_VERTICAL_LAG: f32 = 4.0 / 256.0;
+
+fn smoothed_grounded_camera_y(
+    current_y: f32,
+    target_y: f32,
+    vertical_translation: f32,
+    frame_delta_time: f32,
+) -> f32 {
+    if !current_y.is_finite()
+        || !target_y.is_finite()
+        || !vertical_translation.is_finite()
+        || !frame_delta_time.is_finite()
+        || frame_delta_time <= f32::EPSILON
+        || vertical_translation.abs() > MAX_SMOOTHED_GROUND_VERTICAL_TRANSLATION
+    {
+        return target_y;
+    }
+
+    let alpha = 1.0 - (-GROUNDED_CAMERA_HEIGHT_SMOOTHING_SPEED * frame_delta_time).exp();
+    let smoothed = current_y + (target_y - current_y) * alpha;
+    target_y
+        + (smoothed - target_y).clamp(
+            -MAX_GROUNDED_CAMERA_VERTICAL_LAG,
+            MAX_GROUNDED_CAMERA_VERTICAL_LAG,
+        )
+}
+
+fn walk_velocity_after_collision(control_velocity: Vec3, vertical_velocity: f32) -> Vec3 {
+    Vec3::new(control_velocity.x, vertical_velocity, control_velocity.z)
+}
+
 #[derive(Debug, Clone)]
 pub struct PlayerRigidBody {
     pub velocity: Vec3,
@@ -56,6 +89,10 @@ impl PlayerWalkMovementResult {
 pub struct Camera {
     position: Vec3,
 
+    /// Authoritative eye-height anchor derived from the collision capsule. The rendered camera may
+    /// lag behind this position vertically while traversing voxel-sized ground steps.
+    walk_collision_position: Option<Vec3>,
+
     /// The yaw of the camera in radians.
     yaw: f32,
 
@@ -92,6 +129,7 @@ impl Camera {
     ) -> Result<Self> {
         let mut camera = Self {
             position: initial_position,
+            walk_collision_position: None,
             vectors: CameraVectors::new(),
             yaw: initial_yaw.to_radians(),
             pitch: initial_pitch.to_radians(),
@@ -163,6 +201,7 @@ impl Camera {
         }
 
         self.position = position;
+        self.walk_collision_position = None;
         self.yaw = direction.x.atan2(-direction.z);
         self.pitch = direction
             .y
@@ -282,6 +321,7 @@ impl Camera {
     }
 
     pub fn update_transform_fly_mode(&mut self, frame_delta_time: f32) {
+        self.walk_collision_position = None;
         // Move in the camera's local axes (front/right/up).
         self.position += self.movement_state.get_velocity(
             self.vectors.front,
@@ -301,11 +341,13 @@ impl Camera {
 
         if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
             return PlayerWalkMovementRequest {
-                camera_position: self.position,
+                camera_position: self.walk_collision_position.unwrap_or(self.position),
                 camera_height: self.desc.camera_height,
                 desired_translation: Vec3::ZERO,
             };
         }
+
+        let collision_position = *self.walk_collision_position.get_or_insert(self.position);
 
         let (front, right) = self.movement_basis();
         let input_velocity = self.movement_state.get_velocity(front, right, Vec3::ZERO);
@@ -327,9 +369,9 @@ impl Camera {
             self.rigidbody.is_grounded = false;
             let current_speed = self.rigidbody.velocity.length();
             let foot_position = Vec3::new(
-                self.position.x,
-                self.position.y - self.desc.camera_height,
-                self.position.z,
+                collision_position.x,
+                collision_position.y - self.desc.camera_height,
+                collision_position.z,
             );
             self.player_audio_controller
                 .play_jumping(current_speed, foot_position);
@@ -348,7 +390,7 @@ impl Camera {
         }
 
         PlayerWalkMovementRequest {
-            camera_position: self.position,
+            camera_position: collision_position,
             camera_height: self.desc.camera_height,
             desired_translation: self.rigidbody.velocity * frame_delta_time,
         }
@@ -364,25 +406,40 @@ impl Camera {
             return;
         }
 
-        self.position += result.translation;
-
         let grounded = result.grounded && self.vertical_velocity <= 0.0;
         let upward_blocked = request.desired_translation.y > 0.0
             && result.translation.y + f32::EPSILON < request.desired_translation.y;
         if grounded || upward_blocked {
             self.vertical_velocity = 0.0;
         }
-        self.rigidbody.velocity.x = result.translation.x / frame_delta_time;
-        self.rigidbody.velocity.y = self.vertical_velocity;
-        self.rigidbody.velocity.z = result.translation.z / frame_delta_time;
+        self.rigidbody.velocity =
+            walk_velocity_after_collision(self.rigidbody.velocity, self.vertical_velocity);
         self.rigidbody.is_grounded = grounded;
+
+        let collision_position = self
+            .walk_collision_position
+            .get_or_insert(request.camera_position);
+        *collision_position += result.translation;
+        let collision_position = *collision_position;
+        self.position.x = collision_position.x;
+        self.position.z = collision_position.z;
+        self.position.y = if grounded {
+            smoothed_grounded_camera_y(
+                self.position.y,
+                collision_position.y,
+                result.translation.y,
+                frame_delta_time,
+            )
+        } else {
+            collision_position.y
+        };
 
         let is_moving = self.movement_state.is_moving_horizontally();
         let is_running = self.movement_state.is_boosted;
         let foot_position = Vec3::new(
-            self.position.x,
-            self.position.y - self.desc.camera_height,
-            self.position.z,
+            collision_position.x,
+            collision_position.y - self.desc.camera_height,
+            collision_position.z,
         );
         let just_landed = grounded && !self.was_on_ground;
         if just_landed {
@@ -440,10 +497,62 @@ impl Camera {
     /// Resets the rigidbody velocity and vertical velocity when switching modes.
     pub fn reset_velocity(&mut self) {
         self.rigidbody.velocity = Vec3::ZERO;
+        self.walk_collision_position = None;
         self.vertical_velocity = 0.0;
         self.was_on_ground = false;
         self.pre_landing_speed = 0.0;
         self.head_bob.reset();
         self.stride_cycle.reset();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grounded_camera_smooths_a_voxel_step_without_overshooting() {
+        let current_y = 1.0;
+        let target_y = current_y + 1.0 / 256.0;
+        let smoothed = smoothed_grounded_camera_y(current_y, target_y, 1.0 / 256.0, 1.0 / 60.0);
+
+        assert!(smoothed > current_y);
+        assert!(smoothed < target_y);
+    }
+
+    #[test]
+    fn grounded_camera_smoothing_is_frame_rate_independent() {
+        fn simulate(frame_delta_time: f32, frames: usize) -> f32 {
+            let mut current_y = 0.0;
+            for _ in 0..frames {
+                current_y = smoothed_grounded_camera_y(current_y, 0.01, 0.0, frame_delta_time);
+            }
+            current_y
+        }
+
+        let at_30_hz = simulate(1.0 / 30.0, 30);
+        let at_120_hz = simulate(1.0 / 120.0, 120);
+        assert!((at_30_hz - at_120_hz).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn grounded_camera_does_not_smooth_large_vertical_discontinuities() {
+        assert_eq!(smoothed_grounded_camera_y(0.0, 1.0, 0.25, 1.0 / 60.0), 1.0);
+    }
+
+    #[test]
+    fn grounded_camera_limits_accumulated_vertical_lag() {
+        let target_y = 1.0;
+        let smoothed = smoothed_grounded_camera_y(0.0, target_y, 1.0 / 256.0, 1.0 / 60.0);
+
+        assert!((target_y - smoothed).abs() <= MAX_GROUNDED_CAMERA_VERTICAL_LAG);
+    }
+
+    #[test]
+    fn collision_response_preserves_horizontal_control_velocity() {
+        let control_velocity = Vec3::new(0.2, -1.0, -0.1);
+        let resolved = walk_velocity_after_collision(control_velocity, 0.0);
+
+        assert_eq!(resolved, Vec3::new(0.2, 0.0, -0.1));
     }
 }
