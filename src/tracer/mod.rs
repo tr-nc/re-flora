@@ -37,7 +37,7 @@ pub mod voxel_encoding;
 mod voxel_geometry;
 
 mod leaves_construct;
-pub use leaves_construct::collision_probe_apple_offsets;
+pub use leaves_construct::{collision_probe_apple_offsets, voxel_apple_offsets};
 
 mod pipeline_builder;
 use pipeline_builder::*;
@@ -3472,7 +3472,15 @@ impl Tracer {
         position: Vec3,
         rotation: glam::Quat,
     ) -> Result<()> {
-        self.dynamic_fruit_resources.show(position, rotation)
+        self.dynamic_fruit_resources
+            .show(&[DynamicFruitRenderInstance::new(position, rotation, 2.0)])
+    }
+
+    pub fn show_dynamic_fruit_geometry(
+        &mut self,
+        instances: &[DynamicFruitRenderInstance],
+    ) -> Result<()> {
+        self.dynamic_fruit_resources.show(instances)
     }
 
     pub fn clear_collision_probe_geometry(&mut self) {

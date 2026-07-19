@@ -30,7 +30,7 @@ VertexOutput main(VertexInput input)
 {
     VertexOutput output;
     float3 worldPosition = input.base_position +
-        rotateByQuaternion(input.position, input.rotation);
+        rotateByQuaternion(input.position * input.tint.a, input.rotation);
     output.position = mul(
         shadow_camera_info.view_proj_mat, float4(worldPosition, 1.0));
     // Both passes deliberately share one compact vertex/instance layout. This

@@ -43,9 +43,9 @@ VertexOutput main(VertexInput input)
 {
     VertexOutput output;
     float3 worldPosition = input.base_position +
-        rotateByQuaternion(input.position, input.rotation);
+        rotateByQuaternion(input.position * input.tint.a, input.rotation);
     float3 voxelCenter = input.base_position +
-        rotateByQuaternion(input.voxel_center, input.rotation);
+        rotateByQuaternion(input.voxel_center * input.tint.a, input.rotation);
     float3 shadingNormal = rotateByQuaternion(
         input.shading_normal, input.rotation);
     output.position = mul(
