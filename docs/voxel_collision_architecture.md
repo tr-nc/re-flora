@@ -32,7 +32,7 @@ The common terrain workload was one logical 32-cubed brick containing a two-voxe
 | Backend | Average step | Build or update | Contact result | Important limitation |
 | --- | ---: | ---: | --- | --- |
 | Custom voxel narrow phase | 43.6-45.9 us | 0.0032-0.0034 ms build | No measured penetration or seam stall | No broad phase, general solver, body-body contact, CCD, or sleeping |
-| Rapier native voxels | 69-74 us | 0.15-0.25 ms build; 0.6-1.3 us local edit | Stable rolling, CCD, and sleeping | Synthetic flat brick, not a complex real terrain brick |
+| Rapier native voxels | 69-74 us | 0.15-0.25 ms build; 0.6-1.3 us isolated local edit | Stable rolling, CCD, and sleeping | Production updates rebuild fresh shapes; see below |
 | Rapier triangle mesh with internal-edge fix | 103 us median | 1.45 ms build; 1.51 ms full-brick edit rebuild | Stable after internal-edge preprocessing | Rebuilds mesh and BVH after an edit |
 
 The custom implementation is only a narrow-phase lower bound. Its small advantage over the complete Rapier result does not justify owning a solver, broad phase, CCD, sleeping, contact persistence, and body-body collision.
@@ -43,13 +43,15 @@ The default triangle mesh produced a vertical kick of 0.147312 voxel/s while cro
 
 Two adjacent native voxel colliders without shared neighborhood state allowed a body to cross the boundary, but produced a vertical kick of 0.094443 voxel/s. Calling `Voxels::combine_voxel_states` removed the kick.
 
-After an edit to a voxel on a brick face, calling `set_voxel` only on the edited brick leaves the adjacent brick's face state stale. The edit must also be sent through `Voxels::propagate_voxel_change` for every affected face-neighbor.
+After an edit to a voxel on a brick face, rebuilding only the edited brick leaves the adjacent brick's face state stale. The affected face-neighbor must also be rebuilt before the two fresh shapes recombine their neighborhood state.
+
+The isolated `set_voxel` timing above is not the production update path. A release-mode terrain edit later exposed a Parry 0.29.0 `Bvh::remove` panic while large voxel changes were being applied. Production updates therefore build fresh `Voxels` shapes from the final occupancy instead of mutating Parry's internal voxel-chunk BVH. Interior edits normally rebuild one shape; edits touching brick faces also rebuild the corresponding existing neighbors.
 
 These are correctness requirements:
 
 1. Combine voxel states whenever a brick is inserted next to an existing brick.
-2. Diff brick updates and apply local `set_voxel` operations.
-3. Propagate changed face voxels to the corresponding face-neighbor.
+2. Diff brick updates for revision, wake bounds, and changed-face detection.
+3. Rebuild the edited brick and any existing neighbors of changed faces from final occupancy, then recombine their voxel states.
 4. Wake dynamic bodies whose AABBs intersect the edited region.
 5. Reject stale source revisions.
 
