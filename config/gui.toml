@@ -2489,15 +2489,15 @@ type = "Bool"
 value = true
 
 [[section.param]]
-id = "butterflies_per_chunk"
+id = "butterfly_spawn_rate_per_source"
 kind = "float"
-label = "Butterflies Per Chunk"
+label = "Spawn Rate Per Flora Voxel"
 type = "Float"
 
 [section.param.data]
-value = 0.5
+value = 0.00002
 min = 0
-max = 2
+max = 0.0002
 
 [[section.param]]
 id = "butterfly_height_offset_min"

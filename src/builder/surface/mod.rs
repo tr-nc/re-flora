@@ -853,6 +853,39 @@ impl SurfaceBuilder {
             .collect()
     }
 
+    pub fn flora_base_world_voxels(&self) -> Result<Vec<UVec3>> {
+        let instance_size = std::mem::size_of::<resources::Instance>() as u64;
+        let mut positions = Vec::new();
+
+        for (_, chunk_resources) in &self.resources.instances.chunk_flora_instances {
+            for species_index in 0..self.flora_species_count {
+                let instance_count = chunk_resources.species_len(species_index) as u64;
+                if instance_count == 0 {
+                    continue;
+                }
+
+                let byte_offset = u64::from(FloraInstanceResources::species_offset(species_index))
+                    * instance_size;
+                let raw_instances = chunk_resources
+                    .resource
+                    .instances_buf
+                    .read_back_range(byte_offset, instance_count * instance_size)?;
+                let instances = bytemuck::try_cast_slice::<u8, resources::Instance>(&raw_instances)
+                    .map_err(|err| anyhow::anyhow!("invalid flora instance readback: {err}"))?;
+
+                positions.extend(instances.iter().filter_map(|instance| {
+                    let local_position = unpack_manual_flora_instance_local_position(*instance);
+                    local_position
+                        .cmplt(self.voxel_dim_per_chunk)
+                        .all()
+                        .then_some(chunk_resources.chunk_world_offset + local_position)
+                }));
+            }
+        }
+
+        Ok(positions)
+    }
+
     /// Low-level authored-flora storage primitive. Callers must validate the terrain anchor first.
     pub(crate) fn try_insert_authored_flora_instance_unchecked(
         &mut self,
@@ -1613,6 +1646,14 @@ fn pack_manual_flora_instance(
     }
 }
 
+fn unpack_manual_flora_instance_local_position(instance: resources::Instance) -> UVec3 {
+    UVec3::new(
+        instance.packed_local_pos & 0xff,
+        (instance.packed_local_pos >> 8) & 0xff,
+        (instance.packed_local_pos >> 16) & 0xff,
+    )
+}
+
 fn apply_spherical_grass_growth_influence(
     words: &mut [u32],
     chunk_min: IVec3,
@@ -1850,6 +1891,17 @@ fn get_occupancy_to_instances_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_flora_instance_position_round_trips_without_growth_bits() {
+        let local_position = UVec3::new(17, 93, 241);
+        let instance = pack_manual_flora_instance(local_position, 0xab, 1234);
+
+        assert_eq!(
+            unpack_manual_flora_instance_local_position(instance),
+            local_position
+        );
+    }
 
     #[test]
     fn spherical_grass_growth_influence_distinguishes_overhang_heights() {

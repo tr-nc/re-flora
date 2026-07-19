@@ -1364,9 +1364,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",
-        id: "butterflies_per_chunk",
+        id: "butterfly_spawn_rate_per_source",
         kind: "float",
-        label: "Butterflies Per Chunk",
+        label: "Spawn Rate Per Flora Voxel",
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",
@@ -1703,7 +1703,7 @@ pub struct GuiAdjustables {
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
-    pub butterflies_per_chunk: crate::gui_adjustables::FloatParam,
+    pub butterfly_spawn_rate_per_source: crate::gui_adjustables::FloatParam,
     pub butterfly_height_offset_min: crate::gui_adjustables::FloatParam,
     pub butterfly_height_offset_max: crate::gui_adjustables::FloatParam,
     pub butterfly_size: crate::gui_adjustables::FloatParam,
@@ -1958,7 +1958,7 @@ impl GuiAdjustables {
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut butterflies_per_chunk_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut butterfly_spawn_rate_per_source_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterfly_height_offset_min_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterfly_height_offset_max_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterfly_size_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3470,11 +3470,11 @@ impl GuiAdjustables {
                             butterflies_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
-                    "butterflies_per_chunk" => {
+                    "butterfly_spawn_rate_per_source" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            butterflies_per_chunk_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            butterfly_spawn_rate_per_source_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "butterfly_height_offset_min" => {
@@ -3822,7 +3822,7 @@ impl GuiAdjustables {
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
-            butterflies_per_chunk: butterflies_per_chunk_field.expect("Missing parameter: butterflies_per_chunk"),
+            butterfly_spawn_rate_per_source: butterfly_spawn_rate_per_source_field.expect("Missing parameter: butterfly_spawn_rate_per_source"),
             butterfly_height_offset_min: butterfly_height_offset_min_field.expect("Missing parameter: butterfly_height_offset_min"),
             butterfly_height_offset_max: butterfly_height_offset_max_field.expect("Missing parameter: butterfly_height_offset_max"),
             butterfly_size: butterfly_size_field.expect("Missing parameter: butterfly_size"),
@@ -4016,7 +4016,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flora_voxel_saturation_offset" => Some(&adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&adjustables.flora_voxel_value_offset),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
-        "butterflies_per_chunk" => Some(&adjustables.butterflies_per_chunk),
+        "butterfly_spawn_rate_per_source" => Some(&adjustables.butterfly_spawn_rate_per_source),
         "butterfly_height_offset_min" => Some(&adjustables.butterfly_height_offset_min),
         "butterfly_height_offset_max" => Some(&adjustables.butterfly_height_offset_max),
         "butterfly_size" => Some(&adjustables.butterfly_size),
@@ -4305,7 +4305,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flora_voxel_saturation_offset" => Some(&mut adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&mut adjustables.flora_voxel_value_offset),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
-        "butterflies_per_chunk" => Some(&mut adjustables.butterflies_per_chunk),
+        "butterfly_spawn_rate_per_source" => Some(&mut adjustables.butterfly_spawn_rate_per_source),
         "butterfly_height_offset_min" => Some(&mut adjustables.butterfly_height_offset_min),
         "butterfly_height_offset_max" => Some(&mut adjustables.butterfly_height_offset_max),
         "butterfly_size" => Some(&mut adjustables.butterfly_size),

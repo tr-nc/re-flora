@@ -802,6 +802,7 @@ pub(super) struct TreeRecord {
     bound: UAabb3,
     mature_desc: TreeDesc,
     trunk_geometry: TreeTrunkGeometry,
+    pub(super) butterfly_spawn_positions_ws: Vec<Vec3>,
 }
 
 impl App {
@@ -2018,6 +2019,13 @@ impl App {
                 bound: this_bound,
                 mature_desc,
                 trunk_geometry,
+                butterfly_spawn_positions_ws: quantized_leaf_render_positions
+                    .iter()
+                    .map(|position| {
+                        (position.as_vec3() + Vec3::splat(0.5))
+                            / super::VOXEL_DIM_PER_CHUNK.as_vec3()
+                    })
+                    .collect(),
             },
         );
 

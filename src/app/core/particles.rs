@@ -2,9 +2,10 @@ use super::App;
 use crate::builder::ChunkModifyStats;
 use crate::geom::UAabb3;
 use crate::particles::{
-    ButterflyEmitter, ButterflyEmitterDesc, FallenLeafEmitter, ParticleEmitter, ParticleHandle,
-    ParticleRenderKind, ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep,
-    ParticleUpdateConfig, PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
+    ButterflyEmitter, ButterflyEmitterDesc, ButterflySpawnSource, FallenLeafEmitter,
+    ParticleEmitter, ParticleHandle, ParticleRenderKind, ParticleSnapshot, ParticleSpawn,
+    ParticleSystem, ParticleTickStep, ParticleUpdateConfig, PARTICLE_CAPACITY,
+    STANDARD_PARTICLE_SIZE,
 };
 use crate::util::ClusterResult;
 use egui::Color32;
@@ -21,6 +22,7 @@ const TERRAIN_HARVEST_MAX_PARTICLES_PER_EDIT: u32 = 4;
 const TERRAIN_HARVEST_PARTICLE_SIZE: f32 = STANDARD_PARTICLE_SIZE;
 const DEFAULT_WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
 const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
+const BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS: f32 = 1.0;
 
 fn water_debug_particle_size(value: f32) -> f32 {
     if value.is_finite() {
@@ -240,13 +242,6 @@ impl App {
         });
     }
 
-    pub(super) fn butterfly_count_from_per_chunk(butterflies_per_chunk: f32) -> u32 {
-        let total_chunks = super::CHUNK_DIM.x.saturating_mul(super::CHUNK_DIM.z) as f32;
-        (total_chunks * butterflies_per_chunk)
-            .round()
-            .clamp(0.0, u32::MAX as f32) as u32
-    }
-
     #[allow(dead_code)]
     pub(super) fn color32_to_vec4(color: Color32) -> Vec4 {
         Vec4::new(
@@ -273,9 +268,7 @@ impl App {
 
         ButterflyEmitterDesc {
             enabled: gui_adjustables.butterflies_enabled.value,
-            butterfly_count: Self::butterfly_count_from_per_chunk(
-                gui_adjustables.butterflies_per_chunk.value,
-            ),
+            spawn_rate_per_source: gui_adjustables.butterfly_spawn_rate_per_source.value,
             height_offset_min,
             height_offset_max,
             size: gui_adjustables.butterfly_size.value,
@@ -374,29 +367,69 @@ impl App {
         }
     }
 
-    pub(super) fn ensure_map_butterfly_emitter(&mut self) {
+    pub(super) fn ensure_butterfly_emitter(&mut self) {
         if !self.butterfly_emitters.is_empty() {
             return;
         }
 
-        let (center, extent) = Self::map_butterfly_region();
-        self.butterfly_emitters.push(ButterflyEmitter::new(
-            center,
-            extent,
-            9_173,
-            &self.butterfly_emitter_desc,
-        ));
+        self.butterfly_emitters
+            .push(ButterflyEmitter::new(9_173, &self.butterfly_emitter_desc));
     }
 
-    pub(super) fn map_butterfly_region() -> (Vec3, Vec3) {
-        let map_size = super::CHUNK_DIM.as_vec3();
-        let center = Vec3::new(map_size.x * 0.5, 0.5, map_size.z * 0.5);
-        let extent = Vec3::new(
-            (map_size.x * 0.5).max(1.0),
-            0.6,
-            (map_size.z * 0.5).max(1.0),
+    fn refresh_butterfly_spawn_sources(&mut self, dt: f32) {
+        self.butterfly_spawn_source_refresh_elapsed += dt.max(0.0);
+        if self.butterfly_spawn_source_refresh_elapsed < BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS {
+            return;
+        }
+        if self.deferred_surface_rebuild_inflight() {
+            return;
+        }
+        self.butterfly_spawn_source_refresh_elapsed = 0.0;
+
+        let ground_voxels = match self.surface_builder.flora_base_world_voxels() {
+            Ok(positions) => positions,
+            Err(err) => {
+                log::warn!("Failed to refresh butterfly flora spawn sources: {err}");
+                return;
+            }
+        };
+        let ground_source_count = ground_voxels.len();
+        let tree_source_count = self
+            .tree_records
+            .values()
+            .map(|record| record.butterfly_spawn_positions_ws.len())
+            .sum::<usize>();
+        let mut sources = Vec::with_capacity(ground_source_count + tree_source_count);
+        let voxel_scale = super::VOXEL_DIM_PER_CHUNK.as_vec3();
+        sources.extend(ground_voxels.into_iter().map(|position| {
+            ButterflySpawnSource::ground_flora(
+                (position.as_vec3() + Vec3::splat(0.5)) / voxel_scale,
+            )
+        }));
+        sources.extend(
+            self.tree_records
+                .values()
+                .flat_map(|record| record.butterfly_spawn_positions_ws.iter().copied())
+                .map(ButterflySpawnSource::tree_leaf),
         );
-        (center, extent)
+
+        let previous_source_count = self
+            .butterfly_emitters
+            .first()
+            .map_or(0, ButterflyEmitter::spawn_source_count);
+        let total_source_count = sources.len();
+        for emitter in &mut self.butterfly_emitters {
+            emitter.set_spawn_sources(sources.clone());
+        }
+        if previous_source_count != total_source_count {
+            log::info!(
+                "[BUTTERFLY][SPAWN_SOURCES] ground_flora={} tree_leaves={} total={} rate_per_source_per_second={:.6}",
+                ground_source_count,
+                tree_source_count,
+                total_source_count,
+                self.butterfly_emitter_desc.spawn_rate_per_source,
+            );
+        }
     }
 
     pub(super) fn update_particle_simulation(&mut self, dt: f32) {
@@ -411,7 +444,8 @@ impl App {
         for emitter in &mut self.butterfly_emitters {
             emitter.apply_desc(&self.butterfly_emitter_desc);
         }
-        self.ensure_map_butterfly_emitter();
+        self.ensure_butterfly_emitter();
+        self.refresh_butterfly_spawn_sources(dt);
         let wind_time = self.time_info.time_since_start();
         self.particle_system
             .set_bucket_step_seconds(self.debug_settings.adjustables.world_tick_seconds.value);
@@ -532,7 +566,6 @@ impl App {
 
     pub(super) fn plan_butterflies(&mut self, tick_step: ParticleTickStep) {
         const MAX_RETRIES: usize = 3;
-        const MAX_SPAWN_XZ_RETRIES: usize = 16;
         const STEP_LEN: f32 = crate::particles::emitters::WORM_STEP_LEN;
         const RAY_EPSILON: f32 = 0.02;
         // Match the terrarium glass box top.
@@ -542,80 +575,24 @@ impl App {
         let mut all_handles: Vec<ParticleHandle> = Vec::new();
         let mut all_positions: Vec<Vec3> = Vec::new();
         let mut all_directions: Vec<Vec3> = Vec::new();
+        let mut all_emerging: Vec<bool> = Vec::new();
         let mut all_emitter_indices: Vec<usize> = Vec::new();
 
         for emitter_idx in 0..self.butterfly_emitters.len() {
-            let pending_handles =
-                self.butterfly_emitters[emitter_idx].drain_pending_placement_handles();
-            for handle in pending_handles {
-                if !self.particle_system.is_alive_handle(handle) {
-                    continue;
-                }
-
-                let mut resolved_position = self.particle_system.position(handle);
-                let mut found_valid_xz = false;
-                let mut last_attempt_position = resolved_position;
-
-                if let Some(position) = resolved_position {
-                    if self
-                        .query_terrain_ray_cpu(Vec3::new(position.x, 10.0, position.z), Vec3::NEG_Y)
-                        .is_some()
-                    {
-                        found_valid_xz = true;
-                    }
-                }
-
-                if !found_valid_xz {
-                    for _ in 0..MAX_SPAWN_XZ_RETRIES {
-                        let candidate =
-                            self.butterfly_emitters[emitter_idx].random_spawn_position_candidate();
-
-                        if self
-                            .query_terrain_ray_cpu(
-                                Vec3::new(candidate.x, 10.0, candidate.z),
-                                Vec3::NEG_Y,
-                            )
-                            .is_some()
-                        {
-                            found_valid_xz = true;
-                            resolved_position = Some(candidate);
-                            break;
-                        }
-
-                        last_attempt_position = Some(candidate);
-                    }
-                }
-
-                if found_valid_xz {
-                    if let Some(position) = resolved_position {
-                        let _ = self.particle_system.set_position(handle, position);
-                    }
-                } else {
-                    let fallback = if let Some(last) = last_attempt_position {
-                        Vec3::new(
-                            last.x,
-                            self.butterfly_emitters[emitter_idx].center.y,
-                            last.z,
-                        )
-                    } else {
-                        self.butterfly_emitters[emitter_idx].random_spawn_position_candidate()
-                    };
-                    let _ = self.particle_system.set_position(handle, fallback);
-                }
-            }
-
-            let (mut handles, mut positions, mut directions) = {
+            let (mut handles, mut positions, mut directions, mut emerging) = {
                 let emitter = &mut self.butterfly_emitters[emitter_idx];
                 let mut handles = Vec::new();
                 let mut positions = Vec::new();
                 let mut directions = Vec::new();
+                let mut emerging = Vec::new();
                 emitter.collect_butterfly_states(
                     &self.particle_system,
                     &mut handles,
                     &mut positions,
                     &mut directions,
+                    &mut emerging,
                 );
-                (handles, positions, directions)
+                (handles, positions, directions, emerging)
             };
 
             if tick_step.bucket_count > 1 {
@@ -623,28 +600,33 @@ impl App {
                 let mut filtered_handles = Vec::with_capacity(handles.len());
                 let mut filtered_positions = Vec::with_capacity(positions.len());
                 let mut filtered_directions = Vec::with_capacity(directions.len());
+                let mut filtered_emerging = Vec::with_capacity(emerging.len());
 
-                for ((handle, position), direction) in handles
+                for (((handle, position), direction), is_emerging) in handles
                     .into_iter()
                     .zip(positions.into_iter())
                     .zip(directions.into_iter())
+                    .zip(emerging.into_iter())
                 {
                     if self.particle_system.handle_bucket(handle) == Some(active_bucket) {
                         filtered_handles.push(handle);
                         filtered_positions.push(position);
                         filtered_directions.push(direction);
+                        filtered_emerging.push(is_emerging);
                     }
                 }
 
                 handles = filtered_handles;
                 positions = filtered_positions;
                 directions = filtered_directions;
+                emerging = filtered_emerging;
             }
 
             all_emitter_indices.resize(all_emitter_indices.len() + handles.len(), emitter_idx);
             all_handles.extend(handles);
             all_positions.extend(positions);
             all_directions.extend(directions);
+            all_emerging.extend(emerging);
         }
 
         if all_handles.is_empty() {
@@ -722,7 +704,9 @@ impl App {
                     continue;
                 }
 
-                let blocked = if let Some(hit) = self.query_terrain_ray_cpu(
+                let blocked = if all_emerging[idx] {
+                    false
+                } else if let Some(hit) = self.query_terrain_ray_cpu(
                     origin + Vec3::new(0.0, RAY_EPSILON, 0.0),
                     dir.normalize_or_zero(),
                 ) {

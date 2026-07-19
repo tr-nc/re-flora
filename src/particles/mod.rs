@@ -7,7 +7,8 @@ pub use animation::{
     PARTICLE_SPRITE_FRAME_DIM,
 };
 pub use emitters::{
-    ButterflyEmitter, ButterflyEmitterDesc, FallenLeafEmitter, LeafEmitterDesc, ParticleEmitter,
+    ButterflyEmitter, ButterflyEmitterDesc, ButterflySpawnSource, FallenLeafEmitter,
+    LeafEmitterDesc, ParticleEmitter,
 };
 pub use system::{
     MotionMode, ParticleForces, ParticleHandle, ParticleRenderKind, ParticleSnapshot,

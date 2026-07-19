@@ -347,7 +347,7 @@ impl App {
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         BENCH.lock().unwrap().summary();
 
-        self.ensure_map_butterfly_emitter();
+        self.ensure_butterfly_emitter();
 
         if let Err(err) = self.plant_startup_tuned_tree() {
             log::error!("Failed to plant startup tuning tree: {}", err);

@@ -250,7 +250,7 @@ impl ParticleEmitter for FallenLeafEmitter {
 #[derive(Clone, Copy, Debug)]
 pub struct ButterflyEmitterDesc {
     pub enabled: bool,
-    pub butterfly_count: u32,
+    pub spawn_rate_per_source: f32,
     pub height_offset_min: f32,
     pub height_offset_max: f32,
     pub size: f32,
@@ -267,7 +267,7 @@ impl Default for ButterflyEmitterDesc {
     fn default() -> Self {
         Self {
             enabled: true,
-            butterfly_count: 128,
+            spawn_rate_per_source: 0.000_02,
             height_offset_min: 0.06,
             height_offset_max: 0.14,
             size: 0.018,
@@ -282,9 +282,45 @@ impl Default for ButterflyEmitterDesc {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ButterflySpawnSourceKind {
+    GroundFlora,
+    TreeLeaf,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ButterflySpawnSource {
+    pub position_ws: Vec3,
+    pub kind: ButterflySpawnSourceKind,
+}
+
+impl ButterflySpawnSource {
+    pub fn ground_flora(position_ws: Vec3) -> Self {
+        Self {
+            position_ws,
+            kind: ButterflySpawnSourceKind::GroundFlora,
+        }
+    }
+
+    pub fn tree_leaf(position_ws: Vec3) -> Self {
+        Self {
+            position_ws,
+            kind: ButterflySpawnSourceKind::TreeLeaf,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ActiveButterfly {
+    handle: ParticleHandle,
+    worm_seed: f32,
+    worm_phase: f32,
+    emergence_target_y: Option<f32>,
+}
+
+const MAX_ACTIVE_BUTTERFLIES: usize = 4_096;
+
 pub struct ButterflyEmitter {
-    pub center: Vec3,
-    pub map_extent: Vec3,
     pub height_offset: RangeInclusive<f32>,
     pub size: f32,
     pub lifetime: RangeInclusive<f32>,
@@ -293,33 +329,29 @@ pub struct ButterflyEmitter {
     #[allow(dead_code)]
     pub color_high: Vec4,
     pub enabled: bool,
-    pub butterfly_count: u32,
+    pub spawn_rate_per_source: f32,
     render_kind: ParticleRenderKind,
     pub worm_noise: FastNoiseLite,
     pub worm_noise_detail: FastNoiseLite,
     pub worm_noise_detail_weight: f32,
     rng: SmallRng,
-    active_handles: Vec<ParticleHandle>,
-    pending_placement_handles: Vec<ParticleHandle>,
-    worm_seeds: Vec<f32>,
-    worm_phases: Vec<f32>,
+    spawn_sources: Vec<ButterflySpawnSource>,
+    spawn_hazard: f32,
+    next_spawn_hazard: f32,
+    active_butterflies: Vec<ActiveButterfly>,
 }
 
 impl ButterflyEmitter {
-    pub fn new(center: Vec3, extent: Vec3, seed: u64, desc: &ButterflyEmitterDesc) -> Self {
-        Self::new_with_render_kind(center, extent, seed, desc, ParticleRenderKind::Butterfly)
+    pub fn new(seed: u64, desc: &ButterflyEmitterDesc) -> Self {
+        Self::new_with_render_kind(seed, desc, ParticleRenderKind::Butterfly)
     }
 
     fn new_with_render_kind(
-        center: Vec3,
-        extent: Vec3,
         seed: u64,
         desc: &ButterflyEmitterDesc,
         render_kind: ParticleRenderKind,
     ) -> Self {
-        Self {
-            center,
-            map_extent: extent,
+        let mut emitter = Self {
             height_offset: desc.height_offset_min.min(desc.height_offset_max)
                 ..=desc.height_offset_max.max(desc.height_offset_min),
             size: desc.size.max(0.001),
@@ -328,7 +360,7 @@ impl ButterflyEmitter {
             color_low: desc.color_low,
             color_high: desc.color_high,
             enabled: desc.enabled,
-            butterfly_count: desc.butterfly_count,
+            spawn_rate_per_source: desc.spawn_rate_per_source.max(0.0),
             render_kind,
             worm_noise: butterfly_worm_noise_state(seed as i32, desc.worm_noise_frequency),
             worm_noise_detail: butterfly_worm_noise_detail_state(
@@ -337,17 +369,19 @@ impl ButterflyEmitter {
             ),
             worm_noise_detail_weight: desc.worm_noise_detail_weight,
             rng: SmallRng::seed_from_u64(seed),
-            active_handles: Vec::new(),
-            pending_placement_handles: Vec::new(),
-            worm_seeds: Vec::new(),
-            worm_phases: Vec::new(),
-        }
+            spawn_sources: Vec::new(),
+            spawn_hazard: 0.0,
+            next_spawn_hazard: 1.0,
+            active_butterflies: Vec::new(),
+        };
+        emitter.next_spawn_hazard = emitter.sample_next_spawn_hazard();
+        emitter
     }
 
     #[allow(dead_code)]
     pub fn apply_desc(&mut self, desc: &ButterflyEmitterDesc) {
         self.enabled = desc.enabled;
-        self.butterfly_count = desc.butterfly_count;
+        self.spawn_rate_per_source = desc.spawn_rate_per_source.max(0.0);
         self.height_offset = desc.height_offset_min.min(desc.height_offset_max)
             ..=desc.height_offset_max.max(desc.height_offset_min);
         self.size = desc.size.max(0.001);
@@ -363,60 +397,59 @@ impl ButterflyEmitter {
     }
 
     fn prune_handles(&mut self, system: &ParticleSystem) {
-        let old_len = self.active_handles.len();
-        self.active_handles
-            .retain(|handle| system.is_alive_handle(*handle));
-        let removed = old_len - self.active_handles.len();
-        if removed > 0 {
-            self.worm_seeds.resize(self.active_handles.len(), 0.0);
-            self.worm_phases.resize(self.active_handles.len(), 0.0);
-        }
+        self.active_butterflies
+            .retain(|butterfly| system.is_alive_handle(butterfly.handle));
     }
 
     fn enforce_size_on_active(&self, system: &mut ParticleSystem) {
-        for handle in &self.active_handles {
-            let _ = system.set_size(*handle, self.size);
+        for butterfly in &self.active_butterflies {
+            let _ = system.set_size(butterfly.handle, self.size);
         }
     }
 
     fn trim_active_to_count(&mut self, system: &mut ParticleSystem, target_count: usize) {
-        while self.active_handles.len() > target_count {
-            if let Some(handle) = self.active_handles.pop() {
-                self.pending_placement_handles.retain(|h| *h != handle);
-                self.worm_seeds.pop();
-                self.worm_phases.pop();
-                let _ = system.despawn(handle);
+        while self.active_butterflies.len() > target_count {
+            if let Some(butterfly) = self.active_butterflies.pop() {
+                let _ = system.despawn(butterfly.handle);
             }
         }
     }
 
-    pub fn random_spawn_position_candidate(&mut self) -> Vec3 {
-        let x = self
-            .rng
-            .random_range(-self.map_extent.x..=self.map_extent.x);
-        let z = self
-            .rng
-            .random_range(-self.map_extent.z..=self.map_extent.z);
-        let height_offset = random_in_range(&mut self.rng, &self.height_offset);
-
-        Vec3::new(
-            self.center.x + x,
-            self.center.y + height_offset,
-            self.center.z + z,
-        )
+    fn sample_next_spawn_hazard(&mut self) -> f32 {
+        let unit = 1.0 - self.rng.random_range(0.0..1.0_f32);
+        -unit.ln()
     }
 
-    pub fn spawn_butterfly(&mut self, system: &mut ParticleSystem) -> Option<ParticleHandle> {
-        let position = self.random_spawn_position_candidate();
+    pub fn set_spawn_sources(&mut self, spawn_sources: Vec<ButterflySpawnSource>) {
+        self.spawn_sources = spawn_sources;
+    }
+
+    pub fn spawn_source_count(&self) -> usize {
+        self.spawn_sources.len()
+    }
+
+    fn spawn_butterfly(&mut self, system: &mut ParticleSystem) -> Option<ParticleHandle> {
+        if self.spawn_sources.is_empty() {
+            return None;
+        }
+        let source = self.spawn_sources[self.rng.random_range(0..self.spawn_sources.len())];
+        let height_offset = random_in_range(&mut self.rng, &self.height_offset);
+        let emergence_target_y = (source.kind == ButterflySpawnSourceKind::GroundFlora)
+            .then_some(source.position_ws.y + STANDARD_PARTICLE_SIZE * 0.5 + height_offset);
+        let position = source.position_ws;
         let seed = self.rng.random_range(0.0..100_000.0);
         let phase = self.rng.random_range(0.0..TAU);
-        let initial_dir = generate_worm_direction(
-            &self.worm_noise,
-            &self.worm_noise_detail,
-            self.worm_noise_detail_weight,
-            seed,
-            phase,
-        );
+        let initial_dir = if emergence_target_y.is_some() {
+            Vec3::Y
+        } else {
+            generate_worm_direction(
+                &self.worm_noise,
+                &self.worm_noise_detail,
+                self.worm_noise_detail_weight,
+                seed,
+                phase,
+            )
+        };
 
         let preset_count = ButterflyPalettePreset::COUNT;
         let texture_variant = if preset_count == 0 {
@@ -451,8 +484,12 @@ impl ButterflyEmitter {
 
         match system.spawn(spawn) {
             Some(handle) => {
-                self.worm_seeds.push(seed);
-                self.worm_phases.push(phase);
+                self.active_butterflies.push(ActiveButterfly {
+                    handle,
+                    worm_seed: seed,
+                    worm_phase: phase,
+                    emergence_target_y,
+                });
                 Some(handle)
             }
             None => None,
@@ -465,65 +502,84 @@ impl ButterflyEmitter {
         out_handles: &mut Vec<ParticleHandle>,
         out_positions: &mut Vec<Vec3>,
         out_directions: &mut Vec<Vec3>,
+        out_emerging: &mut Vec<bool>,
     ) {
         self.prune_handles(system);
-        for (i, handle) in self.active_handles.iter().enumerate() {
-            if let Some(pos) = system.position(*handle) {
-                out_handles.push(*handle);
+        for butterfly in &mut self.active_butterflies {
+            if let Some(pos) = system.position(butterfly.handle) {
+                let emerging = butterfly
+                    .emergence_target_y
+                    .is_some_and(|target_y| pos.y < target_y);
+                if !emerging {
+                    butterfly.emergence_target_y = None;
+                }
+
+                out_handles.push(butterfly.handle);
                 out_positions.push(pos);
-                let dir = generate_worm_direction(
-                    &self.worm_noise,
-                    &self.worm_noise_detail,
-                    self.worm_noise_detail_weight,
-                    self.worm_seeds[i],
-                    self.worm_phases[i],
-                );
+                let dir = if emerging {
+                    Vec3::Y
+                } else {
+                    generate_worm_direction(
+                        &self.worm_noise,
+                        &self.worm_noise_detail,
+                        self.worm_noise_detail_weight,
+                        butterfly.worm_seed,
+                        butterfly.worm_phase,
+                    )
+                };
                 out_directions.push(dir);
+                out_emerging.push(emerging);
             }
         }
     }
 
     pub fn set_butterfly_state(&mut self, handle: ParticleHandle, position: Vec3, direction: Vec3) {
-        if let Some(idx) = self.active_handles.iter().position(|h| *h == handle) {
-            self.worm_phases[idx] += WORM_STEP_LEN;
+        if let Some(butterfly) = self
+            .active_butterflies
+            .iter_mut()
+            .find(|butterfly| butterfly.handle == handle)
+        {
+            butterfly.worm_phase += WORM_STEP_LEN;
             let _ = (position, direction);
         }
     }
 
     pub fn despawn_butterfly(&mut self, handle: ParticleHandle) {
-        self.pending_placement_handles.retain(|h| *h != handle);
-        if let Some(idx) = self.active_handles.iter().position(|h| *h == handle) {
-            self.active_handles.swap_remove(idx);
-            self.worm_seeds.swap_remove(idx);
-            self.worm_phases.swap_remove(idx);
+        if let Some(idx) = self
+            .active_butterflies
+            .iter()
+            .position(|butterfly| butterfly.handle == handle)
+        {
+            self.active_butterflies.swap_remove(idx);
         }
-    }
-
-    pub fn drain_pending_placement_handles(&mut self) -> Vec<ParticleHandle> {
-        std::mem::take(&mut self.pending_placement_handles)
     }
 }
 
 impl ParticleEmitter for ButterflyEmitter {
-    fn update(&mut self, system: &mut ParticleSystem, _dt: f32, _time: f32) {
+    fn update(&mut self, system: &mut ParticleSystem, dt: f32, _time: f32) {
         self.prune_handles(system);
-        let target_count = if self.enabled {
-            self.butterfly_count as usize
-        } else {
-            0
-        };
-        self.trim_active_to_count(system, target_count);
-        if target_count == 0 {
+        if !self.enabled {
+            self.trim_active_to_count(system, 0);
             return;
         }
 
         self.enforce_size_on_active(system);
+        if self.spawn_sources.is_empty()
+            || self.spawn_rate_per_source <= 0.0
+            || self.active_butterflies.len() >= MAX_ACTIVE_BUTTERFLIES
+        {
+            return;
+        }
 
-        while self.active_handles.len() < target_count {
-            if let Some(handle) = self.spawn_butterfly(system) {
-                self.active_handles.push(handle);
-                self.pending_placement_handles.push(handle);
-            } else {
+        self.spawn_hazard +=
+            self.spawn_rate_per_source * self.spawn_sources.len() as f32 * dt.max(0.0);
+        while self.spawn_hazard >= self.next_spawn_hazard
+            && self.active_butterflies.len() < MAX_ACTIVE_BUTTERFLIES
+        {
+            self.spawn_hazard -= self.next_spawn_hazard;
+            self.next_spawn_hazard = self.sample_next_spawn_hazard();
+            if self.spawn_butterfly(system).is_none() {
+                self.spawn_hazard = 0.0;
                 break;
             }
         }
@@ -535,6 +591,86 @@ impl ParticleEmitter for ButterflyEmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn butterfly_test_desc() -> ButterflyEmitterDesc {
+        ButterflyEmitterDesc {
+            spawn_rate_per_source: 1.0,
+            height_offset_min: 0.05,
+            height_offset_max: 0.05,
+            lifetime_min: 100.0,
+            lifetime_max: 100.0,
+            ..ButterflyEmitterDesc::default()
+        }
+    }
+
+    #[test]
+    fn butterfly_spawn_hazard_scales_with_source_count() {
+        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
+
+        let mut one_source_system = ParticleSystem::new(4);
+        let mut one_source = ButterflyEmitter::new(7, &butterfly_test_desc());
+        one_source.set_spawn_sources(vec![source]);
+        one_source.next_spawn_hazard = 0.5;
+        one_source.update(&mut one_source_system, 0.25, 0.0);
+
+        let mut two_source_system = ParticleSystem::new(4);
+        let mut two_sources = ButterflyEmitter::new(7, &butterfly_test_desc());
+        two_sources.set_spawn_sources(vec![source, source]);
+        two_sources.next_spawn_hazard = 0.5;
+        two_sources.update(&mut two_source_system, 0.25, 0.0);
+
+        assert_eq!(one_source_system.alive_count(), 0);
+        assert_eq!(two_source_system.alive_count(), 1);
+    }
+
+    #[test]
+    fn ground_flora_butterflies_start_below_the_plant_and_emerge_upward() {
+        let source_position = Vec3::new(0.5, 0.4, 0.5);
+        let mut system = ParticleSystem::new(4);
+        let mut emitter = ButterflyEmitter::new(11, &butterfly_test_desc());
+        emitter.set_spawn_sources(vec![ButterflySpawnSource::ground_flora(source_position)]);
+        let handle = emitter.spawn_butterfly(&mut system).unwrap();
+
+        let mut handles = Vec::new();
+        let mut positions = Vec::new();
+        let mut directions = Vec::new();
+        let mut emerging = Vec::new();
+        emitter.collect_butterfly_states(
+            &system,
+            &mut handles,
+            &mut positions,
+            &mut directions,
+            &mut emerging,
+        );
+
+        assert_eq!(system.position(handle), Some(source_position));
+        assert_eq!(directions, vec![Vec3::Y]);
+        assert_eq!(emerging, vec![true]);
+    }
+
+    #[test]
+    fn tree_leaf_butterflies_start_inside_the_selected_leaf_voxel() {
+        let source_position = Vec3::new(0.8, 0.9, 1.1);
+        let mut system = ParticleSystem::new(4);
+        let mut emitter = ButterflyEmitter::new(13, &butterfly_test_desc());
+        emitter.set_spawn_sources(vec![ButterflySpawnSource::tree_leaf(source_position)]);
+        let handle = emitter.spawn_butterfly(&mut system).unwrap();
+
+        let mut handles = Vec::new();
+        let mut positions = Vec::new();
+        let mut directions = Vec::new();
+        let mut emerging = Vec::new();
+        emitter.collect_butterfly_states(
+            &system,
+            &mut handles,
+            &mut positions,
+            &mut directions,
+            &mut emerging,
+        );
+
+        assert_eq!(system.position(handle), Some(source_position));
+        assert_eq!(emerging, vec![false]);
+    }
 
     #[test]
     fn disabling_fallen_leaf_emitter_preserves_existing_particles() {
