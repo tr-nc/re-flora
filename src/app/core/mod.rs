@@ -1046,7 +1046,10 @@ impl App {
         let editable_center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
         let debug_tree_pos = Vec3::new(editable_center.x, 0.2, editable_center.z);
         let debug_settings = DebugSettings::load();
-        let mut tree_placement_preview_desc = debug_settings.tree.desc.clone();
+        let mut tree_placement_preview_desc = debug_settings
+            .tree
+            .desc
+            .at_age(debug_settings.adjustables.tree_age.value);
         tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         let mut render_flags = RenderFlags::from(options);
         if render_flags.enable_flora {
@@ -1314,13 +1317,21 @@ impl App {
 
     fn sync_tree_placement_preview_from_gui(&mut self) -> Result<()> {
         let seed = self.tree_placement_preview_desc.branching.seed;
-        self.tree_placement_preview_desc = self.debug_settings.tree.desc.clone();
+        self.tree_placement_preview_desc = self
+            .debug_settings
+            .tree
+            .desc
+            .at_age(self.debug_settings.adjustables.tree_age.value);
         self.tree_placement_preview_desc.branching.seed = seed;
         self.rebuild_tree_placement_preview()
     }
 
     pub(super) fn advance_tree_placement_preview(&mut self) -> Result<()> {
-        self.tree_placement_preview_desc = self.debug_settings.tree.desc.clone();
+        self.tree_placement_preview_desc = self
+            .debug_settings
+            .tree
+            .desc
+            .at_age(self.debug_settings.adjustables.tree_age.value);
         self.tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         self.rebuild_tree_placement_preview()
     }
@@ -1999,10 +2010,14 @@ impl App {
                 let frame_delta_time = self.time_info.delta_time();
                 if let Err(err) = self
                     .terrain_physics
-                    .advance_collision_probe(frame_delta_time, &mut self.tracer)
+                    .advance_dynamic_bodies(frame_delta_time, &mut self.tracer)
                 {
-                    log::error!("Failed to advance collision probe: {err:#}");
-                    self.terrain_physics.clear_collision_probe(&mut self.tracer);
+                    log::error!("Failed to advance dynamic bodies: {err:#}");
+                }
+                let fruit_refresh_tree_ids =
+                    self.terrain_physics.take_attached_fruit_refresh_trees();
+                if let Err(err) = self.refresh_attached_tree_fruits(&fruit_refresh_tree_ids) {
+                    log::error!("Failed to refresh attached fruits after detachment: {err:#}");
                 }
                 let time_since_start = self.time_info.time_since_start();
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
@@ -2054,6 +2069,7 @@ impl App {
 
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
+                let tree_age_before_gui = self.debug_settings.adjustables.tree_age.value;
                 let vsm_blur_radius_before_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
@@ -2664,13 +2680,42 @@ impl App {
                 if let Some(snapshot) = camera_snapshot_to_apply {
                     self.apply_camera_snapshot(&snapshot);
                 }
-                if tree_desc_changed {
+                let tree_age_changed =
+                    self.debug_settings.adjustables.tree_age.value != tree_age_before_gui;
+                if tree_desc_changed && tree_age_changed {
+                    if !self.stage_tuned_tree_desc_from_gui() {
+                        if let Err(err) = self.update_tuned_tree_from_gui() {
+                            log::error!("Failed to update tuning tree from GUI sliders: {err}");
+                        }
+                    }
+                } else if tree_desc_changed {
                     match self.update_tuned_tree_from_gui() {
-                        Ok(()) => log::info!("Updated tuning tree from GUI sliders"),
+                        Ok(()) => log::info!(
+                            "Updated tuning tree from GUI sliders at age {:.3}",
+                            self.debug_settings.adjustables.tree_age.value,
+                        ),
                         Err(err) => {
                             log::error!("Failed to update tuning tree from GUI sliders: {}", err)
                         }
                     }
+                }
+                if tree_age_changed {
+                    if let Err(err) = self.update_all_tree_ages_from_gui() {
+                        log::error!("Failed to rebuild trees for global age: {err:#}");
+                    }
+                    if let Err(err) = self.terrain_physics.set_tree_age(
+                        self.debug_settings.adjustables.tree_age.value,
+                        &mut self.tracer,
+                    ) {
+                        log::error!("Failed to update fruit lifecycle for tree age: {err:#}");
+                    }
+                    let fruit_refresh_tree_ids =
+                        self.terrain_physics.take_attached_fruit_refresh_trees();
+                    if let Err(err) = self.refresh_attached_tree_fruits(&fruit_refresh_tree_ids) {
+                        log::error!("Failed to refresh attached fruits after age scrub: {err:#}");
+                    }
+                }
+                if tree_desc_changed || tree_age_changed {
                     if let Err(err) = self.sync_tree_placement_preview_from_gui() {
                         log::error!("Failed to rebuild tree geometry preview: {err}");
                     }

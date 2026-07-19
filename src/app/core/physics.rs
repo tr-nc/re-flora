@@ -1,12 +1,14 @@
 use crate::builder::{ContreeBuilder, ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport};
-use crate::tracer::{collision_probe_apple_offsets, Tracer};
+use crate::tracer::{
+    collision_probe_apple_offsets, voxel_apple_offsets, DynamicFruitRenderInstance, Tracer,
+};
 use anyhow::Context;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_physics::{
     BrickOccupancy, CollisionWorld, DynamicBodyDesc, DynamicBodyId, DynamicColliderShape,
     StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
 };
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 const STARTUP_TERRAIN_BRICK_ID: StaticVoxelBrickId = StaticVoxelBrickId(IVec3::new(8, 3, 8));
@@ -20,6 +22,74 @@ const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WO
 // Release measurements put one real 32-cubed Contree export plus Rapier update at about 1.2 ms.
 // Keeping this at one avoids terrain edits turning a single render frame into an unbounded scan.
 const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 1;
+const ATTACHED_FRUIT_MIN_SCALE: f32 = 0.12;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct TreeFruitSpec {
+    pub id: u64,
+    pub position_voxels: UVec3,
+    pub grow_start_age: f32,
+    pub full_growth_age: f32,
+    pub drop_age: f32,
+    pub linear_velocity_voxels: Vec3,
+    pub angular_velocity: Vec3,
+}
+
+impl TreeFruitSpec {
+    pub(super) fn attached_scale(&self, age: f32) -> Option<f32> {
+        if age < self.grow_start_age || age >= self.drop_age {
+            return None;
+        }
+        let duration = (self.full_growth_age - self.grow_start_age).max(f32::EPSILON);
+        let progress = ((age - self.grow_start_age) / duration).clamp(0.0, 1.0);
+        let smooth = progress * progress * (3.0 - 2.0 * progress);
+        Some(ATTACHED_FRUIT_MIN_SCALE + (1.0 - ATTACHED_FRUIT_MIN_SCALE) * smooth)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct AttachedTreeFruit {
+    pub position_voxels: UVec3,
+    pub scale: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FruitSweepPhase {
+    Armed,
+    PendingDrop,
+    Dropped,
+}
+
+fn fruit_phase_after_age_change(
+    phase: FruitSweepPhase,
+    previous_age: f32,
+    tree_age: f32,
+    drop_age: f32,
+) -> FruitSweepPhase {
+    if tree_age < previous_age {
+        if tree_age < drop_age {
+            FruitSweepPhase::Armed
+        } else {
+            FruitSweepPhase::Dropped
+        }
+    } else if tree_age > previous_age
+        && phase == FruitSweepPhase::Armed
+        && previous_age < drop_age
+        && tree_age >= drop_age
+    {
+        FruitSweepPhase::PendingDrop
+    } else {
+        phase
+    }
+}
+
+#[derive(Debug)]
+struct RegisteredFruit {
+    spec: TreeFruitSpec,
+    required_bricks: Vec<StaticVoxelBrickId>,
+    phase: FruitSweepPhase,
+    body: Option<DynamicBodyId>,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum StartupTerrainBrickState {
@@ -99,6 +169,11 @@ pub(super) struct TerrainPhysics {
     dirty_terrain_bricks: DirtyTerrainBrickQueue,
     collision_probe_body: Option<DynamicBodyId>,
     collision_probe_mesh_uploaded: bool,
+    imported_terrain_bricks: HashSet<StaticVoxelBrickId>,
+    failed_terrain_bricks: HashSet<StaticVoxelBrickId>,
+    fruits_by_tree: BTreeMap<u32, BTreeMap<u64, RegisteredFruit>>,
+    attached_fruit_refresh_trees: HashSet<u32>,
+    tree_age: f32,
 }
 
 impl TerrainPhysics {
@@ -113,6 +188,11 @@ impl TerrainPhysics {
             dirty_terrain_bricks: DirtyTerrainBrickQueue::default(),
             collision_probe_body: None,
             collision_probe_mesh_uploaded: false,
+            imported_terrain_bricks: HashSet::new(),
+            failed_terrain_bricks: HashSet::new(),
+            fruits_by_tree: BTreeMap::new(),
+            attached_fruit_refresh_trees: HashSet::new(),
+            tree_age: 1.0,
         };
         terrain_physics.mark_terrain_brick_dirty(STARTUP_TERRAIN_BRICK_ID);
         terrain_physics
@@ -180,17 +260,15 @@ impl TerrainPhysics {
             .collision_world
             .spawn_dynamic_body(desc)
             .context("spawning collision probe body")?;
-        let state = self
-            .collision_world
+        self.collision_world
             .dynamic_body_state(body)
             .context("reading newly spawned collision probe body")?;
-        if let Err(err) = tracer
-            .show_collision_probe_geometry(state.position / VOXELS_PER_WORLD_UNIT, state.rotation)
-        {
+        self.collision_probe_body = Some(body);
+        if let Err(err) = self.sync_dynamic_fruit_rendering(tracer) {
             self.collision_world.remove_dynamic_body(body);
+            self.collision_probe_body = None;
             return Err(err).context("showing collision probe geometry");
         }
-        self.collision_probe_body = Some(body);
         log::info!(
             "[COLLISION][PROBE] dropped body={} spawn_voxels={:?} convex_points={}",
             body.get(),
@@ -204,17 +282,25 @@ impl TerrainPhysics {
         if let Some(body) = self.collision_probe_body.take() {
             self.collision_world.remove_dynamic_body(body);
         }
-        tracer.clear_collision_probe_geometry();
+        if let Err(err) = self.sync_dynamic_fruit_rendering(tracer) {
+            log::error!("Failed to refresh dynamic fruit rendering after clearing probe: {err:#}");
+        }
     }
 
-    pub(super) fn advance_collision_probe(
+    pub(super) fn advance_dynamic_bodies(
         &mut self,
         frame_delta_time: f32,
         tracer: &mut Tracer,
     ) -> anyhow::Result<()> {
-        let Some(body) = self.collision_probe_body else {
-            return Ok(());
-        };
+        self.spawn_pending_fruits()?;
+        let has_fruit_bodies = self
+            .fruits_by_tree
+            .values()
+            .flat_map(BTreeMap::values)
+            .any(|fruit| fruit.body.is_some());
+        if self.collision_probe_body.is_none() && !has_fruit_bodies {
+            return self.sync_dynamic_fruit_rendering(tracer);
+        }
         let step = self.collision_world.advance(frame_delta_time);
         if step.dropped_seconds > 0.0 {
             log::warn!(
@@ -222,14 +308,257 @@ impl TerrainPhysics {
                 step.dropped_seconds * 1_000.0
             );
         }
-        let Some(state) = self.collision_world.dynamic_body_state(body) else {
-            self.collision_probe_body = None;
+        if let Some(body) = self.collision_probe_body {
+            if self.collision_world.dynamic_body_state(body).is_none() {
+                self.collision_probe_body = None;
+                log::error!("collision probe body disappeared from physics world");
+            }
+        }
+        for fruits in self.fruits_by_tree.values_mut() {
+            for fruit in fruits.values_mut() {
+                if fruit
+                    .body
+                    .is_some_and(|body| self.collision_world.dynamic_body_state(body).is_none())
+                {
+                    log::error!(
+                        "dynamic fruit {} disappeared from physics world",
+                        fruit.spec.id
+                    );
+                    fruit.body = None;
+                    fruit.phase = FruitSweepPhase::Dropped;
+                }
+            }
+        }
+        self.sync_dynamic_fruit_rendering(tracer)
+            .context("updating dynamic fruit geometry")
+    }
+
+    pub(super) fn register_tree_fruits(
+        &mut self,
+        tree_id: u32,
+        specs: Vec<TreeFruitSpec>,
+        tree_age: f32,
+        tracer: &mut Tracer,
+    ) -> anyhow::Result<()> {
+        let registry_was_empty = self.fruits_by_tree.is_empty();
+        let mut previous = self.fruits_by_tree.remove(&tree_id).unwrap_or_default();
+        let mut registered = BTreeMap::new();
+        for spec in specs {
+            let required_bricks = fruit_drop_path_bricks(spec.position_voxels);
+            for &brick in &required_bricks {
+                if !self.imported_terrain_bricks.contains(&brick)
+                    && !self.failed_terrain_bricks.contains(&brick)
+                {
+                    self.mark_terrain_brick_dirty(brick);
+                }
+            }
+            let fruit = if let Some(mut existing) = previous.remove(&spec.id) {
+                existing.spec = spec;
+                existing.required_bricks = required_bricks;
+                existing
+            } else {
+                RegisteredFruit {
+                    phase: if tree_age >= spec.drop_age {
+                        FruitSweepPhase::PendingDrop
+                    } else {
+                        FruitSweepPhase::Armed
+                    },
+                    spec,
+                    required_bricks,
+                    body: None,
+                }
+            };
+            registered.insert(fruit.spec.id, fruit);
+        }
+        for stale in previous.into_values() {
+            if let Some(body) = stale.body {
+                self.collision_world.remove_dynamic_body(body);
+            }
+        }
+        self.fruits_by_tree.insert(tree_id, registered);
+        if registry_was_empty {
+            self.tree_age = tree_age.clamp(0.0, 1.0);
+        }
+        self.spawn_pending_fruits()?;
+        self.sync_dynamic_fruit_rendering(tracer)
+    }
+
+    pub(super) fn unregister_tree_fruits(
+        &mut self,
+        tree_id: u32,
+        tracer: &mut Tracer,
+    ) -> anyhow::Result<()> {
+        if let Some(fruits) = self.fruits_by_tree.remove(&tree_id) {
+            for fruit in fruits.into_values() {
+                if let Some(body) = fruit.body {
+                    self.collision_world.remove_dynamic_body(body);
+                }
+            }
+        }
+        self.sync_dynamic_fruit_rendering(tracer)
+    }
+
+    pub(super) fn set_tree_age(
+        &mut self,
+        tree_age: f32,
+        tracer: &mut Tracer,
+    ) -> anyhow::Result<()> {
+        let tree_age = tree_age.clamp(0.0, 1.0);
+        let previous_age = self.tree_age;
+        if tree_age < previous_age {
+            for fruits in self.fruits_by_tree.values_mut() {
+                for fruit in fruits.values_mut() {
+                    if let Some(body) = fruit.body.take() {
+                        self.collision_world.remove_dynamic_body(body);
+                    }
+                    fruit.phase = fruit_phase_after_age_change(
+                        fruit.phase,
+                        previous_age,
+                        tree_age,
+                        fruit.spec.drop_age,
+                    );
+                }
+            }
+        } else if tree_age > previous_age {
+            for fruits in self.fruits_by_tree.values_mut() {
+                for fruit in fruits.values_mut() {
+                    fruit.phase = fruit_phase_after_age_change(
+                        fruit.phase,
+                        previous_age,
+                        tree_age,
+                        fruit.spec.drop_age,
+                    );
+                }
+            }
+        }
+        self.tree_age = tree_age;
+        if tree_age != previous_age {
+            self.attached_fruit_refresh_trees
+                .extend(self.fruits_by_tree.keys().copied());
+        }
+        self.spawn_pending_fruits()?;
+        self.sync_dynamic_fruit_rendering(tracer)
+    }
+
+    pub(super) fn attached_tree_fruits(
+        &self,
+        tree_id: u32,
+        tree_age: f32,
+    ) -> Vec<AttachedTreeFruit> {
+        let tree_age = tree_age.clamp(0.0, 1.0);
+        self.fruits_by_tree
+            .get(&tree_id)
+            .into_iter()
+            .flat_map(BTreeMap::values)
+            .filter_map(|fruit| {
+                let scale = match fruit.phase {
+                    FruitSweepPhase::Armed => fruit.spec.attached_scale(tree_age)?,
+                    // Crossing the threshold only requests a drop. Keep the fruit attached until
+                    // every collider brick along its fall path is imported and detachment can be
+                    // represented continuously by a dynamic body.
+                    FruitSweepPhase::PendingDrop => 1.0,
+                    FruitSweepPhase::Dropped => return None,
+                };
+                Some(AttachedTreeFruit {
+                    position_voxels: fruit.spec.position_voxels,
+                    scale,
+                })
+            })
+            .collect()
+    }
+
+    pub(super) fn take_attached_fruit_refresh_trees(&mut self) -> Vec<u32> {
+        let mut tree_ids = self
+            .attached_fruit_refresh_trees
+            .drain()
+            .collect::<Vec<_>>();
+        tree_ids.sort_unstable();
+        tree_ids
+    }
+
+    fn spawn_pending_fruits(&mut self) -> anyhow::Result<()> {
+        let imported_terrain_bricks = &self.imported_terrain_bricks;
+        let ready = self
+            .fruits_by_tree
+            .iter()
+            .flat_map(|(&tree_id, fruits)| {
+                fruits.iter().filter_map(move |(&fruit_id, fruit)| {
+                    (fruit.phase == FruitSweepPhase::PendingDrop
+                        && fruit.body.is_none()
+                        && fruit
+                            .required_bricks
+                            .iter()
+                            .all(|brick| imported_terrain_bricks.contains(brick)))
+                    .then_some((tree_id, fruit_id, fruit.spec.clone()))
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for (tree_id, fruit_id, spec) in ready {
+            let mut desc = DynamicBodyDesc::sphere(spec.position_voxels.as_vec3(), 2.0);
+            desc.collider = DynamicColliderShape::ConvexHull {
+                points: apple_convex_points(),
+            };
+            desc.linear_velocity = spec.linear_velocity_voxels;
+            desc.angular_velocity = spec.angular_velocity;
+            desc.friction = 0.82;
+            desc.restitution = 0.12;
+            desc.linear_damping = 0.06;
+            desc.angular_damping = 0.10;
+            desc.ccd_enabled = true;
+            let body = self
+                .collision_world
+                .spawn_dynamic_body(desc)
+                .with_context(|| format!("spawning fruit {fruit_id} for tree {tree_id}"))?;
+            let fruit = self
+                .fruits_by_tree
+                .get_mut(&tree_id)
+                .and_then(|fruits| fruits.get_mut(&fruit_id))
+                .context("pending fruit disappeared while spawning")?;
+            fruit.body = Some(body);
+            fruit.phase = FruitSweepPhase::Dropped;
+            self.attached_fruit_refresh_trees.insert(tree_id);
+            log::info!(
+                "[COLLISION][FRUIT] dropped tree={} fruit={} body={} age={:.3} position_voxels={:?}",
+                tree_id,
+                fruit_id,
+                body.get(),
+                self.tree_age,
+                spec.position_voxels,
+            );
+        }
+        Ok(())
+    }
+
+    fn sync_dynamic_fruit_rendering(&self, tracer: &mut Tracer) -> anyhow::Result<()> {
+        let mut instances = Vec::new();
+        if let Some(body) = self.collision_probe_body {
+            if let Some(state) = self.collision_world.dynamic_body_state(body) {
+                instances.push(DynamicFruitRenderInstance::new(
+                    state.position / VOXELS_PER_WORLD_UNIT,
+                    state.rotation,
+                    2.0,
+                ));
+            }
+        }
+        for fruit in self.fruits_by_tree.values().flat_map(BTreeMap::values) {
+            if let Some(state) = fruit
+                .body
+                .and_then(|body| self.collision_world.dynamic_body_state(body))
+            {
+                instances.push(DynamicFruitRenderInstance::new(
+                    state.position / VOXELS_PER_WORLD_UNIT,
+                    state.rotation,
+                    1.0,
+                ));
+            }
+        }
+        if instances.is_empty() {
             tracer.clear_collision_probe_geometry();
-            anyhow::bail!("collision probe body disappeared from physics world");
-        };
-        tracer
-            .show_collision_probe_geometry(state.position / VOXELS_PER_WORLD_UNIT, state.rotation)
-            .context("updating collision probe geometry")
+            Ok(())
+        } else {
+            tracer.show_dynamic_fruit_geometry(&instances)
+        }
     }
 
     pub(super) fn mark_terrain_voxel_bound_dirty(&mut self, bound: crate::geom::UAabb3) {
@@ -351,6 +680,10 @@ impl TerrainPhysics {
         {
             self.startup_brick_state = StartupTerrainBrickState::Imported;
         }
+        if !matches!(update, StaticVoxelBrickUpdate::Stale { .. }) {
+            self.imported_terrain_bricks.insert(work.id);
+            self.failed_terrain_bricks.remove(&work.id);
+        }
         log::info!(
             "[COLLISION][TERRAIN_BRICK] refreshed id={:?} min={:?} request_revision={} source_revision={} dependencies={:?} solids={} changed_voxels={} update={:?} export_ms={:.3} occupancy_ms={:.3} physics_ms={:.3} total_ms={:.3} pending={}",
             work.id,
@@ -372,6 +705,7 @@ impl TerrainPhysics {
 
     fn finish_failed_terrain_brick(&mut self, work: DirtyTerrainBrickWork, error: String) {
         self.dirty_terrain_bricks.complete(work);
+        self.failed_terrain_bricks.insert(work.id);
         if work.id == STARTUP_TERRAIN_BRICK_ID {
             self.startup_brick_state = StartupTerrainBrickState::Failed;
         }
@@ -433,8 +767,16 @@ fn terrain_brick_ids_for_inclusive_uvec_aabb(
 }
 
 fn collision_probe_convex_points() -> Vec<Vec3> {
+    convex_points_for_voxels(collision_probe_apple_offsets())
+}
+
+fn apple_convex_points() -> Vec<Vec3> {
+    convex_points_for_voxels(voxel_apple_offsets())
+}
+
+fn convex_points_for_voxels(voxels: Vec<IVec3>) -> Vec<Vec3> {
     let mut corners = HashSet::new();
-    for voxel in collision_probe_apple_offsets() {
+    for voxel in voxels {
         for x in 0..=1 {
             for y in 0..=1 {
                 for z in 0..=1 {
@@ -446,6 +788,22 @@ fn collision_probe_convex_points() -> Vec<Vec3> {
     let mut corners = corners.into_iter().collect::<Vec<_>>();
     corners.sort_unstable_by_key(|corner| (corner.x, corner.y, corner.z));
     corners.into_iter().map(IVec3::as_vec3).collect()
+}
+
+fn fruit_drop_path_bricks(position_voxels: UVec3) -> Vec<StaticVoxelBrickId> {
+    const FRUIT_RADIUS_VOXELS: i32 = 2;
+    let position = position_voxels.as_ivec3();
+    let min = IVec3::new(
+        position.x - FRUIT_RADIUS_VOXELS,
+        0,
+        position.z - FRUIT_RADIUS_VOXELS,
+    );
+    let max_exclusive = IVec3::new(
+        position.x + FRUIT_RADIUS_VOXELS + 1,
+        position.y + FRUIT_RADIUS_VOXELS + 1,
+        position.z + FRUIT_RADIUS_VOXELS + 1,
+    );
+    terrain_brick_ids_for_voxel_aabb(min, max_exclusive)
 }
 
 fn single_source_revision(block: &ContreeCpuVoxelBlock) -> Result<u64, &'static str> {
@@ -471,6 +829,61 @@ mod tests {
             voxel_dim_per_chunk: UVec3::splat(256),
             voxel_types: vec![0; STATIC_VOXEL_BRICK_DIM.pow(3) as usize],
             source_dependencies,
+        }
+    }
+
+    fn fruit_spec() -> TreeFruitSpec {
+        TreeFruitSpec {
+            id: 7,
+            position_voxels: UVec3::new(64, 96, 64),
+            grow_start_age: 0.55,
+            full_growth_age: 0.70,
+            drop_age: 0.88,
+            linear_velocity_voxels: Vec3::ZERO,
+            angular_velocity: Vec3::ZERO,
+        }
+    }
+
+    #[test]
+    fn fruit_grows_smoothly_then_leaves_the_attached_set() {
+        let fruit = fruit_spec();
+        assert_eq!(fruit.attached_scale(0.54), None);
+        assert_eq!(fruit.attached_scale(0.55), Some(ATTACHED_FRUIT_MIN_SCALE));
+        let halfway = fruit.attached_scale(0.625).unwrap();
+        assert!(halfway > ATTACHED_FRUIT_MIN_SCALE && halfway < 1.0);
+        assert_eq!(fruit.attached_scale(0.70), Some(1.0));
+        assert_eq!(fruit.attached_scale(0.88), None);
+    }
+
+    #[test]
+    fn backward_scrub_rearms_each_fruit_for_another_upward_sweep() {
+        let drop_age = 0.88;
+        let first_drop = fruit_phase_after_age_change(FruitSweepPhase::Armed, 0.70, 0.90, drop_age);
+        assert_eq!(first_drop, FruitSweepPhase::PendingDrop);
+
+        let rearmed = fruit_phase_after_age_change(FruitSweepPhase::Dropped, 0.90, 0.60, drop_age);
+        assert_eq!(rearmed, FruitSweepPhase::Armed);
+        assert_eq!(
+            fruit_phase_after_age_change(rearmed, 0.60, 0.90, drop_age),
+            FruitSweepPhase::PendingDrop,
+        );
+    }
+
+    #[test]
+    fn shallow_backward_scrub_above_threshold_does_not_duplicate_a_drop() {
+        let phase = fruit_phase_after_age_change(FruitSweepPhase::Dropped, 1.0, 0.95, 0.88);
+        assert_eq!(phase, FruitSweepPhase::Dropped);
+        assert_eq!(
+            fruit_phase_after_age_change(phase, 0.95, 1.0, 0.88),
+            FruitSweepPhase::Dropped,
+        );
+    }
+
+    #[test]
+    fn fruit_drop_path_requests_every_vertical_collider_brick() {
+        let bricks = fruit_drop_path_bricks(UVec3::new(65, 97, 65));
+        for y in 0..=3 {
+            assert!(bricks.contains(&StaticVoxelBrickId(IVec3::new(2, y, 2))));
         }
     }
 

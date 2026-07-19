@@ -37,6 +37,7 @@ VertexOutput main(VertexInput input)
     uint3 leafVoxelWorldPosition = treeLeafWorldPosition(
         leafInstance.packed_local_pos, chunkWorldOffset);
     bool isTreeLeaf = instanceType == FLORA_SPECIES_TREE_LEAF;
+    bool isApple = instanceType == FLORA_SPECIES_APPLE;
     int3 leafVoxelLocalPosition = isTreeLeaf
         ? unpackTreeLeafVoxelLocalPosition(leafInstance.packed_leaf_local_pos)
         : voxelLocalPosition;
@@ -61,6 +62,13 @@ VertexOutput main(VertexInput input)
 
     float3 vertexPosition = prepared.anchor_position +
                             float3(vertexOffset) * FLORA_SCALING_FACTOR;
+    if (isApple)
+    {
+        float scale = unpackTreeFruitScale(leafInstance.packed_leaf_local_pos);
+        float3 fruitBase = prepared.anchor_position -
+            float3(leafVoxelLocalPosition) * FLORA_SCALING_FACTOR;
+        vertexPosition = fruitBase + (vertexPosition - fruitBase) * scale;
+    }
     output.position = applyFloraDepthOffset(vertexPosition, instancePosition);
     float3 baseColor = sampleFloraBaseColor(
         prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,

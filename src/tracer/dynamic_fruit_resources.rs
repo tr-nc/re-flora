@@ -1,4 +1,4 @@
-use anyhow::{ensure, Result};
+use anyhow::{anyhow, ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{Quat, Vec3, Vec4};
 use re_flora_vkn::vk;
@@ -42,28 +42,48 @@ pub struct DynamicFruitInstanceGpu {
 }
 
 impl DynamicFruitInstanceGpu {
-    fn new(base_position: Vec3, tint: Vec4, rotation: Quat) -> Self {
+    fn new(instance: DynamicFruitRenderInstance) -> Self {
         Self {
-            base_position: base_position.to_array(),
-            tint: tint.to_array(),
-            rotation: rotation.to_array(),
+            base_position: instance.position.to_array(),
+            tint: Vec4::new(1.0, 1.0, 1.0, instance.scale).to_array(),
+            rotation: instance.rotation.to_array(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DynamicFruitRenderInstance {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub scale: f32,
+}
+
+impl DynamicFruitRenderInstance {
+    pub fn new(position: Vec3, rotation: Quat, scale: f32) -> Self {
+        Self {
+            position,
+            rotation,
+            scale,
         }
     }
 }
 
 pub struct DynamicFruitRendererResources {
+    device: Device,
+    allocator: Allocator,
+    instance_capacity: usize,
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
     pub indices_len: u32,
     pub instances: Resource<Buffer>,
     pub instance_count: u32,
-    last_transform: Option<(Vec3, Quat)>,
+    last_instances: Vec<DynamicFruitRenderInstance>,
     shadow_changed: bool,
 }
 
 impl DynamicFruitRendererResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
-        let (vertices_data, indices_data) = build_collision_probe_apple_mesh();
+        let (vertices_data, indices_data) = build_dynamic_apple_mesh();
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -83,69 +103,122 @@ impl DynamicFruitRendererResources {
         indices.fill(&indices_data).unwrap();
 
         let instances = Buffer::new_sized(
-            device,
-            allocator,
+            device.clone(),
+            allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
             MemoryLocation::CpuToGpu,
             std::mem::size_of::<DynamicFruitInstanceGpu>() as u64,
         );
 
         Self {
+            device,
+            allocator,
+            instance_capacity: 1,
             vertices: Resource::new(vertices),
             indices: Resource::new(indices),
             indices_len: indices_data.len() as u32,
             instances: Resource::new(instances),
             instance_count: 0,
-            last_transform: None,
+            last_instances: Vec::new(),
             shadow_changed: false,
         }
     }
 
-    pub fn show(&mut self, position: Vec3, rotation: Quat) -> Result<()> {
+    pub fn show(&mut self, instances: &[DynamicFruitRenderInstance]) -> Result<()> {
         ensure!(
-            position.is_finite(),
-            "dynamic fruit position must be finite"
+            instances.len() <= u32::MAX as usize,
+            "dynamic fruit instance count exceeds u32 draw range"
         );
-        ensure!(
-            rotation.is_finite(),
-            "dynamic fruit rotation must be finite"
-        );
-        ensure!(
-            rotation.length_squared() > f32::EPSILON,
-            "dynamic fruit rotation must have non-zero length"
-        );
-        let rotation = rotation.normalize();
-        self.shadow_changed |= transform_changed(self.last_transform, position, rotation);
-        self.last_transform = Some((position, rotation));
-        self.instances
-            .fill(&[DynamicFruitInstanceGpu::new(position, Vec4::ONE, rotation)])?;
-        self.instance_count = 1;
+        let mut normalized = Vec::with_capacity(instances.len());
+        for instance in instances {
+            ensure!(
+                instance.position.is_finite(),
+                "dynamic fruit position must be finite"
+            );
+            ensure!(
+                instance.rotation.is_finite(),
+                "dynamic fruit rotation must be finite"
+            );
+            ensure!(
+                instance.rotation.length_squared() > f32::EPSILON,
+                "dynamic fruit rotation must have non-zero length"
+            );
+            ensure!(
+                instance.scale.is_finite() && instance.scale > 0.0,
+                "dynamic fruit scale must be finite and positive"
+            );
+            normalized.push(DynamicFruitRenderInstance {
+                rotation: instance.rotation.normalize(),
+                ..*instance
+            });
+        }
+
+        self.ensure_instance_capacity(normalized.len())?;
+        self.shadow_changed |= instances_changed(&self.last_instances, &normalized);
+        self.last_instances.clone_from(&normalized);
+        if !normalized.is_empty() {
+            let gpu_instances = normalized
+                .iter()
+                .copied()
+                .map(DynamicFruitInstanceGpu::new)
+                .collect::<Vec<_>>();
+            self.instances.fill(&gpu_instances)?;
+        }
+        self.instance_count = normalized.len() as u32;
         Ok(())
     }
 
     pub fn clear(&mut self) {
         self.shadow_changed |= self.instance_count > 0;
         self.instance_count = 0;
-        self.last_transform = None;
+        self.last_instances.clear();
     }
 
     pub fn take_shadow_changed(&mut self) -> bool {
         std::mem::take(&mut self.shadow_changed)
     }
+
+    fn ensure_instance_capacity(&mut self, required: usize) -> Result<()> {
+        let required = required.max(1);
+        if required <= self.instance_capacity {
+            return Ok(());
+        }
+        self.instance_capacity = required
+            .checked_next_power_of_two()
+            .ok_or_else(|| anyhow!("dynamic fruit instance capacity overflow"))?;
+        // The current instance buffer may still be referenced by a submitted command buffer.
+        // Capacity growth is rare, so synchronize before replacing and destroying it.
+        self.device.wait_idle();
+        *self.instances = Buffer::new_sized(
+            self.device.clone(),
+            self.allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (std::mem::size_of::<DynamicFruitInstanceGpu>() * self.instance_capacity) as u64,
+        );
+        Ok(())
+    }
 }
 
-fn transform_changed(last: Option<(Vec3, Quat)>, position: Vec3, rotation: Quat) -> bool {
+fn instances_changed(
+    last: &[DynamicFruitRenderInstance],
+    current: &[DynamicFruitRenderInstance],
+) -> bool {
     const POSITION_EPSILON_SQUARED: f32 = 1.0e-10;
     const ROTATION_DOT_EPSILON: f32 = 1.0e-7;
-    let Some((last_position, last_rotation)) = last else {
+    const SCALE_EPSILON: f32 = 1.0e-6;
+    if last.len() != current.len() {
         return true;
-    };
-    position.distance_squared(last_position) > POSITION_EPSILON_SQUARED
-        || 1.0 - rotation.dot(last_rotation).abs() > ROTATION_DOT_EPSILON
+    }
+    last.iter().zip(current).any(|(last, current)| {
+        last.position.distance_squared(current.position) > POSITION_EPSILON_SQUARED
+            || 1.0 - current.rotation.dot(last.rotation).abs() > ROTATION_DOT_EPSILON
+            || (current.scale - last.scale).abs() > SCALE_EPSILON
+    })
 }
 
-fn build_collision_probe_apple_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
-    let offsets = super::collision_probe_apple_offsets();
+fn build_dynamic_apple_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
+    let offsets = super::voxel_apple_offsets();
     let mut vertices = Vec::with_capacity(offsets.len() * VOXEL_VERTICES.len());
     let mut indices = Vec::with_capacity(offsets.len() * CUBE_INDICES.len());
     for voxel in offsets {
@@ -180,9 +253,9 @@ mod tests {
     }
 
     #[test]
-    fn collision_probe_mesh_uses_shared_unit_voxel_description() {
-        let expected_voxels = super::super::collision_probe_apple_offsets().len();
-        let (vertices, indices) = build_collision_probe_apple_mesh();
+    fn dynamic_mesh_uses_the_regular_attached_apple_description() {
+        let expected_voxels = super::super::voxel_apple_offsets().len();
+        let (vertices, indices) = build_dynamic_apple_mesh();
         assert_eq!(vertices.len(), expected_voxels * VOXEL_VERTICES.len());
         assert_eq!(indices.len(), expected_voxels * CUBE_INDICES.len());
 
@@ -196,29 +269,39 @@ mod tests {
             .map(|vertex| Vec3::from_array(vertex.position))
             .reduce(Vec3::max)
             .unwrap();
-        assert_eq!(min, Vec3::splat(-4.0 * VOXEL_SCALE));
-        assert_eq!(max, Vec3::splat(4.0 * VOXEL_SCALE));
+        assert_eq!(min, Vec3::splat(-2.0 * VOXEL_SCALE));
+        assert_eq!(max, Vec3::splat(2.0 * VOXEL_SCALE));
     }
 
     #[test]
-    fn shadow_history_reset_only_tracks_visible_transform_changes() {
+    fn shadow_history_reset_only_tracks_visible_instance_changes() {
         let position = Vec3::new(1.0, 2.0, 3.0);
         let rotation = Quat::from_rotation_y(0.4);
-        assert!(transform_changed(None, position, rotation));
-        assert!(!transform_changed(
-            Some((position, rotation)),
-            position,
-            -rotation
+        let instance = DynamicFruitRenderInstance::new(position, rotation, 1.0);
+        assert!(instances_changed(&[], &[instance]));
+        assert!(!instances_changed(
+            &[instance],
+            &[DynamicFruitRenderInstance::new(position, -rotation, 1.0)]
         ));
-        assert!(transform_changed(
-            Some((position, rotation)),
-            position + Vec3::splat(1.0e-3),
-            rotation
+        assert!(instances_changed(
+            &[instance],
+            &[DynamicFruitRenderInstance::new(
+                position + Vec3::splat(1.0e-3),
+                rotation,
+                1.0,
+            )]
         ));
-        assert!(transform_changed(
-            Some((position, rotation)),
-            position,
-            Quat::from_rotation_y(0.5)
+        assert!(instances_changed(
+            &[instance],
+            &[DynamicFruitRenderInstance::new(
+                position,
+                Quat::from_rotation_y(0.5),
+                1.0,
+            )]
+        ));
+        assert!(instances_changed(
+            &[instance],
+            &[DynamicFruitRenderInstance::new(position, rotation, 0.5)]
         ));
     }
 
@@ -240,8 +323,10 @@ mod tests {
             }
         }
         assert!(color_shader.contains("rotateByQuaternion(input.position"));
+        assert!(color_shader.contains("input.position * input.tint.a"));
         assert!(color_shader.contains("rotateByQuaternion(input.voxel_center"));
         assert!(color_shader.contains("input.shading_normal, input.rotation"));
         assert!(shadow_shader.contains("rotateByQuaternion(input.position"));
+        assert!(shadow_shader.contains("input.position * input.tint.a"));
     }
 }
