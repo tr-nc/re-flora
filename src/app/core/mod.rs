@@ -1056,6 +1056,7 @@ impl App {
             render_flags.enable_leaves = debug_settings.tree.render_leaves;
         }
         let current_time_of_day = debug_settings.adjustables.time_of_day.value;
+        let terrain_physics = TerrainPhysics::new(debug_settings.adjustables.fruit_cycle.value);
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
             Vec4::new(
@@ -1195,7 +1196,7 @@ impl App {
             surface_builder,
             contree_builder,
             scene_accel_builder,
-            terrain_physics: TerrainPhysics::new(),
+            terrain_physics,
 
             is_resize_pending: false,
             time_info: TimeInfo::default(),
@@ -2071,6 +2072,7 @@ impl App {
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
                 let tree_age_before_gui = self.debug_settings.adjustables.tree_age.value;
+                let fruit_cycle_before_gui = self.debug_settings.adjustables.fruit_cycle.value;
                 let vsm_blur_radius_before_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
@@ -2683,6 +2685,8 @@ impl App {
                 }
                 let tree_age_changed =
                     self.debug_settings.adjustables.tree_age.value != tree_age_before_gui;
+                let fruit_cycle_changed =
+                    self.debug_settings.adjustables.fruit_cycle.value != fruit_cycle_before_gui;
                 if tree_desc_changed && tree_age_changed {
                     if !self.stage_tuned_tree_desc_from_gui() {
                         if let Err(err) = self.update_tuned_tree_from_gui() {
@@ -2704,16 +2708,18 @@ impl App {
                     if let Err(err) = self.update_all_tree_ages_from_gui() {
                         log::error!("Failed to rebuild trees for global age: {err:#}");
                     }
-                    if let Err(err) = self.terrain_physics.set_tree_age(
-                        self.debug_settings.adjustables.tree_age.value,
+                }
+                if fruit_cycle_changed {
+                    if let Err(err) = self.terrain_physics.set_fruit_cycle(
+                        self.debug_settings.adjustables.fruit_cycle.value,
                         &mut self.tracer,
                     ) {
-                        log::error!("Failed to update fruit lifecycle for tree age: {err:#}");
+                        log::error!("Failed to update fruit lifecycle cycle: {err:#}");
                     }
                     let fruit_refresh_tree_ids =
                         self.terrain_physics.take_attached_fruit_refresh_trees();
                     if let Err(err) = self.refresh_attached_tree_fruits(&fruit_refresh_tree_ids) {
-                        log::error!("Failed to refresh attached fruits after age scrub: {err:#}");
+                        log::error!("Failed to refresh attached fruits after cycle scrub: {err:#}");
                     }
                 }
                 if tree_desc_changed || tree_age_changed {

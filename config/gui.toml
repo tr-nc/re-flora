@@ -82,6 +82,17 @@ min = 0
 max = 1
 
 [[section.param]]
+id = "fruit_cycle"
+kind = "float"
+label = "Fruit Cycle"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1
+
+[[section.param]]
 id = "lod_distance"
 kind = "float"
 label = "LOD Distance"

@@ -492,11 +492,11 @@ fn tree_fruit_specs(
             continue;
         }
         let position_voxels = apple_pos.round().as_uvec3();
-        let grow_start_age = 0.52 + unit_hash(seed, leaf_index, 0xD1B5_4A35, leaf_pos) * 0.12;
-        let full_growth_age =
-            grow_start_age + 0.10 + unit_hash(seed, leaf_index, 0x94D0_49BB, leaf_pos) * 0.06;
-        let drop_age = (0.82 + unit_hash(seed, leaf_index, 0x369D_EA0F, leaf_pos) * 0.16)
-            .max(full_growth_age + 0.06)
+        let grow_start_phase = 0.52 + unit_hash(seed, leaf_index, 0xD1B5_4A35, leaf_pos) * 0.12;
+        let full_growth_phase =
+            grow_start_phase + 0.10 + unit_hash(seed, leaf_index, 0x94D0_49BB, leaf_pos) * 0.06;
+        let drop_phase = (0.82 + unit_hash(seed, leaf_index, 0x369D_EA0F, leaf_pos) * 0.16)
+            .max(full_growth_phase + 0.06)
             .min(0.99);
         let horizontal_velocity = Vec2::new(
             unit_hash(seed, leaf_index, 0xDB4F_0B91, leaf_pos) * 2.0 - 1.0,
@@ -518,9 +518,9 @@ fn tree_fruit_specs(
         fruits.push(TreeFruitSpec {
             id: ((id_high as u64) << 32) | id_low as u64,
             position_voxels,
-            grow_start_age,
-            full_growth_age,
-            drop_age,
+            grow_start_phase,
+            full_growth_phase,
+            drop_phase,
             linear_velocity_voxels: Vec3::new(
                 horizontal_velocity.x,
                 -unit_hash(seed, leaf_index, 0x4CF5_AD43, leaf_pos) * 2.0,
@@ -812,7 +812,7 @@ impl App {
             }
             let apples = self
                 .terrain_physics
-                .attached_tree_fruits(tree_id, self.debug_settings.adjustables.tree_age.value)
+                .attached_tree_fruits(tree_id)
                 .into_iter()
                 .map(|fruit| (fruit.position_voxels, fruit.radius_voxels))
                 .collect::<Vec<_>>();
@@ -1961,12 +1961,11 @@ impl App {
         self.terrain_physics.register_tree_fruits(
             tree_id,
             fruit_specs.to_vec(),
-            self.debug_settings.adjustables.tree_age.value,
             &mut self.tracer,
         )?;
         let attached_fruits = self
             .terrain_physics
-            .attached_tree_fruits(tree_id, self.debug_settings.adjustables.tree_age.value)
+            .attached_tree_fruits(tree_id)
             .into_iter()
             .map(|fruit| (fruit.position_voxels, fruit.radius_voxels))
             .collect::<Vec<_>>();
@@ -2201,15 +2200,45 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.len() > 8);
         assert!(first.iter().all(|fruit| {
-            fruit.grow_start_age < fruit.full_growth_age
-                && fruit.full_growth_age < fruit.drop_age
-                && fruit.drop_age <= 0.99
+            fruit.grow_start_phase < fruit.full_growth_phase
+                && fruit.full_growth_phase < fruit.drop_phase
+                && fruit.drop_phase <= 0.99
         }));
         let distinct_drop_millis = first
             .iter()
-            .map(|fruit| (fruit.drop_age * 1_000.0).round() as u32)
+            .map(|fruit| (fruit.drop_phase * 1_000.0).round() as u32)
             .collect::<HashSet<_>>();
         assert!(distinct_drop_millis.len() > 4);
+    }
+
+    #[test]
+    fn tree_age_scaling_does_not_change_fruit_cycle_schedule() {
+        let tree_pos_voxels = Vec3::new(100.0, 100.0, 100.0);
+        let branch_anchors = [
+            UVec3::new(80, 120, 90),
+            UVec3::new(110, 124, 95),
+            UVec3::new(105, 132, 115),
+        ];
+        let desc = TreeDesc {
+            fruit_spawn_probability: 1.0,
+            ..TreeDesc::default()
+        };
+
+        let sapling = tree_fruit_specs(&desc, tree_pos_voxels, &branch_anchors, 0.25);
+        let mature = tree_fruit_specs(&desc, tree_pos_voxels, &branch_anchors, 1.0);
+
+        assert_eq!(sapling.len(), branch_anchors.len());
+        assert_eq!(mature.len(), branch_anchors.len());
+        assert!(sapling.iter().zip(&mature).all(|(sapling, mature)| {
+            sapling.id == mature.id
+                && sapling.grow_start_phase == mature.grow_start_phase
+                && sapling.full_growth_phase == mature.full_growth_phase
+                && sapling.drop_phase == mature.drop_phase
+        }));
+        assert!(sapling
+            .iter()
+            .zip(&mature)
+            .any(|(sapling, mature)| sapling.position_voxels != mature.position_voxels));
     }
 
     #[test]

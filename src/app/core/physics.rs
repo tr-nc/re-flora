@@ -43,20 +43,20 @@ fn player_capsule_center_voxels(camera_position: Vec3, camera_height: f32) -> Ve
 pub(super) struct TreeFruitSpec {
     pub id: u64,
     pub position_voxels: UVec3,
-    pub grow_start_age: f32,
-    pub full_growth_age: f32,
-    pub drop_age: f32,
+    pub grow_start_phase: f32,
+    pub full_growth_phase: f32,
+    pub drop_phase: f32,
     pub linear_velocity_voxels: Vec3,
     pub angular_velocity: Vec3,
 }
 
 impl TreeFruitSpec {
-    pub(super) fn attached_radius_voxels(&self, age: f32) -> Option<u32> {
-        if age < self.grow_start_age || age >= self.drop_age {
+    pub(super) fn attached_radius_voxels(&self, cycle: f32) -> Option<u32> {
+        if cycle < self.grow_start_phase || cycle >= self.drop_phase {
             return None;
         }
-        let duration = (self.full_growth_age - self.grow_start_age).max(f32::EPSILON);
-        let progress = ((age - self.grow_start_age) / duration).clamp(0.0, 1.0);
+        let duration = (self.full_growth_phase - self.grow_start_phase).max(f32::EPSILON);
+        let progress = ((cycle - self.grow_start_phase) / duration).clamp(0.0, 1.0);
         let radius = 1 + (progress * TREE_FRUIT_MAX_RADIUS_VOXELS as f32).floor() as u32;
         Some(radius.min(TREE_FRUIT_MAX_RADIUS_VOXELS))
     }
@@ -75,22 +75,18 @@ enum FruitSweepPhase {
     Dropped,
 }
 
-fn fruit_phase_after_age_change(
+fn fruit_phase_after_cycle_change(
     phase: FruitSweepPhase,
-    previous_age: f32,
-    tree_age: f32,
-    drop_age: f32,
+    previous_cycle: f32,
+    fruit_cycle: f32,
+    drop_phase: f32,
 ) -> FruitSweepPhase {
-    if tree_age < previous_age {
-        if tree_age < drop_age {
-            FruitSweepPhase::Armed
-        } else {
-            FruitSweepPhase::Dropped
-        }
-    } else if tree_age > previous_age
+    if fruit_cycle < previous_cycle && fruit_cycle < drop_phase {
+        FruitSweepPhase::Armed
+    } else if fruit_cycle > previous_cycle
         && phase == FruitSweepPhase::Armed
-        && previous_age < drop_age
-        && tree_age >= drop_age
+        && previous_cycle < drop_phase
+        && fruit_cycle >= drop_phase
     {
         FruitSweepPhase::PendingDrop
     } else {
@@ -197,11 +193,11 @@ pub(super) struct TerrainPhysics {
     world_collider_import: Option<WorldTerrainColliderImport>,
     fruits_by_tree: BTreeMap<u32, BTreeMap<u64, RegisteredFruit>>,
     attached_fruit_refresh_trees: HashSet<u32>,
-    tree_age: f32,
+    fruit_cycle: f32,
 }
 
 impl TerrainPhysics {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(fruit_cycle: f32) -> Self {
         let mut collision_world = CollisionWorld::new();
         collision_world
             .set_gravity(COLLISION_PROBE_GRAVITY_VOXELS)
@@ -217,7 +213,7 @@ impl TerrainPhysics {
             world_collider_import: None,
             fruits_by_tree: BTreeMap::new(),
             attached_fruit_refresh_trees: HashSet::new(),
-            tree_age: 1.0,
+            fruit_cycle: fruit_cycle.clamp(0.0, 1.0),
         };
         terrain_physics.mark_terrain_brick_dirty(STARTUP_TERRAIN_BRICK_ID);
         terrain_physics
@@ -386,10 +382,8 @@ impl TerrainPhysics {
         &mut self,
         tree_id: u32,
         specs: Vec<TreeFruitSpec>,
-        tree_age: f32,
         tracer: &mut Tracer,
     ) -> anyhow::Result<()> {
-        let registry_was_empty = self.fruits_by_tree.is_empty();
         let mut previous = self.fruits_by_tree.remove(&tree_id).unwrap_or_default();
         let mut registered = BTreeMap::new();
         for spec in specs {
@@ -407,7 +401,7 @@ impl TerrainPhysics {
                 existing
             } else {
                 RegisteredFruit {
-                    phase: if tree_age >= spec.drop_age {
+                    phase: if self.fruit_cycle >= spec.drop_phase {
                         FruitSweepPhase::PendingDrop
                     } else {
                         FruitSweepPhase::Armed
@@ -425,9 +419,6 @@ impl TerrainPhysics {
             }
         }
         self.fruits_by_tree.insert(tree_id, registered);
-        if registry_was_empty {
-            self.tree_age = tree_age.clamp(0.0, 1.0);
-        }
         self.spawn_pending_fruits()?;
         self.sync_dynamic_fruit_rendering(tracer)
     }
@@ -447,41 +438,44 @@ impl TerrainPhysics {
         self.sync_dynamic_fruit_rendering(tracer)
     }
 
-    pub(super) fn set_tree_age(
+    pub(super) fn set_fruit_cycle(
         &mut self,
-        tree_age: f32,
+        fruit_cycle: f32,
         tracer: &mut Tracer,
     ) -> anyhow::Result<()> {
-        let tree_age = tree_age.clamp(0.0, 1.0);
-        let previous_age = self.tree_age;
-        if tree_age < previous_age {
+        let fruit_cycle = fruit_cycle.clamp(0.0, 1.0);
+        let previous_cycle = self.fruit_cycle;
+        if fruit_cycle < previous_cycle {
             for fruits in self.fruits_by_tree.values_mut() {
                 for fruit in fruits.values_mut() {
-                    if let Some(body) = fruit.body.take() {
-                        self.collision_world.remove_dynamic_body(body);
-                    }
-                    fruit.phase = fruit_phase_after_age_change(
+                    let next_phase = fruit_phase_after_cycle_change(
                         fruit.phase,
-                        previous_age,
-                        tree_age,
-                        fruit.spec.drop_age,
+                        previous_cycle,
+                        fruit_cycle,
+                        fruit.spec.drop_phase,
                     );
+                    if next_phase == FruitSweepPhase::Armed {
+                        if let Some(body) = fruit.body.take() {
+                            self.collision_world.remove_dynamic_body(body);
+                        }
+                    }
+                    fruit.phase = next_phase;
                 }
             }
-        } else if tree_age > previous_age {
+        } else if fruit_cycle > previous_cycle {
             for fruits in self.fruits_by_tree.values_mut() {
                 for fruit in fruits.values_mut() {
-                    fruit.phase = fruit_phase_after_age_change(
+                    fruit.phase = fruit_phase_after_cycle_change(
                         fruit.phase,
-                        previous_age,
-                        tree_age,
-                        fruit.spec.drop_age,
+                        previous_cycle,
+                        fruit_cycle,
+                        fruit.spec.drop_phase,
                     );
                 }
             }
         }
-        self.tree_age = tree_age;
-        if tree_age != previous_age {
+        self.fruit_cycle = fruit_cycle;
+        if fruit_cycle != previous_cycle {
             self.attached_fruit_refresh_trees
                 .extend(self.fruits_by_tree.keys().copied());
         }
@@ -489,19 +483,16 @@ impl TerrainPhysics {
         self.sync_dynamic_fruit_rendering(tracer)
     }
 
-    pub(super) fn attached_tree_fruits(
-        &self,
-        tree_id: u32,
-        tree_age: f32,
-    ) -> Vec<AttachedTreeFruit> {
-        let tree_age = tree_age.clamp(0.0, 1.0);
+    pub(super) fn attached_tree_fruits(&self, tree_id: u32) -> Vec<AttachedTreeFruit> {
         self.fruits_by_tree
             .get(&tree_id)
             .into_iter()
             .flat_map(BTreeMap::values)
             .filter_map(|fruit| {
                 let radius_voxels = match fruit.phase {
-                    FruitSweepPhase::Armed => fruit.spec.attached_radius_voxels(tree_age)?,
+                    FruitSweepPhase::Armed => {
+                        fruit.spec.attached_radius_voxels(self.fruit_cycle)?
+                    }
                     // Crossing the threshold only requests a drop. Keep the fruit attached until
                     // every collider brick along its fall path is imported and detachment can be
                     // represented continuously by a dynamic body.
@@ -568,11 +559,11 @@ impl TerrainPhysics {
             fruit.phase = FruitSweepPhase::Dropped;
             self.attached_fruit_refresh_trees.insert(tree_id);
             log::info!(
-                "[COLLISION][FRUIT] dropped tree={} fruit={} body={} age={:.3} position_voxels={:?}",
+                "[COLLISION][FRUIT] dropped tree={} fruit={} body={} cycle={:.3} position_voxels={:?}",
                 tree_id,
                 fruit_id,
                 body.get(),
-                self.tree_age,
+                self.fruit_cycle,
                 spec.position_voxels,
             );
         }
@@ -1001,9 +992,9 @@ mod tests {
         TreeFruitSpec {
             id: 7,
             position_voxels: UVec3::new(64, 96, 64),
-            grow_start_age: 0.55,
-            full_growth_age: 0.70,
-            drop_age: 0.88,
+            grow_start_phase: 0.55,
+            full_growth_phase: 0.70,
+            drop_phase: 0.88,
             linear_velocity_voxels: Vec3::ZERO,
             angular_velocity: Vec3::ZERO,
         }
@@ -1022,25 +1013,32 @@ mod tests {
 
     #[test]
     fn backward_scrub_rearms_each_fruit_for_another_upward_sweep() {
-        let drop_age = 0.88;
-        let first_drop = fruit_phase_after_age_change(FruitSweepPhase::Armed, 0.70, 0.90, drop_age);
+        let drop_phase = 0.88;
+        let first_drop =
+            fruit_phase_after_cycle_change(FruitSweepPhase::Armed, 0.70, 0.90, drop_phase);
         assert_eq!(first_drop, FruitSweepPhase::PendingDrop);
 
-        let rearmed = fruit_phase_after_age_change(FruitSweepPhase::Dropped, 0.90, 0.60, drop_age);
+        let rearmed =
+            fruit_phase_after_cycle_change(FruitSweepPhase::Dropped, 0.90, 0.60, drop_phase);
         assert_eq!(rearmed, FruitSweepPhase::Armed);
         assert_eq!(
-            fruit_phase_after_age_change(rearmed, 0.60, 0.90, drop_age),
+            fruit_phase_after_cycle_change(rearmed, 0.60, 0.90, drop_phase),
             FruitSweepPhase::PendingDrop,
         );
     }
 
     #[test]
     fn shallow_backward_scrub_above_threshold_does_not_duplicate_a_drop() {
-        let phase = fruit_phase_after_age_change(FruitSweepPhase::Dropped, 1.0, 0.95, 0.88);
+        let phase = fruit_phase_after_cycle_change(FruitSweepPhase::Dropped, 1.0, 0.95, 0.88);
         assert_eq!(phase, FruitSweepPhase::Dropped);
         assert_eq!(
-            fruit_phase_after_age_change(phase, 0.95, 1.0, 0.88),
+            fruit_phase_after_cycle_change(phase, 0.95, 1.0, 0.88),
             FruitSweepPhase::Dropped,
+        );
+
+        assert_eq!(
+            fruit_phase_after_cycle_change(FruitSweepPhase::PendingDrop, 1.0, 0.95, 0.88),
+            FruitSweepPhase::PendingDrop,
         );
     }
 
@@ -1063,7 +1061,7 @@ mod tests {
 
     #[test]
     fn world_collider_import_enqueues_each_global_brick_once() {
-        let mut terrain_physics = TerrainPhysics::new();
+        let mut terrain_physics = TerrainPhysics::new(1.0);
 
         let total = terrain_physics
             .begin_world_terrain_collider_import(UVec3::splat(512))
