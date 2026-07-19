@@ -84,6 +84,12 @@ impl TimeInfo {
         }
     }
 
+    /// Excludes blocking loading/finalization work from the next gameplay frame delta.
+    pub fn reset_frame_delta(&mut self) {
+        self.last_update_instant = Instant::now();
+        self.dt = 0.0;
+    }
+
     /// Returns the total time in seconds since the `TimeInfo` was created.
     pub fn time_since_start(&self) -> f32 {
         self.start_instant.elapsed().as_secs_f32()

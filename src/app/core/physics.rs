@@ -577,6 +577,55 @@ impl TerrainPhysics {
         }
     }
 
+    pub(super) fn import_world_terrain_colliders(
+        &mut self,
+        contree_builder: &ContreeBuilder,
+        world_dim_voxels: UVec3,
+    ) -> anyhow::Result<()> {
+        let world_max = IVec3::try_from(world_dim_voxels)
+            .context("world voxel dimensions exceed signed collider coordinates")?;
+        let world_bricks = terrain_brick_ids_for_voxel_aabb(IVec3::ZERO, world_max);
+        anyhow::ensure!(
+            !world_bricks.is_empty(),
+            "world voxel dimensions must be non-zero"
+        );
+
+        for &brick in &world_bricks {
+            self.mark_terrain_brick_dirty(brick);
+        }
+
+        let started = Instant::now();
+        let mut consecutive_deferrals = 0;
+        while let Some(work) = self.dirty_terrain_bricks.front() {
+            if self.try_refresh_terrain_brick(contree_builder, work, false) {
+                consecutive_deferrals = 0;
+            } else {
+                self.dirty_terrain_bricks.defer(work.id);
+                consecutive_deferrals += 1;
+                anyhow::ensure!(
+                    consecutive_deferrals < self.dirty_terrain_bricks.len(),
+                    "world terrain CPU sources are not ready after a full collider pass"
+                );
+            }
+        }
+
+        let failed = world_bricks
+            .iter()
+            .filter(|brick| self.failed_terrain_bricks.contains(brick))
+            .count();
+        anyhow::ensure!(failed == 0, "{failed} world terrain collider bricks failed");
+
+        let elapsed = started.elapsed();
+        log::info!(
+            "[COLLISION][WORLD] imported logical_bricks={} non_empty_colliders={} elapsed_ms={:.3} avg_ms_per_brick={:.3}",
+            world_bricks.len(),
+            self.collision_world.static_brick_count(),
+            elapsed.as_secs_f64() * 1_000.0,
+            elapsed.as_secs_f64() * 1_000.0 / world_bricks.len() as f64,
+        );
+        Ok(())
+    }
+
     fn mark_terrain_brick_dirty(&mut self, id: StaticVoxelBrickId) {
         let request_revision = self.dirty_terrain_bricks.push(id);
         log::debug!(
@@ -590,7 +639,7 @@ impl TerrainPhysics {
             let Some(work) = self.dirty_terrain_bricks.front() else {
                 break;
             };
-            if !self.try_refresh_terrain_brick(contree_builder, work) {
+            if !self.try_refresh_terrain_brick(contree_builder, work, true) {
                 self.dirty_terrain_bricks.defer(work.id);
             }
         }
@@ -602,6 +651,7 @@ impl TerrainPhysics {
         &mut self,
         contree_builder: &ContreeBuilder,
         work: DirtyTerrainBrickWork,
+        log_refresh_at_info: bool,
     ) -> bool {
         let total_start = Instant::now();
         let brick_min = work.id.0 * STATIC_VOXEL_BRICK_DIM as i32;
@@ -684,7 +734,12 @@ impl TerrainPhysics {
             self.imported_terrain_bricks.insert(work.id);
             self.failed_terrain_bricks.remove(&work.id);
         }
-        log::info!(
+        log::log!(
+            if log_refresh_at_info {
+                log::Level::Info
+            } else {
+                log::Level::Debug
+            },
             "[COLLISION][TERRAIN_BRICK] refreshed id={:?} min={:?} request_revision={} source_revision={} dependencies={:?} solids={} changed_voxels={} update={:?} export_ms={:.3} occupancy_ms={:.3} physics_ms={:.3} total_ms={:.3} pending={}",
             work.id,
             brick_min_u,
@@ -885,6 +940,15 @@ mod tests {
         for y in 0..=3 {
             assert!(bricks.contains(&StaticVoxelBrickId(IVec3::new(2, y, 2))));
         }
+    }
+
+    #[test]
+    fn world_voxel_bounds_cover_every_global_collider_brick() {
+        let bricks = terrain_brick_ids_for_voxel_aabb(IVec3::ZERO, IVec3::splat(512));
+
+        assert_eq!(bricks.len(), 16_usize.pow(3));
+        assert_eq!(bricks.first(), Some(&StaticVoxelBrickId(IVec3::ZERO)));
+        assert_eq!(bricks.last(), Some(&StaticVoxelBrickId(IVec3::splat(15))));
     }
 
     #[test]

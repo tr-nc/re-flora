@@ -303,6 +303,13 @@ impl App {
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         BENCH.lock().unwrap().summary();
 
+        if let Err(err) = self
+            .terrain_physics
+            .import_world_terrain_colliders(&self.contree_builder, CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
+        {
+            log::error!("Failed to import global terrain colliders: {err:#}");
+        }
+
         self.ensure_map_butterfly_emitter();
 
         if let Err(err) = self.plant_startup_tuned_tree() {
@@ -314,6 +321,7 @@ impl App {
         }
 
         self.enqueue_startup_water_terrain_collider_rebuilds();
+        self.time_info.reset_frame_delta();
         self.render_start_time = Some(Instant::now());
     }
 
