@@ -9,6 +9,7 @@ pub const DEFAULT_LEAF_INNER_DENSITY: f32 = 0.5;
 pub const DEFAULT_LEAF_OUTER_DENSITY: f32 = 0.25;
 pub const DEFAULT_LEAF_INNER_RADIUS: f32 = 8.0;
 pub const DEFAULT_LEAF_OUTER_RADIUS: f32 = 16.0;
+pub const TREE_FRUIT_MAX_RADIUS_VOXELS: u32 = 3;
 
 #[derive(Debug, Clone)]
 pub struct LeafVoxelShape {
@@ -158,12 +159,12 @@ pub fn generate_indexed_single_voxel_leaf(
     Ok(mesh)
 }
 
-/// Generates a compact 4-voxel-diameter apple mesh centered on the instance anchor.
+/// Generates the mature apple mesh centered on the instance anchor.
 ///
 /// The apple is intentionally render-only: tree placement creates instances for
 /// this mesh instead of stamping fruit into the terrain voxel field.
 pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<FloraMeshData> {
-    const MAX_LENGTH: u32 = 2;
+    const MAX_LENGTH: u32 = TREE_FRUIT_MAX_RADIUS_VOXELS;
 
     let mut mesh = FloraMeshData::new(MAX_LENGTH);
 
@@ -189,13 +190,19 @@ pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<FloraMeshData> 
 /// The shared raster description used by attached apple rendering, collision-probe
 /// rendering, and the dynamic convex collider.
 pub fn voxel_apple_offsets() -> Vec<IVec3> {
-    const BODY_RADIUS: f32 = 2.0;
-    let mut offsets = Vec::with_capacity(32);
-    for x in -2..=1 {
-        for y in -2..=1 {
-            for z in -2..=1 {
+    voxel_apple_offsets_for_radius(TREE_FRUIT_MAX_RADIUS_VOXELS)
+}
+
+pub fn voxel_apple_offsets_for_radius(radius_voxels: u32) -> Vec<IVec3> {
+    let radius_voxels = radius_voxels.clamp(1, TREE_FRUIT_MAX_RADIUS_VOXELS);
+    let radius = radius_voxels as i32;
+    let diameter = radius.saturating_mul(2) as usize;
+    let mut offsets = Vec::with_capacity(diameter.saturating_pow(3));
+    for x in -radius..radius {
+        for y in -radius..radius {
+            for z in -radius..radius {
                 let center = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
-                if (center / BODY_RADIUS).length_squared() <= 1.0 {
+                if (center / radius_voxels as f32).length_squared() <= 1.0 {
                     offsets.push(IVec3::new(x, y, z));
                 }
             }
@@ -234,11 +241,30 @@ mod tests {
         let offsets = voxel_apple_offsets();
         let unique = offsets.iter().copied().collect::<HashSet<_>>();
 
-        assert_eq!(offsets.len(), 32);
         assert_eq!(unique.len(), offsets.len());
+        assert!(!offsets.is_empty());
         for offset in offsets {
             assert!(unique.contains(&(-offset - IVec3::ONE)));
         }
+    }
+
+    #[test]
+    fn voxel_apple_radius_stages_are_nested_unit_voxel_shapes() {
+        let radius_one = voxel_apple_offsets_for_radius(1)
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let radius_two = voxel_apple_offsets_for_radius(2)
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let radius_three = voxel_apple_offsets_for_radius(3)
+            .into_iter()
+            .collect::<HashSet<_>>();
+
+        assert_eq!(radius_one.len(), 8);
+        assert!(radius_one.is_subset(&radius_two));
+        assert!(radius_two.is_subset(&radius_three));
+        assert!(radius_one.len() < radius_two.len());
+        assert!(radius_two.len() < radius_three.len());
     }
 
     #[test]
@@ -248,13 +274,14 @@ mod tests {
 
         assert_eq!(offsets.len(), voxel_apple_offsets().len() * 8);
         assert_eq!(unique.len(), offsets.len());
+        let radius = TREE_FRUIT_MAX_RADIUS_VOXELS as i32;
         assert_eq!(
             offsets.iter().map(|offset| offset.min_element()).min(),
-            Some(-4)
+            Some(-radius * 2)
         );
         assert_eq!(
             offsets.iter().map(|offset| offset.max_element()).max(),
-            Some(3)
+            Some(radius * 2 - 1)
         );
     }
 }

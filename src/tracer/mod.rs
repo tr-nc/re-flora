@@ -37,7 +37,9 @@ pub mod voxel_encoding;
 mod voxel_geometry;
 
 mod leaves_construct;
-pub use leaves_construct::{collision_probe_apple_offsets, voxel_apple_offsets};
+pub use leaves_construct::{
+    collision_probe_apple_offsets, voxel_apple_offsets, TREE_FRUIT_MAX_RADIUS_VOXELS,
+};
 
 mod pipeline_builder;
 use pipeline_builder::*;
@@ -3741,7 +3743,7 @@ impl Tracer {
         &mut self,
         surface_resources: &mut SurfaceResources,
         tree_id: u32,
-        apples: &[(UVec3, f32)],
+        apples: &[(UVec3, u32)],
     ) -> Result<()> {
         // This path is also used when a pending fruit atomically transitions to the dynamic
         // renderer. Wait before replacing the per-tree instance buffer still referenced by an
@@ -3749,11 +3751,15 @@ impl Tracer {
         self.vulkan_ctx.device().wait_idle();
         let apple_instances = apples
             .iter()
-            .map(|&(world_pos, scale)| TreeRenderInstanceData {
+            .map(|&(world_pos, radius_voxels)| TreeRenderInstanceData {
                 world_pos,
                 // Apples do not use the leaf-local offset. Reuse its signed 10-bit x field for
-                // a compact per-instance scale consumed only by the apple shader path.
-                leaf_local_pos: IVec3::new((scale.clamp(0.0, 1.0) * 511.0).round() as i32, 0, 0),
+                // the discrete voxel radius consumed only by the apple shader path.
+                leaf_local_pos: IVec3::new(
+                    radius_voxels.clamp(1, TREE_FRUIT_MAX_RADIUS_VOXELS) as i32,
+                    0,
+                    0,
+                ),
             })
             .collect::<Vec<_>>();
         let tree_apple_instance =

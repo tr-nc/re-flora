@@ -14,11 +14,18 @@ const TREE_SAPLING_SIZE_RATIO: f32 = 0.12;
 const TREE_SAPLING_THICKNESS_RATIO: f32 = 0.70;
 const TREE_SAPLING_LEAF_DENSITY_RATIO: f32 = 0.25;
 const TREE_SAPLING_LEAVES_SIZE_LEVEL: u32 = 1;
+const TREE_SAPLING_VISIBLE_BRANCH_LEVELS: u32 = 1;
+
+fn mature_tree_growth_age() -> f32 {
+    1.0
+}
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TreeDesc {
     pub branching: BranchingDesc,
+    #[serde(skip, default = "mature_tree_growth_age")]
+    pub growth_age: f32,
     pub size: f32,
     pub trunk_thickness: f32,
     pub thickness_reduction: f32,
@@ -70,6 +77,7 @@ impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
             branching: default_tree_branching_desc(),
+            growth_age: mature_tree_growth_age(),
             size: TREE_DEFAULT_SIZE,
             trunk_thickness: 0.40,
             thickness_reduction: 0.61,
@@ -101,14 +109,15 @@ impl Default for TreeDesc {
 impl TreeDesc {
     /// Returns the authored mature tree shape interpolated toward a small sapling preset.
     ///
-    /// The authored description is the exact age-1 endpoint. The age-0 endpoint intentionally
-    /// keeps the same deterministic branch topology, while shrinking its dimensions and leaf
-    /// spray, so scrubbing age does not randomize the tree or produce unrelated silhouettes.
+    /// The authored description is the exact age-1 endpoint. The mature deterministic skeleton
+    /// remains the source topology at every age, but younger trees reveal fewer branch levels so
+    /// scrubbing upward adds branches instead of starting with the mature silhouette.
     pub fn at_age(&self, age: f32) -> Self {
         let age = age.clamp(0.0, 1.0);
         let smooth_age = age * age * (3.0 - 2.0 * age);
         let lerp = |young: f32, mature: f32| young + (mature - young) * smooth_age;
         let mut aged = self.clone();
+        aged.growth_age = age;
         aged.size = lerp(self.size * TREE_SAPLING_SIZE_RATIO, self.size);
         aged.trunk_thickness = lerp(
             self.trunk_thickness * TREE_SAPLING_THICKNESS_RATIO,
@@ -362,11 +371,16 @@ impl Tree {
             StdRng::seed_from_u64(branching_desc.seed ^ 0x63D8_3595_B529_7A4D);
         let base_thickness = desc.trunk_thickness * desc.size;
         let skeleton = generate_branch_skeleton_with_rng(&branching_desc, &mut skeleton_rng);
+        let visible_branch_levels =
+            visible_branch_levels(desc.growth_age, branching_desc.iterations);
 
-        let leaf_level = branching_desc.iterations.saturating_sub(desc.leaf_offset);
+        let leaf_level = visible_branch_levels
+            .saturating_sub(desc.leaf_offset)
+            .max(1);
         let leaf_anchors = skeleton
             .segments
             .iter()
+            .filter(|segment| segment.level < visible_branch_levels)
             .filter(|segment| segment.level.saturating_add(1) == leaf_level)
             .map(|segment| {
                 let direction = (segment.end - segment.start).normalize_or_zero();
@@ -377,7 +391,11 @@ impl Tree {
         let leaf_placements = generate_leaf_sprays(desc, &leaf_anchors, &mut leaf_rng);
 
         let mut trunks = Vec::new();
-        for segment in &skeleton.segments {
+        for segment in skeleton
+            .segments
+            .iter()
+            .filter(|segment| segment.level < visible_branch_levels)
+        {
             let thickness_start = Self::thickness_at_level(desc, base_thickness, segment.level);
             let thickness_end = Self::thickness_at_level(desc, base_thickness, segment.level + 1);
             let cone = RoundCone::new(
@@ -398,6 +416,15 @@ impl Tree {
             leaf_placements,
         }
     }
+}
+
+fn visible_branch_levels(age: f32, mature_levels: u32) -> u32 {
+    let mature_levels = mature_levels.max(1);
+    let young_levels = TREE_SAPLING_VISIBLE_BRANCH_LEVELS.min(mature_levels);
+    let age = age.clamp(0.0, 1.0);
+    let smooth_age = age * age * (3.0 - 2.0 * age);
+    let level_count = mature_levels - young_levels + 1;
+    (young_levels + (smooth_age * level_count as f32).floor() as u32).min(mature_levels)
 }
 
 fn generate_leaf_sprays(
@@ -569,6 +596,8 @@ mod tests {
         let halfway = desc.at_age(0.5);
 
         assert_eq!(sapling.branching, desc.branching);
+        assert_eq!(sapling.growth_age, 0.0);
+        assert_eq!(halfway.growth_age, 0.5);
         assert!(sapling.size > 0.0);
         assert!(sapling.size < halfway.size && halfway.size < desc.size);
         assert!(sapling.trunk_thickness < halfway.trunk_thickness);
@@ -578,6 +607,32 @@ mod tests {
         assert!(sapling.leaves_size_level <= halfway.leaves_size_level);
         assert!(halfway.leaves_size_level <= desc.leaves_size_level);
         assert_eq!(desc.at_age(-1.0), sapling);
+    }
+
+    #[test]
+    fn tree_age_reveals_more_of_the_mature_branch_skeleton() {
+        let desc = TreeDesc {
+            enable_subdivision: false,
+            ..TreeDesc::default()
+        };
+        let sapling = Tree::new(desc.at_age(0.0));
+        let halfway = Tree::new(desc.at_age(0.5));
+        let mature = Tree::new(desc.at_age(1.0));
+
+        assert_eq!(sapling.trunks().len(), 1);
+        assert!(sapling.trunks().len() < halfway.trunks().len());
+        assert!(halfway.trunks().len() < mature.trunks().len());
+    }
+
+    #[test]
+    fn visible_branch_levels_progress_monotonically_to_the_authored_depth() {
+        let mature_levels = 7;
+        let levels =
+            [0.0, 0.25, 0.5, 0.75, 1.0].map(|age| visible_branch_levels(age, mature_levels));
+
+        assert_eq!(levels[0], 1);
+        assert_eq!(levels[4], mature_levels);
+        assert!(levels.windows(2).all(|pair| pair[0] <= pair[1]));
     }
 
     #[test]

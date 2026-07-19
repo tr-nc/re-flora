@@ -1,6 +1,7 @@
 use crate::builder::{ContreeBuilder, ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport};
 use crate::tracer::{
     collision_probe_apple_offsets, voxel_apple_offsets, DynamicFruitRenderInstance, Tracer,
+    TREE_FRUIT_MAX_RADIUS_VOXELS,
 };
 use anyhow::Context;
 use glam::{IVec3, UVec3, Vec3};
@@ -16,13 +17,12 @@ const STARTUP_TERRAIN_BRICK_ID: StaticVoxelBrickId = StaticVoxelBrickId(IVec3::n
 const STARTUP_TERRAIN_BRICK_MIN: UVec3 = UVec3::new(256, 96, 256);
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 // Keep the probe inside the only terrain-collision brick currently imported, but place it on the
-// camera-facing side of the startup tree so the trunk does not hide the eight-voxel probe fruit.
+// camera-facing side of the startup tree so the trunk does not hide the probe fruit.
 const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(276.0, 152.0, 280.0);
 const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
 // Release measurements put one real 32-cubed Contree export plus Rapier update at about 1.2 ms.
 // Keeping this at one avoids terrain edits turning a single render frame into an unbounded scan.
 const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 1;
-const ATTACHED_FRUIT_MIN_SCALE: f32 = 0.12;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct TreeFruitSpec {
@@ -36,21 +36,21 @@ pub(super) struct TreeFruitSpec {
 }
 
 impl TreeFruitSpec {
-    pub(super) fn attached_scale(&self, age: f32) -> Option<f32> {
+    pub(super) fn attached_radius_voxels(&self, age: f32) -> Option<u32> {
         if age < self.grow_start_age || age >= self.drop_age {
             return None;
         }
         let duration = (self.full_growth_age - self.grow_start_age).max(f32::EPSILON);
         let progress = ((age - self.grow_start_age) / duration).clamp(0.0, 1.0);
-        let smooth = progress * progress * (3.0 - 2.0 * progress);
-        Some(ATTACHED_FRUIT_MIN_SCALE + (1.0 - ATTACHED_FRUIT_MIN_SCALE) * smooth)
+        let radius = 1 + (progress * TREE_FRUIT_MAX_RADIUS_VOXELS as f32).floor() as u32;
+        Some(radius.min(TREE_FRUIT_MAX_RADIUS_VOXELS))
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct AttachedTreeFruit {
     pub position_voxels: UVec3,
-    pub scale: f32,
+    pub radius_voxels: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -451,17 +451,17 @@ impl TerrainPhysics {
             .into_iter()
             .flat_map(BTreeMap::values)
             .filter_map(|fruit| {
-                let scale = match fruit.phase {
-                    FruitSweepPhase::Armed => fruit.spec.attached_scale(tree_age)?,
+                let radius_voxels = match fruit.phase {
+                    FruitSweepPhase::Armed => fruit.spec.attached_radius_voxels(tree_age)?,
                     // Crossing the threshold only requests a drop. Keep the fruit attached until
                     // every collider brick along its fall path is imported and detachment can be
                     // represented continuously by a dynamic body.
-                    FruitSweepPhase::PendingDrop => 1.0,
+                    FruitSweepPhase::PendingDrop => TREE_FRUIT_MAX_RADIUS_VOXELS,
                     FruitSweepPhase::Dropped => return None,
                 };
                 Some(AttachedTreeFruit {
                     position_voxels: fruit.spec.position_voxels,
-                    scale,
+                    radius_voxels,
                 })
             })
             .collect()
@@ -791,17 +791,17 @@ fn convex_points_for_voxels(voxels: Vec<IVec3>) -> Vec<Vec3> {
 }
 
 fn fruit_drop_path_bricks(position_voxels: UVec3) -> Vec<StaticVoxelBrickId> {
-    const FRUIT_RADIUS_VOXELS: i32 = 2;
+    let fruit_radius_voxels = TREE_FRUIT_MAX_RADIUS_VOXELS as i32;
     let position = position_voxels.as_ivec3();
     let min = IVec3::new(
-        position.x - FRUIT_RADIUS_VOXELS,
+        position.x - fruit_radius_voxels,
         0,
-        position.z - FRUIT_RADIUS_VOXELS,
+        position.z - fruit_radius_voxels,
     );
     let max_exclusive = IVec3::new(
-        position.x + FRUIT_RADIUS_VOXELS + 1,
-        position.y + FRUIT_RADIUS_VOXELS + 1,
-        position.z + FRUIT_RADIUS_VOXELS + 1,
+        position.x + fruit_radius_voxels + 1,
+        position.y + fruit_radius_voxels + 1,
+        position.z + fruit_radius_voxels + 1,
     );
     terrain_brick_ids_for_voxel_aabb(min, max_exclusive)
 }
@@ -845,14 +845,14 @@ mod tests {
     }
 
     #[test]
-    fn fruit_grows_smoothly_then_leaves_the_attached_set() {
+    fn fruit_grows_through_discrete_voxel_radius_stages_then_detaches() {
         let fruit = fruit_spec();
-        assert_eq!(fruit.attached_scale(0.54), None);
-        assert_eq!(fruit.attached_scale(0.55), Some(ATTACHED_FRUIT_MIN_SCALE));
-        let halfway = fruit.attached_scale(0.625).unwrap();
-        assert!(halfway > ATTACHED_FRUIT_MIN_SCALE && halfway < 1.0);
-        assert_eq!(fruit.attached_scale(0.70), Some(1.0));
-        assert_eq!(fruit.attached_scale(0.88), None);
+        assert_eq!(fruit.attached_radius_voxels(0.54), None);
+        assert_eq!(fruit.attached_radius_voxels(0.55), Some(1));
+        assert_eq!(fruit.attached_radius_voxels(0.60), Some(2));
+        assert_eq!(fruit.attached_radius_voxels(0.675), Some(3));
+        assert_eq!(fruit.attached_radius_voxels(0.70), Some(3));
+        assert_eq!(fruit.attached_radius_voxels(0.88), None);
     }
 
     #[test]
@@ -989,15 +989,16 @@ mod tests {
         let points = collision_probe_convex_points();
         let min = points.iter().copied().reduce(Vec3::min).unwrap();
         let max = points.iter().copied().reduce(Vec3::max).unwrap();
+        let probe_radius = TREE_FRUIT_MAX_RADIUS_VOXELS as f32 * 2.0;
 
         assert!(points.len() > collision_probe_apple_offsets().len());
-        assert_eq!(min, Vec3::splat(-4.0));
-        assert_eq!(max, Vec3::splat(4.0));
+        assert_eq!(min, Vec3::splat(-probe_radius));
+        assert_eq!(max, Vec3::splat(probe_radius));
     }
 
     #[test]
     fn collision_probe_spawns_inside_imported_brick_xz_bounds() {
-        let probe_radius = Vec3::splat(4.0);
+        let probe_radius = Vec3::splat(TREE_FRUIT_MAX_RADIUS_VOXELS as f32 * 2.0);
         let brick_min = STARTUP_TERRAIN_BRICK_MIN.as_vec3();
         let brick_max = brick_min + Vec3::splat(STATIC_VOXEL_BRICK_DIM as f32);
 

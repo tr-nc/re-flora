@@ -814,7 +814,7 @@ impl App {
                 .terrain_physics
                 .attached_tree_fruits(tree_id, self.debug_settings.adjustables.tree_age.value)
                 .into_iter()
-                .map(|fruit| (fruit.position_voxels, fruit.scale))
+                .map(|fruit| (fruit.position_voxels, fruit.radius_voxels))
                 .collect::<Vec<_>>();
             self.tracer
                 .add_tree_apples(&mut self.surface_builder.resources, tree_id, &apples)?;
@@ -1968,7 +1968,7 @@ impl App {
             .terrain_physics
             .attached_tree_fruits(tree_id, self.debug_settings.adjustables.tree_age.value)
             .into_iter()
-            .map(|fruit| (fruit.position_voxels, fruit.scale))
+            .map(|fruit| (fruit.position_voxels, fruit.radius_voxels))
             .collect::<Vec<_>>();
         self.tracer.add_tree_apples(
             &mut self.surface_builder.resources,

@@ -269,8 +269,9 @@ mod tests {
             .map(|vertex| Vec3::from_array(vertex.position))
             .reduce(Vec3::max)
             .unwrap();
-        assert_eq!(min, Vec3::splat(-2.0 * VOXEL_SCALE));
-        assert_eq!(max, Vec3::splat(2.0 * VOXEL_SCALE));
+        let radius = super::super::TREE_FRUIT_MAX_RADIUS_VOXELS as f32 * VOXEL_SCALE;
+        assert_eq!(min, Vec3::splat(-radius));
+        assert_eq!(max, Vec3::splat(radius));
     }
 
     #[test]

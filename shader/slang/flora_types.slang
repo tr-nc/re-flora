@@ -76,10 +76,17 @@ public int3 unpackTreeLeafVoxelLocalPosition(uint packedLeafLocalPosition)
                 int((packedLeafLocalPosition >> 20u) & 0x3ffu) - 512);
 }
 
-public float unpackTreeFruitScale(uint packedLeafLocalPosition)
+public uint unpackTreeFruitRadiusVoxels(uint packedLeafLocalPosition)
 {
-    int encodedScale = unpackTreeLeafVoxelLocalPosition(packedLeafLocalPosition).x;
-    return clamp(float(max(encodedScale, 0)) / 511.0, 0.0, 1.0);
+    int encodedRadius = unpackTreeLeafVoxelLocalPosition(packedLeafLocalPosition).x;
+    return uint(max(encodedRadius, 1));
+}
+
+public bool treeFruitVoxelVisible(int3 voxelLocalPosition, uint radiusVoxels)
+{
+    float3 voxelCenter = float3(voxelLocalPosition) + 0.5;
+    float radius = max(float(radiusVoxels), 1.0);
+    return dot(voxelCenter, voxelCenter) <= radius * radius;
 }
 
 public uint3 treeLeafWorldPosition(uint packedLocalPosition,

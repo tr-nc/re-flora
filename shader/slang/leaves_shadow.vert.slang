@@ -171,6 +171,15 @@ VertexOutput main(VertexInput input)
         float3(instancePositionVoxels) * SCALING_FACTOR;
     uint seed = instanceSeed(instancePositionVoxels);
     bool isApple = pc.instance_ty == FLORA_SPECIES_APPLE;
+    if (isApple && !treeFruitVoxelVisible(
+            leafVoxelLocalPosition,
+            unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos)))
+    {
+        VertexOutput output;
+        output.position = float4(2.0, 2.0, 2.0, 1.0);
+        output.opacity = 0.0;
+        return output;
+    }
     float3 windSamplePosition = isApple
         ? instancePosition
         : instancePosition + float3(leafVoxelLocalPosition) * SCALING_FACTOR;
@@ -198,13 +207,6 @@ VertexOutput main(VertexInput input)
         instancePosition;
     float3 voxelPosition = anchorPosition + 0.5 * SCALING_FACTOR;
     float3 vertexPosition = billboardVertexPosition(voxelPosition, vertexOffset);
-    if (isApple)
-    {
-        float scale = unpackTreeFruitScale(leafInstance.packed_leaf_local_pos);
-        float3 fruitBase = instancePosition + windOffset * SCALING_FACTOR;
-        vertexPosition = fruitBase + (vertexPosition - fruitBase) * scale;
-    }
-
     VertexOutput output;
     output.position = mul(
         shadow_camera_info.view_proj_mat, float4(vertexPosition, 1.0));
