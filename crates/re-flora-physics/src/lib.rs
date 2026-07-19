@@ -4,9 +4,9 @@ use rapier3d::parry::query::ShapeCastOptions;
 #[cfg(test)]
 use rapier3d::prelude::{AxisMask, VoxelState};
 use rapier3d::prelude::{
-    BroadPhaseBvh, ColliderBuilder, ColliderHandle, IVector, PhysicsWorld, Pose, QueryFilter,
-    QueryPipeline, RigidBodyBuilder, RigidBodyHandle, Rotation, Shape, ShapeCastHit, SharedShape,
-    Vector, Voxels,
+    BroadPhaseBvh, ColliderBuilder, ColliderHandle, Group, InteractionGroups, InteractionTestMode,
+    IVector, PhysicsWorld, Pose, QueryFilter, QueryPipeline, RigidBodyBuilder, RigidBodyHandle,
+    Rotation, Shape, ShapeCastHit, SharedShape, Vector, Voxels,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -26,6 +26,24 @@ const STATIC_VOXEL_BRICK_VOLUME: usize = STATIC_VOXEL_BRICK_DIM as usize
     * STATIC_VOXEL_BRICK_DIM as usize
     * STATIC_VOXEL_BRICK_DIM as usize;
 const OCCUPANCY_WORD_COUNT: usize = STATIC_VOXEL_BRICK_VOLUME.div_ceil(u64::BITS as usize);
+
+// The query-only player has no Rapier collider group. Its dedicated broad phase contains only
+// static terrain, while simulated dynamic bodies use the matrix below for terrain and peer contact.
+fn static_terrain_collision_groups() -> InteractionGroups {
+    InteractionGroups::new(
+        Group::GROUP_1,
+        Group::GROUP_2,
+        InteractionTestMode::And,
+    )
+}
+
+fn dynamic_body_collision_groups() -> InteractionGroups {
+    InteractionGroups::new(
+        Group::GROUP_2,
+        Group::GROUP_1 | Group::GROUP_2,
+        InteractionTestMode::And,
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StaticVoxelBrickId(pub IVec3);
@@ -423,6 +441,7 @@ impl CollisionWorld {
             .mass(desc.mass)
             .friction(desc.friction)
             .restitution(desc.restitution)
+            .collision_groups(dynamic_body_collision_groups())
             .user_data(id.get() as u128);
         let (body_handle, _) = self.physics.insert(body, collider);
         self.dynamic_bodies.insert(id, body_handle);
@@ -668,11 +687,13 @@ impl CollisionWorld {
 
         let origin = id.0 * STATIC_VOXEL_BRICK_DIM as i32;
         let collider = self.physics.insert_collider(
-            ColliderBuilder::new(SharedShape::new(voxels)).translation(Vector::new(
-                origin.x as f32,
-                origin.y as f32,
-                origin.z as f32,
-            )),
+            ColliderBuilder::new(SharedShape::new(voxels))
+                .translation(Vector::new(
+                    origin.x as f32,
+                    origin.y as f32,
+                    origin.z as f32,
+                ))
+                .collision_groups(static_terrain_collision_groups()),
             None,
         );
         self.capsule_character_modified_colliders.insert(collider);
@@ -1382,6 +1403,49 @@ mod tests {
         assert!(!world.remove_dynamic_body(first));
         assert!(world.dynamic_body_state(first).is_none());
         assert!(world.dynamic_body_state(second).is_some());
+    }
+
+    #[test]
+    fn collision_groups_allow_dynamic_dynamic_and_dynamic_terrain_contacts() {
+        let terrain = static_terrain_collision_groups();
+        let dynamic = dynamic_body_collision_groups();
+
+        assert!(dynamic.test(dynamic));
+        assert!(dynamic.test(terrain));
+        assert!(terrain.test(dynamic));
+        assert!(!terrain.test(terrain));
+    }
+
+    #[test]
+    fn dynamic_bodies_collide_with_each_other() {
+        let mut world = CollisionWorld::new();
+        world.set_gravity(Vec3::ZERO).unwrap();
+
+        let mut left = DynamicBodyDesc::sphere(Vec3::new(-2.0, 0.0, 0.0), 1.0);
+        left.linear_velocity = Vec3::X * 2.0;
+        left.linear_damping = 0.0;
+        left.angular_damping = 0.0;
+        left.restitution = 1.0;
+        left.friction = 0.0;
+        left.can_sleep = false;
+        let mut right = left.clone();
+        right.position.x = 2.0;
+        right.linear_velocity = Vec3::NEG_X * 2.0;
+
+        let left = world.spawn_dynamic_body(left).unwrap();
+        let right = world.spawn_dynamic_body(right).unwrap();
+        for _ in 0..120 {
+            assert_eq!(world.advance(DEFAULT_FIXED_STEP_SECONDS).steps, 1);
+        }
+
+        let left = world.dynamic_body_state(left).unwrap();
+        let right = world.dynamic_body_state(right).unwrap();
+        assert!(left.linear_velocity.x < 0.0, "left body did not bounce: {left:?}");
+        assert!(
+            right.linear_velocity.x > 0.0,
+            "right body did not bounce: {right:?}"
+        );
+        assert!(left.position.x < right.position.x);
     }
 
     #[test]
