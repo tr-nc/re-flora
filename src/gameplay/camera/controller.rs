@@ -9,7 +9,7 @@ use re_flora_vkn::Extent2D;
 use winit::event::KeyEvent;
 
 const GROUNDED_CAMERA_HEIGHT_SMOOTHING_SPEED: f32 = 14.0;
-const MAX_SMOOTHED_GROUND_VERTICAL_TRANSLATION: f32 = 1.5 / 256.0;
+const MAX_SMOOTHED_GROUND_VERTICAL_TRANSLATION: f32 = 2.5 / 256.0;
 const MAX_GROUNDED_CAMERA_VERTICAL_LAG: f32 = 4.0 / 256.0;
 
 fn smoothed_grounded_camera_y(
@@ -511,10 +511,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn grounded_camera_smooths_a_voxel_step_without_overshooting() {
+    fn grounded_camera_smooths_a_two_voxel_step_without_overshooting() {
         let current_y = 1.0;
-        let target_y = current_y + 1.0 / 256.0;
-        let smoothed = smoothed_grounded_camera_y(current_y, target_y, 1.0 / 256.0, 1.0 / 60.0);
+        let target_y = current_y + 2.0 / 256.0;
+        let smoothed = smoothed_grounded_camera_y(current_y, target_y, 2.0 / 256.0, 1.0 / 60.0);
 
         assert!(smoothed > current_y);
         assert!(smoothed < target_y);

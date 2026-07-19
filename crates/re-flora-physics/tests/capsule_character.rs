@@ -143,6 +143,75 @@ fn capsule_autosteps_one_voxel() {
 }
 
 #[test]
+fn capsule_autosteps_two_voxels() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y <= 2)),
+    );
+
+    let start = Vec3::new(4.0, standing_center_y(1.0), 12.0);
+    let result = world
+        .move_capsule_character(capsule_move(start, Vec3::new(8.0, -0.1, 0.0)))
+        .unwrap();
+    let final_center = start + result.translation;
+
+    assert!(result.grounded, "result={result:?}");
+    assert!(result.translation.x > 7.9, "result={result:?}");
+    assert!(
+        (final_center.y - standing_center_y(3.0)).abs() < 1.0e-3,
+        "final_center={final_center:?} result={result:?}"
+    );
+}
+
+#[test]
+fn capsule_does_not_autostep_three_voxels() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y <= 3)),
+    );
+
+    let start = Vec3::new(4.0, standing_center_y(1.0), 12.0);
+    let result = world
+        .move_capsule_character(capsule_move(start, Vec3::new(8.0, -0.1, 0.0)))
+        .unwrap();
+    let final_center = start + result.translation;
+
+    assert!(result.grounded, "result={result:?}");
+    assert!(result.translation.x < 4.0, "result={result:?}");
+    assert!(
+        (final_center.y - standing_center_y(1.0)).abs() < 1.0e-3,
+        "final_center={final_center:?} result={result:?}"
+    );
+}
+
+#[test]
+fn capsule_snaps_down_two_voxels() {
+    let mut world = CollisionWorld::new();
+    world.upsert_static_voxel_brick(
+        StaticVoxelBrickId(IVec3::ZERO),
+        1,
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x < 8 && voxel.y <= 2)),
+    );
+
+    let start = Vec3::new(4.0, standing_center_y(3.0), 12.0);
+    let result = world
+        .move_capsule_character(capsule_move(start, Vec3::new(8.0, -0.1, 0.0)))
+        .unwrap();
+    let final_center = start + result.translation;
+
+    assert!(result.grounded, "result={result:?}");
+    assert!(result.translation.x > 7.9, "result={result:?}");
+    assert!(
+        (final_center.y - standing_center_y(1.0)).abs() < 1.0e-3,
+        "final_center={final_center:?} result={result:?}"
+    );
+}
+
+#[test]
 fn capsule_climbs_a_voxel_stair_slope() {
     let mut world = CollisionWorld::new();
     world.upsert_static_voxel_brick(
