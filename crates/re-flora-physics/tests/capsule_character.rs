@@ -73,7 +73,7 @@ fn capsule_slides_along_a_voxel_wall() {
     world.upsert_static_voxel_brick(
         StaticVoxelBrickId(IVec3::ZERO),
         1,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 8 && voxel.y < 10)),
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 8 && voxel.y < 24)),
     );
 
     let start = Vec3::new(4.0, standing_center_y(1.0), 8.0);
@@ -143,12 +143,12 @@ fn capsule_autosteps_one_voxel() {
 }
 
 #[test]
-fn capsule_autosteps_two_voxels() {
+fn capsule_autosteps_sixteen_voxels() {
     let mut world = CollisionWorld::new();
     world.upsert_static_voxel_brick(
         StaticVoxelBrickId(IVec3::ZERO),
         1,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y <= 2)),
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y <= 16)),
     );
 
     let start = Vec3::new(4.0, standing_center_y(1.0), 12.0);
@@ -160,18 +160,18 @@ fn capsule_autosteps_two_voxels() {
     assert!(result.grounded, "result={result:?}");
     assert!(result.translation.x > 7.9, "result={result:?}");
     assert!(
-        (final_center.y - standing_center_y(3.0)).abs() < 1.0e-3,
+        (final_center.y - standing_center_y(17.0)).abs() < 1.0e-3,
         "final_center={final_center:?} result={result:?}"
     );
 }
 
 #[test]
-fn capsule_does_not_autostep_three_voxels() {
+fn capsule_does_not_autostep_seventeen_voxels() {
     let mut world = CollisionWorld::new();
     world.upsert_static_voxel_brick(
         StaticVoxelBrickId(IVec3::ZERO),
         1,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y <= 3)),
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y <= 17)),
     );
 
     let start = Vec3::new(4.0, standing_center_y(1.0), 12.0);
@@ -189,15 +189,15 @@ fn capsule_does_not_autostep_three_voxels() {
 }
 
 #[test]
-fn capsule_snaps_down_two_voxels() {
+fn capsule_snaps_down_sixteen_voxels() {
     let mut world = CollisionWorld::new();
     world.upsert_static_voxel_brick(
         StaticVoxelBrickId(IVec3::ZERO),
         1,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x < 8 && voxel.y <= 2)),
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x < 8 && voxel.y <= 16)),
     );
 
-    let start = Vec3::new(4.0, standing_center_y(3.0), 12.0);
+    let start = Vec3::new(4.0, standing_center_y(17.0), 12.0);
     let result = world
         .move_capsule_character(capsule_move(start, Vec3::new(8.0, -0.1, 0.0)))
         .unwrap();
@@ -267,7 +267,7 @@ fn terrain_insert_remove_and_shape_edit_refresh_character_queries() {
     world.upsert_static_voxel_brick(
         id,
         1,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 8 && voxel.y < 10)),
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 8 && voxel.y < 24)),
     );
     let near_wall = world
         .move_capsule_character(capsule_move(start, movement))
@@ -277,7 +277,7 @@ fn terrain_insert_remove_and_shape_edit_refresh_character_queries() {
     world.upsert_static_voxel_brick(
         id,
         2,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 16 && voxel.y < 10)),
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 16 && voxel.y < 24)),
     );
     let moved_wall = world
         .move_capsule_character(capsule_move(start, movement))
@@ -304,7 +304,7 @@ fn terrain_insert_remove_and_shape_edit_refresh_character_queries() {
     world.upsert_static_voxel_brick(
         id,
         4,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 8 && voxel.y < 10)),
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x == 8 && voxel.y < 24)),
     );
     let reinserted = world
         .move_capsule_character(capsule_move(start, movement))

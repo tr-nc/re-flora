@@ -14,13 +14,14 @@ pub const STATIC_VOXEL_BRICK_DIM: u32 = 32;
 pub const DEFAULT_FIXED_STEP_SECONDS: f32 = 1.0 / 120.0;
 pub const DEFAULT_MAX_SUBSTEPS: u32 = 8;
 pub const CAPSULE_CHARACTER_COLLISION_OFFSET: f32 = 0.1;
-pub const CAPSULE_CHARACTER_MAX_STEP_HEIGHT: f32 = 2.05;
+pub const CAPSULE_CHARACTER_MAX_STEP_HEIGHT: f32 = 16.05;
 pub const CAPSULE_CHARACTER_MIN_STEP_WIDTH: f32 = 0.5;
-pub const CAPSULE_CHARACTER_GROUND_SNAP_DISTANCE: f32 = 2.25;
-pub const CAPSULE_CHARACTER_MAX_SLOPE_CLIMB_ANGLE: f32 = std::f32::consts::FRAC_PI_4;
-pub const CAPSULE_CHARACTER_MIN_SLOPE_SLIDE_ANGLE: f32 = std::f32::consts::FRAC_PI_4;
+pub const CAPSULE_CHARACTER_GROUND_CONTACT_DISTANCE: f32 = 1.25;
+pub const CAPSULE_CHARACTER_GROUND_SNAP_DISTANCE: f32 = 16.25;
+pub const CAPSULE_CHARACTER_MAX_SLOPE_CLIMB_ANGLE: f32 = std::f32::consts::FRAC_PI_3;
+pub const CAPSULE_CHARACTER_MIN_SLOPE_SLIDE_ANGLE: f32 = std::f32::consts::FRAC_PI_3;
 pub const CAPSULE_CHARACTER_NORMAL_NUDGE_FACTOR: f32 = 1.0e-4;
-pub const CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT: f32 = std::f32::consts::FRAC_1_SQRT_2;
+pub const CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT: f32 = 0.5;
 const STATIC_VOXEL_BRICK_VOLUME: usize = STATIC_VOXEL_BRICK_DIM as usize
     * STATIC_VOXEL_BRICK_DIM as usize
     * STATIC_VOXEL_BRICK_DIM as usize;
@@ -524,7 +525,7 @@ impl CollisionWorld {
             &query_pipeline,
             shape.as_ref(),
             &pose,
-            CAPSULE_CHARACTER_GROUND_SNAP_DISTANCE,
+            CAPSULE_CHARACTER_GROUND_CONTACT_DISTANCE,
         )
         .is_some_and(|hit| hit.normal1.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT);
         if grounded_at_start && desired_translation.y < 0.0 {
@@ -555,7 +556,7 @@ impl CollisionWorld {
             .iter()
             .any(|collision| collision.normal.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT);
         let mut grounded = effective.grounded || landed_during_move;
-        if movement.desired_translation.y <= 0.0 {
+        if movement.desired_translation.y <= 0.0 && (grounded_at_start || grounded) {
             let final_pose = Pose::from_translation(translation) * pose;
             if let Some(hit) = capsule_ground_hit(
                 &query_pipeline,
