@@ -10,6 +10,10 @@ use std::f32::consts::PI;
 
 pub const TREE_MIN_TRUNK_THICKNESS: f32 = 1.05;
 const TREE_DEFAULT_SIZE: f32 = 30.0;
+const TREE_SAPLING_SIZE_RATIO: f32 = 0.12;
+const TREE_SAPLING_THICKNESS_RATIO: f32 = 0.70;
+const TREE_SAPLING_LEAF_DENSITY_RATIO: f32 = 0.25;
+const TREE_SAPLING_LEAVES_SIZE_LEVEL: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
@@ -95,6 +99,33 @@ impl Default for TreeDesc {
 }
 
 impl TreeDesc {
+    /// Returns the authored mature tree shape interpolated toward a small sapling preset.
+    ///
+    /// The authored description is the exact age-1 endpoint. The age-0 endpoint intentionally
+    /// keeps the same deterministic branch topology, while shrinking its dimensions and leaf
+    /// spray, so scrubbing age does not randomize the tree or produce unrelated silhouettes.
+    pub fn at_age(&self, age: f32) -> Self {
+        let age = age.clamp(0.0, 1.0);
+        let smooth_age = age * age * (3.0 - 2.0 * age);
+        let lerp = |young: f32, mature: f32| young + (mature - young) * smooth_age;
+        let mut aged = self.clone();
+        aged.size = lerp(self.size * TREE_SAPLING_SIZE_RATIO, self.size);
+        aged.trunk_thickness = lerp(
+            self.trunk_thickness * TREE_SAPLING_THICKNESS_RATIO,
+            self.trunk_thickness,
+        );
+        aged.leaf_density = lerp(
+            self.leaf_density * TREE_SAPLING_LEAF_DENSITY_RATIO,
+            self.leaf_density,
+        );
+        aged.leaves_size_level = lerp(
+            TREE_SAPLING_LEAVES_SIZE_LEVEL.min(self.leaves_size_level) as f32,
+            self.leaves_size_level as f32,
+        )
+        .round() as u32;
+        aged
+    }
+
     #[allow(dead_code)]
     pub fn edit_by_gui(&mut self, ui: &mut egui::Ui) -> bool {
         self.edit_by_gui_with_leaves_toggle(ui, None)
@@ -522,6 +553,32 @@ fn subdivide_trunk_segment(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mature_tree_age_preserves_the_authored_description_exactly() {
+        let desc = TreeDesc::default();
+
+        assert_eq!(desc.at_age(1.0), desc);
+        assert_eq!(desc.at_age(f32::INFINITY), desc);
+    }
+
+    #[test]
+    fn tree_age_uses_a_deterministic_smaller_sapling_endpoint() {
+        let desc = TreeDesc::default();
+        let sapling = desc.at_age(0.0);
+        let halfway = desc.at_age(0.5);
+
+        assert_eq!(sapling.branching, desc.branching);
+        assert!(sapling.size > 0.0);
+        assert!(sapling.size < halfway.size && halfway.size < desc.size);
+        assert!(sapling.trunk_thickness < halfway.trunk_thickness);
+        assert!(halfway.trunk_thickness < desc.trunk_thickness);
+        assert!(sapling.leaf_density < halfway.leaf_density);
+        assert!(halfway.leaf_density < desc.leaf_density);
+        assert!(sapling.leaves_size_level <= halfway.leaves_size_level);
+        assert!(halfway.leaves_size_level <= desc.leaves_size_level);
+        assert_eq!(desc.at_age(-1.0), sapling);
+    }
 
     #[test]
     fn leaf_offset_zero_places_leaves_on_terminal_branch_tips() {

@@ -488,10 +488,12 @@ fn quantized_apple_positions(
 
 impl TreePlacementService {
     fn compile(
-        tree_desc: TreeDesc,
+        mature_tree_desc: TreeDesc,
         tree_pos: Vec3,
         extra_rebuild_bound: UAabb3,
+        tree_age: f32,
     ) -> CompiledTreePlacement {
+        let tree_desc = mature_tree_desc.at_age(tree_age);
         let tree = Tree::new(tree_desc.clone());
         let mut round_cones = Vec::with_capacity(tree.trunks().len());
         for tree_trunk in tree.trunks() {
@@ -901,7 +903,12 @@ impl App {
         };
 
         let compile_start = Instant::now();
-        let compiled = TreePlacementService::compile(tree_desc, tree_pos, UAabb3::default());
+        let compiled = TreePlacementService::compile(
+            tree_desc,
+            tree_pos,
+            UAabb3::default(),
+            self.debug_settings.adjustables.tree_age.value,
+        );
         let compile_elapsed = compile_start.elapsed();
         crate::util::BENCH
             .lock()
@@ -1845,7 +1852,12 @@ impl App {
         };
 
         let compile_start = Instant::now();
-        let compiled = TreePlacementService::compile(tree_desc, tree_pos, UAabb3::default());
+        let compiled = TreePlacementService::compile(
+            tree_desc,
+            tree_pos,
+            UAabb3::default(),
+            self.debug_settings.adjustables.tree_age.value,
+        );
         let compile_elapsed = compile_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH

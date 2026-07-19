@@ -2054,6 +2054,7 @@ impl App {
 
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
+                let tree_age_before_gui = self.debug_settings.adjustables.tree_age.value;
                 let vsm_blur_radius_before_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
@@ -2664,9 +2665,14 @@ impl App {
                 if let Some(snapshot) = camera_snapshot_to_apply {
                     self.apply_camera_snapshot(&snapshot);
                 }
-                if tree_desc_changed {
+                let tree_age_changed =
+                    self.debug_settings.adjustables.tree_age.value != tree_age_before_gui;
+                if tree_desc_changed || tree_age_changed {
                     match self.update_tuned_tree_from_gui() {
-                        Ok(()) => log::info!("Updated tuning tree from GUI sliders"),
+                        Ok(()) => log::info!(
+                            "Updated tuning tree from GUI sliders at age {:.3}",
+                            self.debug_settings.adjustables.tree_age.value,
+                        ),
                         Err(err) => {
                             log::error!("Failed to update tuning tree from GUI sliders: {}", err)
                         }
