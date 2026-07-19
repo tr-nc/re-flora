@@ -186,6 +186,9 @@ impl DynamicFruitRendererResources {
         self.instance_capacity = required
             .checked_next_power_of_two()
             .ok_or_else(|| anyhow!("dynamic fruit instance capacity overflow"))?;
+        // The current instance buffer may still be referenced by a submitted command buffer.
+        // Capacity growth is rare, so synchronize before replacing and destroying it.
+        self.device.wait_idle();
         *self.instances = Buffer::new_sized(
             self.device.clone(),
             self.allocator.clone(),
