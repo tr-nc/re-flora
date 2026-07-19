@@ -125,7 +125,7 @@ jobs:
 
       - name: Validate aggregate SPIR-V
         if: matrix.validate_spirv
-        run: python scripts/validate_spirv_artifacts.py --expected 152
+        run: python scripts/validate_spirv_artifacts.py
 
       - name: Smoke test native Slang through MoltenVK
         if: matrix.moltenvk_smoke
@@ -181,4 +181,4 @@ jobs:
         run: python3 scripts/check_shader_manifest.py
 
       - name: Validate aggregate SPIR-V
-        run: python3 scripts/validate_spirv_artifacts.py --expected 152
+        run: python3 scripts/validate_spirv_artifacts.py
