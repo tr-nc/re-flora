@@ -1,17 +1,29 @@
 use glam::{IVec3, Quat, UVec3, Vec3};
-use rapier3d::prelude::{
-    ColliderBuilder, ColliderHandle, IVector, PhysicsWorld, Pose, RigidBodyBuilder,
-    RigidBodyHandle, Rotation, SharedShape, Vector, Voxels,
-};
+use rapier3d::control::{CharacterAutostep, CharacterLength, KinematicCharacterController};
+use rapier3d::parry::query::ShapeCastOptions;
 #[cfg(test)]
 use rapier3d::prelude::{AxisMask, VoxelState};
-use std::collections::HashMap;
+use rapier3d::prelude::{
+    BroadPhaseBvh, ColliderBuilder, ColliderHandle, IVector, PhysicsWorld, Pose, QueryFilter,
+    QueryPipeline, RigidBodyBuilder, RigidBodyHandle, Rotation, Shape, ShapeCastHit, SharedShape,
+    Vector, Voxels,
+};
+use std::collections::{HashMap, HashSet};
 
 pub const STATIC_VOXEL_BRICK_DIM: u32 = 32;
 pub const DEFAULT_FIXED_STEP_SECONDS: f32 = 1.0 / 120.0;
 pub const DEFAULT_MAX_SUBSTEPS: u32 = 8;
-const STATIC_VOXEL_BRICK_VOLUME: usize =
-    STATIC_VOXEL_BRICK_DIM as usize * STATIC_VOXEL_BRICK_DIM as usize * STATIC_VOXEL_BRICK_DIM as usize;
+pub const CAPSULE_CHARACTER_COLLISION_OFFSET: f32 = 0.1;
+pub const CAPSULE_CHARACTER_MAX_STEP_HEIGHT: f32 = 1.05;
+pub const CAPSULE_CHARACTER_MIN_STEP_WIDTH: f32 = 0.5;
+pub const CAPSULE_CHARACTER_GROUND_SNAP_DISTANCE: f32 = 1.25;
+pub const CAPSULE_CHARACTER_MAX_SLOPE_CLIMB_ANGLE: f32 = std::f32::consts::FRAC_PI_4;
+pub const CAPSULE_CHARACTER_MIN_SLOPE_SLIDE_ANGLE: f32 = std::f32::consts::FRAC_PI_4;
+pub const CAPSULE_CHARACTER_NORMAL_NUDGE_FACTOR: f32 = 1.0e-4;
+pub const CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT: f32 = std::f32::consts::FRAC_1_SQRT_2;
+const STATIC_VOXEL_BRICK_VOLUME: usize = STATIC_VOXEL_BRICK_DIM as usize
+    * STATIC_VOXEL_BRICK_DIM as usize
+    * STATIC_VOXEL_BRICK_DIM as usize;
 const OCCUPANCY_WORD_COUNT: usize = STATIC_VOXEL_BRICK_VOLUME.div_ceil(u64::BITS as usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -76,6 +88,53 @@ pub struct DynamicBodyState {
     pub sleeping: bool,
 }
 
+/// A single collision encountered while resolving a capsule character movement.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CapsuleCharacterCollision {
+    /// The terrain surface normal opposing the character movement.
+    pub normal: Vec3,
+    /// The portion of the requested translation applied before this collision.
+    pub translation_applied: Vec3,
+    /// The requested translation still unresolved when this collision occurred.
+    pub translation_remaining: Vec3,
+    /// The distance traveled along the cast direction before impact.
+    pub time_of_impact: f32,
+}
+
+/// Input for one kinematic capsule movement query, in physics voxel units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CapsuleCharacterMove {
+    /// World-space center of the capsule.
+    pub center: Vec3,
+    /// Radius of both hemispheres and the cylindrical section.
+    pub radius: f32,
+    /// Half-height of the cylindrical segment, excluding the hemispherical caps.
+    pub half_height: f32,
+    /// World-space translation the character would like to apply this frame.
+    pub desired_translation: Vec3,
+    /// Duration of this movement in seconds.
+    pub dt: f32,
+}
+
+/// Collision-corrected result of one kinematic capsule movement query.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CapsuleCharacterMoveResult {
+    pub translation: Vec3,
+    pub grounded: bool,
+    pub is_sliding_down_slope: bool,
+    pub collisions: Vec<CapsuleCharacterCollision>,
+}
+
+#[derive(Clone, Copy, Debug, thiserror::Error, PartialEq)]
+pub enum CapsuleCharacterMoveError {
+    #[error("capsule character {field} must be finite")]
+    NonFinite { field: &'static str },
+    #[error("capsule character {field} must be greater than zero, got {value}")]
+    NonPositive { field: &'static str, value: f32 },
+    #[error("capsule character {field} must be at least zero, got {value}")]
+    Negative { field: &'static str, value: f32 },
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FixedStepResult {
     pub steps: u32,
@@ -89,15 +148,9 @@ pub enum DynamicBodyError {
     #[error("dynamic body {field} must be finite")]
     NonFinite { field: &'static str },
     #[error("dynamic body {field} must be at least zero, got {value}")]
-    Negative {
-        field: &'static str,
-        value: f32,
-    },
+    Negative { field: &'static str, value: f32 },
     #[error("dynamic body {field} must be greater than zero, got {value}")]
-    NonPositive {
-        field: &'static str,
-        value: f32,
-    },
+    NonPositive { field: &'static str, value: f32 },
     #[error("dynamic body rotation must have non-zero length")]
     ZeroRotation,
     #[error("convex hull points do not form a three-dimensional convex shape")]
@@ -126,9 +179,7 @@ impl BrickOccupancy {
         }
     }
 
-    pub fn from_x_fastest_voxel_types(
-        voxel_types: &[u8],
-    ) -> Result<Self, BrickOccupancyError> {
+    pub fn from_x_fastest_voxel_types(voxel_types: &[u8]) -> Result<Self, BrickOccupancyError> {
         if voxel_types.len() != STATIC_VOXEL_BRICK_VOLUME {
             return Err(BrickOccupancyError::WrongElementCount {
                 actual: voxel_types.len(),
@@ -272,6 +323,9 @@ struct VoxelChange {
 
 pub struct CollisionWorld {
     physics: PhysicsWorld,
+    capsule_character_broad_phase: BroadPhaseBvh,
+    capsule_character_modified_colliders: HashSet<ColliderHandle>,
+    capsule_character_removed_colliders: HashSet<ColliderHandle>,
     static_bricks: HashMap<StaticVoxelBrickId, StaticVoxelBrick>,
     static_brick_revisions: HashMap<StaticVoxelBrickId, u64>,
     dynamic_bodies: HashMap<DynamicBodyId, RigidBodyHandle>,
@@ -293,6 +347,9 @@ impl CollisionWorld {
         physics.integration_parameters.dt = DEFAULT_FIXED_STEP_SECONDS;
         Self {
             physics,
+            capsule_character_broad_phase: BroadPhaseBvh::new(),
+            capsule_character_modified_colliders: HashSet::new(),
+            capsule_character_removed_colliders: HashSet::new(),
             static_bricks: HashMap::new(),
             static_brick_revisions: HashMap::new(),
             dynamic_bodies: HashMap::new(),
@@ -405,9 +462,11 @@ impl CollisionWorld {
         self.fixed_step_accumulator = self.fixed_step_accumulator.min(max_accumulated);
 
         let mut steps = 0;
-        while steps < self.max_substeps
-            && self.fixed_step_accumulator >= self.fixed_step_seconds
-        {
+        while steps < self.max_substeps && self.fixed_step_accumulator >= self.fixed_step_seconds {
+            // Rapier clears collider change flags while stepping. Keep the terrain-only query BVH
+            // current first so character queries stay valid even when their next query happens
+            // after a dynamic simulation step.
+            self.sync_capsule_character_broad_phase();
             self.physics.step();
             self.fixed_step_accumulator =
                 (self.fixed_step_accumulator - self.fixed_step_seconds).max(0.0);
@@ -421,6 +480,102 @@ impl CollisionWorld {
             interpolation_alpha: (self.fixed_step_accumulator / self.fixed_step_seconds)
                 .clamp(0.0, 1.0),
         }
+    }
+
+    /// Resolves a classic upright capsule character movement against static voxel terrain.
+    ///
+    /// This is a query-only kinematic controller: callers own character position and velocity and
+    /// apply the returned translation themselves. Dynamic bodies are deliberately absent from the
+    /// dedicated terrain query broad-phase, so fruit and other simulated objects do not block the
+    /// player.
+    pub fn move_capsule_character(
+        &mut self,
+        movement: CapsuleCharacterMove,
+    ) -> Result<CapsuleCharacterMoveResult, CapsuleCharacterMoveError> {
+        validate_capsule_character_move(movement)?;
+        self.sync_capsule_character_broad_phase();
+
+        let controller = KinematicCharacterController {
+            up: Vector::Y,
+            offset: CharacterLength::Absolute(CAPSULE_CHARACTER_COLLISION_OFFSET),
+            slide: true,
+            autostep: Some(CharacterAutostep {
+                max_height: CharacterLength::Absolute(CAPSULE_CHARACTER_MAX_STEP_HEIGHT),
+                min_width: CharacterLength::Absolute(CAPSULE_CHARACTER_MIN_STEP_WIDTH),
+                include_dynamic_bodies: false,
+            }),
+            // Ground snapping is performed below with an explicit terrain-only shape cast. This
+            // also produces reliable grounding on Parry's composite voxel shapes.
+            snap_to_ground: None,
+            max_slope_climb_angle: CAPSULE_CHARACTER_MAX_SLOPE_CLIMB_ANGLE,
+            min_slope_slide_angle: CAPSULE_CHARACTER_MIN_SLOPE_SLIDE_ANGLE,
+            normal_nudge_factor: CAPSULE_CHARACTER_NORMAL_NUDGE_FACTOR,
+        };
+        let shape = SharedShape::capsule_y(movement.half_height, movement.radius);
+        let pose = Pose::from_translation(to_rapier_vec(movement.center));
+        let query_pipeline = self.capsule_character_broad_phase.as_query_pipeline(
+            self.physics.narrow_phase.query_dispatcher(),
+            &self.physics.bodies,
+            &self.physics.colliders,
+            QueryFilter::default().exclude_sensors(),
+        );
+        let mut desired_translation = to_rapier_vec(movement.desired_translation);
+        let grounded_at_start = capsule_ground_hit(
+            &query_pipeline,
+            shape.as_ref(),
+            &pose,
+            CAPSULE_CHARACTER_GROUND_SNAP_DISTANCE,
+        )
+        .is_some_and(|hit| hit.normal1.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT);
+        if grounded_at_start && desired_translation.y < 0.0 {
+            // Gravity should not pull an already-grounded character through the controller skin.
+            // The post-movement ground cast below supplies normal ground snapping.
+            desired_translation.y = 0.0;
+        }
+
+        let mut collisions = Vec::new();
+        let effective = controller.move_shape(
+            movement.dt,
+            &query_pipeline,
+            shape.as_ref(),
+            &pose,
+            desired_translation,
+            |collision| {
+                collisions.push(CapsuleCharacterCollision {
+                    normal: from_rapier_vec(collision.hit.normal1),
+                    translation_applied: from_rapier_vec(collision.translation_applied),
+                    translation_remaining: from_rapier_vec(collision.translation_remaining),
+                    time_of_impact: collision.hit.time_of_impact,
+                });
+            },
+        );
+
+        let mut translation = effective.translation;
+        let landed_during_move = collisions
+            .iter()
+            .any(|collision| collision.normal.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT);
+        let mut grounded = effective.grounded || landed_during_move;
+        if movement.desired_translation.y <= 0.0 {
+            let final_pose = Pose::from_translation(translation) * pose;
+            if let Some(hit) = capsule_ground_hit(
+                &query_pipeline,
+                shape.as_ref(),
+                &final_pose,
+                CAPSULE_CHARACTER_GROUND_SNAP_DISTANCE,
+            ) {
+                if hit.normal1.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT {
+                    translation.y -= hit.time_of_impact;
+                    grounded = true;
+                }
+            }
+        }
+
+        Ok(CapsuleCharacterMoveResult {
+            translation: from_rapier_vec(translation),
+            grounded,
+            is_sliding_down_slope: effective.is_sliding_down_slope,
+            collisions,
+        })
     }
 
     pub fn static_brick_count(&self) -> usize {
@@ -504,10 +659,14 @@ impl CollisionWorld {
 
         let origin = id.0 * STATIC_VOXEL_BRICK_DIM as i32;
         let collider = self.physics.insert_collider(
-            ColliderBuilder::new(SharedShape::new(voxels))
-                .translation(Vector::new(origin.x as f32, origin.y as f32, origin.z as f32)),
+            ColliderBuilder::new(SharedShape::new(voxels)).translation(Vector::new(
+                origin.x as f32,
+                origin.y as f32,
+                origin.z as f32,
+            )),
             None,
         );
+        self.capsule_character_modified_colliders.insert(collider);
         self.static_bricks.insert(
             id,
             StaticVoxelBrick {
@@ -541,6 +700,8 @@ impl CollisionWorld {
                 .expect("updated collision brick must exist")
                 .occupancy = occupancy;
         } else {
+            self.capsule_character_removed_colliders.insert(collider);
+            self.capsule_character_modified_colliders.remove(&collider);
             self.physics.remove_collider(collider);
             self.static_bricks.remove(&id);
         }
@@ -566,14 +727,14 @@ impl CollisionWorld {
         changes: &[VoxelChange],
     ) {
         let mut rebuilt = HashMap::new();
-        for id in std::iter::once(changed_id).chain(FACE_NEIGHBORS.into_iter().filter_map(
-            |direction| {
+        for id in
+            std::iter::once(changed_id).chain(FACE_NEIGHBORS.into_iter().filter_map(|direction| {
                 changes
                     .iter()
                     .any(|change| voxel_is_on_face(change.local_voxel, direction))
                     .then_some(StaticVoxelBrickId(changed_id.0 + direction))
-            },
-        )) {
+            }))
+        {
             let Some(brick) = self.static_bricks.get(&id) else {
                 continue;
             };
@@ -634,6 +795,35 @@ impl CollisionWorld {
 
     fn set_brick_voxels(&mut self, collider: ColliderHandle, voxels: Voxels) {
         self.physics.colliders[collider].set_shape(SharedShape::new(voxels));
+        self.capsule_character_modified_colliders.insert(collider);
+    }
+
+    fn sync_capsule_character_broad_phase(&mut self) {
+        if self.capsule_character_modified_colliders.is_empty()
+            && self.capsule_character_removed_colliders.is_empty()
+        {
+            return;
+        }
+
+        let mut modified = self
+            .capsule_character_modified_colliders
+            .drain()
+            .collect::<Vec<_>>();
+        let mut removed = self
+            .capsule_character_removed_colliders
+            .drain()
+            .collect::<Vec<_>>();
+        modified.sort_unstable_by_key(|handle| handle.into_raw_parts());
+        removed.sort_unstable_by_key(|handle| handle.into_raw_parts());
+        let mut events = Vec::new();
+        self.capsule_character_broad_phase.update(
+            &self.physics.integration_parameters,
+            &self.physics.colliders,
+            &self.physics.bodies,
+            &modified,
+            &removed,
+            &mut events,
+        );
     }
 
     fn wake_dynamic_bodies_in_aabb(&mut self, mins: Vec3, maxs: Vec3) -> usize {
@@ -670,6 +860,27 @@ impl CollisionWorld {
             .expect("static voxel brick collider must remain a Voxels shape")
             .voxel_state(to_rapier_ivec(local_voxel))
     }
+}
+
+fn capsule_ground_hit(
+    queries: &QueryPipeline<'_>,
+    shape: &dyn Shape,
+    pose: &Pose,
+    max_distance: f32,
+) -> Option<ShapeCastHit> {
+    queries
+        .cast_shape(
+            pose,
+            -Vector::Y,
+            shape,
+            ShapeCastOptions {
+                max_time_of_impact: max_distance,
+                target_distance: CAPSULE_CHARACTER_COLLISION_OFFSET,
+                stop_at_penetration: false,
+                compute_impact_geometry_on_penetration: true,
+            },
+        )
+        .map(|(_, hit)| hit)
 }
 
 const FACE_NEIGHBORS: [IVec3; 6] = [
@@ -754,6 +965,49 @@ fn validate_dynamic_body_desc(desc: &DynamicBodyDesc) -> Result<Rotation, Dynami
         desc.rotation.w / max_component,
     );
     Ok(to_rapier_rotation(scaled_rotation.normalize()))
+}
+
+fn validate_capsule_character_move(
+    movement: CapsuleCharacterMove,
+) -> Result<(), CapsuleCharacterMoveError> {
+    if !movement.center.is_finite() {
+        return Err(CapsuleCharacterMoveError::NonFinite { field: "center" });
+    }
+    if !movement.desired_translation.is_finite() {
+        return Err(CapsuleCharacterMoveError::NonFinite {
+            field: "desired_translation",
+        });
+    }
+    validate_capsule_positive("radius", movement.radius)?;
+    validate_capsule_nonnegative("half_height", movement.half_height)?;
+    validate_capsule_positive("dt", movement.dt)?;
+    Ok(())
+}
+
+fn validate_capsule_positive(
+    field: &'static str,
+    value: f32,
+) -> Result<(), CapsuleCharacterMoveError> {
+    if !value.is_finite() {
+        Err(CapsuleCharacterMoveError::NonFinite { field })
+    } else if value <= 0.0 {
+        Err(CapsuleCharacterMoveError::NonPositive { field, value })
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_capsule_nonnegative(
+    field: &'static str,
+    value: f32,
+) -> Result<(), CapsuleCharacterMoveError> {
+    if !value.is_finite() {
+        Err(CapsuleCharacterMoveError::NonFinite { field })
+    } else if value < 0.0 {
+        Err(CapsuleCharacterMoveError::Negative { field, value })
+    } else {
+        Ok(())
+    }
 }
 
 fn build_dynamic_shape(shape: &DynamicColliderShape) -> Result<SharedShape, DynamicBodyError> {
@@ -898,9 +1152,8 @@ mod tests {
 
     fn two_layer_floor() -> BrickOccupancy {
         BrickOccupancy::from_filled_voxels((0..2).flat_map(|y| {
-            (0..STATIC_VOXEL_BRICK_DIM).flat_map(move |z| {
-                (0..STATIC_VOXEL_BRICK_DIM).map(move |x| UVec3::new(x, y, z))
-            })
+            (0..STATIC_VOXEL_BRICK_DIM)
+                .flat_map(move |z| (0..STATIC_VOXEL_BRICK_DIM).map(move |x| UVec3::new(x, y, z)))
         }))
     }
 
@@ -1050,9 +1303,7 @@ mod tests {
     fn removing_many_terrain_bricks_in_one_step_keeps_broad_phase_consistent() {
         let mut world = CollisionWorld::new();
         let ids = (0..4)
-            .flat_map(|x| {
-                (0..4).map(move |z| StaticVoxelBrickId(IVec3::new(x * 2, 0, z * 2)))
-            })
+            .flat_map(|x| (0..4).map(move |z| StaticVoxelBrickId(IVec3::new(x * 2, 0, z * 2))))
             .collect::<Vec<_>>();
 
         for id in ids.iter().copied() {
@@ -1163,16 +1414,8 @@ mod tests {
     #[test]
     fn dynamic_sphere_rolls_across_a_combined_brick_seam() {
         let mut world = CollisionWorld::new();
-        world.upsert_static_voxel_brick(
-            StaticVoxelBrickId(IVec3::ZERO),
-            1,
-            two_layer_floor(),
-        );
-        world.upsert_static_voxel_brick(
-            StaticVoxelBrickId(IVec3::X),
-            1,
-            two_layer_floor(),
-        );
+        world.upsert_static_voxel_brick(StaticVoxelBrickId(IVec3::ZERO), 1, two_layer_floor());
+        world.upsert_static_voxel_brick(StaticVoxelBrickId(IVec3::X), 1, two_layer_floor());
         let mut desc = DynamicBodyDesc::sphere(Vec3::new(20.0, 4.005, 16.0), 2.0);
         desc.linear_velocity = Vec3::new(4.0, 0.0, 0.0);
         desc.angular_velocity = Vec3::new(0.0, 0.0, -2.0);
@@ -1205,10 +1448,7 @@ mod tests {
         let mut world = CollisionWorld::new();
         world.upsert_static_voxel_brick(brick, 1, one_voxel(UVec3::ZERO));
         let body = world
-            .spawn_dynamic_body(DynamicBodyDesc::sphere(
-                Vec3::new(0.5, 1.501, 0.5),
-                0.5,
-            ))
+            .spawn_dynamic_body(DynamicBodyDesc::sphere(Vec3::new(0.5, 1.501, 0.5), 0.5))
             .unwrap();
         let handle = world.dynamic_bodies[&body];
         let collider = world.physics.bodies[handle].colliders()[0];
