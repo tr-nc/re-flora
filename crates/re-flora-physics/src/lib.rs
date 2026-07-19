@@ -217,7 +217,6 @@ impl BrickOccupancy {
                 if index < STATIC_VOXEL_BRICK_VOLUME {
                     changes.push(VoxelChange {
                         local_voxel: local_coords(index).as_ivec3(),
-                        filled: next & (1_u64 << bit) != 0,
                     });
                 }
                 changed &= changed - 1;
@@ -269,7 +268,6 @@ struct StaticVoxelBrick {
 #[derive(Clone, Copy)]
 struct VoxelChange {
     local_voxel: IVec3,
-    filled: bool,
 }
 
 pub struct CollisionWorld {
@@ -488,7 +486,7 @@ impl CollisionWorld {
         let changed_bounds = occupancy
             .filled_local_bounds()
             .map(|bounds| brick_local_bounds_to_world(id, bounds));
-        let mut voxels = Voxels::new(Vector::splat(1.0), &occupancy.filled_rapier_voxels());
+        let mut voxels = fresh_voxels(&occupancy);
 
         for direction in FACE_NEIGHBORS {
             let neighbor_id = StaticVoxelBrickId(id.0 + direction);
@@ -535,44 +533,9 @@ impl CollisionWorld {
             .get(&id)
             .expect("updated collision brick must exist")
             .collider;
-        let mut voxels = self.clone_brick_voxels(collider);
-        for change in changes {
-            voxels.set_voxel(to_rapier_ivec(change.local_voxel), change.filled);
-        }
-
-        for direction in FACE_NEIGHBORS {
-            let boundary_changes = changes
-                .iter()
-                .copied()
-                .filter(|change| voxel_is_on_face(change.local_voxel, direction))
-                .collect::<Vec<_>>();
-            if boundary_changes.is_empty() {
-                continue;
-            }
-
-            let neighbor_id = StaticVoxelBrickId(id.0 + direction);
-            let Some(neighbor_handle) = self
-                .static_bricks
-                .get(&neighbor_id)
-                .map(|brick| brick.collider)
-            else {
-                continue;
-            };
-            let mut neighbor = self.clone_brick_voxels(neighbor_handle);
-            let origin_shift = brick_origin_shift(direction);
-            for change in boundary_changes {
-                voxels.propagate_voxel_change(
-                    &mut neighbor,
-                    to_rapier_ivec(change.local_voxel),
-                    origin_shift,
-                );
-            }
-            self.set_brick_voxels(neighbor_handle, neighbor);
-        }
 
         let collider_present = !occupancy.is_empty();
         if collider_present {
-            self.set_brick_voxels(collider, voxels);
             self.static_bricks
                 .get_mut(&id)
                 .expect("updated collision brick must exist")
@@ -581,6 +544,12 @@ impl CollisionWorld {
             self.physics.remove_collider(collider);
             self.static_bricks.remove(&id);
         }
+
+        // Rebuild fresh voxel shapes instead of mutating Parry's chunk BVH with thousands of
+        // `set_voxel` calls. Rebuild neighbors of changed faces too because their boundary states
+        // may have been contributed by the previous version of this brick and can therefore need
+        // bits cleared as well as added.
+        self.rebuild_brick_and_changed_face_neighbors(id, changes);
         if let Some((mins, maxs)) = changed_bounds {
             self.wake_dynamic_bodies_in_aabb(mins, maxs);
         }
@@ -588,6 +557,70 @@ impl CollisionWorld {
         StaticVoxelBrickUpdate::Applied {
             changed_voxels: changes.len(),
             collider_present,
+        }
+    }
+
+    fn rebuild_brick_and_changed_face_neighbors(
+        &mut self,
+        changed_id: StaticVoxelBrickId,
+        changes: &[VoxelChange],
+    ) {
+        let mut rebuilt = HashMap::new();
+        for id in std::iter::once(changed_id).chain(FACE_NEIGHBORS.into_iter().filter_map(
+            |direction| {
+                changes
+                    .iter()
+                    .any(|change| voxel_is_on_face(change.local_voxel, direction))
+                    .then_some(StaticVoxelBrickId(changed_id.0 + direction))
+            },
+        )) {
+            let Some(brick) = self.static_bricks.get(&id) else {
+                continue;
+            };
+            rebuilt.insert(id, fresh_voxels(&brick.occupancy));
+        }
+
+        let rebuilt_ids = rebuilt.keys().copied().collect::<Vec<_>>();
+        for id in rebuilt_ids.iter().copied() {
+            for direction in FACE_NEIGHBORS {
+                let neighbor_id = StaticVoxelBrickId(id.0 + direction);
+                if rebuilt.contains_key(&neighbor_id) {
+                    if brick_id_precedes(neighbor_id, id) {
+                        continue;
+                    }
+
+                    let mut voxels = rebuilt
+                        .remove(&id)
+                        .expect("rebuilt collision brick must exist");
+                    let neighbor = rebuilt
+                        .get_mut(&neighbor_id)
+                        .expect("rebuilt collision neighbor must exist");
+                    voxels.combine_voxel_states(neighbor, brick_origin_shift(direction));
+                    rebuilt.insert(id, voxels);
+                } else {
+                    let Some(neighbor_handle) = self
+                        .static_bricks
+                        .get(&neighbor_id)
+                        .map(|brick| brick.collider)
+                    else {
+                        continue;
+                    };
+                    let mut neighbor = self.clone_brick_voxels(neighbor_handle);
+                    rebuilt
+                        .get_mut(&id)
+                        .expect("rebuilt collision brick must exist")
+                        .combine_voxel_states(&mut neighbor, brick_origin_shift(direction));
+                }
+            }
+        }
+
+        for (id, voxels) in rebuilt {
+            let collider = self
+                .static_bricks
+                .get(&id)
+                .expect("rebuilt collision brick must exist")
+                .collider;
+            self.set_brick_voxels(collider, voxels);
         }
     }
 
@@ -675,6 +708,10 @@ fn brick_origin_shift(direction: IVec3) -> IVector {
     to_rapier_ivec(direction * STATIC_VOXEL_BRICK_DIM as i32)
 }
 
+fn fresh_voxels(occupancy: &BrickOccupancy) -> Voxels {
+    Voxels::new(Vector::splat(1.0), &occupancy.filled_rapier_voxels())
+}
+
 fn voxel_is_on_face(voxel: IVec3, direction: IVec3) -> bool {
     let max = STATIC_VOXEL_BRICK_DIM as i32 - 1;
     (direction.x < 0 && voxel.x == 0)
@@ -683,6 +720,10 @@ fn voxel_is_on_face(voxel: IVec3, direction: IVec3) -> bool {
         || (direction.y > 0 && voxel.y == max)
         || (direction.z < 0 && voxel.z == 0)
         || (direction.z > 0 && voxel.z == max)
+}
+
+fn brick_id_precedes(left: StaticVoxelBrickId, right: StaticVoxelBrickId) -> bool {
+    (left.0.x, left.0.y, left.0.z) < (right.0.x, right.0.y, right.0.z)
 }
 
 fn validate_dynamic_body_desc(desc: &DynamicBodyDesc) -> Result<Rotation, DynamicBodyError> {
@@ -863,6 +904,21 @@ mod tests {
         }))
     }
 
+    fn occupancy_where(mut filled: impl FnMut(UVec3) -> bool) -> BrickOccupancy {
+        let mut occupancy = BrickOccupancy::empty();
+        for z in 0..STATIC_VOXEL_BRICK_DIM {
+            for y in 0..STATIC_VOXEL_BRICK_DIM {
+                for x in 0..STATIC_VOXEL_BRICK_DIM {
+                    let voxel = UVec3::new(x, y, z);
+                    if filled(voxel) {
+                        occupancy.set(voxel, true);
+                    }
+                }
+            }
+        }
+        occupancy
+    }
+
     fn free_faces(world: &CollisionWorld, id: StaticVoxelBrickId, local: IVec3) -> AxisMask {
         world
             .voxel_state(id, local)
@@ -951,6 +1007,64 @@ mod tests {
         world.upsert_static_voxel_brick(left, 3, one_voxel(left_voxel));
         assert_eq!(world.static_brick_count(), 2);
         assert!(!free_faces(&world, right, IVec3::ZERO).contains(AxisMask::X_NEG));
+    }
+
+    #[test]
+    fn repeated_large_terrain_edits_rebuild_voxel_bvhs() {
+        let id = StaticVoxelBrickId(IVec3::ZERO);
+        let mut world = CollisionWorld::new();
+        let full = occupancy_where(|_| true);
+        let left_half = occupancy_where(|voxel| voxel.x < STATIC_VOXEL_BRICK_DIM / 2);
+        let right_half = occupancy_where(|voxel| voxel.x >= STATIC_VOXEL_BRICK_DIM / 2);
+
+        world.upsert_static_voxel_brick(id, 1, full.clone());
+        let body = world
+            .spawn_dynamic_body(DynamicBodyDesc::sphere(
+                Vec3::new(16.0, STATIC_VOXEL_BRICK_DIM as f32 + 1.0, 16.0),
+                1.0,
+            ))
+            .unwrap();
+
+        for (revision, occupancy) in [
+            left_half,
+            right_half,
+            one_voxel(UVec3::new(31, 31, 31)),
+            full,
+            BrickOccupancy::empty(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(matches!(
+                world.upsert_static_voxel_brick(id, revision as u64 + 2, occupancy),
+                StaticVoxelBrickUpdate::Applied { .. }
+            ));
+            assert_eq!(world.advance(DEFAULT_FIXED_STEP_SECONDS).steps, 1);
+            assert!(world.dynamic_body_state(body).is_some());
+        }
+
+        assert_eq!(world.static_brick_count(), 0);
+    }
+
+    #[test]
+    fn removing_many_terrain_bricks_in_one_step_keeps_broad_phase_consistent() {
+        let mut world = CollisionWorld::new();
+        let ids = (0..4)
+            .flat_map(|x| {
+                (0..4).map(move |z| StaticVoxelBrickId(IVec3::new(x * 2, 0, z * 2)))
+            })
+            .collect::<Vec<_>>();
+
+        for id in ids.iter().copied() {
+            world.upsert_static_voxel_brick(id, 1, one_voxel(UVec3::ZERO));
+        }
+        world.advance(DEFAULT_FIXED_STEP_SECONDS);
+        for id in ids.iter().copied() {
+            world.remove_static_voxel_brick(id, 2);
+        }
+
+        assert_eq!(world.advance(DEFAULT_FIXED_STEP_SECONDS).steps, 1);
+        assert_eq!(world.static_brick_count(), 0);
     }
 
     #[test]
