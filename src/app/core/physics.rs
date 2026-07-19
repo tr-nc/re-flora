@@ -10,7 +10,7 @@ use re_flora_physics::{
     StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const STARTUP_TERRAIN_BRICK_ID: StaticVoxelBrickId = StaticVoxelBrickId(IVec3::new(8, 3, 8));
 #[cfg(test)]
@@ -23,6 +23,7 @@ const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WO
 // Release measurements put one real 32-cubed Contree export plus Rapier update at about 1.2 ms.
 // Keeping this at one avoids terrain edits turning a single render frame into an unbounded scan.
 const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 1;
+const WORLD_TERRAIN_COLLIDER_IMPORT_BUDGET: Duration = Duration::from_millis(25);
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct TreeFruitSpec {
@@ -112,6 +113,14 @@ struct DirtyTerrainBrickQueue {
     next_revision: u64,
 }
 
+#[derive(Debug)]
+struct WorldTerrainColliderImport {
+    remaining: HashSet<StaticVoxelBrickId>,
+    total: usize,
+    failed: usize,
+    started_at: Instant,
+}
+
 impl DirtyTerrainBrickQueue {
     fn push(&mut self, id: StaticVoxelBrickId) -> u64 {
         self.next_revision = self
@@ -171,6 +180,7 @@ pub(super) struct TerrainPhysics {
     collision_probe_mesh_uploaded: bool,
     imported_terrain_bricks: HashSet<StaticVoxelBrickId>,
     failed_terrain_bricks: HashSet<StaticVoxelBrickId>,
+    world_collider_import: Option<WorldTerrainColliderImport>,
     fruits_by_tree: BTreeMap<u32, BTreeMap<u64, RegisteredFruit>>,
     attached_fruit_refresh_trees: HashSet<u32>,
     tree_age: f32,
@@ -190,6 +200,7 @@ impl TerrainPhysics {
             collision_probe_mesh_uploaded: false,
             imported_terrain_bricks: HashSet::new(),
             failed_terrain_bricks: HashSet::new(),
+            world_collider_import: None,
             fruits_by_tree: BTreeMap::new(),
             attached_fruit_refresh_trees: HashSet::new(),
             tree_age: 1.0,
@@ -577,11 +588,14 @@ impl TerrainPhysics {
         }
     }
 
-    pub(super) fn import_world_terrain_colliders(
+    pub(super) fn begin_world_terrain_collider_import(
         &mut self,
-        contree_builder: &ContreeBuilder,
         world_dim_voxels: UVec3,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<usize> {
+        anyhow::ensure!(
+            self.world_collider_import.is_none(),
+            "world terrain collider import is already active"
+        );
         let world_max = IVec3::try_from(world_dim_voxels)
             .context("world voxel dimensions exceed signed collider coordinates")?;
         let world_bricks = terrain_brick_ids_for_voxel_aabb(IVec3::ZERO, world_max);
@@ -590,40 +604,94 @@ impl TerrainPhysics {
             "world voxel dimensions must be non-zero"
         );
 
-        for &brick in &world_bricks {
+        let total = world_bricks.len();
+        self.world_collider_import = Some(WorldTerrainColliderImport {
+            remaining: world_bricks.iter().copied().collect(),
+            total,
+            failed: 0,
+            started_at: Instant::now(),
+        });
+
+        for brick in world_bricks {
             self.mark_terrain_brick_dirty(brick);
         }
+        Ok(total)
+    }
 
-        let started = Instant::now();
+    pub(super) fn process_world_terrain_collider_import(
+        &mut self,
+        contree_builder: &ContreeBuilder,
+    ) -> anyhow::Result<(usize, usize)> {
+        anyhow::ensure!(
+            self.world_collider_import.is_some(),
+            "world terrain collider import has not started"
+        );
+
+        let frame_started = Instant::now();
+        let mut attempts = 0;
         let mut consecutive_deferrals = 0;
-        while let Some(work) = self.dirty_terrain_bricks.front() {
+        while attempts == 0 || frame_started.elapsed() < WORLD_TERRAIN_COLLIDER_IMPORT_BUDGET {
+            let Some(work) = self.dirty_terrain_bricks.front() else {
+                break;
+            };
+            let is_world_brick = self
+                .world_collider_import
+                .as_ref()
+                .is_some_and(|import| import.remaining.contains(&work.id));
+            attempts += 1;
             if self.try_refresh_terrain_brick(contree_builder, work, false) {
                 consecutive_deferrals = 0;
+                if is_world_brick {
+                    let failed = self.failed_terrain_bricks.contains(&work.id);
+                    let import = self
+                        .world_collider_import
+                        .as_mut()
+                        .expect("active world collider import disappeared");
+                    import.remaining.remove(&work.id);
+                    import.failed += usize::from(failed);
+                }
             } else {
                 self.dirty_terrain_bricks.defer(work.id);
                 consecutive_deferrals += 1;
-                anyhow::ensure!(
-                    consecutive_deferrals < self.dirty_terrain_bricks.len(),
-                    "world terrain CPU sources are not ready after a full collider pass"
-                );
+                if consecutive_deferrals >= self.dirty_terrain_bricks.len() {
+                    break;
+                }
             }
         }
 
-        let failed = world_bricks
-            .iter()
-            .filter(|brick| self.failed_terrain_bricks.contains(brick))
-            .count();
-        anyhow::ensure!(failed == 0, "{failed} world terrain collider bricks failed");
+        let import = self
+            .world_collider_import
+            .as_ref()
+            .expect("active world collider import disappeared");
+        let completed = import.total - import.remaining.len();
+        let total = import.total;
+        if completed < total {
+            anyhow::ensure!(
+                !self.dirty_terrain_bricks.pending.is_empty(),
+                "world terrain collider queue emptied with {} bricks remaining",
+                import.remaining.len()
+            );
+            return Ok((completed, total));
+        }
 
-        let elapsed = started.elapsed();
+        let import = self
+            .world_collider_import
+            .take()
+            .expect("completed world collider import disappeared");
+        let elapsed = import.started_at.elapsed();
         log::info!(
             "[COLLISION][WORLD] imported logical_bricks={} non_empty_colliders={} elapsed_ms={:.3} avg_ms_per_brick={:.3}",
-            world_bricks.len(),
+            import.total,
             self.collision_world.static_brick_count(),
             elapsed.as_secs_f64() * 1_000.0,
-            elapsed.as_secs_f64() * 1_000.0 / world_bricks.len() as f64,
+            elapsed.as_secs_f64() * 1_000.0 / import.total as f64,
         );
-        Ok(())
+        anyhow::ensure!(
+            import.failed == 0,
+            "{} world terrain collider bricks failed",
+            import.failed
+        );
+        Ok((import.total, import.total))
     }
 
     fn mark_terrain_brick_dirty(&mut self, id: StaticVoxelBrickId) {
@@ -949,6 +1017,27 @@ mod tests {
         assert_eq!(bricks.len(), 16_usize.pow(3));
         assert_eq!(bricks.first(), Some(&StaticVoxelBrickId(IVec3::ZERO)));
         assert_eq!(bricks.last(), Some(&StaticVoxelBrickId(IVec3::splat(15))));
+    }
+
+    #[test]
+    fn world_collider_import_enqueues_each_global_brick_once() {
+        let mut terrain_physics = TerrainPhysics::new();
+
+        let total = terrain_physics
+            .begin_world_terrain_collider_import(UVec3::splat(512))
+            .unwrap();
+
+        assert_eq!(total, 16_usize.pow(3));
+        assert_eq!(terrain_physics.dirty_terrain_bricks.len(), total);
+        assert_eq!(
+            terrain_physics
+                .world_collider_import
+                .as_ref()
+                .unwrap()
+                .remaining
+                .len(),
+            total
+        );
     }
 
     #[test]

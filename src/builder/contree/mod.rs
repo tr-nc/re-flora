@@ -294,6 +294,19 @@ impl ContreeCpuRayQuerySnapshot {
             ));
         }
 
+        if source_dependencies
+            .iter()
+            .all(|dependency| !dependency.is_present)
+        {
+            return Ok(ContreeCpuVoxelBlockExport::Ready(ContreeCpuVoxelBlock {
+                voxel_min,
+                dim,
+                voxel_dim_per_chunk: self.voxel_dim_per_chunk,
+                voxel_types: vec![0; element_count],
+                source_dependencies,
+            }));
+        }
+
         let mut voxel_types = Vec::with_capacity(element_count);
         for z in voxel_min.z..voxel_max.z {
             for y in voxel_min.y..voxel_max.y {

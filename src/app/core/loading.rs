@@ -4,6 +4,7 @@ use super::*;
 pub(super) enum LoadingPhase {
     Terrain,
     Building,
+    Colliders,
 }
 
 pub(super) struct LoadingState {
@@ -11,11 +12,15 @@ pub(super) struct LoadingState {
     pub(super) current: usize,
     pub(super) step_label: String,
     pub(super) phase: LoadingPhase,
+    pub(super) collider_total: usize,
 }
 
 impl LoadingState {
     fn total(&self) -> usize {
-        self.chunk_indices.len()
+        match self.phase {
+            LoadingPhase::Terrain | LoadingPhase::Building => self.chunk_indices.len(),
+            LoadingPhase::Colliders => self.collider_total,
+        }
     }
 
     fn progress_fraction(&self) -> f32 {
@@ -25,13 +30,19 @@ impl LoadingState {
 
         let total = self.chunk_indices.len() as f32;
         match self.phase {
-            LoadingPhase::Terrain => (self.current as f32 / total) * 0.5,
-            LoadingPhase::Building => 0.5 + (self.current as f32 / total) * 0.5,
+            LoadingPhase::Terrain => (self.current as f32 / total) * 0.25,
+            LoadingPhase::Building => 0.25 + (self.current as f32 / total) * 0.25,
+            LoadingPhase::Colliders => {
+                let collider_total = self.collider_total.max(1) as f32;
+                0.5 + (self.current as f32 / collider_total) * 0.5
+            }
         }
     }
 
     fn is_done(&self) -> bool {
-        self.phase == LoadingPhase::Building && self.current >= self.chunk_indices.len()
+        self.phase == LoadingPhase::Colliders
+            && self.collider_total > 0
+            && self.current >= self.collider_total
     }
 }
 
@@ -117,6 +128,41 @@ impl App {
                 }
 
                 loading.current += 1;
+                if loading.current >= total {
+                    match self
+                        .terrain_physics
+                        .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
+                    {
+                        Ok(collider_total) => {
+                            loading.current = 0;
+                            loading.collider_total = collider_total;
+                            loading.phase = LoadingPhase::Colliders;
+                            loading.step_label = format!("Colliders 0/{collider_total}");
+                        }
+                        Err(err) => {
+                            log::error!("Failed to start global terrain collider import: {err:#}");
+                            loading.current = 1;
+                            loading.collider_total = 1;
+                            loading.phase = LoadingPhase::Colliders;
+                        }
+                    }
+                }
+            }
+            LoadingPhase::Colliders => {
+                match self
+                    .terrain_physics
+                    .process_world_terrain_collider_import(&self.contree_builder)
+                {
+                    Ok((completed, total)) => {
+                        loading.current = completed;
+                        loading.collider_total = total;
+                        loading.step_label = format!("Colliders {completed}/{total}");
+                    }
+                    Err(err) => {
+                        log::error!("Failed to import global terrain colliders: {err:#}");
+                        loading.current = loading.collider_total;
+                    }
+                }
             }
         }
 
@@ -136,8 +182,6 @@ impl App {
         let progress = loading.progress_fraction();
         let step_label = loading.step_label.clone();
         let is_done = loading.is_done();
-        let total = loading.total();
-        let current = loading.current;
 
         self.egui_renderer
             .update(&self.window_state.window(), |ctx| {
@@ -206,7 +250,7 @@ impl App {
                             let status = if is_done {
                                 "Finalizing...".to_owned()
                             } else {
-                                format!("{} - chunk {}/{}", step_label, current + 1, total)
+                                step_label.clone()
                             };
                             ui.label(
                                 RichText::new(status)
@@ -302,13 +346,6 @@ impl App {
         self.vulkan_ctx.device().wait_idle();
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         BENCH.lock().unwrap().summary();
-
-        if let Err(err) = self
-            .terrain_physics
-            .import_world_terrain_colliders(&self.contree_builder, CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
-        {
-            log::error!("Failed to import global terrain colliders: {err:#}");
-        }
 
         self.ensure_map_butterfly_emitter();
 

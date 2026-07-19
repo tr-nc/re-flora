@@ -1165,6 +1165,7 @@ impl App {
                 current: 0,
                 step_label: "Initializing...".to_owned(),
                 phase: LoadingPhase::Terrain,
+                collider_total: 0,
             }),
 
             accumulated_mouse_delta: Vec2::ZERO,
