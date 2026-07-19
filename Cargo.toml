@@ -77,5 +77,38 @@ opt-level = 3
 debug-assertions = false
 overflow-checks = false
 
+# Rapier owns the public physics API, but its voxel shapes and BVHs execute in Parry and the
+# nalgebra/simba math stack. Package overrides do not propagate to dependencies, so keep this
+# collision-only chain release-optimized even when the application itself uses the dev profile.
+[profile.dev.package.rapier3d]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.parry3d]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.nalgebra]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.simba]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.glamx]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.wide]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
 [profile.dev.package.petalsonic]
 opt-level = 3

@@ -15,6 +15,10 @@ use petalsonic::{
     math::Vec3 as PetalVec3, AcousticHit, AcousticMaterial, AcousticRay, BatchedAnyHitRayTracer,
     BatchedClosestHitRayTracer,
 };
+use re_flora_terrain_collider::{
+    export_contree_voxel_types, ContreeCpuChunkCache as CpuChunkCache,
+    ContreeCpuNode as CpuContreeNode,
+};
 use re_flora_vkn::vk;
 use re_flora_vkn::Allocator;
 use re_flora_vkn::Buffer;
@@ -307,34 +311,15 @@ impl ContreeCpuRayQuerySnapshot {
             }));
         }
 
-        let mut voxel_types = Vec::with_capacity(element_count);
-        for z in voxel_min.z..voxel_max.z {
-            for y in voxel_min.y..voxel_max.y {
-                for x in voxel_min.x..voxel_max.x {
-                    let voxel = UVec3::new(x, y, z);
-                    let chunk_idx = voxel / self.voxel_dim_per_chunk;
-                    let voxel_type = if !scene_chunk_present_in_grid(
-                        self.chunk_dim,
-                        &self.cpu_scene_chunks,
-                        chunk_idx,
-                    ) {
-                        0
-                    } else {
-                        let local_voxel = voxel % self.voxel_dim_per_chunk;
-                        let point = chunk_idx.as_vec3()
-                            + (local_voxel.as_vec3() + Vec3::splat(0.5))
-                                / self.voxel_dim_per_chunk.as_vec3();
-                        query_cached_chunk_cpu_voxel_type(
-                            self.cpu_chunk_caches
-                                .get(&chunk_idx)
-                                .expect("ready scene chunks must have a CPU cache"),
-                            point,
-                        )
-                    };
-                    voxel_types.push(voxel_type);
-                }
-            }
-        }
+        let voxel_types = export_contree_voxel_types(
+            self.chunk_dim,
+            self.voxel_dim_per_chunk,
+            &self.cpu_scene_chunks,
+            &self.cpu_chunk_caches,
+            voxel_min,
+            dim,
+            crate::builder::VOXEL_TYPE_MASK as u32,
+        );
 
         Ok(ContreeCpuVoxelBlockExport::Ready(ContreeCpuVoxelBlock {
             voxel_min,
@@ -367,20 +352,6 @@ fn checked_voxel_count(dim: UVec3) -> Option<usize> {
         .checked_mul(u64::from(dim.y))?
         .checked_mul(u64::from(dim.z))?;
     usize::try_from(count).ok()
-}
-
-#[derive(Clone, Copy, Debug)]
-struct CpuContreeNode {
-    packed_0: u32,
-    child_mask_lo: u32,
-    child_mask_hi: u32,
-}
-
-#[derive(Clone, Debug)]
-struct CpuChunkCache {
-    chunk_idx: UVec3,
-    nodes: Vec<CpuContreeNode>,
-    leaves: Vec<u32>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2628,42 +2599,7 @@ fn query_cached_chunk_cpu_occupancy(cache: &CpuChunkCache, point: Vec3) -> bool 
 }
 
 fn query_cached_chunk_cpu_voxel_type(cache: &CpuChunkCache, point: Vec3) -> u8 {
-    if cache.nodes.is_empty() {
-        return 0;
-    }
-
-    let local_pos = point - cache.chunk_idx.as_vec3() + Vec3::ONE;
-    if local_pos.cmplt(Vec3::ONE).any() || local_pos.cmpge(Vec3::splat(2.0)).any() {
-        return 0;
-    }
-
-    let mut scale_exp = 21i32;
-    let mut node = cache.nodes[0];
-    for _ in 0..16 {
-        let Some(child_idx) = get_node_cell_index(local_pos, scale_exp).map(|idx| idx as u32)
-        else {
-            return 0;
-        };
-        if !child_mask_test(node, child_idx) {
-            return 0;
-        }
-
-        let bits = child_mask_bitcount_below(node, child_idx);
-        let child_addr = ((node.packed_0 >> 1) + bits) as usize;
-        if is_leaf(node) {
-            return cache.leaves.get(child_addr).map_or(0, |voxel| {
-                (*voxel & crate::builder::VOXEL_TYPE_MASK as u32) as u8
-            });
-        }
-
-        let Some(next_node) = cache.nodes.get(child_addr).copied() else {
-            return 0;
-        };
-        node = next_node;
-        scale_exp -= 2;
-    }
-
-    0
+    cache.voxel_type_at(point, crate::builder::VOXEL_TYPE_MASK as u32)
 }
 
 fn query_cached_chunk_cpu_ray(
