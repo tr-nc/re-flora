@@ -4,6 +4,10 @@ pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
     "Run `re-flora --list-camera-snapshots` to list available camera snapshots.";
 
 const SCREENSHOT_USAGE: &str = "Expected `--screenshot <preset> <path> --screenshot-delay <sec>`.";
+const DENOISER_BENCH_USAGE: &str = "Expected `--denoiser-bench <preset> <report.toml>`.";
+
+pub const DEFAULT_DENOISER_BENCH_WARMUP_FRAMES: u32 = 90;
+pub const DEFAULT_DENOISER_BENCH_CAPTURE_FRAMES: u32 = 64;
 
 #[derive(Clone, Copy, Debug)]
 pub enum PresentModePreference {
@@ -108,6 +112,8 @@ pub struct AppOptions {
     pub screenshot_delay: Option<f32>,
     /// Apply a named camera snapshot at startup. Screenshot runs set this from the requested preset.
     pub camera_snapshot: Option<String>,
+    /// Run a fixed-camera temporal stability benchmark and write a TOML report.
+    pub denoiser_bench: Option<DenoiserBenchOptions>,
     /// Print available camera snapshot names and exit successfully.
     pub list_camera_snapshots: bool,
     /// Auto-exit N seconds after rendering starts. None = don't auto-exit.
@@ -156,6 +162,13 @@ pub struct AppOptions {
     pub tail_latest_log: Option<usize>,
     /// Print CLI help and exit successfully.
     pub help: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DenoiserBenchOptions {
+    pub report_path: String,
+    pub warmup_frames: u32,
+    pub capture_frames: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -228,6 +241,12 @@ impl AppOptions {
             };
 
         let screenshot = parse_screenshot_request(&args)?;
+        let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
+        if screenshot.is_some() && denoiser_bench.is_some() {
+            return Err(format!(
+                "Do not combine --screenshot with --denoiser-bench. {DENOISER_BENCH_USAGE}"
+            ));
+        }
         let camera_snapshot = if let Some(screenshot) = &screenshot {
             if args.iter().any(|a| a == "--camera-snapshot") {
                 return Err(format!(
@@ -235,6 +254,13 @@ impl AppOptions {
                 ));
             }
             Some(screenshot.preset_name.clone())
+        } else if let Some((preset_name, _)) = &denoiser_bench {
+            if args.iter().any(|a| a == "--camera-snapshot") {
+                return Err(format!(
+                    "Do not combine --camera-snapshot with --denoiser-bench. {DENOISER_BENCH_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+                ));
+            }
+            Some(preset_name.clone())
         } else {
             parse_required_string_after("--camera-snapshot", "a camera snapshot name")?
         };
@@ -271,6 +297,7 @@ impl AppOptions {
             screenshot_path,
             screenshot_delay,
             camera_snapshot,
+            denoiser_bench: denoiser_bench.map(|(_, options)| options),
             list_camera_snapshots: args.iter().any(|a| a == "--list-camera-snapshots"),
             auto_exit_delay: parse_f32_after("--auto-exit"),
             perf: args.iter().any(|a| a == "--perf"),
@@ -301,6 +328,60 @@ impl AppOptions {
             help: args.iter().any(|a| a == "--help" || a == "-h"),
         })
     }
+}
+
+fn parse_denoiser_bench_request(
+    args: &[String],
+    parse_u32_after: &impl Fn(&str) -> Option<u32>,
+) -> Result<Option<(String, DenoiserBenchOptions)>, String> {
+    let Some(index) = args.iter().position(|arg| arg == "--denoiser-bench") else {
+        if args
+            .iter()
+            .any(|arg| arg == "--denoiser-bench-warmup-frames" || arg == "--denoiser-bench-frames")
+        {
+            return Err(format!(
+                "Denoiser benchmark frame options require --denoiser-bench. {DENOISER_BENCH_USAGE}"
+            ));
+        }
+        return Ok(None);
+    };
+
+    let preset_name = required_denoiser_bench_arg(args, index + 1, "preset name")?;
+    let report_path = required_denoiser_bench_arg(args, index + 2, "report path")?;
+    let warmup_frames = parse_u32_after("--denoiser-bench-warmup-frames")
+        .unwrap_or(DEFAULT_DENOISER_BENCH_WARMUP_FRAMES);
+    let capture_frames =
+        parse_u32_after("--denoiser-bench-frames").unwrap_or(DEFAULT_DENOISER_BENCH_CAPTURE_FRAMES);
+    if capture_frames < 2 {
+        return Err("--denoiser-bench-frames must be at least 2".to_owned());
+    }
+
+    Ok(Some((
+        preset_name,
+        DenoiserBenchOptions {
+            report_path,
+            warmup_frames,
+            capture_frames,
+        },
+    )))
+}
+
+fn required_denoiser_bench_arg(
+    args: &[String],
+    index: usize,
+    label: &str,
+) -> Result<String, String> {
+    let Some(value) = args.get(index) else {
+        return Err(format!(
+            "Missing denoiser benchmark {label}. {DENOISER_BENCH_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+        ));
+    };
+    if value.starts_with("--") {
+        return Err(format!(
+            "Missing denoiser benchmark {label}. {DENOISER_BENCH_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
+        ));
+    }
+    Ok(value.clone())
 }
 
 fn parse_present_mode_preference(value: &str) -> Result<PresentModePreference, String> {
@@ -441,6 +522,11 @@ Options:
   --screenshot <preset> <path>
                               Save one screenshot from exactly one camera snapshot preset
   --screenshot-delay <sec>    Required delay before screenshot capture when --screenshot is used
+  --denoiser-bench <preset> <report.toml>
+                              Capture a fixed-camera frame sequence and write temporal metrics
+  --denoiser-bench-warmup-frames <N>
+                              Frames discarded before capture (default: 90)
+  --denoiser-bench-frames <N> Captured frames, at least 2 (default: 64)
   --camera-snapshot <name>    Apply a saved camera snapshot at startup (do not combine with --screenshot)
   --list-camera-snapshots     Print available camera snapshot names and exit
   --auto-exit <sec>           Exit automatically after rendering starts
@@ -482,6 +568,7 @@ Examples:
   re-flora --swapchain-images 2
   re-flora --no-shadows --no-denoise
   re-flora --hidden --mute --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
+  re-flora --hidden --mute --windowed --denoiser-bench player-default target/denoiser.toml
   re-flora --list-camera-snapshots
   re-flora --auto-exit 10 --perf
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance
@@ -712,6 +799,43 @@ mod tests {
         assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
         assert_eq!(options.screenshot_path.as_deref(), Some("out.png"));
         assert_eq!(options.screenshot_delay, Some(2.5));
+    }
+
+    #[test]
+    fn parses_denoiser_benchmark_with_frame_overrides() {
+        let options = parse(&[
+            "re-flora",
+            "--hidden",
+            "--denoiser-bench",
+            "player-default",
+            "target/report.toml",
+            "--denoiser-bench-warmup-frames",
+            "12",
+            "--denoiser-bench-frames",
+            "8",
+        ]);
+
+        assert_eq!(options.camera_snapshot.as_deref(), Some("player-default"));
+        let benchmark = options.denoiser_bench.unwrap();
+        assert_eq!(benchmark.report_path, "target/report.toml");
+        assert_eq!(benchmark.warmup_frames, 12);
+        assert_eq!(benchmark.capture_frames, 8);
+    }
+
+    #[test]
+    fn denoiser_benchmark_requires_multiple_capture_frames() {
+        let panic = std::panic::catch_unwind(|| {
+            parse(&[
+                "re-flora",
+                "--denoiser-bench",
+                "player-default",
+                "target/report.toml",
+                "--denoiser-bench-frames",
+                "1",
+            ])
+        })
+        .expect_err("single-frame temporal benchmark should panic");
+        assert!(panic_message(panic).contains("must be at least 2"));
     }
 
     #[test]

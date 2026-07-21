@@ -16,6 +16,7 @@ struct ClipboardCopyOutcome {
 pub(super) enum ScreenshotDestination {
     File(String),
     Clipboard,
+    DenoiserBenchmark,
 }
 
 pub(super) struct ScreenshotReadback {
@@ -177,6 +178,20 @@ impl App {
         Ok(readback)
     }
 
+    pub(super) fn prepare_denoiser_benchmark_readback(
+        &self,
+        render_area: Extent2D,
+    ) -> Result<ScreenshotReadback> {
+        let mut readback = self.prepare_screenshot_readback(String::new(), render_area)?;
+        readback.destination = ScreenshotDestination::DenoiserBenchmark;
+        Ok(readback)
+    }
+
+    pub(super) fn read_screenshot_rgba(readback: &ScreenshotReadback) -> Result<Vec<u8>> {
+        let raw_data = readback.buffer.read_back()?;
+        Ok(readback.format.convert_to_rgba(raw_data))
+    }
+
     pub(super) fn record_screenshot_readback(
         &self,
         cmdbuf: &CommandBuffer,
@@ -239,6 +254,11 @@ impl App {
                                 err
                             ),
                         }
+                    }
+                    ScreenshotDestination::DenoiserBenchmark => {
+                        log::error!(
+                            "[DENOISER_BENCH] benchmark readback reached asynchronous screenshot writer"
+                        );
                     }
                 }
             }
