@@ -77,3 +77,12 @@ report both normal-history and fresh-sample results here.
 The history control remains within the measured run-to-run spread of `7677e9d1`, so the reset push
 constant and report-mode plumbing do not alter normal denoising. The fresh row becomes the
 spatial-only regression baseline for the next optimization.
+
+## Spatial-detail guard
+
+Starting with `detail-guard-history.toml` and `detail-guard-fresh.toml`, reports also measure the
+mean horizontal/vertical luma gradient of the frame averaged across all 64 samples. This largely
+averages away sample noise before measuring stable structure. Higher is sharper: the packed-hit
+baseline is 1.928250 in history mode and 1.882909 in fresh mode. Spatial-filter changes must report
+this metric alongside flicker; a lower temporal delta alone is not sufficient if it erases stable
+detail.

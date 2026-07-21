@@ -19,10 +19,14 @@ python3 scripts/denoiser_bench.py compare \
   target/denoiser-bench/candidate.toml
 ```
 
-Lower values are better for every aggregate metric. `mean_abs_luma_delta_8bit` describes overall
-flicker, while the p95/p99 and noticeable-pixel ratio expose sparse bright flashes that the mean can
-hide. The noticeable threshold is an 8/255 luma change. Reports include every per-transition metric
-so an isolated startup or scheduling spike remains visible.
+Lower values are better for the temporal-delta metrics. `mean_abs_luma_delta_8bit` describes
+overall flicker, while the p95/p99 and noticeable-pixel ratio expose sparse bright flashes that the
+mean can hide. The noticeable threshold is an 8/255 luma change. Reports include every
+per-transition metric so an isolated startup or scheduling spike remains visible.
+
+`mean_frame_spatial_gradient_8bit` is the mean horizontal/vertical luma gradient after averaging all
+captured frames. Higher values preserve more stable spatial detail. Check it together with the
+fresh-sample deltas so a candidate cannot appear better merely by blurring the output.
 
 The `--fresh-samples` run resets temporal history on every frame. It measures the raw sample plus
 spatial A-Trous path and acts as a regression guard: a temporal optimization is not accepted when it

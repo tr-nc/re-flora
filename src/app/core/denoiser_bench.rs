@@ -25,6 +25,7 @@ struct AggregateMetrics {
     max_abs_luma_delta_8bit: u8,
     mean_noticeable_pixel_ratio: f64,
     max_transition_mean_abs_luma_delta_8bit: f64,
+    mean_frame_spatial_gradient_8bit: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +50,7 @@ pub(super) struct DenoiserBench {
     width: u32,
     height: u32,
     previous_luma: Option<Vec<u8>>,
+    luma_sum: Vec<u32>,
     transitions: Vec<TransitionMetrics>,
     capture_started: Option<Instant>,
 }
@@ -62,6 +64,7 @@ impl DenoiserBench {
             width: 0,
             height: 0,
             previous_luma: None,
+            luma_sum: Vec::new(),
             transitions: Vec::new(),
             capture_started: None,
         }
@@ -113,6 +116,12 @@ impl DenoiserBench {
         }
 
         let current_luma = rgba_to_luma(rgba);
+        if self.luma_sum.is_empty() {
+            self.luma_sum.resize(current_luma.len(), 0);
+        }
+        for (sum, &luma) in self.luma_sum.iter_mut().zip(&current_luma) {
+            *sum += u32::from(luma);
+        }
         if let Some(previous_luma) = &self.previous_luma {
             self.transitions.push(analyze_transition(
                 previous_luma,
@@ -132,7 +141,15 @@ impl DenoiserBench {
     }
 
     fn write_report(&self) -> Result<()> {
-        let aggregate = aggregate_metrics(&self.transitions);
+        let aggregate = aggregate_metrics(
+            &self.transitions,
+            mean_frame_spatial_gradient(
+                &self.luma_sum,
+                self.width,
+                self.height,
+                self.captured_frames,
+            ),
+        );
         let report = DenoiserBenchReport {
             version: REPORT_VERSION,
             width: self.width,
@@ -229,7 +246,36 @@ fn percentile(sorted: &[u8], percentile: f64) -> u8 {
     sorted[index]
 }
 
-fn aggregate_metrics(transitions: &[TransitionMetrics]) -> AggregateMetrics {
+fn mean_frame_spatial_gradient(luma_sum: &[u32], width: u32, height: u32, frame_count: u32) -> f64 {
+    if width == 0 || height == 0 || frame_count == 0 {
+        return 0.0;
+    }
+    let width = width as usize;
+    let height = height as usize;
+    assert_eq!(luma_sum.len(), width * height);
+
+    let mut gradient_sum = 0u64;
+    let mut edge_count = 0u64;
+    for y in 0..height {
+        for x in 0..width {
+            let index = y * width + x;
+            if x + 1 < width {
+                gradient_sum += u64::from(luma_sum[index].abs_diff(luma_sum[index + 1]));
+                edge_count += 1;
+            }
+            if y + 1 < height {
+                gradient_sum += u64::from(luma_sum[index].abs_diff(luma_sum[index + width]));
+                edge_count += 1;
+            }
+        }
+    }
+    gradient_sum as f64 / edge_count.max(1) as f64 / f64::from(frame_count)
+}
+
+fn aggregate_metrics(
+    transitions: &[TransitionMetrics],
+    mean_frame_spatial_gradient_8bit: f64,
+) -> AggregateMetrics {
     let count = transitions.len().max(1) as f64;
     AggregateMetrics {
         mean_abs_luma_delta_8bit: transitions
@@ -261,12 +307,13 @@ fn aggregate_metrics(transitions: &[TransitionMetrics]) -> AggregateMetrics {
             .iter()
             .map(|metric| metric.mean_abs_luma_delta_8bit)
             .fold(0.0, f64::max),
+        mean_frame_spatial_gradient_8bit,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{analyze_transition, rgba_to_luma};
+    use super::{analyze_transition, mean_frame_spatial_gradient, rgba_to_luma};
 
     #[test]
     fn identical_frames_have_zero_temporal_delta() {
@@ -288,5 +335,12 @@ mod tests {
         assert_eq!(metrics.p99_abs_luma_delta_8bit, 8);
         assert_eq!(metrics.max_abs_luma_delta_8bit, 100);
         assert_eq!(metrics.noticeable_pixel_ratio, 0.02);
+    }
+
+    #[test]
+    fn spatial_gradient_uses_the_mean_frame() {
+        let two_frame_luma_sum = vec![0, 20, 40, 60];
+        let gradient = mean_frame_spatial_gradient(&two_frame_luma_sum, 2, 2, 2);
+        assert_eq!(gradient, 15.0);
     }
 }

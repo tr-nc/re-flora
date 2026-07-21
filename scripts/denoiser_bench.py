@@ -24,6 +24,7 @@ METRICS = (
     "mean_noticeable_pixel_ratio",
     "max_transition_mean_abs_luma_delta_8bit",
 )
+DETAIL_METRIC = "mean_frame_spatial_gradient_8bit"
 
 
 def load_report(path: Path) -> dict:
@@ -67,6 +68,8 @@ def print_report(path: Path) -> None:
     )
     for metric in METRICS:
         print(f"  {metric}: {aggregate[metric]:.6f}")
+    if DETAIL_METRIC in aggregate:
+        print(f"  {DETAIL_METRIC}: {aggregate[DETAIL_METRIC]:.6f} (higher preserves detail)")
 
 
 def run_benchmark(args: argparse.Namespace) -> int:
@@ -117,6 +120,11 @@ def compare_reports(args: argparse.Namespace) -> int:
         after = float(candidate_metrics[metric])
         change = ((after / before) - 1.0) * 100.0 if before else 0.0
         print(f"{metric:48} {before:12.6f} {after:12.6f} {change:+9.2f}%")
+    if DETAIL_METRIC in baseline_metrics and DETAIL_METRIC in candidate_metrics:
+        before = float(baseline_metrics[DETAIL_METRIC])
+        after = float(candidate_metrics[DETAIL_METRIC])
+        change = ((after / before) - 1.0) * 100.0 if before else 0.0
+        print(f"{DETAIL_METRIC:48} {before:12.6f} {after:12.6f} {change:+9.2f}% (higher is sharper)")
     return 0
 
 
