@@ -1230,7 +1230,7 @@ label = "Temporal Responsiveness"
 type = "Float"
 
 [section.param.data]
-value = 0.06
+value = 0.1
 min = 0.02
 max = 0.3
 
@@ -1252,7 +1252,7 @@ label = "Cross-Voxel Blur Start (px/voxel)"
 type = "Float"
 
 [section.param.data]
-value = 4
+value = 1
 min = 1
 max = 16
 
