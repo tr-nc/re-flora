@@ -107,7 +107,8 @@ float3 shadowRayColor(Ray ray, float3 receiverNormal, int3 seed)
     float sunAboveHorizon = step(0.0, sun_info.sun_dir.y);
     DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
         float4(ray.origin, 1.0), seed, DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_TERRAIN_SHADOW_GUI, DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_TERRAIN_SHADOW_PCSS,
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
         DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
     receiver = withReceiverPlane(receiver, receiverNormal);
     float shadow = directSunShadowTransmittance(

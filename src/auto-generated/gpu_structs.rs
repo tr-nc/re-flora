@@ -446,21 +446,19 @@ pub struct GuiInput {
     pub debug_bool: u32,
     pub flora_growth_override_enabled: u32,
     pub flora_growth_override: f32,
-    pub terrain_shadow_use_vsm: u32,
     pub terrain_self_shadow_tolerance_voxels: f32,
-    pub _pad0: [u8; 12],
     pub flora_instance_hsv_offset_max: [f32; 3],
-    pub _pad1: [u8; 4],
+    pub _pad0: [u8; 4],
     pub flora_voxel_hsv_offset_max: [f32; 3],
-    pub _pad2: [u8; 4],
+    pub _pad1: [u8; 4],
     pub grass_bottom_dark: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _pad2: [u8; 4],
     pub grass_bottom_light: [f32; 3],
-    pub _pad4: [u8; 4],
+    pub _pad3: [u8; 4],
     pub grass_tip_dark: [f32; 3],
-    pub _pad5: [u8; 4],
+    pub _pad4: [u8; 4],
     pub grass_tip_light: [f32; 3],
-    pub _pad6: [u8; 4],
+    pub _pad5: [u8; 4],
     pub glass_tint: [f32; 3],
     pub glass_reflection_strength: f32,
     pub glass_ssr_strength: f32,
@@ -537,7 +535,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad7: [u8; 8],
+    pub _pad6: [u8; 8],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).
@@ -656,10 +654,9 @@ pub struct SpatialInfo {
     pub phi_n: f32,
     pub phi_p: f32,
     pub spatial_extent: f32,
-    pub cross_voxel_blur_start_pixels: f32,
-    pub cross_voxel_blur_full_pixels: f32,
     pub is_changing_lum_phi: u32,
     pub is_spatial_denoising_enabled: u32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_StarlightInfo` (native Slang source of truth).

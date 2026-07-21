@@ -1000,15 +1000,6 @@ max = 3
 name = "Shadow"
 
 [[section.param]]
-id = "terrain_shadow_use_vsm"
-kind = "bool"
-label = "Terrain Shadow Use VSM"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
 id = "terrain_self_shadow_tolerance_voxels"
 kind = "float"
 label = "Terrain Self-Shadow Tolerance (voxels)"
@@ -1244,28 +1235,6 @@ type = "Float"
 value = 1
 min = 0.5
 max = 2
-
-[[section.param]]
-id = "cross_voxel_blur_start_pixels"
-kind = "float"
-label = "Cross-Voxel Blur Start (px/voxel)"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 1
-max = 16
-
-[[section.param]]
-id = "cross_voxel_blur_full_pixels"
-kind = "float"
-label = "Cross-Voxel Blur Full (px/voxel)"
-type = "Float"
-
-[section.param.data]
-value = 1.5
-min = 0.25
-max = 8
 
 [[section]]
 name = "GodRay"

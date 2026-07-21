@@ -5,7 +5,6 @@ public struct U_GuiInput
     public uint debug_bool;
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
-    public uint terrain_shadow_use_vsm;
     public float terrain_self_shadow_tolerance_voxels;
     public float3 flora_instance_hsv_offset_max;
     public float3 flora_voxel_hsv_offset_max;

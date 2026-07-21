@@ -554,12 +554,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Shadow",
-        id: "terrain_shadow_use_vsm",
-        kind: "bool",
-        label: "Terrain Shadow Use VSM",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Shadow",
         id: "terrain_self_shadow_tolerance_voxels",
         kind: "float",
         label: "Terrain Self-Shadow Tolerance (voxels)",
@@ -683,18 +677,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "spatial_extent",
         kind: "float",
         label: "Spatial Extent",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Denoiser",
-        id: "cross_voxel_blur_start_pixels",
-        kind: "float",
-        label: "Cross-Voxel Blur Start (px/voxel)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Denoiser",
-        id: "cross_voxel_blur_full_pixels",
-        kind: "float",
-        label: "Cross-Voxel Blur Full (px/voxel)",
     },
     GeneratedGuiParamDescriptor {
         section: "GodRay",
@@ -1532,7 +1514,6 @@ pub struct GuiAdjustables {
     pub glass_refraction_strength: crate::gui_adjustables::FloatParam,
     pub glass_alpha: crate::gui_adjustables::FloatParam,
     pub glass_glint_strength: crate::gui_adjustables::FloatParam,
-    pub terrain_shadow_use_vsm: crate::gui_adjustables::BoolParam,
     pub terrain_self_shadow_tolerance_voxels: crate::gui_adjustables::FloatParam,
     pub vsm_blur_radius: crate::gui_adjustables::UintParam,
     pub vsm_temporal_alpha: crate::gui_adjustables::FloatParam,
@@ -1554,8 +1535,6 @@ pub struct GuiAdjustables {
     pub starlight_saturation: crate::gui_adjustables::FloatParam,
     pub temporal_alpha: crate::gui_adjustables::FloatParam,
     pub spatial_extent: crate::gui_adjustables::FloatParam,
-    pub cross_voxel_blur_start_pixels: crate::gui_adjustables::FloatParam,
-    pub cross_voxel_blur_full_pixels: crate::gui_adjustables::FloatParam,
     pub god_ray_max_depth: crate::gui_adjustables::FloatParam,
     pub god_ray_max_checks: crate::gui_adjustables::UintParam,
     pub god_ray_weight: crate::gui_adjustables::FloatParam,
@@ -1781,7 +1760,6 @@ impl GuiAdjustables {
         let mut glass_refraction_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_glint_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut terrain_shadow_use_vsm_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_self_shadow_tolerance_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut vsm_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1803,8 +1781,6 @@ impl GuiAdjustables {
         let mut starlight_saturation_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut spatial_extent_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut cross_voxel_blur_start_pixels_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut cross_voxel_blur_full_pixels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut god_ray_max_depth_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut god_ray_max_checks_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut god_ray_weight_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2515,11 +2491,6 @@ impl GuiAdjustables {
                             glass_glint_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "terrain_shadow_use_vsm" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            terrain_shadow_use_vsm_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "terrain_self_shadow_tolerance_voxels" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -2665,20 +2636,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             spatial_extent_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "cross_voxel_blur_start_pixels" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            cross_voxel_blur_start_pixels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "cross_voxel_blur_full_pixels" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            cross_voxel_blur_full_pixels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "god_ray_max_depth" => {
@@ -3601,7 +3558,6 @@ impl GuiAdjustables {
             glass_refraction_strength: glass_refraction_strength_field.expect("Missing parameter: glass_refraction_strength"),
             glass_alpha: glass_alpha_field.expect("Missing parameter: glass_alpha"),
             glass_glint_strength: glass_glint_strength_field.expect("Missing parameter: glass_glint_strength"),
-            terrain_shadow_use_vsm: terrain_shadow_use_vsm_field.expect("Missing parameter: terrain_shadow_use_vsm"),
             terrain_self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels_field.expect("Missing parameter: terrain_self_shadow_tolerance_voxels"),
             vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
             vsm_temporal_alpha: vsm_temporal_alpha_field.expect("Missing parameter: vsm_temporal_alpha"),
@@ -3623,8 +3579,6 @@ impl GuiAdjustables {
             starlight_saturation: starlight_saturation_field.expect("Missing parameter: starlight_saturation"),
             temporal_alpha: temporal_alpha_field.expect("Missing parameter: temporal_alpha"),
             spatial_extent: spatial_extent_field.expect("Missing parameter: spatial_extent"),
-            cross_voxel_blur_start_pixels: cross_voxel_blur_start_pixels_field.expect("Missing parameter: cross_voxel_blur_start_pixels"),
-            cross_voxel_blur_full_pixels: cross_voxel_blur_full_pixels_field.expect("Missing parameter: cross_voxel_blur_full_pixels"),
             god_ray_max_depth: god_ray_max_depth_field.expect("Missing parameter: god_ray_max_depth"),
             god_ray_max_checks: god_ray_max_checks_field.expect("Missing parameter: god_ray_max_checks"),
             god_ray_weight: god_ray_weight_field.expect("Missing parameter: god_ray_weight"),
@@ -3836,8 +3790,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "starlight_saturation" => Some(&adjustables.starlight_saturation),
         "temporal_alpha" => Some(&adjustables.temporal_alpha),
         "spatial_extent" => Some(&adjustables.spatial_extent),
-        "cross_voxel_blur_start_pixels" => Some(&adjustables.cross_voxel_blur_start_pixels),
-        "cross_voxel_blur_full_pixels" => Some(&adjustables.cross_voxel_blur_full_pixels),
         "god_ray_max_depth" => Some(&adjustables.god_ray_max_depth),
         "god_ray_weight" => Some(&adjustables.god_ray_weight),
         "lens_flare_intensity" => Some(&adjustables.lens_flare_intensity),
@@ -4000,7 +3952,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "audio_ray_tracing_enabled" => Some(&adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&adjustables.glass_per_voxel_reflection),
-        "terrain_shadow_use_vsm" => Some(&adjustables.terrain_shadow_use_vsm),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
@@ -4119,8 +4070,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "starlight_saturation" => Some(&mut adjustables.starlight_saturation),
         "temporal_alpha" => Some(&mut adjustables.temporal_alpha),
         "spatial_extent" => Some(&mut adjustables.spatial_extent),
-        "cross_voxel_blur_start_pixels" => Some(&mut adjustables.cross_voxel_blur_start_pixels),
-        "cross_voxel_blur_full_pixels" => Some(&mut adjustables.cross_voxel_blur_full_pixels),
         "god_ray_max_depth" => Some(&mut adjustables.god_ray_max_depth),
         "god_ray_weight" => Some(&mut adjustables.god_ray_weight),
         "lens_flare_intensity" => Some(&mut adjustables.lens_flare_intensity),
@@ -4283,7 +4232,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "audio_ray_tracing_enabled" => Some(&mut adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&mut adjustables.glass_per_voxel_reflection),
-        "terrain_shadow_use_vsm" => Some(&mut adjustables.terrain_shadow_use_vsm),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),

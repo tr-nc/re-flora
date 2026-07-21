@@ -147,18 +147,15 @@ impl BufferUpdater {
     pub fn update_spatial_denoiser_info(
         spatial_info: &mut re_flora_vkn::Buffer,
         spatial_extent: f32,
-        cross_voxel_blur_start_pixels: f32,
-        cross_voxel_blur_full_pixels: f32,
     ) -> Result<()> {
         spatial_info.fill_uniform(&SpatialInfo {
             phi_c: SPATIAL_COLOR_PHI,
             phi_n: SPATIAL_NORMAL_POWER,
             phi_p: SPATIAL_POSITION_PHI,
             spatial_extent,
-            cross_voxel_blur_start_pixels,
-            cross_voxel_blur_full_pixels,
             is_changing_lum_phi: 1,
             is_spatial_denoising_enabled: 1,
+            ..SpatialInfo::zeroed()
         })
     }
 
@@ -167,16 +164,9 @@ impl BufferUpdater {
         spatial_info: &mut re_flora_vkn::Buffer,
         temporal_alpha: f32,
         spatial_extent: f32,
-        cross_voxel_blur_start_pixels: f32,
-        cross_voxel_blur_full_pixels: f32,
     ) -> Result<()> {
         Self::update_temporal_denoiser_info(temporal_info, temporal_alpha)?;
-        Self::update_spatial_denoiser_info(
-            spatial_info,
-            spatial_extent,
-            cross_voxel_blur_start_pixels,
-            cross_voxel_blur_full_pixels,
-        )
+        Self::update_spatial_denoiser_info(spatial_info, spatial_extent)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -251,7 +241,6 @@ impl BufferUpdater {
         debug_bool: bool,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
-        terrain_shadow_use_vsm: bool,
         terrain_self_shadow_tolerance_voxels: f32,
         flora_instance_hsv_offset_max: Vec3,
         flora_voxel_hsv_offset_max: Vec3,
@@ -308,7 +297,6 @@ impl BufferUpdater {
             debug_bool: debug_bool as u32,
             flora_growth_override_enabled: flora_growth_override_enabled as u32,
             flora_growth_override: flora_growth_override.clamp(0.0, 1.0),
-            terrain_shadow_use_vsm: terrain_shadow_use_vsm as u32,
             terrain_self_shadow_tolerance_voxels,
             flora_instance_hsv_offset_max: flora_instance_hsv_offset_max.to_array(),
             flora_voxel_hsv_offset_max: flora_voxel_hsv_offset_max.to_array(),

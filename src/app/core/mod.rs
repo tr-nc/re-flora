@@ -2956,7 +2956,6 @@ impl App {
                             .flora_growth_override_enabled
                             .value,
                         self.debug_settings.adjustables.flora_growth_override.value,
-                        self.debug_settings.adjustables.terrain_shadow_use_vsm.value,
                         self.debug_settings
                             .adjustables
                             .terrain_self_shadow_tolerance_voxels
@@ -3332,14 +3331,6 @@ impl App {
                         ),
                         self.debug_settings.adjustables.temporal_alpha.value,
                         self.debug_settings.adjustables.spatial_extent.value,
-                        self.debug_settings
-                            .adjustables
-                            .cross_voxel_blur_start_pixels
-                            .value,
-                        self.debug_settings
-                            .adjustables
-                            .cross_voxel_blur_full_pixels
-                            .value,
                         self.debug_settings.adjustables.god_ray_max_depth.value,
                         self.debug_settings.adjustables.god_ray_max_checks.value,
                         self.debug_settings.adjustables.god_ray_weight.value,

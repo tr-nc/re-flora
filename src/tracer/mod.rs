@@ -1005,7 +1005,6 @@ impl Tracer {
         debug_bool: bool,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
-        terrain_shadow_use_vsm: bool,
         terrain_self_shadow_tolerance_voxels: f32,
         flora_instance_hsv_offset_max: Vec3,
         flora_voxel_hsv_offset_max: Vec3,
@@ -1065,8 +1064,6 @@ impl Tracer {
         ambient_light: Vec3,
         temporal_alpha: f32,
         spatial_extent: f32,
-        cross_voxel_blur_start_pixels: f32,
-        cross_voxel_blur_full_pixels: f32,
         god_ray_max_depth: f32,
         god_ray_max_checks: u32,
         god_ray_weight: f32,
@@ -1168,7 +1165,6 @@ impl Tracer {
             debug_bool,
             flora_growth_override_enabled,
             flora_growth_override,
-            terrain_shadow_use_vsm,
             terrain_self_shadow_tolerance_voxels,
             flora_instance_hsv_offset_max,
             flora_voxel_hsv_offset_max,
@@ -1258,8 +1254,6 @@ impl Tracer {
             &mut self.resources.denoiser_resources.spatial_info,
             temporal_alpha,
             spatial_extent,
-            cross_voxel_blur_start_pixels,
-            cross_voxel_blur_full_pixels,
         )?;
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();

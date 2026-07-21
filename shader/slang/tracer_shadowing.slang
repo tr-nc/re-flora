@@ -25,7 +25,7 @@ public static const uint DIRECT_SUN_SHADOW_SOURCE_ALL =
     DIRECT_SUN_SHADOW_SOURCE_LEAF |
     DIRECT_SUN_SHADOW_SOURCE_CLOUD;
 public static const uint DIRECT_TERRAIN_SHADOW_VSM = 1u;
-public static const uint DIRECT_TERRAIN_SHADOW_GUI = 3u;
+public static const uint DIRECT_TERRAIN_SHADOW_PCSS = 2u;
 public static const uint DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE = 1u << 0u;
 public static const uint DIRECT_SUN_SHADOW_FLAG_RECEIVER_PLANE = 1u << 1u;
 
@@ -335,10 +335,7 @@ public float directSunShadowTransmittance(
     float terrainShadow = 1.0;
     if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_TERRAIN))
     {
-        uint terrainMode = receiver.terrain_mode;
-        if (terrainMode == DIRECT_TERRAIN_SHADOW_GUI)
-            terrainMode = gui.terrain_shadow_use_vsm != 0u ? 1u : 2u;
-        terrainShadow = terrainMode == 1u
+        terrainShadow = receiver.terrain_mode == DIRECT_TERRAIN_SHADOW_VSM
             ? vsmTransmittance(vsmMap, shadowViewProjection, receiver.world_position)
             : pcssTransmittance(shadowMap, scalarNoise, unitVectorNoise,
                                 shadowViewProjection, shadowViewProjectionInverse,
