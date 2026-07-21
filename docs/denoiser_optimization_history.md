@@ -15,6 +15,7 @@ extent on the benchmark machine is 2560x1440. Lower is better for every metric.
 | Fixed policy, one GUI control | `gui-history.toml` | 0.020351 | 0.000000 | 1.000000 | 0.000073 | 0.091413 | Kept; equivalent output |
 | Packed hit marker | `packed-hit-history.toml` | 0.020432 | 0.000000 | 1.000000 | 0.000075 | 0.091324 | Kept; removes invalid ninth storage image |
 | A-Trous wavelet 0.67 | `wavelet-067-history.toml` | 0.019984 | 0.000000 | 1.000000 | 0.000075 | 0.091784 | Kept; stronger fresh-sample filtering |
+| A-Trous wavelet 0.75 | `wavelet-075-history.toml` | 0.019742 | 0.000000 | 1.000000 | 0.000075 | 0.092396 | Kept; better fresh/detail frontier |
 
 ## Changes and conclusions
 
@@ -73,6 +74,15 @@ noticeable ratio, and 1.867058 gradient, confirming the result. History mean del
 its 1.10% gradient change is consistent with the stronger filter and remains below the accepted
 detail-loss budget.
 
+### A-Trous wavelet factor 0.75
+
+The next adjacent point improves the accepted 0.67 version rather than merely repeating the large
+gain from 0.5. Fresh mean delta falls another 5.88%, noticeable ratio falls 1.25%, and max
+transition mean falls 4.78%, for only a further 0.21% reduction in mean-frame gradient. A repeat
+measured 0.092688 mean delta and 1.864137 gradient versus 0.092268 and 1.863187 in the first run.
+History mean improves another 1.21%, while history gradient changes by 0.31%. Factor 0.75 is kept as
+the better noise/detail frontier.
+
 ## Fresh-sample guard
 
 `--fresh-samples` forces temporal reset every frame while retaining the spatial filter. Its first
@@ -90,6 +100,9 @@ report both normal-history and fresh-sample results here.
 | Wavelet 0.67 history | `wavelet-067-history.toml` | 0.019984 | 0.000000 | 1.000000 | 0.000075 | 0.091784 |
 | Wavelet 0.67 fresh | `wavelet-067-fresh.toml` | 0.098111 | 0.000000 | 2.000000 | 0.001606 | 0.170211 |
 | Wavelet 0.67 fresh repeat | `wavelet-067-fresh-repeat.toml` | 0.098032 | 0.000000 | 2.000000 | 0.001604 | 0.171143 |
+| Wavelet 0.75 history | `wavelet-075-history.toml` | 0.019742 | 0.000000 | 1.000000 | 0.000075 | 0.092396 |
+| Wavelet 0.75 fresh | `wavelet-075-fresh.toml` | 0.092268 | 0.000000 | 2.000000 | 0.001584 | 0.162968 |
+| Wavelet 0.75 fresh repeat | `wavelet-075-fresh-repeat.toml` | 0.092688 | 0.000000 | 2.000000 | 0.001593 | 0.187123 |
 
 The history control remains within the measured run-to-run spread of `7677e9d1`, so the reset push
 constant and report-mode plumbing do not alter normal denoising. The fresh row becomes the
