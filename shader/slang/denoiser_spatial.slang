@@ -1,7 +1,7 @@
 import packer;
 
 static const uint DENOISER_GROUP_SIZE = 8u;
-static const float WAVELET_FACTOR = 0.5;
+static const float WAVELET_FACTOR = 0.67;
 
 struct SpatialPushConstants
 {

@@ -14,6 +14,7 @@ extent on the benchmark machine is 2560x1440. Lower is better for every metric.
 | Valid history, alpha 0.06 | `7677e9d1`, `candidate-alpha-006.toml` | 0.021984 | 0.000000 | 1.000000 | 0.000091 | 0.091737 | Kept |
 | Fixed policy, one GUI control | `gui-history.toml` | 0.020351 | 0.000000 | 1.000000 | 0.000073 | 0.091413 | Kept; equivalent output |
 | Packed hit marker | `packed-hit-history.toml` | 0.020432 | 0.000000 | 1.000000 | 0.000075 | 0.091324 | Kept; removes invalid ninth storage image |
+| A-Trous wavelet 0.67 | `wavelet-067-history.toml` | 0.019984 | 0.000000 | 1.000000 | 0.000075 | 0.091784 | Kept; stronger fresh-sample filtering |
 
 ## Changes and conclusions
 
@@ -59,6 +60,19 @@ The release hidden logs for both benchmark modes contain no validation errors af
 History mean moved +0.40% and noticeable ratio +1.46%, while fresh mean moved -0.88%; these changes
 are within the observed stochastic spread, and p95/p99 are unchanged.
 
+### A-Trous wavelet factor 0.67
+
+Raised the axial A-Trous kernel weight from 0.5 to 0.67; diagonal weights remain the square of the
+factor. The existing normal, position, voxel, depth, and luminance rejection terms continue to
+protect geometric boundaries. This changes no dispatch count or texture access count.
+
+Against the detail-guard baseline, fresh-sample mean delta fell 23.58%, mean p95 fell from 1 to 0,
+noticeable ratio fell 3.79%, and max transition mean fell 15.10%. Mean-frame spatial gradient fell
+only 0.84%, from 1.882909 to 1.867009. A repeat fresh run measured 0.098032 mean delta, 0.001604
+noticeable ratio, and 1.867058 gradient, confirming the result. History mean delta also fell 4.03%;
+its 1.10% gradient change is consistent with the stronger filter and remains below the accepted
+detail-loss budget.
+
 ## Fresh-sample guard
 
 `--fresh-samples` forces temporal reset every frame while retaining the spatial filter. Its first
@@ -73,6 +87,9 @@ report both normal-history and fresh-sample results here.
 | Fixed-policy fresh | `gui-fresh.toml` | 0.128261 | 1.000000 | 2.000000 | 0.001666 | 0.200251 |
 | Packed-hit history | `packed-hit-history.toml` | 0.020432 | 0.000000 | 1.000000 | 0.000075 | 0.091324 |
 | Packed-hit fresh | `packed-hit-fresh.toml` | 0.127133 | 1.000000 | 2.000000 | 0.001656 | 0.147243 |
+| Wavelet 0.67 history | `wavelet-067-history.toml` | 0.019984 | 0.000000 | 1.000000 | 0.000075 | 0.091784 |
+| Wavelet 0.67 fresh | `wavelet-067-fresh.toml` | 0.098111 | 0.000000 | 2.000000 | 0.001606 | 0.170211 |
+| Wavelet 0.67 fresh repeat | `wavelet-067-fresh-repeat.toml` | 0.098032 | 0.000000 | 2.000000 | 0.001604 | 0.171143 |
 
 The history control remains within the measured run-to-run spread of `7677e9d1`, so the reset push
 constant and report-mode plumbing do not alter normal denoising. The fresh row becomes the
