@@ -13,6 +13,7 @@ extent on the benchmark machine is 2560x1440. Lower is better for every metric.
 | Valid history, alpha 0.10 repeat | `candidate-history-repeat.toml` | 0.035384 | 0.000000 | 1.000000 | 0.000117 | 0.127118 | Confirms stable mean/tail ratio |
 | Valid history, alpha 0.06 | `7677e9d1`, `candidate-alpha-006.toml` | 0.021984 | 0.000000 | 1.000000 | 0.000091 | 0.091737 | Kept |
 | Fixed policy, one GUI control | `gui-history.toml` | 0.020351 | 0.000000 | 1.000000 | 0.000073 | 0.091413 | Kept; equivalent output |
+| Packed hit marker | `packed-hit-history.toml` | 0.020432 | 0.000000 | 1.000000 | 0.000075 | 0.091324 | Kept; removes invalid ninth storage image |
 
 ## Changes and conclusions
 
@@ -47,6 +48,17 @@ history control, mean delta improved 9.38% and noticeable ratio improved 27.09%;
 changed by -0.01%. Those small differences are normal stochastic run variation, so this is treated
 as behavior-equivalent parameter consolidation rather than a new quality claim.
 
+### Packed hit marker: eight tracer storage images
+
+The tracer now writes its hit/miss marker into the position texture's W component. Temporal resolve
+consumes that marker and replaces it with history length; spatial resolve then treats a nonzero
+history length as a hit. This removes the standalone full-resolution `R8` hit texture and reduces
+the tracer compute stage from nine storage images to the device limit of eight.
+
+The release hidden logs for both benchmark modes contain no validation errors after this change.
+History mean moved +0.40% and noticeable ratio +1.46%, while fresh mean moved -0.88%; these changes
+are within the observed stochastic spread, and p95/p99 are unchanged.
+
 ## Fresh-sample guard
 
 `--fresh-samples` forces temporal reset every frame while retaining the spatial filter. Its first
@@ -59,6 +71,8 @@ report both normal-history and fresh-sample results here.
 | Fresh baseline | `fresh-baseline.toml` | 0.128273 | 1.000000 | 2.000000 | 0.001667 | 0.201563 |
 | Fixed-policy history | `gui-history.toml` | 0.020351 | 0.000000 | 1.000000 | 0.000073 | 0.091413 |
 | Fixed-policy fresh | `gui-fresh.toml` | 0.128261 | 1.000000 | 2.000000 | 0.001666 | 0.200251 |
+| Packed-hit history | `packed-hit-history.toml` | 0.020432 | 0.000000 | 1.000000 | 0.000075 | 0.091324 |
+| Packed-hit fresh | `packed-hit-fresh.toml` | 0.127133 | 1.000000 | 2.000000 | 0.001656 | 0.147243 |
 
 The history control remains within the measured run-to-run spread of `7677e9d1`, so the reset push
 constant and report-mode plumbing do not alter normal denoising. The fresh row becomes the

@@ -38,9 +38,6 @@ Sampler2D<uint> denoiser_vox_id_tex;
 [[vk::binding(6, 2)]]
 [[vk::image_format("r32ui")]]
 RWTexture2D<uint> denoiser_accumed_tex;
-[[vk::binding(10, 2)]]
-[[vk::image_format("unknown")]]
-Sampler2D<uint> denoiser_hit_tex;
 [[vk::binding(11, 2)]]
 [[vk::image_format("r11f_g11f_b10f")]]
 RWTexture2D<float4> denoiser_spatial_ping_tex;
@@ -120,7 +117,7 @@ void blurKernel(inout float weightSum, inout float3 colorSum,
     int2 size = imageSize();
     if (any(sampleCoordinate < int2(0)) ||
         any(sampleCoordinate >= size) ||
-        denoiser_hit_tex.Load(int3(sampleCoordinate, 0)).x == 0u)
+        denoiser_position_tex.Load(int3(sampleCoordinate, 0)).w == 0.0)
     {
         return;
     }
@@ -179,7 +176,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     int2 coordinate = int2(dispatchThreadId.xy);
     if (any(coordinate >= imageSize()) ||
-        denoiser_hit_tex.Load(int3(coordinate, 0)).x == 0u)
+        denoiser_position_tex.Load(int3(coordinate, 0)).w == 0.0)
     {
         return;
     }

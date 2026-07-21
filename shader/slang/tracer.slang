@@ -54,8 +54,6 @@ RWTexture2D<float4> denoiser_position_tex;
 RWTexture2D<uint> denoiser_vox_id_tex;
 [[vk::binding(8, 3)]] [[vk::image_format("rg16f")]]
 RWTexture2D<float2> denoiser_motion_tex;
-[[vk::binding(10, 3)]] [[vk::image_format("r8ui")]]
-RWTexture2D<uint> denoiser_hit_tex;
 
 MarchingResult generalSceneMarching(Ray ray, uint localInvocationIndex)
 {
@@ -230,8 +228,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     compute_output_tex[dispatchThreadId.xy] = packRgbe(color);
     compute_depth_tex[dispatchThreadId.xy] = depth;
     denoiser_normal_tex[dispatchThreadId.xy] = packNormalV2(primaryNormal);
-    denoiser_position_tex[dispatchThreadId.xy] = float4(primaryPosition, 1.0);
+    denoiser_position_tex[dispatchThreadId.xy] =
+        float4(primaryPosition, primaryIsHit ? 1.0 : 0.0);
     denoiser_vox_id_tex[dispatchThreadId.xy] = primaryVoxelId;
     denoiser_motion_tex[dispatchThreadId.xy] = motion;
-    denoiser_hit_tex[dispatchThreadId.xy] = primaryIsHit ? 1u : 0u;
 }

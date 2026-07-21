@@ -38,7 +38,8 @@ Sampler2D<uint> denoiser_normal_tex_prev;
 [[vk::binding(2, 1)]]
 [[vk::image_format("rgba32f")]]
 // XYZ is the current hit position. Temporal resolve writes the new history
-// length to W before this texture is copied to the previous-frame image.
+// length to W before this texture is copied to the previous-frame image. The
+// tracer writes zero to W for a miss.
 RWTexture2D<float4> denoiser_position_tex;
 [[vk::binding(3, 1)]] Sampler2D denoiser_position_tex_prev;
 [[vk::binding(4, 1)]]
@@ -51,9 +52,6 @@ Sampler2D<uint> denoiser_vox_id_tex_prev;
 [[vk::image_format("unknown")]]
 Sampler2D<uint> denoiser_accumed_tex_prev;
 [[vk::binding(8, 1)]] Sampler2D denoiser_motion_tex;
-[[vk::binding(10, 1)]]
-[[vk::image_format("unknown")]]
-Sampler2D<uint> denoiser_hit_tex;
 [[vk::binding(11, 1)]]
 [[vk::image_format("r11f_g11f_b10f")]]
 RWTexture2D<float4> denoiser_spatial_ping_tex;
@@ -98,7 +96,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         return;
     }
-    if (denoiser_hit_tex.Load(int3(coordinate, 0)).x == 0u)
+    float4 currentPositionAndHit = denoiser_position_tex[coordinate];
+    if (currentPositionAndHit.w == 0.0)
     {
         return;
     }
@@ -120,7 +119,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 colorSum = float3(0.0);
     float3 currentNormal = unpackNormalV2(
         denoiser_normal_tex.Load(int3(coordinate, 0)).x);
-    float3 currentPosition = denoiser_position_tex[coordinate].xyz;
+    float3 currentPosition = currentPositionAndHit.xyz;
     uint currentVoxelId =
         denoiser_vox_id_tex.Load(int3(coordinate, 0)).x;
 
