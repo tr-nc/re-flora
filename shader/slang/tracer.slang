@@ -81,12 +81,23 @@ static const float TERRAIN_SHADOW_NORMAL_BIAS_VOXELS = 0.25;
 // epsilon, while preserving most of a four-voxel apple's contact depth.
 static const float TERRAIN_SHADOW_LIGHT_BIAS_VOXELS = 0.75;
 
-float3 terrainShadowReceiverPosition(float3 surfacePosition, float3 normal,
+float3 voxelSurfacePositionAlongNormal(float3 voxelCenter, float3 normal)
+{
+    float3 normalDirection = normalize(normal);
+    float2 distance = intersectSlabs(float3(-1.0), float3(1.0),
+                                     float3(0.0), 1.0 / normalDirection);
+    const float halfVoxelSize = 1.0 / 512.0;
+    return voxelCenter + normalDirection * (distance.y * halfVoxelSize);
+}
+
+float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal,
                                      float3 lightDirection)
 {
     float3 normalDirection = normalize(normal);
     float3 lightDirectionNormalized = normalize(lightDirection);
-    return surfacePosition +
+    float3 stableSurfacePosition = voxelSurfacePositionAlongNormal(
+        voxelCenter, normalDirection);
+    return stableSurfacePosition +
         normalDirection * (TERRAIN_SHADOW_NORMAL_BIAS_VOXELS * TERRAIN_VOXEL_SIZE) +
         lightDirectionNormalized * (TERRAIN_SHADOW_LIGHT_BIAS_VOXELS * TERRAIN_VOXEL_SIZE);
 }
@@ -109,10 +120,8 @@ float3 shadowRayColor(Ray ray, float3 receiverNormal, int3 seed)
 
 float3 nextTracingPosition(float3 voxelCenter, float3 voxelNormal)
 {
-    float2 distance = intersectSlabs(float3(-1.0), float3(1.0),
-                                     float3(0.0), 1.0 / voxelNormal);
-    const float halfVoxelSize = 1.0 / 512.0;
-    return voxelCenter + voxelNormal * (distance.y * halfVoxelSize + 0.005);
+    return voxelSurfacePositionAlongNormal(voxelCenter, voxelNormal) +
+        normalize(voxelNormal) * 0.005;
 }
 
 uint terrainAtlasData(float3 centerPosition)
@@ -139,14 +148,14 @@ void parseTraceResult(out float3 albedo, out float3 nextPosition, MarchingResult
     nextPosition = nextTracingPosition(result.center_position, result.normal);
 }
 
-float3 directLighting(float3 albedo, float3 normal, float3 surfacePosition,
+float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
                       int3 seed)
 {
     Ray shadowRay;
     shadowRay.direction = sampleSunDisk(seed, sun_info.sun_size, sun_info.sun_dir);
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
     shadowRay.origin = terrainShadowReceiverPosition(
-        surfacePosition, normal, shadowRay.direction);
+        voxelCenter, normal, shadowRay.direction);
     float cosine = dot(shadowRay.direction, normal);
     if (cosine <= 0.0) return float3(0.0);
     return shadowRayColor(shadowRay, normal, seed) * cosine * albedo;
@@ -172,7 +181,7 @@ float3 indirectLighting(float3 albedo, float3 primaryNormal,
     shadowRay.direction = sampleSunDisk(indirectSeed, sun_info.sun_size, sun_info.sun_dir);
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
     shadowRay.origin = terrainShadowReceiverPosition(
-        result.position, result.normal, shadowRay.direction);
+        result.center_position, result.normal, shadowRay.direction);
     float cosine = dot(shadowRay.direction, result.normal);
     if (cosine <= 0.0) return float3(0.0);
     return shadowRayColor(shadowRay, result.normal, indirectSeed) *
@@ -212,7 +221,7 @@ void getPixelColor(out float3 color, out float depth, out float3 primaryNormal,
     float3 nextPosition;
     parseTraceResult(albedo, nextPosition, result);
     color = shading_info.ambient_light * albedo;
-    color += directLighting(albedo, result.normal, result.position, seed);
+    color += directLighting(albedo, result.normal, result.center_position, seed);
     if (gui_input.debug_bool != 0u)
         color += indirectLighting(albedo, result.normal, nextPosition, seed,
                                   localInvocationIndex);
