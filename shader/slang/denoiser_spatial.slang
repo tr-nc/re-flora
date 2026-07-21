@@ -1,7 +1,9 @@
 import packer;
+import tracer_types;
 
 static const uint DENOISER_GROUP_SIZE = 8u;
 static const float WAVELET_FACTOR = 0.75;
+static const float VOXEL_WORLD_SIZE = 1.0 / 256.0;
 
 struct SpatialPushConstants
 {
@@ -13,9 +15,9 @@ struct U_SpatialInfo
     float phi_c;
     float phi_n;
     float phi_p;
-    float min_phi_z;
-    float max_phi_z;
-    float phi_z_stable_sample_count;
+    float spatial_extent;
+    float cross_voxel_blur_start_pixels;
+    float cross_voxel_blur_full_pixels;
     uint is_changing_lum_phi;
     uint is_spatial_denoising_enabled;
 };
@@ -26,7 +28,7 @@ ConstantBuffer<SpatialPushConstants> pc;
 [[vk::binding(0, 0)]]
 ConstantBuffer<U_SpatialInfo> spatial_info;
 
-[[vk::binding(0, 1)]] Sampler2D compute_depth_tex;
+[[vk::binding(0, 1)]] ConstantBuffer<U_CameraInfo> camera_info;
 
 [[vk::binding(0, 2)]]
 [[vk::image_format("unknown")]]
@@ -97,13 +99,37 @@ float kernelWeight(int2 offset)
     return WAVELET_FACTOR * WAVELET_FACTOR;
 }
 
+float projectedVoxelFootprintPixels(float3 worldPosition)
+{
+    float4 clipPosition = mul(
+        camera_info.view_proj_mat, float4(worldPosition, 1.0));
+    float pixelsAtUnitDepth =
+        abs(camera_info.proj_mat[1][1]) * float(imageSize().y) * 0.5;
+    return VOXEL_WORLD_SIZE * pixelsAtUnitDepth /
+           max(abs(clipPosition.w), 1.0e-4);
+}
+
+float crossVoxelBlurWeight(float voxelFootprintPixels)
+{
+    float fullPixels = min(
+        spatial_info.cross_voxel_blur_full_pixels,
+        spatial_info.cross_voxel_blur_start_pixels);
+    float startPixels = max(
+        spatial_info.cross_voxel_blur_full_pixels,
+        spatial_info.cross_voxel_blur_start_pixels);
+    startPixels = max(startPixels, fullPixels + 1.0e-4);
+    return 1.0 - smoothstep(
+        fullPixels, startPixels, voxelFootprintPixels);
+}
+
 void blurKernel(inout float weightSum, inout float3 colorSum,
                 int2 baseCoordinate, int2 offset, uint iteration,
                 float3 centerNormal, float3 centerColor,
                 float3 centerPosition, float centerLuminance,
-                float centerDepth)
+                float crossVoxelWeight)
 {
-    int step = 1 << iteration;
+    int step = max(1, int(round(
+        float(1 << iteration) * spatial_info.spatial_extent)));
     int2 sampleCoordinate = baseCoordinate + offset * step;
     float waveletWeight = kernelWeight(offset);
 
@@ -140,32 +166,17 @@ void blurKernel(inout float weightSum, inout float3 colorSum,
     float positionWeight = exp(
         -distance(samplePosition, centerPosition) / spatial_info.phi_p);
 
-    float depthFalloff = exp(-centerDepth);
-    float depthWeight = 1.0;
-    if (depthFalloff > spatial_info.min_phi_z)
+    float voxelWeight = 1.0;
+    bool sameVoxel =
+        denoiser_vox_id_tex.Load(int3(baseCoordinate, 0)).x ==
+        denoiser_vox_id_tex.Load(int3(sampleCoordinate, 0)).x;
+    if (!sameVoxel)
     {
-        bool sameVoxel =
-            denoiser_vox_id_tex.Load(int3(baseCoordinate, 0)).x ==
-            denoiser_vox_id_tex.Load(int3(sampleCoordinate, 0)).x;
-        if (!sameVoxel)
-        {
-            float historyLength = float(
-                denoiser_position_tex.Load(
-                    int3(baseCoordinate, 0)).w);
-            float distanceWeight = smoothstep(
-                spatial_info.min_phi_z,
-                max(spatial_info.min_phi_z, spatial_info.max_phi_z),
-                depthFalloff);
-            distanceWeight *= smoothstep(
-                0.0,
-                spatial_info.phi_z_stable_sample_count * 256.0,
-                historyLength);
-            depthWeight = 1.0 - distanceWeight;
-        }
+        voxelWeight = crossVoxelWeight;
     }
 
     float weight = waveletWeight * colorWeight * normalWeight *
-                   positionWeight * depthWeight;
+                   positionWeight * voxelWeight;
     weightSum += weight;
     colorSum += weight * sampleColor;
 }
@@ -201,7 +212,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     loadFromPingPong(centerNormal, centerColor, centerPosition,
                      coordinate, iteration);
     float centerLuminance = luminance(centerColor);
-    float centerDepth = compute_depth_tex.Load(int3(coordinate, 0)).x;
+    float crossVoxelWeight = crossVoxelBlurWeight(
+        projectedVoxelFootprintPixels(centerPosition));
 
     float weightSum = 0.0;
     float3 colorSum = float3(0.0);
@@ -211,7 +223,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             blurKernel(weightSum, colorSum, coordinate, int2(x, y),
                        iteration, centerNormal, centerColor,
-                       centerPosition, centerLuminance, centerDepth);
+                       centerPosition, centerLuminance, crossVoxelWeight);
         }
     }
 

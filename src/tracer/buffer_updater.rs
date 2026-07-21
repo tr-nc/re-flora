@@ -18,9 +18,6 @@ const TEMPORAL_POSITION_SIMILARITY_MIN: f32 = 0.8;
 const SPATIAL_COLOR_PHI: f32 = 0.75;
 const SPATIAL_NORMAL_POWER: f32 = 20.0;
 const SPATIAL_POSITION_PHI: f32 = 0.05;
-const SPATIAL_DEPTH_FALLOFF_MIN: f32 = 0.0;
-const SPATIAL_DEPTH_FALLOFF_MAX: f32 = 0.5;
-const SPATIAL_STABLE_HISTORY_FRACTION: f32 = 0.05;
 
 impl BufferUpdater {
     pub fn update_camera_info(
@@ -147,14 +144,19 @@ impl BufferUpdater {
         })
     }
 
-    pub fn update_spatial_denoiser_info(spatial_info: &mut re_flora_vkn::Buffer) -> Result<()> {
+    pub fn update_spatial_denoiser_info(
+        spatial_info: &mut re_flora_vkn::Buffer,
+        spatial_extent: f32,
+        cross_voxel_blur_start_pixels: f32,
+        cross_voxel_blur_full_pixels: f32,
+    ) -> Result<()> {
         spatial_info.fill_uniform(&SpatialInfo {
             phi_c: SPATIAL_COLOR_PHI,
             phi_n: SPATIAL_NORMAL_POWER,
             phi_p: SPATIAL_POSITION_PHI,
-            min_phi_z: SPATIAL_DEPTH_FALLOFF_MIN,
-            max_phi_z: SPATIAL_DEPTH_FALLOFF_MAX,
-            phi_z_stable_sample_count: SPATIAL_STABLE_HISTORY_FRACTION,
+            spatial_extent,
+            cross_voxel_blur_start_pixels,
+            cross_voxel_blur_full_pixels,
             is_changing_lum_phi: 1,
             is_spatial_denoising_enabled: 1,
         })
@@ -164,9 +166,17 @@ impl BufferUpdater {
         temporal_info: &mut re_flora_vkn::Buffer,
         spatial_info: &mut re_flora_vkn::Buffer,
         temporal_alpha: f32,
+        spatial_extent: f32,
+        cross_voxel_blur_start_pixels: f32,
+        cross_voxel_blur_full_pixels: f32,
     ) -> Result<()> {
         Self::update_temporal_denoiser_info(temporal_info, temporal_alpha)?;
-        Self::update_spatial_denoiser_info(spatial_info)
+        Self::update_spatial_denoiser_info(
+            spatial_info,
+            spatial_extent,
+            cross_voxel_blur_start_pixels,
+            cross_voxel_blur_full_pixels,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]

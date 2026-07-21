@@ -1063,6 +1063,9 @@ impl Tracer {
         sun_azimuth: f32,
         ambient_light: Vec3,
         temporal_alpha: f32,
+        spatial_extent: f32,
+        cross_voxel_blur_start_pixels: f32,
+        cross_voxel_blur_full_pixels: f32,
         god_ray_max_depth: f32,
         god_ray_max_checks: u32,
         god_ray_weight: f32,
@@ -1252,6 +1255,9 @@ impl Tracer {
             &mut self.resources.denoiser_resources.temporal_info,
             &mut self.resources.denoiser_resources.spatial_info,
             temporal_alpha,
+            spatial_extent,
+            cross_voxel_blur_start_pixels,
+            cross_voxel_blur_full_pixels,
         )?;
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();

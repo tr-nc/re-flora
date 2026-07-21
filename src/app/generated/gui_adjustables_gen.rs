@@ -673,6 +673,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Temporal Responsiveness",
     },
     GeneratedGuiParamDescriptor {
+        section: "Denoiser",
+        id: "spatial_extent",
+        kind: "float",
+        label: "Spatial Extent",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Denoiser",
+        id: "cross_voxel_blur_start_pixels",
+        kind: "float",
+        label: "Cross-Voxel Blur Start (px/voxel)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Denoiser",
+        id: "cross_voxel_blur_full_pixels",
+        kind: "float",
+        label: "Cross-Voxel Blur Full (px/voxel)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "GodRay",
         id: "god_ray_max_depth",
         kind: "float",
@@ -1528,6 +1546,9 @@ pub struct GuiAdjustables {
     pub starlight_distfading: crate::gui_adjustables::FloatParam,
     pub starlight_saturation: crate::gui_adjustables::FloatParam,
     pub temporal_alpha: crate::gui_adjustables::FloatParam,
+    pub spatial_extent: crate::gui_adjustables::FloatParam,
+    pub cross_voxel_blur_start_pixels: crate::gui_adjustables::FloatParam,
+    pub cross_voxel_blur_full_pixels: crate::gui_adjustables::FloatParam,
     pub god_ray_max_depth: crate::gui_adjustables::FloatParam,
     pub god_ray_max_checks: crate::gui_adjustables::UintParam,
     pub god_ray_weight: crate::gui_adjustables::FloatParam,
@@ -1773,6 +1794,9 @@ impl GuiAdjustables {
         let mut starlight_distfading_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_saturation_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut spatial_extent_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cross_voxel_blur_start_pixels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut cross_voxel_blur_full_pixels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut god_ray_max_depth_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut god_ray_max_checks_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut god_ray_weight_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2619,6 +2643,27 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             temporal_alpha_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "spatial_extent" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            spatial_extent_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cross_voxel_blur_start_pixels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cross_voxel_blur_start_pixels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "cross_voxel_blur_full_pixels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            cross_voxel_blur_full_pixels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "god_ray_max_depth" => {
@@ -3561,6 +3606,9 @@ impl GuiAdjustables {
             starlight_distfading: starlight_distfading_field.expect("Missing parameter: starlight_distfading"),
             starlight_saturation: starlight_saturation_field.expect("Missing parameter: starlight_saturation"),
             temporal_alpha: temporal_alpha_field.expect("Missing parameter: temporal_alpha"),
+            spatial_extent: spatial_extent_field.expect("Missing parameter: spatial_extent"),
+            cross_voxel_blur_start_pixels: cross_voxel_blur_start_pixels_field.expect("Missing parameter: cross_voxel_blur_start_pixels"),
+            cross_voxel_blur_full_pixels: cross_voxel_blur_full_pixels_field.expect("Missing parameter: cross_voxel_blur_full_pixels"),
             god_ray_max_depth: god_ray_max_depth_field.expect("Missing parameter: god_ray_max_depth"),
             god_ray_max_checks: god_ray_max_checks_field.expect("Missing parameter: god_ray_max_checks"),
             god_ray_weight: god_ray_weight_field.expect("Missing parameter: god_ray_weight"),
@@ -3770,6 +3818,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "starlight_distfading" => Some(&adjustables.starlight_distfading),
         "starlight_saturation" => Some(&adjustables.starlight_saturation),
         "temporal_alpha" => Some(&adjustables.temporal_alpha),
+        "spatial_extent" => Some(&adjustables.spatial_extent),
+        "cross_voxel_blur_start_pixels" => Some(&adjustables.cross_voxel_blur_start_pixels),
+        "cross_voxel_blur_full_pixels" => Some(&adjustables.cross_voxel_blur_full_pixels),
         "god_ray_max_depth" => Some(&adjustables.god_ray_max_depth),
         "god_ray_weight" => Some(&adjustables.god_ray_weight),
         "lens_flare_intensity" => Some(&adjustables.lens_flare_intensity),
@@ -4049,6 +4100,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "starlight_distfading" => Some(&mut adjustables.starlight_distfading),
         "starlight_saturation" => Some(&mut adjustables.starlight_saturation),
         "temporal_alpha" => Some(&mut adjustables.temporal_alpha),
+        "spatial_extent" => Some(&mut adjustables.spatial_extent),
+        "cross_voxel_blur_start_pixels" => Some(&mut adjustables.cross_voxel_blur_start_pixels),
+        "cross_voxel_blur_full_pixels" => Some(&mut adjustables.cross_voxel_blur_full_pixels),
         "god_ray_max_depth" => Some(&mut adjustables.god_ray_max_depth),
         "god_ray_weight" => Some(&mut adjustables.god_ray_weight),
         "lens_flare_intensity" => Some(&mut adjustables.lens_flare_intensity),

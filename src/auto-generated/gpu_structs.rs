@@ -653,9 +653,9 @@ pub struct SpatialInfo {
     pub phi_c: f32,
     pub phi_n: f32,
     pub phi_p: f32,
-    pub min_phi_z: f32,
-    pub max_phi_z: f32,
-    pub phi_z_stable_sample_count: f32,
+    pub spatial_extent: f32,
+    pub cross_voxel_blur_start_pixels: f32,
+    pub cross_voxel_blur_full_pixels: f32,
     pub is_changing_lum_phi: u32,
     pub is_spatial_denoising_enabled: u32,
 }

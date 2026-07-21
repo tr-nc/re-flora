@@ -3327,6 +3327,15 @@ impl App {
                             self.debug_settings.adjustables.ambient_light.value.b() as f32 / 255.0,
                         ),
                         self.debug_settings.adjustables.temporal_alpha.value,
+                        self.debug_settings.adjustables.spatial_extent.value,
+                        self.debug_settings
+                            .adjustables
+                            .cross_voxel_blur_start_pixels
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .cross_voxel_blur_full_pixels
+                            .value,
                         self.debug_settings.adjustables.god_ray_max_depth.value,
                         self.debug_settings.adjustables.god_ray_max_checks.value,
                         self.debug_settings.adjustables.god_ray_weight.value,

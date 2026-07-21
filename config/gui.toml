@@ -1223,6 +1223,39 @@ value = 0.06
 min = 0.02
 max = 0.3
 
+[[section.param]]
+id = "spatial_extent"
+kind = "float"
+label = "Spatial Extent"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.5
+max = 2
+
+[[section.param]]
+id = "cross_voxel_blur_start_pixels"
+kind = "float"
+label = "Cross-Voxel Blur Start (px/voxel)"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 1
+max = 16
+
+[[section.param]]
+id = "cross_voxel_blur_full_pixels"
+kind = "float"
+label = "Cross-Voxel Blur Full (px/voxel)"
+type = "Float"
+
+[section.param.data]
+value = 1.5
+min = 0.25
+max = 8
+
 [[section]]
 name = "GodRay"
 
