@@ -23,6 +23,7 @@ const PLAYER_CAPSULE_HALF_HEIGHT_VOXELS: f32 = 8.0;
 // camera-facing side of the startup tree so the trunk does not hide the probe fruit.
 const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(276.0, 152.0, 280.0);
 const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
+const APPLE_CONTACT_SKIN_VOXELS: f32 = 0.15;
 // Release measurements put one real 32-cubed Contree export plus Rapier update at about 1.2 ms.
 // Keeping this at one avoids terrain edits turning a single render frame into an unbounded scan.
 const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 1;
@@ -297,6 +298,7 @@ impl TerrainPhysics {
         desc.angular_velocity = Vec3::new(3.2, 1.7, -4.0);
         desc.friction = 0.85;
         desc.restitution = 0.08;
+        desc.contact_skin = APPLE_CONTACT_SKIN_VOXELS;
         desc.linear_damping = 0.08;
         desc.angular_damping = 0.12;
         desc.ccd_enabled = true;
@@ -543,6 +545,7 @@ impl TerrainPhysics {
             desc.angular_velocity = spec.angular_velocity;
             desc.friction = 0.82;
             desc.restitution = 0.12;
+            desc.contact_skin = APPLE_CONTACT_SKIN_VOXELS;
             desc.linear_damping = 0.06;
             desc.angular_damping = 0.10;
             desc.ccd_enabled = true;
