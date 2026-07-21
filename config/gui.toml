@@ -1230,7 +1230,7 @@ label = "Alpha"
 type = "Float"
 
 [section.param.data]
-value = 0.28
+value = 0.06
 min = 0
 max = 1
 

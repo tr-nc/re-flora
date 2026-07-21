@@ -44,7 +44,6 @@ impl DenoiserTemporalTextureSet {
 pub struct DenoiserTextureSet {
     pub temporal: DenoiserTemporalTextureSet,
     pub denoiser_motion_tex: Resource<Texture>,
-    pub denoiser_temporal_hist_len_tex: Resource<Texture>,
     pub denoiser_hit_tex: Resource<Texture>,
     pub denoiser_spatial_ping_tex: Resource<Texture>,
     pub denoiser_spatial_pong_tex: Resource<Texture>,
@@ -170,10 +169,6 @@ impl DenoiserResources {
             },
             denoiser_motion_tex: Resource::new(create_texture(
                 vk::Format::R16G16_SFLOAT,
-                vk::ImageUsageFlags::STORAGE,
-            )),
-            denoiser_temporal_hist_len_tex: Resource::new(create_texture(
-                vk::Format::R8_UINT,
                 vk::ImageUsageFlags::STORAGE,
             )),
             denoiser_hit_tex: Resource::new(create_texture(

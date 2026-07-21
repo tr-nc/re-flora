@@ -27,15 +27,22 @@ Sampler2D<uint> denoiser_normal_tex;
 [[vk::binding(1, 1)]]
 [[vk::image_format("unknown")]]
 Sampler2D<uint> denoiser_normal_tex_prev;
-[[vk::binding(2, 1)]] Sampler2D denoiser_position_tex;
+[[vk::binding(2, 1)]]
+[[vk::image_format("rgba32f")]]
+// XYZ is the current hit position. Temporal resolve writes the new history
+// length to W before this texture is copied to the previous-frame image.
+RWTexture2D<float4> denoiser_position_tex;
 [[vk::binding(3, 1)]] Sampler2D denoiser_position_tex_prev;
+[[vk::binding(4, 1)]]
+[[vk::image_format("unknown")]]
+Sampler2D<uint> denoiser_vox_id_tex;
+[[vk::binding(5, 1)]]
+[[vk::image_format("unknown")]]
+Sampler2D<uint> denoiser_vox_id_tex_prev;
 [[vk::binding(7, 1)]]
 [[vk::image_format("unknown")]]
 Sampler2D<uint> denoiser_accumed_tex_prev;
 [[vk::binding(8, 1)]] Sampler2D denoiser_motion_tex;
-[[vk::binding(9, 1)]]
-[[vk::image_format("r8ui")]]
-RWTexture2D<uint> denoiser_temporal_hist_len_tex;
 [[vk::binding(10, 1)]]
 [[vk::image_format("unknown")]]
 Sampler2D<uint> denoiser_hit_tex;
@@ -63,11 +70,13 @@ float3 fetchAccumulatedColor(int2 coordinate, int2 size)
 }
 
 bool isConsistent(float3 normal, float3 previousNormal,
-                  float3 position, float3 previousPosition)
+                  float3 position, float3 previousPosition,
+                  uint voxelId, uint previousVoxelId)
 {
     float normalFactor = dot(normal, previousNormal);
     float positionFactor = exp(-distance(position, previousPosition));
-    return normalFactor > 0.9 &&
+    return voxelId == previousVoxelId &&
+           normalFactor > 0.9 &&
            positionFactor > temporal_info.temporal_position_phi;
 }
 
@@ -103,26 +112,37 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 colorSum = float3(0.0);
     float3 currentNormal = unpackNormalV2(
         denoiser_normal_tex.Load(int3(coordinate, 0)).x);
-    float3 currentPosition =
-        denoiser_position_tex.Load(int3(coordinate, 0)).xyz;
+    float3 currentPosition = denoiser_position_tex[coordinate].xyz;
+    uint currentVoxelId =
+        denoiser_vox_id_tex.Load(int3(coordinate, 0)).x;
 
     for (int index = 0; index < 4; ++index)
     {
         int2 tapCoordinate = int2(baseCoordinateFloat) +
                              TEMPORAL_OFFSETS[index];
+        if (any(tapCoordinate < int2(0)) || any(tapCoordinate >= size))
+        {
+            continue;
+        }
         float3 previousNormal = unpackNormalV2(
             denoiser_normal_tex_prev.Load(int3(tapCoordinate, 0)).x);
-        float3 previousPosition =
-            denoiser_position_tex_prev.Load(int3(tapCoordinate, 0)).xyz;
+        // Keeping history length in the copied position texture avoids an
+        // in-place history-length image read/write race across workgroups.
+        float4 previousPositionAndHistory =
+            denoiser_position_tex_prev.Load(int3(tapCoordinate, 0));
+        uint previousVoxelId =
+            denoiser_vox_id_tex_prev.Load(int3(tapCoordinate, 0)).x;
 
         if (isConsistent(currentNormal, previousNormal,
-                         currentPosition, previousPosition))
+                         currentPosition, previousPositionAndHistory.xyz,
+                         currentVoxelId, previousVoxelId) &&
+            previousPositionAndHistory.w >= 1.0)
         {
             colorSum += weights[index] *
                         fetchAccumulatedColor(tapCoordinate, size);
             totalWeight += weights[index];
             historyLengthSum += weights[index] *
-                float(denoiser_temporal_hist_len_tex[tapCoordinate]);
+                previousPositionAndHistory.w;
         }
     }
 
@@ -147,6 +167,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     denoiser_spatial_ping_tex.Store(
         coordinate, float4(outputColor, 0.0));
-    denoiser_temporal_hist_len_tex.Store(
-        coordinate, uint(historyLength));
+    denoiser_position_tex.Store(
+        coordinate, float4(currentPosition, historyLength));
 }

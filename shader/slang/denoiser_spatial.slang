@@ -38,9 +38,6 @@ Sampler2D<uint> denoiser_vox_id_tex;
 [[vk::binding(6, 2)]]
 [[vk::image_format("r32ui")]]
 RWTexture2D<uint> denoiser_accumed_tex;
-[[vk::binding(9, 2)]]
-[[vk::image_format("unknown")]]
-Sampler2D<uint> denoiser_temporal_hist_len_tex;
 [[vk::binding(10, 2)]]
 [[vk::image_format("unknown")]]
 Sampler2D<uint> denoiser_hit_tex;
@@ -156,8 +153,8 @@ void blurKernel(inout float weightSum, inout float3 colorSum,
         if (!sameVoxel)
         {
             float historyLength = float(
-                denoiser_temporal_hist_len_tex.Load(
-                    int3(baseCoordinate, 0)).x);
+                denoiser_position_tex.Load(
+                    int3(baseCoordinate, 0)).w);
             float distanceWeight = smoothstep(
                 spatial_info.min_phi_z,
                 max(spatial_info.min_phi_z, spatial_info.max_phi_z),
