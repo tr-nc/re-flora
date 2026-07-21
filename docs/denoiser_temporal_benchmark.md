@@ -12,6 +12,8 @@ physical render extent (for example, 2560x1440 on a 2x Retina display).
 ```bash
 python3 scripts/denoiser_bench.py run --report target/denoiser-bench/baseline.toml
 python3 scripts/denoiser_bench.py run --report target/denoiser-bench/candidate.toml
+python3 scripts/denoiser_bench.py run --fresh-samples \
+  --report target/denoiser-bench/fresh-samples.toml
 python3 scripts/denoiser_bench.py compare \
   target/denoiser-bench/baseline.toml \
   target/denoiser-bench/candidate.toml
@@ -21,6 +23,11 @@ Lower values are better for every aggregate metric. `mean_abs_luma_delta_8bit` d
 flicker, while the p95/p99 and noticeable-pixel ratio expose sparse bright flashes that the mean can
 hide. The noticeable threshold is an 8/255 luma change. Reports include every per-transition metric
 so an isolated startup or scheduling spike remains visible.
+
+The `--fresh-samples` run resets temporal history on every frame. It measures the raw sample plus
+spatial A-Trous path and acts as a regression guard: a temporal optimization is not accepted when it
+improves the history benchmark by making newly visible pixels noisier. Compare fresh reports only to
+other fresh reports; the comparison script rejects mixed modes.
 
 Use the same camera preset, extent, warmup, capture count, and isolation flags for comparisons.
 Release-mode results from `scripts/denoiser_bench.py` are the authoritative benchmark; unit tests only

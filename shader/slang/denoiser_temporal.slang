@@ -15,6 +15,14 @@ struct U_TemporalInfo
     float temporal_alpha;
 };
 
+struct TemporalPushConstants
+{
+    uint reset_history;
+};
+
+[[vk::push_constant]]
+ConstantBuffer<TemporalPushConstants> pc;
+
 [[vk::binding(0, 0)]]
 ConstantBuffer<U_TemporalInfo> temporal_info;
 [[vk::binding(1, 0)]]
@@ -116,7 +124,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint currentVoxelId =
         denoiser_vox_id_tex.Load(int3(coordinate, 0)).x;
 
-    for (int index = 0; index < 4; ++index)
+    for (int index = 0; index < 4 && pc.reset_history == 0u; ++index)
     {
         int2 tapCoordinate = int2(baseCoordinateFloat) +
                              TEMPORAL_OFFSETS[index];

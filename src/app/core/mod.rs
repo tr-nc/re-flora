@@ -3620,6 +3620,9 @@ impl App {
                         flora_color_tables,
                         leaf_color_tables,
                         &self.render_flags,
+                        self.denoiser_bench
+                            .as_ref()
+                            .is_some_and(DenoiserBench::fresh_samples),
                         gpu_profiler_for_trace.as_mut(),
                         frame_slot,
                     )

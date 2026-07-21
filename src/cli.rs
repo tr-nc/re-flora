@@ -169,6 +169,7 @@ pub struct DenoiserBenchOptions {
     pub report_path: String,
     pub warmup_frames: u32,
     pub capture_frames: u32,
+    pub fresh_samples: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -335,10 +336,11 @@ fn parse_denoiser_bench_request(
     parse_u32_after: &impl Fn(&str) -> Option<u32>,
 ) -> Result<Option<(String, DenoiserBenchOptions)>, String> {
     let Some(index) = args.iter().position(|arg| arg == "--denoiser-bench") else {
-        if args
-            .iter()
-            .any(|arg| arg == "--denoiser-bench-warmup-frames" || arg == "--denoiser-bench-frames")
-        {
+        if args.iter().any(|arg| {
+            arg == "--denoiser-bench-warmup-frames"
+                || arg == "--denoiser-bench-frames"
+                || arg == "--denoiser-bench-fresh-samples"
+        }) {
             return Err(format!(
                 "Denoiser benchmark frame options require --denoiser-bench. {DENOISER_BENCH_USAGE}"
             ));
@@ -362,6 +364,9 @@ fn parse_denoiser_bench_request(
             report_path,
             warmup_frames,
             capture_frames,
+            fresh_samples: args
+                .iter()
+                .any(|arg| arg == "--denoiser-bench-fresh-samples"),
         },
     )))
 }
@@ -527,6 +532,8 @@ Options:
   --denoiser-bench-warmup-frames <N>
                               Frames discarded before capture (default: 90)
   --denoiser-bench-frames <N> Captured frames, at least 2 (default: 64)
+  --denoiser-bench-fresh-samples
+                              Reset temporal history every frame to guard spatial-only quality
   --camera-snapshot <name>    Apply a saved camera snapshot at startup (do not combine with --screenshot)
   --list-camera-snapshots     Print available camera snapshot names and exit
   --auto-exit <sec>           Exit automatically after rendering starts
@@ -820,6 +827,19 @@ mod tests {
         assert_eq!(benchmark.report_path, "target/report.toml");
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
+        assert!(!benchmark.fresh_samples);
+    }
+
+    #[test]
+    fn parses_fresh_sample_denoiser_benchmark() {
+        let options = parse(&[
+            "re-flora",
+            "--denoiser-bench",
+            "player-default",
+            "target/fresh.toml",
+            "--denoiser-bench-fresh-samples",
+        ]);
+        assert!(options.denoiser_bench.unwrap().fresh_samples);
     }
 
     #[test]

@@ -276,6 +276,14 @@ pub struct PushConstantSpatial {
     pub _pad0: [u8; 12],
 }
 
+/// Auto-generated from `PushConstantTemporal` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantTemporal {
+    pub reset_history: u32,
+    pub _pad0: [u8; 12],
+}
+
 /// Auto-generated from `PushConstantVsmBlurH` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

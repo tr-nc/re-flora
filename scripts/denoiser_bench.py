@@ -40,7 +40,12 @@ def load_report(path: Path) -> dict:
             continue
         key, value = (part.strip() for part in line.split("=", 1))
         try:
-            parsed_value: object = float(value) if any(c in value for c in ".eE") else int(value)
+            if value in ("true", "false"):
+                parsed_value: object = value == "true"
+            elif value.startswith('"') and value.endswith('"'):
+                parsed_value = value[1:-1]
+            else:
+                parsed_value = float(value) if any(c in value for c in ".eE") else int(value)
         except ValueError:
             continue
         if section == "aggregate":
@@ -56,7 +61,8 @@ def print_report(path: Path) -> None:
     report = load_report(path)
     aggregate = report["aggregate"]
     print(
-        f"{path}: {report['width']}x{report['height']}, "
+        f"{path}: mode={'fresh' if report.get('fresh_samples', False) else 'history'}, "
+        f"{report['width']}x{report['height']}, "
         f"{report['captured_frames']} frames, {report['transition_count']} transitions"
     )
     for metric in METRICS:
@@ -84,6 +90,8 @@ def run_benchmark(args: argparse.Namespace) -> int:
     ]
     if args.no_denoise:
         command.append("--no-denoise")
+    if args.fresh_samples:
+        command.append("--denoiser-bench-fresh-samples")
     print("Running:", " ".join(command), flush=True)
     subprocess.run(command, cwd=REPO_ROOT, check=True)
     print_report(report)
@@ -93,10 +101,12 @@ def run_benchmark(args: argparse.Namespace) -> int:
 def compare_reports(args: argparse.Namespace) -> int:
     baseline = load_report(args.baseline)
     candidate = load_report(args.candidate)
-    for field in ("width", "height", "captured_frames", "transition_count"):
-        if baseline[field] != candidate[field]:
+    for field in ("width", "height", "captured_frames", "transition_count", "fresh_samples"):
+        before_field = baseline.get(field, False if field == "fresh_samples" else None)
+        after_field = candidate.get(field, False if field == "fresh_samples" else None)
+        if before_field != after_field:
             raise SystemExit(
-                f"incompatible reports: {field} is {baseline[field]} vs {candidate[field]}"
+                f"incompatible reports: {field} is {before_field} vs {after_field}"
             )
 
     baseline_metrics = baseline["aggregate"]
@@ -123,6 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-denoise",
         action="store_true",
         help="disable the denoiser for an unfiltered reference run",
+    )
+    run_parser.add_argument(
+        "--fresh-samples",
+        action="store_true",
+        help="reset temporal history every frame and measure spatial-only fresh samples",
     )
     run_parser.set_defaults(func=run_benchmark)
 

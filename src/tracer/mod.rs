@@ -209,6 +209,12 @@ struct CloudShadowTemporalPushConstants {
     reset_history: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct DenoiserTemporalPushConstants {
+    reset_history: u32,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TerrainRayQuery {
     pub origin: Vec3,
@@ -1613,6 +1619,7 @@ impl Tracer {
         flora_color_tables: &[FloraHeightColorTables],
         leaf_color_tables: FloraHeightColorTables,
         render_flags: &crate::RenderFlags,
+        reset_denoiser_history: bool,
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
@@ -1755,7 +1762,13 @@ impl Tracer {
                 gpu_profiler_frame_slot,
                 cmdbuf,
                 "denoiser.pass",
-                || self.record_denoiser_pass(cmdbuf, self.a_trous_iteration_count),
+                || {
+                    self.record_denoiser_pass(
+                        cmdbuf,
+                        self.a_trous_iteration_count,
+                        reset_denoiser_history,
+                    )
+                },
             )?;
         }
 
@@ -3098,6 +3111,7 @@ impl Tracer {
         &self,
         cmdbuf: &CommandBuffer,
         a_trous_iteration_count: u32,
+        reset_history: bool,
     ) -> anyhow::Result<()> {
         // Validate iteration count - only 1, 3, or 5 are allowed
         if a_trous_iteration_count != 1
@@ -3119,9 +3133,14 @@ impl Tracer {
             .get_desc()
             .extent;
 
-        self.compute_pipelines
-            .temporal_ppl
-            .record(cmdbuf, extent, None);
+        let temporal_push_constants = DenoiserTemporalPushConstants {
+            reset_history: u32::from(reset_history),
+        };
+        self.compute_pipelines.temporal_ppl.record(
+            cmdbuf,
+            extent,
+            Some(bytemuck::bytes_of(&temporal_push_constants)),
+        );
 
         for i in 0..a_trous_iteration_count {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);

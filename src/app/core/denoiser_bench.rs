@@ -36,6 +36,7 @@ struct DenoiserBenchReport<'a> {
     captured_frames: u32,
     transition_count: usize,
     noticeable_delta_threshold_8bit: u8,
+    fresh_samples: bool,
     capture_seconds: f64,
     aggregate: AggregateMetrics,
     transitions: &'a [TransitionMetrics],
@@ -69,6 +70,10 @@ impl DenoiserBench {
     pub(super) fn should_capture(&self) -> bool {
         self.presented_frames >= self.options.warmup_frames
             && self.captured_frames < self.options.capture_frames
+    }
+
+    pub(super) fn fresh_samples(&self) -> bool {
+        self.options.fresh_samples
     }
 
     pub(super) fn mark_frame_presented(&mut self) {
@@ -136,6 +141,7 @@ impl DenoiserBench {
             captured_frames: self.captured_frames,
             transition_count: self.transitions.len(),
             noticeable_delta_threshold_8bit: NOTICEABLE_DELTA_8BIT,
+            fresh_samples: self.options.fresh_samples,
             capture_seconds: self
                 .capture_started
                 .map(|started| started.elapsed().as_secs_f64())
@@ -156,7 +162,12 @@ impl DenoiserBench {
         fs::write(path, serialized)
             .with_context(|| format!("write denoiser report {}", path.display()))?;
         log::info!(
-            "[DENOISER_BENCH] complete transitions={} mean_delta={:.4} p95_mean={:.4} p99_mean={:.4} noticeable_ratio={:.6} report={}",
+            "[DENOISER_BENCH] complete mode={} transitions={} mean_delta={:.4} p95_mean={:.4} p99_mean={:.4} noticeable_ratio={:.6} report={}",
+            if self.options.fresh_samples {
+                "fresh"
+            } else {
+                "history"
+            },
             self.transitions.len(),
             report.aggregate.mean_abs_luma_delta_8bit,
             report.aggregate.mean_p95_abs_luma_delta_8bit,
