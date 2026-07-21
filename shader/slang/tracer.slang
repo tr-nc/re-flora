@@ -74,15 +74,34 @@ float3 sampleSunDisk(int3 seed, float sunSize, float3 sunDirection)
     return normalize(sunDirection + mul(float3(randomXy, 0.0), makeTbn(sunDirection)));
 }
 
-float3 shadowRayColor(Ray ray, int3 seed)
+static const float TERRAIN_VOXEL_SIZE = 1.0 / 256.0;
+static const float TERRAIN_SHADOW_NORMAL_BIAS_VOXELS = 0.25;
+// A binary voxel surface can sit almost one voxel in front of its smooth
+// tangent plane. Keep that quantization thickness, not a world-sized depth
+// epsilon, while preserving most of a four-voxel apple's contact depth.
+static const float TERRAIN_SHADOW_LIGHT_BIAS_VOXELS = 0.75;
+
+float3 terrainShadowReceiverPosition(float3 surfacePosition, float3 normal,
+                                     float3 lightDirection)
+{
+    float3 normalDirection = normalize(normal);
+    float3 lightDirectionNormalized = normalize(lightDirection);
+    return surfacePosition +
+        normalDirection * (TERRAIN_SHADOW_NORMAL_BIAS_VOXELS * TERRAIN_VOXEL_SIZE) +
+        lightDirectionNormalized * (TERRAIN_SHADOW_LIGHT_BIAS_VOXELS * TERRAIN_VOXEL_SIZE);
+}
+
+float3 shadowRayColor(Ray ray, float3 receiverNormal, int3 seed)
 {
     float sunAboveHorizon = step(0.0, sun_info.sun_dir.y);
     DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
         float4(ray.origin, 1.0), seed, DIRECT_SUN_SHADOW_SOURCE_ALL,
         DIRECT_TERRAIN_SHADOW_GUI, DIRECT_SUN_SHADOW_SOURCE_ALL,
         DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
+    receiver = withReceiverPlane(receiver, receiverNormal);
     float shadow = directSunShadowTransmittance(
         receiver, gui_input, shadow_camera_info.view_proj_mat,
+        shadow_camera_info.view_proj_mat_inv,
         shadow_map_tex, leaf_shadow_opacity_blended_tex, leaf_shadow_mask_tex,
         cloud_shadow_tex, shadow_map_tex_for_vsm_ping, scalar_bn, unit_vec2_bn);
     return shadow * sun_info.sun_color * sun_info.sun_luminance * sunAboveHorizon;
@@ -120,15 +139,17 @@ void parseTraceResult(out float3 albedo, out float3 nextPosition, MarchingResult
     nextPosition = nextTracingPosition(result.center_position, result.normal);
 }
 
-float3 directLighting(float3 albedo, float3 normal, float3 nextPosition, int3 seed)
+float3 directLighting(float3 albedo, float3 normal, float3 surfacePosition,
+                      int3 seed)
 {
     Ray shadowRay;
     shadowRay.direction = sampleSunDisk(seed, sun_info.sun_size, sun_info.sun_dir);
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
-    shadowRay.origin = nextPosition;
+    shadowRay.origin = terrainShadowReceiverPosition(
+        surfacePosition, normal, shadowRay.direction);
     float cosine = dot(shadowRay.direction, normal);
     if (cosine <= 0.0) return float3(0.0);
-    return shadowRayColor(shadowRay, seed) * cosine * albedo;
+    return shadowRayColor(shadowRay, normal, seed) * cosine * albedo;
 }
 
 float3 indirectLighting(float3 albedo, float3 primaryNormal,
@@ -150,10 +171,12 @@ float3 indirectLighting(float3 albedo, float3 primaryNormal,
     Ray shadowRay;
     shadowRay.direction = sampleSunDisk(indirectSeed, sun_info.sun_size, sun_info.sun_dir);
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
-    shadowRay.origin = sampleNextPosition;
+    shadowRay.origin = terrainShadowReceiverPosition(
+        result.position, result.normal, shadowRay.direction);
     float cosine = dot(shadowRay.direction, result.normal);
     if (cosine <= 0.0) return float3(0.0);
-    return shadowRayColor(shadowRay, indirectSeed) * cosine * sampleAlbedo * albedo;
+    return shadowRayColor(shadowRay, result.normal, indirectSeed) *
+           cosine * sampleAlbedo * albedo;
 }
 
 float depthFromWorldPosition(float3 worldPosition)
@@ -189,7 +212,7 @@ void getPixelColor(out float3 color, out float depth, out float3 primaryNormal,
     float3 nextPosition;
     parseTraceResult(albedo, nextPosition, result);
     color = shading_info.ambient_light * albedo;
-    color += directLighting(albedo, result.normal, nextPosition, seed);
+    color += directLighting(albedo, result.normal, result.position, seed);
     if (gui_input.debug_bool != 0u)
         color += indirectLighting(albedo, result.normal, nextPosition, seed,
                                   localInvocationIndex);

@@ -27,6 +27,15 @@ public static const uint DIRECT_SUN_SHADOW_SOURCE_ALL =
 public static const uint DIRECT_TERRAIN_SHADOW_VSM = 1u;
 public static const uint DIRECT_TERRAIN_SHADOW_GUI = 3u;
 public static const uint DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE = 1u << 0u;
+public static const uint DIRECT_SUN_SHADOW_FLAG_RECEIVER_PLANE = 1u << 1u;
+
+struct ShadowReceiverPlane
+{
+    float2 anchor_uv;
+    float anchor_depth;
+    float2 depth_gradient_uv;
+    bool is_valid;
+};
 
 public struct DirectSunShadowReceiver
 {
@@ -36,6 +45,7 @@ public struct DirectSunShadowReceiver
     uint terrain_mode;
     uint available_mask;
     uint flags;
+    float3 receiver_plane_normal;
 };
 
 public DirectSunShadowReceiver makeDirectSunShadowReceiver(
@@ -49,6 +59,19 @@ public DirectSunShadowReceiver makeDirectSunShadowReceiver(
     receiver.terrain_mode = terrainMode;
     receiver.available_mask = availableMask;
     receiver.flags = flags;
+    receiver.receiver_plane_normal = float3(0.0);
+    return receiver;
+}
+
+public DirectSunShadowReceiver withReceiverPlane(
+    DirectSunShadowReceiver receiver, float3 normal)
+{
+    float normalLengthSquared = dot(normal, normal);
+    if (normalLengthSquared > 1.0e-8)
+    {
+        receiver.receiver_plane_normal = normal * rsqrt(normalLengthSquared);
+        receiver.flags |= DIRECT_SUN_SHADOW_FLAG_RECEIVER_PLANE;
+    }
     return receiver;
 }
 
@@ -65,40 +88,90 @@ float2x2 rotationMatrix(float randomValue)
     return float2x2(cosine, sine, -sine, cosine);
 }
 
-float pcf(Sampler2D shadowMap, Sampler2DArray scalarNoise, float2 baseUv,
-          float referenceDepth, float filterRadius, int3 seed)
+ShadowReceiverPlane makeShadowReceiverPlane(
+    DirectSunShadowReceiver receiver, float4x4 shadowViewProjectionInverse,
+    float2 anchorUv, float anchorDepth)
 {
-    const float shadowEpsilon = 3.5e-3;
+    ShadowReceiverPlane plane;
+    plane.anchor_uv = anchorUv;
+    plane.anchor_depth = anchorDepth;
+    plane.depth_gradient_uv = float2(0.0);
+    plane.is_valid = false;
+    if ((receiver.flags & DIRECT_SUN_SHADOW_FLAG_RECEIVER_PLANE) == 0u)
+        return plane;
+
+    // Directional shadows use an affine orthographic projection. Its plane
+    // slope depends only on the transformed normal; the plane constant is
+    // supplied exactly by the projected receiver anchor above.
+    float4 clipNormal = mul(
+        transpose(shadowViewProjectionInverse),
+        float4(receiver.receiver_plane_normal, 0.0));
+    plane.is_valid = abs(clipNormal.z) > 1.0e-6;
+    if (plane.is_valid)
+        plane.depth_gradient_uv = -2.0 * clipNormal.xy / clipNormal.z;
+    return plane;
+}
+
+float receiverDepthAtUv(ShadowReceiverPlane plane, float2 uv,
+                        float fallbackDepth)
+{
+    if (!plane.is_valid) return fallbackDepth;
+    return plane.anchor_depth +
+        dot(plane.depth_gradient_uv, uv - plane.anchor_uv);
+}
+
+float pcf(Sampler2D shadowMap, Sampler2DArray scalarNoise, float2 baseUv,
+          float referenceDepth, ShadowReceiverPlane receiverPlane,
+          float filterRadius, int3 seed)
+{
+    // World-space receiver offsets handle acne. Keep only a numerical epsilon
+    // here so nearby external casters are not swallowed by a clip-space bias.
+    const float shadowEpsilon = 1.0e-5;
     float2x2 rotation = rotationMatrix(randomFloat(scalarNoise, seed));
     float weightedValues = 0.0;
     for (int i = 0; i < 16; ++i)
     {
         float2 offset = mul(rotation, POISSON_16[i]) * filterRadius;
-        float sampleDepth = sampleExplicitLod(shadowMap, baseUv + offset).r;
-        weightedValues += sampleDepth + shadowEpsilon > referenceDepth ? 1.0 : 0.0;
+        float2 sampleUv = baseUv + offset;
+        float sampleDepth = sampleExplicitLod(shadowMap, sampleUv).r;
+        float sampleReferenceDepth = receiverDepthAtUv(
+            receiverPlane, sampleUv, referenceDepth);
+        weightedValues += sampleDepth + shadowEpsilon > sampleReferenceDepth
+            ? 1.0
+            : 0.0;
     }
     return weightedValues / 16.0;
 }
 
-float averageBlockerDepth(Sampler2D shadowMap, Sampler2DArray scalarNoise,
-                          float2 baseUv, float referenceDepth, int3 seed)
+float averageBlockerSeparation(Sampler2D shadowMap, Sampler2DArray scalarNoise,
+                               float2 baseUv, float referenceDepth,
+                               ShadowReceiverPlane receiverPlane, int3 seed)
 {
-    const float shadowEpsilon = 3.5e-3;
+    const float shadowEpsilon = 1.0e-5;
     const float blockerSearchWidth = 2.0 / 100.0;
     float2x2 rotation = rotationMatrix(randomFloat(scalarNoise, seed));
-    float blockerSum = 0.0;
+    float blockerSeparationSum = 0.0;
     int blockerCount = 0;
     for (int i = 0; i < 16; ++i)
     {
-        float2 offset = mul(rotation, POISSON_16[i]) * blockerSearchWidth;
-        float sampleDepth = sampleExplicitLod(shadowMap, baseUv + offset).r;
-        if (sampleDepth + shadowEpsilon < referenceDepth)
+        // Preserve one center lookup so a small contact caster cannot fall
+        // between all of the sparse blocker-search taps.
+        float2 offset = i == 0
+            ? float2(0.0)
+            : mul(rotation, POISSON_16[i]) * blockerSearchWidth;
+        float2 sampleUv = baseUv + offset;
+        float sampleDepth = sampleExplicitLod(shadowMap, sampleUv).r;
+        float sampleReferenceDepth = receiverDepthAtUv(
+            receiverPlane, sampleUv, referenceDepth);
+        if (sampleDepth + shadowEpsilon < sampleReferenceDepth)
         {
-            blockerSum += sampleDepth;
+            blockerSeparationSum += sampleReferenceDepth - sampleDepth;
             ++blockerCount;
         }
     }
-    return blockerCount > 0 ? blockerSum / float(blockerCount) : -1.0;
+    return blockerCount > 0
+        ? blockerSeparationSum / float(blockerCount)
+        : -1.0;
 }
 
 float2 shadowUvJitter(Sampler2D shadowMap, Sampler2DArray unitVectorNoise, int3 seed)
@@ -114,16 +187,24 @@ float2 shadowUvJitter(Sampler2D shadowMap, Sampler2DArray unitVectorNoise, int3 
 
 float pcssTransmittance(Sampler2D shadowMap, Sampler2DArray scalarNoise,
                         Sampler2DArray unitVectorNoise, float4x4 shadowViewProjection,
-                        float3 worldPosition, int3 seed)
+                        float4x4 shadowViewProjectionInverse,
+                        DirectSunShadowReceiver receiver)
 {
-    float4 lightSpace = mul(shadowViewProjection, float4(worldPosition, 1.0));
+    float4 lightSpace = mul(shadowViewProjection, receiver.world_position);
     float3 ndc = lightSpace.xyz / lightSpace.w;
-    float2 baseUv = ndc.xy * 0.5 + 0.5;
-    baseUv += shadowUvJitter(shadowMap, unitVectorNoise, seed);
-    float blockerDepth = averageBlockerDepth(shadowMap, scalarNoise, baseUv, ndc.z, seed);
-    if (blockerDepth < 0.0) return 1.0;
-    return pcf(shadowMap, scalarNoise, baseUv, ndc.z,
-               (ndc.z - blockerDepth) * (4.0 / 100.0), seed);
+    float2 receiverUv = ndc.xy * 0.5 + 0.5;
+    ShadowReceiverPlane receiverPlane = makeShadowReceiverPlane(
+        receiver, shadowViewProjectionInverse, receiverUv, ndc.z);
+    float2 baseUv = receiverUv;
+    baseUv += shadowUvJitter(
+        shadowMap, unitVectorNoise, receiver.pcss_seed);
+    float blockerSeparation = averageBlockerSeparation(
+        shadowMap, scalarNoise, baseUv, ndc.z, receiverPlane,
+        receiver.pcss_seed);
+    if (blockerSeparation < 0.0) return 1.0;
+    return pcf(shadowMap, scalarNoise, baseUv, ndc.z, receiverPlane,
+               blockerSeparation * (4.0 / 100.0),
+               receiver.pcss_seed);
 }
 
 float vsmTransmittance(Sampler2D vsmMap, float4x4 shadowViewProjection,
@@ -246,6 +327,7 @@ public float directSunShadowTransmittanceVsmLeafCloud(
 
 public float directSunShadowTransmittance(
     DirectSunShadowReceiver receiver, U_GuiInput gui, float4x4 shadowViewProjection,
+    float4x4 shadowViewProjectionInverse,
     Sampler2D shadowMap, Sampler2D leafOpacityMap, Sampler2D leafMaskMap,
     Sampler2D cloudShadowMap, Sampler2D vsmMap,
     Sampler2DArray scalarNoise, Sampler2DArray unitVectorNoise)
@@ -259,8 +341,8 @@ public float directSunShadowTransmittance(
         terrainShadow = terrainMode == 1u
             ? vsmTransmittance(vsmMap, shadowViewProjection, receiver.world_position)
             : pcssTransmittance(shadowMap, scalarNoise, unitVectorNoise,
-                                shadowViewProjection, receiver.world_position.xyz,
-                                receiver.pcss_seed);
+                                shadowViewProjection, shadowViewProjectionInverse,
+                                receiver);
     }
 
     float leafShadow = 1.0;

@@ -62,3 +62,40 @@ pub fn calculate_directional_light_matrices(
 
     (view_matrix, proj_matrix)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::Vec2;
+
+    fn projected(view_projection: Mat4, point: Vec3) -> Vec3 {
+        let clip = view_projection * point.extend(1.0);
+        clip.truncate() / clip.w
+    }
+
+    #[test]
+    fn transformed_normal_gradient_matches_projected_world_plane() {
+        let world_bound = Aabb3::new(Vec3::ZERO, Vec3::splat(2.0));
+        let light_direction = Vec3::new(-0.56, 0.70, 0.44).normalize();
+        let (view, projection) =
+            calculate_directional_light_matrices(world_bound, light_direction, 2048);
+        let view_projection = projection * view;
+
+        let anchor = Vec3::new(1.0, 0.4, 1.0);
+        let normal = Vec3::new(0.23, 0.94, -0.25).normalize();
+        let tangent = normal.cross(Vec3::X).normalize();
+        let point_on_plane = anchor + tangent * 0.37;
+        let anchor_ndc = projected(view_projection, anchor);
+        let point_ndc = projected(view_projection, point_on_plane);
+
+        let clip_normal = view_projection.inverse().transpose() * normal.extend(0.0);
+        assert!(clip_normal.z.abs() > 1.0e-6);
+        let depth_gradient_uv = -2.0 * Vec2::new(clip_normal.x, clip_normal.y) / clip_normal.z;
+        let anchor_uv = anchor_ndc.truncate() * 0.5 + Vec2::splat(0.5);
+        let point_uv = point_ndc.truncate() * 0.5 + Vec2::splat(0.5);
+        let predicted_depth = anchor_ndc.z + depth_gradient_uv.dot(point_uv - anchor_uv);
+
+        assert!((predicted_depth - point_ndc.z).abs() < 1.0e-5);
+        assert!(normal.dot(point_on_plane - anchor).abs() < 1.0e-5);
+    }
+}
