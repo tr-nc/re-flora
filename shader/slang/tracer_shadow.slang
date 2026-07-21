@@ -3,17 +3,10 @@ import contree_node;
 import marching_result;
 import ray;
 import scene_marching;
+import tracer_types;
+import voxel_types;
 
-struct U_ShadowCameraInfo
-{
-    float4 position;
-    float4x4 view_matrix;
-    float4x4 inverse_view_matrix;
-    float4x4 projection_matrix;
-    float4x4 inverse_projection_matrix;
-    float4x4 view_projection_matrix;
-    float4x4 inverse_view_projection_matrix;
-};
+static const float TERRAIN_VOXEL_SIZE = 1.0 / 256.0;
 
 [[vk::binding(0, 0)]]
 ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
@@ -32,6 +25,16 @@ readonly RWTexture3D<uint2> scene_tex;
 [[vk::image_format("r32f")]]
 RWTexture2D<float> shadow_map_tex;
 
+[[vk::binding(5, 0)]]
+ConstantBuffer<U_GuiInput> gui_input;
+
+bool isTerrainVoxel(uint voxelType)
+{
+    return voxelType == VOXEL_TYPE_DIRT ||
+           voxelType == VOXEL_TYPE_SAND ||
+           voxelType == VOXEL_TYPE_ROCK;
+}
+
 float tracePixelDepth(Ray ray, uint localInvocationIndex)
 {
     MarchingResult result = marchScene(
@@ -42,8 +45,16 @@ float tracePixelDepth(Ray ray, uint localInvocationIndex)
         return 1.0;
     }
 
-    float4 pointNdc = mul(shadow_camera_info.view_projection_matrix,
-                          float4(result.position, 1.0));
+    float3 casterPosition = result.position;
+    if (isTerrainVoxel(result.voxel_type))
+    {
+        float casterBias = clamp(gui_input.terrain_self_shadow_tolerance_voxels, 0.0, 2.0) *
+                           TERRAIN_VOXEL_SIZE;
+        casterPosition += ray.direction * casterBias;
+    }
+
+    float4 pointNdc = mul(shadow_camera_info.view_proj_mat,
+                          float4(casterPosition, 1.0));
     return pointNdc.z / pointNdc.w;
 }
 
@@ -62,7 +73,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
 
     float2 screenUv = (float2(dispatchThreadId.xy) + 0.5) / float2(width, height);
     Ray ray = generateCameraRay(screenUv,
-                                shadow_camera_info.inverse_view_projection_matrix);
+                                shadow_camera_info.view_proj_mat_inv);
     float terrainDepth = tracePixelDepth(ray, localInvocationIndex);
     float existingDepth = shadow_map_tex[dispatchThreadId.xy];
     shadow_map_tex[dispatchThreadId.xy] = min(terrainDepth, existingDepth);

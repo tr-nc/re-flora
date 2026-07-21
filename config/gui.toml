@@ -1009,6 +1009,17 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "terrain_self_shadow_tolerance_voxels"
+kind = "float"
+label = "Terrain Self-Shadow Tolerance (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 2
+
+[[section.param]]
 id = "vsm_blur_radius"
 kind = "uint"
 label = "VSM Blur Radius (texels)"

@@ -560,6 +560,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Shadow",
+        id: "terrain_self_shadow_tolerance_voxels",
+        kind: "float",
+        label: "Terrain Self-Shadow Tolerance (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
         id: "vsm_blur_radius",
         kind: "uint",
         label: "VSM Blur Radius (texels)",
@@ -1527,6 +1533,7 @@ pub struct GuiAdjustables {
     pub glass_alpha: crate::gui_adjustables::FloatParam,
     pub glass_glint_strength: crate::gui_adjustables::FloatParam,
     pub terrain_shadow_use_vsm: crate::gui_adjustables::BoolParam,
+    pub terrain_self_shadow_tolerance_voxels: crate::gui_adjustables::FloatParam,
     pub vsm_blur_radius: crate::gui_adjustables::UintParam,
     pub vsm_temporal_alpha: crate::gui_adjustables::FloatParam,
     pub leaf_shadow_fragment_opacity: crate::gui_adjustables::FloatParam,
@@ -1775,6 +1782,7 @@ impl GuiAdjustables {
         let mut glass_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_glint_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_shadow_use_vsm_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut terrain_self_shadow_tolerance_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut vsm_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_shadow_fragment_opacity_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2510,6 +2518,13 @@ impl GuiAdjustables {
                     "terrain_shadow_use_vsm" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             terrain_shadow_use_vsm_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "terrain_self_shadow_tolerance_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            terrain_self_shadow_tolerance_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "vsm_blur_radius" => {
@@ -3587,6 +3602,7 @@ impl GuiAdjustables {
             glass_alpha: glass_alpha_field.expect("Missing parameter: glass_alpha"),
             glass_glint_strength: glass_glint_strength_field.expect("Missing parameter: glass_glint_strength"),
             terrain_shadow_use_vsm: terrain_shadow_use_vsm_field.expect("Missing parameter: terrain_shadow_use_vsm"),
+            terrain_self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels_field.expect("Missing parameter: terrain_self_shadow_tolerance_voxels"),
             vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
             vsm_temporal_alpha: vsm_temporal_alpha_field.expect("Missing parameter: vsm_temporal_alpha"),
             leaf_shadow_fragment_opacity: leaf_shadow_fragment_opacity_field.expect("Missing parameter: leaf_shadow_fragment_opacity"),
@@ -3802,6 +3818,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "glass_refraction_strength" => Some(&adjustables.glass_refraction_strength),
         "glass_alpha" => Some(&adjustables.glass_alpha),
         "glass_glint_strength" => Some(&adjustables.glass_glint_strength),
+        "terrain_self_shadow_tolerance_voxels" => Some(&adjustables.terrain_self_shadow_tolerance_voxels),
         "vsm_temporal_alpha" => Some(&adjustables.vsm_temporal_alpha),
         "leaf_shadow_fragment_opacity" => Some(&adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&adjustables.leaf_shadow_strength),
@@ -4084,6 +4101,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "glass_refraction_strength" => Some(&mut adjustables.glass_refraction_strength),
         "glass_alpha" => Some(&mut adjustables.glass_alpha),
         "glass_glint_strength" => Some(&mut adjustables.glass_glint_strength),
+        "terrain_self_shadow_tolerance_voxels" => Some(&mut adjustables.terrain_self_shadow_tolerance_voxels),
         "vsm_temporal_alpha" => Some(&mut adjustables.vsm_temporal_alpha),
         "leaf_shadow_fragment_opacity" => Some(&mut adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&mut adjustables.leaf_shadow_strength),
