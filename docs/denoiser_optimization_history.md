@@ -83,6 +83,13 @@ measured 0.092688 mean delta and 1.864137 gradient versus 0.092268 and 1.863187 
 History mean improves another 1.21%, while history gradient changes by 0.31%. Factor 0.75 is kept as
 the better noise/detail frontier.
 
+### Rejected: A-Trous wavelet factor 0.85
+
+`wavelet-085-fresh.toml` measured 0.090337 mean delta, 0.001570 noticeable ratio, 0.181972 max
+transition mean, and 1.860823 mean-frame gradient. Relative to 0.75, mean improves only 2.09% and
+noticeable ratio 0.87%; p95/p99 do not improve, while max transition mean regresses 11.66%. The
+small average gain does not improve the visible tail, so the shader remains at 0.75.
+
 ## Fresh-sample guard
 
 `--fresh-samples` forces temporal reset every frame while retaining the spatial filter. Its first
@@ -103,6 +110,7 @@ report both normal-history and fresh-sample results here.
 | Wavelet 0.75 history | `wavelet-075-history.toml` | 0.019742 | 0.000000 | 1.000000 | 0.000075 | 0.092396 |
 | Wavelet 0.75 fresh | `wavelet-075-fresh.toml` | 0.092268 | 0.000000 | 2.000000 | 0.001584 | 0.162968 |
 | Wavelet 0.75 fresh repeat | `wavelet-075-fresh-repeat.toml` | 0.092688 | 0.000000 | 2.000000 | 0.001593 | 0.187123 |
+| Wavelet 0.85 fresh | `wavelet-085-fresh.toml` | 0.090337 | 0.000000 | 2.000000 | 0.001570 | 0.181972 |
 
 The history control remains within the measured run-to-run spread of `7677e9d1`, so the reset push
 constant and report-mode plumbing do not alter normal denoising. The fresh row becomes the
