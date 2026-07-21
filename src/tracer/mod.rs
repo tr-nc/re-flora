@@ -87,6 +87,7 @@ const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
 const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
+const DENOISER_A_TROUS_ITERATION_COUNT: u32 = 3;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -482,7 +483,6 @@ pub struct Tracer {
     #[allow(dead_code)]
     pool: DescriptorPool,
 
-    a_trous_iteration_count: u32,
     world_tick_seconds: f32,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
@@ -719,7 +719,6 @@ impl Tracer {
             render_target_leaf_shadow_opacity,
             render_target_gui,
             pool,
-            a_trous_iteration_count: 3,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
@@ -1063,17 +1062,7 @@ impl Tracer {
         sun_altitude: f32,
         sun_azimuth: f32,
         ambient_light: Vec3,
-        temporal_position_phi: f32,
         temporal_alpha: f32,
-        phi_c: f32,
-        phi_n: f32,
-        phi_p: f32,
-        min_phi_z: f32,
-        max_phi_z: f32,
-        phi_z_stable_sample_count: f32,
-        is_changing_lum_phi: bool,
-        is_spatial_denoising_enabled: bool,
-        a_trous_iteration_count: u32,
         god_ray_max_depth: f32,
         god_ray_max_checks: u32,
         god_ray_weight: f32,
@@ -1262,20 +1251,8 @@ impl Tracer {
         BufferUpdater::update_denoiser_info(
             &mut self.resources.denoiser_resources.temporal_info,
             &mut self.resources.denoiser_resources.spatial_info,
-            temporal_position_phi,
             temporal_alpha,
-            phi_c,
-            phi_n,
-            phi_p,
-            min_phi_z,
-            max_phi_z,
-            phi_z_stable_sample_count,
-            is_changing_lum_phi,
-            is_spatial_denoising_enabled,
         )?;
-
-        // Update the a_trous_iteration_count field
-        self.a_trous_iteration_count = a_trous_iteration_count;
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
@@ -1762,13 +1739,7 @@ impl Tracer {
                 gpu_profiler_frame_slot,
                 cmdbuf,
                 "denoiser.pass",
-                || {
-                    self.record_denoiser_pass(
-                        cmdbuf,
-                        self.a_trous_iteration_count,
-                        reset_denoiser_history,
-                    )
-                },
+                || self.record_denoiser_pass(cmdbuf, reset_denoiser_history),
             )?;
         }
 
@@ -3110,19 +3081,8 @@ impl Tracer {
     fn record_denoiser_pass(
         &self,
         cmdbuf: &CommandBuffer,
-        a_trous_iteration_count: u32,
         reset_history: bool,
     ) -> anyhow::Result<()> {
-        // Validate iteration count - only 1, 3, or 5 are allowed
-        if a_trous_iteration_count != 1
-            && a_trous_iteration_count != 3
-            && a_trous_iteration_count != 5
-        {
-            return Err(anyhow::anyhow!(
-                "A-Trous iteration count must be 1, 3, or 5, got: {}",
-                a_trous_iteration_count
-            ));
-        }
         let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
 
         let extent = self
@@ -3142,7 +3102,7 @@ impl Tracer {
             Some(bytemuck::bytes_of(&temporal_push_constants)),
         );
 
-        for i in 0..a_trous_iteration_count {
+        for i in 0..DENOISER_A_TROUS_ITERATION_COUNT {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.compute_pipelines.spatial_ppl.record(
                 cmdbuf,

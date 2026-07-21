@@ -667,16 +667,10 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Saturation",
     },
     GeneratedGuiParamDescriptor {
-        section: "Temporal",
-        id: "temporal_position_phi",
-        kind: "float",
-        label: "Position Phi",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Temporal",
+        section: "Denoiser",
         id: "temporal_alpha",
         kind: "float",
-        label: "Alpha",
+        label: "Temporal Responsiveness",
     },
     GeneratedGuiParamDescriptor {
         section: "GodRay",
@@ -707,60 +701,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "lens_flare_sun_pixel_scale",
         kind: "float",
         label: "Lens Flare Sun Pixel Scale",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Spatial",
-        id: "phi_c",
-        kind: "float",
-        label: "Phi C",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Spatial",
-        id: "phi_n",
-        kind: "float",
-        label: "Phi N",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Spatial",
-        id: "phi_p",
-        kind: "float",
-        label: "Phi P",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Spatial",
-        id: "min_phi_z",
-        kind: "float",
-        label: "Min Phi Z",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Spatial",
-        id: "max_phi_z",
-        kind: "float",
-        label: "Max Phi Z",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Spatial",
-        id: "phi_z_stable_sample_count",
-        kind: "float",
-        label: "Phi Z Stable Sample Count",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Spatial",
-        id: "is_changing_lum_phi",
-        kind: "bool",
-        label: "Changing Luminance Phi",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Spatial",
-        id: "is_spatial_denoising_enabled",
-        kind: "bool",
-        label: "Enable Spatial Denoising",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Spatial",
-        id: "a_trous_iteration_count",
-        kind: "uint",
-        label: "A-Trous Iterations",
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
@@ -1587,22 +1527,12 @@ pub struct GuiAdjustables {
     pub starlight_darkmatter: crate::gui_adjustables::FloatParam,
     pub starlight_distfading: crate::gui_adjustables::FloatParam,
     pub starlight_saturation: crate::gui_adjustables::FloatParam,
-    pub temporal_position_phi: crate::gui_adjustables::FloatParam,
     pub temporal_alpha: crate::gui_adjustables::FloatParam,
     pub god_ray_max_depth: crate::gui_adjustables::FloatParam,
     pub god_ray_max_checks: crate::gui_adjustables::UintParam,
     pub god_ray_weight: crate::gui_adjustables::FloatParam,
     pub lens_flare_intensity: crate::gui_adjustables::FloatParam,
     pub lens_flare_sun_pixel_scale: crate::gui_adjustables::FloatParam,
-    pub phi_c: crate::gui_adjustables::FloatParam,
-    pub phi_n: crate::gui_adjustables::FloatParam,
-    pub phi_p: crate::gui_adjustables::FloatParam,
-    pub min_phi_z: crate::gui_adjustables::FloatParam,
-    pub max_phi_z: crate::gui_adjustables::FloatParam,
-    pub phi_z_stable_sample_count: crate::gui_adjustables::FloatParam,
-    pub is_changing_lum_phi: crate::gui_adjustables::BoolParam,
-    pub is_spatial_denoising_enabled: crate::gui_adjustables::BoolParam,
-    pub a_trous_iteration_count: crate::gui_adjustables::UintParam,
     pub special_flora_plants_per_release: crate::gui_adjustables::UintParam,
     pub special_flora_cluster_radius_voxels: crate::gui_adjustables::FloatParam,
     pub special_flora_min_spacing_voxels: crate::gui_adjustables::FloatParam,
@@ -1842,22 +1772,12 @@ impl GuiAdjustables {
         let mut starlight_darkmatter_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_distfading_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_saturation_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut temporal_position_phi_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut god_ray_max_depth_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut god_ray_max_checks_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut god_ray_weight_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut lens_flare_intensity_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut lens_flare_sun_pixel_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut phi_c_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut phi_n_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut phi_p_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut min_phi_z_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut max_phi_z_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut phi_z_stable_sample_count_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut is_changing_lum_phi_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut is_spatial_denoising_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut a_trous_iteration_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut special_flora_plants_per_release_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut special_flora_cluster_radius_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut special_flora_min_spacing_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2694,13 +2614,6 @@ impl GuiAdjustables {
                             starlight_saturation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "temporal_position_phi" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            temporal_position_phi_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "temporal_alpha" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -2741,65 +2654,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             lens_flare_sun_pixel_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "phi_c" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            phi_c_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "phi_n" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            phi_n_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "phi_p" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            phi_p_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "min_phi_z" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            min_phi_z_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "max_phi_z" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            max_phi_z_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "phi_z_stable_sample_count" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            phi_z_stable_sample_count_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "is_changing_lum_phi" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            is_changing_lum_phi_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "is_spatial_denoising_enabled" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            is_spatial_denoising_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "a_trous_iteration_count" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            a_trous_iteration_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "special_flora_plants_per_release" => {
@@ -3706,22 +3560,12 @@ impl GuiAdjustables {
             starlight_darkmatter: starlight_darkmatter_field.expect("Missing parameter: starlight_darkmatter"),
             starlight_distfading: starlight_distfading_field.expect("Missing parameter: starlight_distfading"),
             starlight_saturation: starlight_saturation_field.expect("Missing parameter: starlight_saturation"),
-            temporal_position_phi: temporal_position_phi_field.expect("Missing parameter: temporal_position_phi"),
             temporal_alpha: temporal_alpha_field.expect("Missing parameter: temporal_alpha"),
             god_ray_max_depth: god_ray_max_depth_field.expect("Missing parameter: god_ray_max_depth"),
             god_ray_max_checks: god_ray_max_checks_field.expect("Missing parameter: god_ray_max_checks"),
             god_ray_weight: god_ray_weight_field.expect("Missing parameter: god_ray_weight"),
             lens_flare_intensity: lens_flare_intensity_field.expect("Missing parameter: lens_flare_intensity"),
             lens_flare_sun_pixel_scale: lens_flare_sun_pixel_scale_field.expect("Missing parameter: lens_flare_sun_pixel_scale"),
-            phi_c: phi_c_field.expect("Missing parameter: phi_c"),
-            phi_n: phi_n_field.expect("Missing parameter: phi_n"),
-            phi_p: phi_p_field.expect("Missing parameter: phi_p"),
-            min_phi_z: min_phi_z_field.expect("Missing parameter: min_phi_z"),
-            max_phi_z: max_phi_z_field.expect("Missing parameter: max_phi_z"),
-            phi_z_stable_sample_count: phi_z_stable_sample_count_field.expect("Missing parameter: phi_z_stable_sample_count"),
-            is_changing_lum_phi: is_changing_lum_phi_field.expect("Missing parameter: is_changing_lum_phi"),
-            is_spatial_denoising_enabled: is_spatial_denoising_enabled_field.expect("Missing parameter: is_spatial_denoising_enabled"),
-            a_trous_iteration_count: a_trous_iteration_count_field.expect("Missing parameter: a_trous_iteration_count"),
             special_flora_plants_per_release: special_flora_plants_per_release_field.expect("Missing parameter: special_flora_plants_per_release"),
             special_flora_cluster_radius_voxels: special_flora_cluster_radius_voxels_field.expect("Missing parameter: special_flora_cluster_radius_voxels"),
             special_flora_min_spacing_voxels: special_flora_min_spacing_voxels_field.expect("Missing parameter: special_flora_min_spacing_voxels"),
@@ -3925,18 +3769,11 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "starlight_darkmatter" => Some(&adjustables.starlight_darkmatter),
         "starlight_distfading" => Some(&adjustables.starlight_distfading),
         "starlight_saturation" => Some(&adjustables.starlight_saturation),
-        "temporal_position_phi" => Some(&adjustables.temporal_position_phi),
         "temporal_alpha" => Some(&adjustables.temporal_alpha),
         "god_ray_max_depth" => Some(&adjustables.god_ray_max_depth),
         "god_ray_weight" => Some(&adjustables.god_ray_weight),
         "lens_flare_intensity" => Some(&adjustables.lens_flare_intensity),
         "lens_flare_sun_pixel_scale" => Some(&adjustables.lens_flare_sun_pixel_scale),
-        "phi_c" => Some(&adjustables.phi_c),
-        "phi_n" => Some(&adjustables.phi_n),
-        "phi_p" => Some(&adjustables.phi_p),
-        "min_phi_z" => Some(&adjustables.min_phi_z),
-        "max_phi_z" => Some(&adjustables.max_phi_z),
-        "phi_z_stable_sample_count" => Some(&adjustables.phi_z_stable_sample_count),
         "special_flora_cluster_radius_voxels" => Some(&adjustables.special_flora_cluster_radius_voxels),
         "special_flora_min_spacing_voxels" => Some(&adjustables.special_flora_min_spacing_voxels),
         "special_flora_cluster_bias" => Some(&adjustables.special_flora_cluster_bias),
@@ -4057,7 +3894,6 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "glass_ssr_steps" => Some(&adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
-        "a_trous_iteration_count" => Some(&adjustables.a_trous_iteration_count),
         "special_flora_plants_per_release" => Some(&adjustables.special_flora_plants_per_release),
         "cloud_primary_steps" => Some(&adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&adjustables.cloud_light_steps),
@@ -4097,8 +3933,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&adjustables.glass_per_voxel_reflection),
         "terrain_shadow_use_vsm" => Some(&adjustables.terrain_shadow_use_vsm),
-        "is_changing_lum_phi" => Some(&adjustables.is_changing_lum_phi),
-        "is_spatial_denoising_enabled" => Some(&adjustables.is_spatial_denoising_enabled),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
@@ -4214,18 +4048,11 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "starlight_darkmatter" => Some(&mut adjustables.starlight_darkmatter),
         "starlight_distfading" => Some(&mut adjustables.starlight_distfading),
         "starlight_saturation" => Some(&mut adjustables.starlight_saturation),
-        "temporal_position_phi" => Some(&mut adjustables.temporal_position_phi),
         "temporal_alpha" => Some(&mut adjustables.temporal_alpha),
         "god_ray_max_depth" => Some(&mut adjustables.god_ray_max_depth),
         "god_ray_weight" => Some(&mut adjustables.god_ray_weight),
         "lens_flare_intensity" => Some(&mut adjustables.lens_flare_intensity),
         "lens_flare_sun_pixel_scale" => Some(&mut adjustables.lens_flare_sun_pixel_scale),
-        "phi_c" => Some(&mut adjustables.phi_c),
-        "phi_n" => Some(&mut adjustables.phi_n),
-        "phi_p" => Some(&mut adjustables.phi_p),
-        "min_phi_z" => Some(&mut adjustables.min_phi_z),
-        "max_phi_z" => Some(&mut adjustables.max_phi_z),
-        "phi_z_stable_sample_count" => Some(&mut adjustables.phi_z_stable_sample_count),
         "special_flora_cluster_radius_voxels" => Some(&mut adjustables.special_flora_cluster_radius_voxels),
         "special_flora_min_spacing_voxels" => Some(&mut adjustables.special_flora_min_spacing_voxels),
         "special_flora_cluster_bias" => Some(&mut adjustables.special_flora_cluster_bias),
@@ -4346,7 +4173,6 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "glass_ssr_steps" => Some(&mut adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
-        "a_trous_iteration_count" => Some(&mut adjustables.a_trous_iteration_count),
         "special_flora_plants_per_release" => Some(&mut adjustables.special_flora_plants_per_release),
         "cloud_primary_steps" => Some(&mut adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&mut adjustables.cloud_light_steps),
@@ -4386,8 +4212,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&mut adjustables.glass_per_voxel_reflection),
         "terrain_shadow_use_vsm" => Some(&mut adjustables.terrain_shadow_use_vsm),
-        "is_changing_lum_phi" => Some(&mut adjustables.is_changing_lum_phi),
-        "is_spatial_denoising_enabled" => Some(&mut adjustables.is_spatial_denoising_enabled),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),

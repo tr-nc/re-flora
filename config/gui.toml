@@ -1210,29 +1210,18 @@ min = 0
 max = 1
 
 [[section]]
-name = "Temporal"
-
-[[section.param]]
-id = "temporal_position_phi"
-kind = "float"
-label = "Position Phi"
-type = "Float"
-
-[section.param.data]
-value = 0.8
-min = 0
-max = 1
+name = "Denoiser"
 
 [[section.param]]
 id = "temporal_alpha"
 kind = "float"
-label = "Alpha"
+label = "Temporal Responsiveness"
 type = "Float"
 
 [section.param.data]
 value = 0.06
-min = 0
-max = 1
+min = 0.02
+max = 0.3
 
 [[section]]
 name = "GodRay"
@@ -1291,104 +1280,6 @@ type = "Float"
 value = 0.2
 min = 0
 max = 8
-
-[[section]]
-name = "Spatial"
-
-[[section.param]]
-id = "phi_c"
-kind = "float"
-label = "Phi C"
-type = "Float"
-
-[section.param.data]
-value = 0.75
-min = 0
-max = 1
-
-[[section.param]]
-id = "phi_n"
-kind = "float"
-label = "Phi N"
-type = "Float"
-
-[section.param.data]
-value = 20
-min = 0
-max = 100
-
-[[section.param]]
-id = "phi_p"
-kind = "float"
-label = "Phi P"
-type = "Float"
-
-[section.param.data]
-value = 0.05
-min = 0
-max = 1
-
-[[section.param]]
-id = "min_phi_z"
-kind = "float"
-label = "Min Phi Z"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 1
-
-[[section.param]]
-id = "max_phi_z"
-kind = "float"
-label = "Max Phi Z"
-type = "Float"
-
-[section.param.data]
-value = 0.5
-min = 0
-max = 1
-
-[[section.param]]
-id = "phi_z_stable_sample_count"
-kind = "float"
-label = "Phi Z Stable Sample Count"
-type = "Float"
-
-[section.param.data]
-value = 0.05
-min = 0
-max = 1
-
-[[section.param]]
-id = "is_changing_lum_phi"
-kind = "bool"
-label = "Changing Luminance Phi"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
-id = "is_spatial_denoising_enabled"
-kind = "bool"
-label = "Enable Spatial Denoising"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
-id = "a_trous_iteration_count"
-kind = "uint"
-label = "A-Trous Iterations"
-type = "Uint"
-
-[section.param.data]
-value = 3
-min = 1
-max = 5
 
 [[section]]
 name = "Flora"

@@ -14,6 +14,14 @@ use glam::{Mat4, Vec3};
 
 pub struct BufferUpdater;
 
+const TEMPORAL_POSITION_SIMILARITY_MIN: f32 = 0.8;
+const SPATIAL_COLOR_PHI: f32 = 0.75;
+const SPATIAL_NORMAL_POWER: f32 = 20.0;
+const SPATIAL_POSITION_PHI: f32 = 0.05;
+const SPATIAL_DEPTH_FALLOFF_MIN: f32 = 0.0;
+const SPATIAL_DEPTH_FALLOFF_MAX: f32 = 0.5;
+const SPATIAL_STABLE_HISTORY_FRACTION: f32 = 0.05;
+
 impl BufferUpdater {
     pub fn update_camera_info(
         camera_info: &mut re_flora_vkn::Buffer,
@@ -130,67 +138,35 @@ impl BufferUpdater {
 
     pub fn update_temporal_denoiser_info(
         temporal_info: &mut re_flora_vkn::Buffer,
-        temporal_position_phi: f32,
         temporal_alpha: f32,
     ) -> Result<()> {
         temporal_info.fill_uniform(&TemporalInfo {
-            temporal_position_phi,
+            temporal_position_phi: TEMPORAL_POSITION_SIMILARITY_MIN,
             temporal_alpha,
             ..TemporalInfo::zeroed()
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn update_spatial_denoiser_info(
-        spatial_info: &mut re_flora_vkn::Buffer,
-        phi_c: f32,
-        phi_n: f32,
-        phi_p: f32,
-        min_phi_z: f32,
-        max_phi_z: f32,
-        phi_z_stable_sample_count: f32,
-        is_changing_lum_phi: bool,
-        is_spatial_denoising_enabled: bool,
-    ) -> Result<()> {
+    pub fn update_spatial_denoiser_info(spatial_info: &mut re_flora_vkn::Buffer) -> Result<()> {
         spatial_info.fill_uniform(&SpatialInfo {
-            phi_c,
-            phi_n,
-            phi_p,
-            min_phi_z,
-            max_phi_z,
-            phi_z_stable_sample_count,
-            is_changing_lum_phi: is_changing_lum_phi as u32,
-            is_spatial_denoising_enabled: is_spatial_denoising_enabled as u32,
+            phi_c: SPATIAL_COLOR_PHI,
+            phi_n: SPATIAL_NORMAL_POWER,
+            phi_p: SPATIAL_POSITION_PHI,
+            min_phi_z: SPATIAL_DEPTH_FALLOFF_MIN,
+            max_phi_z: SPATIAL_DEPTH_FALLOFF_MAX,
+            phi_z_stable_sample_count: SPATIAL_STABLE_HISTORY_FRACTION,
+            is_changing_lum_phi: 1,
+            is_spatial_denoising_enabled: 1,
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn update_denoiser_info(
         temporal_info: &mut re_flora_vkn::Buffer,
         spatial_info: &mut re_flora_vkn::Buffer,
-        temporal_position_phi: f32,
         temporal_alpha: f32,
-        phi_c: f32,
-        phi_n: f32,
-        phi_p: f32,
-        min_phi_z: f32,
-        max_phi_z: f32,
-        phi_z_stable_sample_count: f32,
-        is_changing_lum_phi: bool,
-        is_spatial_denoising_enabled: bool,
     ) -> Result<()> {
-        Self::update_temporal_denoiser_info(temporal_info, temporal_position_phi, temporal_alpha)?;
-        Self::update_spatial_denoiser_info(
-            spatial_info,
-            phi_c,
-            phi_n,
-            phi_p,
-            min_phi_z,
-            max_phi_z,
-            phi_z_stable_sample_count,
-            is_changing_lum_phi,
-            is_spatial_denoising_enabled,
-        )
+        Self::update_temporal_denoiser_info(temporal_info, temporal_alpha)?;
+        Self::update_spatial_denoiser_info(spatial_info)
     }
 
     #[allow(clippy::too_many_arguments)]
