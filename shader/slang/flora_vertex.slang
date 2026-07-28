@@ -492,9 +492,10 @@ public float3 shadeTreeLeafVertex(float3 baseColor, float shadowWeight,
     float3 viewDirection = toCameraLengthSquared > 1.0e-8
         ? toCamera * rsqrt(toCameraLengthSquared)
         : float3(0.0);
-    float backlightAlignment = max(
-        dot(viewDirection, -normalize(sun_info.sun_dir)), 0.0);
-    float backlightVisibility = smoothstep(0.1, 0.85, backlightAlignment);
+    float backlightAlignment = dot(
+        viewDirection, -normalize(sun_info.sun_dir));
+    float backlightVisibility = smoothstep(
+        -0.75, 0.85, backlightAlignment);
     float outerCanopyWeight = smoothstep(
         0.2, 0.9, clamp(canopyGradient, 0.0, 1.0));
 
