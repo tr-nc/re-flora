@@ -69,7 +69,11 @@ VertexOutput main(VertexInput input)
     float3 baseColor = sampleFloraBaseColor(
         prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,
         instancePosition, prepared.color_gradient, voxelInfo);
-    output.color = shadeFloraVertex(
-        baseColor, prepared.shadow_weight, prepared.voxel_position);
+    output.color = isTreeLeaf
+        ? shadeTreeLeafVertex(
+            baseColor, prepared.shadow_weight, prepared.sun_transmittance,
+            prepared.color_gradient, prepared.voxel_position)
+        : shadeFloraVertex(
+            baseColor, prepared.shadow_weight, prepared.voxel_position);
     return output;
 }

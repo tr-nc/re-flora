@@ -278,6 +278,7 @@ impl BufferUpdater {
         leaf_shadow_strength: f32,
         leaf_shadow_min_transmittance: f32,
         leaf_shadow_filter_radius_texels: f32,
+        leaf_transmission_strength: f32,
         wind_gui_params: WindGuiParams,
         cloud_gui_params: CloudGuiParams,
     ) -> Result<()> {
@@ -360,6 +361,7 @@ impl BufferUpdater {
             leaf_shadow_strength,
             leaf_shadow_min_transmittance,
             leaf_shadow_filter_radius_texels,
+            leaf_transmission_strength,
             clouds_enabled: cloud_gui_params.enabled as u32,
             cloud_coverage: cloud_gui_params.coverage,
             cloud_density: cloud_gui_params.density,

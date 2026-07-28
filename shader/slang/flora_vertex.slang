@@ -6,6 +6,7 @@ import flora_noise;
 import flora_shadow;
 import flora_types;
 import hash;
+import sunlight;
 import terrain_edit_preview;
 import tracer_types;
 
@@ -173,6 +174,7 @@ public struct PreparedFloraVertex
     public float color_gradient;
     public float3 voxel_position;
     public float3 anchor_position;
+    public float sun_transmittance;
     public float shadow_weight;
     public bool should_trim;
 };
@@ -308,11 +310,13 @@ public PreparedFloraVertex prepareFloraVertex(
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *
         FLORA_SCALING_FACTOR + instancePosition;
     result.voxel_position = result.anchor_position + 0.5 * FLORA_SCALING_FACTOR;
-    result.shadow_weight = stylizedVoxelShadowWeight(
+    StylizedVoxelShadowSample shadowSample = sampleStylizedVoxelShadow(
         gui_input, sun_info, shadow_camera_info,
         shadow_map_tex_for_vsm_ping, leaf_shadow_opacity_blended_tex,
         leaf_shadow_mask_tex, cloud_shadow_tex,
         result.voxel_position, float3(voxelLocalPosition));
+    result.sun_transmittance = shadowSample.sun_transmittance;
+    result.shadow_weight = shadowSample.weight;
     return result;
 }
 
@@ -471,6 +475,41 @@ public float3 shadeFloraVertex(float3 baseColor, float shadowWeight,
 {
     float3 litColor = applyStylizedVoxelLighting(
         sun_info, shading_info, baseColor, shadowWeight);
+    return applyTerrainEditPreviewTint(
+        terrain_edit_preview, litColor, voxelPosition);
+}
+
+public float3 shadeTreeLeafVertex(float3 baseColor, float shadowWeight,
+                                  float sunTransmittance,
+                                  float canopyGradient,
+                                  float3 voxelPosition)
+{
+    float3 litColor = applyStylizedVoxelLighting(
+        sun_info, shading_info, baseColor, shadowWeight);
+
+    float3 toCamera = camera_info.pos.xyz - voxelPosition;
+    float toCameraLengthSquared = dot(toCamera, toCamera);
+    float3 viewDirection = toCameraLengthSquared > 1.0e-8
+        ? toCamera * rsqrt(toCameraLengthSquared)
+        : float3(0.0);
+    float backlightAlignment = max(
+        dot(viewDirection, -normalize(sun_info.sun_dir)), 0.0);
+    float backlightVisibility = smoothstep(0.1, 0.85, backlightAlignment);
+    float outerCanopyWeight = smoothstep(
+        0.2, 0.9, clamp(canopyGradient, 0.0, 1.0));
+
+    float sunLuminance = sunLuminanceFromDirection(
+        sun_info.sun_dir, sun_info.sun_luminance);
+    float3 transmissionColor = lerp(
+        baseColor, sqrt(max(baseColor, float3(0.0))), 0.3);
+    float transmissionWeight =
+        backlightVisibility *
+        clamp(sunTransmittance, 0.0, 1.0) *
+        outerCanopyWeight *
+        max(gui_input.leaf_transmission_strength, 0.0);
+    litColor += transmissionColor * sun_info.sun_color *
+                sunLuminance * transmissionWeight;
+
     return applyTerrainEditPreviewTint(
         terrain_edit_preview, litColor, voxelPosition);
 }

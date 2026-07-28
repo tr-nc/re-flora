@@ -1043,6 +1043,7 @@ impl Tracer {
         leaf_shadow_strength: f32,
         leaf_shadow_min_transmittance: f32,
         leaf_shadow_filter_radius_texels: f32,
+        leaf_transmission_strength: f32,
         wind_gui_params: WindGuiParams,
         cloud_gui_params: CloudGuiParams,
         flora_tick: u32,
@@ -1202,6 +1203,7 @@ impl Tracer {
             leaf_shadow_strength,
             leaf_shadow_min_transmittance,
             leaf_shadow_filter_radius_texels,
+            leaf_transmission_strength,
             wind_gui_params,
             cloud_gui_params,
         )?;

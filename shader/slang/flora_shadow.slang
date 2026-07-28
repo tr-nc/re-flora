@@ -91,7 +91,13 @@ float directionWeight(float3 shadingNormal, float3 sunDirection)
     return max(0.7, 1.0 - negativeSide * negativeSide);
 }
 
-public float stylizedVoxelShadowWeight(
+public struct StylizedVoxelShadowSample
+{
+    public float sun_transmittance;
+    public float weight;
+};
+
+public StylizedVoxelShadowSample sampleStylizedVoxelShadow(
     U_GuiInput gui, U_SunInfo sun, U_ShadowCameraInfo shadowCamera,
     Sampler2D terrainShadowMap, Sampler2D leafOpacityMap,
     Sampler2D leafMaskMap, Sampler2D cloudShadowMap,
@@ -104,7 +110,22 @@ public float stylizedVoxelShadowWeight(
         leafOpacityMap, leafMaskMap, gui, shadowCamera.view_proj_mat, worldPosition);
     float cloud = cloudShadowTransmittance(
         cloudShadowMap, gui, shadowCamera.view_proj_mat, worldPosition);
-    return terrain * leaf * cloud * directionWeight(shadingNormal, sun.sun_dir);
+    StylizedVoxelShadowSample result;
+    result.sun_transmittance = terrain * leaf * cloud;
+    result.weight =
+        result.sun_transmittance * directionWeight(shadingNormal, sun.sun_dir);
+    return result;
+}
+
+public float stylizedVoxelShadowWeight(
+    U_GuiInput gui, U_SunInfo sun, U_ShadowCameraInfo shadowCamera,
+    Sampler2D terrainShadowMap, Sampler2D leafOpacityMap,
+    Sampler2D leafMaskMap, Sampler2D cloudShadowMap,
+    float3 voxelCenter, float3 shadingNormal)
+{
+    return sampleStylizedVoxelShadow(
+        gui, sun, shadowCamera, terrainShadowMap, leafOpacityMap, leafMaskMap,
+        cloudShadowMap, voxelCenter, shadingNormal).weight;
 }
 
 public float3 applyStylizedVoxelLighting(U_SunInfo sun, U_ShadingInfo shading,

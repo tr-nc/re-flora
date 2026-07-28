@@ -3290,6 +3290,10 @@ impl App {
                             .adjustables
                             .leaf_shadow_filter_radius_texels
                             .value,
+                        self.debug_settings
+                            .adjustables
+                            .leaf_transmission_strength
+                            .value,
                         wind_gui_params,
                         cloud_gui_params,
                         self.flora_tick,

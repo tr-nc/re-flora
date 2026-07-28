@@ -68,6 +68,7 @@ public struct U_GuiInput
     public float leaf_shadow_strength;
     public float leaf_shadow_min_transmittance;
     public float leaf_shadow_filter_radius_texels;
+    public float leaf_transmission_strength;
     public uint clouds_enabled;
     public float cloud_coverage;
     public float cloud_density;

@@ -2340,6 +2340,17 @@ max = 1
 name = "Leaves"
 
 [[section.param]]
+id = "leaf_transmission_strength"
+kind = "float"
+label = "Sunlight Transmission Strength"
+type = "Float"
+
+[section.param.data]
+value = 0.35
+min = 0
+max = 2
+
+[[section.param]]
 id = "leaves_bottom_color"
 kind = "color"
 label = "Bottom Color"
