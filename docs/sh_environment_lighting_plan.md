@@ -1,0 +1,310 @@
+# SH Environment Lighting Plan
+
+## Background
+
+Re: Flora currently has two lighting paths that meet only at composition:
+
+- terrain is rendered by the compute tracer;
+- flora, tree leaves, particles, fruit, and props are rendered by raster pipelines.
+
+The terrain tracer evaluates a primary voxel hit, direct sun lighting, fixed ambient light, and an
+optional stochastic diffuse second ray. The second ray samples one cosine-weighted direction, traces
+the voxel scene, and returns sun-lit one-bounce color from the secondary hit. One sample per pixel is
+noisy, so the terrain color is passed through temporal accumulation and an A-Trous spatial denoiser.
+
+Raster flora and leaves do not exist in the terrain acceleration structure. They animate in the
+vertex shader, sample the sun/terrain/leaf/cloud shadow resources, and currently combine direct sun
+with the same fixed ambient color. Their fragment shaders receive an already-lit interpolated color.
+This is efficient for moving vegetation, but it means terrain and raster objects do not yet share a
+real environment-lighting representation.
+
+The project is expected to add environment lighting and local light sources. A stable shared
+environment representation is useful before local-light selection becomes complex:
+
+- terrain and raster vegetation should receive the same sky/environment diffuse light;
+- moving vegetation should evaluate lighting at its current animated position without entering the
+  terrain acceleration structure;
+- the normal gameplay path should avoid a full-resolution stochastic second ray when a stable
+  low-frequency representation provides sufficient quality;
+- ReSTIR should remain an optional scaling mechanism for many expensive light candidates, not a
+  prerequisite for the first environment-lighting implementation.
+
+The main terrain radiance denoiser is distinct from the temporal filters used by animated leaf
+shadows, VSM, and clouds. Removing the stochastic second ray may make the main radiance denoiser
+unnecessary, but it does not automatically remove those independent histories.
+
+## Goal
+
+Introduce a shared spherical-harmonic environment irradiance path that can be evaluated by both the
+terrain tracer and raster-rendered objects.
+
+The initial result should:
+
+1. replace fixed ambient lighting with directional, linear-HDR sky/environment diffuse lighting;
+2. use one SH convention and one shader evaluator across terrain, flora, leaves, and other stylized
+   raster objects;
+3. keep direct sun, local direct lights, and their visibility separate from SH environment light;
+4. allow the stochastic terrain second ray to be disabled and then removed if release-mode quality
+   and performance validation accept the SH result;
+5. allow the main terrain radiance denoiser to be disabled and then removed if the remaining direct
+   shadow signal is stable enough without it;
+6. leave a clean extension point for local probe SH and ReSTIR DI without requiring either in the
+   first implementation.
+
+## Non-goals
+
+- Do not put animated flora or leaves into the terrain voxel acceleration structure.
+- Do not implement local light sources in the initial SH step.
+- Do not implement ReSTIR in the initial SH step.
+- Do not use SH for sharp direct sun, sharp local lights, or specular reflections.
+- Do not treat SH as a replacement for local visibility, contact shadowing, or detailed color
+  bleeding.
+- Do not remove leaf-shadow, VSM, or cloud temporal reconstruction as part of main radiance-denoiser
+  cleanup.
+- Do not rewrite the raster vegetation path into a deferred/G-buffer renderer in this phase.
+
+## Lighting Model
+
+Normal gameplay should move toward:
+
+```text
+terrain primary hit or animated raster surface
+    -> material/albedo and stylized normal
+    -> direct sun * sun visibility
+    -> direct local lights * per-light visibility        (future)
+    -> shared environment irradiance SH
+    -> optional local probe irradiance                   (future)
+    -> final color
+```
+
+The first SH representation should contain diffuse environment irradiance only:
+
+- use linear HDR values;
+- exclude the explicit sun disc and other lights already evaluated as direct lighting;
+- store cosine-convolved irradiance coefficients so shader consumers only evaluate the SH basis and
+  multiply by albedo;
+- begin with second-order SH (nine RGB coefficients), while retaining release measurements that can
+  justify a lower-order representation if vegetation bandwidth or register pressure is material;
+- define the world-space coordinate convention and coefficient ordering in one shared shader module.
+
+The public shader-facing API should be position-aware even while the first implementation is global:
+
+```text
+sampleEnvironmentIrradiance(world_position, normal) -> linear RGB irradiance
+```
+
+The global implementation may ignore `world_position`. Keeping it in the contract allows a later
+probe grid to interpolate spatially varying SH without changing every material call site.
+
+## Source and Update Policy
+
+SH coefficient generation must stay consistent with the visible environment:
+
+- derive coefficients from the same authored sky/environment parameters used by composition;
+- update coefficients when the environment revision changes, including meaningful sun/time-of-day
+  changes;
+- avoid counting the direct sun twice;
+- do not temporally smooth deterministic coefficient updates unless a measured visual discontinuity
+  requires it;
+- add an explicit environment revision so future local probes can invalidate or refresh predictably.
+
+The implementation should choose the coefficient-generation location only after a small parity
+prototype:
+
+1. CPU integration is acceptable if sky parameters have a single source of truth and CPU/shader
+   parity is tested.
+2. GPU coefficient generation is acceptable if it reuses the shader sky model without introducing
+   a costly per-frame reduction or synchronization path.
+3. A precomputed time-of-day table is acceptable only if interpolation and authored-sky changes stay
+   maintainable.
+
+The chosen method should be documented with its error and update cost rather than selected by
+assumption.
+
+## Implementation Plan
+
+### Phase 1: Establish a measurable baseline
+
+- Capture fixed-camera day, sunset, and night reference images.
+- Record a moving-camera and windy-vegetation reference.
+- Run the release `render-steady` scenario and retain `frame.render`, `tracer.render`,
+  `tracer.pass`, and `denoiser.pass` evidence where available.
+- Record current denoiser history and fresh-sample metrics.
+- Separate current second-ray contribution from direct sun and ambient in diagnostic captures so the
+  visual behavior being replaced is explicit.
+
+### Phase 2: Define and validate the SH contract
+
+- Add an environment-lighting resource containing nine aligned RGB irradiance coefficients and an
+  environment revision.
+- Add shared SH basis/evaluation helpers used by compute and raster shaders.
+- Define coefficient order, handedness, up axis, normalization, and cosine-convolution convention.
+- Add deterministic tests or validation utilities for:
+  - constant-color environment;
+  - upper-hemisphere environment;
+  - a rotated directional lobe;
+  - non-negative/clamped final diffuse irradiance policy, if clamping is required.
+- Decide and document CPU, GPU, or table-based coefficient generation using a parity comparison
+  against direct numerical environment integration.
+
+### Phase 3: Integrate SH into the terrain tracer
+
+- Evaluate environment irradiance at the primary terrain hit.
+- Keep direct sun and its terrain/leaf/cloud transmittance unchanged.
+- Add a temporary development comparison switch between:
+  - current fixed ambient plus stochastic second ray;
+  - SH environment irradiance without the second ray.
+- Do not keep a permanent user-facing formula/tuning matrix if the comparison has selected one
+  production path.
+- Validate daylight, sunset, night, upward/downward normals, cavities, and newly exposed terrain.
+- If global SH makes enclosed or downward-facing regions implausibly bright, evaluate a cheap
+  environment-visibility or bent-normal term before introducing full probes.
+
+### Phase 4: Integrate SH into raster lighting
+
+- Route the same environment resource through flora, leaves, fruit, particles, sprinkler, and other
+  stylized raster consumers that currently call the shared sun-plus-ambient helper.
+- Evaluate SH using each consumer's current animated world position and existing stylized normal.
+- Keep the first integration in the current vertex-lit architecture unless measurements or visible
+  interpolation artifacts justify fragment lighting.
+- Preserve tree-leaf transmission as a direct-sun effect; do not fold it into SH.
+- Confirm full-resolution and LOD vegetation use the same environment-lighting path.
+
+### Phase 5: Retire the stochastic second ray
+
+- Compare the SH path against the baseline using fixed and moving cameras.
+- Check whether lost local terrain bounce/color bleeding is acceptable for the intended stylized
+  outdoor scene.
+- If necessary, add a bounded environment-visibility approximation rather than immediately restoring
+  per-pixel stochastic GI.
+- Remove the normal-gameplay second ray only after the SH path is visually accepted.
+- Remove the old runtime branch and dead shader resources in a separate validated commit.
+- Keep an offline or development-only reference mode only if it remains useful for probe validation
+  and does not burden the production shader.
+
+### Phase 6: Reassess the main terrain radiance denoiser
+
+- First run the raw SH-lit tracer without temporal or spatial radiance denoising.
+- Inspect:
+  - PCSS shimmer from frame-varying sample patterns;
+  - terrain edge aliasing;
+  - animated leaf-shadow response on terrain;
+  - camera-motion stability;
+  - terrain-edit response.
+- Prefer filtering the remaining noisy visibility signal directly over filtering final RGB radiance.
+- If the raw result is stable, remove the main temporal and A-Trous radiance passes and their
+  normal/position/voxel-ID/motion/accumulation history resources.
+- Keep leaf-shadow, VSM, cloud, and future probe histories independent.
+- Commit denoiser removal separately from second-ray removal so performance and visual effects remain
+  attributable.
+
+### Phase 7: Add spatially varying irradiance only when needed
+
+If global SH cannot represent terrain cavities, structures, or local bounce, extend
+`sampleEnvironmentIrradiance` with a chunk-aligned or camera-relative probe volume:
+
+- store local irradiance SH plus confidence/visibility metadata;
+- update a bounded subset of dirty probes per frame;
+- trace terrain from probes using the existing voxel traversal;
+- sample the visible sky on a miss;
+- invalidate nearby probes after terrain or environment revisions;
+- allow raster vegetation to receive probe lighting without becoming traceable terrain geometry.
+
+Direct moving local lights should still be evaluated directly. Do not hide sharp local-light changes
+inside a slowly updated probe field.
+
+### Phase 8: Add local lights, then evaluate ReSTIR from evidence
+
+- Introduce a common local-light candidate description with stable light identity, type,
+  position/direction, radiance, range, sampling PDF, and shadow policy.
+- Start with per-chunk, tiled, or clustered light lists and a bounded direct-light loop.
+- Define shadow tiers separately:
+  - sun keeps the detailed animated-leaf opacity path;
+  - important local lights may receive dedicated shadows;
+  - ordinary local lights may use terrain-only or no shadows;
+  - decorative lights may remain unshadowed.
+- Do not expect ReSTIR to make raster leaves visible to the voxel tracer; foliage visibility still
+  needs its own representation.
+- Prototype ReSTIR DI only when release measurements show that candidate traversal or visibility
+  queries are a material cost.
+
+ReSTIR entry criteria:
+
+- many simultaneously relevant local/emissive/environment candidates;
+- a bounded direct-light loop no longer meets the frame budget;
+- evaluating one or a few selected visibility queries can replace many expensive queries;
+- reservoir memory and passes fit macOS/MoltenVK limits;
+- temporal rejection remains stable with moving vegetation and camera motion;
+- the candidate beats clustered/chunk lighting in release A/B runs at comparable image quality.
+
+## Validation Plan
+
+Every shader or Rust implementation step should follow the repository validation ladder:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --auto-exit 0.5
+cargo run --release -- --tail-latest-log 200
+```
+
+Performance conclusions require release-mode app measurements. Use the checked-in performance and
+denoiser benchmark tooling, fixed camera snapshots, repeated runs, and order-reversed A/B execution
+where appropriate.
+
+Visual validation should cover:
+
+- day, sunset, and night;
+- open sky, downward-facing surfaces, terrain cavities, and under-canopy regions;
+- fixed and moving cameras;
+- calm and high-wind vegetation;
+- terrain edits and time-of-day changes;
+- full-resolution and LOD flora/leaves;
+- SH enabled with second ray disabled;
+- raw tracer output with the main radiance denoiser disabled.
+
+Acceptance should check both consistency and intent:
+
+- terrain and raster objects receive the same environment hue and directionality;
+- explicit sun is not double-counted in SH;
+- moving vegetation responds immediately to environment changes;
+- removing the second ray does not produce unacceptable loss of scene readability;
+- removing the main radiance denoiser does not expose unacceptable shimmer;
+- leaf-shadow/VSM/cloud histories continue to behave independently;
+- the SH path improves or preserves the release frame budget on target GPUs, including macOS.
+
+## Risks
+
+- Global SH has no local visibility and can over-light cavities or areas beneath dense canopies.
+- Low-order SH cannot represent sharp environment features; those must remain direct lights or use a
+  different representation.
+- Duplicating the sky model between CPU and shader can make visible sky and irradiance drift apart.
+- Evaluating high-order SH per vegetation vertex may add bandwidth/register cost despite being much
+  cheaper than ray traversal.
+- Removing the radiance denoiser may expose PCSS temporal noise that was previously hidden.
+- Local probe updates can leak, lag, or become expensive after widespread terrain/environment
+  changes.
+- ReSTIR cannot solve missing foliage visibility data and should not be introduced as a substitute
+  for an explicit shadow policy.
+
+## Checklist
+
+- [x] Record the background, target architecture, non-goals, and staged plan.
+- [ ] Capture current visual, denoiser, and release performance baselines.
+- [ ] Define the SH coefficient convention and shared shader evaluator.
+- [ ] Select and validate the SH coefficient-generation method.
+- [ ] Add the global environment irradiance resource and revision tracking.
+- [ ] Integrate SH into the terrain tracer behind a temporary comparison path.
+- [ ] Integrate SH into all relevant raster flora/leaf/prop lighting paths.
+- [ ] Validate terrain/raster lighting consistency across time of day and motion.
+- [ ] Decide whether global SH needs a cheap environment-visibility term.
+- [ ] Remove the stochastic normal-gameplay second ray after visual acceptance.
+- [ ] Re-test raw tracer stability without the main radiance denoiser.
+- [ ] Remove the main radiance denoiser only if shadow and camera-motion stability pass.
+- [ ] Confirm leaf-shadow, VSM, and cloud temporal paths remain independent.
+- [ ] Run formatting, checks, tests, hidden muted release validation, and inspect logs.
+- [ ] Run release A/B performance and image-quality comparisons.
+- [ ] Document whether and when local probe SH is required.
+- [ ] Add local-light candidate/list infrastructure before considering ReSTIR.
+- [ ] Implement ReSTIR DI only after its entry criteria are met.
