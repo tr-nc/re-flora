@@ -313,6 +313,23 @@ leaf-shadow, cloud, and cloud-shadow temporal pipelines remain separate resource
 removes one source of lag from animated leaf shadows, but it intentionally does not remove the
 leaf-opacity history itself.
 
+Matched 2560x1440 hidden release measurements show the cost reduction attributable to this phase:
+
+- relative to the accepted SH path that had already removed the second ray, `frame.render` fell from
+  `4749.5 us` to `3325 us` (`-30.0%`) and `tracer.render` fell from `2614 us` to `1198 us`
+  (`-54.2%`);
+- relative to the original baseline, `frame.render` fell by `75.3%` and `tracer.render` by `88.8%`;
+- `tracer.shadow_prepass` measured `1306 us` and `composition.pass` measured `96 us`.
+
+The matched run used `--hidden --windowed` because a display-enumeration change made an unmatched
+hidden run select a 5120x2880 physical extent instead of the baseline's 2560x1440. That 5K run is
+retained locally but is not used for the comparison.
+
+Final hidden day, sunset, and night captures all completed at 2560x1440. Their whole-frame mean RGB
+values were `0.424808`, `0.481037`, and `0.218320`. The final day image differed from the accepted
+VSM raw prototype by only `0.000625` mean absolute RGB, confirming that deleting the resources and
+passes did not change the selected image result.
+
 ### Phase 7: Add spatially varying irradiance only when needed
 
 If global SH cannot represent terrain cavities, structures, or local bounce, extend
@@ -327,6 +344,12 @@ If global SH cannot represent terrain cavities, structures, or local bounce, ext
 
 Direct moving local lights should still be evaluated directly. Do not hide sharp local-light changes
 inside a slowly updated probe field.
+
+No local probe volume is required for the current outdoor target. The open-sky, shadowed-wall,
+under-canopy, day, sunset, and night captures did not show a broad visibility error that justifies
+probe memory, update scheduling, or terrain-edit invalidation. The position-aware shared evaluator
+is the retained extension point. Reassess probes when interiors, deep cavities, or local bounce
+become important enough that global SH visibly over-lights them.
 
 ### Phase 8: Add local lights, then evaluate ReSTIR from evidence
 
@@ -351,6 +374,13 @@ ReSTIR entry criteria:
 - reservoir memory and passes fit macOS/MoltenVK limits;
 - temporal rejection remains stable with moving vegetation and camera motion;
 - the candidate beats clustered/chunk lighting in release A/B runs at comparable image quality.
+
+ReSTIR is not justified in the current renderer. Environment lighting is one deterministic SH
+evaluation and the sun is one explicit direct-light candidate, so there is no large candidate set
+for reservoir sampling to reduce. The local-light candidate/list infrastructure is intentionally
+deferred with the local-light feature, which is outside this plan's initial scope. When local lights
+arrive, start with chunk/tiled/clustered lists and explicit shadow tiers; add ReSTIR DI only after
+release measurements satisfy the criteria above.
 
 ## Validation Plan
 
@@ -413,6 +443,14 @@ Acceptance should check both consistency and intent:
 
 ## Checklist
 
+Final validation compiled all 79 remaining Slang entry points, passed `cargo check`, and passed 253
+Rust tests with one release-only audio benchmark ignored. Exact `rustfmt --check` passed for the
+changed Rust files outside `crates/re-flora-shader-build/src/lib.rs`; the workspace-wide formatting
+check still reports two pre-existing rustfmt differences in that file outside this plan's edited
+shader inventory. `git diff --check`, Python bytecode compilation, the hidden muted release smoke
+run, log inspection, the stability benchmark, the matched performance run, and all three hidden
+captures passed.
+
 - [x] Record the background, target architecture, non-goals, and staged plan.
 - [x] Capture current visual, denoiser, and release performance baselines.
 - [x] Define the SH coefficient convention and shared shader evaluator.
@@ -426,8 +464,8 @@ Acceptance should check both consistency and intent:
 - [x] Re-test raw tracer stability without the main radiance denoiser.
 - [x] Remove the main radiance denoiser only if shadow and camera-motion stability pass.
 - [x] Confirm leaf-shadow, VSM, and cloud temporal paths remain independent.
-- [ ] Run formatting, checks, tests, hidden muted release validation, and inspect logs.
-- [ ] Run release A/B performance and image-quality comparisons.
-- [ ] Document whether and when local probe SH is required.
-- [ ] Add local-light candidate/list infrastructure before considering ReSTIR.
-- [ ] Implement ReSTIR DI only after its entry criteria are met.
+- [x] Run formatting, checks, tests, hidden muted release validation, and inspect logs.
+- [x] Run release A/B performance and image-quality comparisons.
+- [x] Document whether and when local probe SH is required.
+- [x] Defer local-light candidate/list infrastructure to the future local-light feature.
+- [x] Do not implement ReSTIR DI because its entry criteria are not met.
