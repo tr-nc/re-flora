@@ -115,6 +115,7 @@ public struct U_ShadingInfo
     public uint environment_revision;
     public uint3 environment_probe_grid_dimensions;
     public float3 environment_probe_world_to_grid_scale;
+    public uint environment_probe_uniform_field;
 };
 
 public struct U_CameraInfo

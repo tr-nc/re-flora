@@ -81,7 +81,7 @@ use re_flora_vkn::{
     ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue, DescriptorPool,
     Extent2D, Extent3D, Framebuffer, GpuProfiler, GraphicsPipeline, MemoryAccess, MemoryBarrier,
     PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget, Texture,
-    TextureLayout, Viewport, VulkanContext,
+    TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
 };
 use std::collections::HashMap;
 
@@ -89,6 +89,8 @@ const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
 const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
+const ENVIRONMENT_PROBE_COEFFICIENT_BINDING: u32 = 18;
+const ENVIRONMENT_PROBE_SUMMARY_BINDING: u32 = 19;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -770,10 +772,8 @@ impl Tracer {
         self.vulkan_ctx.device().wait_idle();
         self.environment_probes = replacement;
         self.environment_probe_seeded_revision = 0;
+        self.update_environment_probe_consumer_descriptors();
         let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.environment_probes];
-        self.compute_pipelines
-            .environment_probe_global_copy_ppl
-            .auto_update_descriptor_sets(&resources)?;
         self.graphics_pipelines
             .environment_probe_visualization_depth_ppl
             .auto_update_descriptor_sets(&resources)?;
@@ -1030,8 +1030,11 @@ impl Tracer {
         );
     }
 
-    fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 1] {
-        [&self.resources as &dyn ResourceContainer]
+    fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
+        [
+            &self.resources as &dyn ResourceContainer,
+            &self.environment_probes as &dyn ResourceContainer,
+        ]
     }
 
     fn all_descriptor_resources<'a>(
@@ -1039,13 +1042,57 @@ impl Tracer {
         contree_builder_resources: &'a ContreeBuilderResources,
         scene_accel_resources: &'a SceneAccelBuilderResources,
         plain_builder_resources: &'a PlainBuilderResources,
-    ) -> [&'a dyn ResourceContainer; 4] {
+    ) -> [&'a dyn ResourceContainer; 5] {
         [
             &self.resources as &dyn ResourceContainer,
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
             plain_builder_resources as &dyn ResourceContainer,
+            &self.environment_probes as &dyn ResourceContainer,
         ]
+    }
+
+    fn update_environment_probe_consumer_descriptors(&self) {
+        let coefficients = &self.environment_probes.environment_probe_coefficients;
+        let summaries = &self.environment_probes.environment_probe_summaries;
+        for pipeline in [
+            &self.compute_pipelines.environment_probe_global_copy_ppl,
+            &self.compute_pipelines.tracer_ppl,
+        ] {
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    ENVIRONMENT_PROBE_COEFFICIENT_BINDING,
+                    coefficients,
+                ),
+            );
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
+            );
+        }
+        for pipeline in [
+            &self.graphics_pipelines.flora_ppl,
+            &self.graphics_pipelines.flora_lod_ppl,
+            &self.graphics_pipelines.leaves_ppl,
+            &self.graphics_pipelines.leaves_lod_ppl,
+            &self.graphics_pipelines.sprinkler_ppl,
+            &self.graphics_pipelines.dynamic_fruit_ppl,
+            &self.graphics_pipelines.particle_ppl,
+            &self.graphics_pipelines.water_droplet_ppl,
+        ] {
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    ENVIRONMENT_PROBE_COEFFICIENT_BINDING,
+                    coefficients,
+                ),
+            );
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
+            );
+        }
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -1521,6 +1568,15 @@ impl Tracer {
 
         if self.environment_probe_environment_revision != self.environment_probe_seeded_revision {
             let previous_revision = self.environment_probe_seeded_revision;
+            let probe_read_to_write_barrier = PipelineBarrier::new(
+                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
+                PipelineStage::COMPUTE_SHADER,
+                [MemoryBarrier::new(
+                    MemoryAccess::SHADER_READ,
+                    MemoryAccess::SHADER_WRITE,
+                )],
+            );
+            probe_read_to_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,

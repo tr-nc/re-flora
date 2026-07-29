@@ -360,6 +360,7 @@ impl PipelineBuilder {
                 contree_builder_resources,
                 scene_accel_resources,
                 plain_builder_resources,
+                environment_probes,
             ],
         );
 
@@ -513,7 +514,10 @@ impl PipelineBuilder {
         plain_builder_resources: &PlainBuilderResources,
         environment_probes: &EnvironmentProbeVolume,
     ) -> GraphicsPipelines {
-        let flora_resources: [&dyn ResourceContainer; 2] = [resources, plain_builder_resources];
+        let flora_resources: [&dyn ResourceContainer; 3] =
+            [resources, plain_builder_resources, environment_probes];
+        let environment_lighting_resources: [&dyn ResourceContainer; 2] =
+            [resources, environment_probes];
         let flora_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
             &shader_modules.flora_vert_sm,
@@ -541,7 +545,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
-            &[resources],
+            &environment_lighting_resources,
         );
 
         let leaves_lod_ppl = Self::create_gfx_pipeline(
@@ -551,7 +555,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
-            &[resources],
+            &environment_lighting_resources,
         );
 
         let leaves_shadow_lod_ppl = Self::create_gfx_pipeline_with_desc(
@@ -577,7 +581,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             Some(5),
             pool,
-            &[resources],
+            &environment_lighting_resources,
         );
 
         let geometry_preview_ppl = Self::create_gfx_pipeline_with_desc(
@@ -636,7 +640,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             Some(4),
             pool,
-            &[resources],
+            &environment_lighting_resources,
             GraphicsPipelineDesc {
                 cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: true,
@@ -668,7 +672,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             Some(1),
             pool,
-            &[resources],
+            &environment_lighting_resources,
         );
         let water_droplet_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
@@ -677,7 +681,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             Some(1),
             pool,
-            &[resources],
+            &environment_lighting_resources,
             GraphicsPipelineDesc {
                 cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: true,

@@ -63,6 +63,23 @@ pub struct EditStats {
     pub added_counts: [u32; 8],
 }
 
+/// Auto-generated from `B_EnvironmentProbeCoefficients` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct EnvironmentProbeCoefficients {
+    pub coefficients: [u32; 36],
+}
+
+/// Auto-generated from `B_EnvironmentProbeSummaries` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct EnvironmentProbeSummaries {
+    pub original_position_visibility: [f32; 4],
+    pub sample_position_confidence: [f32; 4],
+    pub revisions_state: [u32; 4],
+    pub update_info: [u32; 4],
+}
+
 /// Auto-generated from `B_FloraVoxelInfos` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -615,7 +632,7 @@ pub struct ShadingInfo {
     pub environment_probe_grid_dimensions: [u32; 3],
     pub _pad1: [u8; 4],
     pub environment_probe_world_to_grid_scale: [f32; 3],
-    pub _pad2: [u8; 4],
+    pub environment_probe_uniform_field: u32,
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

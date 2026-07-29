@@ -351,7 +351,7 @@ phase begins.
 - [x] Add deterministic grid and interpolation-coordinate tests.
 - [x] Visualize all probes with low-cost instanced markers.
 - [x] Add visualization modes, filters, and separate GPU timing.
-- [ ] Route terrain and raster lighting through global-copy probe sampling.
+- [x] Route terrain and raster lighting through global-copy probe sampling.
 - [ ] Trace deterministic terrain visibility from valid probes.
 - [ ] Recompute local SH on environment revisions without terrain retracing.
 - [ ] Reject wall, roof, portal, and invalid-probe light leaks.
@@ -416,4 +416,36 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-lighting-test-scene \
   --environment-probe-spacing-voxels 16 \
   --auto-exit 8 --perf
+```
+
+### Phase 3 Evidence
+
+An environment-revision-triggered GPU pass copies the current global L2 SH coefficients into every
+probe and marks the complete grid valid without a full-volume CPU upload. The 16-voxel hidden run
+reported revision 1 and 35,937/35,937 valid probes. A compute-to-compute/vertex barrier makes the
+new coefficients visible to terrain and raster consumers in the same command buffer; a preceding
+read-to-write barrier protects replacement while earlier queued consumers may still be reading.
+
+Terrain, full-resolution and LOD flora/leaves, sprinklers, dynamic fruit, and particles now share
+the position-and-normal probe sampler. Global-copy mode uses a uniform-field fast path: it selects
+and validates the nearest probe at the requested world position and reads nine SH coefficients.
+The eight-neighbor interpolation path is retained for the later spatially varying field. Missing,
+invalid, or environment-revision-mismatched data falls back to the uniform global SH immediately.
+
+The roof/chamber terrain crop from matched before/after hidden screenshots measured SSIM 0.998584
+and PSNR 59.25 dB; remaining differences were subpixel-level. The first implementation
+unnecessarily loaded eight identical probes and raised `frame.render` from 5,325.48 to 6,136.59 us.
+The uniform-field fast path reduced the matched 23-sample average to 5,403.17 us. Its internal
+`tracer.render`/`graphics.pass` scopes measured 3,182.13/2,407.26 us versus the direct-global
+baseline's 2,977.22/2,141.04 us. Phase 7 must remeasure and optimize the truly local interpolation
+path; the global-copy bridge itself is not assumed free.
+
+The phase used the normal formatting/check/test ladder and:
+
+```bash
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --screenshot player-default target/environment-probes-global-copy-fast.png \
+  --screenshot-delay 4 --auto-exit 8 --perf
 ```

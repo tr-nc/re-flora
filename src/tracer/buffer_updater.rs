@@ -66,6 +66,7 @@ impl BufferUpdater {
             environment_revision: environment.revision,
             environment_probe_grid_dimensions: probe_dimensions.to_array(),
             environment_probe_world_to_grid_scale: probe_world_to_grid_scale.to_array(),
+            environment_probe_uniform_field: 1,
             ..ShadingInfo::zeroed()
         })
     }

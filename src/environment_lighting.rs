@@ -346,4 +346,25 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn terrain_and_raster_consumers_share_the_probe_sampler_contract() {
+        let shared = include_str!("../shader/slang/environment_lighting.slang");
+        let terrain = include_str!("../shader/slang/tracer.slang");
+        let raster = include_str!("../shader/slang/flora_shadow.slang");
+
+        assert!(shared.contains("worldPosition * lighting.environment_probe_world_to_grid_scale"));
+        assert!(shared.contains("environment_probe_coefficients.data[probeIndex]"));
+        assert!(shared.contains("environment_probe_summaries.data[probeIndex]"));
+        assert!(terrain.contains("sampleEnvironmentIrradiance("));
+        assert!(raster.contains("sampleEnvironmentIrradiance("));
+        for consumer in [
+            include_str!("../shader/slang/flora.vert.slang"),
+            include_str!("../shader/slang/flora_lod.vert.slang"),
+            include_str!("../shader/slang/leaves.vert.slang"),
+            include_str!("../shader/slang/leaves_lod.vert.slang"),
+        ] {
+            assert!(consumer.contains("import flora_vertex;"));
+        }
+    }
 }
