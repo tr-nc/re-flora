@@ -173,6 +173,7 @@ public struct PreparedFloraVertex
     public bool is_grass;
     public float color_gradient;
     public float3 voxel_position;
+    public float3 shading_normal;
     public float3 anchor_position;
     public float sun_transmittance;
     public float shadow_weight;
@@ -310,11 +311,12 @@ public PreparedFloraVertex prepareFloraVertex(
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *
         FLORA_SCALING_FACTOR + instancePosition;
     result.voxel_position = result.anchor_position + 0.5 * FLORA_SCALING_FACTOR;
+    result.shading_normal = float3(voxelLocalPosition);
     StylizedVoxelShadowSample shadowSample = sampleStylizedVoxelShadow(
         gui_input, sun_info, shadow_camera_info,
         shadow_map_tex_for_vsm_ping, leaf_shadow_opacity_blended_tex,
         leaf_shadow_mask_tex, cloud_shadow_tex,
-        result.voxel_position, float3(voxelLocalPosition));
+        result.voxel_position, result.shading_normal);
     result.sun_transmittance = shadowSample.sun_transmittance;
     result.shadow_weight = shadowSample.weight;
     return result;
@@ -471,10 +473,11 @@ public float4 projectFloraPosition(float3 worldPosition)
 }
 
 public float3 shadeFloraVertex(float3 baseColor, float shadowWeight,
-                               float3 voxelPosition)
+                               float3 voxelPosition, float3 shadingNormal)
 {
     float3 litColor = applyStylizedVoxelLighting(
-        sun_info, shading_info, baseColor, shadowWeight);
+        gui_input, sun_info, shading_info, baseColor, shadowWeight,
+        voxelPosition, shadingNormal);
     return applyTerrainEditPreviewTint(
         terrain_edit_preview, litColor, voxelPosition);
 }
@@ -482,10 +485,12 @@ public float3 shadeFloraVertex(float3 baseColor, float shadowWeight,
 public float3 shadeTreeLeafVertex(float3 baseColor, float shadowWeight,
                                   float sunTransmittance,
                                   float canopyGradient,
-                                  float3 voxelPosition)
+                                  float3 voxelPosition,
+                                  float3 shadingNormal)
 {
     float3 litColor = applyStylizedVoxelLighting(
-        sun_info, shading_info, baseColor, shadowWeight);
+        gui_input, sun_info, shading_info, baseColor, shadowWeight,
+        voxelPosition, shadingNormal);
 
     float3 toCamera = camera_info.pos.xyz - voxelPosition;
     float toCameraLengthSquared = dot(toCamera, toCamera);

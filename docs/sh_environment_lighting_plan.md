@@ -232,6 +232,17 @@ acceptance item before retiring the comparison path.
 - Preserve tree-leaf transmission as a direct-sun effect; do not fold it into SH.
 - Confirm full-resolution and LOD vegetation use the same environment-lighting path.
 
+The shared stylized raster helper now selects fixed ambient or SH using the same temporary
+`debug_bool` comparison as terrain. Flora, tree leaves, attached and dynamic fruit, textured
+particles, and sprinklers pass their current animated voxel center and existing stylized shading
+normal to the position-aware evaluator. Full-resolution and LOD flora/leaves call the same helper;
+tree-leaf transmission remains an added direct-sun term.
+
+All raster entry points compiled, all 254 tests passed, and hidden release captures covered day,
+sunset, night, normal LOD selection, and a forced-LOD run. The animated canopy follows the same
+environment hue and night intensity as terrain without entering the terrain acceleration
+structure.
+
 ### Phase 5: Retire the stochastic second ray
 
 - Compare the SH path against the baseline using fixed and moving cameras.
@@ -366,8 +377,8 @@ Acceptance should check both consistency and intent:
 - [x] Select and validate the SH coefficient-generation method.
 - [x] Add the global environment irradiance resource and revision tracking.
 - [x] Integrate SH into the terrain tracer behind a temporary comparison path.
-- [ ] Integrate SH into all relevant raster flora/leaf/prop lighting paths.
-- [ ] Validate terrain/raster lighting consistency across time of day and motion.
+- [x] Integrate SH into all relevant raster flora/leaf/prop lighting paths.
+- [x] Validate terrain/raster lighting consistency across time of day and motion.
 - [ ] Decide whether global SH needs a cheap environment-visibility term.
 - [ ] Remove the stochastic normal-gameplay second ray after visual acceptance.
 - [ ] Re-test raw tracer stability without the main radiance denoiser.

@@ -68,7 +68,8 @@ VertexOutput main(VertexInput input)
         shadowSampleCenter,
         shadingNormal);
     float3 litColor = applyStylizedVoxelLighting(
-        sun_info, shading_info, baseColor, shadowWeight);
+        gui_input, sun_info, shading_info, baseColor, shadowWeight,
+        voxelCenter, shadingNormal);
     output.color = applyTerrainEditPreviewTint(
         terrain_edit_preview, litColor, voxelCenter);
     return output;

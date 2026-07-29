@@ -69,6 +69,7 @@ VertexOutput main(VertexInput input)
         baseColor, prepared.is_grass,
         effectiveGrowthPotential(true, competitionFactor, environmentFactor));
     output.color = shadeFloraVertex(
-        baseColor, prepared.shadow_weight, prepared.voxel_position);
+        baseColor, prepared.shadow_weight, prepared.voxel_position,
+        prepared.shading_normal);
     return output;
 }

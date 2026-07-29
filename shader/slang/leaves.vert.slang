@@ -72,8 +72,10 @@ VertexOutput main(VertexInput input)
     output.color = isTreeLeaf
         ? shadeTreeLeafVertex(
             baseColor, prepared.shadow_weight, prepared.sun_transmittance,
-            prepared.color_gradient, prepared.voxel_position)
+            prepared.color_gradient, prepared.voxel_position,
+            prepared.shading_normal)
         : shadeFloraVertex(
-            baseColor, prepared.shadow_weight, prepared.voxel_position);
+            baseColor, prepared.shadow_weight, prepared.voxel_position,
+            prepared.shading_normal);
     return output;
 }

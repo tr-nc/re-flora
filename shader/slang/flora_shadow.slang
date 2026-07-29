@@ -129,10 +129,16 @@ public float stylizedVoxelShadowWeight(
         cloudShadowMap, voxelCenter, shadingNormal).weight;
 }
 
-public float3 applyStylizedVoxelLighting(U_SunInfo sun, U_ShadingInfo shading,
-                                         float3 baseColor, float shadowWeight)
+public float3 applyStylizedVoxelLighting(U_GuiInput gui, U_SunInfo sun,
+                                         U_ShadingInfo shading,
+                                         float3 baseColor, float shadowWeight,
+                                         float3 voxelCenter,
+                                         float3 shadingNormal)
 {
     float sunLuminance = sunLuminanceFromDirection(sun.sun_dir, sun.sun_luminance);
     float3 sunLight = sun.sun_color * sunLuminance;
-    return baseColor * (sunLight * shadowWeight + shading.ambient_light);
+    float3 environmentLight = gui.debug_bool != 0u
+        ? shading.ambient_light
+        : sampleEnvironmentIrradiance(shading, voxelCenter, shadingNormal);
+    return baseColor * (sunLight * shadowWeight + environmentLight);
 }
