@@ -2,7 +2,6 @@ module tracer_types;
 
 public struct U_GuiInput
 {
-    public uint debug_bool;
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
     public float terrain_self_shadow_tolerance_voxels;
@@ -104,7 +103,6 @@ public struct U_SunInfo
 
 public struct U_ShadingInfo
 {
-    public float3 ambient_light;
     public float4 environment_irradiance_sh_0;
     public float4 environment_irradiance_sh_1;
     public float4 environment_irradiance_sh_2;

@@ -1173,7 +1173,6 @@ mod tests {
     #[test]
     fn current_debug_settings_write_complete_generic_tree_and_wind_state() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
-        settings.adjustables.debug_bool.value = false;
         settings.adjustables.time_of_day.value = 0.987;
         settings.adjustables.voxel_dirt_color.value = Color32::from_rgb(12, 34, 56);
         settings.tree.render_leaves = false;
@@ -1210,7 +1209,6 @@ mod tests {
         assert_generic_values_match(&reloaded.config, &reloaded.adjustables);
         assert_eq!(reloaded.wind_sources, settings.wind_sources);
         assert_eq!(reloaded.tree, settings.tree);
-        assert!(!reloaded.adjustables.debug_bool.value);
         assert_eq!(
             reloaded.adjustables.voxel_dirt_color.value,
             Color32::from_rgb(12, 34, 56)

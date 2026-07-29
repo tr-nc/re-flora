@@ -126,15 +126,6 @@ min = 0
 max = 2
 
 [[section.param]]
-id = "debug_bool"
-kind = "bool"
-label = "Debug Bool"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "world_tick_seconds"
 kind = "float"
 label = "World Tick Time (s)"
@@ -824,15 +815,6 @@ type = "Float"
 value = 1.65
 min = 0
 max = 10
-
-[[section.param]]
-id = "ambient_light"
-kind = "color"
-label = "Ambient Light"
-type = "Color"
-
-[section.param.data]
-value = "#181818"
 
 [[section.param]]
 id = "auto_daynight_cycle"

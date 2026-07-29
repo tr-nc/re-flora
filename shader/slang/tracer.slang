@@ -43,7 +43,6 @@ RWTexture2D<float> compute_depth_tex;
 [[vk::binding(0, 2)]] Sampler2DArray scalar_bn;
 [[vk::binding(1, 2)]] Sampler2DArray unit_vec2_bn;
 [[vk::binding(2, 2)]] Sampler2DArray unit_vec3_bn;
-[[vk::binding(3, 2)]] Sampler2DArray weighted_cosine_bn;
 [[vk::binding(4, 2)]] Sampler2DArray fast_unit_vec3_bn;
 [[vk::binding(5, 2)]] Sampler2DArray fast_weighted_cosine_bn;
 
@@ -61,12 +60,6 @@ MarchingResult generalSceneMarching(Ray ray, uint localInvocationIndex)
     return marchScene(contree_node_data, contree_leaf_data, scene_tex,
                       ray.origin, ray.direction, ray.inverse_direction,
                       localInvocationIndex);
-}
-
-float3 sampleDiffuseBounce(int3 seed, float3 normal)
-{
-    float3 localDirection = randomWeightedCosine(fast_weighted_cosine_bn, seed);
-    return mul(localDirection, makeTbn(normal));
 }
 
 float3 sampleSunDisk(int3 seed, float sunSize, float3 sunDirection)
@@ -120,12 +113,6 @@ float3 shadowRayColor(Ray ray, float3 receiverNormal, int3 seed)
     return shadow * sun_info.sun_color * sun_info.sun_luminance * sunAboveHorizon;
 }
 
-float3 nextTracingPosition(float3 voxelCenter, float3 voxelNormal)
-{
-    return voxelSurfacePositionAlongNormal(voxelCenter, voxelNormal) +
-        normalize(voxelNormal) * 0.005;
-}
-
 uint terrainAtlasData(float3 centerPosition)
 {
     int3 coordinate = int3(floor(centerPosition * 256.0));
@@ -138,7 +125,7 @@ uint terrainAtlasData(float3 centerPosition)
     return chunk_atlas[uint3(coordinate)];
 }
 
-void parseTraceResult(out float3 albedo, out float3 nextPosition, MarchingResult result)
+void parseTraceResult(out float3 albedo, MarchingResult result)
 {
     albedo = voxelColorByTypeAndHash(voxel_colors, result.voxel_type, result.hash_id);
     uint atlasData = terrainAtlasData(result.center_position);
@@ -147,7 +134,6 @@ void parseTraceResult(out float3 albedo, out float3 nextPosition, MarchingResult
     albedo = applyTerrainFertility(albedo, result.voxel_type,
                                    voxelFertilityFromAtlasData(atlasData),
                                    result.center_position);
-    nextPosition = nextTracingPosition(result.center_position, result.normal);
 }
 
 float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
@@ -161,33 +147,6 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
     float cosine = dot(shadowRay.direction, normal);
     if (cosine <= 0.0) return float3(0.0);
     return shadowRayColor(shadowRay, normal, seed) * cosine * albedo;
-}
-
-float3 indirectLighting(float3 albedo, float3 primaryNormal,
-                        float3 nextPosition, int3 seed, uint localInvocationIndex)
-{
-    int3 indirectSeed = int3((seed.xy + int2(13, 37)) % 128, seed.z);
-    Ray indirectRay;
-    indirectRay.direction = sampleDiffuseBounce(indirectSeed, primaryNormal);
-    indirectRay.inverse_direction = 1.0 / indirectRay.direction;
-    indirectRay.origin = nextPosition;
-
-    MarchingResult result = generalSceneMarching(indirectRay, localInvocationIndex);
-    if (!result.is_hit) return float3(0.0);
-
-    float3 sampleAlbedo;
-    float3 sampleNextPosition;
-    parseTraceResult(sampleAlbedo, sampleNextPosition, result);
-
-    Ray shadowRay;
-    shadowRay.direction = sampleSunDisk(indirectSeed, sun_info.sun_size, sun_info.sun_dir);
-    shadowRay.inverse_direction = 1.0 / shadowRay.direction;
-    shadowRay.origin = terrainShadowReceiverPosition(
-        result.center_position, result.normal, shadowRay.direction);
-    float cosine = dot(shadowRay.direction, result.normal);
-    if (cosine <= 0.0) return float3(0.0);
-    return shadowRayColor(shadowRay, result.normal, indirectSeed) *
-           cosine * sampleAlbedo * albedo;
 }
 
 float depthFromWorldPosition(float3 worldPosition)
@@ -220,17 +179,9 @@ void getPixelColor(out float3 color, out float depth, out float3 primaryNormal,
     primaryIsHit = true;
 
     float3 albedo;
-    float3 nextPosition;
-    parseTraceResult(albedo, nextPosition, result);
-    if (gui_input.debug_bool != 0u)
-    {
-        color = shading_info.ambient_light * albedo +
-            indirectLighting(albedo, result.normal, nextPosition, seed,
-                             localInvocationIndex);
-    }
-    else
-        color = sampleEnvironmentIrradiance(
-            shading_info, result.center_position, result.normal) * albedo;
+    parseTraceResult(albedo, result);
+    color = sampleEnvironmentIrradiance(
+        shading_info, result.center_position, result.normal) * albedo;
     color += directLighting(albedo, result.normal, result.center_position, seed);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
                                         result.center_position);

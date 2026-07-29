@@ -104,7 +104,7 @@ VertexOutput main(VertexInput input)
         float3(voxelLocalPosition));
     output.color = float4(
         applyStylizedVoxelLighting(
-            gui_input, sun_info, shading_info, input.instance_color.rgb,
+            sun_info, shading_info, input.instance_color.rgb,
             shadowWeight, input.instance_position, float3(voxelLocalPosition)),
         input.instance_color.a);
 

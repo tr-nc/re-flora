@@ -68,12 +68,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "debug_bool",
-        kind: "bool",
-        label: "Debug Bool",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "world_tick_seconds",
         kind: "float",
         label: "World Tick Time (s)",
@@ -455,12 +449,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "sun_display_luminance",
         kind: "float",
         label: "Sun Display Luminance",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Sky",
-        id: "ambient_light",
-        kind: "color",
-        label: "Ambient Light",
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",
@@ -1439,7 +1427,6 @@ pub struct GuiAdjustables {
     pub lod_distance: crate::gui_adjustables::FloatParam,
     pub flora_draw_distance: crate::gui_adjustables::FloatParam,
     pub grass_render_mode: crate::gui_adjustables::UintParam,
-    pub debug_bool: crate::gui_adjustables::BoolParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_directional_bias_fraction: crate::gui_adjustables::FloatParam,
@@ -1504,7 +1491,6 @@ pub struct GuiAdjustables {
     pub sun_color: crate::gui_adjustables::ColorParam,
     pub sun_luminance: crate::gui_adjustables::FloatParam,
     pub sun_display_luminance: crate::gui_adjustables::FloatParam,
-    pub ambient_light: crate::gui_adjustables::ColorParam,
     pub auto_daynight_cycle: crate::gui_adjustables::BoolParam,
     pub time_of_day: crate::gui_adjustables::FloatParam,
     pub latitude: crate::gui_adjustables::FloatParam,
@@ -1686,7 +1672,6 @@ impl GuiAdjustables {
         let mut lod_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_draw_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut debug_bool_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_directional_bias_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1751,7 +1736,6 @@ impl GuiAdjustables {
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut sun_luminance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_display_luminance_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut ambient_light_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut auto_daynight_cycle_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut time_of_day_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut latitude_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1962,11 +1946,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             grass_render_mode_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "debug_bool" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            debug_bool_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "world_tick_seconds" => {
@@ -2393,11 +2372,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             sun_display_luminance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "ambient_light" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ambient_light_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
                     "auto_daynight_cycle" => {
@@ -3492,7 +3466,6 @@ impl GuiAdjustables {
             lod_distance: lod_distance_field.expect("Missing parameter: lod_distance"),
             flora_draw_distance: flora_draw_distance_field.expect("Missing parameter: flora_draw_distance"),
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
-            debug_bool: debug_bool_field.expect("Missing parameter: debug_bool"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_directional_bias_fraction: wind_directional_bias_fraction_field.expect("Missing parameter: wind_directional_bias_fraction"),
@@ -3557,7 +3530,6 @@ impl GuiAdjustables {
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
             sun_luminance: sun_luminance_field.expect("Missing parameter: sun_luminance"),
             sun_display_luminance: sun_display_luminance_field.expect("Missing parameter: sun_display_luminance"),
-            ambient_light: ambient_light_field.expect("Missing parameter: ambient_light"),
             auto_daynight_cycle: auto_daynight_cycle_field.expect("Missing parameter: auto_daynight_cycle"),
             time_of_day: time_of_day_field.expect("Missing parameter: time_of_day"),
             latitude: latitude_field.expect("Missing parameter: latitude"),
@@ -3960,7 +3932,6 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
-        "debug_bool" => Some(&adjustables.debug_bool),
         "wind_source_0_muted" => Some(&adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&adjustables.wind_source_2_muted),
@@ -3981,7 +3952,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ColorParam> {
     match id {
         "sun_color" => Some(&adjustables.sun_color),
-        "ambient_light" => Some(&adjustables.ambient_light),
         "glass_tint" => Some(&adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&adjustables.grass_bottom_dark_color),
         "grass_bottom_light_color" => Some(&adjustables.grass_bottom_light_color),
@@ -4241,7 +4211,6 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
-        "debug_bool" => Some(&mut adjustables.debug_bool),
         "wind_source_0_muted" => Some(&mut adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&mut adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&mut adjustables.wind_source_2_muted),
@@ -4262,7 +4231,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ColorParam> {
     match id {
         "sun_color" => Some(&mut adjustables.sun_color),
-        "ambient_light" => Some(&mut adjustables.ambient_light),
         "glass_tint" => Some(&mut adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&mut adjustables.grass_bottom_dark_color),
         "grass_bottom_light_color" => Some(&mut adjustables.grass_bottom_light_color),

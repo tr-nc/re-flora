@@ -1005,7 +1005,6 @@ impl Tracer {
     pub fn update_buffers(
         &mut self,
         time_info: &TimeInfo,
-        debug_bool: bool,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
         terrain_self_shadow_tolerance_voxels: f32,
@@ -1065,7 +1064,6 @@ impl Tracer {
         sun_display_luminance: f32,
         sun_altitude: f32,
         sun_azimuth: f32,
-        ambient_light: Vec3,
         temporal_alpha: f32,
         spatial_extent: f32,
         god_ray_max_depth: f32,
@@ -1166,7 +1164,6 @@ impl Tracer {
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
         BufferUpdater::update_gui_input(
             &self.resources,
-            debug_bool,
             flora_growth_override_enabled,
             flora_growth_override,
             terrain_self_shadow_tolerance_voxels,
@@ -1236,7 +1233,7 @@ impl Tracer {
         )?;
 
         let environment_lighting = self.environment_lighting.update(sun_dir);
-        BufferUpdater::update_shading_info(&self.resources, ambient_light, environment_lighting)?;
+        BufferUpdater::update_shading_info(&self.resources, environment_lighting)?;
 
         BufferUpdater::update_starlight_info(
             &self.resources,

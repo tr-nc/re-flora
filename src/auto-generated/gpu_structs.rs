@@ -443,22 +443,22 @@ pub struct GodRayInfo {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GuiInput {
-    pub debug_bool: u32,
     pub flora_growth_override_enabled: u32,
     pub flora_growth_override: f32,
     pub terrain_self_shadow_tolerance_voxels: f32,
-    pub flora_instance_hsv_offset_max: [f32; 3],
     pub _pad0: [u8; 4],
-    pub flora_voxel_hsv_offset_max: [f32; 3],
+    pub flora_instance_hsv_offset_max: [f32; 3],
     pub _pad1: [u8; 4],
-    pub grass_bottom_dark: [f32; 3],
+    pub flora_voxel_hsv_offset_max: [f32; 3],
     pub _pad2: [u8; 4],
-    pub grass_bottom_light: [f32; 3],
+    pub grass_bottom_dark: [f32; 3],
     pub _pad3: [u8; 4],
-    pub grass_tip_dark: [f32; 3],
+    pub grass_bottom_light: [f32; 3],
     pub _pad4: [u8; 4],
-    pub grass_tip_light: [f32; 3],
+    pub grass_tip_dark: [f32; 3],
     pub _pad5: [u8; 4],
+    pub grass_tip_light: [f32; 3],
+    pub _pad6: [u8; 4],
     pub glass_tint: [f32; 3],
     pub glass_reflection_strength: f32,
     pub glass_ssr_strength: f32,
@@ -536,7 +536,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad6: [u8; 4],
+    pub _pad7: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).
@@ -630,8 +630,6 @@ pub struct SceneTexUpdateInfo {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ShadingInfo {
-    pub ambient_light: [f32; 3],
-    pub _pad0: [u8; 4],
     pub environment_irradiance_sh_0: [f32; 4],
     pub environment_irradiance_sh_1: [f32; 4],
     pub environment_irradiance_sh_2: [f32; 4],
@@ -642,7 +640,7 @@ pub struct ShadingInfo {
     pub environment_irradiance_sh_7: [f32; 4],
     pub environment_irradiance_sh_8: [f32; 4],
     pub environment_revision: u32,
-    pub _pad1: [u8; 12],
+    pub _pad0: [u8; 12],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

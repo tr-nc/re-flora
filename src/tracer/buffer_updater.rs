@@ -50,12 +50,10 @@ impl BufferUpdater {
 
     pub fn update_shading_info(
         resources: &TracerResources,
-        ambient_light: Vec3,
         environment: EnvironmentIrradiance,
     ) -> Result<()> {
         let coefficient = |index: usize| environment.coefficients[index].extend(0.0).to_array();
         resources.uniforms.shading_info.fill_uniform(&ShadingInfo {
-            ambient_light: ambient_light.to_array(),
             environment_irradiance_sh_0: coefficient(0),
             environment_irradiance_sh_1: coefficient(1),
             environment_irradiance_sh_2: coefficient(2),
@@ -254,7 +252,6 @@ impl BufferUpdater {
     #[allow(clippy::too_many_arguments)]
     pub fn update_gui_input(
         resources: &TracerResources,
-        debug_bool: bool,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
         terrain_self_shadow_tolerance_voxels: f32,
@@ -311,7 +308,6 @@ impl BufferUpdater {
         resources.wind.wind_sources.fill(&wind_sources)?;
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
-            debug_bool: debug_bool as u32,
             flora_growth_override_enabled: flora_growth_override_enabled as u32,
             flora_growth_override: flora_growth_override.clamp(0.0, 1.0),
             terrain_self_shadow_tolerance_voxels,

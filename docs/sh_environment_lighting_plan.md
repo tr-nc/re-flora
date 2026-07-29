@@ -210,10 +210,10 @@ Implemented on 2026-07-29 with the following contract:
 - If global SH makes enclosed or downward-facing regions implausibly bright, evaluate a cheap
   environment-visibility or bent-normal term before introducing full probes.
 
-The terrain integration uses the existing development `debug_bool` as a temporary A/B switch:
-`true` retains fixed ambient plus the stochastic second ray, while `false` evaluates SH irradiance at
-the primary hit and skips the second ray. Direct sun and all terrain/leaf/cloud transmittance remain
-identical in both paths.
+During comparison, the terrain integration used the existing development `debug_bool` as a
+temporary A/B switch: `true` retained fixed ambient plus the stochastic second ray, while `false`
+evaluated SH irradiance at the primary hit and skipped the second ray. Direct sun and all
+terrain/leaf/cloud transmittance stayed identical in both paths. Phase 5 removed the switch.
 
 Hidden fixed-camera day, sunset, and night captures completed successfully. Relative to the old
 second-ray captures, full-frame RGB means changed from `0.4054` to `0.4219` by day, `0.4548` to
@@ -232,11 +232,11 @@ acceptance item before retiring the comparison path.
 - Preserve tree-leaf transmission as a direct-sun effect; do not fold it into SH.
 - Confirm full-resolution and LOD vegetation use the same environment-lighting path.
 
-The shared stylized raster helper now selects fixed ambient or SH using the same temporary
-`debug_bool` comparison as terrain. Flora, tree leaves, attached and dynamic fruit, textured
+During comparison, the shared stylized raster helper selected fixed ambient or SH using the same
+temporary `debug_bool` switch as terrain. Flora, tree leaves, attached and dynamic fruit, textured
 particles, and sprinklers pass their current animated voxel center and existing stylized shading
 normal to the position-aware evaluator. Full-resolution and LOD flora/leaves call the same helper;
-tree-leaf transmission remains an added direct-sun term.
+tree-leaf transmission remains an added direct-sun term. Phase 5 made SH unconditional.
 
 All raster entry points compiled, all 254 tests passed, and hidden release captures covered day,
 sunset, night, normal LOD selection, and a forced-LOD run. The animated canopy follows the same
@@ -254,6 +254,27 @@ structure.
 - Remove the old runtime branch and dead shader resources in a separate validated commit.
 - Keep an offline or development-only reference mode only if it remains useful for probe validation
   and does not burden the production shader.
+
+The SH path was accepted for the current stylized outdoor scene after day, sunset, night, animated
+canopy, shadowed wall, and forced-LOD captures. No widespread cavity or under-canopy over-lighting
+justified a global visibility multiplier, so the initial implementation keeps the SH signal
+unoccluded and leaves the position-aware probe extension for future scenes that demonstrate a local
+visibility problem.
+
+The stochastic diffuse ray, its temporary branch, fixed ambient uniform, and their GUI/CPU plumbing
+were removed. The weighted-cosine blue-noise resource remains because direct sun-disc sampling still
+uses it; it is no longer used to launch a diffuse bounce.
+
+A matched hidden release `render-steady` run produced 276 post-warmup samples:
+
+- `frame.render` median fell from `13465 us` to `4749.5 us` (`-64.7%`);
+- `tracer.render` median fell from `10721 us` to `2614 us` (`-75.6%`);
+- `tracer.shadow_prepass` remained within run variance (`1407 us` to `1441 us`);
+- `composition.pass` median fell from `278 us` to `98 us`.
+
+The post-removal fixed day capture retained the preceding SH result
+(`mean RGB 0.421940` versus `0.421996`; mean absolute difference `0.000595`), with sparse
+differences caused by animation and temporal shadows.
 
 ### Phase 6: Reassess the main terrain radiance denoiser
 
@@ -379,8 +400,8 @@ Acceptance should check both consistency and intent:
 - [x] Integrate SH into the terrain tracer behind a temporary comparison path.
 - [x] Integrate SH into all relevant raster flora/leaf/prop lighting paths.
 - [x] Validate terrain/raster lighting consistency across time of day and motion.
-- [ ] Decide whether global SH needs a cheap environment-visibility term.
-- [ ] Remove the stochastic normal-gameplay second ray after visual acceptance.
+- [x] Decide whether global SH needs a cheap environment-visibility term.
+- [x] Remove the stochastic normal-gameplay second ray after visual acceptance.
 - [ ] Re-test raw tracer stability without the main radiance denoiser.
 - [ ] Remove the main radiance denoiser only if shadow and camera-motion stability pass.
 - [ ] Confirm leaf-shadow, VSM, and cloud temporal paths remain independent.

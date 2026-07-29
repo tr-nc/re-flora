@@ -2953,7 +2953,6 @@ impl App {
                 self.tracer
                     .update_buffers(
                         &self.time_info,
-                        self.debug_settings.adjustables.debug_bool.value,
                         self.debug_settings
                             .adjustables
                             .flora_growth_override_enabled
@@ -3331,11 +3330,6 @@ impl App {
                         self.debug_settings.adjustables.sun_display_luminance.value,
                         sun_altitude,
                         sun_azimuth,
-                        Vec3::new(
-                            self.debug_settings.adjustables.ambient_light.value.r() as f32 / 255.0,
-                            self.debug_settings.adjustables.ambient_light.value.g() as f32 / 255.0,
-                            self.debug_settings.adjustables.ambient_light.value.b() as f32 / 255.0,
-                        ),
                         self.debug_settings.adjustables.temporal_alpha.value,
                         self.debug_settings.adjustables.spatial_extent.value,
                         self.debug_settings.adjustables.god_ray_max_depth.value,
