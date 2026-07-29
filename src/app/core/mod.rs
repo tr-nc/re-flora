@@ -5,6 +5,7 @@ mod authored_flora_bench;
 mod boot;
 mod camera_snapshot_ui;
 mod denoiser_bench;
+mod environment_lighting_test_scene;
 mod frame_timing;
 mod input;
 mod lifecycle;
@@ -261,6 +262,8 @@ pub struct App {
     tree_bench: Option<TreeBench>,
     authored_flora_bench: Option<AuthoredFloraBench>,
     water_edit_soak: Option<water::WaterEditSoak>,
+    environment_lighting_test_scene:
+        Option<environment_lighting_test_scene::EnvironmentLightingTestScene>,
     deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
     terrain_chunk_rebuild_inflight: Option<TerrainChunkRebuildInFlight>,
 
@@ -1057,7 +1060,11 @@ impl App {
         let camera_snapshot_draft_name = camera_snapshots.unique_name("snapshot");
 
         let editable_center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
-        let debug_tree_pos = Vec3::new(editable_center.x, 0.2, editable_center.z);
+        let debug_tree_pos = if options.environment_lighting_test_scene {
+            environment_lighting_test_scene::STARTUP_TREE_POSITION
+        } else {
+            Vec3::new(editable_center.x, 0.2, editable_center.z)
+        };
         let debug_settings = DebugSettings::load();
         let mut tree_placement_preview_desc = debug_settings
             .tree
@@ -1304,6 +1311,9 @@ impl App {
                 .authored_flora_bench
                 .then(|| AuthoredFloraBench::new(options.authored_flora_bench_samples)),
             water_edit_soak: options.water_edit_soak.then(water::WaterEditSoak::default),
+            environment_lighting_test_scene: options
+                .environment_lighting_test_scene
+                .then(environment_lighting_test_scene::EnvironmentLightingTestScene::new),
             deferred_chunk_rebuilds: LatestChunkQueue::default(),
             terrain_chunk_rebuild_inflight: None,
 
@@ -1319,6 +1329,9 @@ impl App {
         app.apply_effective_master_volume_gain("Failed to apply initial master volume");
 
         app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
+        if options.environment_lighting_test_scene {
+            app.configure_environment_lighting_test_scene_camera();
+        }
         app.sync_cursor_with_panels();
 
         app.configure_gui_font()?;
@@ -2262,12 +2275,19 @@ impl App {
                         .unwrap_or(true),
                 );
                 let current_camera_is_free_fly = self.is_free_fly_camera_mode();
+                let hide_ui_for_environment_test_capture =
+                    self.environment_lighting_test_scene.is_some()
+                        && (self.screenshot_path.is_some() || self.denoiser_bench.is_some());
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let mut style = (*ctx.global_style()).clone();
                         apply_gui_style(&mut style);
                         ctx.set_global_style(style);
+
+                        if hide_ui_for_environment_test_capture {
+                            return;
+                        }
 
                         let mut config_panel_open = self.config_panel_visible;
                         if config_panel_open {
@@ -2823,6 +2843,7 @@ impl App {
                 cpu_timings.time(FrameCpuScope::WaterEditSoak, || {
                     self.process_water_edit_soak();
                 });
+                self.process_environment_lighting_test_scene();
 
                 let mut sun_update_ticks = 0;
                 if self.debug_settings.adjustables.auto_daynight_cycle.value && world_tick_steps > 0
@@ -3682,7 +3703,13 @@ impl App {
                         self.screenshot_delay,
                     ) {
                         let elapsed = render_start_time.elapsed().as_secs_f32();
-                        if elapsed >= delay {
+                        let test_scene_ready = self
+                            .environment_lighting_test_scene
+                            .as_ref()
+                            .is_none_or(
+                            environment_lighting_test_scene::EnvironmentLightingTestScene::is_ready,
+                        );
+                        if elapsed >= delay && test_scene_ready {
                             self.screenshot_taken = true;
                             log::info!("[SCREENSHOT] Capturing after {:.2}s to {}", elapsed, path);
                             match self.prepare_screenshot_readback(path, render_area) {

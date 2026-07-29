@@ -351,6 +351,11 @@ probe memory, update scheduling, or terrain-edit invalidation. The position-awar
 is the retained extension point. Reassess probes when interiors, deep cavities, or local bounce
 become important enough that global SH visibly over-lights them.
 
+Use the deterministic
+[environment-lighting test scene](./environment_lighting_test_scene.md) for that reassessment. It
+constructs matching open and roofed rock bays through normal terrain edits and retains a raster tree
+for terrain/vegetation comparison.
+
 ### Phase 8: Add local lights, then evaluate ReSTIR from evidence
 
 - Introduce a common local-light candidate description with stable light identity, type,

@@ -142,6 +142,8 @@ pub struct AppOptions {
     pub water_j_min: Option<f32>,
     /// Run a deterministic terrain-edit soak around the pond for water validation.
     pub water_edit_soak: bool,
+    /// Build a deterministic terrain gallery for environment-lighting and probe validation.
+    pub environment_lighting_test_scene: bool,
     /// Run the lightweight tree replacement benchmark and exit after completion.
     pub tree_bench: bool,
     /// Number of tree benchmark samples.
@@ -314,6 +316,9 @@ impl AppOptions {
             water_gamma: parse_f32_after("--water-gamma").map(|v| v.max(1.0e-4)),
             water_j_min: parse_f32_after("--water-j-min").map(|v| v.clamp(1.0e-4, 1.0)),
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
+            environment_lighting_test_scene: args
+                .iter()
+                .any(|a| a == "--environment-lighting-test-scene"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
             tree_bench_rapid: args.iter().any(|a| a == "--tree-bench-rapid"),
@@ -549,6 +554,8 @@ Options:
   --water-gamma <G>           Override weakly-compressible EOS gamma
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J
   --water-edit-soak           Run deterministic pond terrain edits for water validation
+  --environment-lighting-test-scene
+                              Build the deterministic open/roofed terrain gallery for probe validation
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --tree-bench-rapid          Do not wait for deferred rebuilds between samples
@@ -578,6 +585,7 @@ Examples:
   re-flora --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
+  re-flora --hidden --mute --windowed --environment-lighting-test-scene --screenshot player-default target/environment-lighting-test.png --screenshot-delay 4 --auto-exit 8
   re-flora --latest-log
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#
@@ -639,6 +647,7 @@ mod tests {
         assert!(options.screenshot_delay.is_none());
         assert!(options.camera_snapshot.is_none());
         assert!(!options.list_camera_snapshots);
+        assert!(!options.environment_lighting_test_scene);
         assert_eq!(options.tree_bench_samples, 10);
         assert!(!options.authored_flora_bench);
         assert_eq!(options.authored_flora_bench_samples, 25);
@@ -656,6 +665,13 @@ mod tests {
 
         assert!(options.authored_flora_bench);
         assert_eq!(options.authored_flora_bench_samples, 7);
+    }
+
+    #[test]
+    fn parses_environment_lighting_test_scene() {
+        let options = parse(&["re-flora", "--environment-lighting-test-scene"]);
+
+        assert!(options.environment_lighting_test_scene);
     }
 
     #[test]
