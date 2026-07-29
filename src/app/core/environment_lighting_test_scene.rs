@@ -11,6 +11,7 @@ const SETTLE_FRAMES: u8 = 2;
 const CAMERA_POSITION: Vec3 = Vec3::new(1.0, 0.78, 2.45);
 const CAMERA_TARGET: Vec3 = Vec3::new(1.0, 0.55, 1.18);
 const TEST_TIME_OF_DAY: f32 = 0.455_705;
+const TEST_REFRESH_TIME_OF_DAY: f32 = 0.535_705;
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 0.62);
 
@@ -41,6 +42,11 @@ enum TestScenePhase {
     Pending,
     WaitingForRebuild,
     Settling(u8),
+    WaitingForInitialProbeField,
+    WaitingForEnvironmentRefresh {
+        previous_revision: u32,
+        settle_frames: u8,
+    },
     Ready,
     Failed,
 }
@@ -217,8 +223,53 @@ impl App {
                 let next_phase = if frames > 1 {
                     TestScenePhase::Settling(frames - 1)
                 } else {
+                    log::info!("[ENV_LIGHT_TEST] terrain scene settled; waiting for initial local probe field");
+                    TestScenePhase::WaitingForInitialProbeField
+                };
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .expect("test scene state disappeared")
+                    .phase = next_phase;
+            }
+            TestScenePhase::WaitingForInitialProbeField => {
+                if !self.tracer.environment_probe_local_field_ready() {
+                    return;
+                }
+
+                let previous_revision = self.tracer.environment_probe_revision();
+                self.current_time_of_day = TEST_REFRESH_TIME_OF_DAY;
+                self.debug_settings.adjustables.time_of_day.value = TEST_REFRESH_TIME_OF_DAY;
+                self.request_vsm_history_reset();
+                log::info!(
+                    "[ENV_LIGHT_TEST] requested deterministic environment refresh time_of_day={:.6} previous_revision={} expected_terrain_rays=0",
+                    TEST_REFRESH_TIME_OF_DAY,
+                    previous_revision,
+                );
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .expect("test scene state disappeared")
+                    .phase = TestScenePhase::WaitingForEnvironmentRefresh {
+                    previous_revision,
+                    settle_frames: SETTLE_FRAMES,
+                };
+            }
+            TestScenePhase::WaitingForEnvironmentRefresh {
+                previous_revision,
+                settle_frames,
+            } => {
+                let current_revision = self.tracer.environment_probe_revision();
+                if current_revision == previous_revision {
+                    return;
+                }
+                let next_phase = if settle_frames > 1 {
+                    TestScenePhase::WaitingForEnvironmentRefresh {
+                        previous_revision,
+                        settle_frames: settle_frames - 1,
+                    }
+                } else {
                     log::info!(
-                        "[ENV_LIGHT_TEST] ready roofed_sample_ws=(0.648,0.438,1.180) open_sample_ws=(1.344,0.438,1.180)"
+                        "[ENV_LIGHT_TEST] ready environment_refresh_revision={} roofed_sample_ws=(0.648,0.438,1.180) open_sample_ws=(1.344,0.438,1.180)",
+                        current_revision,
                     );
                     TestScenePhase::Ready
                 };

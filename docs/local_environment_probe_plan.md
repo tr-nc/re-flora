@@ -57,10 +57,11 @@ explicit rebuilds but whose spacing is adjustable:
 - Keep direct sun and future local direct lights outside the environment probe field. Evaluate
   ReSTIR DI only later, and only if measured local-light candidate or shadow cost justifies it.
 
-Phases 1 through 5 are complete: density and resource controls exist, all-probe visualization
-exists, terrain plus raster consumers share the local field, deterministic visibility and local SH
-are scheduled in bounded batches, and interpolation uses leak-resistant weights. Environment
-revisions and general terrain-edit invalidation are the next implementation step.
+Phases 1 through 5 and environment-only refresh are complete: density and resource controls exist,
+all-probe visualization exists, terrain plus raster consumers share the local field, deterministic
+visibility and local SH are scheduled in bounded batches, interpolation uses leak-resistant
+weights, and authored-environment revisions reproject retained visibility without terrain rays.
+General terrain-edit invalidation is the next implementation step.
 
 ## Non-goals
 
@@ -407,7 +408,7 @@ phase begins.
 - [x] Classify empty/outside/solid probes and relocate solid probes deterministically.
 - [x] Trace deterministic terrain visibility from valid probes.
 - [x] Derive spatially varying local SH with bounded, repeatable update scheduling.
-- [ ] Recompute local SH on environment revisions without terrain retracing.
+- [x] Recompute local SH on environment revisions without terrain retracing.
 - [x] Reject wall, roof, portal, and invalid-probe light leaks.
 - [ ] Add conservative terrain-edit invalidation and convergence tracking.
 - [ ] Extend the test scenario with a deterministic probe invalidation edit.
@@ -661,4 +662,31 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-probe-spacing-voxels 16 \
   --screenshot player-default target/environment-probes-leak-resistant-axial.png \
   --screenshot-delay 4 --auto-exit 7 --perf
+```
+
+### Phase 6 Environment-Revision Evidence
+
+The deterministic test scene now waits for the initial local field, changes from time-of-day
+`0.455705` to `0.535705` exactly once, and waits for the resulting environment revision before
+becoming screenshot-ready. The revision pass reads the retained directional hit distances and
+reprojects all valid local SH coefficients without calling terrain traversal.
+
+At 16-voxel spacing, the hidden release run reprojected 35,937 probes in one
+`environment_probes.rederive` dispatch measured at 490 us on the Apple M4 Pro. The log reported
+revision `1 -> 2`, `terrain_rays=0`, and no new `visibility trace started` line after the
+environment-change request. `target/environment-probes-environment-refresh.png` captured the
+settled revision-2 field at 2560 x 1440. The run exited successfully with no error, panic, or Vulkan
+validation message.
+
+The step used:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --screenshot player-default target/environment-probes-environment-refresh.png \
+  --screenshot-delay 4 --auto-exit 8 --perf
 ```

@@ -816,6 +816,10 @@ impl Tracer {
         self.environment_probe_local_field_ready
     }
 
+    pub fn environment_probe_revision(&self) -> u32 {
+        self.environment_probe_environment_revision
+    }
+
     pub fn environment_probe_visualization_settings(
         &self,
     ) -> EnvironmentProbeVisualizationSettings {
@@ -1645,6 +1649,12 @@ impl Tracer {
                     cmdbuf,
                     "environment_probes.rederive",
                     || self.record_environment_probe_update_pass(cmdbuf, 0, probe_count, false),
+                );
+                log::info!(
+                    "[ENV_PROBES] rederived local SH previous_revision={} revision={} probes={} terrain_rays=0",
+                    previous_revision,
+                    self.environment_probe_environment_revision,
+                    probe_count,
                 );
             } else {
                 Self::with_gpu_scope(

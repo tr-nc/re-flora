@@ -484,6 +484,17 @@ impl App {
         };
         match profiler.try_collect_frame(frame_slot) {
             Ok(Some(results)) => {
+                for scope in results
+                    .scopes
+                    .iter()
+                    .filter(|scope| scope.name == "environment_probes.rederive")
+                {
+                    log::info!(
+                        "[PERF][GPU_EVENT_SCOPE] {}={:.0}us",
+                        scope.name,
+                        scope.duration_us(),
+                    );
+                }
                 self.gpu_profiler_latest_results = Some(results);
             }
             Ok(None) => {}
