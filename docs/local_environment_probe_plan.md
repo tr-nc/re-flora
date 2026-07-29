@@ -404,8 +404,8 @@ phase begins.
 - [x] Route terrain and raster lighting through global-copy probe sampling.
 - [x] Allocate and report deterministic direction and per-probe visibility resources.
 - [x] Classify empty/outside/solid probes and relocate solid probes deterministically.
-- [ ] Trace deterministic terrain visibility from valid probes.
-- [ ] Derive spatially varying local SH with bounded, repeatable update scheduling.
+- [x] Trace deterministic terrain visibility from valid probes.
+- [x] Derive spatially varying local SH with bounded, repeatable update scheduling.
 - [ ] Recompute local SH on environment revisions without terrain retracing.
 - [ ] Reject wall, roof, portal, and invalid-probe light leaks.
 - [ ] Add conservative terrain-edit invalidation and convergence tracking.
@@ -571,4 +571,50 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-probe-visualization \
   --screenshot player-default target/environment-probes-classified.png \
   --screenshot-delay 4 --auto-exit 8 --perf
+```
+
+### Phase 4 Visibility Tracing and Local SH Evidence
+
+A compute pass now traces the fixed 64-direction set through the existing terrain contree for every
+dirty, validly placed probe. It stores quantized first-hit distances, reconstructs the authored
+environment radiance from the current global L2 coefficients, and projects only visible directions
+back into the existing irradiance-SH convention. A quadrature correction preserves the exact global
+SH field for a fully open probe. The explicit sun remains outside this pass.
+
+The scheduler processes 128 probe records per frame. Consumers stay in uniform global-SH fallback
+until the full set completes, avoiding a moving boundary between local and fallback lighting during
+initialization. Screenshot readiness also waits for the local field. At 16-voxel spacing, the
+post-edit test volume completed all 35,937 records in 2.43–2.88 seconds across repeated hidden runs.
+The sampled `environment_probes.trace` GPU scopes averaged 0.53 ms and 0.61 ms per active frame,
+with observed samples from 0.06 ms to 2.23 ms on the Apple M4 Pro. These sparse 30-frame profiler
+samples describe the current implementation but are not yet the final density comparison.
+
+`target/environment-probes-local-sh.png` shows the complete probe volume after dirty probes become
+valid. With markers disabled, `target/environment-probes-local-sh-clean.png` makes the roofed bay
+substantially darker than the previous global-copy baseline while the open bay remains lit. The
+roofed-building crop changed from the global-copy baseline with SSIM 0.932379. Repeating the same
+hidden run produced the same processed count and a deep-chamber SSIM of 0.992634; remaining image
+variation includes independent shadow histories and animated raster content.
+
+This validates deterministic terrain visibility, spatially varying local SH, bounded scheduling,
+and global fallback during convergence. It does not yet validate leak-resistant interpolation,
+environment-only re-derivation cost, terrain-edit invalidation, or a production density.
+
+The step used:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --environment-probe-visualization \
+  --screenshot player-default target/environment-probes-local-sh.png \
+  --screenshot-delay 4 --auto-exit 8 --perf
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --screenshot player-default target/environment-probes-local-sh-clean.png \
+  --screenshot-delay 4 --auto-exit 6 --perf
 ```

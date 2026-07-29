@@ -48,6 +48,7 @@ impl BufferUpdater {
         environment: EnvironmentIrradiance,
         environment_probe_grid: EnvironmentProbeGrid,
         voxels_per_world_unit: glam::UVec3,
+        environment_probe_local_field_ready: bool,
     ) -> Result<()> {
         let coefficient = |index: usize| environment.coefficients[index].extend(0.0).to_array();
         let probe_dimensions = environment_probe_grid.dimensions();
@@ -66,7 +67,7 @@ impl BufferUpdater {
             environment_revision: environment.revision,
             environment_probe_grid_dimensions: probe_dimensions.to_array(),
             environment_probe_world_to_grid_scale: probe_world_to_grid_scale.to_array(),
-            environment_probe_uniform_field: 1,
+            environment_probe_uniform_field: u32::from(!environment_probe_local_field_ready),
             ..ShadingInfo::zeroed()
         })
     }

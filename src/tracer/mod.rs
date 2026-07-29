@@ -91,6 +91,9 @@ const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
 const ENVIRONMENT_PROBE_COEFFICIENT_BINDING: u32 = 18;
 const ENVIRONMENT_PROBE_SUMMARY_BINDING: u32 = 19;
+const ENVIRONMENT_PROBE_VISIBILITY_BINDING: u32 = 20;
+const ENVIRONMENT_PROBE_DIRECTION_BINDING: u32 = 21;
+const ENVIRONMENT_PROBE_TRACE_BATCH_SIZE: u32 = 128;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -98,6 +101,15 @@ pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 struct WindVolumePushConstants {
     time: f32,
     bucket_index: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct EnvironmentProbeUpdatePushConstants {
+    first_probe_index: u32,
+    probe_count: u32,
+    environment_revision: u32,
+    trace_visibility: u32,
 }
 
 #[repr(C)]
@@ -479,6 +491,8 @@ pub struct Tracer {
     environment_probe_seeded_revision: u32,
     environment_probe_classification_pending: bool,
     environment_probe_placement_initialized: bool,
+    environment_probe_trace_cursor: u32,
+    environment_probe_local_field_ready: bool,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -740,6 +754,8 @@ impl Tracer {
             environment_probe_seeded_revision: 0,
             environment_probe_classification_pending: true,
             environment_probe_placement_initialized: false,
+            environment_probe_trace_cursor: 0,
+            environment_probe_local_field_ready: false,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -778,6 +794,8 @@ impl Tracer {
         self.environment_probe_seeded_revision = 0;
         self.environment_probe_classification_pending = true;
         self.environment_probe_placement_initialized = false;
+        self.environment_probe_trace_cursor = 0;
+        self.environment_probe_local_field_ready = false;
         self.update_environment_probe_consumer_descriptors();
         let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.environment_probes];
         self.graphics_pipelines
@@ -791,6 +809,10 @@ impl Tracer {
 
     pub fn request_environment_probe_classification(&mut self) {
         self.environment_probe_classification_pending = true;
+    }
+
+    pub fn environment_probe_local_field_ready(&self) -> bool {
+        self.environment_probe_local_field_ready
     }
 
     pub fn environment_probe_visualization_settings(
@@ -962,6 +984,10 @@ impl Tracer {
             &self.compute_pipelines.environment_probe_classify_ppl,
             &all_resources,
         );
+        update_compute_fn(
+            &self.compute_pipelines.environment_probe_update_ppl,
+            &all_resources,
+        );
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
@@ -1069,6 +1095,8 @@ impl Tracer {
     fn update_environment_probe_consumer_descriptors(&self) {
         let coefficients = &self.environment_probes.environment_probe_coefficients;
         let summaries = &self.environment_probes.environment_probe_summaries;
+        let visibility = &self.environment_probes.environment_probe_visibility;
+        let directions = &self.environment_probes.environment_probe_directions;
         for pipeline in [
             &self.compute_pipelines.environment_probe_global_copy_ppl,
             &self.compute_pipelines.tracer_ppl,
@@ -1091,6 +1119,16 @@ impl Tracer {
                 0,
                 WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
             );
+        for (binding, buffer) in [
+            (ENVIRONMENT_PROBE_COEFFICIENT_BINDING, coefficients),
+            (ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
+            (ENVIRONMENT_PROBE_VISIBILITY_BINDING, visibility),
+            (ENVIRONMENT_PROBE_DIRECTION_BINDING, directions),
+        ] {
+            self.compute_pipelines
+                .environment_probe_update_ppl
+                .write_descriptor_set(0, WriteDescriptorSet::new_buffer_write(binding, buffer));
+        }
         for pipeline in [
             &self.graphics_pipelines.flora_ppl,
             &self.graphics_pipelines.flora_lod_ppl,
@@ -1383,6 +1421,7 @@ impl Tracer {
             environment_lighting,
             self.environment_probes.status().grid,
             self.desc.voxel_dim_per_chunk,
+            self.environment_probe_local_field_ready,
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;
 
@@ -1597,13 +1636,24 @@ impl Tracer {
                 )],
             );
             probe_read_to_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "environment_probes.global_copy",
-                || self.record_environment_probe_global_copy_pass(cmdbuf),
-            );
+            if self.environment_probe_placement_initialized {
+                let probe_count = self.environment_probes.status().grid.probe_count();
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "environment_probes.rederive",
+                    || self.record_environment_probe_update_pass(cmdbuf, 0, probe_count, false),
+                );
+            } else {
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "environment_probes.global_copy",
+                    || self.record_environment_probe_global_copy_pass(cmdbuf),
+                );
+            }
             let probe_write_barrier = PipelineBarrier::shader_access(
                 PipelineStage::COMPUTE_SHADER,
                 PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
@@ -1648,6 +1698,8 @@ impl Tracer {
             probe_classification_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.environment_probe_classification_pending = false;
             self.environment_probe_placement_initialized = true;
+            self.environment_probe_trace_cursor = 0;
+            self.environment_probe_local_field_ready = false;
             self.environment_probes.mark_all_classified_dirty();
             let status = self.environment_probes.status();
             log::info!(
@@ -1655,6 +1707,60 @@ impl Tracer {
                 status.grid.probe_count(),
                 status.grid.spacing_voxels(),
             );
+        }
+
+        let probe_count = self.environment_probes.status().grid.probe_count();
+        if self.environment_probe_placement_initialized
+            && self.environment_probe_trace_cursor < probe_count
+        {
+            let first_probe_index = self.environment_probe_trace_cursor;
+            let batch_probe_count =
+                (probe_count - first_probe_index).min(ENVIRONMENT_PROBE_TRACE_BATCH_SIZE);
+            let probe_read_to_trace_barrier = PipelineBarrier::new(
+                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
+                PipelineStage::COMPUTE_SHADER,
+                [MemoryBarrier::new(
+                    MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+                    MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+                )],
+            );
+            probe_read_to_trace_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "environment_probes.trace",
+                || {
+                    self.record_environment_probe_update_pass(
+                        cmdbuf,
+                        first_probe_index,
+                        batch_probe_count,
+                        true,
+                    )
+                },
+            );
+            let probe_trace_write_barrier = PipelineBarrier::shader_access(
+                PipelineStage::COMPUTE_SHADER,
+                PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
+            );
+            probe_trace_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            self.environment_probe_trace_cursor += batch_probe_count;
+            if first_probe_index == 0 {
+                log::info!(
+                    "[ENV_PROBES] visibility trace started probes={} batch_size={} rays_per_probe=64 revision={}",
+                    probe_count,
+                    ENVIRONMENT_PROBE_TRACE_BATCH_SIZE,
+                    self.environment_probe_environment_revision,
+                );
+            }
+            if self.environment_probe_trace_cursor == probe_count {
+                self.environment_probe_local_field_ready = true;
+                log::info!(
+                    "[ENV_PROBES] visibility trace complete processed={} revision={} local_field_ready=true",
+                    probe_count,
+                    self.environment_probe_environment_revision,
+                );
+            }
         }
 
         let has_graphics_pass = render_flags.enable_flora
@@ -3096,6 +3202,26 @@ impl Tracer {
                 Extent3D::new(self.environment_probes.status().grid.probe_count(), 1, 1),
                 None,
             );
+    }
+
+    fn record_environment_probe_update_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        first_probe_index: u32,
+        probe_count: u32,
+        trace_visibility: bool,
+    ) {
+        let push_constants = EnvironmentProbeUpdatePushConstants {
+            first_probe_index,
+            probe_count,
+            environment_revision: self.environment_probe_environment_revision,
+            trace_visibility: u32::from(trace_visibility),
+        };
+        self.compute_pipelines.environment_probe_update_ppl.record(
+            cmdbuf,
+            Extent3D::new(probe_count, 1, 1),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
     }
 
     fn record_shadow_depth_copy_pass(&self, cmdbuf: &CommandBuffer) {

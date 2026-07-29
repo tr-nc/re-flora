@@ -3888,7 +3888,9 @@ impl App {
                             .is_none_or(
                             environment_lighting_test_scene::EnvironmentLightingTestScene::is_ready,
                         );
-                        if elapsed >= delay && test_scene_ready {
+                        let environment_probes_ready =
+                            self.tracer.environment_probe_local_field_ready();
+                        if elapsed >= delay && test_scene_ready && environment_probes_ready {
                             self.screenshot_taken = true;
                             log::info!("[SCREENSHOT] Capturing after {:.2}s to {}", elapsed, path);
                             match self.prepare_screenshot_readback(path, render_area) {
