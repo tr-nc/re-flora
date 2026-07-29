@@ -26,7 +26,8 @@ primary development and acceptance scene for the probe implementation.
 
 ## Goal
 
-Add a fixed-density, spatially varying environment probe volume that:
+Add a world-aligned, spatially varying environment probe volume whose grid is fixed between
+explicit rebuilds but whose spacing is adjustable:
 
 1. reduces environment light in terrain-occluded regions without restoring a per-pixel diffuse
    second ray;
@@ -36,6 +37,29 @@ Add a fixed-density, spatially varying environment probe volume that:
 5. updates predictably after terrain and environment revisions;
 6. remains deterministic enough that it does not require a screen-space RGB denoiser;
 7. records enough release-mode timing and memory evidence to select a default density.
+
+## Current Decision
+
+- Use a finite, world-aligned local probe grid. The world does not need camera-relative scrolling,
+  probe paging, or dynamic residency for the first implementation.
+- Express density as probe spacing in terrain voxels. Support several fixed spacing choices and
+  rebuild explicitly when the choice changes.
+- Store deterministic terrain visibility separately from derived SH irradiance so an environment
+  revision can refresh lighting without retracing terrain.
+- Let terrain and every raster environment-lighting consumer use the same position-aware SH
+  sampler. Animated grass and leaves receive the local environment result but do not become terrain
+  ray-tracing geometry or probe occluders.
+- Visualize all probes directly from GPU data. Do not add probe picking, a selected-probe concept,
+  a per-probe detail panel, or full-volume readback.
+- Keep the removed terrain diffuse second ray and main RGB temporal/A-Trous denoiser removed. Probe
+  updates may be scheduled over time, but the final screen image must not require stochastic
+  screen-space reconstruction.
+- Keep direct sun and future local direct lights outside the environment probe field. Evaluate
+  ReSTIR DI only later, and only if measured local-light candidate or shadow cost justifies it.
+
+Phases 1 through 3 are complete: density and resource controls exist, all-probe visualization
+exists, and terrain plus raster consumers sample global-copy probe data. Phase 4 is the current
+implementation focus.
 
 ## Non-goals
 
@@ -173,7 +197,7 @@ Planned visualization modes:
 
 Planned filters:
 
-- all probes;
+- all probes, which is the default view and requires no selection;
 - valid only;
 - invalid only;
 - dirty or updating only;
@@ -181,6 +205,9 @@ Planned filters:
 - instance stride/downsampling;
 - marker size;
 - depth-tested versus always-visible markers.
+
+Filters are volume-level display and cost controls, not a probe-selection mechanism. No marker is
+interactive and the renderer does not maintain a selected probe.
 
 The renderer must record the visualization pass separately in GPU profiling. Production performance
 comparisons run with visualization disabled; its enabled debug cost is measured and reported
@@ -249,11 +276,28 @@ confidence, and completed-set swaps should be preferred over noisy per-frame ran
 
 ### Phase 4: Deterministic terrain visibility
 
-- Add fixed probe direction generation.
-- Trace terrain visibility and first-hit information.
-- Derive local environment irradiance without the explicit sun.
-- Visualize valid, hit, miss, confidence, and update state.
-- Confirm repeatable output across identical hidden runs.
+Implement this phase as small, independently validated commits:
+
+1. **Visibility resource contract**
+   - add a fixed 64-direction deterministic upper-hemisphere set;
+   - retain compact first-hit distances, with a reserved miss representation;
+   - keep the direction/SH projection table separate from per-probe visibility;
+   - report coefficient, state, visibility, direction-table, and total allocation bytes.
+2. **Occupancy classification and relocation**
+   - classify outside, empty, and inside-solid grid positions from terrain data;
+   - relocate inside-solid probes deterministically within a bounded part of their grid cell;
+   - keep failed probes invalid and expose original versus relocated positions in the existing
+     visualization modes.
+3. **Visibility tracing and SH derivation**
+   - trace the fixed directions through the existing terrain traversal;
+   - write first-hit or miss information without random per-frame sampling;
+   - evaluate the authored environment on visible directions, exclude the explicit sun, and derive
+     local L2 irradiance SH.
+4. **Bounded update scheduling**
+   - update a bounded, observable probe batch when full-volume work does not fit the frame budget;
+   - track dirty, updating, valid, environment revision, and terrain revision state;
+   - keep global SH fallback active until each local sample is trustworthy;
+   - confirm identical output and state counts across repeated hidden runs.
 
 ### Phase 5: Leak-resistant interpolation
 
@@ -352,7 +396,10 @@ phase begins.
 - [x] Visualize all probes with low-cost instanced markers.
 - [x] Add visualization modes, filters, and separate GPU timing.
 - [x] Route terrain and raster lighting through global-copy probe sampling.
+- [ ] Allocate and report deterministic direction and per-probe visibility resources.
+- [ ] Classify empty/outside/solid probes and relocate solid probes deterministically.
 - [ ] Trace deterministic terrain visibility from valid probes.
+- [ ] Derive spatially varying local SH with bounded, repeatable update scheduling.
 - [ ] Recompute local SH on environment revisions without terrain retracing.
 - [ ] Reject wall, roof, portal, and invalid-probe light leaks.
 - [ ] Add conservative terrain-edit invalidation and convergence tracking.
