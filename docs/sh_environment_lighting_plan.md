@@ -239,6 +239,14 @@ ReSTIR entry criteria:
 
 ## Validation Plan
 
+All runtime validation for this plan must run in hidden mode:
+
+- always pass `--hidden` to app runs, visual captures, fixed-camera comparisons, benchmarks, and
+  smoke tests;
+- use `--mute` by default unless audio behavior is explicitly part of the validation;
+- do not launch the visible game as an automatic validation step;
+- capture any required screenshots from a `--hidden` run.
+
 Every shader or Rust implementation step should follow the repository validation ladder:
 
 ```bash
@@ -249,9 +257,9 @@ cargo run --release -- --hidden --mute --auto-exit 0.5
 cargo run --release -- --tail-latest-log 200
 ```
 
-Performance conclusions require release-mode app measurements. Use the checked-in performance and
-denoiser benchmark tooling, fixed camera snapshots, repeated runs, and order-reversed A/B execution
-where appropriate.
+Performance conclusions require release-mode app measurements in `--hidden` mode. Use the checked-in
+performance and denoiser benchmark tooling, hidden fixed-camera snapshots, repeated runs, and
+order-reversed A/B execution where appropriate.
 
 Visual validation should cover:
 
