@@ -63,6 +63,7 @@ use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
+use crate::environment_lighting::EnvironmentLightingCache;
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
 };
@@ -471,6 +472,7 @@ pub struct Tracer {
     leaf_shadow_history_valid: bool,
     cloud_history_valid: bool,
     cloud_shadow_history_valid: bool,
+    environment_lighting: EnvironmentLightingCache,
 
     compute_pipelines: ComputePipelines,
     graphics_pipelines: GraphicsPipelines,
@@ -712,6 +714,7 @@ impl Tracer {
             leaf_shadow_history_valid: false,
             cloud_history_valid: false,
             cloud_shadow_history_valid: false,
+            environment_lighting: EnvironmentLightingCache::default(),
             compute_pipelines,
             graphics_pipelines,
             render_target_color_and_depth,
@@ -1232,7 +1235,8 @@ impl Tracer {
             sun_azimuth,
         )?;
 
-        BufferUpdater::update_shading_info(&self.resources, ambient_light)?;
+        let environment_lighting = self.environment_lighting.update(sun_dir);
+        BufferUpdater::update_shading_info(&self.resources, ambient_light, environment_lighting)?;
 
         BufferUpdater::update_starlight_info(
             &self.resources,

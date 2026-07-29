@@ -5,6 +5,7 @@ mod branching_gui;
 mod builder;
 mod cli;
 mod egui_renderer;
+mod environment_lighting;
 mod flora;
 mod game_time;
 mod gameplay;

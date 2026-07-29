@@ -172,6 +172,31 @@ night with second ray   3061d89338b85b676ebc21df55790ffacad0fb3af99546615cff1e65
 - Decide and document CPU, GPU, or table-based coefficient generation using a parity comparison
   against direct numerical environment integration.
 
+Implemented on 2026-07-29 with the following contract:
+
+- the project uses Y-up real L2 SH in Sloan order adapted to the world axes:
+  `Y00, Y1-1(z), Y10(y), Y11(x), Y2-2(xz), Y2-1(zy), Y20(3y²-1), Y21(xy),
+  Y22(x²-z²)`;
+- the nine RGB values are cosine-convolved irradiance coefficients. The Lambertian band factors
+  `pi`, `2pi/3`, and `pi/4` are applied during projection, so shader consumers only evaluate the
+  basis, clamp negative reconstruction to zero, and multiply by albedo;
+- the existing shading uniform carries nine aligned `float4` coefficients plus an environment
+  revision. The shared position-aware shader function is available to both compute and raster
+  modules; its position argument is reserved for future probe lookup;
+- authored sky keyframes now live in one Slang data module. The visible sky shader imports it
+  directly, while `build.rs` generates matching Rust constants from that same source instead of
+  maintaining a second color table;
+- a deterministic 2048-direction Fibonacci-sphere CPU projection is cached and only recomputed when
+  the normalized sun direction changes. The explicit sun disc is excluded because direct sun remains
+  a separate lighting term;
+- tests cover constant light, upper-hemisphere orientation, rotated lobes, negative reconstruction,
+  revision changes, and comparison with a 32768-sample direct diffuse integral. The real-sky test
+  bounds per-channel absolute error below `0.025`;
+- all 254 tests passed, all 81 Slang entry points compiled, and a hidden release screenshot run
+  exited successfully. Refactoring the authored sky data changed the fixed day capture by
+  `RMSE=0.009722` and mean absolute RGB error `0.000503`; the sparse maximum difference comes from
+  dynamic leaves and shadows rather than a broad sky mismatch.
+
 ### Phase 3: Integrate SH into the terrain tracer
 
 - Evaluate environment irradiance at the primary terrain hit.
@@ -325,9 +350,9 @@ Acceptance should check both consistency and intent:
 
 - [x] Record the background, target architecture, non-goals, and staged plan.
 - [x] Capture current visual, denoiser, and release performance baselines.
-- [ ] Define the SH coefficient convention and shared shader evaluator.
-- [ ] Select and validate the SH coefficient-generation method.
-- [ ] Add the global environment irradiance resource and revision tracking.
+- [x] Define the SH coefficient convention and shared shader evaluator.
+- [x] Select and validate the SH coefficient-generation method.
+- [x] Add the global environment irradiance resource and revision tracking.
 - [ ] Integrate SH into the terrain tracer behind a temporary comparison path.
 - [ ] Integrate SH into all relevant raster flora/leaf/prop lighting paths.
 - [ ] Validate terrain/raster lighting consistency across time of day and motion.

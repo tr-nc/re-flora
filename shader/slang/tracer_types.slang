@@ -105,6 +105,16 @@ public struct U_SunInfo
 public struct U_ShadingInfo
 {
     public float3 ambient_light;
+    public float4 environment_irradiance_sh_0;
+    public float4 environment_irradiance_sh_1;
+    public float4 environment_irradiance_sh_2;
+    public float4 environment_irradiance_sh_3;
+    public float4 environment_irradiance_sh_4;
+    public float4 environment_irradiance_sh_5;
+    public float4 environment_irradiance_sh_6;
+    public float4 environment_irradiance_sh_7;
+    public float4 environment_irradiance_sh_8;
+    public uint environment_revision;
 };
 
 public struct U_CameraInfo

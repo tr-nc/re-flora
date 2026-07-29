@@ -1,3 +1,4 @@
+use crate::environment_lighting::EnvironmentIrradiance;
 use crate::flora::species::{species, MAX_FLORA_SPECIES};
 use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
@@ -47,9 +48,24 @@ impl BufferUpdater {
         })
     }
 
-    pub fn update_shading_info(resources: &TracerResources, ambient_light: Vec3) -> Result<()> {
+    pub fn update_shading_info(
+        resources: &TracerResources,
+        ambient_light: Vec3,
+        environment: EnvironmentIrradiance,
+    ) -> Result<()> {
+        let coefficient = |index: usize| environment.coefficients[index].extend(0.0).to_array();
         resources.uniforms.shading_info.fill_uniform(&ShadingInfo {
             ambient_light: ambient_light.to_array(),
+            environment_irradiance_sh_0: coefficient(0),
+            environment_irradiance_sh_1: coefficient(1),
+            environment_irradiance_sh_2: coefficient(2),
+            environment_irradiance_sh_3: coefficient(3),
+            environment_irradiance_sh_4: coefficient(4),
+            environment_irradiance_sh_5: coefficient(5),
+            environment_irradiance_sh_6: coefficient(6),
+            environment_irradiance_sh_7: coefficient(7),
+            environment_irradiance_sh_8: coefficient(8),
+            environment_revision: environment.revision,
             ..ShadingInfo::zeroed()
         })
     }

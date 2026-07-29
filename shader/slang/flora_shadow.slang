@@ -1,5 +1,6 @@
 module flora_shadow;
 
+import environment_lighting;
 import sunlight;
 import tracer_types;
 import vsm;

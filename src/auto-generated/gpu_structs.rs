@@ -632,6 +632,17 @@ pub struct SceneTexUpdateInfo {
 pub struct ShadingInfo {
     pub ambient_light: [f32; 3],
     pub _pad0: [u8; 4],
+    pub environment_irradiance_sh_0: [f32; 4],
+    pub environment_irradiance_sh_1: [f32; 4],
+    pub environment_irradiance_sh_2: [f32; 4],
+    pub environment_irradiance_sh_3: [f32; 4],
+    pub environment_irradiance_sh_4: [f32; 4],
+    pub environment_irradiance_sh_5: [f32; 4],
+    pub environment_irradiance_sh_6: [f32; 4],
+    pub environment_irradiance_sh_7: [f32; 4],
+    pub environment_irradiance_sh_8: [f32; 4],
+    pub environment_revision: u32,
+    pub _pad1: [u8; 12],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

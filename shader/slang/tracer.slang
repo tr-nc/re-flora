@@ -1,5 +1,6 @@
 import aabb;
 import contree_node;
+import environment_lighting;
 import marching_result;
 import noise_tex;
 import packer;
