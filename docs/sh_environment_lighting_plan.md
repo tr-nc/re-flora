@@ -399,7 +399,7 @@ cargo fmt --check
 cargo check
 cargo test
 cargo run --release -- --hidden --mute --auto-exit 0.5
-cargo run --release -- --tail-latest-log 200
+cargo run --release -- --hidden --tail-latest-log 200
 ```
 
 Performance conclusions require release-mode app measurements in `--hidden` mode. Use the checked-in
@@ -500,13 +500,14 @@ The final source audit confirms the intended boundaries:
 
 ## Checklist
 
-Final validation compiled all 79 remaining Slang entry points, passed `cargo check`, and passed 253
-Rust tests with one release-only audio benchmark ignored. Exact `rustfmt --check` passed for the
-changed Rust files outside `crates/re-flora-shader-build/src/lib.rs`; the workspace-wide formatting
-check still reports two pre-existing rustfmt differences in that file outside this plan's edited
-shader inventory. `git diff --check`, Python bytecode compilation, the hidden muted release smoke
-run, log inspection, the stability benchmark, the matched performance run, and all three hidden
-captures passed.
+Final validation compiled all 79 remaining Slang entry points, passed `cargo check`, and passed 255
+main-binary tests plus four collision-benchmark tests with one release-only audio benchmark ignored.
+Exact `rustfmt --check` passed for the hand-written Rust files changed by this plan outside
+`crates/re-flora-shader-build/src/lib.rs`; that file retains two existing rustfmt differences.
+The workspace-wide formatting check also reports existing drift across unrelated crates and
+generated sources, which this focused branch does not rewrite. `git diff --check`, Python bytecode
+compilation, the hidden muted release smoke run, log inspection, the fixed and moving stability
+benchmarks, the terrain-edit run, the matched performance run, and all hidden captures passed.
 
 - [x] Record the background, target architecture, non-goals, and staged plan.
 - [x] Capture current visual, denoiser, and release performance baselines.
