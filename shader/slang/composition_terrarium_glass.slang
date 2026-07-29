@@ -44,7 +44,7 @@ public TerrariumGlassUniforms makeTerrariumGlassUniforms(
 float3 sampleSceneColor(
     float2 screenUv, TerrariumGlassUniforms inputs,
     Sampler2D rasterOutput, Sampler2D rasterDepthTexture,
-    readonly RWTexture2D<float4> denoisedOutput,
+    readonly RWTexture2D<float4> terrainOutput,
     readonly RWTexture2D<float> computeDepthTexture,
     RWTexture2D<float4> compositedTexture,
     Sampler2D sunSprite, Sampler2D cloudOutput)
@@ -60,9 +60,9 @@ float3 sampleSceneColor(
     float rasterDepth = rasterDepthTexture.Load(int3(coordinate, 0)).r;
     float computeDepth = computeDepthTexture[coordinate];
     float4 rasterColor = rasterOutput.Load(int3(coordinate, 0));
-    float3 denoisedColor = denoisedOutput[coordinate].rgb;
+    float3 terrainColor = terrainOutput[coordinate].rgb;
     return combineSceneColors(rasterDepth, computeDepth, rasterColor,
-                              denoisedColor, clampedUv, inputs.gui,
+                              terrainColor, clampedUv, inputs.gui,
                               inputs.sun, inputs.camera, inputs.starlight,
                               sunSprite, cloudOutput);
 }
@@ -346,7 +346,7 @@ float3 shadeTerrariumGlassHit(
     float3 sceneColor, float2 screenUv, Ray ray, TerrariumGlassHit hit,
     TerrariumGlassUniforms inputs,
     Sampler2D rasterOutput, Sampler2D rasterDepthTexture,
-    readonly RWTexture2D<float4> denoisedOutput,
+    readonly RWTexture2D<float4> terrainOutput,
     readonly RWTexture2D<float> computeDepthTexture,
     RWTexture2D<float4> compositedTexture,
     Sampler2D sunSprite, Sampler2D cloudOutput)
@@ -485,7 +485,7 @@ float3 shadeTerrariumGlassHit(
                                float2(0.0), float2(1.0));
     float3 refractedColor = sampleSceneColor(
         refractedUv, inputs, rasterOutput, rasterDepthTexture,
-        denoisedOutput, computeDepthTexture, compositedTexture,
+        terrainOutput, computeDepthTexture, compositedTexture,
         sunSprite, cloudOutput);
 
     float2 chromaticDirection = refractionDirection;
@@ -500,12 +500,12 @@ float3 shadeTerrariumGlassHit(
     float3 chromaticColor;
     chromaticColor.r = sampleSceneColor(
         screenUv + refractionOffset + chromaticDirection * chromaticOffset,
-        inputs, rasterOutput, rasterDepthTexture, denoisedOutput,
+        inputs, rasterOutput, rasterDepthTexture, terrainOutput,
         computeDepthTexture, compositedTexture, sunSprite, cloudOutput).r;
     chromaticColor.g = refractedColor.g;
     chromaticColor.b = sampleSceneColor(
         screenUv + refractionOffset - chromaticDirection * chromaticOffset,
-        inputs, rasterOutput, rasterDepthTexture, denoisedOutput,
+        inputs, rasterOutput, rasterDepthTexture, terrainOutput,
         computeDepthTexture, compositedTexture, sunSprite, cloudOutput).b;
 
     float refractionMix = pane * clamp(0.095 + fresnelBand * 0.040 +
@@ -574,7 +574,7 @@ public float3 applyTerrariumGlass(
     float3 sceneColor, float2 screenUv, Ray ray, float sceneDistance,
     TerrariumGlassUniforms inputs,
     Sampler2D rasterOutput, Sampler2D rasterDepthTexture,
-    readonly RWTexture2D<float4> denoisedOutput,
+    readonly RWTexture2D<float4> terrainOutput,
     readonly RWTexture2D<float> computeDepthTexture,
     RWTexture2D<float4> compositedTexture,
     Sampler2D sunSprite, Sampler2D cloudOutput)
@@ -599,7 +599,7 @@ public float3 applyTerrariumGlass(
         if (sceneDistance + TERRARIUM_GLASS_OCCLUSION_EPS_WORLD < hit.t) continue;
         result = shadeTerrariumGlassHit(
             result, screenUv, ray, hit, inputs, rasterOutput, rasterDepthTexture,
-            denoisedOutput, computeDepthTexture, compositedTexture,
+            terrainOutput, computeDepthTexture, compositedTexture,
             sunSprite, cloudOutput);
     }
     return result;

@@ -14,7 +14,7 @@ float3 applyScreenClouds(float3 skyColor, float2 screenUv,
 }
 
 public float3 combineSceneColors(float rasterDepth, float computeDepth,
-                                 float4 rasterColor, float3 denoisedColor,
+                                 float4 rasterColor, float3 terrainColor,
                                  float2 screenUv, U_GuiInput gui,
                                  U_SunInfo sun, U_CameraInfo camera,
                                  U_StarlightInfo starlight,
@@ -27,8 +27,8 @@ public float3 combineSceneColors(float rasterDepth, float computeDepth,
 
     if (hasRayTracing)
     {
-        if (!hasRaster || rasterDepth > rayTracingDepth) return denoisedColor;
-        return rasterColor.rgb + denoisedColor * (1.0 - alpha);
+        if (!hasRaster || rasterDepth > rayTracingDepth) return terrainColor;
+        return rasterColor.rgb + terrainColor * (1.0 - alpha);
     }
     if (hasRaster && alpha >= 0.999) return rasterColor.rgb;
 
