@@ -33,10 +33,9 @@ Add a fixed-density, spatially varying environment probe volume that:
 2. supplies the same local SH irradiance to terrain and animated raster consumers;
 3. exposes a runtime-adjustable probe spacing with deterministic CLI control;
 4. visualizes probe placement, state, and useful lighting summaries at controllable debug cost;
-5. allows one probe to be selected for detailed inspection;
-6. updates predictably after terrain and environment revisions;
-7. remains deterministic enough that it does not require a screen-space RGB denoiser;
-8. records enough release-mode timing and memory evidence to select a default density.
+5. updates predictably after terrain and environment revisions;
+6. remains deterministic enough that it does not require a screen-space RGB denoiser;
+7. records enough release-mode timing and memory evidence to select a default density.
 
 ## Non-goals
 
@@ -46,6 +45,7 @@ Add a fixed-density, spatially varying environment probe volume that:
 - Do not implement multi-bounce GI or terrain color bleeding in the first visibility-probe step.
 - Do not restore the removed main RGB temporal or A-Trous denoiser.
 - Do not draw text, ray sets, or SH lobes for every probe simultaneously.
+- Do not add probe picking, a selected-probe panel, or per-probe CPU/GPU readback.
 - Do not make probe visualization part of normal gameplay rendering.
 - Do not automatically persist runtime density experiments to `config/gui.toml`.
 
@@ -149,12 +149,10 @@ The roof, side walls, deep chamber, portal, and matching plinths in the test sce
 light-leak tests. Raising density alone is not an accepted substitute for visibility-aware
 interpolation.
 
-## Visualization and Inspection
+## Visualization
 
 Probe visualization is a first-class development feature and should be available before real probe
 tracing affects scene lighting.
-
-### All-probe view
 
 Render probe markers using a dedicated instanced billboard or small diamond path:
 
@@ -187,33 +185,6 @@ Planned filters:
 The renderer must record the visualization pass separately in GPU profiling. Production performance
 comparisons run with visualization disabled; its enabled debug cost is measured and reported
 separately.
-
-### Selected-probe view
-
-Displaying labels and detailed lobes for every probe would be unreadable and unnecessarily
-expensive. Instead, the camera crosshair or mouse should select one probe for a detailed panel.
-
-The selected-probe panel should expose, where available:
-
-- grid coordinate and flat index;
-- original and relocated world positions;
-- current state, confidence, and validity reason;
-- environment and terrain revisions;
-- dirty/update age and last updated frame;
-- visible-direction count or fraction;
-- hit-distance summary;
-- neighbouring probes and final interpolation weights for an inspected surface sample;
-- the nine RGB SH coefficients.
-
-Optional selected-probe geometry may show:
-
-- deterministic trace directions;
-- environment misses and terrain hits in different colors;
-- first-hit distances;
-- the reconstructed SH lobe.
-
-Only the selected probe should request detailed directional visualization or a small asynchronous
-readback. The normal all-probe view should rely on compact GPU-resident summary data.
 
 ## Update and Invalidation Policy
 
@@ -263,12 +234,10 @@ confidence, and completed-set swaps should be preferred over noisy per-frame ran
 - Log grid dimensions, counts, valid counts, and GPU byte totals.
 - Add pure tests for grid endpoints, flattening, interpolation coordinates, and invalid spacing.
 
-### Phase 2: Visualization and selection
+### Phase 2: Visualization
 
 - Add the instanced marker renderer.
 - Add state, filtering, radius, stride, depth, and marker-size controls.
-- Add deterministic CPU or analytic probe selection.
-- Add the selected-probe information panel.
 - Measure visualization-off and visualization-on GPU/CPU cost.
 
 ### Phase 3: Shared probe sampling with global-copy data
@@ -382,7 +351,6 @@ phase begins.
 - [x] Add deterministic grid and interpolation-coordinate tests.
 - [ ] Visualize all probes with low-cost instanced markers.
 - [ ] Add visualization modes, filters, and separate GPU timing.
-- [ ] Add selected-probe picking and detailed information.
 - [ ] Route terrain and raster lighting through global-copy probe sampling.
 - [ ] Trace deterministic terrain visibility from valid probes.
 - [ ] Recompute local SH on environment revisions without terrain retracing.
