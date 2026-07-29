@@ -1,13 +1,22 @@
+use crate::environment_lighting::{sh_basis, IRRADIANCE_SH_BAND_FACTORS};
 use crate::resource::{Resource, ResourceContainer};
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
+use std::f32::consts::PI;
 
 pub const SUPPORTED_ENVIRONMENT_PROBE_SPACINGS_VOXELS: [u32; 4] = [64, 32, 16, 8];
 pub const DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS: u32 = 32;
 pub const ENVIRONMENT_PROBE_SH_COEFFICIENT_COUNT: usize = 9;
+pub const ENVIRONMENT_PROBE_DIRECTION_COUNT: usize = 64;
+pub const ENVIRONMENT_PROBE_PACKED_HIT_DISTANCE_COUNT: usize =
+    ENVIRONMENT_PROBE_DIRECTION_COUNT / 2;
+pub const ENVIRONMENT_PROBE_MISS_DISTANCE: u16 = u16::MAX;
+pub const ENVIRONMENT_PROBE_PACKED_MISS_DISTANCES: u32 = ENVIRONMENT_PROBE_MISS_DISTANCE as u32
+    | ((ENVIRONMENT_PROBE_MISS_DISTANCE as u32) << u16::BITS);
+const ENVIRONMENT_PROBE_DIRECTION_GOLDEN_ANGLE: f32 = 2.399_963_1;
 const ENVIRONMENT_PROBE_MARKER_INDEX_COUNT: u32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,10 +180,61 @@ pub struct EnvironmentProbeCoefficientsGpu {
     pub coefficients: [[f32; 4]; ENVIRONMENT_PROBE_SH_COEFFICIENT_COUNT],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct EnvironmentProbeVisibilityGpu {
+    pub packed_hit_distances: [u32; ENVIRONMENT_PROBE_PACKED_HIT_DISTANCE_COUNT],
+}
+
+impl EnvironmentProbeVisibilityGpu {
+    pub const fn all_miss() -> Self {
+        Self {
+            packed_hit_distances: [ENVIRONMENT_PROBE_PACKED_MISS_DISTANCES;
+                ENVIRONMENT_PROBE_PACKED_HIT_DISTANCE_COUNT],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct EnvironmentProbeDirectionGpu {
+    pub direction: [f32; 4],
+    pub irradiance_coefficients: [[f32; 4]; ENVIRONMENT_PROBE_SH_COEFFICIENT_COUNT],
+}
+
+fn environment_probe_directions(
+) -> [EnvironmentProbeDirectionGpu; ENVIRONMENT_PROBE_DIRECTION_COUNT] {
+    let sample_solid_angle = 2.0 * PI / ENVIRONMENT_PROBE_DIRECTION_COUNT as f32;
+    std::array::from_fn(|sample_index| {
+        let y = 1.0 - (sample_index as f32 + 0.5) / ENVIRONMENT_PROBE_DIRECTION_COUNT as f32;
+        let radius = (1.0 - y * y).max(0.0).sqrt();
+        let angle = ENVIRONMENT_PROBE_DIRECTION_GOLDEN_ANGLE * sample_index as f32;
+        let (sin_angle, cos_angle) = angle.sin_cos();
+        let direction = Vec3::new(radius * cos_angle, y, radius * sin_angle);
+        let basis = sh_basis(direction);
+        let irradiance_coefficients = std::array::from_fn(|coefficient_index| {
+            [
+                basis[coefficient_index]
+                    * sample_solid_angle
+                    * IRRADIANCE_SH_BAND_FACTORS[coefficient_index],
+                0.0,
+                0.0,
+                0.0,
+            ]
+        });
+        EnvironmentProbeDirectionGpu {
+            direction: [direction.x, direction.y, direction.z, sample_solid_angle],
+            irradiance_coefficients,
+        }
+    })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EnvironmentProbeResourceBytes {
     pub coefficients: u64,
     pub summaries: u64,
+    pub visibility: u64,
+    pub directions: u64,
 }
 
 impl EnvironmentProbeResourceBytes {
@@ -184,11 +244,15 @@ impl EnvironmentProbeResourceBytes {
                 * grid.probe_count() as u64,
             summaries: std::mem::size_of::<EnvironmentProbeSummaryGpu>() as u64
                 * grid.probe_count() as u64,
+            visibility: std::mem::size_of::<EnvironmentProbeVisibilityGpu>() as u64
+                * grid.probe_count() as u64,
+            directions: std::mem::size_of::<EnvironmentProbeDirectionGpu>() as u64
+                * ENVIRONMENT_PROBE_DIRECTION_COUNT as u64,
         }
     }
 
     pub fn total(self) -> u64 {
-        self.coefficients + self.summaries
+        self.coefficients + self.summaries + self.visibility + self.directions
     }
 }
 
@@ -401,6 +465,8 @@ pub struct EnvironmentProbeVolume {
     resource_bytes: EnvironmentProbeResourceBytes,
     pub environment_probe_coefficients: Resource<Buffer>,
     pub environment_probe_summaries: Resource<Buffer>,
+    pub environment_probe_visibility: Resource<Buffer>,
+    pub environment_probe_directions: Resource<Buffer>,
 }
 
 impl ResourceContainer for EnvironmentProbeVolume {
@@ -408,6 +474,8 @@ impl ResourceContainer for EnvironmentProbeVolume {
         match name {
             "environment_probe_coefficients" => Some(&self.environment_probe_coefficients),
             "environment_probe_summaries" => Some(&self.environment_probe_summaries),
+            "environment_probe_visibility" => Some(&self.environment_probe_visibility),
+            "environment_probe_directions" => Some(&self.environment_probe_directions),
             _ => None,
         }
     }
@@ -420,6 +488,8 @@ impl ResourceContainer for EnvironmentProbeVolume {
         vec![
             "environment_probe_coefficients",
             "environment_probe_summaries",
+            "environment_probe_visibility",
+            "environment_probe_directions",
         ]
     }
 }
@@ -453,8 +523,8 @@ impl EnvironmentProbeVolume {
         ])?;
 
         let summaries = Buffer::new_sized(
-            device,
-            allocator,
+            device.clone(),
+            allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             MemoryLocation::CpuToGpu,
             resource_bytes.summaries,
@@ -487,15 +557,39 @@ impl EnvironmentProbeVolume {
             .collect::<Vec<_>>();
         summaries.fill(&summary_data)?;
 
+        let visibility = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            resource_bytes.visibility,
+        );
+        visibility.fill(&vec![
+            EnvironmentProbeVisibilityGpu::all_miss();
+            probe_count
+        ])?;
+
+        let directions = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            resource_bytes.directions,
+        );
+        directions.fill(&environment_probe_directions())?;
+
         log::info!(
-            "[ENV_PROBES] allocated spacing_voxels={} grid={}x{}x{} probes={} valid=0 coefficients_bytes={} summaries_bytes={} total_bytes={} total_mib={:.2}",
+            "[ENV_PROBES] allocated spacing_voxels={} grid={}x{}x{} probes={} valid=0 directions={} coefficients_bytes={} summaries_bytes={} visibility_bytes={} direction_bytes={} total_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
             grid.dimensions().z,
             grid.probe_count(),
+            ENVIRONMENT_PROBE_DIRECTION_COUNT,
             resource_bytes.coefficients,
             resource_bytes.summaries,
+            resource_bytes.visibility,
+            resource_bytes.directions,
             resource_bytes.total(),
             resource_bytes.total() as f64 / (1024.0 * 1024.0),
         );
@@ -506,6 +600,8 @@ impl EnvironmentProbeVolume {
             resource_bytes,
             environment_probe_coefficients: Resource::new(coefficients),
             environment_probe_summaries: Resource::new(summaries),
+            environment_probe_visibility: Resource::new(visibility),
+            environment_probe_directions: Resource::new(directions),
         })
     }
 
@@ -596,10 +692,48 @@ mod tests {
             9 * 16
         );
         assert_eq!(std::mem::size_of::<EnvironmentProbeSummaryGpu>(), 4 * 16);
+        assert_eq!(
+            std::mem::size_of::<EnvironmentProbeVisibilityGpu>(),
+            ENVIRONMENT_PROBE_DIRECTION_COUNT * 2
+        );
+        assert_eq!(
+            std::mem::size_of::<EnvironmentProbeDirectionGpu>(),
+            (1 + ENVIRONMENT_PROBE_SH_COEFFICIENT_COUNT) * 16
+        );
+        assert_eq!(
+            EnvironmentProbeVisibilityGpu::all_miss().packed_hit_distances,
+            [ENVIRONMENT_PROBE_PACKED_MISS_DISTANCES; ENVIRONMENT_PROBE_PACKED_HIT_DISTANCE_COUNT]
+        );
 
         let grid = EnvironmentProbeGrid::new(WORLD_EXTENT, 16).unwrap();
         assert_eq!(grid.dimensions(), UVec3::splat(33));
         assert_eq!(grid.probe_count(), 35_937);
+        let bytes = EnvironmentProbeResourceBytes::for_grid(grid);
+        assert_eq!(bytes.visibility, 4_599_936);
+        assert_eq!(bytes.directions, 10_240);
+        assert_eq!(bytes.total(), 12_085_072);
+    }
+
+    #[test]
+    fn probe_directions_are_deterministic_equal_area_upper_hemisphere_samples() {
+        let first = environment_probe_directions();
+        let second = environment_probe_directions();
+        assert_eq!(
+            bytemuck::cast_slice::<EnvironmentProbeDirectionGpu, u8>(&first),
+            bytemuck::cast_slice::<EnvironmentProbeDirectionGpu, u8>(&second)
+        );
+
+        let expected_solid_angle = 2.0 * PI / ENVIRONMENT_PROBE_DIRECTION_COUNT as f32;
+        for sample in first {
+            let direction = Vec3::new(
+                sample.direction[0],
+                sample.direction[1],
+                sample.direction[2],
+            );
+            assert!((direction.length() - 1.0).abs() < 1.0e-5);
+            assert!(direction.y > 0.0);
+            assert!((sample.direction[3] - expected_solid_angle).abs() < f32::EPSILON);
+        }
     }
 
     #[test]

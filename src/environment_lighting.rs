@@ -8,6 +8,17 @@ mod authored_sky {
 use authored_sky::{SKY_COLOR_ALTITUDES, SKY_COLOR_BOTTOM, SKY_COLOR_TOP};
 
 pub(crate) const SH_COEFFICIENT_COUNT: usize = 9;
+pub(crate) const IRRADIANCE_SH_BAND_FACTORS: [f32; SH_COEFFICIENT_COUNT] = [
+    PI,
+    2.0 * PI / 3.0,
+    2.0 * PI / 3.0,
+    2.0 * PI / 3.0,
+    PI / 4.0,
+    PI / 4.0,
+    PI / 4.0,
+    PI / 4.0,
+    PI / 4.0,
+];
 const SKY_PROJECTION_SAMPLE_COUNT: usize = 2048;
 const GOLDEN_ANGLE: f32 = 2.399_963_1;
 
@@ -166,18 +177,7 @@ fn project_environment_irradiance(radiance: impl Fn(Vec3) -> Vec3) -> [Vec3; SH_
         }
     }
 
-    let band_factors = [
-        PI,
-        2.0 * PI / 3.0,
-        2.0 * PI / 3.0,
-        2.0 * PI / 3.0,
-        PI / 4.0,
-        PI / 4.0,
-        PI / 4.0,
-        PI / 4.0,
-        PI / 4.0,
-    ];
-    for (coefficient, factor) in coefficients.iter_mut().zip(band_factors) {
+    for (coefficient, factor) in coefficients.iter_mut().zip(IRRADIANCE_SH_BAND_FACTORS) {
         *coefficient *= factor;
     }
     coefficients

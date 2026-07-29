@@ -396,7 +396,7 @@ phase begins.
 - [x] Visualize all probes with low-cost instanced markers.
 - [x] Add visualization modes, filters, and separate GPU timing.
 - [x] Route terrain and raster lighting through global-copy probe sampling.
-- [ ] Allocate and report deterministic direction and per-probe visibility resources.
+- [x] Allocate and report deterministic direction and per-probe visibility resources.
 - [ ] Classify empty/outside/solid probes and relocate solid probes deterministically.
 - [ ] Trace deterministic terrain visibility from valid probes.
 - [ ] Derive spatially varying local SH with bounded, repeatable update scheduling.
@@ -495,4 +495,39 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-probe-spacing-voxels 16 \
   --screenshot player-default target/environment-probes-global-copy-fast.png \
   --screenshot-delay 4 --auto-exit 8 --perf
+```
+
+### Phase 4 Visibility Resource Evidence
+
+The visibility resource contract uses 64 deterministic equal-area upper-hemisphere directions. Each
+direction record stores its unit vector, sample solid angle, and nine scalar L2 irradiance projection
+weights. The shared direction table is 10,240 bytes. Each probe adds 128 bytes containing 64 packed
+`u16` first-hit distances; two `u16::MAX` values packed into `u32::MAX` explicitly represent two
+environment misses, including before the first trace.
+
+Together with the existing 144-byte coefficient and 64-byte summary records, the current layout is
+336 bytes per probe plus the fixed 10 KiB direction table. Hidden release allocation runs reported:
+
+| Spacing | Probes | Coefficients | State | Visibility | Directions | Total |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16 voxels | 35,937 | 5,174,928 B | 2,299,968 B | 4,599,936 B | 10,240 B | 11.53 MiB |
+| 8 voxels | 274,625 | 39,546,000 B | 17,576,000 B | 35,152,000 B | 10,240 B | 88.01 MiB |
+
+Both allocations completed on the release Vulkan path, seeded all probes from global SH, reported
+no error, panic, or validation message, and exited successfully. This validates the resource layout
+and stress allocation only; it is not yet evidence for tracing cost or an 8-voxel production
+default.
+
+The step used:
+
+```bash
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 --auto-exit 0.5
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 8 --auto-exit 0.5
+cargo run --release -- --hidden --tail-latest-log 200
 ```
