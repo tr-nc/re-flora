@@ -356,6 +356,11 @@ Use the deterministic
 constructs matching open and roofed rock bays through normal terrain edits and retains a raster tree
 for terrain/vegetation comparison.
 
+The follow-up implementation is specified in the
+[local environment probe plan](./local_environment_probe_plan.md), including adjustable fixed-grid
+density, probe visualization and inspection, leak-resistant interpolation, revision handling, and
+release acceptance criteria.
+
 ### Phase 8: Add local lights, then evaluate ReSTIR from evidence
 
 - Introduce a common local-light candidate description with stable light identity, type,
