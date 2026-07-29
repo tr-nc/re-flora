@@ -25,6 +25,15 @@ readonly RWTexture3D<uint> chunk_atlas;
 GLSLShaderStorageBuffer<B_EnvironmentProbeSummaries, Std430DataLayout>
     environment_probe_summaries;
 
+struct EnvironmentProbeClassificationPushConstants
+{
+    uint terrain_revision;
+    uint3 padding;
+};
+
+[[vk::push_constant]]
+ConstantBuffer<EnvironmentProbeClassificationPushConstants> pc;
+
 static const uint PROBE_STATE_INACTIVE = 0u;
 static const uint PROBE_STATE_DIRTY = 4u;
 static const uint PROBE_STATE_RELOCATION_FAILED = 6u;
@@ -114,7 +123,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     summary.sample_position_confidence =
         float4(summary.original_position_visibility.xyz, 0.0);
     summary.revisions_state =
-        uint4(0u, shading_info.environment_revision,
+        uint4(pc.terrain_revision, shading_info.environment_revision,
               PROBE_STATE_INACTIVE, probeIndex);
     summary.update_info =
         uint4(PROBE_PACKED_AXIAL_MISS_DISTANCES,

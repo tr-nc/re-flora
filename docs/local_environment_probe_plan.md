@@ -57,11 +57,12 @@ explicit rebuilds but whose spacing is adjustable:
 - Keep direct sun and future local direct lights outside the environment probe field. Evaluate
   ReSTIR DI only later, and only if measured local-light candidate or shadow cost justifies it.
 
-Phases 1 through 5 and environment-only refresh are complete: density and resource controls exist,
-all-probe visualization exists, terrain plus raster consumers share the local field, deterministic
-visibility and local SH are scheduled in bounded batches, interpolation uses leak-resistant
-weights, and authored-environment revisions reproject retained visibility without terrain rays.
-General terrain-edit invalidation is the next implementation step.
+Phases 1 through 6 are complete: density and resource controls exist, all-probe visualization
+exists, terrain plus raster consumers share the local field, deterministic visibility and local SH
+are scheduled in bounded batches, interpolation uses leak-resistant weights, authored-environment
+revisions reproject retained visibility without terrain rays, and normal terrain rebuild plans
+automatically request a prioritized then full-volume probe refresh. Density and performance
+comparison is the next implementation step.
 
 ## Non-goals
 
@@ -353,7 +354,7 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-probe-spacing-voxels 16 \
   --screenshot player-default target/environment-probes-16.png \
   --screenshot-delay 4 \
-  --auto-exit 8
+  --auto-exit 13
 ```
 
 Add `--environment-probe-visualization` to capture the current probe grid. Screenshot readiness
@@ -410,8 +411,8 @@ phase begins.
 - [x] Derive spatially varying local SH with bounded, repeatable update scheduling.
 - [x] Recompute local SH on environment revisions without terrain retracing.
 - [x] Reject wall, roof, portal, and invalid-probe light leaks.
-- [ ] Add conservative terrain-edit invalidation and convergence tracking.
-- [ ] Extend the test scenario with a deterministic probe invalidation edit.
+- [x] Add conservative terrain-edit invalidation and convergence tracking.
+- [x] Extend the test scenario with a deterministic probe invalidation edit.
 - [ ] Compare 32-, 16-, and 8-voxel density in hidden release runs.
 - [ ] Select the default density from image, timing, and memory evidence.
 - [ ] Confirm the main RGB denoiser remains absent.
@@ -689,4 +690,39 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-probe-spacing-voxels 16 \
   --screenshot player-default target/environment-probes-environment-refresh.png \
   --screenshot-delay 4 --auto-exit 8 --perf
+```
+
+### Phase 6 Terrain-Revision Evidence
+
+Every successful runtime `WorldEditPlan` containing a terrain mesh rebuild now unions its rebuild
+bounds and requests a new probe terrain revision. Classification writes that revision into each
+summary. In the edit frame, two `3 x 3 x 3` probe regions are traced first—one around the edited
+bound and one around the camera—then the existing 128-probe-per-frame cursor performs the
+conservative full-volume refresh. Once an initial local field exists, valid probes in those
+priority regions are immediately available while dirty neighbours safely fall back; the full field
+does not revert to the single global-copy lookup during the refresh.
+
+The deterministic scene now opens a bounded skylight above the roofed plinth after the
+environment-only refresh, waits for that terrain revision to converge, restores the roof, and waits
+for the closure revision before declaring the scene ready. At 16-voxel spacing the initial gallery,
+roof opening, and roof closure converged in 2.37 s, 2.45 s, and 2.39 s respectively. Each edited
+revision scheduled 54 priority probes in 0.16–0.28 ms of CPU record time before the full 35,937-probe
+refresh. The retained-partial-field flag was false for initial construction and true for both
+post-convergence edits.
+
+`target/environment-probes-terrain-refresh.png` was captured after roof restoration and terrain
+revision 3 convergence. The roofed chamber returned to the expected dark result, the run exited
+successfully, and the log contained no error, panic, or Vulkan validation message.
+
+The step used:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --screenshot player-default target/environment-probes-terrain-refresh.png \
+  --screenshot-delay 4 --auto-exit 13 --perf
 ```

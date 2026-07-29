@@ -34,8 +34,11 @@ dimensions under unobstructed sky. A startup tree is moved out of the constructi
 in the camera view so raster vegetation remains part of the lighting comparison. The scenario also
 clears the normal synthetic startup obstacle before building the gallery.
 
-The scenario owns a deterministic camera pose and fixes `time_of_day=0.455705` with automatic
-day/night cycling disabled in memory. Those runtime overrides are not persisted to `config/gui.toml`.
+The scenario owns a deterministic camera pose and starts at `time_of_day=0.455705` with automatic
+day/night cycling disabled in memory. After the initial local probe field converges, it changes once
+to `time_of_day=0.535705` to exercise environment-only SH reprojection. It then opens a bounded
+skylight above the roofed plinth, waits for probe convergence, restores the roof, and waits for the
+closure revision. Those runtime overrides and edits are not persisted.
 
 ## Hidden Validation Command
 
@@ -46,16 +49,17 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-lighting-test-scene \
   --screenshot player-default target/environment-lighting-test-scene.png \
   --screenshot-delay 4 \
-  --auto-exit 8
+  --auto-exit 13
 
 cargo run --release -- --hidden --tail-latest-log 200
 ```
 
 `player-default` satisfies the existing screenshot interface; the scenario then replaces it with
-its deterministic gallery camera. Screenshot capture waits for terrain rebuild completion and two
-settling frames, even when the requested screenshot delay has already elapsed. HUD and debug panels
-are suppressed while this scenario is producing a screenshot or denoiser-benchmark capture; visible
-interactive runs retain the normal UI.
+its deterministic gallery camera. Screenshot capture waits for the initial field, environment
+revision, skylight opening refresh, roof restoration, and final probe convergence, even when the
+requested screenshot delay has already elapsed. HUD and debug panels are suppressed while this
+scenario is producing a screenshot or denoiser-benchmark capture; visible interactive runs retain
+the normal UI.
 
 A successful run contains these log milestones:
 
@@ -63,7 +67,11 @@ A successful run contains these log milestones:
 [ENV_LIGHT_TEST] constructing roofed and open terrain bays with voxel edits
 [ENV_LIGHT_TEST] edits applied
 [ENV_LIGHT_TEST] terrain rebuild complete
-[ENV_LIGHT_TEST] ready
+[ENV_LIGHT_TEST] requested deterministic environment refresh
+[ENV_LIGHT_TEST] roof skylight opened
+[ENV_LIGHT_TEST] roof-opening probe refresh converged
+[ENV_LIGHT_TEST] roof skylight closed
+[ENV_LIGHT_TEST] ready roof_closure_probe_revision
 [SCREENSHOT] Capturing
 ```
 
@@ -84,8 +92,8 @@ When local probes are added, review the same scene for:
 - a darker roofed plinth than the matching open-sky plinth;
 - no irradiance leaking through the roof or side walls;
 - no discontinuity or bright halo at the portal;
-- immediate global sky-hue changes without waiting for all probes to retrace;
-- correct dirty-probe invalidation when the scenario's terrain edits are applied;
+- immediate sky-hue changes through retained visibility without a new terrain trace;
+- prioritized dirty-probe response and full convergence for both roof opening and closure;
 - consistent environment hue between terrain and the retained raster tree;
 - stable results across repeated hidden runs at the same configuration.
 

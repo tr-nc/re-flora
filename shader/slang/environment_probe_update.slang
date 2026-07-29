@@ -81,6 +81,8 @@ struct EnvironmentProbeUpdatePushConstants
     uint probe_count;
     uint environment_revision;
     uint trace_visibility;
+    uint3 priority_grid_min;
+    uint priority_side;
 };
 
 [[vk::push_constant]]
@@ -188,9 +190,27 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     uint localProbeIndex = dispatchThreadId.x;
     if (localProbeIndex >= pc.probe_count) return;
 
-    uint probeIndex = pc.first_probe_index + localProbeIndex;
     uint3 dimensions = shading_info.environment_probe_grid_dimensions;
     uint totalProbeCount = dimensions.x * dimensions.y * dimensions.z;
+    uint probeIndex;
+    if (pc.priority_side > 0u)
+    {
+        uint priorityPlane = pc.priority_side * pc.priority_side;
+        uint localZ = localProbeIndex / priorityPlane;
+        uint localRemainder = localProbeIndex % priorityPlane;
+        uint localY = localRemainder / pc.priority_side;
+        uint localX = localRemainder % pc.priority_side;
+        uint3 coordinate =
+            pc.priority_grid_min + uint3(localX, localY, localZ);
+        if (any(coordinate >= dimensions)) return;
+        probeIndex = coordinate.x +
+                     dimensions.x *
+                         (coordinate.y + dimensions.y * coordinate.z);
+    }
+    else
+    {
+        probeIndex = pc.first_probe_index + localProbeIndex;
+    }
     if (probeIndex >= totalProbeCount) return;
 
     EnvironmentProbeSummary summary =

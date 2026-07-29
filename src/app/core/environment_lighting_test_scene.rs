@@ -34,6 +34,11 @@ const ROOFED_PLINTH_MAX: Vec3 = Vec3::new(184.0, 124.0, 326.0);
 const OPEN_PLINTH_MIN: Vec3 = Vec3::new(326.0, 100.0, 278.0);
 const OPEN_PLINTH_MAX: Vec3 = Vec3::new(362.0, 124.0, 326.0);
 
+const ROOF_SKYLIGHT_MIN: Vec3 = Vec3::new(144.0, 216.0, 270.0);
+const ROOF_SKYLIGHT_MAX: Vec3 = Vec3::new(192.0, 236.0, 334.0);
+const ROOF_SKYLIGHT_REBUILD_MIN: UVec3 = UVec3::new(136, 208, 262);
+const ROOF_SKYLIGHT_REBUILD_MAX: UVec3 = UVec3::new(200, 244, 342);
+
 const GALLERY_REBUILD_MIN: UVec3 = UVec3::new(88, 76, 208);
 const GALLERY_REBUILD_MAX: UVec3 = UVec3::new(424, 244, 408);
 
@@ -41,11 +46,28 @@ const GALLERY_REBUILD_MAX: UVec3 = UVec3::new(424, 244, 408);
 enum TestScenePhase {
     Pending,
     WaitingForRebuild,
-    Settling(u8),
-    WaitingForInitialProbeField,
+    Settling {
+        frames: u8,
+        terrain_revision: u32,
+    },
+    WaitingForInitialProbeField {
+        terrain_revision: u32,
+    },
     WaitingForEnvironmentRefresh {
         previous_revision: u32,
         settle_frames: u8,
+    },
+    WaitingForRoofOpeningRebuild {
+        terrain_revision: u32,
+    },
+    WaitingForRoofOpeningProbeField {
+        terrain_revision: u32,
+    },
+    WaitingForRoofClosureRebuild {
+        terrain_revision: u32,
+    },
+    WaitingForRoofClosureProbeField {
+        terrain_revision: u32,
     },
     Ready,
     Failed,
@@ -134,6 +156,19 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     })
 }
 
+fn roof_skylight_plan(voxel_type: u32) -> Result<WorldEditPlan> {
+    Ok(WorldEditPlan::with_voxel_and_build(
+        stamp_cuboids(
+            vec![Cuboid::from_min_max(ROOF_SKYLIGHT_MIN, ROOF_SKYLIGHT_MAX)],
+            voxel_type,
+        )?,
+        BuildEdit::RebuildMesh(UAabb3::new(
+            ROOF_SKYLIGHT_REBUILD_MIN,
+            ROOF_SKYLIGHT_REBUILD_MAX,
+        )),
+    ))
+}
+
 impl App {
     pub(super) fn configure_environment_lighting_test_scene_camera(&mut self) {
         self.current_time_of_day = TEST_TIME_OF_DAY;
@@ -208,31 +243,47 @@ impl App {
             }
             TestScenePhase::WaitingForRebuild => {
                 if self.deferred_chunk_rebuilds_idle() {
-                    self.tracer.request_environment_probe_classification();
+                    let terrain_revision = self.tracer.environment_probe_terrain_revision();
                     log::info!(
-                        "[ENV_LIGHT_TEST] terrain rebuild complete; requested probe classification; settling {} frames",
-                        SETTLE_FRAMES
+                        "[ENV_LIGHT_TEST] terrain rebuild complete; automatic probe invalidation revision={}; settling {} frames",
+                        terrain_revision,
+                        SETTLE_FRAMES,
                     );
                     self.environment_lighting_test_scene
                         .as_mut()
                         .expect("test scene state disappeared")
-                        .phase = TestScenePhase::Settling(SETTLE_FRAMES);
+                        .phase = TestScenePhase::Settling {
+                        frames: SETTLE_FRAMES,
+                        terrain_revision,
+                    };
                 }
             }
-            TestScenePhase::Settling(frames) => {
+            TestScenePhase::Settling {
+                frames,
+                terrain_revision,
+            } => {
                 let next_phase = if frames > 1 {
-                    TestScenePhase::Settling(frames - 1)
+                    TestScenePhase::Settling {
+                        frames: frames - 1,
+                        terrain_revision,
+                    }
                 } else {
-                    log::info!("[ENV_LIGHT_TEST] terrain scene settled; waiting for initial local probe field");
-                    TestScenePhase::WaitingForInitialProbeField
+                    log::info!(
+                        "[ENV_LIGHT_TEST] terrain scene settled; waiting for probe terrain revision={}",
+                        terrain_revision,
+                    );
+                    TestScenePhase::WaitingForInitialProbeField { terrain_revision }
                 };
                 self.environment_lighting_test_scene
                     .as_mut()
                     .expect("test scene state disappeared")
                     .phase = next_phase;
             }
-            TestScenePhase::WaitingForInitialProbeField => {
-                if !self.tracer.environment_probe_local_field_ready() {
+            TestScenePhase::WaitingForInitialProbeField { terrain_revision } => {
+                if !self
+                    .tracer
+                    .environment_probe_terrain_revision_ready(terrain_revision)
+                {
                     return;
                 }
 
@@ -268,15 +319,106 @@ impl App {
                     }
                 } else {
                     log::info!(
-                        "[ENV_LIGHT_TEST] ready environment_refresh_revision={} roofed_sample_ws=(0.648,0.438,1.180) open_sample_ws=(1.344,0.438,1.180)",
+                        "[ENV_LIGHT_TEST] environment refresh complete revision={}; opening deterministic roof skylight",
                         current_revision,
                     );
-                    TestScenePhase::Ready
+                    match roof_skylight_plan(VOXEL_TYPE_EMPTY)
+                        .and_then(|plan| self.execute_edit_plan(plan))
+                    {
+                        Ok(()) => {
+                            let terrain_revision = self.tracer.environment_probe_terrain_revision();
+                            log::info!(
+                                "[ENV_LIGHT_TEST] roof skylight opened; waiting for terrain rebuild and probe revision={}",
+                                terrain_revision,
+                            );
+                            TestScenePhase::WaitingForRoofOpeningRebuild { terrain_revision }
+                        }
+                        Err(err) => {
+                            log::error!("[ENV_LIGHT_TEST] failed to open roof skylight: {err:#}");
+                            TestScenePhase::Failed
+                        }
+                    }
                 };
                 self.environment_lighting_test_scene
                     .as_mut()
                     .expect("test scene state disappeared")
                     .phase = next_phase;
+            }
+            TestScenePhase::WaitingForRoofOpeningRebuild { terrain_revision } => {
+                if self.deferred_chunk_rebuilds_idle() {
+                    log::info!(
+                        "[ENV_LIGHT_TEST] roof-opening rebuild complete; waiting for probe revision={}",
+                        terrain_revision,
+                    );
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("test scene state disappeared")
+                        .phase =
+                        TestScenePhase::WaitingForRoofOpeningProbeField { terrain_revision };
+                }
+            }
+            TestScenePhase::WaitingForRoofOpeningProbeField { terrain_revision } => {
+                if !self
+                    .tracer
+                    .environment_probe_terrain_revision_ready(terrain_revision)
+                {
+                    return;
+                }
+
+                log::info!(
+                    "[ENV_LIGHT_TEST] roof-opening probe refresh converged revision={}; closing skylight",
+                    terrain_revision,
+                );
+                let next_phase = match roof_skylight_plan(VOXEL_TYPE_ROCK)
+                    .and_then(|plan| self.execute_edit_plan(plan))
+                {
+                    Ok(()) => {
+                        let terrain_revision = self.tracer.environment_probe_terrain_revision();
+                        log::info!(
+                            "[ENV_LIGHT_TEST] roof skylight closed; waiting for terrain rebuild and probe revision={}",
+                            terrain_revision,
+                        );
+                        TestScenePhase::WaitingForRoofClosureRebuild { terrain_revision }
+                    }
+                    Err(err) => {
+                        log::error!("[ENV_LIGHT_TEST] failed to close roof skylight: {err:#}");
+                        TestScenePhase::Failed
+                    }
+                };
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .expect("test scene state disappeared")
+                    .phase = next_phase;
+            }
+            TestScenePhase::WaitingForRoofClosureRebuild { terrain_revision } => {
+                if self.deferred_chunk_rebuilds_idle() {
+                    log::info!(
+                        "[ENV_LIGHT_TEST] roof-closure rebuild complete; waiting for probe revision={}",
+                        terrain_revision,
+                    );
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("test scene state disappeared")
+                        .phase =
+                        TestScenePhase::WaitingForRoofClosureProbeField { terrain_revision };
+                }
+            }
+            TestScenePhase::WaitingForRoofClosureProbeField { terrain_revision } => {
+                if !self
+                    .tracer
+                    .environment_probe_terrain_revision_ready(terrain_revision)
+                {
+                    return;
+                }
+
+                log::info!(
+                    "[ENV_LIGHT_TEST] ready roof_closure_probe_revision={} roofed_sample_ws=(0.648,0.438,1.180) open_sample_ws=(1.344,0.438,1.180)",
+                    terrain_revision,
+                );
+                self.environment_lighting_test_scene
+                    .as_mut()
+                    .expect("test scene state disappeared")
+                    .phase = TestScenePhase::Ready;
             }
             TestScenePhase::Ready | TestScenePhase::Failed => {}
         }
@@ -318,5 +460,23 @@ mod tests {
                     if bound.max().cmple(UVec3::splat(512)).all()
             )
         }));
+    }
+
+    #[test]
+    fn roof_skylight_is_a_bounded_edit_inside_the_roof() {
+        assert!(ROOF_SKYLIGHT_MIN.cmpge(ROOFED_SHELL_MIN).all());
+        assert!(ROOF_SKYLIGHT_MAX.cmple(ROOFED_SHELL_MAX).all());
+        assert!(ROOF_SKYLIGHT_MIN.y >= ROOFED_INTERIOR_MAX.y);
+
+        let plan = roof_skylight_plan(VOXEL_TYPE_EMPTY).unwrap();
+        assert_eq!(plan.voxel_edits.len(), 1);
+        assert!(matches!(
+            plan.build_edits.as_slice(),
+            [BuildEdit::RebuildMesh(bound)]
+                if *bound == UAabb3::new(
+                    ROOF_SKYLIGHT_REBUILD_MIN,
+                    ROOF_SKYLIGHT_REBUILD_MAX,
+                )
+        ));
     }
 }

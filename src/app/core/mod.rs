@@ -484,11 +484,12 @@ impl App {
         };
         match profiler.try_collect_frame(frame_slot) {
             Ok(Some(results)) => {
-                for scope in results
-                    .scopes
-                    .iter()
-                    .filter(|scope| scope.name == "environment_probes.rederive")
-                {
+                for scope in results.scopes.iter().filter(|scope| {
+                    matches!(
+                        scope.name,
+                        "environment_probes.rederive" | "environment_probes.trace_priority"
+                    )
+                }) {
                     log::info!(
                         "[PERF][GPU_EVENT_SCOPE] {}={:.0}us",
                         scope.name,
@@ -1777,11 +1778,40 @@ impl App {
 
     fn execute_edit_plan(&mut self, plan: WorldEditPlan) -> Result<()> {
         let affects_shadow_history = !plan.voxel_edits.is_empty() || !plan.build_edits.is_empty();
+        let environment_probe_edit_bound =
+            Self::environment_probe_edit_bound(&plan, VOXEL_DIM_PER_CHUNK);
         world_ops::execute_edit_plan_on_backend(self, plan)?;
         if affects_shadow_history {
             self.request_vsm_history_reset();
         }
+        if let Some(edit_bound) = environment_probe_edit_bound {
+            self.tracer
+                .request_environment_probe_refresh_near_voxel_bound(edit_bound);
+        }
         Ok(())
+    }
+
+    fn environment_probe_edit_bound(
+        plan: &WorldEditPlan,
+        voxel_dim_per_chunk: UVec3,
+    ) -> Option<UAabb3> {
+        plan.build_edits
+            .iter()
+            .filter_map(|edit| match edit {
+                BuildEdit::RebuildMesh(bound) | BuildEdit::RebuildMeshWithoutFlora(bound) => {
+                    Some(*bound)
+                }
+                BuildEdit::RebuildChunks(chunk_ids)
+                | BuildEdit::RebuildChunksWithoutFlora(chunk_ids) => {
+                    let min_chunk = chunk_ids.iter().copied().reduce(UVec3::min)?;
+                    let max_chunk = chunk_ids.iter().copied().reduce(UVec3::max)?;
+                    Some(UAabb3::new(
+                        min_chunk * voxel_dim_per_chunk,
+                        (max_chunk + UVec3::ONE) * voxel_dim_per_chunk,
+                    ))
+                }
+            })
+            .reduce(|combined, bound| combined.union_with(&bound))
     }
 
     fn gui_wants_keyboard_input(&self) -> bool {

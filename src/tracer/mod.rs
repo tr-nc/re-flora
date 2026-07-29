@@ -84,6 +84,7 @@ use re_flora_vkn::{
     TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
 };
 use std::collections::HashMap;
+use std::time::Instant;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
@@ -95,6 +96,7 @@ const ENVIRONMENT_PROBE_VISIBILITY_BINDING: u32 = 20;
 const ENVIRONMENT_PROBE_DIRECTION_BINDING: u32 = 21;
 const ENVIRONMENT_PROBE_TRACE_BATCH_SIZE: u32 = 128;
 const ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE: u32 = 70;
+const ENVIRONMENT_PROBE_PRIORITY_REGION_RADIUS: u32 = 1;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -111,6 +113,27 @@ struct EnvironmentProbeUpdatePushConstants {
     probe_count: u32,
     environment_revision: u32,
     trace_visibility: u32,
+    priority_grid_min: [u32; 3],
+    priority_side: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct EnvironmentProbeClassificationPushConstants {
+    terrain_revision: u32,
+    _padding: [u32; 3],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EnvironmentProbeTraceRegion {
+    grid_min: UVec3,
+    side: u32,
+}
+
+impl EnvironmentProbeTraceRegion {
+    fn dispatch_probe_count(self) -> u32 {
+        self.side * self.side * self.side
+    }
 }
 
 #[repr(C)]
@@ -494,6 +517,10 @@ pub struct Tracer {
     environment_probe_placement_initialized: bool,
     environment_probe_trace_cursor: u32,
     environment_probe_local_field_ready: bool,
+    environment_probe_priority_regions: [Option<EnvironmentProbeTraceRegion>; 2],
+    environment_probe_terrain_revision: u32,
+    environment_probe_converged_terrain_revision: u32,
+    environment_probe_refresh_started_at: Option<Instant>,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -757,6 +784,10 @@ impl Tracer {
             environment_probe_placement_initialized: false,
             environment_probe_trace_cursor: 0,
             environment_probe_local_field_ready: false,
+            environment_probe_priority_regions: [None, None],
+            environment_probe_terrain_revision: 0,
+            environment_probe_converged_terrain_revision: 0,
+            environment_probe_refresh_started_at: None,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -797,6 +828,10 @@ impl Tracer {
         self.environment_probe_placement_initialized = false;
         self.environment_probe_trace_cursor = 0;
         self.environment_probe_local_field_ready = false;
+        self.environment_probe_priority_regions = [None, None];
+        self.environment_probe_terrain_revision = 0;
+        self.environment_probe_converged_terrain_revision = 0;
+        self.environment_probe_refresh_started_at = None;
         self.update_environment_probe_consumer_descriptors();
         let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.environment_probes];
         self.graphics_pipelines
@@ -808,12 +843,64 @@ impl Tracer {
         Ok(())
     }
 
-    pub fn request_environment_probe_classification(&mut self) {
+    pub fn request_environment_probe_refresh_near_voxel_bound(&mut self, edit_bound: UAabb3) {
+        self.environment_probe_terrain_revision = self
+            .environment_probe_terrain_revision
+            .wrapping_add(1)
+            .max(1);
         self.environment_probe_classification_pending = true;
+        self.environment_probe_refresh_started_at = Some(Instant::now());
+
+        let grid = self.environment_probes.status().grid;
+        let edit_center = edit_bound.center();
+        let camera_voxel_position =
+            self.camera.position() * self.desc.voxel_dim_per_chunk.as_vec3();
+        let edit_region = Self::environment_probe_priority_region(grid, edit_center);
+        let camera_region = Self::environment_probe_priority_region(grid, camera_voxel_position);
+        self.environment_probe_priority_regions = [
+            Some(edit_region),
+            (camera_region != edit_region).then_some(camera_region),
+        ];
+
+        log::info!(
+            "[ENV_PROBES] terrain refresh requested revision={} edit_voxel_bound={:?}..{:?} edit_priority_min={:?} camera_priority_min={:?} region_side={}",
+            self.environment_probe_terrain_revision,
+            edit_bound.min(),
+            edit_bound.max(),
+            edit_region.grid_min,
+            camera_region.grid_min,
+            edit_region.side,
+        );
+    }
+
+    fn environment_probe_priority_region(
+        grid: crate::environment_probes::EnvironmentProbeGrid,
+        voxel_position: Vec3,
+    ) -> EnvironmentProbeTraceRegion {
+        let maximum_coordinate = grid.dimensions() - UVec3::ONE;
+        let center = (voxel_position / grid.spacing_voxels() as f32)
+            .round()
+            .max(Vec3::ZERO)
+            .as_uvec3()
+            .min(maximum_coordinate);
+        let grid_min =
+            center.saturating_sub(UVec3::splat(ENVIRONMENT_PROBE_PRIORITY_REGION_RADIUS));
+        EnvironmentProbeTraceRegion {
+            grid_min,
+            side: ENVIRONMENT_PROBE_PRIORITY_REGION_RADIUS * 2 + 1,
+        }
     }
 
     pub fn environment_probe_local_field_ready(&self) -> bool {
         self.environment_probe_local_field_ready
+    }
+
+    pub fn environment_probe_terrain_revision(&self) -> u32 {
+        self.environment_probe_terrain_revision
+    }
+
+    pub fn environment_probe_terrain_revision_ready(&self, revision: u32) -> bool {
+        revision != 0 && self.environment_probe_converged_terrain_revision == revision
     }
 
     pub fn environment_probe_revision(&self) -> u32 {
@@ -1648,7 +1735,15 @@ impl Tracer {
                     gpu_profiler_frame_slot,
                     cmdbuf,
                     "environment_probes.rederive",
-                    || self.record_environment_probe_update_pass(cmdbuf, 0, probe_count, false),
+                    || {
+                        self.record_environment_probe_update_pass(
+                            cmdbuf,
+                            0,
+                            probe_count,
+                            false,
+                            None,
+                        )
+                    },
                 );
                 log::info!(
                     "[ENV_PROBES] rederived local SH previous_revision={} revision={} probes={} terrain_rays=0",
@@ -1686,6 +1781,7 @@ impl Tracer {
         }
 
         if self.environment_probe_classification_pending {
+            let retain_partial_local_field = self.environment_probe_local_field_ready;
             let probe_read_to_classification_barrier = PipelineBarrier::new(
                 PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
                 PipelineStage::COMPUTE_SHADER,
@@ -1710,14 +1806,60 @@ impl Tracer {
             self.environment_probe_classification_pending = false;
             self.environment_probe_placement_initialized = true;
             self.environment_probe_trace_cursor = 0;
-            self.environment_probe_local_field_ready = false;
+            self.environment_probe_local_field_ready = retain_partial_local_field;
             self.environment_probes.mark_all_classified_dirty();
             let status = self.environment_probes.status();
             log::info!(
-                "[ENV_PROBES] classified placement probes={} spacing_voxels={} usable=0 state=dirty_or_invalid",
+                "[ENV_PROBES] classified placement probes={} spacing_voxels={} terrain_revision={} retained_partial_field={} usable=0 state=dirty_or_invalid",
                 status.grid.probe_count(),
                 status.grid.spacing_voxels(),
+                self.environment_probe_terrain_revision,
+                retain_partial_local_field,
             );
+
+            let mut priority_dispatch_count = 0;
+            for region in self
+                .environment_probe_priority_regions
+                .into_iter()
+                .flatten()
+            {
+                let region_probe_count = region.dispatch_probe_count();
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "environment_probes.trace_priority",
+                    || {
+                        self.record_environment_probe_update_pass(
+                            cmdbuf,
+                            0,
+                            region_probe_count,
+                            true,
+                            Some(region),
+                        )
+                    },
+                );
+                let priority_write_barrier = PipelineBarrier::shader_access(
+                    PipelineStage::COMPUTE_SHADER,
+                    PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
+                );
+                priority_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                priority_dispatch_count += region_probe_count;
+            }
+            self.environment_probe_priority_regions = [None, None];
+            if priority_dispatch_count > 0 {
+                let response_ms = self
+                    .environment_probe_refresh_started_at
+                    .map(|started| started.elapsed().as_secs_f64() * 1000.0)
+                    .unwrap_or(0.0);
+                log::info!(
+                    "[ENV_PROBES] terrain local response scheduled revision={} priority_dispatch_probes={} rays_per_probe={} schedule_ms={:.2}",
+                    self.environment_probe_terrain_revision,
+                    priority_dispatch_count,
+                    ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE,
+                    response_ms,
+                );
+            }
         }
 
         let probe_count = self.environment_probes.status().grid.probe_count();
@@ -1747,6 +1889,7 @@ impl Tracer {
                         first_probe_index,
                         batch_probe_count,
                         true,
+                        None,
                     )
                 },
             );
@@ -1758,19 +1901,30 @@ impl Tracer {
             self.environment_probe_trace_cursor += batch_probe_count;
             if first_probe_index == 0 {
                 log::info!(
-                    "[ENV_PROBES] visibility trace started probes={} batch_size={} rays_per_probe={} revision={}",
+                    "[ENV_PROBES] visibility trace started probes={} batch_size={} rays_per_probe={} environment_revision={} terrain_revision={}",
                     probe_count,
                     ENVIRONMENT_PROBE_TRACE_BATCH_SIZE,
                     ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE,
                     self.environment_probe_environment_revision,
+                    self.environment_probe_terrain_revision,
                 );
             }
             if self.environment_probe_trace_cursor == probe_count {
                 self.environment_probe_local_field_ready = true;
+                self.environment_probe_converged_terrain_revision =
+                    self.environment_probe_terrain_revision;
+                let convergence_ms = self
+                    .environment_probe_refresh_started_at
+                    .take()
+                    .map(|started| started.elapsed().as_secs_f64() * 1000.0);
                 log::info!(
-                    "[ENV_PROBES] visibility trace complete processed={} revision={} local_field_ready=true",
+                    "[ENV_PROBES] visibility trace complete processed={} environment_revision={} terrain_revision={} convergence_ms={} local_field_ready=true",
                     probe_count,
                     self.environment_probe_environment_revision,
+                    self.environment_probe_terrain_revision,
+                    convergence_ms
+                        .map(|value| format!("{value:.2}"))
+                        .unwrap_or_else(|| "initial".to_string()),
                 );
             }
         }
@@ -3207,12 +3361,16 @@ impl Tracer {
     }
 
     fn record_environment_probe_classification_pass(&self, cmdbuf: &CommandBuffer) {
+        let push_constants = EnvironmentProbeClassificationPushConstants {
+            terrain_revision: self.environment_probe_terrain_revision,
+            _padding: [0; 3],
+        };
         self.compute_pipelines
             .environment_probe_classify_ppl
             .record(
                 cmdbuf,
                 Extent3D::new(self.environment_probes.status().grid.probe_count(), 1, 1),
-                None,
+                Some(bytemuck::bytes_of(&push_constants)),
             );
     }
 
@@ -3222,12 +3380,18 @@ impl Tracer {
         first_probe_index: u32,
         probe_count: u32,
         trace_visibility: bool,
+        priority_region: Option<EnvironmentProbeTraceRegion>,
     ) {
+        let (priority_grid_min, priority_side) = priority_region
+            .map(|region| (region.grid_min.to_array(), region.side))
+            .unwrap_or(([0; 3], 0));
         let push_constants = EnvironmentProbeUpdatePushConstants {
             first_probe_index,
             probe_count,
             environment_revision: self.environment_probe_environment_revision,
             trace_visibility: u32::from(trace_visibility),
+            priority_grid_min,
+            priority_side,
         };
         self.compute_pipelines.environment_probe_update_ppl.record(
             cmdbuf,
