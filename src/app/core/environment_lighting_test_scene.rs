@@ -202,8 +202,9 @@ impl App {
             }
             TestScenePhase::WaitingForRebuild => {
                 if self.deferred_chunk_rebuilds_idle() {
+                    self.tracer.request_environment_probe_classification();
                     log::info!(
-                        "[ENV_LIGHT_TEST] terrain rebuild complete; settling {} frames",
+                        "[ENV_LIGHT_TEST] terrain rebuild complete; requested probe classification; settling {} frames",
                         SETTLE_FRAMES
                     );
                     self.environment_lighting_test_scene

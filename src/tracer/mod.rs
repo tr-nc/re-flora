@@ -477,6 +477,8 @@ pub struct Tracer {
     environment_probes: EnvironmentProbeVolume,
     environment_probe_environment_revision: u32,
     environment_probe_seeded_revision: u32,
+    environment_probe_classification_pending: bool,
+    environment_probe_placement_initialized: bool,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -736,6 +738,8 @@ impl Tracer {
             environment_probes,
             environment_probe_environment_revision: 0,
             environment_probe_seeded_revision: 0,
+            environment_probe_classification_pending: true,
+            environment_probe_placement_initialized: false,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -772,6 +776,8 @@ impl Tracer {
         self.vulkan_ctx.device().wait_idle();
         self.environment_probes = replacement;
         self.environment_probe_seeded_revision = 0;
+        self.environment_probe_classification_pending = true;
+        self.environment_probe_placement_initialized = false;
         self.update_environment_probe_consumer_descriptors();
         let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.environment_probes];
         self.graphics_pipelines
@@ -781,6 +787,10 @@ impl Tracer {
             .environment_probe_visualization_overlay_ppl
             .auto_update_descriptor_sets(&resources)?;
         Ok(())
+    }
+
+    pub fn request_environment_probe_classification(&mut self) {
+        self.environment_probe_classification_pending = true;
     }
 
     pub fn environment_probe_visualization_settings(
@@ -948,6 +958,10 @@ impl Tracer {
             plain_builder_resources,
         );
         update_compute_fn(&self.compute_pipelines.tracer_ppl, &all_resources);
+        update_compute_fn(
+            &self.compute_pipelines.environment_probe_classify_ppl,
+            &all_resources,
+        );
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
@@ -1071,6 +1085,12 @@ impl Tracer {
                 WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
             );
         }
+        self.compute_pipelines
+            .environment_probe_classify_ppl
+            .write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
+            );
         for pipeline in [
             &self.graphics_pipelines.flora_ppl,
             &self.graphics_pipelines.flora_lod_ppl,
@@ -1590,7 +1610,9 @@ impl Tracer {
             );
             probe_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.environment_probe_seeded_revision = self.environment_probe_environment_revision;
-            self.environment_probes.mark_all_valid_global_copy();
+            if !self.environment_probe_placement_initialized {
+                self.environment_probes.mark_all_valid_global_copy();
+            }
             if previous_revision == 0 {
                 let status = self.environment_probes.status();
                 log::info!(
@@ -1600,6 +1622,39 @@ impl Tracer {
                     status.valid_probe_count,
                 );
             }
+        }
+
+        if self.environment_probe_classification_pending {
+            let probe_read_to_classification_barrier = PipelineBarrier::new(
+                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
+                PipelineStage::COMPUTE_SHADER,
+                [MemoryBarrier::new(
+                    MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+                    MemoryAccess::SHADER_WRITE,
+                )],
+            );
+            probe_read_to_classification_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "environment_probes.classify",
+                || self.record_environment_probe_classification_pass(cmdbuf),
+            );
+            let probe_classification_write_barrier = PipelineBarrier::shader_access(
+                PipelineStage::COMPUTE_SHADER,
+                PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
+            );
+            probe_classification_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            self.environment_probe_classification_pending = false;
+            self.environment_probe_placement_initialized = true;
+            self.environment_probes.mark_all_classified_dirty();
+            let status = self.environment_probes.status();
+            log::info!(
+                "[ENV_PROBES] classified placement probes={} spacing_voxels={} usable=0 state=dirty_or_invalid",
+                status.grid.probe_count(),
+                status.grid.spacing_voxels(),
+            );
         }
 
         let has_graphics_pass = render_flags.enable_flora
@@ -3026,6 +3081,16 @@ impl Tracer {
     fn record_environment_probe_global_copy_pass(&self, cmdbuf: &CommandBuffer) {
         self.compute_pipelines
             .environment_probe_global_copy_ppl
+            .record(
+                cmdbuf,
+                Extent3D::new(self.environment_probes.status().grid.probe_count(), 1, 1),
+                None,
+            );
+    }
+
+    fn record_environment_probe_classification_pass(&self, cmdbuf: &CommandBuffer) {
+        self.compute_pipelines
+            .environment_probe_classify_ppl
             .record(
                 cmdbuf,
                 Extent3D::new(self.environment_probes.status().grid.probe_count(), 1, 1),

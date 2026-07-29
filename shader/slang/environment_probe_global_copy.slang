@@ -57,12 +57,21 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     EnvironmentProbeSummary summary =
         environment_probe_summaries.data[probeIndex];
-    summary.original_position_visibility.w = 1.0;
-    summary.sample_position_confidence =
-        float4(summary.original_position_visibility.xyz, 1.0);
-    summary.revisions_state =
-        uint4(0u, shading_info.environment_revision, 3u, probeIndex);
-    summary.update_info =
-        uint4(shading_info.environment_revision, 0u, 0u, 0u);
+    bool placementClassified = summary.update_info.z != 0u;
+    if (!placementClassified)
+    {
+        summary.original_position_visibility.w = 1.0;
+        summary.sample_position_confidence =
+            float4(summary.original_position_visibility.xyz, 1.0);
+        summary.revisions_state =
+            uint4(0u, shading_info.environment_revision, 3u, probeIndex);
+        summary.update_info =
+            uint4(shading_info.environment_revision, 0u, 0u, 0u);
+    }
+    else
+    {
+        summary.revisions_state.y = shading_info.environment_revision;
+        summary.update_info.x = shading_info.environment_revision;
+    }
     environment_probe_summaries.data[probeIndex] = summary;
 }

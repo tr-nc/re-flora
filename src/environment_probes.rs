@@ -616,6 +616,10 @@ impl EnvironmentProbeVolume {
     pub fn mark_all_valid_global_copy(&mut self) {
         self.valid_probe_count = self.grid.probe_count();
     }
+
+    pub fn mark_all_classified_dirty(&mut self) {
+        self.valid_probe_count = 0;
+    }
 }
 
 #[cfg(test)]

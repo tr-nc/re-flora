@@ -397,7 +397,7 @@ phase begins.
 - [x] Add visualization modes, filters, and separate GPU timing.
 - [x] Route terrain and raster lighting through global-copy probe sampling.
 - [x] Allocate and report deterministic direction and per-probe visibility resources.
-- [ ] Classify empty/outside/solid probes and relocate solid probes deterministically.
+- [x] Classify empty/outside/solid probes and relocate solid probes deterministically.
 - [ ] Trace deterministic terrain visibility from valid probes.
 - [ ] Derive spatially varying local SH with bounded, repeatable update scheduling.
 - [ ] Recompute local SH on environment revisions without terrain retracing.
@@ -530,4 +530,39 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-lighting-test-scene \
   --environment-probe-spacing-voxels 8 --auto-exit 0.5
 cargo run --release -- --hidden --tail-latest-log 200
+```
+
+### Phase 4 Placement Classification Evidence
+
+A dedicated one-thread-per-probe compute pass now classifies placement directly from the terrain
+voxel atlas. Grid endpoints outside the atlas remain inactive. An original point in an empty voxel
+uses that voxel's center as its sample position and becomes dirty. A point inside solid terrain
+searches deterministically along `+Y`, `+X`, `-X`, `+Z`, `-Z`, then `-Y`, up to half of the probe
+spacing. A relocation candidate must be empty with one empty voxel of axial clearance; failure
+leaves the probe invalid in the relocation-failed state.
+
+The pass records original and sample positions, relocation distance, placement completion, state,
+and environment revision in the existing summary record. It does not make a classified probe
+usable: dirty and invalid probes continue to fall back to global SH until visibility tracing
+completes. Later global-copy refreshes preserve classified placement state instead of accidentally
+marking every probe valid again.
+
+The deterministic test scene requests another classification after its terrain edits and rebuilds
+complete. A hidden 16-voxel run classified all 35,937 records once for the startup world and again
+after the gallery edit. `target/environment-probes-classified.png` shows the full volume with dirty,
+inactive, and relocation-failed state colors. The release log contained no error, panic, or Vulkan
+validation message and the application exited successfully.
+
+The step used:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --environment-probe-visualization \
+  --screenshot player-default target/environment-probes-classified.png \
+  --screenshot-delay 4 --auto-exit 8 --perf
 ```
