@@ -23,9 +23,6 @@ pub use dynamic_fruit_resources::*;
 
 pub mod tree_preview_mesh;
 
-mod denoiser_resources;
-pub use denoiser_resources::*;
-
 mod extent_dependent_resources;
 pub use extent_dependent_resources::*;
 
@@ -88,7 +85,6 @@ const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
 const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
-const DENOISER_A_TROUS_ITERATION_COUNT: u32 = 3;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -208,12 +204,6 @@ struct CloudTemporalPushConstants {
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct CloudShadowTemporalPushConstants {
-    reset_history: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct DenoiserTemporalPushConstants {
     reset_history: u32,
 }
 
@@ -587,8 +577,7 @@ impl Tracer {
             &shader_modules.tracer_sm,
             &shader_modules.tracer_shadow_sm,
             &shader_modules.composition_sm,
-            &shader_modules.temporal_sm,
-            &shader_modules.spatial_sm,
+            &shader_modules.cloud_temporal_sm,
             &shader_modules.god_ray_sm,
             &shader_modules.post_processing_sm,
             &shader_modules.player_collider_sm,
@@ -902,8 +891,6 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.vsm_blur_h_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.vsm_blur_v_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.god_ray_ppl, &tracer_resources);
-        update_compute_fn(&self.compute_pipelines.temporal_ppl, &tracer_resources);
-        update_compute_fn(&self.compute_pipelines.spatial_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.cloud_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.cloud_shadow_ppl, &tracer_resources);
         update_compute_fn(
@@ -1064,8 +1051,6 @@ impl Tracer {
         sun_display_luminance: f32,
         sun_altitude: f32,
         sun_azimuth: f32,
-        temporal_alpha: f32,
-        spatial_extent: f32,
         god_ray_max_depth: f32,
         god_ray_max_checks: u32,
         god_ray_weight: f32,
@@ -1251,13 +1236,6 @@ impl Tracer {
         )?;
 
         BufferUpdater::update_env_info(&self.resources, time_info.total_frame_count() as u32)?;
-
-        BufferUpdater::update_denoiser_info(
-            &mut self.resources.denoiser_resources.temporal_info,
-            &mut self.resources.denoiser_resources.spatial_info,
-            temporal_alpha,
-            spatial_extent,
-        )?;
 
         self.camera_view_mat_prev_frame = self.camera.get_view_mat();
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
@@ -1601,7 +1579,6 @@ impl Tracer {
         flora_color_tables: &[FloraHeightColorTables],
         leaf_color_tables: FloraHeightColorTables,
         render_flags: &crate::RenderFlags,
-        reset_denoiser_history: bool,
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
@@ -1738,16 +1715,6 @@ impl Tracer {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
-        if render_flags.enable_denoiser {
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "denoiser.pass",
-                || self.record_denoiser_pass(cmdbuf, reset_denoiser_history),
-            )?;
-        }
-
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_clouds {
             Self::with_gpu_scope(
@@ -1824,31 +1791,7 @@ impl Tracer {
             self.record_post_processing_pass(cmdbuf);
         }
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        if render_flags.enable_denoiser {
-            copy_current_to_prev(&self.resources, cmdbuf);
-        }
-
-        return Ok(());
-
-        fn copy_current_to_prev(resources: &TracerResources, cmdbuf: &CommandBuffer) {
-            let copy_fn = |src_tex: &Texture, dst_tex: &Texture| {
-                src_tex.get_image().record_copy_to(
-                    cmdbuf,
-                    dst_tex.get_image(),
-                    TextureLayout::GENERAL,
-                    TextureLayout::GENERAL,
-                );
-            };
-
-            for history in [
-                resources.denoiser_resources.tex.temporal.normal_history(),
-                resources.denoiser_resources.tex.temporal.position_history(),
-                resources.denoiser_resources.tex.temporal.vox_id_history(),
-                resources.denoiser_resources.tex.temporal.accumed_history(),
-            ] {
-                copy_fn(history.current(), history.previous());
-            }
-        }
+        Ok(())
     }
 
     fn record_store_vsm_history(&self, cmdbuf: &CommandBuffer) {
@@ -1983,19 +1926,6 @@ impl Tracer {
         self.resources
             .extent_dependent_resources
             .god_ray_output_tex
-            .get_image()
-            .record_clear(
-                cmdbuf,
-                Some(TextureLayout::GENERAL),
-                0,
-                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
-            );
-
-        self.resources
-            .denoiser_resources
-            .tex
-            .spatial_ping_pong()
-            .pong()
             .get_image()
             .record_clear(
                 cmdbuf,
@@ -3081,47 +3011,6 @@ impl Tracer {
                 .extent,
             None,
         );
-    }
-
-    fn record_denoiser_pass(
-        &self,
-        cmdbuf: &CommandBuffer,
-        reset_history: bool,
-    ) -> anyhow::Result<()> {
-        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
-
-        let extent = self
-            .resources
-            .extent_dependent_resources
-            .compute_output_tex
-            .get_image()
-            .get_desc()
-            .extent;
-
-        let temporal_push_constants = DenoiserTemporalPushConstants {
-            reset_history: u32::from(reset_history),
-        };
-        self.compute_pipelines.temporal_ppl.record(
-            cmdbuf,
-            extent,
-            Some(bytemuck::bytes_of(&temporal_push_constants)),
-        );
-
-        for i in 0..DENOISER_A_TROUS_ITERATION_COUNT {
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.compute_pipelines.spatial_ppl.record(
-                cmdbuf,
-                self.resources
-                    .extent_dependent_resources
-                    .compute_output_tex
-                    .get_image()
-                    .get_desc()
-                    .extent,
-                Some(&i.to_ne_bytes()),
-            );
-        }
-
-        Ok(())
     }
 
     fn record_cloud_shadow_pass(&mut self, cmdbuf: &CommandBuffer) {

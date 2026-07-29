@@ -262,8 +262,8 @@ unoccluded and leaves the position-aware probe extension for future scenes that 
 visibility problem.
 
 The stochastic diffuse ray, its temporary branch, fixed ambient uniform, and their GUI/CPU plumbing
-were removed. The weighted-cosine blue-noise resource remains because direct sun-disc sampling still
-uses it; it is no longer used to launch a diffuse bounce.
+were removed. The weighted-cosine blue-noise resource remains because the god-ray shader still uses
+it; it is no longer used by terrain diffuse or direct-light sampling.
 
 A matched hidden release `render-steady` run produced 276 post-warmup samples:
 
@@ -291,6 +291,27 @@ differences caused by animation and temporal shadows.
 - Keep leaf-shadow, VSM, cloud, and future probe histories independent.
 - Commit denoiser removal separately from second-ray removal so performance and visual effects remain
   attributable.
+
+The first truly raw prototype kept the terrain tracer's stochastic sun-disc direction and PCSS
+visibility but bypassed both temporal accumulation and A-Trous. It measured mean frame-to-frame luma
+delta `0.696825` with p99 delta `7`, making simple denoiser deletion unacceptable. The instability
+was therefore isolated to direct visibility rather than the deterministic SH environment term.
+
+Terrain direct visibility now uses the existing VSM result with a fixed explicit-sun direction.
+With the main denoiser still bypassed, that prototype measured mean luma delta `0.007904`, p99 delta
+`0`, noticeable-pixel ratio `0.000173`, and spatial gradient `2.402917`. This is both substantially
+more stable and sharper than the old history result (`0.036034` mean delta, `2.356452` gradient).
+
+The accepted implementation removes both main radiance shaders, their compute pipelines, eleven
+render-sized normal/position/voxel-ID/motion/accumulation/ping-pong textures, two uniform buffers,
+GUI controls, descriptor updates, history copies, and the obsolete `--no-denoise` and
+fresh-sample benchmark modes. Composition now unpacks the tracer's RGBE output directly.
+
+A final 64-frame hidden release capture on the completed path measured mean luma delta `0.008950`,
+p99 delta `0`, noticeable-pixel ratio `0.000178`, and spatial gradient `2.402048`. The VSM,
+leaf-shadow, cloud, and cloud-shadow temporal pipelines remain separate resources and passes. This
+removes one source of lag from animated leaf shadows, but it intentionally does not remove the
+leaf-opacity history itself.
 
 ### Phase 7: Add spatially varying irradiance only when needed
 
@@ -402,9 +423,9 @@ Acceptance should check both consistency and intent:
 - [x] Validate terrain/raster lighting consistency across time of day and motion.
 - [x] Decide whether global SH needs a cheap environment-visibility term.
 - [x] Remove the stochastic normal-gameplay second ray after visual acceptance.
-- [ ] Re-test raw tracer stability without the main radiance denoiser.
-- [ ] Remove the main radiance denoiser only if shadow and camera-motion stability pass.
-- [ ] Confirm leaf-shadow, VSM, and cloud temporal paths remain independent.
+- [x] Re-test raw tracer stability without the main radiance denoiser.
+- [x] Remove the main radiance denoiser only if shadow and camera-motion stability pass.
+- [x] Confirm leaf-shadow, VSM, and cloud temporal paths remain independent.
 - [ ] Run formatting, checks, tests, hidden muted release validation, and inspect logs.
 - [ ] Run release A/B performance and image-quality comparisons.
 - [ ] Document whether and when local probe SH is required.

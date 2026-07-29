@@ -220,18 +220,6 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
-        logical_path: "shader/denoiser/spatial.comp",
-        source_path: "shader/slang/denoiser_spatial.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/denoiser/temporal.comp",
-        source_path: "shader/slang/denoiser_temporal.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
         logical_path: "shader/egui/egui.vert",
         source_path: "shader/slang/egui.vert.slang",
         module_path: "shader/slang",

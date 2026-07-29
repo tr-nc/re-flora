@@ -1194,31 +1194,6 @@ min = 0
 max = 1
 
 [[section]]
-name = "Denoiser"
-
-[[section.param]]
-id = "temporal_alpha"
-kind = "float"
-label = "Temporal Responsiveness"
-type = "Float"
-
-[section.param.data]
-value = 0.1
-min = 0.02
-max = 0.3
-
-[[section.param]]
-id = "spatial_extent"
-kind = "float"
-label = "Spatial Extent"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0.5
-max = 2
-
-[[section]]
 name = "GodRay"
 
 [[section.param]]

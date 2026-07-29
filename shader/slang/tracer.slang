@@ -2,30 +2,24 @@ import aabb;
 import contree_node;
 import environment_lighting;
 import marching_result;
-import noise_tex;
 import packer;
-import projection;
 import ray;
 import scene_marching;
 import terrain_edit_preview;
 import tracer_material;
 import tracer_shadowing;
 import tracer_types;
-import transform;
 import voxel_data;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
 [[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
 [[vk::binding(3, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
-[[vk::binding(4, 0)]] ConstantBuffer<U_CameraInfoPrevFrame> camera_info_prev_frame;
 [[vk::binding(5, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
-[[vk::binding(6, 0)]] ConstantBuffer<U_EnvInfo> env_info;
 [[vk::binding(7, 0)]] StructuredBuffer<ContreeNode> contree_node_data;
 [[vk::binding(8, 0)]] StructuredBuffer<uint> contree_leaf_data;
 [[vk::binding(9, 0)]] [[vk::image_format("rg32ui")]]
 readonly RWTexture3D<uint2> scene_tex;
-[[vk::binding(10, 0)]] Sampler2D shadow_map_tex;
 [[vk::binding(11, 0)]] ConstantBuffer<U_VoxelColors> voxel_colors;
 [[vk::binding(12, 0)]] Sampler2D leaf_shadow_opacity_blended_tex;
 [[vk::binding(13, 0)]] Sampler2D leaf_shadow_mask_tex;
@@ -40,32 +34,11 @@ RWTexture2D<uint> compute_output_tex;
 [[vk::binding(1, 1)]] [[vk::image_format("r32f")]]
 RWTexture2D<float> compute_depth_tex;
 
-[[vk::binding(0, 2)]] Sampler2DArray scalar_bn;
-[[vk::binding(1, 2)]] Sampler2DArray unit_vec2_bn;
-[[vk::binding(2, 2)]] Sampler2DArray unit_vec3_bn;
-[[vk::binding(4, 2)]] Sampler2DArray fast_unit_vec3_bn;
-[[vk::binding(5, 2)]] Sampler2DArray fast_weighted_cosine_bn;
-
-[[vk::binding(0, 3)]] [[vk::image_format("r32ui")]]
-RWTexture2D<uint> denoiser_normal_tex;
-[[vk::binding(2, 3)]] [[vk::image_format("rgba32f")]]
-RWTexture2D<float4> denoiser_position_tex;
-[[vk::binding(4, 3)]] [[vk::image_format("r32ui")]]
-RWTexture2D<uint> denoiser_vox_id_tex;
-[[vk::binding(8, 3)]] [[vk::image_format("rg16f")]]
-RWTexture2D<float2> denoiser_motion_tex;
-
 MarchingResult generalSceneMarching(Ray ray, uint localInvocationIndex)
 {
     return marchScene(contree_node_data, contree_leaf_data, scene_tex,
                       ray.origin, ray.direction, ray.inverse_direction,
                       localInvocationIndex);
-}
-
-float3 sampleSunDisk(int3 seed, float sunSize, float3 sunDirection)
-{
-    float2 randomXy = randomWeightedCosine(fast_weighted_cosine_bn, seed).xy * sunSize;
-    return normalize(sunDirection + mul(float3(randomXy, 0.0), makeTbn(sunDirection)));
 }
 
 static const float TERRAIN_VOXEL_SIZE = 1.0 / 256.0;
@@ -96,20 +69,19 @@ float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal,
         lightDirectionNormalized * (TERRAIN_SHADOW_LIGHT_BIAS_VOXELS * TERRAIN_VOXEL_SIZE);
 }
 
-float3 shadowRayColor(Ray ray, float3 receiverNormal, int3 seed)
+float3 shadowRayColor(Ray ray, float3 receiverNormal)
 {
     float sunAboveHorizon = step(0.0, sun_info.sun_dir.y);
     DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
-        float4(ray.origin, 1.0), seed, DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_TERRAIN_SHADOW_PCSS,
+        float4(ray.origin, 1.0), int3(0), DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_TERRAIN_SHADOW_VSM,
         DIRECT_SUN_SHADOW_SOURCE_ALL,
         DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
     receiver = withReceiverPlane(receiver, receiverNormal);
-    float shadow = directSunShadowTransmittance(
+    float shadow = directSunShadowTransmittanceVsmLeafCloud(
         receiver, gui_input, shadow_camera_info.view_proj_mat,
-        shadow_camera_info.view_proj_mat_inv,
-        shadow_map_tex, leaf_shadow_opacity_blended_tex, leaf_shadow_mask_tex,
-        cloud_shadow_tex, shadow_map_tex_for_vsm_ping, scalar_bn, unit_vec2_bn);
+        shadow_map_tex_for_vsm_ping, leaf_shadow_opacity_blended_tex,
+        leaf_shadow_mask_tex, cloud_shadow_tex);
     return shadow * sun_info.sun_color * sun_info.sun_luminance * sunAboveHorizon;
 }
 
@@ -136,17 +108,16 @@ void parseTraceResult(out float3 albedo, MarchingResult result)
                                    result.center_position);
 }
 
-float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
-                      int3 seed)
+float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter)
 {
     Ray shadowRay;
-    shadowRay.direction = sampleSunDisk(seed, sun_info.sun_size, sun_info.sun_dir);
+    shadowRay.direction = normalize(sun_info.sun_dir);
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
     shadowRay.origin = terrainShadowReceiverPosition(
         voxelCenter, normal, shadowRay.direction);
     float cosine = dot(shadowRay.direction, normal);
     if (cosine <= 0.0) return float3(0.0);
-    return shadowRayColor(shadowRay, normal, seed) * cosine * albedo;
+    return shadowRayColor(shadowRay, normal) * cosine * albedo;
 }
 
 float depthFromWorldPosition(float3 worldPosition)
@@ -155,9 +126,7 @@ float depthFromWorldPosition(float3 worldPosition)
     return ndc.z / ndc.w;
 }
 
-void getPixelColor(out float3 color, out float depth, out float3 primaryNormal,
-                   out float3 primaryPosition, out uint primaryVoxelId,
-                   out bool primaryIsHit, Ray ray, int3 seed,
+void getPixelColor(out float3 color, out float depth, Ray ray,
                    uint localInvocationIndex)
 {
     MarchingResult result = generalSceneMarching(ray, localInvocationIndex);
@@ -165,24 +134,16 @@ void getPixelColor(out float3 color, out float depth, out float3 primaryNormal,
     {
         depth = 1.0;
         color = float3(0.0);
-        primaryNormal = float3(0.0);
-        primaryPosition = float3(0.0);
-        primaryVoxelId = 0u;
-        primaryIsHit = false;
         return;
     }
 
     depth = depthFromWorldPosition(result.position);
-    primaryNormal = result.normal;
-    primaryPosition = result.position;
-    primaryVoxelId = result.voxel_address;
-    primaryIsHit = true;
 
     float3 albedo;
     parseTraceResult(albedo, result);
     color = sampleEnvironmentIrradiance(
         shading_info, result.center_position, result.normal) * albedo;
-    color += directLighting(albedo, result.normal, result.center_position, seed);
+    color += directLighting(albedo, result.normal, result.center_position);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
                                         result.center_position);
 }
@@ -197,29 +158,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     compute_output_tex.GetDimensions(width, height);
     if (any(dispatchThreadId.xy >= uint2(width, height))) return;
 
-    int3 seed = getBlueNoiseSeed(dispatchThreadId.xy, env_info.frame_serial_idx);
     float2 screenUv = (float2(dispatchThreadId.xy) + 0.5) / float2(width, height);
     Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
 
     float3 color;
     float depth;
-    float3 primaryNormal;
-    float3 primaryPosition;
-    uint primaryVoxelId;
-    bool primaryIsHit;
-    getPixelColor(color, depth, primaryNormal, primaryPosition,
-                  primaryVoxelId, primaryIsHit, ray, seed, localInvocationIndex);
-
-    float2 previousUv = projectWorldToScreen(
-        primaryPosition, camera_info_prev_frame.view_proj_mat);
-    float2 currentUv = projectWorldToScreen(primaryPosition, camera_info.view_proj_mat);
-    float2 motion = previousUv - currentUv;
+    getPixelColor(color, depth, ray, localInvocationIndex);
 
     compute_output_tex[dispatchThreadId.xy] = packRgbe(color);
     compute_depth_tex[dispatchThreadId.xy] = depth;
-    denoiser_normal_tex[dispatchThreadId.xy] = packNormalV2(primaryNormal);
-    denoiser_position_tex[dispatchThreadId.xy] =
-        float4(primaryPosition, primaryIsHit ? 1.0 : 0.0);
-    denoiser_vox_id_tex[dispatchThreadId.xy] = primaryVoxelId;
-    denoiser_motion_tex[dispatchThreadId.xy] = motion;
 }

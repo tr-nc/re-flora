@@ -5,6 +5,7 @@ import composition_scene;
 import composition_terrarium_glass;
 import composition_terrarium_panels;
 import composition_types;
+import packer;
 import ray;
 import sunlight;
 import tracer_types;
@@ -18,8 +19,8 @@ import tracer_types;
 [[vk::binding(6, 0)]] ConstantBuffer<U_StarlightInfo> starlight_info;
 [[vk::binding(7, 0)]] Sampler2D gfx_output_tex;
 [[vk::binding(8, 0)]] Sampler2D gfx_depth_tex;
-[[vk::binding(9, 0)]] [[vk::image_format("r11f_g11f_b10f")]]
-readonly RWTexture2D<float4> denoiser_spatial_pong_tex;
+[[vk::binding(9, 0)]] [[vk::image_format("r32ui")]]
+readonly RWTexture2D<uint> compute_output_tex;
 [[vk::binding(10, 0)]] [[vk::image_format("r32f")]]
 readonly RWTexture2D<float> compute_depth_tex;
 [[vk::binding(11, 0)]] [[vk::image_format("r32f")]]
@@ -58,9 +59,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float rasterDepth = gfx_depth_tex.Load(int3(coordinate, 0)).r;
     float computeDepth = compute_depth_tex[coordinate];
     float4 rasterColor = gfx_output_tex.Load(int3(coordinate, 0));
-    float3 denoisedColor = denoiser_spatial_pong_tex[coordinate].rgb;
+    float3 terrainColor = unpackRgbe(compute_output_tex[coordinate]);
     float3 finalColor = combineSceneColors(
-        rasterDepth, computeDepth, rasterColor, denoisedColor, screenUv,
+        rasterDepth, computeDepth, rasterColor, terrainColor, screenUv,
         gui_input, sun_info, camera_info, starlight_info,
         sun_sprite_tex, cloud_output_tex);
     finalColor += sampleLensFlare(screenUv);

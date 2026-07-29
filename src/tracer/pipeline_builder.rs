@@ -75,20 +75,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let temporal_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/denoiser/temporal.comp",
-            "main",
-        )
-        .unwrap();
-
-        let spatial_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/denoiser/spatial.comp",
-            "main",
-        )
-        .unwrap();
-
         let composition_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/composition.comp",
@@ -299,8 +285,6 @@ impl PipelineBuilder {
             vsm_blur_h_sm,
             vsm_blur_v_sm,
             god_ray_sm,
-            temporal_sm,
-            spatial_sm,
             composition_sm,
             cloud_sm,
             cloud_shadow_sm,
@@ -410,10 +394,6 @@ impl PipelineBuilder {
             ComputePipeline::new(device, &shader_modules.vsm_blur_v_sm, pool, &[resources]);
         let god_ray_ppl =
             ComputePipeline::new(device, &shader_modules.god_ray_sm, pool, &[resources]);
-        let temporal_ppl =
-            ComputePipeline::new(device, &shader_modules.temporal_sm, pool, &[resources]);
-        let spatial_ppl =
-            ComputePipeline::new(device, &shader_modules.spatial_sm, pool, &[resources]);
         let composition_ppl =
             ComputePipeline::new(device, &shader_modules.composition_sm, pool, &[resources]);
         let cloud_ppl = ComputePipeline::new(device, &shader_modules.cloud_sm, pool, &[resources]);
@@ -463,8 +443,6 @@ impl PipelineBuilder {
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
             god_ray_ppl,
-            temporal_ppl,
-            spatial_ppl,
             cloud_ppl,
             cloud_shadow_ppl,
             cloud_shadow_temporal_ppl,
@@ -806,8 +784,6 @@ pub struct ShaderModules {
     pub vsm_blur_h_sm: ShaderModule,
     pub vsm_blur_v_sm: ShaderModule,
     pub god_ray_sm: ShaderModule,
-    pub temporal_sm: ShaderModule,
-    pub spatial_sm: ShaderModule,
     pub composition_sm: ShaderModule,
     pub cloud_sm: ShaderModule,
     pub cloud_shadow_sm: ShaderModule,
@@ -850,8 +826,6 @@ pub struct ComputePipelines {
     pub vsm_blur_h_ppl: ComputePipeline,
     pub vsm_blur_v_ppl: ComputePipeline,
     pub god_ray_ppl: ComputePipeline,
-    pub temporal_ppl: ComputePipeline,
-    pub spatial_ppl: ComputePipeline,
     pub cloud_ppl: ComputePipeline,
     pub cloud_shadow_ppl: ComputePipeline,
     pub cloud_shadow_temporal_ppl: ComputePipeline,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run and compare fixed-camera temporal denoiser benchmarks."""
+"""Run and compare fixed-camera frame-stability benchmarks."""
 
 from __future__ import annotations
 
@@ -61,8 +61,14 @@ def load_report(path: Path) -> dict:
 def print_report(path: Path) -> None:
     report = load_report(path)
     aggregate = report["aggregate"]
+    if report.get("fresh_samples", False):
+        mode = "fresh"
+    elif int(report.get("version", 1)) >= 2:
+        mode = "raw"
+    else:
+        mode = "history"
     print(
-        f"{path}: mode={'fresh' if report.get('fresh_samples', False) else 'history'}, "
+        f"{path}: mode={mode}, "
         f"{report['width']}x{report['height']}, "
         f"{report['captured_frames']} frames, {report['transition_count']} transitions"
     )
@@ -91,10 +97,6 @@ def run_benchmark(args: argparse.Namespace) -> int:
         "--denoiser-bench-frames",
         str(args.frames),
     ]
-    if args.no_denoise:
-        command.append("--no-denoise")
-    if args.fresh_samples:
-        command.append("--denoiser-bench-fresh-samples")
     print("Running:", " ".join(command), flush=True)
     subprocess.run(command, cwd=REPO_ROOT, check=True)
     print_report(report)
@@ -137,16 +139,6 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--preset", default="player-default")
     run_parser.add_argument("--warmup-frames", type=int, default=90)
     run_parser.add_argument("--frames", type=int, default=64)
-    run_parser.add_argument(
-        "--no-denoise",
-        action="store_true",
-        help="disable the denoiser for an unfiltered reference run",
-    )
-    run_parser.add_argument(
-        "--fresh-samples",
-        action="store_true",
-        help="reset temporal history every frame and measure spatial-only fresh samples",
-    )
     run_parser.set_defaults(func=run_benchmark)
 
     compare_parser = subparsers.add_parser("compare", help="compare two TOML reports")

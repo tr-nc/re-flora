@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use std::{fs, path::Path, time::Instant};
 
-const REPORT_VERSION: u32 = 1;
+const REPORT_VERSION: u32 = 2;
 const NOTICEABLE_DELTA_8BIT: u8 = 8;
 
 #[derive(Debug, Serialize)]
@@ -73,10 +73,6 @@ impl DenoiserBench {
     pub(super) fn should_capture(&self) -> bool {
         self.presented_frames >= self.options.warmup_frames
             && self.captured_frames < self.options.capture_frames
-    }
-
-    pub(super) fn fresh_samples(&self) -> bool {
-        self.options.fresh_samples
     }
 
     pub(super) fn mark_frame_presented(&mut self) {
@@ -158,7 +154,7 @@ impl DenoiserBench {
             captured_frames: self.captured_frames,
             transition_count: self.transitions.len(),
             noticeable_delta_threshold_8bit: NOTICEABLE_DELTA_8BIT,
-            fresh_samples: self.options.fresh_samples,
+            fresh_samples: false,
             capture_seconds: self
                 .capture_started
                 .map(|started| started.elapsed().as_secs_f64())
@@ -179,12 +175,7 @@ impl DenoiserBench {
         fs::write(path, serialized)
             .with_context(|| format!("write denoiser report {}", path.display()))?;
         log::info!(
-            "[DENOISER_BENCH] complete mode={} transitions={} mean_delta={:.4} p95_mean={:.4} p99_mean={:.4} noticeable_ratio={:.6} report={}",
-            if self.options.fresh_samples {
-                "fresh"
-            } else {
-                "history"
-            },
+            "[DENOISER_BENCH] complete mode=raw transitions={} mean_delta={:.4} p95_mean={:.4} p99_mean={:.4} noticeable_ratio={:.6} report={}",
             self.transitions.len(),
             report.aggregate.mean_abs_luma_delta_8bit,
             report.aggregate.mean_p95_abs_luma_delta_8bit,

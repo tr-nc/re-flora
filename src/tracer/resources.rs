@@ -14,8 +14,8 @@ use crate::{
             encode_lookup_pos_key, FloraMeshData, FloraVoxelInfo, FloraVoxelInfoEntry,
             FLORA_VOXEL_LOOKUP_EMPTY_KEY,
         },
-        ButterflyPalettePreset, DenoiserResources, ExtentDependentResources, ParticleTextureLayout,
-        Vertex, WIND_VOLUME_BUCKET_COUNT,
+        ButterflyPalettePreset, ExtentDependentResources, ParticleTextureLayout, Vertex,
+        WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
 };
@@ -919,6 +919,7 @@ impl TracerUniformResources {
         allocator: Allocator,
         tracer_sm: &ShaderModule,
         composition_sm: &ShaderModule,
+        cloud_temporal_sm: &ShaderModule,
         god_ray_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         flora_vert_sm: &ShaderModule,
@@ -939,10 +940,10 @@ impl TracerUniformResources {
             shading_info: Resource::new(layout_buffer(tracer_sm, "U_ShadingInfo")),
             camera_info: Resource::new(layout_buffer(tracer_sm, "U_CameraInfo")),
             camera_info_prev_frame: Resource::new(layout_buffer(
-                tracer_sm,
+                cloud_temporal_sm,
                 "U_CameraInfoPrevFrame",
             )),
-            env_info: Resource::new(layout_buffer(tracer_sm, "U_EnvInfo")),
+            env_info: Resource::new(layout_buffer(composition_sm, "U_EnvInfo")),
             starlight_info: Resource::new(layout_buffer(composition_sm, "U_StarlightInfo")),
             voxel_colors: Resource::new(layout_buffer(tracer_sm, "U_VoxelColors")),
             terrain_edit_preview: Resource::new(layout_buffer(tracer_sm, "U_TerrainEditPreview")),
@@ -1289,7 +1290,6 @@ pub struct TracerResources {
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,
     pub extent_dependent_resources: ExtentDependentResources,
-    pub denoiser_resources: DenoiserResources,
 }
 
 impl TracerResources {
@@ -1300,8 +1300,7 @@ impl TracerResources {
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
         composition_sm: &ShaderModule,
-        temporal_sm: &ShaderModule,
-        spatial_sm: &ShaderModule,
+        cloud_temporal_sm: &ShaderModule,
         god_ray_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         player_collider_sm: &ShaderModule,
@@ -1323,6 +1322,7 @@ impl TracerResources {
                 allocator.clone(),
                 tracer_sm,
                 composition_sm,
+                cloud_temporal_sm,
                 god_ray_sm,
                 post_processing_sm,
                 flora_vert_sm,
@@ -1357,13 +1357,6 @@ impl TracerResources {
                 rendering_extent,
                 screen_extent,
             ),
-            denoiser_resources: DenoiserResources::new(
-                device.clone(),
-                allocator,
-                rendering_extent,
-                temporal_sm,
-                spatial_sm,
-            ),
         }
     }
 
@@ -1380,7 +1373,6 @@ impl TracerResources {
             rendering_extent,
             screen_extent,
         );
-        self.denoiser_resources.on_resize(rendering_extent);
     }
 
     fn create_bn(

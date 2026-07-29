@@ -268,22 +268,6 @@ pub struct PushConstantLeavesShadow {
     pub height_light_color_rgb10: [u32; 12],
 }
 
-/// Auto-generated from `PushConstantSpatial` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct PushConstantSpatial {
-    pub iteration: u32,
-    pub _pad0: [u8; 12],
-}
-
-/// Auto-generated from `PushConstantTemporal` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct PushConstantTemporal {
-    pub reset_history: u32,
-    pub _pad0: [u8; 12],
-}
-
 /// Auto-generated from `PushConstantVsmBlurH` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -317,19 +301,6 @@ pub struct PushConstantWindVolume {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraInfo {
-    pub pos: [f32; 4],
-    pub view_mat: [[f32; 4]; 4],
-    pub view_mat_inv: [[f32; 4]; 4],
-    pub proj_mat: [[f32; 4]; 4],
-    pub proj_mat_inv: [[f32; 4]; 4],
-    pub view_proj_mat: [[f32; 4]; 4],
-    pub view_proj_mat_inv: [[f32; 4]; 4],
-}
-
-/// Auto-generated from `U_CameraInfoPrevFrame` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CameraInfoPrevFrame {
     pub pos: [f32; 4],
     pub view_mat: [[f32; 4]; 4],
     pub view_mat_inv: [[f32; 4]; 4],
@@ -656,19 +627,6 @@ pub struct ShadowCameraInfo {
     pub view_proj_mat_inv: [[f32; 4]; 4],
 }
 
-/// Auto-generated from `U_SpatialInfo` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SpatialInfo {
-    pub phi_c: f32,
-    pub phi_n: f32,
-    pub phi_p: f32,
-    pub spatial_extent: f32,
-    pub is_changing_lum_phi: u32,
-    pub is_spatial_denoising_enabled: u32,
-    pub _pad0: [u8; 8],
-}
-
 /// Auto-generated from `U_StarlightInfo` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -699,15 +657,6 @@ pub struct SunInfo {
     pub sun_altitude: f32,
     pub sun_azimuth: f32,
     pub _pad0: [u8; 4],
-}
-
-/// Auto-generated from `U_TemporalInfo` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct TemporalInfo {
-    pub temporal_position_phi: f32,
-    pub temporal_alpha: f32,
-    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_TerrainEditPreview` (native Slang source of truth).

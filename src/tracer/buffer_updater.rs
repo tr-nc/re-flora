@@ -2,8 +2,7 @@ use crate::environment_lighting::EnvironmentIrradiance;
 use crate::flora::species::{species, MAX_FLORA_SPECIES};
 use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
-    ShadingInfo, SpatialInfo, StarlightInfo, SunInfo, TemporalInfo, TerrainEditPreview,
-    VoxelColors,
+    ShadingInfo, StarlightInfo, SunInfo, TerrainEditPreview, VoxelColors,
 };
 use crate::tracer::{
     CloudGuiParams, FruitMotionParams, GlassGuiParams, KochiaMotionParams, KochiaVisualParams,
@@ -14,11 +13,6 @@ use bytemuck::Zeroable;
 use glam::{Mat4, Vec3};
 
 pub struct BufferUpdater;
-
-const TEMPORAL_POSITION_SIMILARITY_MIN: f32 = 0.8;
-const SPATIAL_COLOR_PHI: f32 = 0.75;
-const SPATIAL_NORMAL_POWER: f32 = 20.0;
-const SPATIAL_POSITION_PHI: f32 = 0.05;
 
 impl BufferUpdater {
     pub fn update_camera_info(
@@ -145,42 +139,6 @@ impl BufferUpdater {
                 camera_front: camera_front.to_array(),
                 ..PlayerColliderInfo::zeroed()
             })
-    }
-
-    pub fn update_temporal_denoiser_info(
-        temporal_info: &mut re_flora_vkn::Buffer,
-        temporal_alpha: f32,
-    ) -> Result<()> {
-        temporal_info.fill_uniform(&TemporalInfo {
-            temporal_position_phi: TEMPORAL_POSITION_SIMILARITY_MIN,
-            temporal_alpha,
-            ..TemporalInfo::zeroed()
-        })
-    }
-
-    pub fn update_spatial_denoiser_info(
-        spatial_info: &mut re_flora_vkn::Buffer,
-        spatial_extent: f32,
-    ) -> Result<()> {
-        spatial_info.fill_uniform(&SpatialInfo {
-            phi_c: SPATIAL_COLOR_PHI,
-            phi_n: SPATIAL_NORMAL_POWER,
-            phi_p: SPATIAL_POSITION_PHI,
-            spatial_extent,
-            is_changing_lum_phi: 1,
-            is_spatial_denoising_enabled: 1,
-            ..SpatialInfo::zeroed()
-        })
-    }
-
-    pub fn update_denoiser_info(
-        temporal_info: &mut re_flora_vkn::Buffer,
-        spatial_info: &mut re_flora_vkn::Buffer,
-        temporal_alpha: f32,
-        spatial_extent: f32,
-    ) -> Result<()> {
-        Self::update_temporal_denoiser_info(temporal_info, temporal_alpha)?;
-        Self::update_spatial_denoiser_info(spatial_info, spatial_extent)
     }
 
     #[allow(clippy::too_many_arguments)]

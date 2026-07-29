@@ -86,8 +86,6 @@ pub struct AppOptions {
     pub list_audio_output_devices: bool,
     /// Disable shadow rendering pass.
     pub no_shadows: bool,
-    /// Disable denoiser passes.
-    pub no_denoise: bool,
     /// Disable god ray pass.
     pub no_god_rays: bool,
     /// Disable lens flare passes.
@@ -169,7 +167,6 @@ pub struct DenoiserBenchOptions {
     pub report_path: String,
     pub warmup_frames: u32,
     pub capture_frames: u32,
-    pub fresh_samples: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -285,7 +282,6 @@ impl AppOptions {
             )?,
             list_audio_output_devices: args.iter().any(|a| a == "--list-audio-output-devices"),
             no_shadows: args.iter().any(|a| a == "--no-shadows"),
-            no_denoise: args.iter().any(|a| a == "--no-denoise"),
             no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
             no_lens_flare: args.iter().any(|a| a == "--no-lens-flare"),
             no_tracer: args.iter().any(|a| a == "--no-tracer"),
@@ -336,11 +332,10 @@ fn parse_denoiser_bench_request(
     parse_u32_after: &impl Fn(&str) -> Option<u32>,
 ) -> Result<Option<(String, DenoiserBenchOptions)>, String> {
     let Some(index) = args.iter().position(|arg| arg == "--denoiser-bench") else {
-        if args.iter().any(|arg| {
-            arg == "--denoiser-bench-warmup-frames"
-                || arg == "--denoiser-bench-frames"
-                || arg == "--denoiser-bench-fresh-samples"
-        }) {
+        if args
+            .iter()
+            .any(|arg| arg == "--denoiser-bench-warmup-frames" || arg == "--denoiser-bench-frames")
+        {
             return Err(format!(
                 "Denoiser benchmark frame options require --denoiser-bench. {DENOISER_BENCH_USAGE}"
             ));
@@ -364,9 +359,6 @@ fn parse_denoiser_bench_request(
             report_path,
             warmup_frames,
             capture_frames,
-            fresh_samples: args
-                .iter()
-                .any(|arg| arg == "--denoiser-bench-fresh-samples"),
         },
     )))
 }
@@ -514,7 +506,6 @@ Options:
                               Select output device by case-insensitive substring/alias match
   --list-audio-output-devices Print output devices visible to PetalSonic/CPAL and exit
   --no-shadows                Disable shadow rendering passes
-  --no-denoise                Disable denoiser passes
   --no-god-rays               Disable god ray pass
   --no-lens-flare             Disable lens flare passes
   --no-tracer                 Disable main tracer pass
@@ -532,8 +523,6 @@ Options:
   --denoiser-bench-warmup-frames <N>
                               Frames discarded before capture (default: 90)
   --denoiser-bench-frames <N> Captured frames, at least 2 (default: 64)
-  --denoiser-bench-fresh-samples
-                              Reset temporal history every frame to guard spatial-only quality
   --camera-snapshot <name>    Apply a saved camera snapshot at startup (do not combine with --screenshot)
   --list-camera-snapshots     Print available camera snapshot names and exit
   --auto-exit <sec>           Exit automatically after rendering starts
@@ -573,7 +562,7 @@ Examples:
   re-flora --present-mode fifo
   re-flora --monitor-score lowest
   re-flora --swapchain-images 2
-  re-flora --no-shadows --no-denoise
+  re-flora --no-shadows
   re-flora --hidden --mute --screenshot tree-closeup out.png --screenshot-delay 2 --auto-exit 4
   re-flora --hidden --mute --windowed --denoiser-bench player-default target/denoiser.toml
   re-flora --list-camera-snapshots
@@ -591,7 +580,6 @@ Examples:
 #[derive(Clone, Debug)]
 pub struct RenderFlags {
     pub enable_shadows: bool,
-    pub enable_denoiser: bool,
     pub enable_god_rays: bool,
     pub enable_lens_flare: bool,
     pub enable_tracer: bool,
@@ -605,7 +593,6 @@ impl From<&AppOptions> for RenderFlags {
     fn from(options: &AppOptions) -> Self {
         Self {
             enable_shadows: !options.no_shadows,
-            enable_denoiser: !options.no_denoise,
             enable_god_rays: !options.no_god_rays,
             enable_lens_flare: !options.no_lens_flare,
             enable_tracer: !options.no_tracer,
@@ -827,19 +814,6 @@ mod tests {
         assert_eq!(benchmark.report_path, "target/report.toml");
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
-        assert!(!benchmark.fresh_samples);
-    }
-
-    #[test]
-    fn parses_fresh_sample_denoiser_benchmark() {
-        let options = parse(&[
-            "re-flora",
-            "--denoiser-bench",
-            "player-default",
-            "target/fresh.toml",
-            "--denoiser-bench-fresh-samples",
-        ]);
-        assert!(options.denoiser_bench.unwrap().fresh_samples);
     }
 
     #[test]

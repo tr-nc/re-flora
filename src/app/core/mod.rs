@@ -3330,8 +3330,6 @@ impl App {
                         self.debug_settings.adjustables.sun_display_luminance.value,
                         sun_altitude,
                         sun_azimuth,
-                        self.debug_settings.adjustables.temporal_alpha.value,
-                        self.debug_settings.adjustables.spatial_extent.value,
                         self.debug_settings.adjustables.god_ray_max_depth.value,
                         self.debug_settings.adjustables.god_ray_max_checks.value,
                         self.debug_settings.adjustables.god_ray_weight.value,
@@ -3606,9 +3604,6 @@ impl App {
                         flora_color_tables,
                         leaf_color_tables,
                         &self.render_flags,
-                        self.denoiser_bench
-                            .as_ref()
-                            .is_some_and(DenoiserBench::fresh_samples),
                         gpu_profiler_for_trace.as_mut(),
                         frame_slot,
                     )
