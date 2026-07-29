@@ -58,8 +58,9 @@ explicit rebuilds but whose spacing is adjustable:
   ReSTIR DI only later, and only if measured local-light candidate or shadow cost justifies it.
 
 Phases 1 through 3 are complete: density and resource controls exist, all-probe visualization
-exists, and terrain plus raster consumers sample global-copy probe data. Phase 4 is the current
-implementation focus.
+exists, and terrain plus raster consumers sample global-copy probe data. Phase 4 visibility
+resources, occupancy classification, and deterministic relocation are also complete. Visibility
+tracing, local SH derivation, and bounded update scheduling are the next implementation step.
 
 ## Non-goals
 
@@ -208,6 +209,11 @@ Planned filters:
 
 Filters are volume-level display and cost controls, not a probe-selection mechanism. No marker is
 interactive and the renderer does not maintain a selected probe.
+
+The interaction contract is intentionally read-only and volume-wide: enabling the debug view shows
+the probe field immediately. State, sky visibility, irradiance, age, and relocation information are
+encoded by marker color, size, or paired positions. There is no click, hover, selection,
+single-probe inspector, or selection-dependent rendering path.
 
 The renderer must record the visualization pass separately in GPU profiling. Production performance
 comparisons run with visualization disabled; its enabled debug cost is measured and reported
