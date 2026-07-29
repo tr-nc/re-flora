@@ -346,6 +346,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
+        logical_path: "shader/preview/environment_probe_visualization.vert",
+        source_path: "shader/slang/environment_probe_visualization.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
         logical_path: "shader/builder/surface/active_surface_to_flora_instances.comp",
         source_path: "shader/slang/active_surface_to_flora_instances.slang",
         module_path: "shader/slang",

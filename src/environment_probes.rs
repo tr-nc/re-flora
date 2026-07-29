@@ -1,4 +1,4 @@
-use crate::resource::Resource;
+use crate::resource::{Resource, ResourceContainer};
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{UVec3, Vec3};
@@ -8,6 +8,7 @@ use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 pub const SUPPORTED_ENVIRONMENT_PROBE_SPACINGS_VOXELS: [u32; 4] = [64, 32, 16, 8];
 pub const DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS: u32 = 32;
 pub const ENVIRONMENT_PROBE_SH_COEFFICIENT_COUNT: usize = 9;
+const ENVIRONMENT_PROBE_MARKER_INDEX_COUNT: u32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
@@ -198,14 +199,229 @@ pub struct EnvironmentProbeVolumeStatus {
     pub resource_bytes: EnvironmentProbeResourceBytes,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum EnvironmentProbeVisualizationMode {
+    #[default]
+    State = 0,
+    SkyVisibility = 1,
+    Irradiance = 2,
+    AgeRevision = 3,
+    Relocation = 4,
+}
+
+impl EnvironmentProbeVisualizationMode {
+    pub const ALL: [Self; 5] = [
+        Self::State,
+        Self::SkyVisibility,
+        Self::Irradiance,
+        Self::AgeRevision,
+        Self::Relocation,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::State => "State",
+            Self::SkyVisibility => "Sky visibility",
+            Self::Irradiance => "Irradiance",
+            Self::AgeRevision => "Age / revision",
+            Self::Relocation => "Relocation",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum EnvironmentProbeVisualizationFilter {
+    #[default]
+    All = 0,
+    Valid = 1,
+    Invalid = 2,
+    DirtyOrUpdating = 3,
+}
+
+impl EnvironmentProbeVisualizationFilter {
+    pub const ALL: [Self; 4] = [Self::All, Self::Valid, Self::Invalid, Self::DirtyOrUpdating];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Valid => "Valid only",
+            Self::Invalid => "Invalid only",
+            Self::DirtyOrUpdating => "Dirty / updating",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EnvironmentProbeVisualizationSettings {
+    pub enabled: bool,
+    pub mode: EnvironmentProbeVisualizationMode,
+    pub filter: EnvironmentProbeVisualizationFilter,
+    pub camera_radius_voxels: f32,
+    pub instance_stride: u32,
+    pub marker_size_voxels: f32,
+    pub depth_tested: bool,
+    pub age_range_frames: u32,
+}
+
+impl Default for EnvironmentProbeVisualizationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: EnvironmentProbeVisualizationMode::State,
+            filter: EnvironmentProbeVisualizationFilter::All,
+            camera_radius_voxels: 0.0,
+            instance_stride: 1,
+            marker_size_voxels: 2.0,
+            depth_tested: true,
+            age_range_frames: 120,
+        }
+    }
+}
+
+impl EnvironmentProbeVisualizationSettings {
+    pub fn sanitized(mut self) -> Self {
+        self.camera_radius_voxels = self.camera_radius_voxels.clamp(0.0, 2048.0);
+        self.instance_stride = self.instance_stride.clamp(1, 256);
+        self.marker_size_voxels = self.marker_size_voxels.clamp(0.25, 32.0);
+        self.age_range_frames = self.age_range_frames.clamp(1, 1_000_000);
+        self
+    }
+
+    pub fn submitted_instance_count(self, probe_count: u32) -> u32 {
+        if !self.enabled || probe_count == 0 {
+            return 0;
+        }
+        let stride = self.instance_stride.max(1);
+        let strided_count = probe_count.div_ceil(stride);
+        if self.mode == EnvironmentProbeVisualizationMode::Relocation {
+            strided_count.saturating_mul(2)
+        } else {
+            strided_count
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct EnvironmentProbeVisualizationPushConstants {
+    pub display_mode: u32,
+    pub filter: u32,
+    pub instance_stride: u32,
+    pub always_visible: u32,
+    pub marker_size_world: f32,
+    pub camera_radius_world: f32,
+    pub inverse_age_range_frames: f32,
+    pub _padding: f32,
+}
+
+impl EnvironmentProbeVisualizationPushConstants {
+    pub fn new(
+        settings: EnvironmentProbeVisualizationSettings,
+        voxels_per_world_unit: UVec3,
+    ) -> Self {
+        let settings = settings.sanitized();
+        let world_scale = 1.0 / voxels_per_world_unit.x.max(1) as f32;
+        Self {
+            display_mode: settings.mode as u32,
+            filter: settings.filter as u32,
+            instance_stride: settings.instance_stride,
+            always_visible: u32::from(!settings.depth_tested),
+            marker_size_world: settings.marker_size_voxels * world_scale,
+            camera_radius_world: settings.camera_radius_voxels * world_scale,
+            inverse_age_range_frames: 1.0 / settings.age_range_frames as f32,
+            _padding: 0.0,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct EnvironmentProbeMarkerVertex {
+    pub local_position: [f32; 2],
+}
+
+pub struct EnvironmentProbeVisualizationResources {
+    pub marker_vertices: Resource<Buffer>,
+    pub marker_indices: Resource<Buffer>,
+}
+
+impl EnvironmentProbeVisualizationResources {
+    pub fn new(device: Device, allocator: Allocator) -> Self {
+        let vertices = [
+            EnvironmentProbeMarkerVertex {
+                local_position: [-1.0, 0.0],
+            },
+            EnvironmentProbeMarkerVertex {
+                local_position: [0.0, -1.0],
+            },
+            EnvironmentProbeMarkerVertex {
+                local_position: [1.0, 0.0],
+            },
+            EnvironmentProbeMarkerVertex {
+                local_position: [0.0, 1.0],
+            },
+        ];
+        let indices = [0_u32, 1, 2, 0, 2, 3];
+        let marker_vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of_val(&vertices) as u64,
+        );
+        marker_vertices
+            .fill(&vertices)
+            .expect("environment probe marker vertex upload must fit");
+        let marker_indices = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of_val(&indices) as u64,
+        );
+        marker_indices
+            .fill(&indices)
+            .expect("environment probe marker index upload must fit");
+        Self {
+            marker_vertices: Resource::new(marker_vertices),
+            marker_indices: Resource::new(marker_indices),
+        }
+    }
+
+    pub fn index_count(&self) -> u32 {
+        ENVIRONMENT_PROBE_MARKER_INDEX_COUNT
+    }
+}
+
 pub struct EnvironmentProbeVolume {
     grid: EnvironmentProbeGrid,
     valid_probe_count: u32,
     resource_bytes: EnvironmentProbeResourceBytes,
-    #[allow(dead_code)]
-    pub coefficients: Resource<Buffer>,
-    #[allow(dead_code)]
-    pub summaries: Resource<Buffer>,
+    pub environment_probe_coefficients: Resource<Buffer>,
+    pub environment_probe_summaries: Resource<Buffer>,
+}
+
+impl ResourceContainer for EnvironmentProbeVolume {
+    fn get_buffer(&self, name: &str) -> Option<&Buffer> {
+        match name {
+            "environment_probe_coefficients" => Some(&self.environment_probe_coefficients),
+            "environment_probe_summaries" => Some(&self.environment_probe_summaries),
+            _ => None,
+        }
+    }
+
+    fn get_texture(&self, _name: &str) -> Option<&re_flora_vkn::Texture> {
+        None
+    }
+
+    fn get_resource_names(&self) -> Vec<&'static str> {
+        vec![
+            "environment_probe_coefficients",
+            "environment_probe_summaries",
+        ]
+    }
 }
 
 impl EnvironmentProbeVolume {
@@ -288,8 +504,8 @@ impl EnvironmentProbeVolume {
             grid,
             valid_probe_count: 0,
             resource_bytes,
-            coefficients: Resource::new(coefficients),
-            summaries: Resource::new(summaries),
+            environment_probe_coefficients: Resource::new(coefficients),
+            environment_probe_summaries: Resource::new(summaries),
         })
     }
 
@@ -380,5 +596,31 @@ mod tests {
         let grid = EnvironmentProbeGrid::new(WORLD_EXTENT, 16).unwrap();
         assert_eq!(grid.dimensions(), UVec3::splat(33));
         assert_eq!(grid.probe_count(), 35_937);
+    }
+
+    #[test]
+    fn visualization_stride_and_relocation_control_submitted_instances() {
+        let settings = EnvironmentProbeVisualizationSettings {
+            enabled: true,
+            instance_stride: 4,
+            ..Default::default()
+        };
+        assert_eq!(settings.submitted_instance_count(10), 3);
+        assert_eq!(
+            EnvironmentProbeVisualizationSettings {
+                mode: EnvironmentProbeVisualizationMode::Relocation,
+                ..settings
+            }
+            .submitted_instance_count(10),
+            6
+        );
+        assert_eq!(
+            EnvironmentProbeVisualizationSettings {
+                enabled: false,
+                ..settings
+            }
+            .submitted_instance_count(10),
+            0
+        );
     }
 }

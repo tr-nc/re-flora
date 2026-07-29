@@ -52,8 +52,8 @@ use crate::builder::{
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
 use crate::environment_probes::{
-    EnvironmentProbeGrid, EnvironmentProbeResourceBytes,
-    SUPPORTED_ENVIRONMENT_PROBE_SPACINGS_VOXELS,
+    EnvironmentProbeGrid, EnvironmentProbeResourceBytes, EnvironmentProbeVisualizationFilter,
+    EnvironmentProbeVisualizationMode, SUPPORTED_ENVIRONMENT_PROBE_SPACINGS_VOXELS,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -1023,6 +1023,7 @@ impl App {
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
                 voxel_dim_per_chunk: VOXEL_DIM_PER_CHUNK,
                 environment_probe_spacing_voxels: options.environment_probe_spacing_voxels,
+                environment_probe_visualization_enabled: options.environment_probe_visualization,
             },
             spatial_sound_manager.clone(),
         )?;
@@ -2209,6 +2210,8 @@ impl App {
                 .expect("environment probe UI only exposes supported spacings");
                 let environment_probe_draft_bytes =
                     EnvironmentProbeResourceBytes::for_grid(environment_probe_draft_grid);
+                let mut environment_probe_visualization =
+                    self.tracer.environment_probe_visualization_settings();
                 let mut environment_probe_rebuild_requested = false;
 
                 let current_camera_pose = self.tracer.camera_pose();
@@ -2442,6 +2445,92 @@ impl App {
                                                     egui::Button::new("Apply / Rebuild"),
                                                 )
                                                 .clicked();
+                                            ui.checkbox(
+                                                &mut environment_probe_visualization.enabled,
+                                                "Visualize probes",
+                                            );
+                                            ui.add_enabled_ui(
+                                                environment_probe_visualization.enabled,
+                                                |ui| {
+                                                    egui::ComboBox::from_label("Display")
+                                                        .selected_text(
+                                                            environment_probe_visualization
+                                                                .mode
+                                                                .label(),
+                                                        )
+                                                        .show_ui(ui, |ui| {
+                                                            for mode in
+                                                                EnvironmentProbeVisualizationMode::ALL
+                                                            {
+                                                                ui.selectable_value(
+                                                                    &mut
+                                                                        environment_probe_visualization
+                                                                            .mode,
+                                                                    mode,
+                                                                    mode.label(),
+                                                                );
+                                                            }
+                                                        });
+                                                    egui::ComboBox::from_label("Filter")
+                                                        .selected_text(
+                                                            environment_probe_visualization
+                                                                .filter
+                                                                .label(),
+                                                        )
+                                                        .show_ui(ui, |ui| {
+                                                            for filter in
+                                                                EnvironmentProbeVisualizationFilter::ALL
+                                                            {
+                                                                ui.selectable_value(
+                                                                    &mut
+                                                                        environment_probe_visualization
+                                                                            .filter,
+                                                                    filter,
+                                                                    filter.label(),
+                                                                );
+                                                            }
+                                                        });
+                                                    ui.add(
+                                                        egui::Slider::new(
+                                                            &mut
+                                                                environment_probe_visualization
+                                                                    .camera_radius_voxels,
+                                                            0.0..=512.0,
+                                                        )
+                                                        .text("Camera radius (vox; 0 = all)"),
+                                                    );
+                                                    ui.add(
+                                                        egui::Slider::new(
+                                                            &mut
+                                                                environment_probe_visualization
+                                                                    .instance_stride,
+                                                            1..=64,
+                                                        )
+                                                        .text("Instance stride"),
+                                                    );
+                                                    ui.add(
+                                                        egui::Slider::new(
+                                                            &mut
+                                                                environment_probe_visualization
+                                                                    .marker_size_voxels,
+                                                            0.5..=12.0,
+                                                        )
+                                                        .text("Marker size (voxels)"),
+                                                    );
+                                                    ui.checkbox(
+                                                        &mut environment_probe_visualization
+                                                            .depth_tested,
+                                                        "Depth tested",
+                                                    );
+                                                    ui.monospace(format!(
+                                                        "Submitted instances: {}",
+                                                        environment_probe_visualization
+                                                            .submitted_instance_count(
+                                                                grid.probe_count()
+                                                            ),
+                                                    ));
+                                                },
+                                            );
 
                                             ui.add_space(8.0);
                                             ui.separator();
@@ -2834,6 +2923,8 @@ impl App {
                         log::error!("Failed to rebuild environment probes: {err:#}");
                     }
                 }
+                self.tracer
+                    .set_environment_probe_visualization_settings(environment_probe_visualization);
                 self.sync_cursor_with_panels();
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);

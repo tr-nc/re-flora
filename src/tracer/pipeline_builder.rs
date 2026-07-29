@@ -1,4 +1,5 @@
 use crate::builder::{ContreeBuilderResources, PlainBuilderResources, SceneAccelBuilderResources};
+use crate::environment_probes::EnvironmentProbeVolume;
 use crate::resource::ResourceContainer;
 use crate::tracer::TracerResources;
 use anyhow::Result;
@@ -224,6 +225,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let environment_probe_visualization_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/preview/environment_probe_visualization.vert",
+            "main",
+        )
+        .unwrap();
         let dynamic_fruit_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/props/dynamic_fruit.vert",
@@ -307,6 +314,7 @@ impl PipelineBuilder {
             sprinkler_vert_sm,
             geometry_preview_vert_sm,
             geometry_preview_frag_sm,
+            environment_probe_visualization_vert_sm,
             dynamic_fruit_vert_sm,
             dynamic_fruit_shadow_vert_sm,
             dynamic_fruit_shadow_frag_sm,
@@ -488,6 +496,7 @@ impl PipelineBuilder {
         pool: &DescriptorPool,
         resources: &TracerResources,
         plain_builder_resources: &PlainBuilderResources,
+        environment_probes: &EnvironmentProbeVolume,
     ) -> GraphicsPipelines {
         let flora_resources: [&dyn ResourceContainer; 2] = [resources, plain_builder_resources];
         let flora_ppl = Self::create_gfx_pipeline(
@@ -568,6 +577,38 @@ impl PipelineBuilder {
                 cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: true,
                 // The hybrid compositor only sees raster geometry with a real raster depth.
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+        let environment_probe_visualization_resources: [&dyn ResourceContainer; 2] =
+            [resources, environment_probes];
+        let environment_probe_visualization_depth_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.environment_probe_visualization_vert_sm,
+            &shader_modules.geometry_preview_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            None,
+            pool,
+            &environment_probe_visualization_resources,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+        let environment_probe_visualization_overlay_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.environment_probe_visualization_vert_sm,
+            &shader_modules.geometry_preview_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            None,
+            pool,
+            &environment_probe_visualization_resources,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: false,
                 depth_write_enable: true,
                 ..Default::default()
             },
@@ -657,6 +698,8 @@ impl PipelineBuilder {
             leaves_shadow_lod_ppl,
             sprinkler_ppl,
             geometry_preview_ppl,
+            environment_probe_visualization_depth_ppl,
+            environment_probe_visualization_overlay_ppl,
             dynamic_fruit_ppl,
             dynamic_fruit_shadow_ppl,
             particle_ppl,
@@ -806,6 +849,7 @@ pub struct ShaderModules {
     pub sprinkler_vert_sm: ShaderModule,
     pub geometry_preview_vert_sm: ShaderModule,
     pub geometry_preview_frag_sm: ShaderModule,
+    pub environment_probe_visualization_vert_sm: ShaderModule,
     pub dynamic_fruit_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_frag_sm: ShaderModule,
@@ -854,6 +898,8 @@ pub struct GraphicsPipelines {
     pub leaves_shadow_lod_ppl: GraphicsPipeline,
     pub sprinkler_ppl: GraphicsPipeline,
     pub geometry_preview_ppl: GraphicsPipeline,
+    pub environment_probe_visualization_depth_ppl: GraphicsPipeline,
+    pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,
     pub dynamic_fruit_ppl: GraphicsPipeline,
     pub dynamic_fruit_shadow_ppl: GraphicsPipeline,
     pub particle_ppl: GraphicsPipeline,

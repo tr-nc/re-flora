@@ -169,7 +169,7 @@ Planned visualization modes:
 - **Sky visibility:** grayscale or heat-map encoding of visible-environment fraction;
 - **Irradiance:** tonemapped local SH evaluated for a fixed world-up normal;
 - **Age/revision:** stale-to-current update coloring;
-- **Relocation:** original grid point plus an offset line to the actual probe position.
+- **Relocation:** paired original-grid and actual-sample markers, with different size and color.
 
 Planned filters:
 
@@ -304,7 +304,7 @@ cargo run --release -- --hidden --mute --windowed \
   --auto-exit 8
 ```
 
-The exact CLI is planned and becomes authoritative only after implementation. Screenshot readiness
+Add `--environment-probe-visualization` to capture the current probe grid. Screenshot readiness
 must eventually wait for the requested probe state in addition to terrain rebuild completion.
 
 Visual and logged acceptance:
@@ -349,8 +349,8 @@ phase begins.
 - [x] Define probe spacing, grid transforms, state, and resource accounting.
 - [x] Add CLI density control and explicit runtime rebuild control.
 - [x] Add deterministic grid and interpolation-coordinate tests.
-- [ ] Visualize all probes with low-cost instanced markers.
-- [ ] Add visualization modes, filters, and separate GPU timing.
+- [x] Visualize all probes with low-cost instanced markers.
+- [x] Add visualization modes, filters, and separate GPU timing.
 - [ ] Route terrain and raster lighting through global-copy probe sampling.
 - [ ] Trace deterministic terrain visibility from valid probes.
 - [ ] Recompute local SH on environment revisions without terrain retracing.
@@ -382,4 +382,38 @@ cargo test
 cargo run --release -- --hidden --mute \
   --environment-probe-spacing-voxels 16 --auto-exit 0.5
 cargo run --release -- --hidden --tail-latest-log 200
+```
+
+### Phase 2 Evidence
+
+The visualization reads SH and summary records directly from the GPU probe buffers and submits one
+indexed instanced diamond draw. It performs no full-volume readback. The debug panel exposes state,
+sky-visibility, irradiance, age/revision, and relocation views; valid/invalid/update filters; camera
+radius; instance stride; marker size; and depth-tested or always-visible rendering. Disabled mode
+does not submit the draw or enter the independent `graphics.environment_probes` GPU scope.
+
+A hidden 2560 x 1440 release capture of the 16-voxel grid rendered all 35,937 inactive phase-1
+probes and saved `target/environment-probes-visualization.png`. Across 23 steady-state GPU samples
+from matched eight-second runs, the enabled probe scope averaged 8.70 us. The full
+`frame.render`/`tracer.render` averages were 5,293.83/2,978.61 us with visualization and
+5,325.48/2,977.22 us without it, so the whole-frame delta was below single-run noise. Tracked CPU
+time averaged 0.127 ms enabled versus 0.044 ms disabled; total host frame time was 8.265 ms enabled
+versus 8.424 ms disabled and likewise did not show an actionable regression.
+
+The phase was validated with:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --environment-probe-visualization \
+  --screenshot player-default target/environment-probes-visualization.png \
+  --screenshot-delay 4 --auto-exit 8 --perf
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --auto-exit 8 --perf
 ```

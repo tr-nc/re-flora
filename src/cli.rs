@@ -151,6 +151,8 @@ pub struct AppOptions {
     pub environment_lighting_test_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
     pub environment_probe_spacing_voxels: u32,
+    /// Visualize the environment probe grid at startup.
+    pub environment_probe_visualization: bool,
     /// Run the lightweight tree replacement benchmark and exit after completion.
     pub tree_bench: bool,
     /// Number of tree benchmark samples.
@@ -342,6 +344,9 @@ impl AppOptions {
                 .iter()
                 .any(|a| a == "--environment-lighting-test-scene"),
             environment_probe_spacing_voxels,
+            environment_probe_visualization: args
+                .iter()
+                .any(|a| a == "--environment-probe-visualization"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
             tree_bench_rapid: args.iter().any(|a| a == "--tree-bench-rapid"),
@@ -581,6 +586,8 @@ Options:
                               Build the deterministic open/roofed terrain gallery for probe validation
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
+  --environment-probe-visualization
+                              Visualize the environment probe grid (debug; default: off)
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --tree-bench-rapid          Do not wait for deferred rebuilds between samples
@@ -677,6 +684,7 @@ mod tests {
             options.environment_probe_spacing_voxels,
             DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS
         );
+        assert!(!options.environment_probe_visualization);
         assert_eq!(options.tree_bench_samples, 10);
         assert!(!options.authored_flora_bench);
         assert_eq!(options.authored_flora_bench_samples, 25);
@@ -705,9 +713,15 @@ mod tests {
 
     #[test]
     fn parses_environment_probe_spacing() {
-        let options = parse(&["re-flora", "--environment-probe-spacing-voxels", "16"]);
+        let options = parse(&[
+            "re-flora",
+            "--environment-probe-spacing-voxels",
+            "16",
+            "--environment-probe-visualization",
+        ]);
 
         assert_eq!(options.environment_probe_spacing_voxels, 16);
+        assert!(options.environment_probe_visualization);
     }
 
     #[test]

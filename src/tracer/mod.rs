@@ -61,7 +61,10 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::environment_lighting::EnvironmentLightingCache;
-use crate::environment_probes::{EnvironmentProbeVolume, EnvironmentProbeVolumeStatus};
+use crate::environment_probes::{
+    EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
+    EnvironmentProbeVisualizationSettings, EnvironmentProbeVolume, EnvironmentProbeVolumeStatus,
+};
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
 };
@@ -388,6 +391,7 @@ pub struct TracerDesc {
     pub default_camera_look_at: Vec3,
     pub voxel_dim_per_chunk: UVec3,
     pub environment_probe_spacing_voxels: u32,
+    pub environment_probe_visualization_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -456,6 +460,7 @@ pub struct Tracer {
     irrigation_pipe_resources: IrrigationPipeRendererResources,
     geometry_preview_resources: GeometryPreviewRendererResources,
     dynamic_fruit_resources: DynamicFruitRendererResources,
+    environment_probe_visualization_resources: EnvironmentProbeVisualizationResources,
 
     camera: Camera,
     camera_view_mat_prev_frame: Mat4,
@@ -468,6 +473,7 @@ pub struct Tracer {
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
     environment_probes: EnvironmentProbeVolume,
+    environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
     graphics_pipelines: GraphicsPipelines,
@@ -616,6 +622,10 @@ impl Tracer {
             desc.voxel_dim_per_chunk,
             desc.environment_probe_spacing_voxels,
         )?;
+        let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
+            vulkan_ctx.device().clone(),
+            allocator.clone(),
+        );
 
         let compute_pipelines = PipelineBuilder::create_compute_pipelines(
             &vulkan_ctx,
@@ -641,6 +651,7 @@ impl Tracer {
             &pool,
             &resources,
             plain_builder_resources,
+            &environment_probes,
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
@@ -706,6 +717,7 @@ impl Tracer {
             irrigation_pipe_resources,
             geometry_preview_resources,
             dynamic_fruit_resources,
+            environment_probe_visualization_resources,
             camera,
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
@@ -717,6 +729,10 @@ impl Tracer {
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
             environment_probes,
+            environment_probe_visualization: EnvironmentProbeVisualizationSettings {
+                enabled: desc.environment_probe_visualization_enabled,
+                ..Default::default()
+            },
             compute_pipelines,
             graphics_pipelines,
             render_target_color_and_depth,
@@ -748,7 +764,27 @@ impl Tracer {
         )?;
         self.vulkan_ctx.device().wait_idle();
         self.environment_probes = replacement;
+        let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.environment_probes];
+        self.graphics_pipelines
+            .environment_probe_visualization_depth_ppl
+            .auto_update_descriptor_sets(&resources)?;
+        self.graphics_pipelines
+            .environment_probe_visualization_overlay_ppl
+            .auto_update_descriptor_sets(&resources)?;
         Ok(())
+    }
+
+    pub fn environment_probe_visualization_settings(
+        &self,
+    ) -> EnvironmentProbeVisualizationSettings {
+        self.environment_probe_visualization
+    }
+
+    pub fn set_environment_probe_visualization_settings(
+        &mut self,
+        settings: EnvironmentProbeVisualizationSettings,
+    ) {
+        self.environment_probe_visualization = settings.sanitized();
     }
 
     /// A framebuffer that contains the color and depth textures for the main render pass
@@ -959,6 +995,20 @@ impl Tracer {
         update_graphics_fn(
             &self.graphics_pipelines.geometry_preview_ppl,
             &tracer_resources,
+        );
+        let environment_probe_resources: [&dyn ResourceContainer; 2] =
+            [&self.resources, &self.environment_probes];
+        update_graphics_fn(
+            &self
+                .graphics_pipelines
+                .environment_probe_visualization_depth_ppl,
+            &environment_probe_resources,
+        );
+        update_graphics_fn(
+            &self
+                .graphics_pipelines
+                .environment_probe_visualization_overlay_ppl,
+            &environment_probe_resources,
         );
         update_graphics_fn(&self.graphics_pipelines.particle_ppl, &tracer_resources);
         update_graphics_fn(
@@ -1455,6 +1505,7 @@ impl Tracer {
             || self.sprinkler_resources.instance_count > 0
             || self.irrigation_pipe_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
+            || self.environment_probe_visualization.enabled
             || self.dynamic_fruit_resources.instance_count > 0;
 
         if render_flags.enable_flora {
@@ -1643,6 +1694,7 @@ impl Tracer {
             || self.sprinkler_resources.instance_count > 0
             || self.irrigation_pipe_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
+            || self.environment_probe_visualization.enabled
             || self.dynamic_fruit_resources.instance_count > 0;
 
         if render_flags.enable_flora {
@@ -2448,6 +2500,66 @@ impl Tracer {
                 );
             }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), preview_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        }
+
+        let environment_probe_instance_count = self
+            .environment_probe_visualization
+            .submitted_instance_count(self.environment_probes.status().grid.probe_count());
+        if environment_probe_instance_count > 0 {
+            let probe_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.environment_probes",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            let pipeline = if self.environment_probe_visualization.depth_tested {
+                &self
+                    .graphics_pipelines
+                    .environment_probe_visualization_depth_ppl
+            } else {
+                &self
+                    .graphics_pipelines
+                    .environment_probe_visualization_overlay_ppl
+            };
+            let push_constants = EnvironmentProbeVisualizationPushConstants::new(
+                self.environment_probe_visualization,
+                self.desc.voxel_dim_per_chunk,
+            );
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(
+                &self
+                    .environment_probe_visualization_resources
+                    .marker_indices,
+            );
+            cmdbuf.bind_vertex_buffers(
+                0,
+                &[&self
+                    .environment_probe_visualization_resources
+                    .marker_vertices],
+            );
+            pipeline.record_indexed(
+                cmdbuf,
+                self.environment_probe_visualization_resources.index_count(),
+                environment_probe_instance_count,
+                0,
+                0,
+                0,
+                Some(&PushConstantInfo {
+                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                    push_constants: bytemuck::bytes_of(&push_constants).to_vec(),
+                }),
+            );
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), probe_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
                     cmdbuf,
