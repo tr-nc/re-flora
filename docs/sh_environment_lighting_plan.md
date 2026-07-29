@@ -427,6 +427,63 @@ Acceptance should check both consistency and intent:
 - leaf-shadow/VSM/cloud histories continue to behave independently;
 - the SH path improves or preserves the release frame budget on target GPUs, including macOS.
 
+## Completion Audit
+
+The final audit added a deterministic hidden moving-camera mode to the existing denoiser benchmark:
+
+```bash
+cargo run --release -- --hidden --mute --windowed \
+  --denoiser-bench player-default target/sh-motion.toml \
+  --denoiser-bench-camera-motion
+```
+
+Each captured frame applies a small strafe, forward motion, and yaw. The report records that motion
+and retains start, one-third, two-thirds, and final PNG keyframes. Keyframe image writes happen after
+capture so they do not perturb frame metrics.
+
+An archived source export of the original `c64e7ef4` implementation and the completed SH path were
+both captured for 64 frames with the same motion and the authored Strong Wind preset:
+
+| Path | Mean luma delta | Mean p95 | Mean p99 | Noticeable-pixel ratio |
+| --- | ---: | ---: | ---: | ---: |
+| Original history plus stochastic second ray | `0.924328` | `5.000` | `15.6349` | `0.034718` |
+| Final raw SH path | `0.941200` | `5.873` | `17.0000` | `0.036771` |
+
+These metrics measure deliberate camera and leaf motion as well as noise, so acceptance is not based
+on the final path producing a smaller aggregate number. The four full-resolution keyframes are the
+primary evidence: the final terrain, shadowed wall, and animated canopy remain spatially attached
+without an old RGB radiance trail. Compared with the neutral ambient/history appearance in the
+original capture, the final terrain also shows the intended directional sky hue. The original
+source/build directories were moved to Trash after retaining the report, keyframes, and run log
+under the ignored `target/sh-environment-baseline/` evidence directory.
+
+A second 64-frame hidden run combined the same camera motion, Strong Wind, and a six-second full
+day/night cycle. It measured mean luma delta `2.6399` and a maximum transition-frame mean delta
+`33.149`; the large transition is intentional evidence that deterministic environment changes are
+not being suppressed. The four keyframes progress from daylight through changing shadows and warm
+sunset to night. Terrain and raster canopy change environment hue together, moving leaves remain
+responsive, and neither path retains lagged final radiance.
+
+Terrain-edit response was validated with the hidden water-edit soak sequence. The run removed 611
+voxels, placed 482 rock voxels, then removed another 608 voxels and reached its completion marker.
+The delayed post-edit screenshot shows newly exposed and modified terrain with no stale radiance
+history. Together with the existing day, sunset, night, normal-LOD, and forced-LOD captures, visual
+coverage includes open sky, a vertical shadowed wall, downward/front-facing wall regions,
+under-canopy terrain, shallow excavations, and newly exposed surfaces. Deep interiors remain
+uncovered, so global SH's lack of local visibility stays an explicit future risk rather than a
+reason to add probes pre-emptively.
+
+The final source audit confirms the intended boundaries:
+
+- the terrain tracer has one primary voxel traversal, then separately evaluates shared SH
+  irradiance and fixed-direction direct sun;
+- the shared stylized raster helper uses the same SH evaluator and separate direct-sun visibility;
+- the only production SH evaluator call sites are those terrain and shared raster paths;
+- the weighted-cosine textures are no longer used by terrain diffuse lighting and remain only for
+  god rays;
+- no main RGB temporal/A-Trous radiance pipeline or history resources remain;
+- VSM, leaf-shadow, cloud, and cloud-shadow temporal resources and passes remain independent.
+
 ## Risks
 
 - Global SH has no local visibility and can over-light cavities or areas beneath dense canopies.
