@@ -94,6 +94,7 @@ const ENVIRONMENT_PROBE_COEFFICIENT_BINDING: u32 = 18;
 const ENVIRONMENT_PROBE_SUMMARY_BINDING: u32 = 19;
 const ENVIRONMENT_PROBE_VISIBILITY_BINDING: u32 = 20;
 const ENVIRONMENT_PROBE_DIRECTION_BINDING: u32 = 21;
+const ENVIRONMENT_PROBE_STATS_BINDING: u32 = 22;
 const ENVIRONMENT_PROBE_TRACE_BATCH_SIZE: u32 = 128;
 const ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE: u32 = 70;
 const ENVIRONMENT_PROBE_PRIORITY_REGION_RADIUS: u32 = 1;
@@ -121,6 +122,13 @@ struct EnvironmentProbeUpdatePushConstants {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct EnvironmentProbeClassificationPushConstants {
     terrain_revision: u32,
+    _padding: [u32; 3],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct EnvironmentProbeStatsPushConstants {
+    probe_count: u32,
     _padding: [u32; 3],
 }
 
@@ -521,6 +529,7 @@ pub struct Tracer {
     environment_probe_terrain_revision: u32,
     environment_probe_converged_terrain_revision: u32,
     environment_probe_refresh_started_at: Option<Instant>,
+    environment_probe_stats_readback_pending: bool,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -788,6 +797,7 @@ impl Tracer {
             environment_probe_terrain_revision: 0,
             environment_probe_converged_terrain_revision: 0,
             environment_probe_refresh_started_at: None,
+            environment_probe_stats_readback_pending: false,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -832,6 +842,7 @@ impl Tracer {
         self.environment_probe_terrain_revision = 0;
         self.environment_probe_converged_terrain_revision = 0;
         self.environment_probe_refresh_started_at = None;
+        self.environment_probe_stats_readback_pending = false;
         self.update_environment_probe_consumer_descriptors();
         let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.environment_probes];
         self.graphics_pipelines
@@ -1189,6 +1200,7 @@ impl Tracer {
         let summaries = &self.environment_probes.environment_probe_summaries;
         let visibility = &self.environment_probes.environment_probe_visibility;
         let directions = &self.environment_probes.environment_probe_directions;
+        let stats = &self.environment_probes.environment_probe_stats;
         for pipeline in [
             &self.compute_pipelines.environment_probe_global_copy_ppl,
             &self.compute_pipelines.tracer_ppl,
@@ -1210,6 +1222,18 @@ impl Tracer {
             .write_descriptor_set(
                 0,
                 WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
+            );
+        self.compute_pipelines
+            .environment_probe_stats_ppl
+            .write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
+            );
+        self.compute_pipelines
+            .environment_probe_stats_ppl
+            .write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_STATS_BINDING, stats),
             );
         for (binding, buffer) in [
             (ENVIRONMENT_PROBE_COEFFICIENT_BINDING, coefficients),
@@ -1664,6 +1688,24 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
+        if self.environment_probe_stats_readback_pending {
+            self.environment_probe_stats_readback_pending = false;
+            let counts = self
+                .environment_probes
+                .update_state_counts_from_readback()?;
+            log::info!(
+                "[ENV_PROBES] state counts inactive={} inside_solid={} relocation_pending={} valid={} dirty={} updating={} relocation_failed={} total={}",
+                counts.inactive,
+                counts.inside_solid,
+                counts.relocation_pending,
+                counts.valid,
+                counts.dirty,
+                counts.updating,
+                counts.relocation_failed,
+                counts.total(),
+            );
+        }
+
         self.graphics_pipelines
             .begin_manual_buffer_frame(gpu_profiler_frame_slot);
 
@@ -1698,6 +1740,14 @@ impl Tracer {
             [MemoryBarrier::new(
                 MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
                 MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            )],
+        );
+        let transfer_to_host_barrier = PipelineBarrier::new(
+            PipelineStage::TRANSFER,
+            PipelineStage::HOST,
+            [MemoryBarrier::new(
+                MemoryAccess::TRANSFER_WRITE,
+                MemoryAccess::HOST_READ,
             )],
         );
         let depth_to_compute_barrier = PipelineBarrier::new(
@@ -1913,6 +1963,26 @@ impl Tracer {
                 self.environment_probe_local_field_ready = true;
                 self.environment_probe_converged_terrain_revision =
                     self.environment_probe_terrain_revision;
+                self.environment_probes.environment_probe_stats.record_fill(
+                    cmdbuf,
+                    0,
+                    self.environment_probes
+                        .environment_probe_stats
+                        .get_size_bytes(),
+                    0,
+                );
+                transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "environment_probes.stats",
+                    || self.record_environment_probe_stats_pass(cmdbuf),
+                );
+                compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                self.environment_probes.record_state_counts_readback(cmdbuf);
+                transfer_to_host_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                self.environment_probe_stats_readback_pending = true;
                 let convergence_ms = self
                     .environment_probe_refresh_started_at
                     .take()
@@ -3394,6 +3464,19 @@ impl Tracer {
             priority_side,
         };
         self.compute_pipelines.environment_probe_update_ppl.record(
+            cmdbuf,
+            Extent3D::new(probe_count, 1, 1),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
+    }
+
+    fn record_environment_probe_stats_pass(&self, cmdbuf: &CommandBuffer) {
+        let probe_count = self.environment_probes.status().grid.probe_count();
+        let push_constants = EnvironmentProbeStatsPushConstants {
+            probe_count,
+            _padding: [0; 3],
+        };
+        self.compute_pipelines.environment_probe_stats_ppl.record(
             cmdbuf,
             Extent3D::new(probe_count, 1, 1),
             Some(bytemuck::bytes_of(&push_constants)),

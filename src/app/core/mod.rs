@@ -2462,13 +2462,24 @@ impl App {
                                                 grid.probe_count(),
                                                 environment_probe_status.valid_probe_count,
                                             ));
+                                            let counts = environment_probe_status.state_counts;
                                             ui.monospace(format!(
-                                                "GPU {:.2} MiB (SH {:.2} + state {:.2} + visibility {:.2} + directions {:.2})",
+                                                "States: inactive {} · solid {} · pending {} · dirty {} · updating {} · failed {}",
+                                                counts.inactive,
+                                                counts.inside_solid,
+                                                counts.relocation_pending,
+                                                counts.dirty,
+                                                counts.updating,
+                                                counts.relocation_failed,
+                                            ));
+                                            ui.monospace(format!(
+                                                "Allocated {:.2} MiB (SH {:.2} + state {:.2} + visibility {:.2} + directions {:.2} + stats {:.4})",
                                                 bytes.total() as f64 / (1024.0 * 1024.0),
                                                 bytes.coefficients as f64 / (1024.0 * 1024.0),
                                                 bytes.summaries as f64 / (1024.0 * 1024.0),
                                                 bytes.visibility as f64 / (1024.0 * 1024.0),
                                                 bytes.directions as f64 / (1024.0 * 1024.0),
+                                                bytes.stats as f64 / (1024.0 * 1024.0),
                                             ));
                                             if environment_probe_draft_grid != grid {
                                                 ui.monospace(format!(

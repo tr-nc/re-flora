@@ -19,6 +19,7 @@ pub const ENVIRONMENT_PROBE_PACKED_MISS_DISTANCES: u32 = ENVIRONMENT_PROBE_MISS_
 const ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE: usize = 8;
 const ENVIRONMENT_PROBE_SKY_DIRECTION_COUNT: usize = 40;
 const ENVIRONMENT_PROBE_MARKER_INDEX_COUNT: u32 = 6;
+const ENVIRONMENT_PROBE_STATE_COUNT: usize = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
@@ -293,6 +294,7 @@ pub struct EnvironmentProbeResourceBytes {
     pub summaries: u64,
     pub visibility: u64,
     pub directions: u64,
+    pub stats: u64,
 }
 
 impl EnvironmentProbeResourceBytes {
@@ -306,18 +308,62 @@ impl EnvironmentProbeResourceBytes {
                 * grid.probe_count() as u64,
             directions: std::mem::size_of::<EnvironmentProbeDirectionGpu>() as u64
                 * ENVIRONMENT_PROBE_DIRECTION_COUNT as u64,
+            stats: (std::mem::size_of::<EnvironmentProbeStateCountsGpu>() * 2) as u64,
         }
     }
 
     pub fn total(self) -> u64 {
-        self.coefficients + self.summaries + self.visibility + self.directions
+        self.coefficients + self.summaries + self.visibility + self.directions + self.stats
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EnvironmentProbeStateCounts {
+    pub inactive: u32,
+    pub inside_solid: u32,
+    pub relocation_pending: u32,
+    pub valid: u32,
+    pub dirty: u32,
+    pub updating: u32,
+    pub relocation_failed: u32,
+}
+
+impl EnvironmentProbeStateCounts {
+    pub fn total(self) -> u32 {
+        self.inactive
+            + self.inside_solid
+            + self.relocation_pending
+            + self.valid
+            + self.dirty
+            + self.updating
+            + self.relocation_failed
+    }
+
+    fn from_array(counts: [u32; ENVIRONMENT_PROBE_STATE_COUNT]) -> Self {
+        Self {
+            inactive: counts[EnvironmentProbeState::Inactive as usize],
+            inside_solid: counts[EnvironmentProbeState::InsideSolid as usize],
+            relocation_pending: counts[EnvironmentProbeState::RelocationPending as usize],
+            valid: counts[EnvironmentProbeState::Valid as usize],
+            dirty: counts[EnvironmentProbeState::Dirty as usize],
+            updating: counts[EnvironmentProbeState::Updating as usize],
+            relocation_failed: counts[EnvironmentProbeState::RelocationFailed as usize],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct EnvironmentProbeStateCountsGpu {
+    counts: [u32; ENVIRONMENT_PROBE_STATE_COUNT],
+    padding: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EnvironmentProbeVolumeStatus {
     pub grid: EnvironmentProbeGrid,
     pub valid_probe_count: u32,
+    pub state_counts: EnvironmentProbeStateCounts,
     pub resource_bytes: EnvironmentProbeResourceBytes,
 }
 
@@ -520,11 +566,14 @@ impl EnvironmentProbeVisualizationResources {
 pub struct EnvironmentProbeVolume {
     grid: EnvironmentProbeGrid,
     valid_probe_count: u32,
+    state_counts: EnvironmentProbeStateCounts,
     resource_bytes: EnvironmentProbeResourceBytes,
     pub environment_probe_coefficients: Resource<Buffer>,
     pub environment_probe_summaries: Resource<Buffer>,
     pub environment_probe_visibility: Resource<Buffer>,
     pub environment_probe_directions: Resource<Buffer>,
+    pub environment_probe_stats: Resource<Buffer>,
+    environment_probe_stats_readback: Buffer,
 }
 
 impl ResourceContainer for EnvironmentProbeVolume {
@@ -534,6 +583,7 @@ impl ResourceContainer for EnvironmentProbeVolume {
             "environment_probe_summaries" => Some(&self.environment_probe_summaries),
             "environment_probe_visibility" => Some(&self.environment_probe_visibility),
             "environment_probe_directions" => Some(&self.environment_probe_directions),
+            "environment_probe_stats" => Some(&self.environment_probe_stats),
             _ => None,
         }
     }
@@ -548,6 +598,7 @@ impl ResourceContainer for EnvironmentProbeVolume {
             "environment_probe_summaries",
             "environment_probe_visibility",
             "environment_probe_directions",
+            "environment_probe_stats",
         ]
     }
 }
@@ -628,16 +679,36 @@ impl EnvironmentProbeVolume {
         ])?;
 
         let directions = Buffer::new_sized(
-            device,
-            allocator,
+            device.clone(),
+            allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             MemoryLocation::CpuToGpu,
             resource_bytes.directions,
         );
         directions.fill(&environment_probe_directions())?;
 
+        let stats_buffer_bytes = std::mem::size_of::<EnvironmentProbeStateCountsGpu>() as u64;
+        let stats = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER
+                    | vk::BufferUsageFlags::TRANSFER_SRC
+                    | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            MemoryLocation::GpuOnly,
+            stats_buffer_bytes,
+        );
+        let stats_readback = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            MemoryLocation::GpuToCpu,
+            stats_buffer_bytes,
+        );
+
         log::info!(
-            "[ENV_PROBES] allocated spacing_voxels={} grid={}x{}x{} probes={} valid=0 directions={} coefficients_bytes={} summaries_bytes={} visibility_bytes={} direction_bytes={} total_bytes={} total_mib={:.2}",
+            "[ENV_PROBES] allocated spacing_voxels={} grid={}x{}x{} probes={} valid=0 directions={} coefficients_bytes={} summaries_bytes={} visibility_bytes={} direction_bytes={} stats_bytes={} total_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
@@ -648,6 +719,7 @@ impl EnvironmentProbeVolume {
             resource_bytes.summaries,
             resource_bytes.visibility,
             resource_bytes.directions,
+            resource_bytes.stats,
             resource_bytes.total(),
             resource_bytes.total() as f64 / (1024.0 * 1024.0),
         );
@@ -655,11 +727,17 @@ impl EnvironmentProbeVolume {
         Ok(Self {
             grid,
             valid_probe_count: 0,
+            state_counts: EnvironmentProbeStateCounts {
+                inactive: grid.probe_count(),
+                ..Default::default()
+            },
             resource_bytes,
             environment_probe_coefficients: Resource::new(coefficients),
             environment_probe_summaries: Resource::new(summaries),
             environment_probe_visibility: Resource::new(visibility),
             environment_probe_directions: Resource::new(directions),
+            environment_probe_stats: Resource::new(stats),
+            environment_probe_stats_readback: stats_readback,
         })
     }
 
@@ -667,16 +745,63 @@ impl EnvironmentProbeVolume {
         EnvironmentProbeVolumeStatus {
             grid: self.grid,
             valid_probe_count: self.valid_probe_count,
+            state_counts: self.state_counts,
             resource_bytes: self.resource_bytes,
         }
     }
 
     pub fn mark_all_valid_global_copy(&mut self) {
         self.valid_probe_count = self.grid.probe_count();
+        self.state_counts = EnvironmentProbeStateCounts {
+            valid: self.grid.probe_count(),
+            ..Default::default()
+        };
     }
 
     pub fn mark_all_classified_dirty(&mut self) {
         self.valid_probe_count = 0;
+        self.state_counts = EnvironmentProbeStateCounts {
+            dirty: self.grid.probe_count(),
+            ..Default::default()
+        };
+    }
+
+    pub fn record_state_counts_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        self.environment_probe_stats.record_copy_to_buffer(
+            cmdbuf,
+            &self.environment_probe_stats_readback,
+            std::mem::size_of::<EnvironmentProbeStateCountsGpu>() as u64,
+            0,
+            0,
+        );
+    }
+
+    pub fn update_state_counts_from_readback(&mut self) -> Result<EnvironmentProbeStateCounts> {
+        let bytes = self.environment_probe_stats_readback.read_back()?;
+        let expected_bytes = std::mem::size_of::<EnvironmentProbeStateCountsGpu>();
+        ensure!(
+            bytes.len() == expected_bytes,
+            "environment probe stats readback returned {} bytes, expected {}",
+            bytes.len(),
+            expected_bytes
+        );
+        let mut counts = [0_u32; ENVIRONMENT_PROBE_STATE_COUNT];
+        for (index, chunk) in bytes[..ENVIRONMENT_PROBE_STATE_COUNT * std::mem::size_of::<u32>()]
+            .chunks_exact(std::mem::size_of::<u32>())
+            .enumerate()
+        {
+            counts[index] = u32::from_ne_bytes(chunk.try_into().expect("u32-sized chunk"));
+        }
+        let state_counts = EnvironmentProbeStateCounts::from_array(counts);
+        ensure!(
+            state_counts.total() == self.grid.probe_count(),
+            "environment probe state counts total {} does not match grid count {}",
+            state_counts.total(),
+            self.grid.probe_count()
+        );
+        self.valid_probe_count = state_counts.valid;
+        self.state_counts = state_counts;
+        Ok(state_counts)
     }
 }
 
@@ -773,7 +898,26 @@ mod tests {
         let bytes = EnvironmentProbeResourceBytes::for_grid(grid);
         assert_eq!(bytes.visibility, 4_599_936);
         assert_eq!(bytes.directions, 10_240);
-        assert_eq!(bytes.total(), 12_085_072);
+        assert_eq!(bytes.stats, 64);
+        assert_eq!(bytes.total(), 12_085_136);
+    }
+
+    #[test]
+    fn state_counts_follow_gpu_state_indices() {
+        let counts = EnvironmentProbeStateCounts::from_array([1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(
+            counts,
+            EnvironmentProbeStateCounts {
+                inactive: 1,
+                inside_solid: 2,
+                relocation_pending: 3,
+                valid: 4,
+                dirty: 5,
+                updating: 6,
+                relocation_failed: 7,
+            }
+        );
+        assert_eq!(counts.total(), 28);
     }
 
     #[test]

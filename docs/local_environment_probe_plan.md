@@ -61,8 +61,9 @@ Phases 1 through 6 are complete: density and resource controls exist, all-probe 
 exists, terrain plus raster consumers share the local field, deterministic visibility and local SH
 are scheduled in bounded batches, interpolation uses leak-resistant weights, authored-environment
 revisions reproject retained visibility without terrain rays, and normal terrain rebuild plans
-automatically request a prioritized then full-volume probe refresh. Density and performance
-comparison is the next implementation step.
+automatically request a prioritized then full-volume probe refresh. A GPU aggregate pass reports
+the exact state distribution after convergence without reading back the probe volume. Density and
+performance comparison is the next implementation step.
 
 ## Non-goals
 
@@ -413,6 +414,7 @@ phase begins.
 - [x] Reject wall, roof, portal, and invalid-probe light leaks.
 - [x] Add conservative terrain-edit invalidation and convergence tracking.
 - [x] Extend the test scenario with a deterministic probe invalidation edit.
+- [x] Report exact aggregate probe-state counts without full-volume readback.
 - [ ] Compare 32-, 16-, and 8-voxel density in hidden release runs.
 - [ ] Select the default density from image, timing, and memory evidence.
 - [ ] Confirm the main RGB denoiser remains absent.
@@ -521,7 +523,8 @@ into two previously reserved words of the 64-byte summary. They add no allocatio
 per-pixel reads from the 128-byte directional visibility record.
 
 Together with the existing 144-byte coefficient and 64-byte summary records, the current layout is
-336 bytes per probe plus the fixed 10 KiB direction table. Hidden release allocation runs reported:
+336 bytes per probe plus the fixed 10 KiB direction table and a 64-byte aggregate
+statistics/readback pair. Hidden release allocation runs reported:
 
 | Spacing | Probes | Coefficients | State | Visibility | Directions | Total |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -725,4 +728,35 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-probe-spacing-voxels 16 \
   --screenshot player-default target/environment-probes-terrain-refresh.png \
   --screenshot-delay 4 --auto-exit 13 --perf
+```
+
+### Aggregate Probe-State Evidence
+
+An independent one-thread-per-probe GPU reduction now counts inactive, inside-solid,
+relocation-pending, valid, dirty, updating, and relocation-failed records after each full
+convergence. Only the seven aggregate `u32` counters are copied to a 32-byte CPU staging buffer;
+the implementation does not read back individual probes and does not add picking or selection.
+The debug panel exposes the resulting volume-wide counts beside the existing all-probe
+visualization.
+
+At 32-voxel spacing, the post-gallery, roof-opening, and roof-closure fields each summed exactly to
+the 4,913-probe grid. The final closed-roof revision reported 817 inactive, 3,148 valid, and 948
+relocation-failed probes, with every transient state at zero. The allocation log reported
+1,661,072 bytes total, including 64 bytes for the GPU counters and staging buffer.
+`target/environment-probes-state-counts.png` captured the visible complete field after exact terrain
+revision 3 readiness. The hidden release run exited successfully with no error, panic, or Vulkan
+validation message.
+
+The step used:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 32 \
+  --environment-probe-visualization \
+  --screenshot player-default target/environment-probes-state-counts.png \
+  --screenshot-delay 2 --auto-exit 7 --perf
 ```

@@ -37,6 +37,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let environment_probe_stats_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/environment_probe_stats.comp",
+            "main",
+        )
+        .unwrap();
 
         let tracer_shadow_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -305,6 +311,7 @@ impl PipelineBuilder {
             environment_probe_global_copy_sm,
             environment_probe_classify_sm,
             environment_probe_update_sm,
+            environment_probe_stats_sm,
             tracer_shadow_sm,
             shadow_depth_copy_sm,
             leaf_shadow_temporal_sm,
@@ -381,6 +388,12 @@ impl PipelineBuilder {
                 scene_accel_resources,
                 environment_probes,
             ],
+        );
+        let environment_probe_stats_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.environment_probe_stats_sm,
+            pool,
+            &[environment_probes],
         );
         let tracer_ppl = ComputePipeline::new(
             device,
@@ -491,6 +504,7 @@ impl PipelineBuilder {
             environment_probe_global_copy_ppl,
             environment_probe_classify_ppl,
             environment_probe_update_ppl,
+            environment_probe_stats_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
@@ -874,6 +888,7 @@ pub struct ShaderModules {
     pub environment_probe_global_copy_sm: ShaderModule,
     pub environment_probe_classify_sm: ShaderModule,
     pub environment_probe_update_sm: ShaderModule,
+    pub environment_probe_stats_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
     pub shadow_depth_copy_sm: ShaderModule,
     pub leaf_shadow_temporal_sm: ShaderModule,
@@ -919,6 +934,7 @@ pub struct ComputePipelines {
     pub environment_probe_global_copy_ppl: ComputePipeline,
     pub environment_probe_classify_ppl: ComputePipeline,
     pub environment_probe_update_ppl: ComputePipeline,
+    pub environment_probe_stats_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,
