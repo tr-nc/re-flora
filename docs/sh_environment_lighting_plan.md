@@ -133,6 +133,31 @@ assumption.
 - Separate current second-ray contribution from direct sun and ambient in diagnostic captures so the
   visual behavior being replaced is explicit.
 
+Baseline captured on 2026-07-29 from `c64e7ef4` plus the two documentation commits on Apple M4 Pro:
+
+- the hidden `render-steady` run used 155 post-warmup samples at the normal full-resolution render
+  extent; medians were `frame.render=13465 us`, `tracer.render=10721 us`,
+  `tracer.shadow_prepass=1407 us`, and `composition.pass=278 us`;
+- the isolated 2560x1440 denoiser history run measured mean frame-to-frame luma delta `0.036034`
+  and spatial gradient `2.356452`;
+- the matching fresh-sample run measured luma delta `0.462752` and spatial gradient `2.362386`,
+  confirming that temporal history, rather than extra spatial blur, provides most of the current
+  stochastic stability;
+- hidden fixed-camera captures covered day (`time_of_day=0.455705`), sunset
+  (`time_of_day=0.74`), and night (`time_of_day=0.0`);
+- a day capture with `debug_bool=false` isolated the current direct-sun plus fixed-ambient path from
+  the normal `debug_bool=true` path that includes the stochastic second ray.
+
+The reports, logs, and PNG captures remain local under `target/sh-environment-baseline/`. Their image
+SHA-256 values are:
+
+```text
+day with second ray     e8d4ab97e6c3233dc650f81dd04bd5564da71f5a2e4643e101afaa1a6e8100ce
+day without second ray  36ded733cfc20649e437a19207820593decf82d9bd3024449f1af25ead00cf79
+sunset with second ray  ab657e7393041df369ade257af544c66141ed955fac3b7099f09808aed8487f3
+night with second ray   3061d89338b85b676ebc21df55790ffacad0fb3af99546615cff1e655d0094fb
+```
+
 ### Phase 2: Define and validate the SH contract
 
 - Add an environment-lighting resource containing nine aligned RGB irradiance coefficients and an
@@ -299,7 +324,7 @@ Acceptance should check both consistency and intent:
 ## Checklist
 
 - [x] Record the background, target architecture, non-goals, and staged plan.
-- [ ] Capture current visual, denoiser, and release performance baselines.
+- [x] Capture current visual, denoiser, and release performance baselines.
 - [ ] Define the SH coefficient convention and shared shader evaluator.
 - [ ] Select and validate the SH coefficient-generation method.
 - [ ] Add the global environment irradiance resource and revision tracking.
