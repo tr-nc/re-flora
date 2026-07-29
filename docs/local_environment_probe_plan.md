@@ -57,13 +57,14 @@ explicit rebuilds but whose spacing is adjustable:
 - Keep direct sun and future local direct lights outside the environment probe field. Evaluate
   ReSTIR DI only later, and only if measured local-light candidate or shadow cost justifies it.
 
-Phases 1 through 6 are complete: density and resource controls exist, all-probe visualization
+Phases 1 through 7 are complete: density and resource controls exist, all-probe visualization
 exists, terrain plus raster consumers share the local field, deterministic visibility and local SH
 are scheduled in bounded batches, interpolation uses leak-resistant weights, authored-environment
 revisions reproject retained visibility without terrain rays, and normal terrain rebuild plans
 automatically request a prioritized then full-volume probe refresh. A GPU aggregate pass reports
-the exact state distribution after convergence without reading back the probe volume. Density and
-performance comparison is the next implementation step.
+the exact state distribution after convergence without reading back the probe volume. Matched
+release evidence selects 32-voxel spacing as the production default; 16 remains a quality option,
+8 a stress option, and 64 a coarse development option.
 
 ## Non-goals
 
@@ -95,10 +96,11 @@ The SH column counts only nine aligned RGB `float4` coefficients per probe. Visi
 state, revision, relocation, and scheduling data add to these lower bounds and must be reported by
 the implementation.
 
-The initial quality hypothesis is that 16-voxel spacing will resolve the test chamber and portal
-more reliably, while 32-voxel spacing may be a materially cheaper production choice. The default
-must be selected by matched release measurements and visual comparison; 8-voxel spacing should
-remain a stress/quality candidate unless it proves affordable.
+Matched hidden release measurements select 32-voxel spacing. It passes the chamber, roof, wall, and
+portal checks with only a sub-one-code-value mean-luma difference from 8-voxel spacing in the
+roofed-interior crop, while using about one fifty-fifth of the memory and converging about fifty-five
+times faster. The 16-voxel spacing remains a quality/debug option and 8-voxel spacing remains a
+stress option.
 
 Density must be controllable through both:
 
@@ -352,10 +354,10 @@ The deterministic probe scene should use:
 ```bash
 cargo run --release -- --hidden --mute --windowed \
   --environment-lighting-test-scene \
-  --environment-probe-spacing-voxels 16 \
-  --screenshot player-default target/environment-probes-16.png \
-  --screenshot-delay 4 \
-  --auto-exit 13
+  --environment-probe-spacing-voxels 32 \
+  --screenshot player-default target/environment-probes-32.png \
+  --screenshot-delay 2 \
+  --auto-exit 10
 ```
 
 Add `--environment-probe-visualization` to capture the current probe grid. Screenshot readiness
@@ -415,12 +417,12 @@ phase begins.
 - [x] Add conservative terrain-edit invalidation and convergence tracking.
 - [x] Extend the test scenario with a deterministic probe invalidation edit.
 - [x] Report exact aggregate probe-state counts without full-volume readback.
-- [ ] Compare 32-, 16-, and 8-voxel density in hidden release runs.
-- [ ] Select the default density from image, timing, and memory evidence.
-- [ ] Confirm the main RGB denoiser remains absent.
-- [ ] Confirm VSM, leaf-shadow, cloud, and cloud-shadow histories remain independent.
-- [ ] Run formatting, checks, tests, hidden muted release validation, and log inspection.
-- [ ] Document final resource layout, update cost, visualization cost, and known limitations.
+- [x] Compare 32-, 16-, and 8-voxel density in hidden release runs.
+- [x] Select the default density from image, timing, and memory evidence.
+- [x] Confirm the main RGB denoiser remains absent.
+- [x] Confirm VSM, leaf-shadow, cloud, and cloud-shadow histories remain independent.
+- [x] Run formatting, checks, tests, hidden muted release validation, and log inspection.
+- [x] Document final resource layout, update cost, visualization cost, and known limitations.
 
 ### Phase 1 Evidence
 
@@ -526,10 +528,11 @@ Together with the existing 144-byte coefficient and 64-byte summary records, the
 336 bytes per probe plus the fixed 10 KiB direction table and a 64-byte aggregate
 statistics/readback pair. Hidden release allocation runs reported:
 
-| Spacing | Probes | Coefficients | State | Visibility | Directions | Total |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 16 voxels | 35,937 | 5,174,928 B | 2,299,968 B | 4,599,936 B | 10,240 B | 11.53 MiB |
-| 8 voxels | 274,625 | 39,546,000 B | 17,576,000 B | 35,152,000 B | 10,240 B | 88.01 MiB |
+| Spacing | Probes | Coefficients | State | Visibility | Directions | Stats | Total |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 32 voxels | 4,913 | 707,472 B | 314,432 B | 628,864 B | 10,240 B | 64 B | 1,661,072 B / 1.58 MiB |
+| 16 voxels | 35,937 | 5,174,928 B | 2,299,968 B | 4,599,936 B | 10,240 B | 64 B | 12,085,136 B / 11.53 MiB |
+| 8 voxels | 274,625 | 39,546,000 B | 17,576,000 B | 35,152,000 B | 10,240 B | 64 B | 92,284,304 B / 88.01 MiB |
 
 Both allocations completed on the release Vulkan path, seeded all probes from global SH, reported
 no error, panic, or validation message, and exited successfully. This validates the resource layout
@@ -760,3 +763,134 @@ cargo run --release -- --hidden --mute --windowed \
   --screenshot player-default target/environment-probes-state-counts.png \
   --screenshot-delay 2 --auto-exit 7 --perf
 ```
+
+### Phase 7 Density and Performance Evidence
+
+Matched 2560 x 1440 hidden release runs on the Apple M4 Pro used the same deterministic camera,
+time-of-day revision, gallery construction, roof opening, roof closure, and 128-probe update budget.
+Probe visualization was disabled. Steady GPU samples begin only after exact roof-closure revision 3
+readiness:
+
+| Spacing | Final valid / total | Allocation | Gallery / open / close convergence | Environment rederive | Steady `frame.render` avg / median | Steady `tracer.render` avg / median |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 32 voxels | 3,148 / 4,913 | 1.58 MiB | 0.330 / 0.335 / 0.333 s | 184 us | 6,561.87 / 6,146 us (31 samples) | 4,233.77 / 4,339 us |
+| 16 voxels | 24,991 / 35,937 | 11.53 MiB | 2.378 / 2.580 / 2.482 s | 863 us | 6,883.43 / 6,729 us (23 samples) | 4,510.83 / 4,592 us |
+| 8 voxels | 199,060 / 274,625 | 88.01 MiB | 18.000 / 18.403 / 18.379 s | 2,532 us | 6,676.76 / 6,602 us (50 samples) | 4,368.82 / 4,431 us |
+
+The steady lookup always considers the same eight neighbouring probes, so density did not produce a
+monotonic frame-time trend; the observed spread is small compared with independent scene activity.
+Density instead dominates allocation and full-volume convergence. Active 128-probe trace samples
+had 464/570/465 us medians and 1,017/1,088/1,042 us p95 values at 32/16/8 spacing. The fixed
+54-probe edit and camera priority work remained density-independent: CPU scheduling took
+0.16–0.24 ms, and the two GPU priority dispatches together took about 0.92–1.77 ms.
+
+`target/environment-probes-density-32.png`, `target/environment-probes-density-16.png`, and
+`target/environment-probes-density-8.png` all pass the roof, side-wall, portal-halo, dark-gradient,
+and matching-open-bay review. Dynamic particles and vegetation differ because denser runs reach
+readiness later, so the density decision uses static terrain crops rather than full-frame SSIM. The
+roofed-interior mean luma was 66.683, 65.847, and 65.795 at 32, 16, and 8 voxels respectively; the
+32-to-8 difference is 0.888 on an 8-bit scale. The roofed back-wall difference was 0.757.
+
+The selected production default remains 32 voxels. Compared with 8 voxels, it uses about one
+fifty-fifth of the memory and converges about fifty-five times faster without a material acceptance
+image benefit from the denser field. Sixteen voxels remains a quality/debug option. Eight voxels is
+a stress option. Sixty-four voxels remains supported as a coarse resource/debug option but is not
+acceptance-qualified as the production density.
+
+At the selected 32-voxel density, a matched visualization-enabled run measured
+`graphics.environment_probes` at 8.24 us average across 21 steady samples. Whole-frame averages were
+6,505.38/4,146.95 us for `frame.render`/`tracer.render` with visualization and
+6,561.87/4,233.77 us without it; that reversed whole-frame delta is measurement noise rather than a
+speedup. Disabled mode submits no marker draw.
+
+The density runs used:
+
+```bash
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 32 \
+  --screenshot player-default target/environment-probes-density-32.png \
+  --screenshot-delay 2 --auto-exit 10 --perf
+
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --screenshot player-default target/environment-probes-density-16.png \
+  --screenshot-delay 2 --auto-exit 14 --perf
+
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 8 \
+  --screenshot player-default target/environment-probes-density-8.png \
+  --screenshot-delay 2 --auto-exit 68 --perf
+```
+
+### Completion Audit
+
+The terrain tracer now writes deterministic SH-lit RGBE directly to `compute_output_tex`, and the
+composition pass immediately unpacks that value as terrain color. `ComputePipelines` has no main
+radiance temporal or A-Trous pipeline, and tracer resources contain no main RGB history or spatial
+ping-pong textures. The retained `--denoiser-bench` name is a compatibility name for raw
+frame-stability capture, not a normal rendering pass.
+
+Terrain, full-resolution and LOD flora, full-resolution and LOD leaves, dynamic fruit, sprinklers,
+and particle vertices all reach the same `sampleEnvironmentIrradiance(world_position, normal)`
+contract through `applyStylizedVoxelLighting`. Grass and rapidly moving leaves therefore receive
+position-dependent environment light while remaining in the raster pipeline and outside probe
+occlusion tracing.
+
+The temporal systems that remain are direct-effect histories, not a screen-space RGB denoiser:
+
+- VSM owns `shadow_map_tex_for_vsm_prev` and `shadow_map_history_valid`;
+- leaf opacity owns `leaf_shadow_opacity_prev_tex` and `leaf_shadow_history_valid`;
+- cloud color owns `cloud_history_tex` and `cloud_history_valid`;
+- cloud shadow owns `cloud_shadow_history_tex` and `cloud_shadow_history_valid`.
+
+Each has its own pass, texture, validity flag, copy, and reset path. Probe updates do not read or
+write any of these histories.
+
+The 32-voxel local field is not faster than the uniform global-SH bridge: the earlier matched bridge
+averaged 5,325.48/2,977.22 us for `frame.render`/`tracer.render`, so local visibility currently adds
+about 1.24/1.26 ms. It remains substantially below the historical stochastic-second-ray plus main
+denoiser baseline, whose medians were 13,465/10,721 us; the current 32-voxel medians are
+6,146/4,339 us. The historical comparison spans an evolved scene and should be treated as
+architectural context, while the three density rows above are the matched production decision.
+
+### Known Limitations
+
+- The field represents single-bounce authored environment visibility. It does not provide terrain
+  color bleeding, emissive bounce lighting, direct local lights, or their shadows.
+- Animated flora and leaves consume the field but are intentionally not probe occluders. Their
+  direct leaf-shadow temporal filter remains separate and can still need responsiveness tuning for
+  fast motion.
+- Terrain edits use a conservative full-volume refresh after two small priority regions. This is
+  correct but makes 16- and especially 8-voxel convergence too slow for the default.
+- Relocation-failed probes remain invalid. Leak-resistant weighting and nearest-valid fallback keep
+  them from contributing, but narrow geometry below the 32-voxel sampling scale can still justify a
+  temporary 16-voxel quality run.
+- Aggregate state counts update after full convergence; the debug panel shows conservative
+  all-dirty progress while a refresh is in flight rather than performing a per-frame volume
+  readback.
+- Probe spacing changes rebuild the complete finite volume explicitly. Runtime paging,
+  camera-relative scrolling, dependency-exact invalidation, local direct lights, and ReSTIR DI
+  remain future work.
+
+### Final Validation
+
+The completed branch passed:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --auto-exit 0.5
+cargo run --release -- --latest-log
+```
+
+The final test run passed 271 main-binary tests with one ignored release microbenchmark and all four
+collision-benchmark tests. The final hidden release run used the selected 32-voxel default,
+converged all 4,913 records to an exact aggregate count of 817 inactive, 3,148 valid, and 948
+relocation-failed probes, exited successfully, and contained no error, panic, or Vulkan validation
+message. Its log is
+`target/re-flora-logs/re-flora-20260729-181631.771-65270.log`. The only build warning remains the
+pre-existing unused `fs` import in `src/bin/collision_bench_rapier.rs`.

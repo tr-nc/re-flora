@@ -59,7 +59,8 @@ its deterministic gallery camera. Screenshot capture waits for the initial field
 revision, skylight opening refresh, roof restoration, and final probe convergence, even when the
 requested screenshot delay has already elapsed. HUD and debug panels are suppressed while this
 scenario is producing a screenshot or denoiser-benchmark capture; visible interactive runs retain
-the normal UI.
+the normal UI. Omitting `--environment-probe-spacing-voxels` uses the selected 32-voxel production
+default.
 
 A successful run contains these log milestones:
 
@@ -82,11 +83,8 @@ The two logged sample locations identify the matching plinths:
 - roofed sample: `(0.648, 0.438, 1.180)`;
 - open sample: `(1.344, 0.438, 1.180)`.
 
-With the current global SH implementation, the roofed chamber intentionally exposes the limitation
-that environment irradiance has no local visibility. It may therefore remain brighter and flatter
-than physically expected. This is useful baseline evidence, not a failure of the scenario.
-
-When local probes are added, review the same scene for:
+The former global-only SH path intentionally left the roofed chamber brighter and flatter because
+it had no position-dependent visibility. The current local-probe path should instead satisfy:
 
 - a stable darkening gradient from the portal toward the roofed back wall;
 - a darker roofed plinth than the matching open-sky plinth;
