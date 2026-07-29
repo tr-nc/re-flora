@@ -113,6 +113,8 @@ public struct U_ShadingInfo
     public float4 environment_irradiance_sh_7;
     public float4 environment_irradiance_sh_8;
     public uint environment_revision;
+    public uint3 environment_probe_grid_dimensions;
+    public float3 environment_probe_world_to_grid_scale;
 };
 
 public struct U_CameraInfo

@@ -473,6 +473,8 @@ pub struct Tracer {
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
     environment_probes: EnvironmentProbeVolume,
+    environment_probe_environment_revision: u32,
+    environment_probe_seeded_revision: u32,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -635,6 +637,7 @@ impl Tracer {
             contree_builder_resources,
             scene_accel_resources,
             plain_builder_resources,
+            &environment_probes,
         );
         let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
@@ -729,6 +732,8 @@ impl Tracer {
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
             environment_probes,
+            environment_probe_environment_revision: 0,
+            environment_probe_seeded_revision: 0,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -764,7 +769,11 @@ impl Tracer {
         )?;
         self.vulkan_ctx.device().wait_idle();
         self.environment_probes = replacement;
+        self.environment_probe_seeded_revision = 0;
         let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.environment_probes];
+        self.compute_pipelines
+            .environment_probe_global_copy_ppl
+            .auto_update_descriptor_sets(&resources)?;
         self.graphics_pipelines
             .environment_probe_visualization_depth_ppl
             .auto_update_descriptor_sets(&resources)?;
@@ -998,6 +1007,10 @@ impl Tracer {
         );
         let environment_probe_resources: [&dyn ResourceContainer; 2] =
             [&self.resources, &self.environment_probes];
+        update_compute_fn(
+            &self.compute_pipelines.environment_probe_global_copy_ppl,
+            &environment_probe_resources,
+        );
         update_graphics_fn(
             &self
                 .graphics_pipelines
@@ -1298,7 +1311,13 @@ impl Tracer {
         )?;
 
         let environment_lighting = self.environment_lighting.update(sun_dir);
-        BufferUpdater::update_shading_info(&self.resources, environment_lighting)?;
+        BufferUpdater::update_shading_info(
+            &self.resources,
+            environment_lighting,
+            self.environment_probes.status().grid,
+            self.desc.voxel_dim_per_chunk,
+        )?;
+        self.environment_probe_environment_revision = environment_lighting.revision;
 
         BufferUpdater::update_starlight_info(
             &self.resources,
@@ -1499,6 +1518,33 @@ impl Tracer {
             "clear.targets",
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
+
+        if self.environment_probe_environment_revision != self.environment_probe_seeded_revision {
+            let previous_revision = self.environment_probe_seeded_revision;
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "environment_probes.global_copy",
+                || self.record_environment_probe_global_copy_pass(cmdbuf),
+            );
+            let probe_write_barrier = PipelineBarrier::shader_access(
+                PipelineStage::COMPUTE_SHADER,
+                PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
+            );
+            probe_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            self.environment_probe_seeded_revision = self.environment_probe_environment_revision;
+            self.environment_probes.mark_all_valid_global_copy();
+            if previous_revision == 0 {
+                let status = self.environment_probes.status();
+                log::info!(
+                    "[ENV_PROBES] seeded global SH revision={} probes={} valid={}",
+                    self.environment_probe_seeded_revision,
+                    status.grid.probe_count(),
+                    status.valid_probe_count,
+                );
+            }
+        }
 
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
@@ -2919,6 +2965,16 @@ impl Tracer {
                 .extent,
             None,
         );
+    }
+
+    fn record_environment_probe_global_copy_pass(&self, cmdbuf: &CommandBuffer) {
+        self.compute_pipelines
+            .environment_probe_global_copy_ppl
+            .record(
+                cmdbuf,
+                Extent3D::new(self.environment_probes.status().grid.probe_count(), 1, 1),
+                None,
+            );
     }
 
     fn record_shadow_depth_copy_pass(&self, cmdbuf: &CommandBuffer) {

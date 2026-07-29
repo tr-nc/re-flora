@@ -1,4 +1,5 @@
 use crate::environment_lighting::EnvironmentIrradiance;
+use crate::environment_probes::EnvironmentProbeGrid;
 use crate::flora::species::{species, MAX_FLORA_SPECIES};
 use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
@@ -45,8 +46,13 @@ impl BufferUpdater {
     pub fn update_shading_info(
         resources: &TracerResources,
         environment: EnvironmentIrradiance,
+        environment_probe_grid: EnvironmentProbeGrid,
+        voxels_per_world_unit: glam::UVec3,
     ) -> Result<()> {
         let coefficient = |index: usize| environment.coefficients[index].extend(0.0).to_array();
+        let probe_dimensions = environment_probe_grid.dimensions();
+        let probe_world_to_grid_scale =
+            voxels_per_world_unit.as_vec3() / environment_probe_grid.spacing_voxels() as f32;
         resources.uniforms.shading_info.fill_uniform(&ShadingInfo {
             environment_irradiance_sh_0: coefficient(0),
             environment_irradiance_sh_1: coefficient(1),
@@ -58,6 +64,8 @@ impl BufferUpdater {
             environment_irradiance_sh_7: coefficient(7),
             environment_irradiance_sh_8: coefficient(8),
             environment_revision: environment.revision,
+            environment_probe_grid_dimensions: probe_dimensions.to_array(),
+            environment_probe_world_to_grid_scale: probe_world_to_grid_scale.to_array(),
             ..ShadingInfo::zeroed()
         })
     }

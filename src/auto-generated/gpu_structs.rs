@@ -612,6 +612,10 @@ pub struct ShadingInfo {
     pub environment_irradiance_sh_8: [f32; 4],
     pub environment_revision: u32,
     pub _pad0: [u8; 12],
+    pub environment_probe_grid_dimensions: [u32; 3],
+    pub _pad1: [u8; 4],
+    pub environment_probe_world_to_grid_scale: [f32; 3],
+    pub _pad2: [u8; 4],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

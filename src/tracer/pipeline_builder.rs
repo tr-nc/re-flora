@@ -19,6 +19,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let environment_probe_global_copy_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/environment_probe_global_copy.comp",
+            "main",
+        )
+        .unwrap();
 
         let tracer_shadow_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -284,6 +290,7 @@ impl PipelineBuilder {
 
         Ok(ShaderModules {
             tracer_sm,
+            environment_probe_global_copy_sm,
             tracer_shadow_sm,
             shadow_depth_copy_sm,
             leaf_shadow_temporal_sm,
@@ -334,9 +341,16 @@ impl PipelineBuilder {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
+        environment_probes: &EnvironmentProbeVolume,
     ) -> ComputePipelines {
         let device = vulkan_ctx.device();
 
+        let environment_probe_global_copy_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.environment_probe_global_copy_sm,
+            pool,
+            &[resources, environment_probes],
+        );
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,
@@ -442,6 +456,7 @@ impl PipelineBuilder {
         );
 
         ComputePipelines {
+            environment_probe_global_copy_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
@@ -819,6 +834,7 @@ impl PipelineBuilder {
 
 pub struct ShaderModules {
     pub tracer_sm: ShaderModule,
+    pub environment_probe_global_copy_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
     pub shadow_depth_copy_sm: ShaderModule,
     pub leaf_shadow_temporal_sm: ShaderModule,
@@ -861,6 +877,7 @@ pub struct ShaderModules {
 }
 
 pub struct ComputePipelines {
+    pub environment_probe_global_copy_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,

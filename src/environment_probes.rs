@@ -516,6 +516,10 @@ impl EnvironmentProbeVolume {
             resource_bytes: self.resource_bytes,
         }
     }
+
+    pub fn mark_all_valid_global_copy(&mut self) {
+        self.valid_probe_count = self.grid.probe_count();
+    }
 }
 
 #[cfg(test)]
