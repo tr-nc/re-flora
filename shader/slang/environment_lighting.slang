@@ -29,7 +29,6 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
                                            float3 surfaceNormal)
 {
     // Reserved for spatial probe lookup without changing material call sites.
-    (void)worldPosition;
 
     float normalLengthSquared = dot(surfaceNormal, surfaceNormal);
     float3 normal = normalLengthSquared > 1.0e-8

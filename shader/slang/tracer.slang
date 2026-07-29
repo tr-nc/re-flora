@@ -222,11 +222,16 @@ void getPixelColor(out float3 color, out float depth, out float3 primaryNormal,
     float3 albedo;
     float3 nextPosition;
     parseTraceResult(albedo, nextPosition, result);
-    color = shading_info.ambient_light * albedo;
-    color += directLighting(albedo, result.normal, result.center_position, seed);
     if (gui_input.debug_bool != 0u)
-        color += indirectLighting(albedo, result.normal, nextPosition, seed,
-                                  localInvocationIndex);
+    {
+        color = shading_info.ambient_light * albedo +
+            indirectLighting(albedo, result.normal, nextPosition, seed,
+                             localInvocationIndex);
+    }
+    else
+        color = sampleEnvironmentIrradiance(
+            shading_info, result.center_position, result.normal) * albedo;
+    color += directLighting(albedo, result.normal, result.center_position, seed);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
                                         result.center_position);
 }

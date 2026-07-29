@@ -210,6 +210,18 @@ Implemented on 2026-07-29 with the following contract:
 - If global SH makes enclosed or downward-facing regions implausibly bright, evaluate a cheap
   environment-visibility or bent-normal term before introducing full probes.
 
+The terrain integration uses the existing development `debug_bool` as a temporary A/B switch:
+`true` retains fixed ambient plus the stochastic second ray, while `false` evaluates SH irradiance at
+the primary hit and skips the second ray. Direct sun and all terrain/leaf/cloud transmittance remain
+identical in both paths.
+
+Hidden fixed-camera day, sunset, and night captures completed successfully. Relative to the old
+second-ray captures, full-frame RGB means changed from `0.4054` to `0.4219` by day, `0.4548` to
+`0.4803` at sunset, and `0.2414` to `0.2190` at night. The larger color difference is intentional:
+terrain now receives directional sky hue instead of neutral fixed ambient. The open-scene capture
+does not justify adding a visibility approximation yet; cavity and under-canopy behavior remains an
+acceptance item before retiring the comparison path.
+
 ### Phase 4: Integrate SH into raster lighting
 
 - Route the same environment resource through flora, leaves, fruit, particles, sprinkler, and other
@@ -353,7 +365,7 @@ Acceptance should check both consistency and intent:
 - [x] Define the SH coefficient convention and shared shader evaluator.
 - [x] Select and validate the SH coefficient-generation method.
 - [x] Add the global environment irradiance resource and revision tracking.
-- [ ] Integrate SH into the terrain tracer behind a temporary comparison path.
+- [x] Integrate SH into the terrain tracer behind a temporary comparison path.
 - [ ] Integrate SH into all relevant raster flora/leaf/prop lighting paths.
 - [ ] Validate terrain/raster lighting consistency across time of day and motion.
 - [ ] Decide whether global SH needs a cheap environment-visibility term.
