@@ -97,6 +97,8 @@ def run_benchmark(args: argparse.Namespace) -> int:
         "--denoiser-bench-frames",
         str(args.frames),
     ]
+    if args.camera_motion:
+        command.append("--denoiser-bench-camera-motion")
     print("Running:", " ".join(command), flush=True)
     subprocess.run(command, cwd=REPO_ROOT, check=True)
     print_report(report)
@@ -139,6 +141,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--preset", default="player-default")
     run_parser.add_argument("--warmup-frames", type=int, default=90)
     run_parser.add_argument("--frames", type=int, default=64)
+    run_parser.add_argument(
+        "--camera-motion",
+        action="store_true",
+        help="apply deterministic camera motion and retain up to four review keyframes",
+    )
     run_parser.set_defaults(func=run_benchmark)
 
     compare_parser = subparsers.add_parser("compare", help="compare two TOML reports")

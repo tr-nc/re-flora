@@ -167,6 +167,7 @@ pub struct DenoiserBenchOptions {
     pub report_path: String,
     pub warmup_frames: u32,
     pub capture_frames: u32,
+    pub camera_motion: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -332,10 +333,11 @@ fn parse_denoiser_bench_request(
     parse_u32_after: &impl Fn(&str) -> Option<u32>,
 ) -> Result<Option<(String, DenoiserBenchOptions)>, String> {
     let Some(index) = args.iter().position(|arg| arg == "--denoiser-bench") else {
-        if args
-            .iter()
-            .any(|arg| arg == "--denoiser-bench-warmup-frames" || arg == "--denoiser-bench-frames")
-        {
+        if args.iter().any(|arg| {
+            arg == "--denoiser-bench-warmup-frames"
+                || arg == "--denoiser-bench-frames"
+                || arg == "--denoiser-bench-camera-motion"
+        }) {
             return Err(format!(
                 "Denoiser benchmark frame options require --denoiser-bench. {DENOISER_BENCH_USAGE}"
             ));
@@ -359,6 +361,9 @@ fn parse_denoiser_bench_request(
             report_path,
             warmup_frames,
             capture_frames,
+            camera_motion: args
+                .iter()
+                .any(|arg| arg == "--denoiser-bench-camera-motion"),
         },
     )))
 }
@@ -519,10 +524,12 @@ Options:
                               Save one screenshot from exactly one camera snapshot preset
   --screenshot-delay <sec>    Required delay before screenshot capture when --screenshot is used
   --denoiser-bench <preset> <report.toml>
-                              Capture a fixed-camera frame sequence and write temporal metrics
+                              Capture a frame sequence and write temporal metrics
   --denoiser-bench-warmup-frames <N>
                               Frames discarded before capture (default: 90)
   --denoiser-bench-frames <N> Captured frames, at least 2 (default: 64)
+  --denoiser-bench-camera-motion
+                              Apply deterministic camera motion and retain up to four review keyframes
   --camera-snapshot <name>    Apply a saved camera snapshot at startup (do not combine with --screenshot)
   --list-camera-snapshots     Print available camera snapshot names and exit
   --auto-exit <sec>           Exit automatically after rendering starts
@@ -807,6 +814,7 @@ mod tests {
             "12",
             "--denoiser-bench-frames",
             "8",
+            "--denoiser-bench-camera-motion",
         ]);
 
         assert_eq!(options.camera_snapshot.as_deref(), Some("player-default"));
@@ -814,6 +822,15 @@ mod tests {
         assert_eq!(benchmark.report_path, "target/report.toml");
         assert_eq!(benchmark.warmup_frames, 12);
         assert_eq!(benchmark.capture_frames, 8);
+        assert!(benchmark.camera_motion);
+    }
+
+    #[test]
+    fn denoiser_benchmark_camera_motion_requires_benchmark() {
+        let panic =
+            std::panic::catch_unwind(|| parse(&["re-flora", "--denoiser-bench-camera-motion"]))
+                .expect_err("camera motion without a benchmark should panic");
+        assert!(panic_message(panic).contains("require --denoiser-bench"));
     }
 
     #[test]

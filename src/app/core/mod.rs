@@ -24,7 +24,10 @@ mod water;
 
 use self::authored_flora_bench::AuthoredFloraBench;
 use self::camera_snapshot_ui::draw_camera_snapshots_ui;
-use self::denoiser_bench::DenoiserBench;
+use self::denoiser_bench::{
+    DenoiserBench, CAMERA_FORWARD_PER_FRAME_WORLD, CAMERA_STRAFE_PER_FRAME_WORLD,
+    CAMERA_YAW_PER_FRAME_RADIANS,
+};
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
@@ -1686,6 +1689,45 @@ impl App {
         environment::calculate_sun_position(time_of_day, latitude, season)
     }
 
+    fn apply_denoiser_benchmark_camera_motion(&mut self) {
+        let Some((capture_frame, is_last_frame)) = self
+            .denoiser_bench
+            .as_ref()
+            .and_then(DenoiserBench::camera_motion_frame)
+        else {
+            return;
+        };
+
+        let position = self.tracer.camera_position();
+        let front = self.tracer.camera_front().normalize_or_zero();
+        let mut right = front.cross(Vec3::Y).normalize_or_zero();
+        if right.length_squared() <= f32::EPSILON {
+            right = Vec3::X;
+        }
+        let translation =
+            right * CAMERA_STRAFE_PER_FRAME_WORLD + front * CAMERA_FORWARD_PER_FRAME_WORLD;
+        let (sin_yaw, cos_yaw) = CAMERA_YAW_PER_FRAME_RADIANS.sin_cos();
+        let rotated_front = Vec3::new(
+            cos_yaw * front.x + sin_yaw * front.z,
+            front.y,
+            -sin_yaw * front.x + cos_yaw * front.z,
+        )
+        .normalize_or_zero();
+        let new_position = position + translation;
+        self.tracer
+            .set_camera_pose_looking_at(new_position, new_position + rotated_front);
+
+        if capture_frame == 0 || is_last_frame {
+            log::info!(
+                "[DENOISER_BENCH] camera motion frame={} position=({:.4},{:.4},{:.4})",
+                capture_frame,
+                new_position.x,
+                new_position.y,
+                new_position.z,
+            );
+        }
+    }
+
     fn frame_rate_adjusted_vsm_temporal_alpha(alpha_60fps: f32, delta_seconds: f32) -> f32 {
         let alpha_60fps = alpha_60fps.clamp(0.0, 1.0);
         if alpha_60fps <= 0.0 || alpha_60fps >= 1.0 {
@@ -2832,6 +2874,8 @@ impl App {
                         self.update_particle_simulation(frame_delta_time);
                     });
                 }
+
+                self.apply_denoiser_benchmark_camera_motion();
 
                 let gpu_record_start = Instant::now();
                 let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
