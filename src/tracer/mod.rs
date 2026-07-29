@@ -61,6 +61,7 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::environment_lighting::EnvironmentLightingCache;
+use crate::environment_probes::{EnvironmentProbeVolume, EnvironmentProbeVolumeStatus};
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
 };
@@ -381,9 +382,12 @@ struct TreeRenderInstanceData {
     leaf_local_pos: IVec3,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct TracerDesc {
     pub scaling_factor: f32,
     pub default_camera_look_at: Vec3,
+    pub voxel_dim_per_chunk: UVec3,
+    pub environment_probe_spacing_voxels: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -463,6 +467,7 @@ pub struct Tracer {
     cloud_history_valid: bool,
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
+    environment_probes: EnvironmentProbeVolume,
 
     compute_pipelines: ComputePipelines,
     graphics_pipelines: GraphicsPipelines,
@@ -604,6 +609,13 @@ impl Tracer {
             GeometryPreviewRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let dynamic_fruit_resources =
             DynamicFruitRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
+        let environment_probes = EnvironmentProbeVolume::new(
+            vulkan_ctx.device().clone(),
+            allocator.clone(),
+            chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
+            desc.voxel_dim_per_chunk,
+            desc.environment_probe_spacing_voxels,
+        )?;
 
         let compute_pipelines = PipelineBuilder::create_compute_pipelines(
             &vulkan_ctx,
@@ -704,6 +716,7 @@ impl Tracer {
             cloud_history_valid: false,
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
+            environment_probes,
             compute_pipelines,
             graphics_pipelines,
             render_target_color_and_depth,
@@ -719,6 +732,23 @@ impl Tracer {
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
             translucent_particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
+    }
+
+    pub fn environment_probe_status(&self) -> EnvironmentProbeVolumeStatus {
+        self.environment_probes.status()
+    }
+
+    pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) -> Result<()> {
+        let replacement = EnvironmentProbeVolume::new(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
+            self.desc.voxel_dim_per_chunk,
+            spacing_voxels,
+        )?;
+        self.vulkan_ctx.device().wait_idle();
+        self.environment_probes = replacement;
+        Ok(())
     }
 
     /// A framebuffer that contains the color and depth textures for the main render pass

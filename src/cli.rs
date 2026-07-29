@@ -1,5 +1,10 @@
 use re_flora_vkn::PresentMode;
 
+use crate::environment_probes::{
+    supported_environment_probe_spacings_label, validate_environment_probe_spacing,
+    DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS,
+};
+
 pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
     "Run `re-flora --list-camera-snapshots` to list available camera snapshots.";
 
@@ -144,6 +149,8 @@ pub struct AppOptions {
     pub water_edit_soak: bool,
     /// Build a deterministic terrain gallery for environment-lighting and probe validation.
     pub environment_lighting_test_scene: bool,
+    /// Environment probe grid spacing in terrain voxels.
+    pub environment_probe_spacing_voxels: u32,
     /// Run the lightweight tree replacement benchmark and exit after completion.
     pub tree_bench: bool,
     /// Number of tree benchmark samples.
@@ -240,6 +247,21 @@ impl AppOptions {
                 Some(value) => parse_monitor_score_preference(&value)?,
                 None => MonitorScorePreference::Highest,
             };
+        let environment_probe_spacing_voxels = match parse_required_string_after(
+            "--environment-probe-spacing-voxels",
+            "one of: 64, 32, 16, 8",
+        )? {
+            Some(value) => {
+                let parsed = value.parse::<u32>().map_err(|_| {
+                    format!(
+                        "Invalid --environment-probe-spacing-voxels '{value}'. Supported values: {}",
+                        supported_environment_probe_spacings_label()
+                    )
+                })?;
+                validate_environment_probe_spacing(parsed)?
+            }
+            None => DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS,
+        };
 
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
@@ -319,6 +341,7 @@ impl AppOptions {
             environment_lighting_test_scene: args
                 .iter()
                 .any(|a| a == "--environment-lighting-test-scene"),
+            environment_probe_spacing_voxels,
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
             tree_bench_rapid: args.iter().any(|a| a == "--tree-bench-rapid"),
@@ -556,6 +579,8 @@ Options:
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --environment-lighting-test-scene
                               Build the deterministic open/roofed terrain gallery for probe validation
+  --environment-probe-spacing-voxels <N>
+                              Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --tree-bench-rapid          Do not wait for deferred rebuilds between samples
@@ -648,6 +673,10 @@ mod tests {
         assert!(options.camera_snapshot.is_none());
         assert!(!options.list_camera_snapshots);
         assert!(!options.environment_lighting_test_scene);
+        assert_eq!(
+            options.environment_probe_spacing_voxels,
+            DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS
+        );
         assert_eq!(options.tree_bench_samples, 10);
         assert!(!options.authored_flora_bench);
         assert_eq!(options.authored_flora_bench_samples, 25);
@@ -672,6 +701,27 @@ mod tests {
         let options = parse(&["re-flora", "--environment-lighting-test-scene"]);
 
         assert!(options.environment_lighting_test_scene);
+    }
+
+    #[test]
+    fn parses_environment_probe_spacing() {
+        let options = parse(&["re-flora", "--environment-probe-spacing-voxels", "16"]);
+
+        assert_eq!(options.environment_probe_spacing_voxels, 16);
+    }
+
+    #[test]
+    fn rejects_unsupported_environment_probe_spacing() {
+        let result = AppOptions::try_from_arg_strings(
+            ["re-flora", "--environment-probe-spacing-voxels", "24"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        );
+
+        assert!(result
+            .unwrap_err()
+            .contains("Supported values: 64, 32, 16, 8"));
     }
 
     #[test]

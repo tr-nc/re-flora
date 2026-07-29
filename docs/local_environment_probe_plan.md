@@ -377,9 +377,9 @@ visibility, local-light lists for raster vegetation, or an explicit foliage-shad
 Each implementation phase should remain a small, independently validated commit before the next
 phase begins.
 
-- [ ] Define probe spacing, grid transforms, state, and resource accounting.
-- [ ] Add CLI density control and explicit runtime rebuild control.
-- [ ] Add deterministic grid and interpolation-coordinate tests.
+- [x] Define probe spacing, grid transforms, state, and resource accounting.
+- [x] Add CLI density control and explicit runtime rebuild control.
+- [x] Add deterministic grid and interpolation-coordinate tests.
 - [ ] Visualize all probes with low-cost instanced markers.
 - [ ] Add visualization modes, filters, and separate GPU timing.
 - [ ] Add selected-probe picking and detailed information.
@@ -395,3 +395,23 @@ phase begins.
 - [ ] Confirm VSM, leaf-shadow, cloud, and cloud-shadow histories remain independent.
 - [ ] Run formatting, checks, tests, hidden muted release validation, and log inspection.
 - [ ] Document final resource layout, update cost, visualization cost, and known limitations.
+
+### Phase 1 Evidence
+
+The initial resource layout uses one 144-byte RGB L2 SH record and one 64-byte state/summary record
+per probe. At 16-voxel spacing, the hidden release run allocated a `33 x 33 x 33` grid with 35,937
+probes: 5,174,928 coefficient bytes plus 2,299,968 summary bytes, or 7.13 MiB total. Probes remain
+inactive in this phase, so the valid count is intentionally zero until placement/global-copy work.
+
+The CLI accepts only 64, 32, 16, or 8 voxels. The non-persisted debug control previews the selected
+grid, probe count, and allocation, then replaces resources only after **Apply / Rebuild**. The
+validated phase used:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute \
+  --environment-probe-spacing-voxels 16 --auto-exit 0.5
+cargo run --release -- --hidden --tail-latest-log 200
+```

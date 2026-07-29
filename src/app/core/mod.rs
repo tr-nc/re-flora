@@ -51,6 +51,10 @@ use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
+use crate::environment_probes::{
+    EnvironmentProbeGrid, EnvironmentProbeResourceBytes,
+    SUPPORTED_ENVIRONMENT_PROBE_SPACINGS_VOXELS,
+};
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
 use crate::particles::{
@@ -174,6 +178,7 @@ pub struct App {
     debug_tree_pos: Vec3,
     tree_placement_preview_desc: TreeDesc,
     config_panel_visible: bool,
+    environment_probe_spacing_draft: u32,
     camera_snapshots: CameraSnapshotLibrary,
     camera_snapshot_draft_name: String,
     camera_snapshot_draft_description: String,
@@ -1016,6 +1021,8 @@ impl App {
             TracerDesc {
                 scaling_factor: 0.5,
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
+                voxel_dim_per_chunk: VOXEL_DIM_PER_CHUNK,
+                environment_probe_spacing_voxels: options.environment_probe_spacing_voxels,
             },
             spatial_sound_manager.clone(),
         )?;
@@ -1232,6 +1239,7 @@ impl App {
             prev_bound: Default::default(),
             tree_records: HashMap::new(),
             config_panel_visible: false,
+            environment_probe_spacing_draft: options.environment_probe_spacing_voxels,
             camera_snapshots,
             camera_snapshot_draft_name,
             camera_snapshot_draft_description: String::new(),
@@ -2193,6 +2201,15 @@ impl App {
                 let collision_probe_status = self.terrain_physics.collision_probe_status();
                 let mut drop_collision_probe_requested = false;
                 let mut clear_collision_probe_requested = false;
+                let environment_probe_status = self.tracer.environment_probe_status();
+                let environment_probe_draft_grid = EnvironmentProbeGrid::new(
+                    CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
+                    self.environment_probe_spacing_draft,
+                )
+                .expect("environment probe UI only exposes supported spacings");
+                let environment_probe_draft_bytes =
+                    EnvironmentProbeResourceBytes::for_grid(environment_probe_draft_grid);
+                let mut environment_probe_rebuild_requested = false;
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_hover = self.terrain_edit_hover();
@@ -2364,6 +2381,67 @@ impl App {
                                         )
                                         .show(ui, |ui| {
                                             tree_desc_changed |= self.debug_settings.draw(ui);
+
+                                            ui.add_space(8.0);
+                                            ui.separator();
+                                            ui.add_space(8.0);
+                                            ui.heading(
+                                                RichText::new("Environment Probes")
+                                                    .size(16.0)
+                                                    .color(GOLD_ACCENT),
+                                            );
+                                            egui::ComboBox::from_label("Spacing (voxels)")
+                                                .selected_text(
+                                                    self.environment_probe_spacing_draft.to_string(),
+                                                )
+                                                .show_ui(ui, |ui| {
+                                                    for spacing in
+                                                        SUPPORTED_ENVIRONMENT_PROBE_SPACINGS_VOXELS
+                                                    {
+                                                        ui.selectable_value(
+                                                            &mut self
+                                                                .environment_probe_spacing_draft,
+                                                            spacing,
+                                                            spacing.to_string(),
+                                                        );
+                                                    }
+                                                });
+                                            let grid = environment_probe_status.grid;
+                                            let bytes =
+                                                environment_probe_status.resource_bytes;
+                                            ui.monospace(format!(
+                                                "Current {} vox · {} x {} x {} · {} probes · {} valid",
+                                                grid.spacing_voxels(),
+                                                grid.dimensions().x,
+                                                grid.dimensions().y,
+                                                grid.dimensions().z,
+                                                grid.probe_count(),
+                                                environment_probe_status.valid_probe_count,
+                                            ));
+                                            ui.monospace(format!(
+                                                "GPU {:.2} MiB (SH {:.2} + state {:.2})",
+                                                bytes.total() as f64 / (1024.0 * 1024.0),
+                                                bytes.coefficients as f64 / (1024.0 * 1024.0),
+                                                bytes.summaries as f64 / (1024.0 * 1024.0),
+                                            ));
+                                            if environment_probe_draft_grid != grid {
+                                                ui.monospace(format!(
+                                                    "Selected {} x {} x {} · {} probes · {:.2} MiB",
+                                                    environment_probe_draft_grid.dimensions().x,
+                                                    environment_probe_draft_grid.dimensions().y,
+                                                    environment_probe_draft_grid.dimensions().z,
+                                                    environment_probe_draft_grid.probe_count(),
+                                                    environment_probe_draft_bytes.total() as f64
+                                                        / (1024.0 * 1024.0),
+                                                ));
+                                            }
+                                            environment_probe_rebuild_requested = ui
+                                                .add_enabled(
+                                                    self.environment_probe_spacing_draft
+                                                        != grid.spacing_voxels(),
+                                                    egui::Button::new("Apply / Rebuild"),
+                                                )
+                                                .clicked();
 
                                             ui.add_space(8.0);
                                             ui.separator();
@@ -2746,6 +2824,14 @@ impl App {
                 if drop_collision_probe_requested {
                     if let Err(err) = self.terrain_physics.drop_collision_probe(&mut self.tracer) {
                         log::error!("Failed to drop collision probe: {err:#}");
+                    }
+                }
+                if environment_probe_rebuild_requested {
+                    if let Err(err) = self
+                        .tracer
+                        .rebuild_environment_probes(self.environment_probe_spacing_draft)
+                    {
+                        log::error!("Failed to rebuild environment probes: {err:#}");
                     }
                 }
                 self.sync_cursor_with_panels();

@@ -6,6 +6,7 @@ mod builder;
 mod cli;
 mod egui_renderer;
 mod environment_lighting;
+mod environment_probes;
 mod flora;
 mod game_time;
 mod gameplay;
