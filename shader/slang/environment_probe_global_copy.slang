@@ -23,6 +23,8 @@ struct B_EnvironmentProbeCoefficients
     EnvironmentProbeCoefficients data[];
 };
 
+static const uint PROBE_PACKED_AXIAL_MISS_DISTANCES = 0x3fffffffu;
+
 [[vk::binding(2, 0)]]
 ConstantBuffer<U_ShadingInfo> shading_info;
 
@@ -66,12 +68,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         summary.revisions_state =
             uint4(0u, shading_info.environment_revision, 3u, probeIndex);
         summary.update_info =
-            uint4(shading_info.environment_revision, 0u, 0u, 0u);
+            uint4(PROBE_PACKED_AXIAL_MISS_DISTANCES,
+                  PROBE_PACKED_AXIAL_MISS_DISTANCES, 0u, 0u);
     }
     else
     {
         summary.revisions_state.y = shading_info.environment_revision;
-        summary.update_info.x = shading_info.environment_revision;
     }
     environment_probe_summaries.data[probeIndex] = summary;
 }

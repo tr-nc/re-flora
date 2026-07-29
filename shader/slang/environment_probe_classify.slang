@@ -28,6 +28,7 @@ GLSLShaderStorageBuffer<B_EnvironmentProbeSummaries, Std430DataLayout>
 static const uint PROBE_STATE_INACTIVE = 0u;
 static const uint PROBE_STATE_DIRTY = 4u;
 static const uint PROBE_STATE_RELOCATION_FAILED = 6u;
+static const uint PROBE_PACKED_AXIAL_MISS_DISTANCES = 0x3fffffffu;
 
 static const int3 RELOCATION_DIRECTIONS[6] =
 {
@@ -116,7 +117,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         uint4(0u, shading_info.environment_revision,
               PROBE_STATE_INACTIVE, probeIndex);
     summary.update_info =
-        uint4(shading_info.environment_revision, 0u, 1u, 0u);
+        uint4(PROBE_PACKED_AXIAL_MISS_DISTANCES,
+              PROBE_PACKED_AXIAL_MISS_DISTANCES, 1u, 0u);
 
     if (any(originalVoxel >= atlasDimensions))
     {

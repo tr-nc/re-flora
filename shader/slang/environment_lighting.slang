@@ -33,6 +33,9 @@ readonly GLSLShaderStorageBuffer<B_EnvironmentProbeCoefficients, Std430DataLayou
 readonly GLSLShaderStorageBuffer<B_EnvironmentProbeSummaries, Std430DataLayout>
     environment_probe_summaries;
 
+static const uint ENVIRONMENT_PROBE_AXIAL_MISS_DISTANCE = 1023u;
+static const float ENVIRONMENT_PROBE_MAX_HIT_DISTANCE_WORLD = 4.0;
+
 // Sloan real-SH ordering adapted to the project's Y-up world:
 // [Y00, Y1-1(z), Y10(y), Y11(x), Y2-2(xz), Y2-1(zy),
 //  Y20(3y^2-1), Y21(xy), Y22(x^2-z^2)].
@@ -108,6 +111,69 @@ float3 evaluateProbeEnvironmentIrradiance(uint probeIndex, float3 normal)
     return max(irradiance, float3(0.0));
 }
 
+uint environmentProbeAxialHitDistance(
+    EnvironmentProbeSummary summary,
+    uint directionIndex)
+{
+    uint packed = directionIndex < 3u
+        ? summary.update_info.x
+        : summary.update_info.y;
+    uint packedIndex = directionIndex < 3u
+        ? directionIndex
+        : directionIndex - 3u;
+    return (packed >> (packedIndex * 10u)) & 0x3ffu;
+}
+
+float environmentProbeAxialHitVisibility(
+    uint quantizedDistance,
+    float distanceToSurface,
+    float bias)
+{
+    if (quantizedDistance == ENVIRONMENT_PROBE_AXIAL_MISS_DISTANCE)
+        return 1.0;
+
+    float hitDistance =
+        float(quantizedDistance) /
+        float(ENVIRONMENT_PROBE_AXIAL_MISS_DISTANCE - 1u) *
+        ENVIRONMENT_PROBE_MAX_HIT_DISTANCE_WORLD;
+    float distancePastHit = distanceToSurface - hitDistance;
+    return 1.0 - smoothstep(bias, bias * 3.0, distancePastHit);
+}
+
+float environmentProbeSurfaceVisibility(
+    U_ShadingInfo lighting,
+    EnvironmentProbeSummary summary,
+    float3 probePosition,
+    float3 worldPosition)
+{
+    float3 probeToSurface = worldPosition - probePosition;
+    float distanceToSurface = length(probeToSurface);
+    float bias = max(lighting.environment_probe_visibility_bias_world, 1.0e-5);
+    if (distanceToSurface <= bias) return 1.0;
+
+    float3 direction = probeToSurface / distanceToSurface;
+    float3 axisWeights = abs(direction);
+    axisWeights *= axisWeights;
+    uint xDirectionIndex = direction.x >= 0.0 ? 0u : 1u;
+    uint yDirectionIndex = direction.y >= 0.0 ? 2u : 3u;
+    uint zDirectionIndex = direction.z >= 0.0 ? 4u : 5u;
+    float3 visibility = float3(
+        environmentProbeAxialHitVisibility(
+            environmentProbeAxialHitDistance(
+                summary, xDirectionIndex),
+            distanceToSurface, bias),
+        environmentProbeAxialHitVisibility(
+            environmentProbeAxialHitDistance(
+                summary, yDirectionIndex),
+            distanceToSurface, bias),
+        environmentProbeAxialHitVisibility(
+            environmentProbeAxialHitDistance(
+                summary, zDirectionIndex),
+            distanceToSurface, bias));
+    return dot(visibility, axisWeights) /
+           max(axisWeights.x + axisWeights.y + axisWeights.z, 1.0e-5);
+}
+
 public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
                                            float3 worldPosition,
                                            float3 surfaceNormal)
@@ -154,6 +220,9 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
     }
 
     float accumulatedWeight = 0.0;
+    bool hasNearestUsableProbe = false;
+    uint nearestUsableProbeIndex = 0u;
+    float nearestUsableDistanceSquared = 1.0e30;
     [unroll]
     for (uint z = 0u; z < 2u; ++z)
     {
@@ -174,7 +243,33 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
                     environment_probe_summaries.data[probeIndex];
                 if (!environmentProbeIsUsable(summary, lighting)) continue;
 
-                weight *= saturate(summary.sample_position_confidence.w);
+                float3 probePosition =
+                    summary.sample_position_confidence.xyz;
+                float3 surfaceToProbe = probePosition - worldPosition;
+                float probeDistanceSquared = dot(surfaceToProbe, surfaceToProbe);
+                if (probeDistanceSquared < nearestUsableDistanceSquared)
+                {
+                    hasNearestUsableProbe = true;
+                    nearestUsableProbeIndex = probeIndex;
+                    nearestUsableDistanceSquared = probeDistanceSquared;
+                }
+
+                float3 surfaceToProbeDirection =
+                    probeDistanceSquared > 1.0e-10
+                        ? surfaceToProbe * rsqrt(probeDistanceSquared)
+                        : normal;
+                float normalWeight = saturate(
+                    dot(normal, surfaceToProbeDirection) * 0.5 + 0.5);
+                normalWeight *= normalWeight;
+                float visibilityWeight = environmentProbeSurfaceVisibility(
+                    lighting,
+                    summary,
+                    probePosition,
+                    worldPosition);
+                weight *=
+                    saturate(summary.sample_position_confidence.w) *
+                    normalWeight *
+                    visibilityWeight;
                 EnvironmentProbeCoefficients coefficients =
                     environment_probe_coefficients.data[probeIndex];
                 [unroll]
@@ -191,7 +286,13 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
         }
     }
 
-    if (accumulatedWeight <= 1.0e-5) return globalIrradiance;
+    if (accumulatedWeight <= 1.0e-5)
+    {
+        return hasNearestUsableProbe
+            ? evaluateProbeEnvironmentIrradiance(
+                  nearestUsableProbeIndex, normal)
+            : globalIrradiance;
+    }
 
     float3 irradiance = float3(0.0);
     float inverseWeight = rcp(accumulatedWeight);

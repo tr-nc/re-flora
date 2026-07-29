@@ -57,10 +57,10 @@ explicit rebuilds but whose spacing is adjustable:
 - Keep direct sun and future local direct lights outside the environment probe field. Evaluate
   ReSTIR DI only later, and only if measured local-light candidate or shadow cost justifies it.
 
-Phases 1 through 3 are complete: density and resource controls exist, all-probe visualization
-exists, and terrain plus raster consumers sample global-copy probe data. Phase 4 visibility
-resources, occupancy classification, and deterministic relocation are also complete. Visibility
-tracing, local SH derivation, and bounded update scheduling are the next implementation step.
+Phases 1 through 5 are complete: density and resource controls exist, all-probe visualization
+exists, terrain plus raster consumers share the local field, deterministic visibility and local SH
+are scheduled in bounded batches, and interpolation uses leak-resistant weights. Environment
+revisions and general terrain-edit invalidation are the next implementation step.
 
 ## Non-goals
 
@@ -193,7 +193,7 @@ Planned visualization modes:
 - **State:** valid, inactive, inside-solid, dirty, updating, and relocation-failed colors;
 - **Sky visibility:** grayscale or heat-map encoding of visible-environment fraction;
 - **Irradiance:** tonemapped local SH evaluated for a fixed world-up normal;
-- **Age/revision:** stale-to-current update coloring;
+- **Revision:** deterministic environment-revision coloring;
 - **Relocation:** paired original-grid and actual-sample markers, with different size and color.
 
 Planned filters:
@@ -211,7 +211,7 @@ Filters are volume-level display and cost controls, not a probe-selection mechan
 interactive and the renderer does not maintain a selected probe.
 
 The interaction contract is intentionally read-only and volume-wide: enabling the debug view shows
-the probe field immediately. State, sky visibility, irradiance, age, and relocation information are
+the probe field immediately. State, sky visibility, irradiance, revision, and relocation information are
 encoded by marker color, size, or paired positions. There is no click, hover, selection,
 single-probe inspector, or selection-dependent rendering path.
 
@@ -285,7 +285,7 @@ confidence, and completed-set swaps should be preferred over noisy per-frame ran
 Implement this phase as small, independently validated commits:
 
 1. **Visibility resource contract**
-   - add a fixed 64-direction deterministic upper-hemisphere set;
+   - add a fixed, indexable 64-direction deterministic full-sphere set;
    - retain compact first-hit distances, with a reserved miss representation;
    - keep the direction/SH projection table separate from per-probe visibility;
    - report coefficient, state, visibility, direction-table, and total allocation bytes.
@@ -310,7 +310,8 @@ Implement this phase as small, independently validated commits:
 - Add validity, normal, direction, distance, and confidence weighting as required.
 - Validate the roofed/open plinth comparison.
 - Reject wall, roof, portal-halo, and invalid-probe leaks.
-- Retain a stable global-SH fallback for underspecified samples.
+- Use the nearest trustworthy local probe when directional weights reject every neighbour, and
+  retain global SH only when no usable local probe exists.
 
 ### Phase 6: Revisions and terrain editing
 
@@ -407,7 +408,7 @@ phase begins.
 - [x] Trace deterministic terrain visibility from valid probes.
 - [x] Derive spatially varying local SH with bounded, repeatable update scheduling.
 - [ ] Recompute local SH on environment revisions without terrain retracing.
-- [ ] Reject wall, roof, portal, and invalid-probe light leaks.
+- [x] Reject wall, roof, portal, and invalid-probe light leaks.
 - [ ] Add conservative terrain-edit invalidation and convergence tracking.
 - [ ] Extend the test scenario with a deterministic probe invalidation edit.
 - [ ] Compare 32-, 16-, and 8-voxel density in hidden release runs.
@@ -505,11 +506,17 @@ cargo run --release -- --hidden --mute --windowed \
 
 ### Phase 4 Visibility Resource Evidence
 
-The visibility resource contract uses 64 deterministic equal-area upper-hemisphere directions. Each
-direction record stores its unit vector, sample solid angle, and nine scalar L2 irradiance projection
-weights. The shared direction table is 10,240 bytes. Each probe adds 128 bytes containing 64 packed
-`u16` first-hit distances; two `u16::MAX` values packed into `u32::MAX` explicitly represent two
-environment misses, including before the first trace.
+The visibility resource contract uses a deterministic, directly indexable `8 x 8` octahedral
+full-sphere direction set. Each direction record stores its unit vector, nominal solid angle, and
+nine scalar L2 irradiance projection weights. Nonnegative-Y records participate in authored-sky SH
+projection; all 64 records retain terrain hit distance for future directional uses. The shared
+direction table is 10,240 bytes. Each probe adds 128 bytes containing 64 packed `u16` first-hit
+distances; two `u16::MAX` values packed into `u32::MAX` explicitly represent two environment misses,
+including before the first trace.
+
+For the hot consumer path, six additional exact axial distances are quantized to ten bits and packed
+into two previously reserved words of the 64-byte summary. They add no allocation bytes and avoid
+per-pixel reads from the 128-byte directional visibility record.
 
 Together with the existing 144-byte coefficient and 64-byte summary records, the current layout is
 336 bytes per probe plus the fixed 10 KiB direction table. Hidden release allocation runs reported:
@@ -575,19 +582,20 @@ cargo run --release -- --hidden --mute --windowed \
 
 ### Phase 4 Visibility Tracing and Local SH Evidence
 
-A compute pass now traces the fixed 64-direction set through the existing terrain contree for every
-dirty, validly placed probe. It stores quantized first-hit distances, reconstructs the authored
-environment radiance from the current global L2 coefficients, and projects only visible directions
-back into the existing irradiance-SH convention. A quadrature correction preserves the exact global
-SH field for a fully open probe. The explicit sun remains outside this pass.
+A compute pass now traces the fixed 64-direction full-sphere set plus six exact axial directions
+through the existing terrain contree for every dirty, validly placed probe. It stores quantized
+first-hit distances, reconstructs the authored environment radiance from the current global L2
+coefficients, and projects only visible nonnegative-Y directions back into the existing
+irradiance-SH convention. A quadrature correction preserves the exact global SH field for a fully
+open probe. The explicit sun remains outside this pass.
 
 The scheduler processes 128 probe records per frame. Consumers stay in uniform global-SH fallback
 until the full set completes, avoiding a moving boundary between local and fallback lighting during
 initialization. Screenshot readiness also waits for the local field. At 16-voxel spacing, the
-post-edit test volume completed all 35,937 records in 2.43–2.88 seconds across repeated hidden runs.
-The sampled `environment_probes.trace` GPU scopes averaged 0.53 ms and 0.61 ms per active frame,
-with observed samples from 0.06 ms to 2.23 ms on the Apple M4 Pro. These sparse 30-frame profiler
-samples describe the current implementation but are not yet the final density comparison.
+post-edit test volume completed all 35,937 records in 2.35 seconds in the current 70-ray hidden run.
+The sampled `environment_probes.trace` GPU scopes averaged 0.65 ms per active frame, with observed
+samples from 0.05 ms to 1.09 ms on the Apple M4 Pro. These sparse 30-frame profiler samples describe
+the current implementation but are not yet the final density comparison.
 
 `target/environment-probes-local-sh.png` shows the complete probe volume after dirty probes become
 valid. With markers disabled, `target/environment-probes-local-sh-clean.png` makes the roofed bay
@@ -597,8 +605,8 @@ hidden run produced the same processed count and a deep-chamber SSIM of 0.992634
 variation includes independent shadow histories and animated raster content.
 
 This validates deterministic terrain visibility, spatially varying local SH, bounded scheduling,
-and global fallback during convergence. It does not yet validate leak-resistant interpolation,
-environment-only re-derivation cost, terrain-edit invalidation, or a production density.
+and global fallback during convergence. It does not yet validate environment-only re-derivation
+cost, terrain-edit invalidation, or a production density.
 
 The step used:
 
@@ -617,4 +625,40 @@ cargo run --release -- --hidden --mute --windowed \
   --environment-probe-spacing-voxels 16 \
   --screenshot player-default target/environment-probes-local-sh-clean.png \
   --screenshot-delay 4 --auto-exit 6 --perf
+```
+
+### Phase 5 Leak-Resistant Interpolation Evidence
+
+The shared terrain and raster sampler now combines trilinear position, relocation confidence,
+surface-normal orientation, and probe-to-surface hit-distance weights. Six exact axial hit
+distances are packed into the existing summary, selected by probe-to-surface direction, and blended
+continuously by squared direction components. If visibility rejects every weighted neighbour, the
+sampler uses the nearest usable local probe rather than reintroducing bright global environment
+fill; global SH remains the fallback only when no local probe is valid.
+
+An initial nearest-octahedral-direction implementation produced visible blocks on the chamber back
+wall. Four-direction bilinear lookup removed those blocks but increased the post-convergence
+`tracer.render` sample average from 3.74 ms to 4.99 ms. That version was rejected. The packed axial
+version keeps the wall smooth and measured 4.18 ms in the same sparse profiler comparison, about
+0.45 ms above basic trilinear interpolation and about 0.81 ms below the rejected bilinear version.
+Final density benchmarking must repeat this comparison with matched longer captures.
+
+`target/environment-probes-leak-resistant-axial.png` shows no bright roof, side-wall, or portal halo
+at the deterministic acceptance camera. The roofed building remains substantially darker than the
+open bay. Its crop has SSIM 0.989854 versus the pre-weighting local-SH image, confirming that the
+weighting changes the intended boundary region without replacing the overall lighting result. The
+run completed all 35,937 probes, saved the screenshot only after local-field readiness, reported no
+error, panic, or Vulkan validation message, and exited successfully.
+
+The step used:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --windowed \
+  --environment-lighting-test-scene \
+  --environment-probe-spacing-voxels 16 \
+  --screenshot player-default target/environment-probes-leak-resistant-axial.png \
+  --screenshot-delay 4 --auto-exit 7 --perf
 ```

@@ -356,6 +356,8 @@ mod tests {
         assert!(shared.contains("worldPosition * lighting.environment_probe_world_to_grid_scale"));
         assert!(shared.contains("environment_probe_coefficients.data[probeIndex]"));
         assert!(shared.contains("environment_probe_summaries.data[probeIndex]"));
+        assert!(shared.contains("environmentProbeSurfaceVisibility("));
+        assert!(shared.contains("environmentProbeAxialHitDistance("));
         assert!(terrain.contains("sampleEnvironmentIrradiance("));
         assert!(raster.contains("sampleEnvironmentIrradiance("));
         for consumer in [

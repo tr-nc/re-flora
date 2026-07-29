@@ -181,8 +181,8 @@ VertexOutput main(VertexInput input)
     }
     else if (pc.display_mode == 3u)
     {
-        color = heatMap(float(summary.update_info.y) *
-                        pc.inverse_age_range_frames);
+        color = heatMap(frac(
+            float(summary.revisions_state.y) * 0.61803398875));
     }
     else if (relocationMode)
     {

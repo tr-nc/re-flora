@@ -94,6 +94,7 @@ const ENVIRONMENT_PROBE_SUMMARY_BINDING: u32 = 19;
 const ENVIRONMENT_PROBE_VISIBILITY_BINDING: u32 = 20;
 const ENVIRONMENT_PROBE_DIRECTION_BINDING: u32 = 21;
 const ENVIRONMENT_PROBE_TRACE_BATCH_SIZE: u32 = 128;
+const ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE: u32 = 70;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -1747,9 +1748,10 @@ impl Tracer {
             self.environment_probe_trace_cursor += batch_probe_count;
             if first_probe_index == 0 {
                 log::info!(
-                    "[ENV_PROBES] visibility trace started probes={} batch_size={} rays_per_probe=64 revision={}",
+                    "[ENV_PROBES] visibility trace started probes={} batch_size={} rays_per_probe={} revision={}",
                     probe_count,
                     ENVIRONMENT_PROBE_TRACE_BATCH_SIZE,
+                    ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE,
                     self.environment_probe_environment_revision,
                 );
             }

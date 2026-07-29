@@ -2,7 +2,7 @@ use crate::environment_lighting::{sh_basis, IRRADIANCE_SH_BAND_FACTORS};
 use crate::resource::{Resource, ResourceContainer};
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::{UVec3, Vec3};
+use glam::{UVec3, Vec2, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use std::f32::consts::PI;
@@ -16,7 +16,8 @@ pub const ENVIRONMENT_PROBE_PACKED_HIT_DISTANCE_COUNT: usize =
 pub const ENVIRONMENT_PROBE_MISS_DISTANCE: u16 = u16::MAX;
 pub const ENVIRONMENT_PROBE_PACKED_MISS_DISTANCES: u32 = ENVIRONMENT_PROBE_MISS_DISTANCE as u32
     | ((ENVIRONMENT_PROBE_MISS_DISTANCE as u32) << u16::BITS);
-const ENVIRONMENT_PROBE_DIRECTION_GOLDEN_ANGLE: f32 = 2.399_963_1;
+const ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE: usize = 8;
+const ENVIRONMENT_PROBE_SKY_DIRECTION_COUNT: usize = 40;
 const ENVIRONMENT_PROBE_MARKER_INDEX_COUNT: u32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -202,20 +203,77 @@ pub struct EnvironmentProbeDirectionGpu {
     pub irradiance_coefficients: [[f32; 4]; ENVIRONMENT_PROBE_SH_COEFFICIENT_COUNT],
 }
 
+fn sign_not_zero(value: f32) -> f32 {
+    if value >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    }
+}
+
+fn decode_environment_probe_direction(sample_index: usize) -> Vec3 {
+    let x = sample_index % ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE;
+    let y = sample_index / ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE;
+    let encoded = (Vec2::new(x as f32 + 0.5, y as f32 + 0.5)
+        / ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE as f32)
+        * 2.0
+        - Vec2::ONE;
+    let mut direction = Vec3::new(
+        encoded.x,
+        1.0 - encoded.x.abs() - encoded.y.abs(),
+        encoded.y,
+    );
+    if direction.y < 0.0 {
+        let unfolded_x = direction.x;
+        let unfolded_z = direction.z;
+        direction.x = (1.0 - unfolded_z.abs()) * sign_not_zero(unfolded_x);
+        direction.z = (1.0 - unfolded_x.abs()) * sign_not_zero(unfolded_z);
+    }
+    direction.normalize()
+}
+
+#[cfg(test)]
+fn encode_environment_probe_direction(direction: Vec3) -> usize {
+    let direction = direction.normalize();
+    let mut encoded = Vec2::new(direction.x, direction.z)
+        / (direction.x.abs() + direction.y.abs() + direction.z.abs());
+    if direction.y < 0.0 {
+        let unfolded_x = encoded.x;
+        let unfolded_y = encoded.y;
+        encoded.x = (1.0 - unfolded_y.abs()) * sign_not_zero(unfolded_x);
+        encoded.y = (1.0 - unfolded_x.abs()) * sign_not_zero(unfolded_y);
+    }
+    let coordinate = ((encoded * 0.5 + Vec2::splat(0.5))
+        * ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE as f32)
+        .floor()
+        .clamp(
+            Vec2::ZERO,
+            Vec2::splat((ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE - 1) as f32),
+        )
+        .as_uvec2();
+    coordinate.x as usize + ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE * coordinate.y as usize
+}
+
 fn environment_probe_directions(
 ) -> [EnvironmentProbeDirectionGpu; ENVIRONMENT_PROBE_DIRECTION_COUNT] {
-    let sample_solid_angle = 2.0 * PI / ENVIRONMENT_PROBE_DIRECTION_COUNT as f32;
+    debug_assert_eq!(
+        ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE * ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE,
+        ENVIRONMENT_PROBE_DIRECTION_COUNT
+    );
+    let sample_solid_angle = 4.0 * PI / ENVIRONMENT_PROBE_DIRECTION_COUNT as f32;
+    let sky_sample_solid_angle = 2.0 * PI / ENVIRONMENT_PROBE_SKY_DIRECTION_COUNT as f32;
     std::array::from_fn(|sample_index| {
-        let y = 1.0 - (sample_index as f32 + 0.5) / ENVIRONMENT_PROBE_DIRECTION_COUNT as f32;
-        let radius = (1.0 - y * y).max(0.0).sqrt();
-        let angle = ENVIRONMENT_PROBE_DIRECTION_GOLDEN_ANGLE * sample_index as f32;
-        let (sin_angle, cos_angle) = angle.sin_cos();
-        let direction = Vec3::new(radius * cos_angle, y, radius * sin_angle);
+        let direction = decode_environment_probe_direction(sample_index);
         let basis = sh_basis(direction);
+        let irradiance_sample_weight = if direction.y >= 0.0 {
+            sky_sample_solid_angle
+        } else {
+            0.0
+        };
         let irradiance_coefficients = std::array::from_fn(|coefficient_index| {
             [
                 basis[coefficient_index]
-                    * sample_solid_angle
+                    * irradiance_sample_weight
                     * IRRADIANCE_SH_BAND_FACTORS[coefficient_index],
                 0.0,
                 0.0,
@@ -288,7 +346,7 @@ impl EnvironmentProbeVisualizationMode {
             Self::State => "State",
             Self::SkyVisibility => "Sky visibility",
             Self::Irradiance => "Irradiance",
-            Self::AgeRevision => "Age / revision",
+            Self::AgeRevision => "Revision",
             Self::Relocation => "Relocation",
         }
     }
@@ -719,7 +777,7 @@ mod tests {
     }
 
     #[test]
-    fn probe_directions_are_deterministic_equal_area_upper_hemisphere_samples() {
+    fn probe_directions_are_deterministic_indexable_full_sphere_samples() {
         let first = environment_probe_directions();
         let second = environment_probe_directions();
         assert_eq!(
@@ -727,17 +785,41 @@ mod tests {
             bytemuck::cast_slice::<EnvironmentProbeDirectionGpu, u8>(&second)
         );
 
-        let expected_solid_angle = 2.0 * PI / ENVIRONMENT_PROBE_DIRECTION_COUNT as f32;
-        for sample in first {
+        let expected_solid_angle = 4.0 * PI / ENVIRONMENT_PROBE_DIRECTION_COUNT as f32;
+        let mut upper_hemisphere_count = 0;
+        let mut lower_hemisphere_count = 0;
+        let mut horizon_count = 0;
+        for (sample_index, sample) in first.iter().enumerate() {
             let direction = Vec3::new(
                 sample.direction[0],
                 sample.direction[1],
                 sample.direction[2],
             );
             assert!((direction.length() - 1.0).abs() < 1.0e-5);
-            assert!(direction.y > 0.0);
             assert!((sample.direction[3] - expected_solid_angle).abs() < f32::EPSILON);
+            assert_eq!(
+                encode_environment_probe_direction(direction),
+                sample_index,
+                "direction {sample_index} must map back to its packed visibility slot"
+            );
+            if direction.y > 1.0e-6 {
+                upper_hemisphere_count += 1;
+                assert_ne!(sample.irradiance_coefficients[0][0], 0.0);
+            } else if direction.y < -1.0e-6 {
+                lower_hemisphere_count += 1;
+                assert_eq!(sample.irradiance_coefficients[0][0], 0.0);
+            } else {
+                horizon_count += 1;
+                assert_ne!(sample.irradiance_coefficients[0][0], 0.0);
+            }
         }
+        assert_eq!(upper_hemisphere_count, 24);
+        assert_eq!(lower_hemisphere_count, 24);
+        assert_eq!(horizon_count, 16);
+        assert_eq!(
+            upper_hemisphere_count + horizon_count,
+            ENVIRONMENT_PROBE_SKY_DIRECTION_COUNT
+        );
     }
 
     #[test]

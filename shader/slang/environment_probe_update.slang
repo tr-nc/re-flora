@@ -90,7 +90,17 @@ static const uint PROBE_STATE_VALID = 3u;
 static const uint PROBE_STATE_DIRTY = 4u;
 static const uint PROBE_DIRECTION_COUNT = 64u;
 static const uint PROBE_MISS_DISTANCE = 65535u;
+static const uint PROBE_AXIAL_MISS_DISTANCE = 1023u;
 static const float PROBE_MAX_HIT_DISTANCE_WORLD = 4.0;
+static const float3 PROBE_AXIAL_DIRECTIONS[6] =
+{
+    float3(1.0, 0.0, 0.0),
+    float3(-1.0, 0.0, 0.0),
+    float3(0.0, 1.0, 0.0),
+    float3(0.0, -1.0, 0.0),
+    float3(0.0, 0.0, 1.0),
+    float3(0.0, 0.0, -1.0),
+};
 
 float environmentShBasis(uint index, float3 direction)
 {
@@ -155,6 +165,13 @@ uint quantizeHitDistance(float distanceWorld)
     return max(1u, min(65534u, uint(round(normalizedDistance * 65534.0))));
 }
 
+uint quantizeAxialHitDistance(float distanceWorld)
+{
+    float normalizedDistance =
+        saturate(distanceWorld / PROBE_MAX_HIT_DISTANCE_WORLD);
+    return max(1u, min(1022u, uint(round(normalizedDistance * 1022.0))));
+}
+
 uint packedDistance(EnvironmentProbeVisibility visibility, uint directionIndex)
 {
     uint packed = visibility.packed_hit_distances[directionIndex / 2u];
@@ -196,7 +213,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
         capturedAllVisible[coefficientIndex] = float3(0.0);
     }
 
-    uint missCount = 0u;
+    uint skyMissCount = 0u;
+    uint skyDirectionCount = 0u;
     for (uint pairIndex = 0u; pairIndex < 32u; ++pairIndex)
     {
         uint packed = 0u;
@@ -227,7 +245,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
             }
 
             packed |= hitDistance << (pairMember * 16u);
-            missCount += environmentMiss ? 1u : 0u;
+            bool samplesSky = direction.y >= -1.0e-6;
+            skyDirectionCount += samplesSky ? 1u : 0u;
+            skyMissCount += samplesSky && environmentMiss ? 1u : 0u;
 
             float3 radiance = reconstructedEnvironmentRadiance(direction);
             [unroll]
@@ -255,9 +275,33 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     if (tracing)
     {
         environment_probe_visibility.data[probeIndex] = visibility;
+        uint2 packedAxialDistances = uint2(0u);
+        [unroll]
+        for (uint axialDirectionIndex = 0u;
+             axialDirectionIndex < 6u;
+             ++axialDirectionIndex)
+        {
+            float3 axialDirection =
+                PROBE_AXIAL_DIRECTIONS[axialDirectionIndex];
+            MarchingResult axialResult = marchScene(
+                contree_node_data, contree_leaf_data, scene_tex,
+                summary.sample_position_confidence.xyz, axialDirection,
+                1.0 / axialDirection, localInvocationIndex);
+            uint axialHitDistance = axialResult.is_hit
+                ? quantizeAxialHitDistance(axialResult.distance)
+                : PROBE_AXIAL_MISS_DISTANCE;
+            uint packedIndex = axialDirectionIndex / 3u;
+            uint packedMember = axialDirectionIndex % 3u;
+            packedAxialDistances[packedIndex] |=
+                axialHitDistance << (packedMember * 10u);
+        }
+        summary.update_info.x = packedAxialDistances.x;
+        summary.update_info.y = packedAxialDistances.y;
     }
 
-    float skyVisibility = float(missCount) / float(PROBE_DIRECTION_COUNT);
+    float skyVisibility = skyDirectionCount > 0u
+        ? float(skyMissCount) / float(skyDirectionCount)
+        : 0.0;
     EnvironmentProbeCoefficients coefficients;
     [unroll]
     for (uint coefficientIndex = 0u; coefficientIndex < 9u; ++coefficientIndex)
@@ -276,7 +320,5 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     summary.sample_position_confidence.w = 1.0;
     summary.revisions_state.y = pc.environment_revision;
     summary.revisions_state.z = PROBE_STATE_VALID;
-    summary.update_info.x = pc.environment_revision;
-    summary.update_info.y = 0u;
     environment_probe_summaries.data[probeIndex] = summary;
 }

@@ -68,6 +68,8 @@ impl BufferUpdater {
             environment_probe_grid_dimensions: probe_dimensions.to_array(),
             environment_probe_world_to_grid_scale: probe_world_to_grid_scale.to_array(),
             environment_probe_uniform_field: u32::from(!environment_probe_local_field_ready),
+            environment_probe_visibility_bias_world: 2.0
+                / voxels_per_world_unit.min_element().max(1) as f32,
             ..ShadingInfo::zeroed()
         })
     }
