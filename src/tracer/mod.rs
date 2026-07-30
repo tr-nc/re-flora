@@ -4022,6 +4022,18 @@ impl Tracer {
         self.geometry_preview_resources.pipe.clear();
     }
 
+    pub fn upload_debug_geometry_preview(
+        &mut self,
+        mesh: &GeometryPreviewMesh,
+        base_position: Vec3,
+        tint: Vec4,
+    ) -> Result<()> {
+        self.geometry_preview_resources.pipe.upload(mesh)?;
+        self.geometry_preview_resources
+            .pipe
+            .show(base_position, tint)
+    }
+
     pub fn upload_tree_geometry_preview(&mut self, mesh: &GeometryPreviewMesh) -> Result<()> {
         self.geometry_preview_resources.tree.upload(mesh)
     }

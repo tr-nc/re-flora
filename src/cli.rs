@@ -149,6 +149,8 @@ pub struct AppOptions {
     pub water_edit_soak: bool,
     /// Build a deterministic terrain gallery for environment-lighting and probe validation.
     pub environment_lighting_test_scene: bool,
+    /// Build a deterministic hybrid raster/terrain transparency regression scene.
+    pub hybrid_transparency_test_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
     pub environment_probe_spacing_voxels: u32,
     /// Visualize the environment probe grid at startup.
@@ -343,6 +345,9 @@ impl AppOptions {
             environment_lighting_test_scene: args
                 .iter()
                 .any(|a| a == "--environment-lighting-test-scene"),
+            hybrid_transparency_test_scene: args
+                .iter()
+                .any(|a| a == "--hybrid-transparency-test-scene"),
             environment_probe_spacing_voxels,
             environment_probe_visualization: args
                 .iter()
@@ -584,6 +589,8 @@ Options:
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --environment-lighting-test-scene
                               Build the deterministic open/roofed terrain gallery for probe validation
+  --hybrid-transparency-test-scene
+                              Build the deterministic raster/terrain transparency regression scene
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
   --environment-probe-visualization
@@ -618,6 +625,7 @@ Examples:
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
   re-flora --hidden --mute --windowed --environment-lighting-test-scene --screenshot player-default target/environment-lighting-test.png --screenshot-delay 4 --auto-exit 8
+  re-flora --hidden --mute --windowed --hybrid-transparency-test-scene --screenshot player-default target/hybrid-transparency-test.png --screenshot-delay 2 --auto-exit 6
   re-flora --latest-log
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#
@@ -709,6 +717,13 @@ mod tests {
         let options = parse(&["re-flora", "--environment-lighting-test-scene"]);
 
         assert!(options.environment_lighting_test_scene);
+    }
+
+    #[test]
+    fn parses_hybrid_transparency_test_scene() {
+        let options = parse(&["re-flora", "--hybrid-transparency-test-scene"]);
+
+        assert!(options.hybrid_transparency_test_scene);
     }
 
     #[test]
