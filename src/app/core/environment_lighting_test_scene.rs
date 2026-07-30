@@ -8,8 +8,8 @@ use glam::{UVec3, Vec3};
 const BUILD_DELAY_SECONDS: f32 = 0.5;
 const SETTLE_FRAMES: u8 = 2;
 
-const CAMERA_POSITION: Vec3 = Vec3::new(1.0, 0.78, 2.45);
-const CAMERA_TARGET: Vec3 = Vec3::new(1.0, 0.55, 1.18);
+const CAMERA_POSITION: Vec3 = Vec3::new(0.65, 0.58, 1.72);
+const CAMERA_TARGET: Vec3 = Vec3::new(0.65, 0.70, 1.02);
 const TEST_TIME_OF_DAY: f32 = 0.455_705;
 const TEST_REFRESH_TIME_OF_DAY: f32 = 0.535_705;
 
