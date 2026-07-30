@@ -220,9 +220,10 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
     }
 
     float accumulatedWeight = 0.0;
-    bool hasNearestUsableProbe = false;
-    uint nearestUsableProbeIndex = 0u;
-    float nearestUsableDistanceSquared = 1.0e30;
+    bool hasUsableProbe = false;
+    bool hasNearestTrustedProbe = false;
+    uint nearestTrustedProbeIndex = 0u;
+    float nearestTrustedDistanceSquared = 1.0e30;
     [unroll]
     for (uint z = 0u; z < 2u; ++z)
     {
@@ -242,34 +243,37 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
                 EnvironmentProbeSummary summary =
                     environment_probe_summaries.data[probeIndex];
                 if (!environmentProbeIsUsable(summary, lighting)) continue;
+                hasUsableProbe = true;
 
                 float3 probePosition =
                     summary.sample_position_confidence.xyz;
                 float3 surfaceToProbe = probePosition - worldPosition;
                 float probeDistanceSquared = dot(surfaceToProbe, surfaceToProbe);
-                if (probeDistanceSquared < nearestUsableDistanceSquared)
-                {
-                    hasNearestUsableProbe = true;
-                    nearestUsableProbeIndex = probeIndex;
-                    nearestUsableDistanceSquared = probeDistanceSquared;
-                }
-
                 float3 surfaceToProbeDirection =
                     probeDistanceSquared > 1.0e-10
                         ? surfaceToProbe * rsqrt(probeDistanceSquared)
                         : normal;
-                float normalWeight = saturate(
-                    dot(normal, surfaceToProbeDirection) * 0.5 + 0.5);
+                // A probe on the back side of the surface cannot represent the
+                // incident environment for this side of a wall or roof.
+                float normalWeight =
+                    saturate(dot(normal, surfaceToProbeDirection));
                 normalWeight *= normalWeight;
                 float visibilityWeight = environmentProbeSurfaceVisibility(
                     lighting,
                     summary,
                     probePosition,
                     worldPosition);
+                float trustWeight = normalWeight * visibilityWeight;
+                if (trustWeight > 1.0e-5 &&
+                    probeDistanceSquared < nearestTrustedDistanceSquared)
+                {
+                    hasNearestTrustedProbe = true;
+                    nearestTrustedProbeIndex = probeIndex;
+                    nearestTrustedDistanceSquared = probeDistanceSquared;
+                }
                 weight *=
                     saturate(summary.sample_position_confidence.w) *
-                    normalWeight *
-                    visibilityWeight;
+                    trustWeight;
                 EnvironmentProbeCoefficients coefficients =
                     environment_probe_coefficients.data[probeIndex];
                 [unroll]
@@ -288,9 +292,13 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
 
     if (accumulatedWeight <= 1.0e-5)
     {
-        return hasNearestUsableProbe
-            ? evaluateProbeEnvironmentIrradiance(
-                  nearestUsableProbeIndex, normal)
+        if (hasNearestTrustedProbe)
+        {
+            return evaluateProbeEnvironmentIrradiance(
+                nearestTrustedProbeIndex, normal);
+        }
+        return hasUsableProbe
+            ? float3(0.0)
             : globalIrradiance;
     }
 

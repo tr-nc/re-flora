@@ -358,6 +358,8 @@ mod tests {
         assert!(shared.contains("environment_probe_summaries.data[probeIndex]"));
         assert!(shared.contains("environmentProbeSurfaceVisibility("));
         assert!(shared.contains("environmentProbeAxialHitDistance("));
+        assert!(shared.contains("saturate(dot(normal, surfaceToProbeDirection))"));
+        assert!(shared.contains("hasNearestTrustedProbe"));
         assert!(terrain.contains("sampleEnvironmentIrradiance("));
         assert!(raster.contains("sampleEnvironmentIrradiance("));
         for consumer in [

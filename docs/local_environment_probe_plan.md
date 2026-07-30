@@ -640,9 +640,12 @@ cargo run --release -- --hidden --mute --windowed \
 The shared terrain and raster sampler now combines trilinear position, relocation confidence,
 surface-normal orientation, and probe-to-surface hit-distance weights. Six exact axial hit
 distances are packed into the existing summary, selected by probe-to-surface direction, and blended
-continuously by squared direction components. If visibility rejects every weighted neighbour, the
-sampler uses the nearest usable local probe rather than reintroducing bright global environment
-fill; global SH remains the fallback only when no local probe is valid.
+continuously by squared direction components. Surface-normal weighting only accepts probes in the
+surface's incident hemisphere, so a probe on the far side of a wall or roof cannot bleed through
+with a small residual weight. If trilinear weights collapse, the fallback uses the nearest probe
+that passed both the hemisphere and hit-distance tests. A surface with usable but fully rejected
+neighbours receives zero local environment light instead of sampling an untrusted probe or
+reintroducing bright global fill; global SH remains the fallback only when no local probe is valid.
 
 An initial nearest-octahedral-direction implementation produced visible blocks on the chamber back
 wall. Four-direction bilinear lookup removed those blocks but increased the post-convergence
