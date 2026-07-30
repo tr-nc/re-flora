@@ -184,6 +184,18 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/tracer/terrain_depth_prefill.vert",
+        source_path: "shader/slang/terrain_depth_prefill.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/tracer/terrain_depth_prefill.frag",
+        source_path: "shader/slang/terrain_depth_prefill.frag.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
         logical_path: "shader/builder/contree/buffer_setup.comp",
         source_path: "shader/slang/contree_buffer_setup.slang",
         module_path: "shader/slang",

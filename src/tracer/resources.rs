@@ -889,6 +889,7 @@ pub struct TracerTextureResources {
 }
 
 pub struct TracerMeshResources {
+    pub terrain_depth_prefill_vertices: Buffer,
     pub flora_meshes: Vec<FloraMeshResources>,
     pub leaves_resources: LeavesResources,
     pub apple_resources: FloraMeshResources,
@@ -1230,6 +1231,16 @@ impl TracerTextureResources {
 impl TracerMeshResources {
     fn new(device: Device, allocator: Allocator, chunk_bound: UAabb3) -> Self {
         species::assert_species_limit();
+        let terrain_depth_prefill_vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (3 * std::mem::size_of::<[f32; 2]>()) as u64,
+        );
+        terrain_depth_prefill_vertices
+            .fill(&[[-1.0f32, -1.0], [3.0, -1.0], [-1.0, 3.0]])
+            .unwrap();
         let flora_meshes = species::species()
             .iter()
             .map(|desc| {
@@ -1269,6 +1280,7 @@ impl TracerMeshResources {
         let glass = GlassMeshResources::new(device, allocator, chunk_bound);
 
         Self {
+            terrain_depth_prefill_vertices,
             flora_meshes,
             leaves_resources,
             apple_resources,

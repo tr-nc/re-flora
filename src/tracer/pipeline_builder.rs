@@ -106,6 +106,18 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let terrain_depth_prefill_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/terrain_depth_prefill.vert",
+            "main",
+        )
+        .unwrap();
+        let terrain_depth_prefill_frag_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/terrain_depth_prefill.frag",
+            "main",
+        )
+        .unwrap();
 
         let cloud_sm =
             ShaderModule::from_precompiled(vulkan_ctx.device(), "shader/tracer/cloud.comp", "main")
@@ -321,6 +333,8 @@ impl PipelineBuilder {
             vsm_blur_v_sm,
             god_ray_sm,
             composition_sm,
+            terrain_depth_prefill_vert_sm,
+            terrain_depth_prefill_frag_sm,
             cloud_sm,
             cloud_shadow_sm,
             cloud_shadow_temporal_sm,
@@ -565,6 +579,21 @@ impl PipelineBuilder {
             [resources, plain_builder_resources, environment_probes];
         let environment_lighting_resources: [&dyn ResourceContainer; 2] =
             [resources, environment_probes];
+        let terrain_depth_prefill_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.terrain_depth_prefill_vert_sm,
+            &shader_modules.terrain_depth_prefill_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            None,
+            pool,
+            &[resources],
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
         let flora_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
             &shader_modules.flora_vert_sm,
@@ -757,6 +786,7 @@ impl PipelineBuilder {
         );
 
         GraphicsPipelines {
+            terrain_depth_prefill_ppl,
             flora_ppl,
             flora_lod_ppl,
             leaves_ppl,
@@ -898,6 +928,8 @@ pub struct ShaderModules {
     pub vsm_blur_v_sm: ShaderModule,
     pub god_ray_sm: ShaderModule,
     pub composition_sm: ShaderModule,
+    pub terrain_depth_prefill_vert_sm: ShaderModule,
+    pub terrain_depth_prefill_frag_sm: ShaderModule,
     pub cloud_sm: ShaderModule,
     pub cloud_shadow_sm: ShaderModule,
     pub cloud_shadow_temporal_sm: ShaderModule,
@@ -965,6 +997,7 @@ pub struct RenderPasses {
 }
 
 pub struct GraphicsPipelines {
+    pub terrain_depth_prefill_ppl: GraphicsPipeline,
     pub flora_ppl: GraphicsPipeline,
     pub flora_lod_ppl: GraphicsPipeline,
     pub leaves_ppl: GraphicsPipeline,

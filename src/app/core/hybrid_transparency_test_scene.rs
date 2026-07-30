@@ -221,7 +221,7 @@ impl App {
                     return;
                 }
                 log::info!(
-                    "[HYBRID_ALPHA_TEST] ready revision={} expected_current_bug=red_blue_stripes_visible_through_right_probe_despite_rock_wall",
+                    "[HYBRID_ALPHA_TEST] ready revision={} acceptance=right_probe_contains_no_red_blue_stripes_behind_rock_wall",
                     terrain_revision,
                 );
                 TestScenePhase::Ready

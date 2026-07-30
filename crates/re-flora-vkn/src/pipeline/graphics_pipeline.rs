@@ -477,6 +477,31 @@ impl GraphicsPipeline {
             .cmd_set_scissor_raw(cmdbuf.as_raw(), 0, &[scissor]);
     }
 
+    pub fn record(
+        &self,
+        cmdbuf: &CommandBuffer,
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+        push_constants: Option<&PushConstantInfo>,
+    ) {
+        self.record_bind(cmdbuf);
+        if !self.0.descriptor_sets.lock().unwrap().is_empty() {
+            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
+        }
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
+        }
+        self.0.device.cmd_draw_raw(
+            cmdbuf.as_raw(),
+            vertex_count,
+            instance_count,
+            first_vertex,
+            first_instance,
+        );
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn record_indexed(
         &self,

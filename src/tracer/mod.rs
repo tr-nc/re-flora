@@ -1135,6 +1135,10 @@ impl Tracer {
         );
 
         // update graphics pipelines descriptor sets
+        update_graphics_fn(
+            &self.graphics_pipelines.terrain_depth_prefill_ppl,
+            &tracer_resources,
+        );
         update_graphics_fn(&self.graphics_pipelines.flora_ppl, &all_resources);
         update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, &all_resources);
         update_graphics_fn(&self.graphics_pipelines.leaves_ppl, &tracer_resources);
@@ -2163,9 +2167,31 @@ impl Tracer {
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
         let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
-        let frag_to_vert_barrier = PipelineBarrier::shader_access(
-            PipelineStage::FRAGMENT_SHADER,
-            PipelineStage::VERTEX_SHADER,
+        let tracer_to_raster_barrier = PipelineBarrier::new(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::FRAGMENT_SHADER | PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::SHADER_WRITE,
+                MemoryAccess::SHADER_READ,
+            )],
+        );
+        let tracer_clear_to_raster_barrier = PipelineBarrier::new(
+            PipelineStage::TRANSFER,
+            PipelineStage::FRAGMENT_SHADER | PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::TRANSFER_WRITE,
+                MemoryAccess::SHADER_READ,
+            )],
+        );
+        let raster_to_compute_barrier = PipelineBarrier::new(
+            PipelineStage::COLOR_ATTACHMENT_OUTPUT
+                | PipelineStage::EARLY_FRAGMENT_TESTS
+                | PipelineStage::LATE_FRAGMENT_TESTS,
+            PipelineStage::COMPUTE_SHADER,
+            [MemoryBarrier::new(
+                MemoryAccess::COLOR_ATTACHMENT_WRITE | MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                MemoryAccess::SHADER_READ,
+            )],
         );
         let compute_to_transfer_barrier = PipelineBarrier::new(
             PipelineStage::COMPUTE_SHADER,
@@ -2205,6 +2231,32 @@ impl Tracer {
                 self.resources.meshes.flora_meshes.len()
             );
         }
+
+        // Terrain depth must exist before the raster pass. The raster pass seeds
+        // its hardware depth attachment from this output so every raster
+        // fragment is tested against terrain before transparent blending can
+        // discard the individual depths of layers behind it.
+        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        if render_flags.enable_tracer {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "tracer.pass",
+                || self.record_tracer_pass(cmdbuf),
+            );
+            tracer_to_raster_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        } else {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "tracer_clear.pass",
+                || self.clear_tracer_outputs(cmdbuf),
+            );
+            tracer_clear_to_raster_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        }
+
         if has_graphics_pass {
             if let Some(profiler) = gpu_profiler.as_deref_mut() {
                 let graphics_scope = profiler.begin_scope(
@@ -2255,34 +2307,7 @@ impl Tracer {
                     gpu_profiler_frame_slot,
                 );
             }
-            frag_to_vert_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        }
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
-        if render_flags.enable_tracer {
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "tracer.pass",
-                || self.record_tracer_pass(cmdbuf),
-            );
-        } else {
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "tracer_clear.pass",
-                || self.clear_tracer_outputs(cmdbuf),
-            );
-        }
-
-        if has_graphics_pass || render_flags.enable_tracer {
-            let b2 = PipelineBarrier::shader_access(
-                PipelineStage::FRAGMENT_SHADER | PipelineStage::COMPUTE_SHADER,
-                PipelineStage::COMPUTE_SHADER,
-            );
-            b2.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            raster_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         if render_flags.enable_god_rays {
@@ -2590,6 +2615,9 @@ impl Tracer {
             },
         ];
 
+        self.graphics_pipelines
+            .terrain_depth_prefill_ppl
+            .record_texture_transitions(cmdbuf);
         if enable_flora {
             for pipeline in [
                 &self.graphics_pipelines.flora_ppl,
@@ -2654,6 +2682,16 @@ impl Tracer {
                 height: render_extent.height,
             },
         };
+
+        // Seed the hardware depth attachment with ray-traced terrain before any
+        // raster geometry is blended. This preserves per-fragment terrain
+        // occlusion even when a nearer translucent raster object later owns the
+        // final raster depth pixel.
+        let terrain_depth_prefill = &self.graphics_pipelines.terrain_depth_prefill_ppl;
+        terrain_depth_prefill.record_bind(cmdbuf);
+        terrain_depth_prefill.record_viewport_scissor(cmdbuf, viewport, scissor);
+        cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.terrain_depth_prefill_vertices]);
+        terrain_depth_prefill.record(cmdbuf, 3, 1, 0, 0, None);
 
         // Draw all flora species, both LOD levels
         if enable_flora {

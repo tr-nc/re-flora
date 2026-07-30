@@ -470,6 +470,25 @@ impl Device {
         }
     }
 
+    pub fn cmd_draw_raw(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+    ) {
+        unsafe {
+            self.as_raw().cmd_draw(
+                command_buffer,
+                vertex_count,
+                instance_count,
+                first_vertex,
+                first_instance,
+            );
+        }
+    }
+
     pub fn cmd_dispatch_raw(
         &self,
         command_buffer: vk::CommandBuffer,
