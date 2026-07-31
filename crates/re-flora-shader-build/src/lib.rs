@@ -394,6 +394,30 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/ddgi/irradiance_filter.comp",
+        source_path: "shader/slang/ddgi_irradiance_filter.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/ddgi/visibility_filter.comp",
+        source_path: "shader/slang/ddgi_visibility_filter.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/ddgi/irradiance_gutter.comp",
+        source_path: "shader/slang/ddgi_irradiance_gutter.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/ddgi/visibility_gutter.comp",
+        source_path: "shader/slang/ddgi_visibility_gutter.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/tracer/environment_probe_classify.comp",
         source_path: "shader/slang/environment_probe_classify.slang",
         module_path: "shader/slang",

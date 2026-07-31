@@ -68,6 +68,30 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let ddgi_irradiance_filter_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/irradiance_filter.comp",
+            "main",
+        )
+        .unwrap();
+        let ddgi_visibility_filter_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/visibility_filter.comp",
+            "main",
+        )
+        .unwrap();
+        let ddgi_irradiance_gutter_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/irradiance_gutter.comp",
+            "main",
+        )
+        .unwrap();
+        let ddgi_visibility_gutter_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/visibility_gutter.comp",
+            "main",
+        )
+        .unwrap();
 
         let tracer_shadow_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -353,6 +377,10 @@ impl PipelineBuilder {
             ddgi_octahedral_gutter_sm,
             ddgi_probe_relocate_sm,
             ddgi_probe_trace_sm,
+            ddgi_irradiance_filter_sm,
+            ddgi_visibility_filter_sm,
+            ddgi_irradiance_gutter_sm,
+            ddgi_visibility_gutter_sm,
             tracer_shadow_sm,
             shadow_depth_copy_sm,
             leaf_shadow_temporal_sm,
@@ -476,6 +504,38 @@ impl PipelineBuilder {
                 ],
             )
         });
+        let ddgi_irradiance_filter_ppl = ddgi_volume.map(|ddgi_volume| {
+            ComputePipeline::new(
+                device,
+                &shader_modules.ddgi_irradiance_filter_sm,
+                pool,
+                &[ddgi_volume],
+            )
+        });
+        let ddgi_visibility_filter_ppl = ddgi_volume.map(|ddgi_volume| {
+            ComputePipeline::new(
+                device,
+                &shader_modules.ddgi_visibility_filter_sm,
+                pool,
+                &[ddgi_volume],
+            )
+        });
+        let ddgi_irradiance_gutter_ppl = ddgi_volume.map(|ddgi_volume| {
+            ComputePipeline::new(
+                device,
+                &shader_modules.ddgi_irradiance_gutter_sm,
+                pool,
+                &[ddgi_volume],
+            )
+        });
+        let ddgi_visibility_gutter_ppl = ddgi_volume.map(|ddgi_volume| {
+            ComputePipeline::new(
+                device,
+                &shader_modules.ddgi_visibility_gutter_sm,
+                pool,
+                &[ddgi_volume],
+            )
+        });
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,
@@ -590,6 +650,10 @@ impl PipelineBuilder {
             ddgi_octahedral_gutter_ppl,
             ddgi_probe_relocate_ppl,
             ddgi_probe_trace_ppl,
+            ddgi_irradiance_filter_ppl,
+            ddgi_visibility_filter_ppl,
+            ddgi_irradiance_gutter_ppl,
+            ddgi_visibility_gutter_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
@@ -994,6 +1058,10 @@ pub struct ShaderModules {
     pub ddgi_octahedral_gutter_sm: ShaderModule,
     pub ddgi_probe_relocate_sm: ShaderModule,
     pub ddgi_probe_trace_sm: ShaderModule,
+    pub ddgi_irradiance_filter_sm: ShaderModule,
+    pub ddgi_visibility_filter_sm: ShaderModule,
+    pub ddgi_irradiance_gutter_sm: ShaderModule,
+    pub ddgi_visibility_gutter_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
     pub shadow_depth_copy_sm: ShaderModule,
     pub leaf_shadow_temporal_sm: ShaderModule,
@@ -1046,6 +1114,10 @@ pub struct ComputePipelines {
     pub ddgi_octahedral_gutter_ppl: Option<ComputePipeline>,
     pub ddgi_probe_relocate_ppl: Option<ComputePipeline>,
     pub ddgi_probe_trace_ppl: Option<ComputePipeline>,
+    pub ddgi_irradiance_filter_ppl: Option<ComputePipeline>,
+    pub ddgi_visibility_filter_ppl: Option<ComputePipeline>,
+    pub ddgi_irradiance_gutter_ppl: Option<ComputePipeline>,
+    pub ddgi_visibility_gutter_ppl: Option<ComputePipeline>,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,

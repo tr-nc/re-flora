@@ -104,6 +104,7 @@ pub enum DdgiVolumeStage {
     RelocationPending,
     Relocated,
     RayBatchReady,
+    AtlasReady,
     Rebuilding,
     Ready,
 }
@@ -118,6 +119,7 @@ pub struct DdgiVolumeStatus {
     pub global_sky_revision: u32,
     pub relocated_terrain_revision: Option<u32>,
     pub active_ray_batch: Option<DdgiRayBatch>,
+    pub filtered_probe_count: u32,
 }
 
 impl DdgiVolumeStatus {
@@ -136,6 +138,7 @@ pub struct DdgiVolume {
     requested_terrain_revision: Option<u32>,
     relocated_terrain_revision: Option<u32>,
     active_ray_batch: Option<DdgiRayBatch>,
+    next_probe_index: u32,
     pub ddgi_probe_metadata: Resource<Buffer>,
     pub ddgi_transient_ray_data: Resource<Buffer>,
     pub ddgi_trace_stats: Resource<Buffer>,
@@ -323,6 +326,7 @@ impl DdgiVolume {
             requested_terrain_revision: None,
             relocated_terrain_revision: None,
             active_ray_batch: None,
+            next_probe_index: 0,
             ddgi_probe_metadata: Resource::new(probe_metadata),
             ddgi_transient_ray_data: Resource::new(transient_ray_data),
             ddgi_trace_stats: Resource::new(trace_stats),
@@ -343,6 +347,7 @@ impl DdgiVolume {
             global_sky_revision: self.global_sky_revision,
             relocated_terrain_revision: self.relocated_terrain_revision,
             active_ray_batch: self.active_ray_batch,
+            filtered_probe_count: self.next_probe_index,
         }
     }
 
@@ -367,6 +372,7 @@ impl DdgiVolume {
         self.requested_terrain_revision = Some(terrain_revision);
         self.relocated_terrain_revision = None;
         self.active_ray_batch = None;
+        self.next_probe_index = 0;
         self.stage = DdgiVolumeStage::RelocationPending;
         true
     }
@@ -380,16 +386,23 @@ impl DdgiVolume {
     pub fn mark_relocated(&mut self, terrain_revision: u32) {
         assert_eq!(self.requested_terrain_revision, Some(terrain_revision));
         self.relocated_terrain_revision = Some(terrain_revision);
+        self.next_probe_index = 0;
         self.stage = DdgiVolumeStage::Relocated;
     }
 
     pub fn next_ray_batch_to_trace(&self) -> Option<DdgiRayBatch> {
-        if self.stage != DdgiVolumeStage::Relocated || self.active_ray_batch.is_some() {
+        if !matches!(
+            self.stage,
+            DdgiVolumeStage::Relocated | DdgiVolumeStage::Rebuilding
+        ) || self.active_ray_batch.is_some()
+            || self.next_probe_index >= self.grid.probe_count()
+        {
             return None;
         }
         Some(DdgiRayBatch {
-            first_probe_index: 0,
-            probe_count: self.grid.probe_count().min(DDGI_PROBE_BATCH_SIZE),
+            first_probe_index: self.next_probe_index,
+            probe_count: (self.grid.probe_count() - self.next_probe_index)
+                .min(DDGI_PROBE_BATCH_SIZE),
             terrain_revision: self.relocated_terrain_revision?,
         })
     }
@@ -398,6 +411,18 @@ impl DdgiVolume {
         assert_eq!(self.next_ray_batch_to_trace(), Some(batch));
         self.active_ray_batch = Some(batch);
         self.stage = DdgiVolumeStage::RayBatchReady;
+    }
+
+    pub fn mark_ray_batch_filtered(&mut self, batch: DdgiRayBatch) {
+        assert_eq!(self.stage, DdgiVolumeStage::RayBatchReady);
+        assert_eq!(self.active_ray_batch, Some(batch));
+        self.next_probe_index = batch.first_probe_index + batch.probe_count;
+        self.active_ray_batch = None;
+        self.stage = if self.next_probe_index == self.grid.probe_count() {
+            DdgiVolumeStage::AtlasReady
+        } else {
+            DdgiVolumeStage::Rebuilding
+        };
     }
 
     pub fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
@@ -453,6 +478,7 @@ fn initialization_request_is_duplicate(
             DdgiVolumeStage::RelocationPending
                 | DdgiVolumeStage::Relocated
                 | DdgiVolumeStage::RayBatchReady
+                | DdgiVolumeStage::AtlasReady
                 | DdgiVolumeStage::Ready
         )
 }
@@ -465,6 +491,7 @@ fn stage_after_global_sky_update(stage: DdgiVolumeStage) -> DdgiVolumeStage {
         DdgiVolumeStage::RelocationPending => DdgiVolumeStage::RelocationPending,
         DdgiVolumeStage::Relocated
         | DdgiVolumeStage::RayBatchReady
+        | DdgiVolumeStage::AtlasReady
         | DdgiVolumeStage::Rebuilding
         | DdgiVolumeStage::Ready => DdgiVolumeStage::Rebuilding,
     }
@@ -549,6 +576,7 @@ mod tests {
             global_sky_revision: 0,
             relocated_terrain_revision: None,
             active_ray_batch: None,
+            filtered_probe_count: 0,
         };
         assert!(!status.is_ready());
     }

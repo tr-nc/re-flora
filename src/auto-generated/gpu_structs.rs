@@ -294,6 +294,26 @@ pub struct PushConstantFloraLod {
     pub height_light_color_rgb10: [u32; 12],
 }
 
+/// Auto-generated from `PushConstantIrradianceFilter` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantIrradianceFilter {
+    pub first_probe_index: u32,
+    pub probe_count: u32,
+    pub tile_columns: u32,
+    pub terrain_revision: u32,
+}
+
+/// Auto-generated from `PushConstantIrradianceGutter` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantIrradianceGutter {
+    pub first_probe_index: u32,
+    pub probe_count: u32,
+    pub tile_columns: u32,
+    pub padding: u32,
+}
+
 /// Auto-generated from `PushConstantLeafShadowTemporal` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -338,6 +358,28 @@ pub struct PushConstantProbeTrace {
     pub _pad0: [u8; 12],
     pub padding_float: [f32; 3],
     pub _pad1: [u8; 4],
+}
+
+/// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantVisibilityFilter {
+    pub first_probe_index: u32,
+    pub probe_count: u32,
+    pub tile_columns: u32,
+    pub terrain_revision: u32,
+    pub spacing_world: [f32; 3],
+    pub padding: f32,
+}
+
+/// Auto-generated from `PushConstantVisibilityGutter` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantVisibilityGutter {
+    pub first_probe_index: u32,
+    pub probe_count: u32,
+    pub tile_columns: u32,
+    pub padding: u32,
 }
 
 /// Auto-generated from `PushConstantVsmBlurH` (native Slang source of truth).
