@@ -60,7 +60,7 @@ use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
-use crate::ddgi::DdgiVolume;
+use crate::ddgi::{DdgiVolume, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE};
 use crate::environment_lighting::{EnvironmentLightingBackend, EnvironmentLightingCache};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
@@ -708,6 +708,7 @@ impl Tracer {
             scene_accel_resources,
             plain_builder_resources,
             &environment_probes,
+            ddgi_volume.as_ref(),
         );
         let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
@@ -861,6 +862,7 @@ impl Tracer {
                 self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
                 spacing_voxels,
             )?);
+            self.update_ddgi_descriptors()?;
         }
         self.environment_probe_seeded_revision = 0;
         self.environment_probe_classification_pending = true;
@@ -1261,6 +1263,15 @@ impl Tracer {
             &self.graphics_pipelines.water_droplet_ppl,
             &tracer_resources,
         );
+        if let Some(ddgi_volume) = self.ddgi_volume.as_ref() {
+            let ddgi_resources: [&dyn ResourceContainer; 2] = [&self.resources, ddgi_volume];
+            if let Some(pipeline) = self.compute_pipelines.ddgi_global_sky_filter_ppl.as_ref() {
+                update_compute_fn(pipeline, &ddgi_resources);
+            }
+            if let Some(pipeline) = self.compute_pipelines.ddgi_octahedral_gutter_ppl.as_ref() {
+                update_compute_fn(pipeline, &[ddgi_volume]);
+            }
+        }
     }
 
     fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
@@ -1368,6 +1379,20 @@ impl Tracer {
                 ),
             );
         }
+    }
+
+    fn update_ddgi_descriptors(&self) -> Result<()> {
+        let Some(ddgi_volume) = self.ddgi_volume.as_ref() else {
+            return Ok(());
+        };
+        let resources: [&dyn ResourceContainer; 2] = [&self.resources, ddgi_volume];
+        if let Some(pipeline) = self.compute_pipelines.ddgi_global_sky_filter_ppl.as_ref() {
+            pipeline.auto_update_descriptor_sets(&resources)?;
+        }
+        if let Some(pipeline) = self.compute_pipelines.ddgi_octahedral_gutter_ppl.as_ref() {
+            pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
+        }
+        Ok(())
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -1870,6 +1895,44 @@ impl Tracer {
             "clear.targets",
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
+
+        let ddgi_global_sky_needs_update = self.ddgi_volume.as_ref().is_some_and(|volume| {
+            volume.global_sky_needs_update(self.environment_probe_environment_revision)
+        });
+        if ddgi_global_sky_needs_update {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.global_sky_filter",
+                || self.record_ddgi_global_sky_filter_pass(cmdbuf),
+            );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.global_sky_gutter",
+                || self.record_ddgi_global_sky_gutter_pass(cmdbuf),
+            );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+            let environment_revision = self.environment_probe_environment_revision;
+            let volume = self
+                .ddgi_volume
+                .as_mut()
+                .expect("DDGI sky update requires an allocated volume");
+            volume.mark_global_sky_ready(environment_revision);
+            log::info!(
+                "[DDGI] global sky ready revision={} interior={}x{} stored={}x{} samples_per_texel=2048 stage={:?}",
+                environment_revision,
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                DDGI_IRRADIANCE_STORED_SIDE,
+                DDGI_IRRADIANCE_STORED_SIDE,
+                volume.status().stage,
+            );
+        }
 
         if self.environment_probe_environment_revision != self.environment_probe_seeded_revision {
             let previous_revision = self.environment_probe_seeded_revision;
@@ -3570,6 +3633,34 @@ impl Tracer {
             .record(
                 cmdbuf,
                 Extent3D::new(self.environment_probes.status().grid.probe_count(), 1, 1),
+                None,
+            );
+    }
+
+    fn record_ddgi_global_sky_filter_pass(&self, cmdbuf: &CommandBuffer) {
+        self.compute_pipelines
+            .ddgi_global_sky_filter_ppl
+            .as_ref()
+            .expect("DDGI sky filter pipeline requires the DDGI backend")
+            .record(
+                cmdbuf,
+                Extent3D::new(
+                    DDGI_IRRADIANCE_INTERIOR_SIDE,
+                    DDGI_IRRADIANCE_INTERIOR_SIDE,
+                    1,
+                ),
+                None,
+            );
+    }
+
+    fn record_ddgi_global_sky_gutter_pass(&self, cmdbuf: &CommandBuffer) {
+        self.compute_pipelines
+            .ddgi_octahedral_gutter_ppl
+            .as_ref()
+            .expect("DDGI gutter pipeline requires the DDGI backend")
+            .record(
+                cmdbuf,
+                Extent3D::new(DDGI_IRRADIANCE_STORED_SIDE, DDGI_IRRADIANCE_STORED_SIDE, 1),
                 None,
             );
     }

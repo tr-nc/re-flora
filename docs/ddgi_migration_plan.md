@@ -13,7 +13,10 @@ Implementation progress:
 - M0 is complete: the three static cases, fail-closed backend selector/readiness seam, pre-albedo
   float32 irradiance capture, deterministic capture analyzer, and six-configuration runner skeleton
   are in-tree.
-- M1 is the active implementation milestone.
+- M1 is complete: the deep host module, exact grid/atlas addressing, full-precision atlases,
+  batch-bounded transient ray storage, octahedral reference/gutter tests, and GPU-authored global
+  sky irradiance map are in-tree. The selected DDGI backend remains fail-closed while M2 is active.
+- M2 is the active implementation milestone.
 
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional

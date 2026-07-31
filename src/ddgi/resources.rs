@@ -85,6 +85,7 @@ pub struct DdgiVolumeStatus {
     pub visibility_layout: DdgiAtlasLayout,
     pub resource_bytes: DdgiResourceBytes,
     pub stage: DdgiVolumeStage,
+    pub global_sky_revision: u32,
 }
 
 impl DdgiVolumeStatus {
@@ -99,6 +100,7 @@ pub struct DdgiVolume {
     visibility_layout: DdgiAtlasLayout,
     resource_bytes: DdgiResourceBytes,
     stage: DdgiVolumeStage,
+    global_sky_revision: u32,
     pub ddgi_probe_metadata: Resource<Buffer>,
     pub ddgi_transient_ray_data: Resource<Buffer>,
     pub ddgi_irradiance_atlas: Resource<Texture>,
@@ -259,6 +261,7 @@ impl DdgiVolume {
             visibility_layout,
             resource_bytes,
             stage: DdgiVolumeStage::Allocated,
+            global_sky_revision: 0,
             ddgi_probe_metadata: Resource::new(probe_metadata),
             ddgi_transient_ray_data: Resource::new(transient_ray_data),
             ddgi_irradiance_atlas: Resource::new(irradiance_atlas),
@@ -274,6 +277,27 @@ impl DdgiVolume {
             visibility_layout: self.visibility_layout,
             resource_bytes: self.resource_bytes,
             stage: self.stage,
+            global_sky_revision: self.global_sky_revision,
+        }
+    }
+
+    pub fn global_sky_needs_update(&self, environment_revision: u32) -> bool {
+        self.global_sky_revision != environment_revision
+    }
+
+    pub fn mark_global_sky_ready(&mut self, environment_revision: u32) {
+        self.global_sky_revision = environment_revision;
+        self.stage = stage_after_global_sky_update(self.stage);
+    }
+}
+
+fn stage_after_global_sky_update(stage: DdgiVolumeStage) -> DdgiVolumeStage {
+    match stage {
+        DdgiVolumeStage::Allocated | DdgiVolumeStage::GlobalSkyReady => {
+            DdgiVolumeStage::GlobalSkyReady
+        }
+        DdgiVolumeStage::Relocated | DdgiVolumeStage::Rebuilding | DdgiVolumeStage::Ready => {
+            DdgiVolumeStage::Rebuilding
         }
     }
 }
@@ -353,7 +377,20 @@ mod tests {
                 DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap(),
             ),
             stage: DdgiVolumeStage::Allocated,
+            global_sky_revision: 0,
         };
         assert!(!status.is_ready());
+    }
+
+    #[test]
+    fn sky_update_preserves_initialization_but_invalidates_a_complete_volume() {
+        assert_eq!(
+            stage_after_global_sky_update(DdgiVolumeStage::Allocated),
+            DdgiVolumeStage::GlobalSkyReady
+        );
+        assert_eq!(
+            stage_after_global_sky_update(DdgiVolumeStage::Ready),
+            DdgiVolumeStage::Rebuilding
+        );
     }
 }

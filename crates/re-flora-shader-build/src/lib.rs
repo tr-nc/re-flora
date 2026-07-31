@@ -370,6 +370,18 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/ddgi/global_sky_filter.comp",
+        source_path: "shader/slang/ddgi_global_sky_filter.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/ddgi/octahedral_gutter.comp",
+        source_path: "shader/slang/ddgi_octahedral_gutter.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/tracer/environment_probe_classify.comp",
         source_path: "shader/slang/environment_probe_classify.slang",
         module_path: "shader/slang",
