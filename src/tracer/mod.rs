@@ -100,6 +100,10 @@ const ENVIRONMENT_PROBE_SUMMARY_BINDING: u32 = 19;
 const ENVIRONMENT_PROBE_VISIBILITY_BINDING: u32 = 20;
 const ENVIRONMENT_PROBE_DIRECTION_BINDING: u32 = 21;
 const ENVIRONMENT_PROBE_STATS_BINDING: u32 = 22;
+const DDGI_GLOBAL_SKY_BINDING: u32 = 23;
+const DDGI_PROBE_METADATA_BINDING: u32 = 24;
+const DDGI_IRRADIANCE_ATLAS_BINDING: u32 = 27;
+const DDGI_VISIBILITY_ATLAS_BINDING: u32 = 28;
 const ENVIRONMENT_PROBE_TRACE_BATCH_SIZE: u32 = 128;
 const ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE: u32 = 70;
 const ENVIRONMENT_PROBE_PRIORITY_REGION_RADIUS: u32 = 1;
@@ -739,16 +743,14 @@ impl Tracer {
             desc.voxel_dim_per_chunk,
             desc.environment_probe_spacing_voxels,
         )?;
-        let ddgi_volume = (desc.environment_lighting_backend == EnvironmentLightingBackend::Ddgi)
-            .then(|| {
-                DdgiVolume::new(
-                    &vulkan_ctx,
-                    allocator.clone(),
-                    chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
-                    desc.environment_probe_spacing_voxels,
-                )
-            })
-            .transpose()?;
+        // The temporary A/B selector shares shader modules, so both variants need valid DDGI
+        // descriptors. Only the selected DDGI backend schedules initialization or update work.
+        let ddgi_volume = Some(DdgiVolume::new(
+            &vulkan_ctx,
+            allocator.clone(),
+            chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
+            desc.environment_probe_spacing_voxels,
+        )?);
         let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
             vulkan_ctx.device().clone(),
             allocator.clone(),
@@ -1037,7 +1039,10 @@ impl Tracer {
             EnvironmentLightingBackend::LocalSh => {
                 self.environment_probe_terrain_revision_ready(revision)
             }
-            EnvironmentLightingBackend::Ddgi => false,
+            EnvironmentLightingBackend::Ddgi => self.ddgi_volume.as_ref().is_some_and(|volume| {
+                let status = volume.status();
+                status.is_ready() && status.relocated_terrain_revision == Some(revision)
+            }),
         }
     }
 
@@ -1396,13 +1401,17 @@ impl Tracer {
         contree_builder_resources: &'a ContreeBuilderResources,
         scene_accel_resources: &'a SceneAccelBuilderResources,
         plain_builder_resources: &'a PlainBuilderResources,
-    ) -> [&'a dyn ResourceContainer; 5] {
+    ) -> [&'a dyn ResourceContainer; 6] {
         [
             &self.resources as &dyn ResourceContainer,
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
             plain_builder_resources as &dyn ResourceContainer,
             &self.environment_probes as &dyn ResourceContainer,
+            self.ddgi_volume
+                .as_ref()
+                .expect("tracer descriptors require DDGI resources")
+                as &dyn ResourceContainer,
         ]
     }
 
@@ -1518,6 +1527,37 @@ impl Tracer {
         .flatten()
         {
             pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
+        }
+        self.compute_pipelines.tracer_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(
+                DDGI_PROBE_METADATA_BINDING,
+                &ddgi_volume.ddgi_probe_metadata,
+            ),
+        );
+        for (binding, texture) in [
+            (
+                DDGI_GLOBAL_SKY_BINDING,
+                &ddgi_volume.ddgi_global_sky_irradiance,
+            ),
+            (
+                DDGI_IRRADIANCE_ATLAS_BINDING,
+                &ddgi_volume.ddgi_irradiance_atlas,
+            ),
+            (
+                DDGI_VISIBILITY_ATLAS_BINDING,
+                &ddgi_volume.ddgi_visibility_atlas,
+            ),
+        ] {
+            self.compute_pipelines.tracer_ppl.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_texture_write(
+                    binding,
+                    vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    texture,
+                    TextureLayout::SHADER_READ_ONLY,
+                ),
+            );
         }
         Ok(())
     }
@@ -1785,6 +1825,11 @@ impl Tracer {
         )?;
 
         let environment_lighting = self.environment_lighting.update(sun_dir);
+        let ddgi_status = self
+            .ddgi_volume
+            .as_ref()
+            .expect("shading uniforms require DDGI resources")
+            .status();
         BufferUpdater::update_shading_info(
             &self.resources,
             environment_lighting,
@@ -1794,6 +1839,8 @@ impl Tracer {
             self.environment_lighting_backend,
             self.environment_lighting_backend_ready(),
             self.desc.environment_irradiance_capture_enabled,
+            ddgi_status.irradiance_layout.tile_grid().x,
+            ddgi_status.visibility_layout.tile_grid().x,
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;
 
@@ -2062,9 +2109,11 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
-        let ddgi_global_sky_needs_update = self.ddgi_volume.as_ref().is_some_and(|volume| {
-            volume.global_sky_needs_update(self.environment_probe_environment_revision)
-        });
+        let ddgi_global_sky_needs_update = self.environment_lighting_backend
+            == EnvironmentLightingBackend::Ddgi
+            && self.ddgi_volume.as_ref().is_some_and(|volume| {
+                volume.global_sky_needs_update(self.environment_probe_environment_revision)
+            });
         if ddgi_global_sky_needs_update {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -2206,7 +2255,23 @@ impl Tracer {
                 .as_mut()
                 .expect("DDGI filtering requires an allocated volume");
             volume.mark_ray_batch_filtered(batch);
-            let status = volume.status();
+            let mut status = volume.status();
+            if status.filtered_probe_count == status.grid.probe_count() {
+                volume.mark_ready();
+                status = volume.status();
+                log::info!(
+                    "[DDGI] volume ready probes={} terrain_revision={} environment_revision={} stage={:?}",
+                    status.grid.probe_count(),
+                    status.relocated_terrain_revision.unwrap_or_default(),
+                    status.global_sky_revision,
+                    status.stage,
+                );
+                log::info!(
+                    "[ENV_LIGHTING] backend={} ready=true terrain_revision={}",
+                    self.environment_lighting_backend.label(),
+                    status.relocated_terrain_revision.unwrap_or_default(),
+                );
+            }
             if batch.first_probe_index == 0
                 || status.filtered_probe_count == status.grid.probe_count()
                 || status.filtered_probe_count % 1_024 == 0

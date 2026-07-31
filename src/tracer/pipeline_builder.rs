@@ -546,6 +546,7 @@ impl PipelineBuilder {
                 scene_accel_resources,
                 plain_builder_resources,
                 environment_probes,
+                ddgi_volume.expect("tracer pipeline requires DDGI descriptor resources"),
             ],
         );
 

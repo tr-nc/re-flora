@@ -1,5 +1,6 @@
 import aabb;
 import contree_node;
+import ddgi_query;
 import environment_lighting;
 import marching_result;
 import packer;
@@ -146,8 +147,11 @@ void getPixelColor(out float3 color, out float depth,
 
     float3 albedo;
     parseTraceResult(albedo, result);
-    environmentIrradiance = sampleEnvironmentIrradiance(
-        shading_info, result.center_position, result.normal);
+    environmentIrradiance = shading_info.environment_lighting_backend == 1u
+        ? sampleDdgiDiffuseEnvironment(
+              shading_info, result.position, result.normal).irradiance
+        : sampleEnvironmentIrradiance(
+              shading_info, result.center_position, result.normal);
     color = environmentIrradiance * albedo;
     color += directLighting(albedo, result.normal, result.center_position);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,

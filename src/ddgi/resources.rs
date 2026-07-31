@@ -357,6 +357,17 @@ impl DdgiVolume {
 
     pub fn mark_global_sky_ready(&mut self, environment_revision: u32) {
         self.global_sky_revision = environment_revision;
+        if matches!(
+            self.stage,
+            DdgiVolumeStage::Relocated
+                | DdgiVolumeStage::RayBatchReady
+                | DdgiVolumeStage::AtlasReady
+                | DdgiVolumeStage::Rebuilding
+                | DdgiVolumeStage::Ready
+        ) {
+            self.next_probe_index = 0;
+            self.active_ray_batch = None;
+        }
         self.stage = stage_after_global_sky_update(self.stage);
     }
 
@@ -423,6 +434,12 @@ impl DdgiVolume {
         } else {
             DdgiVolumeStage::Rebuilding
         };
+    }
+
+    pub fn mark_ready(&mut self) {
+        assert_eq!(self.stage, DdgiVolumeStage::AtlasReady);
+        assert_eq!(self.next_probe_index, self.grid.probe_count());
+        self.stage = DdgiVolumeStage::Ready;
     }
 
     pub fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
