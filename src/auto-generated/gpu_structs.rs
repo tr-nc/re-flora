@@ -80,6 +80,13 @@ pub struct EnvironmentProbeSummaries {
     pub update_info: [u32; 4],
 }
 
+/// Auto-generated from `B_EnvironmentProbeVisibility` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct EnvironmentProbeVisibility {
+    pub packed_hit_distances: [u32; 32],
+}
+
 /// Auto-generated from `B_FloraVoxelInfos` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

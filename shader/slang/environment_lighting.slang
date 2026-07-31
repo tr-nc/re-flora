@@ -15,6 +15,11 @@ struct EnvironmentProbeCoefficients
     float4 coefficients[9];
 };
 
+struct EnvironmentProbeVisibility
+{
+    uint packed_hit_distances[32];
+};
+
 struct B_EnvironmentProbeSummaries
 {
     EnvironmentProbeSummary data[];
@@ -25,6 +30,11 @@ struct B_EnvironmentProbeCoefficients
     EnvironmentProbeCoefficients data[];
 };
 
+struct B_EnvironmentProbeVisibility
+{
+    EnvironmentProbeVisibility data[];
+};
+
 [[vk::binding(18, 0)]]
 readonly GLSLShaderStorageBuffer<B_EnvironmentProbeCoefficients, Std430DataLayout>
     environment_probe_coefficients;
@@ -33,7 +43,12 @@ readonly GLSLShaderStorageBuffer<B_EnvironmentProbeCoefficients, Std430DataLayou
 readonly GLSLShaderStorageBuffer<B_EnvironmentProbeSummaries, Std430DataLayout>
     environment_probe_summaries;
 
-static const uint ENVIRONMENT_PROBE_AXIAL_MISS_DISTANCE = 1023u;
+[[vk::binding(20, 0)]]
+readonly GLSLShaderStorageBuffer<B_EnvironmentProbeVisibility, Std430DataLayout>
+    environment_probe_visibility;
+
+static const uint ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE = 8u;
+static const uint ENVIRONMENT_PROBE_MISS_DISTANCE = 65535u;
 static const float ENVIRONMENT_PROBE_MAX_HIT_DISTANCE_WORLD = 4.0;
 
 // Sloan real-SH ordering adapted to the project's Y-up world:
@@ -111,38 +126,99 @@ float3 evaluateProbeEnvironmentIrradiance(uint probeIndex, float3 normal)
     return max(irradiance, float3(0.0));
 }
 
-uint environmentProbeAxialHitDistance(
-    EnvironmentProbeSummary summary,
-    uint directionIndex)
+float environmentProbeSignNotZero(float value)
 {
-    uint packed = directionIndex < 3u
-        ? summary.update_info.x
-        : summary.update_info.y;
-    uint packedIndex = directionIndex < 3u
-        ? directionIndex
-        : directionIndex - 3u;
-    return (packed >> (packedIndex * 10u)) & 0x3ffu;
+    return value >= 0.0 ? 1.0 : -1.0;
 }
 
-float environmentProbeAxialHitVisibility(
+float2 encodeEnvironmentProbeDirection(float3 direction)
+{
+    direction /= abs(direction.x) + abs(direction.y) + abs(direction.z);
+    float2 encoded = float2(direction.x, direction.z);
+    if (direction.y < 0.0)
+    {
+        float2 unfolded = encoded;
+        encoded.x = (1.0 - abs(unfolded.y)) *
+                    environmentProbeSignNotZero(unfolded.x);
+        encoded.y = (1.0 - abs(unfolded.x)) *
+                    environmentProbeSignNotZero(unfolded.y);
+    }
+    return encoded;
+}
+
+uint environmentProbeHitDistance(
+    EnvironmentProbeVisibility visibility,
+    uint directionIndex)
+{
+    uint packed = visibility.packed_hit_distances[directionIndex >> 1u];
+    return (directionIndex & 1u) == 0u
+        ? packed & 0xffffu
+        : packed >> 16u;
+}
+
+float environmentProbeHitVisibility(
     uint quantizedDistance,
     float distanceToSurface,
     float bias)
 {
-    if (quantizedDistance == ENVIRONMENT_PROBE_AXIAL_MISS_DISTANCE)
+    if (quantizedDistance == ENVIRONMENT_PROBE_MISS_DISTANCE)
         return 1.0;
 
     float hitDistance =
         float(quantizedDistance) /
-        float(ENVIRONMENT_PROBE_AXIAL_MISS_DISTANCE - 1u) *
+        float(ENVIRONMENT_PROBE_MISS_DISTANCE - 1u) *
         ENVIRONMENT_PROBE_MAX_HIT_DISTANCE_WORLD;
     float distancePastHit = distanceToSurface - hitDistance;
     return 1.0 - smoothstep(bias, bias * 3.0, distancePastHit);
 }
 
+float environmentProbeDirectionalVisibility(
+    EnvironmentProbeVisibility visibility,
+    float3 direction,
+    float distanceToSurface,
+    float bias)
+{
+    float2 encoded = encodeEnvironmentProbeDirection(direction);
+    float2 gridPosition = clamp(
+        (encoded * 0.5 + 0.5) *
+            float(ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE) - 0.5,
+        float2(0.0),
+        float2(float(ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE - 1u)));
+    uint2 base = uint2(floor(gridPosition));
+    uint2 next = min(
+        base + uint2(1u),
+        uint2(ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE - 1u));
+    float2 fraction = gridPosition - float2(base);
+
+    uint direction00 = base.x +
+        ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE * base.y;
+    uint direction10 = next.x +
+        ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE * base.y;
+    uint direction01 = base.x +
+        ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE * next.y;
+    uint direction11 = next.x +
+        ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE * next.y;
+    float visibility00 = environmentProbeHitVisibility(
+        environmentProbeHitDistance(visibility, direction00),
+        distanceToSurface, bias);
+    float visibility10 = environmentProbeHitVisibility(
+        environmentProbeHitDistance(visibility, direction10),
+        distanceToSurface, bias);
+    float visibility01 = environmentProbeHitVisibility(
+        environmentProbeHitDistance(visibility, direction01),
+        distanceToSurface, bias);
+    float visibility11 = environmentProbeHitVisibility(
+        environmentProbeHitDistance(visibility, direction11),
+        distanceToSurface, bias);
+    return lerp(
+        lerp(visibility00, visibility10, fraction.x),
+        lerp(visibility01, visibility11, fraction.x),
+        fraction.y);
+}
+
 float environmentProbeSurfaceVisibility(
     U_ShadingInfo lighting,
-    EnvironmentProbeSummary summary,
+    uint probeIndex,
     float3 probePosition,
     float3 worldPosition)
 {
@@ -152,26 +228,11 @@ float environmentProbeSurfaceVisibility(
     if (distanceToSurface <= bias) return 1.0;
 
     float3 direction = probeToSurface / distanceToSurface;
-    float3 axisWeights = abs(direction);
-    axisWeights *= axisWeights;
-    uint xDirectionIndex = direction.x >= 0.0 ? 0u : 1u;
-    uint yDirectionIndex = direction.y >= 0.0 ? 2u : 3u;
-    uint zDirectionIndex = direction.z >= 0.0 ? 4u : 5u;
-    float3 visibility = float3(
-        environmentProbeAxialHitVisibility(
-            environmentProbeAxialHitDistance(
-                summary, xDirectionIndex),
-            distanceToSurface, bias),
-        environmentProbeAxialHitVisibility(
-            environmentProbeAxialHitDistance(
-                summary, yDirectionIndex),
-            distanceToSurface, bias),
-        environmentProbeAxialHitVisibility(
-            environmentProbeAxialHitDistance(
-                summary, zDirectionIndex),
-            distanceToSurface, bias));
-    return dot(visibility, axisWeights) /
-           max(axisWeights.x + axisWeights.y + axisWeights.z, 1.0e-5);
+    return environmentProbeDirectionalVisibility(
+        environment_probe_visibility.data[probeIndex],
+        direction,
+        distanceToSurface,
+        bias);
 }
 
 public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
@@ -260,7 +321,7 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
                 normalWeight *= normalWeight;
                 float visibilityWeight = environmentProbeSurfaceVisibility(
                     lighting,
-                    summary,
+                    probeIndex,
                     probePosition,
                     worldPosition);
                 float trustWeight = normalWeight * visibilityWeight;

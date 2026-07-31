@@ -1221,6 +1221,10 @@ impl Tracer {
                 WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
             );
         }
+        self.compute_pipelines.tracer_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_VISIBILITY_BINDING, visibility),
+        );
         self.compute_pipelines
             .environment_probe_classify_ppl
             .write_descriptor_set(
@@ -1269,6 +1273,13 @@ impl Tracer {
             pipeline.write_descriptor_set(
                 0,
                 WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
+            );
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    ENVIRONMENT_PROBE_VISIBILITY_BINDING,
+                    visibility,
+                ),
             );
         }
     }

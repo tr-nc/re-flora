@@ -661,6 +661,18 @@ weighting changes the intended boundary region without replacing the overall lig
 run completed all 35,937 probes, saved the screenshot only after local-field readiness, reported no
 error, panic, or Vulkan validation message, and exited successfully.
 
+A later uniform-albedo regression scene exposed residual blue rectangular bands on the roofed
+chamber's back wall and wall/floor boundaries. The six-axis approximation could still trust a probe
+whose selected axial rays missed the intervening wall, even though the actual probe-to-surface
+direction was blocked. The consumer therefore now reads the existing 64-direction visibility
+record and bilinearly blends the four surrounding octahedral hit distances. This adds no tracing
+rays and preserves the surface-hemisphere and trusted-fallback rules. In
+`target/environment-lighting-directional-visibility.png`, the rectangular bands from the matching
+uniform-albedo baseline are gone while the valid circular opening remains lit. The 32-voxel field
+converged through terrain revision 3, the run reported no error, panic, or Vulkan validation
+message, and the application exited successfully. Performance was intentionally not used as an
+acceptance criterion for this correctness restoration and remains follow-up work.
+
 The step used:
 
 ```bash
