@@ -896,6 +896,18 @@ denoiser baseline, whose medians were 13,465/10,721 us; the current 32-voxel med
 6,146/4,339 us. The historical comparison spans an evolved scene and should be treated as
 architectural context, while the three density rows above are the matched production decision.
 
+### Deferred DDGI Terrain-Edit Relocation
+
+The first sky-only DDGI correctness milestone will run GPU probe classification and voxel-native
+relocation exactly once, after the initial terrain has finished building. Its deterministic test
+geometry must therefore reach its final state before the DDGI volume is initialized; runtime
+terrain edits are not part of this milestone's supported behavior.
+
+- [ ] After the static DDGI result is correct, add local GPU reclassification and re-relocation for
+  terrain edits. Expand edited bounds by the relocation search support, invalidate the affected
+  probe atlas tiles, retrace them, and define revision synchronization so consumers never mix stale
+  positions with new visibility data.
+
 ### Known Limitations
 
 - The field represents single-bounce authored environment visibility. It does not provide terrain
