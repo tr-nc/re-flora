@@ -42,6 +42,7 @@ Technical references used while building Re: Flora.
 ## Papers
 
 - [ReSTIR GI: Path Resampling for Real-Time Path Tracing](https://research.nvidia.com/publication/2021-06_restir-gi-path-resampling-real-time-path-tracing)
+- [DDGI reference set](references/ddgi/README.md) — primary-source PDFs and structured reading notes
 
 ## Rendering and Color Science
 
