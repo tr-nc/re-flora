@@ -1083,7 +1083,7 @@ impl App {
         let camera_snapshot_draft_name = camera_snapshots.unique_name("snapshot");
 
         let editable_center = INITIAL_EDITABLE_TERRAIN_BOUNDS.center();
-        let debug_tree_pos = if options.environment_lighting_test_scene {
+        let debug_tree_pos = if options.environment_lighting_test_scene.is_some() {
             environment_lighting_test_scene::STARTUP_TREE_POSITION
         } else if options.hybrid_transparency_test_scene {
             hybrid_transparency_test_scene::STARTUP_TREE_POSITION
@@ -1339,7 +1339,7 @@ impl App {
             water_edit_soak: options.water_edit_soak.then(water::WaterEditSoak::default),
             environment_lighting_test_scene: options
                 .environment_lighting_test_scene
-                .then(environment_lighting_test_scene::EnvironmentLightingTestScene::new),
+                .map(environment_lighting_test_scene::EnvironmentLightingTestScene::new),
             hybrid_transparency_test_scene: options
                 .hybrid_transparency_test_scene
                 .then(hybrid_transparency_test_scene::HybridTransparencyTestScene::new),
@@ -1358,7 +1358,7 @@ impl App {
         app.apply_effective_master_volume_gain("Failed to apply initial master volume");
 
         app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
-        if options.environment_lighting_test_scene {
+        if options.environment_lighting_test_scene.is_some() {
             app.configure_environment_lighting_test_scene_camera();
         }
         app.sync_cursor_with_panels();

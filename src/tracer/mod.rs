@@ -914,10 +914,6 @@ impl Tracer {
         revision != 0 && self.environment_probe_converged_terrain_revision == revision
     }
 
-    pub fn environment_probe_revision(&self) -> u32 {
-        self.environment_probe_environment_revision
-    }
-
     pub fn environment_probe_visualization_settings(
         &self,
     ) -> EnvironmentProbeVisualizationSettings {

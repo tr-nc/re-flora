@@ -2,86 +2,56 @@ use super::App;
 use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldEditPlan};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK};
 use crate::geom::{build_bvh, Cuboid, UAabb3};
+use crate::EnvironmentLightingTestCase;
 use anyhow::{Context, Result};
 use glam::{UVec3, Vec3};
 
 const BUILD_DELAY_SECONDS: f32 = 0.5;
 const SETTLE_FRAMES: u8 = 2;
-
-const CAMERA_POSITION: Vec3 = Vec3::new(0.65, 0.58, 1.72);
-const CAMERA_TARGET: Vec3 = Vec3::new(0.65, 0.70, 1.02);
 const TEST_TIME_OF_DAY: f32 = 0.455_705;
-const TEST_REFRESH_TIME_OF_DAY: f32 = 0.535_705;
 const TEST_VOXEL_COLOR_VARIANCE: f32 = 0.0;
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 0.62);
 
-const ROOFED_SHELL_MIN: Vec3 = Vec3::new(96.0, 84.0, 216.0);
-const ROOFED_SHELL_MAX: Vec3 = Vec3::new(238.0, 236.0, 392.0);
-const ROOFED_INTERIOR_MIN: Vec3 = Vec3::new(112.0, 100.0, 242.0);
-const ROOFED_INTERIOR_MAX: Vec3 = Vec3::new(222.0, 216.0, 400.0);
+const SHELL_MIN: Vec3 = Vec3::new(96.0, 84.0, 216.0);
+const SHELL_MAX: Vec3 = Vec3::new(238.0, 236.0, 392.0);
+const INTERIOR_MIN: Vec3 = Vec3::new(112.0, 100.0, 242.0);
+const INTERIOR_MAX: Vec3 = Vec3::new(222.0, 216.0, 376.0);
+const SKYLIGHT_MIN: Vec3 = Vec3::new(144.0, 216.0, 270.0);
+const SKYLIGHT_MAX: Vec3 = Vec3::new(192.0, 244.0, 334.0);
 
-const OPEN_FLOOR_MIN: Vec3 = Vec3::new(274.0, 84.0, 216.0);
-const OPEN_FLOOR_MAX: Vec3 = Vec3::new(416.0, 100.0, 392.0);
-const OPEN_BACK_MIN: Vec3 = Vec3::new(274.0, 100.0, 216.0);
-const OPEN_BACK_MAX: Vec3 = Vec3::new(416.0, 236.0, 242.0);
-const OPEN_LEFT_WALL_MIN: Vec3 = Vec3::new(274.0, 100.0, 216.0);
-const OPEN_LEFT_WALL_MAX: Vec3 = Vec3::new(290.0, 196.0, 392.0);
-const OPEN_RIGHT_WALL_MIN: Vec3 = Vec3::new(400.0, 100.0, 216.0);
-const OPEN_RIGHT_WALL_MAX: Vec3 = Vec3::new(416.0, 196.0, 392.0);
+const WALLS_FLOOR_MIN: Vec3 = Vec3::new(80.0, 84.0, 208.0);
+const WALLS_FLOOR_MAX: Vec3 = Vec3::new(432.0, 100.0, 408.0);
+const WALLS_BACK_MIN: Vec3 = Vec3::new(80.0, 100.0, 208.0);
+const WALLS_BACK_MAX: Vec3 = Vec3::new(432.0, 236.0, 224.0);
+const ONE_VOXEL_WALL_MIN: Vec3 = Vec3::new(96.0, 100.0, 300.0);
+const ONE_VOXEL_WALL_MAX: Vec3 = Vec3::new(192.0, 196.0, 301.0);
+const TWO_VOXEL_WALL_MIN: Vec3 = Vec3::new(208.0, 100.0, 300.0);
+const TWO_VOXEL_WALL_MAX: Vec3 = Vec3::new(304.0, 196.0, 302.0);
 
-const ROOFED_PLINTH_MIN: Vec3 = Vec3::new(148.0, 100.0, 278.0);
-const ROOFED_PLINTH_MAX: Vec3 = Vec3::new(184.0, 124.0, 326.0);
-const OPEN_PLINTH_MIN: Vec3 = Vec3::new(326.0, 100.0, 278.0);
-const OPEN_PLINTH_MAX: Vec3 = Vec3::new(362.0, 124.0, 326.0);
-
-const ROOF_SKYLIGHT_MIN: Vec3 = Vec3::new(144.0, 216.0, 270.0);
-const ROOF_SKYLIGHT_MAX: Vec3 = Vec3::new(192.0, 236.0, 334.0);
-const ROOF_SKYLIGHT_REBUILD_MIN: UVec3 = UVec3::new(136, 208, 262);
-const ROOF_SKYLIGHT_REBUILD_MAX: UVec3 = UVec3::new(200, 244, 342);
-
-const GALLERY_REBUILD_MIN: UVec3 = UVec3::new(88, 76, 208);
-const GALLERY_REBUILD_MAX: UVec3 = UVec3::new(424, 244, 408);
+const TEST_REBUILD_MIN: UVec3 = UVec3::new(72, 76, 200);
+const TEST_REBUILD_MAX: UVec3 = UVec3::new(440, 244, 416);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TestScenePhase {
     Pending,
     WaitingForRebuild,
-    Settling {
-        frames: u8,
-        terrain_revision: u32,
-    },
-    WaitingForInitialProbeField {
-        terrain_revision: u32,
-    },
-    WaitingForEnvironmentRefresh {
-        previous_revision: u32,
-        settle_frames: u8,
-    },
-    WaitingForRoofOpeningRebuild {
-        terrain_revision: u32,
-    },
-    WaitingForRoofOpeningProbeField {
-        terrain_revision: u32,
-    },
-    WaitingForRoofClosureRebuild {
-        terrain_revision: u32,
-    },
-    WaitingForRoofClosureProbeField {
-        terrain_revision: u32,
-    },
+    Settling { frames: u8, terrain_revision: u32 },
+    WaitingForProbeField { terrain_revision: u32 },
     Ready,
     Failed,
 }
 
 #[derive(Debug)]
 pub(super) struct EnvironmentLightingTestScene {
+    case: EnvironmentLightingTestCase,
     phase: TestScenePhase,
 }
 
 impl EnvironmentLightingTestScene {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(case: EnvironmentLightingTestCase) -> Self {
         Self {
+            case,
             phase: TestScenePhase::Pending,
         }
     }
@@ -93,54 +63,75 @@ impl EnvironmentLightingTestScene {
 
 struct TestSceneGeometry {
     cleared_startup_obstacle: Vec<Cuboid>,
-    base_rock: Vec<Cuboid>,
+    rock: Vec<Cuboid>,
     carved_empty: Vec<Cuboid>,
-    comparison_rock: Vec<Cuboid>,
     startup_obstacle_rebuild_bound: UAabb3,
-    gallery_rebuild_bound: UAabb3,
+    test_rebuild_bound: UAabb3,
 }
 
 impl TestSceneGeometry {
-    fn build() -> Self {
+    fn build(case: EnvironmentLightingTestCase) -> Self {
         let (startup_obstacle_min, startup_obstacle_max) = App::debug_startup_block_bounds();
         let startup_obstacle = Cuboid::from_min_max(startup_obstacle_min, startup_obstacle_max);
         let startup_obstacle_aabb = startup_obstacle.aabb();
+
+        let (rock, carved_empty) = match case {
+            EnvironmentLightingTestCase::Sealed => (
+                vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
+                vec![Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX)],
+            ),
+            EnvironmentLightingTestCase::Portal => (
+                vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
+                vec![
+                    Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX),
+                    Cuboid::from_min_max(SKYLIGHT_MIN, SKYLIGHT_MAX),
+                ],
+            ),
+            EnvironmentLightingTestCase::Walls => {
+                let mut rock = vec![
+                    Cuboid::from_min_max(WALLS_FLOOR_MIN, WALLS_FLOOR_MAX),
+                    Cuboid::from_min_max(WALLS_BACK_MIN, WALLS_BACK_MAX),
+                    Cuboid::from_min_max(ONE_VOXEL_WALL_MIN, ONE_VOXEL_WALL_MAX),
+                    Cuboid::from_min_max(TWO_VOXEL_WALL_MIN, TWO_VOXEL_WALL_MAX),
+                ];
+                for step in 0..12 {
+                    let x = 320.0 + step as f32 * 8.0;
+                    let z = 276.0 + step as f32 * 3.0;
+                    rock.push(Cuboid::from_min_max(
+                        Vec3::new(x, 100.0, z),
+                        Vec3::new(x + 8.0, 196.0, z + 1.0),
+                    ));
+                }
+                (rock, Vec::new())
+            }
+        };
+
         Self {
             cleared_startup_obstacle: vec![startup_obstacle],
-            base_rock: vec![
-                Cuboid::from_min_max(ROOFED_SHELL_MIN, ROOFED_SHELL_MAX),
-                Cuboid::from_min_max(OPEN_FLOOR_MIN, OPEN_FLOOR_MAX),
-                Cuboid::from_min_max(OPEN_BACK_MIN, OPEN_BACK_MAX),
-                Cuboid::from_min_max(OPEN_LEFT_WALL_MIN, OPEN_LEFT_WALL_MAX),
-                Cuboid::from_min_max(OPEN_RIGHT_WALL_MIN, OPEN_RIGHT_WALL_MAX),
-            ],
-            carved_empty: vec![Cuboid::from_min_max(
-                ROOFED_INTERIOR_MIN,
-                ROOFED_INTERIOR_MAX,
-            )],
-            comparison_rock: vec![
-                Cuboid::from_min_max(ROOFED_PLINTH_MIN, ROOFED_PLINTH_MAX),
-                Cuboid::from_min_max(OPEN_PLINTH_MIN, OPEN_PLINTH_MAX),
-            ],
+            rock,
+            carved_empty,
             startup_obstacle_rebuild_bound: UAabb3::new(
                 startup_obstacle_aabb.min_uvec3(),
                 startup_obstacle_aabb.max_uvec3(),
             ),
-            gallery_rebuild_bound: UAabb3::new(GALLERY_REBUILD_MIN, GALLERY_REBUILD_MAX),
+            test_rebuild_bound: UAabb3::new(TEST_REBUILD_MIN, TEST_REBUILD_MAX),
         }
     }
 
     fn compile(self) -> Result<WorldEditPlan> {
+        let mut voxel_edits = vec![stamp_cuboids(
+            self.cleared_startup_obstacle,
+            VOXEL_TYPE_EMPTY,
+        )?];
+        voxel_edits.push(stamp_cuboids(self.rock, VOXEL_TYPE_ROCK)?);
+        if !self.carved_empty.is_empty() {
+            voxel_edits.push(stamp_cuboids(self.carved_empty, VOXEL_TYPE_EMPTY)?);
+        }
         Ok(WorldEditPlan {
-            voxel_edits: vec![
-                stamp_cuboids(self.cleared_startup_obstacle, VOXEL_TYPE_EMPTY)?,
-                stamp_cuboids(self.base_rock, VOXEL_TYPE_ROCK)?,
-                stamp_cuboids(self.carved_empty, VOXEL_TYPE_EMPTY)?,
-                stamp_cuboids(self.comparison_rock, VOXEL_TYPE_ROCK)?,
-            ],
+            voxel_edits,
             build_edits: vec![
                 BuildEdit::RebuildMesh(self.startup_obstacle_rebuild_bound),
-                BuildEdit::RebuildMesh(self.gallery_rebuild_bound),
+                BuildEdit::RebuildMesh(self.test_rebuild_bound),
             ],
         })
     }
@@ -157,39 +148,47 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     })
 }
 
-fn roof_skylight_plan(voxel_type: u32) -> Result<WorldEditPlan> {
-    Ok(WorldEditPlan::with_voxel_and_build(
-        stamp_cuboids(
-            vec![Cuboid::from_min_max(ROOF_SKYLIGHT_MIN, ROOF_SKYLIGHT_MAX)],
-            voxel_type,
-        )?,
-        BuildEdit::RebuildMesh(UAabb3::new(
-            ROOF_SKYLIGHT_REBUILD_MIN,
-            ROOF_SKYLIGHT_REBUILD_MAX,
-        )),
-    ))
+fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
+    match case {
+        EnvironmentLightingTestCase::Sealed => {
+            (Vec3::new(0.65, 0.58, 1.38), Vec3::new(0.65, 0.64, 1.02))
+        }
+        EnvironmentLightingTestCase::Portal => {
+            (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
+        }
+        EnvironmentLightingTestCase::Walls => {
+            (Vec3::new(1.00, 0.62, 1.76), Vec3::new(1.00, 0.58, 1.10))
+        }
+    }
 }
 
 impl App {
     pub(super) fn configure_environment_lighting_test_scene_camera(&mut self) {
+        let case = self
+            .environment_lighting_test_scene
+            .as_ref()
+            .expect("test scene camera requires test scene")
+            .case;
+        let (camera_position, camera_target) = camera_pose(case);
         self.current_time_of_day = TEST_TIME_OF_DAY;
         self.debug_settings.adjustables.time_of_day.value = TEST_TIME_OF_DAY;
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
         self.debug_settings.adjustables.voxel_color_variance.value = TEST_VOXEL_COLOR_VARIANCE;
-        self.orbit_camera_focus = CAMERA_TARGET;
+        self.orbit_camera_focus = camera_target;
         if self
             .tracer
-            .set_camera_pose_looking_at(CAMERA_POSITION, CAMERA_TARGET)
+            .set_camera_pose_looking_at(camera_position, camera_target)
         {
             self.request_vsm_history_reset();
             log::info!(
-                "[ENV_LIGHT_TEST] camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} auto_cycle=false voxel_color_variance={:.3}",
-                CAMERA_POSITION.x,
-                CAMERA_POSITION.y,
-                CAMERA_POSITION.z,
-                CAMERA_TARGET.x,
-                CAMERA_TARGET.y,
-                CAMERA_TARGET.z,
+                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} auto_cycle=false voxel_color_variance={:.3}",
+                case.label(),
+                camera_position.x,
+                camera_position.y,
+                camera_position.z,
+                camera_target.x,
+                camera_target.y,
+                camera_target.z,
                 TEST_TIME_OF_DAY,
                 TEST_VOXEL_COLOR_VARIANCE,
             );
@@ -199,15 +198,15 @@ impl App {
     }
 
     pub(super) fn process_environment_lighting_test_scene(&mut self) {
-        let Some(phase) = self
+        let Some((case, phase)) = self
             .environment_lighting_test_scene
             .as_ref()
-            .map(|scene| scene.phase)
+            .map(|scene| (scene.case, scene.phase))
         else {
             return;
         };
 
-        match phase {
+        let next_phase = match phase {
             TestScenePhase::Pending => {
                 let Some(render_start) = self.render_start_time else {
                     return;
@@ -219,18 +218,20 @@ impl App {
                 }
 
                 log::info!(
-                    "[ENV_LIGHT_TEST] constructing roofed and open terrain bays with voxel edits"
+                    "[ENV_LIGHT_TEST] constructing static case={} before probe initialization",
+                    case.label(),
                 );
-                let result = TestSceneGeometry::build()
+                match TestSceneGeometry::build(case)
                     .compile()
                     .context("compile deterministic environment-lighting test scene")
-                    .and_then(|plan| self.execute_edit_plan(plan));
-                let next_phase = match result {
+                    .and_then(|plan| self.execute_edit_plan(plan))
+                {
                     Ok(()) => {
                         log::info!(
-                            "[ENV_LIGHT_TEST] edits applied gallery_rebuild_voxel_bound={:?}..{:?}",
-                            GALLERY_REBUILD_MIN,
-                            GALLERY_REBUILD_MAX,
+                            "[ENV_LIGHT_TEST] static edits applied case={} rebuild_voxel_bound={:?}..{:?}",
+                            case.label(),
+                            TEST_REBUILD_MIN,
+                            TEST_REBUILD_MAX,
                         );
                         TestScenePhase::WaitingForRebuild
                     }
@@ -238,193 +239,58 @@ impl App {
                         log::error!("[ENV_LIGHT_TEST] construction failed: {err:#}");
                         TestScenePhase::Failed
                     }
-                };
-                self.environment_lighting_test_scene
-                    .as_mut()
-                    .expect("test scene state disappeared")
-                    .phase = next_phase;
+                }
             }
             TestScenePhase::WaitingForRebuild => {
-                if self.deferred_chunk_rebuilds_idle() {
-                    let terrain_revision = self.tracer.environment_probe_terrain_revision();
-                    log::info!(
-                        "[ENV_LIGHT_TEST] terrain rebuild complete; automatic probe invalidation revision={}; settling {} frames",
-                        terrain_revision,
-                        SETTLE_FRAMES,
-                    );
-                    self.environment_lighting_test_scene
-                        .as_mut()
-                        .expect("test scene state disappeared")
-                        .phase = TestScenePhase::Settling {
-                        frames: SETTLE_FRAMES,
-                        terrain_revision,
-                    };
+                if !self.deferred_chunk_rebuilds_idle() {
+                    return;
+                }
+                let terrain_revision = self.tracer.environment_probe_terrain_revision();
+                log::info!(
+                    "[ENV_LIGHT_TEST] static terrain ready case={} terrain_revision={} settling_frames={}",
+                    case.label(),
+                    terrain_revision,
+                    SETTLE_FRAMES,
+                );
+                TestScenePhase::Settling {
+                    frames: SETTLE_FRAMES,
+                    terrain_revision,
                 }
             }
             TestScenePhase::Settling {
                 frames,
                 terrain_revision,
             } => {
-                let next_phase = if frames > 1 {
+                if frames > 1 {
                     TestScenePhase::Settling {
                         frames: frames - 1,
                         terrain_revision,
                     }
                 } else {
-                    log::info!(
-                        "[ENV_LIGHT_TEST] terrain scene settled; waiting for probe terrain revision={}",
-                        terrain_revision,
-                    );
-                    TestScenePhase::WaitingForInitialProbeField { terrain_revision }
-                };
-                self.environment_lighting_test_scene
-                    .as_mut()
-                    .expect("test scene state disappeared")
-                    .phase = next_phase;
+                    TestScenePhase::WaitingForProbeField { terrain_revision }
+                }
             }
-            TestScenePhase::WaitingForInitialProbeField { terrain_revision } => {
+            TestScenePhase::WaitingForProbeField { terrain_revision } => {
                 if !self
                     .tracer
                     .environment_probe_terrain_revision_ready(terrain_revision)
                 {
                     return;
                 }
-
-                let previous_revision = self.tracer.environment_probe_revision();
-                self.current_time_of_day = TEST_REFRESH_TIME_OF_DAY;
-                self.debug_settings.adjustables.time_of_day.value = TEST_REFRESH_TIME_OF_DAY;
-                self.request_vsm_history_reset();
                 log::info!(
-                    "[ENV_LIGHT_TEST] requested deterministic environment refresh time_of_day={:.6} previous_revision={} expected_terrain_rays=0",
-                    TEST_REFRESH_TIME_OF_DAY,
-                    previous_revision,
-                );
-                self.environment_lighting_test_scene
-                    .as_mut()
-                    .expect("test scene state disappeared")
-                    .phase = TestScenePhase::WaitingForEnvironmentRefresh {
-                    previous_revision,
-                    settle_frames: SETTLE_FRAMES,
-                };
-            }
-            TestScenePhase::WaitingForEnvironmentRefresh {
-                previous_revision,
-                settle_frames,
-            } => {
-                let current_revision = self.tracer.environment_probe_revision();
-                if current_revision == previous_revision {
-                    return;
-                }
-                let next_phase = if settle_frames > 1 {
-                    TestScenePhase::WaitingForEnvironmentRefresh {
-                        previous_revision,
-                        settle_frames: settle_frames - 1,
-                    }
-                } else {
-                    log::info!(
-                        "[ENV_LIGHT_TEST] environment refresh complete revision={}; opening deterministic roof skylight",
-                        current_revision,
-                    );
-                    match roof_skylight_plan(VOXEL_TYPE_EMPTY)
-                        .and_then(|plan| self.execute_edit_plan(plan))
-                    {
-                        Ok(()) => {
-                            let terrain_revision = self.tracer.environment_probe_terrain_revision();
-                            log::info!(
-                                "[ENV_LIGHT_TEST] roof skylight opened; waiting for terrain rebuild and probe revision={}",
-                                terrain_revision,
-                            );
-                            TestScenePhase::WaitingForRoofOpeningRebuild { terrain_revision }
-                        }
-                        Err(err) => {
-                            log::error!("[ENV_LIGHT_TEST] failed to open roof skylight: {err:#}");
-                            TestScenePhase::Failed
-                        }
-                    }
-                };
-                self.environment_lighting_test_scene
-                    .as_mut()
-                    .expect("test scene state disappeared")
-                    .phase = next_phase;
-            }
-            TestScenePhase::WaitingForRoofOpeningRebuild { terrain_revision } => {
-                if self.deferred_chunk_rebuilds_idle() {
-                    log::info!(
-                        "[ENV_LIGHT_TEST] roof-opening rebuild complete; waiting for probe revision={}",
-                        terrain_revision,
-                    );
-                    self.environment_lighting_test_scene
-                        .as_mut()
-                        .expect("test scene state disappeared")
-                        .phase =
-                        TestScenePhase::WaitingForRoofOpeningProbeField { terrain_revision };
-                }
-            }
-            TestScenePhase::WaitingForRoofOpeningProbeField { terrain_revision } => {
-                if !self
-                    .tracer
-                    .environment_probe_terrain_revision_ready(terrain_revision)
-                {
-                    return;
-                }
-
-                log::info!(
-                    "[ENV_LIGHT_TEST] roof-opening probe refresh converged revision={}; closing skylight",
+                    "[ENV_LIGHT_TEST] ready case={} terrain_revision={} geometry=static",
+                    case.label(),
                     terrain_revision,
                 );
-                let next_phase = match roof_skylight_plan(VOXEL_TYPE_ROCK)
-                    .and_then(|plan| self.execute_edit_plan(plan))
-                {
-                    Ok(()) => {
-                        let terrain_revision = self.tracer.environment_probe_terrain_revision();
-                        log::info!(
-                            "[ENV_LIGHT_TEST] roof skylight closed; waiting for terrain rebuild and probe revision={}",
-                            terrain_revision,
-                        );
-                        TestScenePhase::WaitingForRoofClosureRebuild { terrain_revision }
-                    }
-                    Err(err) => {
-                        log::error!("[ENV_LIGHT_TEST] failed to close roof skylight: {err:#}");
-                        TestScenePhase::Failed
-                    }
-                };
-                self.environment_lighting_test_scene
-                    .as_mut()
-                    .expect("test scene state disappeared")
-                    .phase = next_phase;
+                TestScenePhase::Ready
             }
-            TestScenePhase::WaitingForRoofClosureRebuild { terrain_revision } => {
-                if self.deferred_chunk_rebuilds_idle() {
-                    log::info!(
-                        "[ENV_LIGHT_TEST] roof-closure rebuild complete; waiting for probe revision={}",
-                        terrain_revision,
-                    );
-                    self.environment_lighting_test_scene
-                        .as_mut()
-                        .expect("test scene state disappeared")
-                        .phase =
-                        TestScenePhase::WaitingForRoofClosureProbeField { terrain_revision };
-                }
-            }
-            TestScenePhase::WaitingForRoofClosureProbeField { terrain_revision } => {
-                if !self
-                    .tracer
-                    .environment_probe_terrain_revision_ready(terrain_revision)
-                {
-                    return;
-                }
+            TestScenePhase::Ready | TestScenePhase::Failed => return,
+        };
 
-                log::info!(
-                    "[ENV_LIGHT_TEST] ready roof_closure_probe_revision={} roofed_sample_ws=(0.648,0.438,1.180) open_sample_ws=(1.344,0.438,1.180)",
-                    terrain_revision,
-                );
-                self.environment_lighting_test_scene
-                    .as_mut()
-                    .expect("test scene state disappeared")
-                    .phase = TestScenePhase::Ready;
-            }
-            TestScenePhase::Ready | TestScenePhase::Failed => {}
-        }
+        self.environment_lighting_test_scene
+            .as_mut()
+            .expect("test scene state disappeared")
+            .phase = next_phase;
     }
 }
 
@@ -433,53 +299,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn roofed_carve_stays_inside_shell_except_for_open_front() {
-        assert!(ROOFED_INTERIOR_MIN.cmpgt(ROOFED_SHELL_MIN).all());
-        assert!(ROOFED_INTERIOR_MAX.x < ROOFED_SHELL_MAX.x);
-        assert!(ROOFED_INTERIOR_MAX.y < ROOFED_SHELL_MAX.y);
-        assert!(ROOFED_INTERIOR_MAX.z > ROOFED_SHELL_MAX.z);
+    fn sealed_interior_stays_inside_shell() {
+        assert!(INTERIOR_MIN.cmpgt(SHELL_MIN).all());
+        assert!(INTERIOR_MAX.cmplt(SHELL_MAX).all());
     }
 
     #[test]
-    fn open_and_roofed_plinths_have_matching_dimensions_and_height() {
-        assert_eq!(
-            ROOFED_PLINTH_MAX - ROOFED_PLINTH_MIN,
-            OPEN_PLINTH_MAX - OPEN_PLINTH_MIN
-        );
-        assert_eq!(ROOFED_PLINTH_MIN.y, OPEN_PLINTH_MIN.y);
-        assert_eq!(ROOFED_PLINTH_MAX.y, OPEN_PLINTH_MAX.y);
+    fn portal_only_breaks_through_the_roof() {
+        assert!(SKYLIGHT_MIN.x > INTERIOR_MIN.x);
+        assert!(SKYLIGHT_MAX.x < INTERIOR_MAX.x);
+        assert_eq!(SKYLIGHT_MIN.y, INTERIOR_MAX.y);
+        assert!(SKYLIGHT_MAX.y > SHELL_MAX.y);
+        assert!(SKYLIGHT_MIN.z > INTERIOR_MIN.z);
+        assert!(SKYLIGHT_MAX.z < INTERIOR_MAX.z);
     }
 
     #[test]
-    fn test_scene_plan_is_bounded_and_uses_focused_rebuilds() {
-        let plan = TestSceneGeometry::build().compile().unwrap();
-
-        assert_eq!(plan.voxel_edits.len(), 4);
-        assert_eq!(plan.build_edits.len(), 2);
-        assert!(plan.build_edits.iter().all(|edit| {
-            matches!(
-                edit,
-                BuildEdit::RebuildMesh(bound)
-                    if bound.max().cmple(UVec3::splat(512)).all()
-            )
-        }));
+    fn thin_wall_cases_have_exact_voxel_thicknesses() {
+        assert_eq!(ONE_VOXEL_WALL_MAX.z - ONE_VOXEL_WALL_MIN.z, 1.0);
+        assert_eq!(TWO_VOXEL_WALL_MAX.z - TWO_VOXEL_WALL_MIN.z, 2.0);
     }
 
     #[test]
-    fn roof_skylight_is_a_bounded_edit_inside_the_roof() {
-        assert!(ROOF_SKYLIGHT_MIN.cmpge(ROOFED_SHELL_MIN).all());
-        assert!(ROOF_SKYLIGHT_MAX.cmple(ROOFED_SHELL_MAX).all());
-        assert!(ROOF_SKYLIGHT_MIN.y >= ROOFED_INTERIOR_MAX.y);
-
-        let plan = roof_skylight_plan(VOXEL_TYPE_EMPTY).unwrap();
-        assert_eq!(plan.voxel_edits.len(), 1);
-        assert!(matches!(
-            plan.build_edits.as_slice(),
-            [BuildEdit::RebuildMesh(bound)]
-                if *bound == UAabb3::new(
-                    ROOF_SKYLIGHT_REBUILD_MIN,
-                    ROOF_SKYLIGHT_REBUILD_MAX,
+    fn all_test_scene_plans_are_static_and_bounded() {
+        for case in [
+            EnvironmentLightingTestCase::Sealed,
+            EnvironmentLightingTestCase::Portal,
+            EnvironmentLightingTestCase::Walls,
+        ] {
+            let plan = TestSceneGeometry::build(case).compile().unwrap();
+            assert!(plan.voxel_edits.len() >= 2);
+            assert_eq!(plan.build_edits.len(), 2);
+            assert!(plan.build_edits.iter().all(|edit| {
+                matches!(
+                    edit,
+                    BuildEdit::RebuildMesh(bound)
+                        if bound.max().cmple(UVec3::splat(512)).all()
                 )
-        ));
+            }));
+        }
     }
 }

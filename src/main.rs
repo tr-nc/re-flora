@@ -27,8 +27,8 @@ mod window;
 
 use app::AppController;
 pub use cli::{
-    AppOptions, DenoiserBenchOptions, MonitorScorePreference, PresentModePreference, RenderFlags,
-    WaterProfilePreference,
+    AppOptions, DenoiserBenchOptions, EnvironmentLightingTestCase, MonitorScorePreference,
+    PresentModePreference, RenderFlags, WaterProfilePreference,
 };
 use env_logger::{Env, Target};
 use std::{

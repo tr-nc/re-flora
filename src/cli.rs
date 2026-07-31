@@ -34,6 +34,33 @@ pub enum MonitorScorePreference {
     Lowest,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EnvironmentLightingTestCase {
+    #[default]
+    Sealed,
+    Portal,
+    Walls,
+}
+
+impl EnvironmentLightingTestCase {
+    fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "sealed" => Some(Self::Sealed),
+            "portal" => Some(Self::Portal),
+            "walls" => Some(Self::Walls),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Sealed => "sealed",
+            Self::Portal => "portal",
+            Self::Walls => "walls",
+        }
+    }
+}
+
 impl PresentModePreference {
     fn from_cli_value(value: &str) -> Option<Self> {
         match value {
@@ -147,8 +174,8 @@ pub struct AppOptions {
     pub water_j_min: Option<f32>,
     /// Run a deterministic terrain-edit soak around the pond for water validation.
     pub water_edit_soak: bool,
-    /// Build a deterministic terrain gallery for environment-lighting and probe validation.
-    pub environment_lighting_test_scene: bool,
+    /// Build one deterministic static terrain case for environment-lighting validation.
+    pub environment_lighting_test_scene: Option<EnvironmentLightingTestCase>,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
     pub hybrid_transparency_test_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
@@ -266,6 +293,7 @@ impl AppOptions {
             }
             None => DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS,
         };
+        let environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
 
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
@@ -342,9 +370,7 @@ impl AppOptions {
             water_gamma: parse_f32_after("--water-gamma").map(|v| v.max(1.0e-4)),
             water_j_min: parse_f32_after("--water-j-min").map(|v| v.clamp(1.0e-4, 1.0)),
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
-            environment_lighting_test_scene: args
-                .iter()
-                .any(|a| a == "--environment-lighting-test-scene"),
+            environment_lighting_test_scene,
             hybrid_transparency_test_scene: args
                 .iter()
                 .any(|a| a == "--hybrid-transparency-test-scene"),
@@ -404,6 +430,36 @@ fn parse_denoiser_bench_request(
                 .any(|arg| arg == "--denoiser-bench-camera-motion"),
         },
     )))
+}
+
+fn parse_environment_lighting_test_scene(
+    args: &[String],
+) -> Result<Option<EnvironmentLightingTestCase>, String> {
+    let indices = args
+        .iter()
+        .enumerate()
+        .filter_map(|(index, arg)| (arg == "--environment-lighting-test-scene").then_some(index))
+        .collect::<Vec<_>>();
+    if indices.is_empty() {
+        return Ok(None);
+    }
+    if indices.len() > 1 {
+        return Err("Only one --environment-lighting-test-scene is supported.".to_owned());
+    }
+
+    let value = args
+        .get(indices[0] + 1)
+        .filter(|value| !value.starts_with("--"));
+    match value {
+        None => Ok(Some(EnvironmentLightingTestCase::Sealed)),
+        Some(value) => EnvironmentLightingTestCase::from_cli_value(value)
+            .map(Some)
+            .ok_or_else(|| {
+                format!(
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, portal, walls."
+                )
+            }),
+    }
 }
 
 fn required_denoiser_bench_arg(
@@ -587,8 +643,8 @@ Options:
   --water-gamma <G>           Override weakly-compressible EOS gamma
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J
   --water-edit-soak           Run deterministic pond terrain edits for water validation
-  --environment-lighting-test-scene
-                              Build the deterministic open/roofed terrain gallery for probe validation
+  --environment-lighting-test-scene [case]
+                              Build a static lighting case: sealed (default), portal, or walls
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
   --environment-probe-spacing-voxels <N>
@@ -624,7 +680,7 @@ Examples:
   re-flora --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
-  re-flora --hidden --mute --windowed --environment-lighting-test-scene --screenshot player-default target/environment-lighting-test.png --screenshot-delay 4 --auto-exit 8
+  re-flora --hidden --mute --windowed --environment-lighting-test-scene sealed --screenshot player-default target/environment-lighting-test.png --screenshot-delay 4 --auto-exit 8
   re-flora --hidden --mute --windowed --hybrid-transparency-test-scene --screenshot player-default target/hybrid-transparency-test.png --screenshot-delay 2 --auto-exit 6
   re-flora --latest-log
   re-flora --tail-latest-log 120
@@ -687,7 +743,7 @@ mod tests {
         assert!(options.screenshot_delay.is_none());
         assert!(options.camera_snapshot.is_none());
         assert!(!options.list_camera_snapshots);
-        assert!(!options.environment_lighting_test_scene);
+        assert!(options.environment_lighting_test_scene.is_none());
         assert_eq!(
             options.environment_probe_spacing_voxels,
             DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS
@@ -716,7 +772,34 @@ mod tests {
     fn parses_environment_lighting_test_scene() {
         let options = parse(&["re-flora", "--environment-lighting-test-scene"]);
 
-        assert!(options.environment_lighting_test_scene);
+        assert_eq!(
+            options.environment_lighting_test_scene,
+            Some(EnvironmentLightingTestCase::Sealed)
+        );
+    }
+
+    #[test]
+    fn parses_named_environment_lighting_test_scenes() {
+        for (name, expected) in [
+            ("sealed", EnvironmentLightingTestCase::Sealed),
+            ("portal", EnvironmentLightingTestCase::Portal),
+            ("walls", EnvironmentLightingTestCase::Walls),
+        ] {
+            let options = parse(&["re-flora", "--environment-lighting-test-scene", name]);
+            assert_eq!(options.environment_lighting_test_scene, Some(expected));
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_environment_lighting_test_scene() {
+        let result = AppOptions::try_from_arg_strings(
+            ["re-flora", "--environment-lighting-test-scene", "dynamic"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        );
+
+        assert!(result.unwrap_err().contains("sealed, portal, walls"));
     }
 
     #[test]
