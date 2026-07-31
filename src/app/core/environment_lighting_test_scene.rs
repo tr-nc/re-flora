@@ -12,6 +12,7 @@ const CAMERA_POSITION: Vec3 = Vec3::new(0.65, 0.58, 1.72);
 const CAMERA_TARGET: Vec3 = Vec3::new(0.65, 0.70, 1.02);
 const TEST_TIME_OF_DAY: f32 = 0.455_705;
 const TEST_REFRESH_TIME_OF_DAY: f32 = 0.535_705;
+const TEST_VOXEL_COLOR_VARIANCE: f32 = 0.0;
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 0.62);
 
@@ -174,6 +175,7 @@ impl App {
         self.current_time_of_day = TEST_TIME_OF_DAY;
         self.debug_settings.adjustables.time_of_day.value = TEST_TIME_OF_DAY;
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
+        self.debug_settings.adjustables.voxel_color_variance.value = TEST_VOXEL_COLOR_VARIANCE;
         self.orbit_camera_focus = CAMERA_TARGET;
         if self
             .tracer
@@ -181,7 +183,7 @@ impl App {
         {
             self.request_vsm_history_reset();
             log::info!(
-                "[ENV_LIGHT_TEST] camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} auto_cycle=false",
+                "[ENV_LIGHT_TEST] camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} auto_cycle=false voxel_color_variance={:.3}",
                 CAMERA_POSITION.x,
                 CAMERA_POSITION.y,
                 CAMERA_POSITION.z,
@@ -189,6 +191,7 @@ impl App {
                 CAMERA_TARGET.y,
                 CAMERA_TARGET.z,
                 TEST_TIME_OF_DAY,
+                TEST_VOXEL_COLOR_VARIANCE,
             );
         } else {
             log::error!("[ENV_LIGHT_TEST] failed to apply deterministic camera pose");

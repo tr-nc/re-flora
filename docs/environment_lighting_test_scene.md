@@ -34,6 +34,10 @@ dimensions under unobstructed sky. A startup tree is moved out of the constructi
 in the camera view so raster vegetation remains part of the lighting comparison. The scenario also
 clears the normal synthetic startup obstacle before building the gallery.
 
+The scenario forces voxel hash-color variance to zero in memory so same-material terrain has a
+uniform albedo. This preserves the normal game's voxel color variation while keeping differences in
+the test surfaces attributable to environment irradiance and probe interpolation.
+
 The scenario owns a deterministic camera pose and starts at `time_of_day=0.455705` with automatic
 day/night cycling disabled in memory. After the initial local probe field converges, it changes once
 to `time_of_day=0.535705` to exercise environment-only SH reprojection. It then opens a bounded
@@ -66,6 +70,7 @@ A successful run contains these log milestones:
 
 ```text
 [ENV_LIGHT_TEST] constructing roofed and open terrain bays with voxel edits
+[ENV_LIGHT_TEST] camera ... voxel_color_variance=0.000
 [ENV_LIGHT_TEST] edits applied
 [ENV_LIGHT_TEST] terrain rebuild complete
 [ENV_LIGHT_TEST] requested deterministic environment refresh
