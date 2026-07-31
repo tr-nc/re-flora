@@ -62,6 +62,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let ddgi_probe_trace_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/probe_trace.comp",
+            "main",
+        )
+        .unwrap();
 
         let tracer_shadow_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -346,6 +352,7 @@ impl PipelineBuilder {
             ddgi_global_sky_filter_sm,
             ddgi_octahedral_gutter_sm,
             ddgi_probe_relocate_sm,
+            ddgi_probe_trace_sm,
             tracer_shadow_sm,
             shadow_depth_copy_sm,
             leaf_shadow_temporal_sm,
@@ -454,6 +461,19 @@ impl PipelineBuilder {
                 &shader_modules.ddgi_probe_relocate_sm,
                 pool,
                 &[plain_builder_resources, ddgi_volume],
+            )
+        });
+        let ddgi_probe_trace_ppl = ddgi_volume.map(|ddgi_volume| {
+            ComputePipeline::new(
+                device,
+                &shader_modules.ddgi_probe_trace_sm,
+                pool,
+                &[
+                    resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
+                    ddgi_volume,
+                ],
             )
         });
         let tracer_ppl = ComputePipeline::new(
@@ -569,6 +589,7 @@ impl PipelineBuilder {
             ddgi_global_sky_filter_ppl,
             ddgi_octahedral_gutter_ppl,
             ddgi_probe_relocate_ppl,
+            ddgi_probe_trace_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
@@ -972,6 +993,7 @@ pub struct ShaderModules {
     pub ddgi_global_sky_filter_sm: ShaderModule,
     pub ddgi_octahedral_gutter_sm: ShaderModule,
     pub ddgi_probe_relocate_sm: ShaderModule,
+    pub ddgi_probe_trace_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
     pub shadow_depth_copy_sm: ShaderModule,
     pub leaf_shadow_temporal_sm: ShaderModule,
@@ -1023,6 +1045,7 @@ pub struct ComputePipelines {
     pub ddgi_global_sky_filter_ppl: Option<ComputePipeline>,
     pub ddgi_octahedral_gutter_ppl: Option<ComputePipeline>,
     pub ddgi_probe_relocate_ppl: Option<ComputePipeline>,
+    pub ddgi_probe_trace_ppl: Option<ComputePipeline>,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,

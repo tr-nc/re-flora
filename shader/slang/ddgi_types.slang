@@ -15,3 +15,13 @@ public struct B_DdgiProbeMetadata
 {
     public DdgiProbeMetadata data[];
 };
+
+public struct B_DdgiRayData
+{
+    public float4 data[];
+};
+
+public struct B_DdgiTraceStats
+{
+    public uint data[];
+};

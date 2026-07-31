@@ -15,8 +15,14 @@ Implementation progress:
   are in-tree.
 - M1 is complete: the deep host module, exact grid/atlas addressing, full-precision atlases,
   batch-bounded transient ray storage, octahedral reference/gutter tests, and GPU-authored global
-  sky irradiance map are in-tree. The selected DDGI backend remains fail-closed while M2 is active.
-- M2 is the active implementation milestone.
+  sky irradiance map are in-tree.
+- M2 is complete: initialization is explicitly scheduled after final static terrain, GPU relocation
+  uses deterministic nearest-safe placement within the nominal cage, and the bounded trace path
+  records 256 deterministic full-precision radiance/signed-distance samples per valid probe. GPU
+  readback counters verify the ray partition and reject non-finite records. The first batch remains
+  owned by the scheduler until M3 filtering consumes it.
+- M3 is the active implementation milestone. The selected DDGI backend remains fail-closed until
+  the atlas filter, visibility-aware query, and exact-reference acceptance checks are complete.
 
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional

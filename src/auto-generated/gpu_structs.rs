@@ -48,6 +48,20 @@ pub struct DdgiProbeMetadata {
     pub state_and_reserved: [u32; 4],
 }
 
+/// Auto-generated from `B_DdgiRayData` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiRayData {
+    pub data: [u32; 0],
+}
+
+/// Auto-generated from `B_DdgiTraceStats` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiTraceStats {
+    pub data: [u32; 0],
+}
+
 /// Auto-generated from `B_EditRemovalCandidates` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -310,6 +324,20 @@ pub struct PushConstantProbeRelocate {
     pub spacing_voxels: u32,
     pub voxels_per_world_unit: [f32; 3],
     pub terrain_revision: u32,
+}
+
+/// Auto-generated from `PushConstantProbeTrace` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantProbeTrace {
+    pub first_probe_index: u32,
+    pub probe_count: u32,
+    pub terrain_revision: u32,
+    pub padding: u32,
+    pub far_distance_world: f32,
+    pub _pad0: [u8; 12],
+    pub padding_float: [f32; 3],
+    pub _pad1: [u8; 4],
 }
 
 /// Auto-generated from `PushConstantVsmBlurH` (native Slang source of truth).

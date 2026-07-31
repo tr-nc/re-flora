@@ -61,8 +61,8 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiVolume, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-    DDGI_RELOCATION_WORKGROUP_SIZE,
+    DdgiRayBatch, DdgiVolume, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
+    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
 };
 use crate::environment_lighting::{EnvironmentLightingBackend, EnvironmentLightingCache};
 use crate::environment_probes::{
@@ -136,6 +136,17 @@ struct DdgiProbeRelocationPushConstants {
     spacing_voxels: u32,
     voxels_per_world_unit: [f32; 3],
     terrain_revision: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct DdgiProbeTracePushConstants {
+    first_probe_index: u32,
+    probe_count: u32,
+    terrain_revision: u32,
+    _padding: u32,
+    far_distance_world: f32,
+    _padding_float: [f32; 3],
 }
 
 #[repr(C)]
@@ -537,6 +548,7 @@ pub struct Tracer {
     environment_probes: EnvironmentProbeVolume,
     ddgi_volume: Option<DdgiVolume>,
     ddgi_initial_terrain_ready_revision: Option<u32>,
+    ddgi_trace_stats_readback_pending: bool,
     environment_probe_environment_revision: u32,
     environment_probe_seeded_revision: u32,
     environment_probe_classification_pending: bool,
@@ -823,6 +835,7 @@ impl Tracer {
             environment_probes,
             ddgi_volume,
             ddgi_initial_terrain_ready_revision: None,
+            ddgi_trace_stats_readback_pending: false,
             environment_probe_environment_revision: 0,
             environment_probe_seeded_revision: 0,
             environment_probe_classification_pending: true,
@@ -892,6 +905,7 @@ impl Tracer {
         self.environment_probe_converged_terrain_revision = 0;
         self.environment_probe_refresh_started_at = None;
         self.environment_probe_stats_readback_pending = false;
+        self.ddgi_trace_stats_readback_pending = false;
         self.update_environment_probe_consumer_descriptors();
         let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.environment_probes];
         self.graphics_pipelines
@@ -1315,6 +1329,17 @@ impl Tracer {
             if let Some(pipeline) = self.compute_pipelines.ddgi_probe_relocate_ppl.as_ref() {
                 update_compute_fn(pipeline, &[plain_builder_resources, ddgi_volume]);
             }
+            if let Some(pipeline) = self.compute_pipelines.ddgi_probe_trace_ppl.as_ref() {
+                update_compute_fn(
+                    pipeline,
+                    &[
+                        &self.resources,
+                        contree_builder_resources,
+                        scene_accel_resources,
+                        ddgi_volume,
+                    ],
+                );
+            }
         }
     }
 
@@ -1437,6 +1462,9 @@ impl Tracer {
             pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
         }
         if let Some(pipeline) = self.compute_pipelines.ddgi_probe_relocate_ppl.as_ref() {
+            pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
+        }
+        if let Some(pipeline) = self.compute_pipelines.ddgi_probe_trace_ppl.as_ref() {
             pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
         }
         Ok(())
@@ -1881,6 +1909,43 @@ impl Tracer {
                 counts.total(),
             );
         }
+        if self.ddgi_trace_stats_readback_pending {
+            self.ddgi_trace_stats_readback_pending = false;
+            let volume = self
+                .ddgi_volume
+                .as_ref()
+                .expect("DDGI trace stats require an allocated volume");
+            let stats = volume.update_trace_stats_from_readback()?;
+            let batch = volume
+                .status()
+                .active_ray_batch
+                .expect("DDGI trace stats require an active ray batch");
+            anyhow::ensure!(
+                stats.ray_records == batch.probe_count * crate::ddgi::DDGI_RAYS_PER_PROBE,
+                "DDGI trace produced {} records for a {}x{} batch",
+                stats.ray_records,
+                batch.probe_count,
+                crate::ddgi::DDGI_RAYS_PER_PROBE,
+            );
+            anyhow::ensure!(
+                stats.non_finite_records == 0,
+                "DDGI trace produced non-finite records: {stats:?}",
+            );
+            log::info!(
+                "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} terrain_revision={}",
+                batch.first_probe_index,
+                batch.probe_count,
+                crate::ddgi::DDGI_RAYS_PER_PROBE,
+                stats.ray_records,
+                stats.valid_probe_rays,
+                stats.invalid_probe_rays,
+                stats.misses,
+                stats.frontface_hits,
+                stats.backface_hits,
+                stats.non_finite_records,
+                batch.terrain_revision,
+            );
+        }
 
         self.graphics_pipelines
             .begin_manual_buffer_frame(gpu_profiler_frame_slot);
@@ -2013,6 +2078,53 @@ impl Tracer {
                 status.grid.spacing_voxels(),
                 status.grid.spacing_voxels() / 2,
                 status.stage,
+            );
+        }
+
+        let ddgi_ray_batch = self
+            .ddgi_volume
+            .as_ref()
+            .and_then(DdgiVolume::next_ray_batch_to_trace);
+        if let Some(batch) = ddgi_ray_batch {
+            let volume = self
+                .ddgi_volume
+                .as_ref()
+                .expect("DDGI trace requires an allocated volume");
+            volume.ddgi_trace_stats.record_fill(
+                cmdbuf,
+                0,
+                volume.status().resource_bytes.trace_stats,
+                0,
+            );
+            transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.probe_trace",
+                || self.record_ddgi_probe_trace_pass(cmdbuf, batch),
+            );
+            compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            volume.record_trace_stats_readback(cmdbuf);
+            transfer_to_host_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+            self.ddgi_volume
+                .as_mut()
+                .expect("DDGI trace requires an allocated volume")
+                .mark_ray_batch_ready(batch);
+            self.ddgi_trace_stats_readback_pending = true;
+            log::info!(
+                "[DDGI] ray batch traced first_probe={} probes={} rays_per_probe={} transient_records={} terrain_revision={} stage={:?}",
+                batch.first_probe_index,
+                batch.probe_count,
+                crate::ddgi::DDGI_RAYS_PER_PROBE,
+                batch.probe_count * crate::ddgi::DDGI_RAYS_PER_PROBE,
+                batch.terrain_revision,
+                self.ddgi_volume
+                    .as_ref()
+                    .expect("DDGI trace requires an allocated volume")
+                    .status()
+                    .stage,
             );
         }
 
@@ -3766,6 +3878,27 @@ impl Tracer {
             .record(
                 cmdbuf,
                 Extent3D::new(grid.probe_count() * DDGI_RELOCATION_WORKGROUP_SIZE, 1, 1),
+                Some(bytemuck::bytes_of(&push_constants)),
+            );
+    }
+
+    fn record_ddgi_probe_trace_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
+        let far_distance_world = self.chunk_bound.dimensions().as_vec3().length() * 2.0;
+        let push_constants = DdgiProbeTracePushConstants {
+            first_probe_index: batch.first_probe_index,
+            probe_count: batch.probe_count,
+            terrain_revision: batch.terrain_revision,
+            _padding: 0,
+            far_distance_world,
+            _padding_float: [0.0; 3],
+        };
+        self.compute_pipelines
+            .ddgi_probe_trace_ppl
+            .as_ref()
+            .expect("DDGI trace pipeline requires the DDGI backend")
+            .record(
+                cmdbuf,
+                Extent3D::new(batch.probe_count * DDGI_TRACE_WORKGROUP_SIZE, 1, 1),
                 Some(bytemuck::bytes_of(&push_constants)),
             );
     }

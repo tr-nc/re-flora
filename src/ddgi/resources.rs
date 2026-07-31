@@ -14,6 +14,39 @@ use re_flora_vkn::{
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
+const DDGI_TRACE_STATS_COUNT: usize = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiRayBatch {
+    pub first_probe_index: u32,
+    pub probe_count: u32,
+    pub terrain_revision: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DdgiTraceStats {
+    pub ray_records: u32,
+    pub valid_probe_rays: u32,
+    pub misses: u32,
+    pub frontface_hits: u32,
+    pub backface_hits: u32,
+    pub non_finite_records: u32,
+    pub invalid_probe_rays: u32,
+}
+
+impl DdgiTraceStats {
+    fn from_array(values: [u32; DDGI_TRACE_STATS_COUNT]) -> Self {
+        Self {
+            ray_records: values[0],
+            valid_probe_rays: values[1],
+            misses: values[2],
+            frontface_hits: values[3],
+            backface_hits: values[4],
+            non_finite_records: values[5],
+            invalid_probe_rays: values[6],
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiResourceBytes {
@@ -22,6 +55,7 @@ pub struct DdgiResourceBytes {
     pub global_sky_irradiance: u64,
     pub probe_metadata: u64,
     pub transient_ray_data: u64,
+    pub trace_stats: u64,
 }
 
 impl DdgiResourceBytes {
@@ -47,6 +81,7 @@ impl DdgiResourceBytes {
             transient_ray_data: DDGI_PROBE_BATCH_SIZE as u64
                 * DDGI_RAYS_PER_PROBE as u64
                 * std::mem::size_of::<[f32; 4]>() as u64,
+            trace_stats: (DDGI_TRACE_STATS_COUNT * std::mem::size_of::<u32>()) as u64,
         }
     }
 
@@ -56,6 +91,7 @@ impl DdgiResourceBytes {
             + self.global_sky_irradiance
             + self.probe_metadata
             + self.transient_ray_data
+            + self.trace_stats
     }
 }
 
@@ -81,6 +117,7 @@ pub struct DdgiVolumeStatus {
     pub stage: DdgiVolumeStage,
     pub global_sky_revision: u32,
     pub relocated_terrain_revision: Option<u32>,
+    pub active_ray_batch: Option<DdgiRayBatch>,
 }
 
 impl DdgiVolumeStatus {
@@ -98,8 +135,11 @@ pub struct DdgiVolume {
     global_sky_revision: u32,
     requested_terrain_revision: Option<u32>,
     relocated_terrain_revision: Option<u32>,
+    active_ray_batch: Option<DdgiRayBatch>,
     pub ddgi_probe_metadata: Resource<Buffer>,
     pub ddgi_transient_ray_data: Resource<Buffer>,
+    pub ddgi_trace_stats: Resource<Buffer>,
+    ddgi_trace_stats_readback: Buffer,
     pub ddgi_irradiance_atlas: Resource<Texture>,
     pub ddgi_visibility_atlas: Resource<Texture>,
     pub ddgi_global_sky_irradiance: Resource<Texture>,
@@ -110,6 +150,7 @@ impl ResourceContainer for DdgiVolume {
         match name {
             "ddgi_probe_metadata" => Some(&self.ddgi_probe_metadata),
             "ddgi_transient_ray_data" => Some(&self.ddgi_transient_ray_data),
+            "ddgi_trace_stats" => Some(&self.ddgi_trace_stats),
             _ => None,
         }
     }
@@ -127,6 +168,7 @@ impl ResourceContainer for DdgiVolume {
         vec![
             "ddgi_probe_metadata",
             "ddgi_transient_ray_data",
+            "ddgi_trace_stats",
             "ddgi_irradiance_atlas",
             "ddgi_visibility_atlas",
             "ddgi_global_sky_irradiance",
@@ -216,6 +258,24 @@ impl DdgiVolume {
             MemoryLocation::GpuOnly,
             resource_bytes.transient_ray_data,
         );
+        let trace_stats = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER
+                    | vk::BufferUsageFlags::TRANSFER_SRC
+                    | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            MemoryLocation::GpuOnly,
+            resource_bytes.trace_stats,
+        );
+        let trace_stats_readback = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            MemoryLocation::GpuToCpu,
+            resource_bytes.trace_stats,
+        );
         let irradiance_atlas = Texture::new(
             device.clone(),
             allocator.clone(),
@@ -232,7 +292,7 @@ impl DdgiVolume {
             Texture::new(device, allocator, &global_sky_desc, &sampler_desc);
 
         log::info!(
-            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_batch={}x{} metadata_bytes={} irradiance_bytes={} visibility_bytes={} ray_bytes={} global_sky_bytes={} total_mib={:.2}",
+            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_batch={}x{} metadata_bytes={} irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} global_sky_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
@@ -248,6 +308,7 @@ impl DdgiVolume {
             resource_bytes.irradiance_atlas,
             resource_bytes.visibility_atlas,
             resource_bytes.transient_ray_data,
+            resource_bytes.trace_stats,
             resource_bytes.global_sky_irradiance,
             resource_bytes.total() as f64 / (1024.0 * 1024.0),
         );
@@ -261,8 +322,11 @@ impl DdgiVolume {
             global_sky_revision: 0,
             requested_terrain_revision: None,
             relocated_terrain_revision: None,
+            active_ray_batch: None,
             ddgi_probe_metadata: Resource::new(probe_metadata),
             ddgi_transient_ray_data: Resource::new(transient_ray_data),
+            ddgi_trace_stats: Resource::new(trace_stats),
+            ddgi_trace_stats_readback: trace_stats_readback,
             ddgi_irradiance_atlas: Resource::new(irradiance_atlas),
             ddgi_visibility_atlas: Resource::new(visibility_atlas),
             ddgi_global_sky_irradiance: Resource::new(global_sky_irradiance),
@@ -278,6 +342,7 @@ impl DdgiVolume {
             stage: self.stage,
             global_sky_revision: self.global_sky_revision,
             relocated_terrain_revision: self.relocated_terrain_revision,
+            active_ray_batch: self.active_ray_batch,
         }
     }
 
@@ -301,6 +366,7 @@ impl DdgiVolume {
 
         self.requested_terrain_revision = Some(terrain_revision);
         self.relocated_terrain_revision = None;
+        self.active_ray_batch = None;
         self.stage = DdgiVolumeStage::RelocationPending;
         true
     }
@@ -315,6 +381,64 @@ impl DdgiVolume {
         assert_eq!(self.requested_terrain_revision, Some(terrain_revision));
         self.relocated_terrain_revision = Some(terrain_revision);
         self.stage = DdgiVolumeStage::Relocated;
+    }
+
+    pub fn next_ray_batch_to_trace(&self) -> Option<DdgiRayBatch> {
+        if self.stage != DdgiVolumeStage::Relocated || self.active_ray_batch.is_some() {
+            return None;
+        }
+        Some(DdgiRayBatch {
+            first_probe_index: 0,
+            probe_count: self.grid.probe_count().min(DDGI_PROBE_BATCH_SIZE),
+            terrain_revision: self.relocated_terrain_revision?,
+        })
+    }
+
+    pub fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
+        assert_eq!(self.next_ray_batch_to_trace(), Some(batch));
+        self.active_ray_batch = Some(batch);
+        self.stage = DdgiVolumeStage::RayBatchReady;
+    }
+
+    pub fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        self.ddgi_trace_stats.record_copy_to_buffer(
+            cmdbuf,
+            &self.ddgi_trace_stats_readback,
+            self.resource_bytes.trace_stats,
+            0,
+            0,
+        );
+    }
+
+    pub fn update_trace_stats_from_readback(&self) -> Result<DdgiTraceStats> {
+        let bytes = self.ddgi_trace_stats_readback.read_back()?;
+        ensure!(
+            bytes.len() == self.resource_bytes.trace_stats as usize,
+            "DDGI trace stats readback returned {} bytes, expected {}",
+            bytes.len(),
+            self.resource_bytes.trace_stats,
+        );
+        let mut values = [0_u32; DDGI_TRACE_STATS_COUNT];
+        for (value, bytes) in values.iter_mut().zip(bytes.chunks_exact(4)) {
+            *value = u32::from_ne_bytes(bytes.try_into().expect("u32-sized chunk"));
+        }
+        let stats = DdgiTraceStats::from_array(values);
+        ensure!(
+            stats.ray_records
+                == stats
+                    .valid_probe_rays
+                    .saturating_add(stats.invalid_probe_rays),
+            "DDGI trace stats ray partition is inconsistent: {stats:?}",
+        );
+        ensure!(
+            stats.valid_probe_rays
+                == stats
+                    .misses
+                    .saturating_add(stats.frontface_hits)
+                    .saturating_add(stats.backface_hits),
+            "DDGI trace stats hit partition is inconsistent: {stats:?}",
+        );
+        Ok(stats)
     }
 }
 
@@ -381,6 +505,7 @@ mod tests {
         assert_eq!(bytes.visibility_atlas, 12_882_240);
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
+        assert_eq!(bytes.trace_stats, 32);
         assert_eq!(bytes.global_sky_irradiance, 1_600);
     }
 
@@ -423,6 +548,7 @@ mod tests {
             stage: DdgiVolumeStage::Allocated,
             global_sky_revision: 0,
             relocated_terrain_revision: None,
+            active_ray_batch: None,
         };
         assert!(!status.is_ready());
     }
