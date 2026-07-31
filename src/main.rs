@@ -4,6 +4,7 @@ mod branch_skeleton;
 mod branching_gui;
 mod builder;
 mod cli;
+mod ddgi;
 mod egui_renderer;
 mod environment_lighting;
 mod environment_probes;
