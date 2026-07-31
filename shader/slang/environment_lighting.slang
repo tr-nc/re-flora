@@ -242,7 +242,7 @@ float environmentProbeSurfaceVisibility(
         maximumDistance);
 }
 
-public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
+float3 sampleLocalShEnvironmentIrradiance(U_ShadingInfo lighting,
                                            float3 worldPosition,
                                            float3 surfaceNormal)
 {
@@ -384,4 +384,26 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
             environmentShBasis(coefficientIndex, normal);
     }
     return max(irradiance, float3(0.0));
+}
+
+public float3 sampleDiffuseEnvironment(U_ShadingInfo lighting,
+                                       float3 worldPosition,
+                                       float3 surfaceNormal)
+{
+    if (lighting.environment_lighting_backend == 1u)
+    {
+        // The M0 selector is intentionally fail-closed until the DDGI query exists.
+        // Never make a selected-but-unready DDGI volume look valid by sampling SH.
+        return float3(0.0);
+    }
+    return sampleLocalShEnvironmentIrradiance(
+        lighting, worldPosition, surfaceNormal);
+}
+
+// Temporary compatibility name. All consumers pass through the backend seam.
+public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
+                                           float3 worldPosition,
+                                           float3 surfaceNormal)
+{
+    return sampleDiffuseEnvironment(lighting, worldPosition, surfaceNormal);
 }

@@ -1,4 +1,5 @@
 use crate::environment_lighting::EnvironmentIrradiance;
+use crate::environment_lighting::EnvironmentLightingBackend;
 use crate::environment_probes::EnvironmentProbeGrid;
 use crate::flora::species::{species, MAX_FLORA_SPECIES};
 use crate::generated::gpu_structs::{
@@ -49,6 +50,8 @@ impl BufferUpdater {
         environment_probe_grid: EnvironmentProbeGrid,
         voxels_per_world_unit: glam::UVec3,
         environment_probe_local_field_ready: bool,
+        environment_lighting_backend: EnvironmentLightingBackend,
+        environment_lighting_backend_ready: bool,
     ) -> Result<()> {
         let coefficient = |index: usize| environment.coefficients[index].extend(0.0).to_array();
         let probe_dimensions = environment_probe_grid.dimensions();
@@ -70,6 +73,8 @@ impl BufferUpdater {
             environment_probe_uniform_field: u32::from(!environment_probe_local_field_ready),
             environment_probe_visibility_bias_world: 2.0
                 / voxels_per_world_unit.min_element().max(1) as f32,
+            environment_lighting_backend: environment_lighting_backend.as_u32(),
+            environment_lighting_backend_ready: u32::from(environment_lighting_backend_ready),
             ..ShadingInfo::zeroed()
         })
     }

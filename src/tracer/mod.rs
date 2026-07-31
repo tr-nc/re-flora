@@ -60,7 +60,7 @@ use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
-use crate::environment_lighting::EnvironmentLightingCache;
+use crate::environment_lighting::{EnvironmentLightingBackend, EnvironmentLightingCache};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
     EnvironmentProbeVisualizationSettings, EnvironmentProbeVolume, EnvironmentProbeVolumeStatus,
@@ -438,6 +438,7 @@ pub struct TracerDesc {
     pub voxel_dim_per_chunk: UVec3,
     pub environment_probe_spacing_voxels: u32,
     pub environment_probe_visualization_enabled: bool,
+    pub environment_lighting_backend: EnvironmentLightingBackend,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -518,6 +519,7 @@ pub struct Tracer {
     cloud_history_valid: bool,
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
+    environment_lighting_backend: EnvironmentLightingBackend,
     environment_probes: EnvironmentProbeVolume,
     environment_probe_environment_revision: u32,
     environment_probe_seeded_revision: u32,
@@ -763,6 +765,10 @@ impl Tracer {
         let render_target_gui = RenderTarget::new(gui_render_pass, vec![framebuffer_gui]);
 
         let particle_capacity = PARTICLE_CAPACITY;
+        log::info!(
+            "[ENV_LIGHTING] backend={} ready=false state=initializing",
+            desc.environment_lighting_backend.label(),
+        );
 
         Ok(Self {
             vulkan_ctx,
@@ -786,6 +792,7 @@ impl Tracer {
             cloud_history_valid: false,
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
+            environment_lighting_backend: desc.environment_lighting_backend,
             environment_probes,
             environment_probe_environment_revision: 0,
             environment_probe_seeded_revision: 0,
@@ -902,8 +909,24 @@ impl Tracer {
         }
     }
 
-    pub fn environment_probe_local_field_ready(&self) -> bool {
-        self.environment_probe_local_field_ready
+    pub fn environment_lighting_backend(&self) -> EnvironmentLightingBackend {
+        self.environment_lighting_backend
+    }
+
+    pub fn environment_lighting_backend_ready(&self) -> bool {
+        match self.environment_lighting_backend {
+            EnvironmentLightingBackend::LocalSh => self.environment_probe_local_field_ready,
+            EnvironmentLightingBackend::Ddgi => false,
+        }
+    }
+
+    pub fn environment_lighting_backend_ready_for_terrain_revision(&self, revision: u32) -> bool {
+        match self.environment_lighting_backend {
+            EnvironmentLightingBackend::LocalSh => {
+                self.environment_probe_terrain_revision_ready(revision)
+            }
+            EnvironmentLightingBackend::Ddgi => false,
+        }
     }
 
     pub fn environment_probe_terrain_revision(&self) -> u32 {
@@ -1549,6 +1572,8 @@ impl Tracer {
             self.environment_probes.status().grid,
             self.desc.voxel_dim_per_chunk,
             self.environment_probe_local_field_ready,
+            self.environment_lighting_backend,
+            self.environment_lighting_backend_ready(),
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;
 
@@ -2006,6 +2031,12 @@ impl Tracer {
                     convergence_ms
                         .map(|value| format!("{value:.2}"))
                         .unwrap_or_else(|| "initial".to_string()),
+                );
+                log::info!(
+                    "[ENV_LIGHTING] backend={} ready={} terrain_revision={}",
+                    self.environment_lighting_backend.label(),
+                    self.environment_lighting_backend_ready(),
+                    self.environment_probe_converged_terrain_revision,
                 );
             }
         }

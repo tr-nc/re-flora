@@ -31,6 +31,7 @@ pub use cli::{
     PresentModePreference, RenderFlags, WaterProfilePreference,
 };
 use env_logger::{Env, Target};
+pub use environment_lighting::EnvironmentLightingBackend;
 use std::{
     io::Write,
     path::PathBuf,

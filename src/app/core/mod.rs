@@ -1039,6 +1039,7 @@ impl App {
                 voxel_dim_per_chunk: VOXEL_DIM_PER_CHUNK,
                 environment_probe_spacing_voxels: options.environment_probe_spacing_voxels,
                 environment_probe_visualization_enabled: options.environment_probe_visualization,
+                environment_lighting_backend: options.environment_lighting_backend,
             },
             spatial_sound_manager.clone(),
         )?;
@@ -3958,9 +3959,9 @@ impl App {
                             .is_none_or(
                             hybrid_transparency_test_scene::HybridTransparencyTestScene::is_ready,
                         );
-                        let environment_probes_ready =
-                            self.tracer.environment_probe_local_field_ready();
-                        if elapsed >= delay && test_scene_ready && environment_probes_ready {
+                        let environment_lighting_ready =
+                            self.tracer.environment_lighting_backend_ready();
+                        if elapsed >= delay && test_scene_ready && environment_lighting_ready {
                             self.screenshot_taken = true;
                             log::info!("[SCREENSHOT] Capturing after {:.2}s to {}", elapsed, path);
                             match self.prepare_screenshot_readback(path, render_area) {

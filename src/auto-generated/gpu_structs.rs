@@ -642,7 +642,9 @@ pub struct ShadingInfo {
     pub environment_probe_world_to_grid_scale: [f32; 3],
     pub environment_probe_uniform_field: u32,
     pub environment_probe_visibility_bias_world: f32,
-    pub _pad2: [u8; 12],
+    pub environment_lighting_backend: u32,
+    pub environment_lighting_backend_ready: u32,
+    pub _pad2: [u8; 4],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

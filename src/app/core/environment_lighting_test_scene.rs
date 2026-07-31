@@ -273,13 +273,14 @@ impl App {
             TestScenePhase::WaitingForProbeField { terrain_revision } => {
                 if !self
                     .tracer
-                    .environment_probe_terrain_revision_ready(terrain_revision)
+                    .environment_lighting_backend_ready_for_terrain_revision(terrain_revision)
                 {
                     return;
                 }
                 log::info!(
-                    "[ENV_LIGHT_TEST] ready case={} terrain_revision={} geometry=static",
+                    "[ENV_LIGHT_TEST] ready case={} backend={} terrain_revision={} geometry=static",
                     case.label(),
+                    self.tracer.environment_lighting_backend().label(),
                     terrain_revision,
                 );
                 TestScenePhase::Ready

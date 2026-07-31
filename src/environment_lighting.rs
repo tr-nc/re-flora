@@ -7,6 +7,35 @@ mod authored_sky {
 
 use authored_sky::{SKY_COLOR_ALTITUDES, SKY_COLOR_BOTTOM, SKY_COLOR_TOP};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum EnvironmentLightingBackend {
+    #[default]
+    LocalSh = 0,
+    Ddgi = 1,
+}
+
+impl EnvironmentLightingBackend {
+    pub fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "local-sh" => Some(Self::LocalSh),
+            "ddgi" => Some(Self::Ddgi),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::LocalSh => "local-sh",
+            Self::Ddgi => "ddgi",
+        }
+    }
+
+    pub fn as_u32(self) -> u32 {
+        self as u32
+    }
+}
+
 pub(crate) const SH_COEFFICIENT_COUNT: usize = 9;
 pub(crate) const IRRADIANCE_SH_BAND_FACTORS: [f32; SH_COEFFICIENT_COUNT] = [
     PI,
@@ -365,6 +394,10 @@ mod tests {
         assert!(shared.contains("lerp(moments00, moments10, fraction.x)"));
         assert!(shared.contains("saturate(dot(normal, surfaceToProbeDirection))"));
         assert!(shared.contains("hasNearestTrustedProbe"));
+        assert!(shared.contains("sampleDiffuseEnvironment("));
+        assert!(shared.contains("sampleLocalShEnvironmentIrradiance("));
+        assert!(shared.contains("lighting.environment_lighting_backend == 1u"));
+        assert!(shared.contains("return sampleDiffuseEnvironment("));
         assert!(terrain.contains("sampleEnvironmentIrradiance("));
         assert!(raster.contains("sampleEnvironmentIrradiance("));
         for consumer in [
