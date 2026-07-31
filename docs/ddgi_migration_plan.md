@@ -1,0 +1,417 @@
+# DDGI Migration Plan
+
+## Status
+
+This document records the approved design baseline for replacing the branch's local spherical-
+harmonic probe field with a paper-based Dynamic Diffuse Global Illumination implementation. The
+first milestone is deliberately **sky-only DDGI**: it must make authored environment lighting and
+probe-to-surface visibility correct before adding indirect hit radiance, temporal convergence, or
+production compression.
+
+The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
+DDGI still uses probes. The migration replaces each probe's SH representation with directional
+octahedral maps; it does not remove the probe volume.
+
+## Outcome
+
+The final environment-lighting path will contain:
+
+- a fixed world-aligned DDGI volume;
+- one octahedral irradiance map and one octahedral visibility map per probe;
+- a single global sky irradiance map for positions outside a ready volume;
+- one shared `sampleDiffuseEnvironment(worldPosition, surfaceNormal)` shader seam for terrain and
+  raster consumers;
+- no local or global spherical-harmonic environment-lighting representation;
+- direct sun and its shadow paths outside DDGI.
+
+The migration will temporarily retain the existing local-SH backend for deterministic A/B testing.
+After the DDGI backend passes the agreed acceptance suite, the local-SH probe backend, the global-SH
+fallback, and the temporary backend selector will be deleted.
+
+## Paper Baseline
+
+The implementation uses the papers as a progression rather than freezing the original 2019
+algorithm:
+
+1. [Dynamic Diffuse Global Illumination with Ray-Traced Irradiance Fields](references/ddgi/majercik-2019-ddgi.md)
+   defines the core probe field and visibility-aware eight-probe query.
+2. [Scaling Probe-Based Real-Time Dynamic Global Illumination for Production](references/ddgi/majercik-2021-scaling-ddgi.md)
+   is the main implementation baseline for atlas layout, query bias, backface handling, relocation
+   constraints, and the production update structure.
+3. [Improving Probes in Dynamic Diffuse Global Illumination](references/ddgi/rohacek-2022-improving-probes-ddgi.md)
+   supplies relocation-aware interpolation and probe-cage distance-support rejection.
+
+The archived PDFs, complete author lists, source links, and the voxel-engine integration video are
+indexed in the [DDGI reference set](references/ddgi/README.md).
+
+Paper formulas and invariants are authoritative starting points. Numerical constants are not copied
+blindly: bias, distance support, and filtering values must be expressed in Re: Flora world/voxel
+units and validated against the exact-visibility reference. For example, a spacing-relative paper
+bias can exceed the thickness of a one- or two-voxel wall and create the very leak it is intended to
+avoid.
+
+## Deep Module and Seams
+
+DDGI will be implemented as a new deep module beside the current local-SH implementation during
+migration:
+
+```text
+ddgi
+├── volume transform, probe grid, state, and readiness
+├── GPU classification and voxel-native relocation
+├── batched probe-ray tracing
+├── transient ray data
+├── irradiance atlas update
+├── visibility atlas update
+├── octahedral border update
+├── visibility-aware surface query
+├── global sky irradiance map
+└── correctness and visualization modes
+```
+
+Likely source ownership is `src/ddgi/` for host-side resource and scheduling implementation and
+`shader/slang/ddgi_*.slang` for GPU implementation. Exact filenames may evolve, but atlas
+addressing, state transitions, tracing, filtering, and query rules must remain local to the module.
+The tracer should request high-level initialization/update work and observe status; callers must not
+learn atlas coordinates, probe-state encodings, or filtering rules.
+
+The shader seam remains intentionally small:
+
+```text
+sampleDiffuseEnvironment(worldPosition, surfaceNormal) -> linear RGB irradiance
+```
+
+The first milestone keeps one normal per voxel. Terrain already supplies the ray-marched surface
+normal. Flora, leaves, fruit, sprinklers, and particles may reuse their existing procedural shading
+normal when they later become DDGI consumers. A separate geometric/visibility normal will be added
+only if a concrete consumer demonstrates that the distinction is necessary.
+
+## First-Milestone Scope
+
+### Included
+
+- One finite, fixed, world-aligned DDGI volume.
+- Spacing 32 as the default and spacing 16 as the high-density correctness regression.
+- Static voxel terrain as the only DDGI occluder.
+- One GPU classification/relocation pass after the initial terrain reaches its final state.
+- Deterministic full probe rebuilds with 256 rays per probe and zero hysteresis.
+- Direct sampling of the authored GPU sky on probe-ray misses.
+- Full-precision paper-style irradiance and visibility atlases.
+- Terrain consumption first, followed by vertex-level raster consumption.
+- Exact segment visibility, permanent debug views, and automated linear-irradiance acceptance.
+
+### Explicitly Deferred
+
+- Runtime terrain-edit reclassification and re-relocation.
+- Random ray rotation, temporal hysteresis, adaptive convergence, and sleeping states.
+- Compressed atlas formats and perceptual irradiance encoding.
+- Indirect hit radiance, DDGI feedback, terrain color bleeding, and multi-bounce lighting.
+- Dynamic or raster geometry as DDGI occluders.
+- Camera-tracking volumes, cascades, probe paging, and volume blending.
+- Formal spacing-8 qualification; spacing 64 remains a coarse debug option.
+- Per-fragment raster DDGI sampling.
+- Separate geometric and shading normals.
+
+## Spatial Field and Relocation
+
+The initial 512-voxel world uses the existing density convention:
+
+| Spacing | Dimensions | Probe count | First-milestone role |
+| ---: | ---: | ---: | --- |
+| 64 voxels | `9 x 9 x 9` | 729 | Coarse debug only |
+| 32 voxels | `17 x 17 x 17` | 4,913 | Default and required acceptance |
+| 16 voxels | `33 x 33 x 33` | 35,937 | Required leak/grid regression |
+| 8 voxels | `65 x 65 x 65` | 274,625 | Not qualification-blocking |
+
+Relocation is a GPU voxel-native adapter rather than the papers' geometry-unaware search. It reads
+the terrain occupancy atlas and preserves the paper invariants:
+
+- a relocated probe remains within half of the minimum cell spacing from its nominal position;
+- a usable position satisfies an explicit minimum surface clearance;
+- relocation failure makes the probe non-contributing;
+- the probe remains associated with its original nominal cage;
+- interpolation accounts for the actual relocation offset.
+
+Candidate selection is deterministic and lexicographic:
+
+1. satisfy the minimum clearance;
+2. minimize displacement from the nominal point;
+3. maximize clearance among equally near candidates;
+4. use a stable coordinate ordering to break remaining ties.
+
+The GPU implementation should use a workgroup per probe so candidate evaluation and reduction can
+run in parallel without per-probe CPU readback. Relocation is a correction toward the nearest safe
+position, not an optimization that drives many probes toward the most open part of a room.
+
+For this milestone, all test geometry must be finalized before the one-time classification and
+relocation pass. Runtime edit support is tracked separately in
+[the existing local-field plan](local_environment_probe_plan.md#deferred-ddgi-terrain-edit-relocation).
+
+## GPU Resource Contract
+
+### Probe Atlases
+
+Use the paper-style tiled two-dimensional texture atlases with octahedral mapping and a one-texel
+gutter around every probe tile:
+
+| Field | Interior | Stored tile | Correctness format | Contents |
+| --- | ---: | ---: | --- | --- |
+| Irradiance | `8 x 8` | `10 x 10` | `RGBA32F` | Linear RGB diffuse irradiance |
+| Visibility | `16 x 16` | `18 x 18` | `RG32F` | Mean distance and mean squared distance |
+
+Full precision is an oracle format, not the final production format. It intentionally excludes
+float16 precision loss, irradiance quantization, exponent encode/decode, and temporal encoding from
+the first correctness investigation. Production formats will be introduced one at a time after the
+full-precision field is green.
+
+Octahedral gutter copy follows the paper's wrap and mirror rules and receives its own synthetic
+directional-field test. A gutter defect can look like a probe-grid or angular seam and must be
+diagnosable independently of spatial interpolation.
+
+### Transient Ray Data
+
+Tracing and atlas filtering communicate through a transient full-precision ray buffer for the
+current update batch. Each record is one `float4`:
+
+```text
+rgb = ray radiance
+w   = signed hit distance
+```
+
+| Ray result | RGB | Signed distance |
+| --- | --- | --- |
+| Authored-sky miss | `getSkyColor(rayDirection, sunDirection)` | Positive far distance |
+| Frontface terrain hit | Zero | Positive hit distance |
+| Backface terrain hit | Zero | Negative hit distance |
+
+The ray direction is reproducible from the deterministic 256-direction Fibonacci sequence and the
+ray index; it does not need to be stored in every record. Hit normals are consumed in the trace pass
+to classify frontfaces and backfaces. A DDGI probe itself has no normal.
+
+### Global Sky Irradiance
+
+A single unoccluded 8 x 8 octahedral irradiance map is filtered directly from the authored GPU sky.
+It replaces the global SH fallback after migration and is sampled only when the query is outside the
+DDGI volume or the entire volume is not ready.
+
+## Initialization and Update Pipeline
+
+The deterministic first milestone uses this order:
+
+```text
+final initial terrain ready
+→ allocate/clear DDGI resources
+→ build global sky irradiance map
+→ classify and relocate all nominal probes on the GPU
+→ trace deterministic probe batches
+→ update irradiance tiles
+→ update visibility tiles
+→ update octahedral gutters
+→ mark the complete volume ready
+```
+
+Tracing, irradiance filtering, visibility filtering, and border updates are separate compute passes.
+The separation is required for locality, ablation, and future evolution: indirect hit shading will
+change the trace/ray-shading stage; temporal accumulation will change the atlas update stages; atlas
+addressing and surface queries remain stable.
+
+The transient ray buffer holds only the active batch. The scheduler may spread initialization over
+frames to avoid a single watchdog-scale dispatch, but consumers must not sample a partially built
+DDGI volume. During A/B migration the previous local-SH backend may remain active until DDGI reports
+whole-volume readiness. Static acceptance begins only after the ready transition.
+
+## Surface Query Contract
+
+For a point inside a ready volume:
+
+1. Find the point's nominal grid cell and its fixed eight corner probes.
+2. Do not perform a dynamic nearest-probe search after relocation.
+3. Compute position weights that account for relocation offsets while remaining non-negative and
+   normalized.
+4. Use each actual probe position for the probe-to-surface direction and distance.
+5. Sample the probe irradiance tile in the surface-normal direction.
+6. Sample first and second distance moments in the biased probe-to-surface direction.
+7. Apply the 2021 surface-side/backface and world-space bias semantics.
+8. Apply the 2022 cage-support distance rejection, adjusted for allowed relocation.
+9. Combine trilinear, relocation confidence, surface-side, and moment-visibility weights.
+10. Normalize only trustworthy contributions.
+
+The implementation must not contain a positive minimum-visibility floor. In particular, the
+current `0.05` floor is incompatible with the sealed-room contract because it guarantees a nonzero
+contribution from an occluded probe.
+
+Fallback is strict:
+
+```text
+inside a ready volume + trustworthy contribution exists → normalized DDGI result
+inside a ready volume + all local contributions rejected → zero
+outside the volume or whole volume not ready            → global sky irradiance
+```
+
+Invalid, relocation-failed, stale, or fully occluded probes receive zero weight. They do not cause
+a global-sky fallback. Bias is recorded in world and voxel units and qualified independently at
+spacing 32 and 16 instead of being tuned at one density and silently scaled at the other.
+
+## Terrain and Raster Consumers
+
+Terrain is the first consumer because the deterministic leak cases exercise the terrain compute
+path and terrain already supplies world position and a stored voxel-surface normal. Once terrain is
+green, all existing raster environment-lighting consumers move to the same shader seam:
+
+- full-resolution and LOD flora;
+- full-resolution and LOD leaves;
+- dynamic fruit;
+- sprinklers;
+- particles and billboards that currently consume environment lighting.
+
+Raster consumers remain consumers, not DDGI occluders. They sample at vertex level using their
+voxel center and existing procedural normal, then interpolate vertex color. The milestone does not
+add normal vertex attributes, expand the packed flora vertex stride, or move DDGI sampling to the
+fragment shader.
+
+## Leak Oracle and Debug Views
+
+### Exact Visibility Reference
+
+The correctness harness includes a slow, non-shipping reference that traces the exact segment from
+the shaded terrain point to each of its eight nominal-cage probes. It distinguishes the remaining
+failure classes:
+
+```text
+exact visibility is dark, moment visibility leaks
+→ moment filtering, bias, Chebyshev evaluation, or directional support is wrong
+
+exact visibility also leaks
+→ probe irradiance, relocation, cage selection, or spatial weighting is wrong
+```
+
+The exact path is enabled only by deterministic test/debug modes and is not used by normal terrain
+or raster rendering.
+
+### Static Acceptance Cases
+
+All terrain is built before DDGI initialization. The first suite contains fixed camera presets for:
+
+1. **Sealed room** — no sky path; settled environment irradiance must be effectively zero.
+2. **Controlled portal/skylight** — legal incoming environment light must remain smooth and must
+   not be removed by an over-conservative visibility rule.
+3. **Thin and diagonal voxel walls** — one- and two-voxel barriers plus a staircase/diagonal wall
+   expose bias, support, grid-axis, and interpolation failures.
+
+Every case runs at spacing 32 and 16 with uniform albedo, fixed authored sky/sun state, fixed camera,
+and deterministic ray directions. The current post-initialization roof-open/roof-close sequence is
+not part of this milestone.
+
+### Permanent Debug Views
+
+The DDGI module retains these modes after the fix:
+
+- final linear DDGI irradiance;
+- moment-estimated visibility;
+- exact segment visibility;
+- absolute moment-versus-exact visibility error;
+- unnormalized/normalized weight sum and dominant probe;
+- probe state, relocation, and atlas-tile inspection sufficient to diagnose gutter errors.
+
+Normal rendering does not execute exact visibility rays or debug-only outputs.
+
+### Automated Acceptance
+
+A planned agent-runnable command such as `scripts/check_ddgi_correctness.sh` drives all three cases
+at both qualified spacings. It reads or captures linear irradiance before albedo, direct sun,
+tonemapping, and other post-processing. It must return a nonzero exit status for the actual leak.
+
+The runner reports at least:
+
+- sealed-region maximum and high-percentile irradiance relative to the open-sky reference;
+- moment-versus-exact visibility and irradiance error;
+- repeated-run determinism;
+- octahedral gutter continuity;
+- per-case pass/fail and an aggregate exit status.
+
+Numerical thresholds will be chosen from the full-precision exact reference and recorded with the
+first red/green evidence. They will not be guessed from tonemapped screenshots. Screenshots remain
+supplementary human evidence.
+
+## Migration Milestones
+
+Each milestone is a focused, validated commit before the next begins.
+
+### M0: Static Harness and Backend Seam
+
+- Replace the phase-one dynamic terrain-edit sequence with finalized static test geometry.
+- Add the temporary local-SH/DDGI backend selector and readiness reporting.
+- Establish linear-irradiance capture plumbing and the acceptance runner skeleton.
+
+### M1: DDGI Module and Full-Precision Atlases
+
+- Add the new host-side DDGI module without changing consumers.
+- Allocate paper-style irradiance/visibility atlases and transient ray storage.
+- Implement atlas addressing, octahedral mapping, and synthetic gutter tests.
+- Build the global sky irradiance map directly from the authored GPU sky.
+
+### M2: GPU Placement and Deterministic Ray Data
+
+- Run one GPU voxel-native classification/relocation pass after final terrain initialization.
+- Implement nearest-safe deterministic placement and nominal-cage ownership.
+- Trace 256 deterministic rays per probe in bounded batches.
+- Record full-precision radiance and signed distance.
+
+### M3: Atlas Filtering and Terrain Query
+
+- Filter ray data into 8 x 8 irradiance and 16 x 16 distance-moment tiles.
+- Update octahedral gutters in independent passes.
+- Implement the 2021 query plus 2022 relocation/support corrections.
+- Add the exact terrain visibility reference and permanent ablation views.
+- Make all six static spacing/case configurations red-capable, then green.
+
+### M4: Raster Consumers
+
+- Route all raster consumers through the shared DDGI sampler at vertex level.
+- Preserve existing procedural one-normal-per-voxel behavior and packed vertex layouts.
+- Verify terrain and every raster path select the same backend and atlas revision.
+
+### M5: Remove SH Environment Lighting
+
+- Replace the global-SH fallback with the global sky irradiance map.
+- Delete local-SH probe buffers, update/reprojection shaders, sampling logic, and tests.
+- Remove the temporary backend selector.
+- Re-run the complete correctness suite and normal repository validation.
+
+## Validation Ladder
+
+Every shader/Rust milestone follows the repository policy:
+
+```bash
+cargo fmt --check
+cargo check
+cargo test
+cargo run --release -- --hidden --mute --auto-exit 0.5
+cargo run --release -- --latest-log
+```
+
+`cargo check` regenerates shader-derived Rust structures; generated files are never edited by hand.
+The hidden release run is inspected for Vulkan validation messages, errors, and readiness/state
+evidence. The DDGI correctness runner and deterministic captures supplement this ladder; ordinary
+unit tests must remain fast and must not absorb long-running GPU/window acceptance work.
+
+## Later Evolution
+
+After the sky-only static field is correct:
+
+1. **Production storage and convergence** — introduce compact atlas formats, irradiance encoding,
+   randomized ray rotations, temporal hysteresis, and convergence controls one at a time against the
+   full-precision static oracle.
+2. **Indirect hit shading** — first shade terrain hits for a single indirect bounce, then add
+   previous-DDGI feedback for multi-bounce propagation without changing atlas/query seams.
+3. **Runtime terrain edits** — invalidate, reclassify, relocate, retrace, and revision-synchronize
+   only the affected support region. This is the committed follow-up TODO.
+4. **Scale and activity** — qualify spacing 8, measure sleeping/vigilant states, and only then
+   consider tracking volumes, cascades, paging, and cross-volume blending.
+5. **Additional geometry** — consider dynamic DDGI occluders only after a specific visual need and
+   an update/convergence design justify their cost.
+
+The first milestone is complete only when the static field is physically interpretable: a sealed
+room is dark without hidden ambient floors, a valid opening remains lit, thin and diagonal walls do
+not leak, spacing 16 does not expose a probe lattice, and the approximate moment query is measured
+against exact visibility rather than accepted by appearance alone.

@@ -1,5 +1,8 @@
 # Local Environment Probe Plan
 
+> This document records the completed local-SH probe implementation. Its approved replacement is
+> specified in the [DDGI Migration Plan](ddgi_migration_plan.md).
+
 ## Background
 
 Re: Flora now uses one shared global L2 spherical-harmonic environment irradiance representation
