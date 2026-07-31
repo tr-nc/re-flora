@@ -60,7 +60,10 @@ use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
-use crate::ddgi::{DdgiVolume, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE};
+use crate::ddgi::{
+    DdgiVolume, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
+    DDGI_RELOCATION_WORKGROUP_SIZE,
+};
 use crate::environment_lighting::{EnvironmentLightingBackend, EnvironmentLightingCache};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
@@ -124,6 +127,15 @@ struct EnvironmentProbeUpdatePushConstants {
 struct EnvironmentProbeClassificationPushConstants {
     terrain_revision: u32,
     _padding: [u32; 3],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct DdgiProbeRelocationPushConstants {
+    grid_dimensions: [u32; 3],
+    spacing_voxels: u32,
+    voxels_per_world_unit: [f32; 3],
+    terrain_revision: u32,
 }
 
 #[repr(C)]
@@ -524,6 +536,7 @@ pub struct Tracer {
     environment_lighting_backend: EnvironmentLightingBackend,
     environment_probes: EnvironmentProbeVolume,
     ddgi_volume: Option<DdgiVolume>,
+    ddgi_initial_terrain_ready_revision: Option<u32>,
     environment_probe_environment_revision: u32,
     environment_probe_seeded_revision: u32,
     environment_probe_classification_pending: bool,
@@ -809,6 +822,7 @@ impl Tracer {
             environment_lighting_backend: desc.environment_lighting_backend,
             environment_probes,
             ddgi_volume,
+            ddgi_initial_terrain_ready_revision: None,
             environment_probe_environment_revision: 0,
             environment_probe_seeded_revision: 0,
             environment_probe_classification_pending: true,
@@ -856,12 +870,16 @@ impl Tracer {
         self.vulkan_ctx.device().wait_idle();
         self.environment_probes = replacement;
         if self.environment_lighting_backend == EnvironmentLightingBackend::Ddgi {
-            self.ddgi_volume = Some(DdgiVolume::new(
+            let mut replacement = DdgiVolume::new(
                 &self.vulkan_ctx,
                 self.allocator.clone(),
                 self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
                 spacing_voxels,
-            )?);
+            )?;
+            if let Some(terrain_revision) = self.ddgi_initial_terrain_ready_revision {
+                replacement.request_initialization(terrain_revision);
+            }
+            self.ddgi_volume = Some(replacement);
             self.update_ddgi_descriptors()?;
         }
         self.environment_probe_seeded_revision = 0;
@@ -913,6 +931,29 @@ impl Tracer {
             camera_region.grid_min,
             edit_region.side,
         );
+    }
+
+    /// Starts the static DDGI build after the caller has finished all initial terrain work.
+    /// Runtime terrain edits intentionally do not call this M2 seam yet.
+    pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) {
+        if self.environment_lighting_backend != EnvironmentLightingBackend::Ddgi {
+            return;
+        }
+        self.ddgi_initial_terrain_ready_revision = Some(terrain_revision);
+        let volume = self
+            .ddgi_volume
+            .as_mut()
+            .expect("DDGI backend requires an allocated volume");
+        if volume.request_initialization(terrain_revision) {
+            let status = volume.status();
+            log::info!(
+                "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?}",
+                terrain_revision,
+                status.grid.spacing_voxels(),
+                status.grid.probe_count(),
+                status.stage,
+            );
+        }
     }
 
     fn environment_probe_priority_region(
@@ -1271,6 +1312,9 @@ impl Tracer {
             if let Some(pipeline) = self.compute_pipelines.ddgi_octahedral_gutter_ppl.as_ref() {
                 update_compute_fn(pipeline, &[ddgi_volume]);
             }
+            if let Some(pipeline) = self.compute_pipelines.ddgi_probe_relocate_ppl.as_ref() {
+                update_compute_fn(pipeline, &[plain_builder_resources, ddgi_volume]);
+            }
         }
     }
 
@@ -1390,6 +1434,9 @@ impl Tracer {
             pipeline.auto_update_descriptor_sets(&resources)?;
         }
         if let Some(pipeline) = self.compute_pipelines.ddgi_octahedral_gutter_ppl.as_ref() {
+            pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
+        }
+        if let Some(pipeline) = self.compute_pipelines.ddgi_probe_relocate_ppl.as_ref() {
             pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
         }
         Ok(())
@@ -1931,6 +1978,41 @@ impl Tracer {
                 DDGI_IRRADIANCE_STORED_SIDE,
                 DDGI_IRRADIANCE_STORED_SIDE,
                 volume.status().stage,
+            );
+        }
+
+        let ddgi_relocation_revision = self
+            .ddgi_volume
+            .as_ref()
+            .and_then(DdgiVolume::pending_relocation_terrain_revision);
+        if let Some(terrain_revision) = ddgi_relocation_revision {
+            let terrain_to_relocation_barrier = PipelineBarrier::shader_access(
+                PipelineStage::COMPUTE_SHADER,
+                PipelineStage::COMPUTE_SHADER,
+            );
+            terrain_to_relocation_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "ddgi.probe_relocate",
+                || self.record_ddgi_probe_relocation_pass(cmdbuf, terrain_revision),
+            );
+            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+
+            let volume = self
+                .ddgi_volume
+                .as_mut()
+                .expect("DDGI relocation requires an allocated volume");
+            volume.mark_relocated(terrain_revision);
+            let status = volume.status();
+            log::info!(
+                "[DDGI] relocation complete terrain_revision={} probes={} spacing_voxels={} max_displacement_voxels={} min_clearance_voxels=1 stage={:?}",
+                terrain_revision,
+                status.grid.probe_count(),
+                status.grid.spacing_voxels(),
+                status.grid.spacing_voxels() / 2,
+                status.stage,
             );
         }
 
@@ -3662,6 +3744,29 @@ impl Tracer {
                 cmdbuf,
                 Extent3D::new(DDGI_IRRADIANCE_STORED_SIDE, DDGI_IRRADIANCE_STORED_SIDE, 1),
                 None,
+            );
+    }
+
+    fn record_ddgi_probe_relocation_pass(&self, cmdbuf: &CommandBuffer, terrain_revision: u32) {
+        let volume = self
+            .ddgi_volume
+            .as_ref()
+            .expect("DDGI relocation requires an allocated volume");
+        let grid = volume.status().grid;
+        let push_constants = DdgiProbeRelocationPushConstants {
+            grid_dimensions: grid.dimensions().to_array(),
+            spacing_voxels: grid.spacing_voxels(),
+            voxels_per_world_unit: self.desc.voxel_dim_per_chunk.as_vec3().to_array(),
+            terrain_revision,
+        };
+        self.compute_pipelines
+            .ddgi_probe_relocate_ppl
+            .as_ref()
+            .expect("DDGI relocation pipeline requires the DDGI backend")
+            .record(
+                cmdbuf,
+                Extent3D::new(grid.probe_count() * DDGI_RELOCATION_WORKGROUP_SIZE, 1, 1),
+                Some(bytemuck::bytes_of(&push_constants)),
             );
     }
 

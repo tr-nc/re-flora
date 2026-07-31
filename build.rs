@@ -685,6 +685,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/builder/surface/occupancy_to_flora_instances.comp",
     "shader/ddgi/global_sky_filter.comp",
     "shader/ddgi/octahedral_gutter.comp",
+    "shader/ddgi/probe_relocate.comp",
     "shader/tracer/tracer.comp",
     "shader/tracer/tracer_shadow.comp",
     "shader/tracer/leaf_shadow_temporal.comp",

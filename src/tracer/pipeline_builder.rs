@@ -56,6 +56,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let ddgi_probe_relocate_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/probe_relocate.comp",
+            "main",
+        )
+        .unwrap();
 
         let tracer_shadow_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -339,6 +345,7 @@ impl PipelineBuilder {
             environment_probe_stats_sm,
             ddgi_global_sky_filter_sm,
             ddgi_octahedral_gutter_sm,
+            ddgi_probe_relocate_sm,
             tracer_shadow_sm,
             shadow_depth_copy_sm,
             leaf_shadow_temporal_sm,
@@ -439,6 +446,14 @@ impl PipelineBuilder {
                 &shader_modules.ddgi_octahedral_gutter_sm,
                 pool,
                 &[ddgi_volume],
+            )
+        });
+        let ddgi_probe_relocate_ppl = ddgi_volume.map(|ddgi_volume| {
+            ComputePipeline::new(
+                device,
+                &shader_modules.ddgi_probe_relocate_sm,
+                pool,
+                &[plain_builder_resources, ddgi_volume],
             )
         });
         let tracer_ppl = ComputePipeline::new(
@@ -553,6 +568,7 @@ impl PipelineBuilder {
             environment_probe_stats_ppl,
             ddgi_global_sky_filter_ppl,
             ddgi_octahedral_gutter_ppl,
+            ddgi_probe_relocate_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
@@ -955,6 +971,7 @@ pub struct ShaderModules {
     pub environment_probe_stats_sm: ShaderModule,
     pub ddgi_global_sky_filter_sm: ShaderModule,
     pub ddgi_octahedral_gutter_sm: ShaderModule,
+    pub ddgi_probe_relocate_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
     pub shadow_depth_copy_sm: ShaderModule,
     pub leaf_shadow_temporal_sm: ShaderModule,
@@ -1005,6 +1022,7 @@ pub struct ComputePipelines {
     pub environment_probe_stats_ppl: ComputePipeline,
     pub ddgi_global_sky_filter_ppl: Option<ComputePipeline>,
     pub ddgi_octahedral_gutter_ppl: Option<ComputePipeline>,
+    pub ddgi_probe_relocate_ppl: Option<ComputePipeline>,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,

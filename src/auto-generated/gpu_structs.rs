@@ -39,6 +39,15 @@ pub struct Cuboids {
     pub _pad1: f32,
 }
 
+/// Auto-generated from `B_DdgiProbeMetadata` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiProbeMetadata {
+    pub nominal_position_and_min_clearance: [f32; 4],
+    pub actual_position_and_clearance: [f32; 4],
+    pub state_and_reserved: [u32; 4],
+}
+
 /// Auto-generated from `B_EditRemovalCandidates` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -291,6 +300,16 @@ pub struct PushConstantLeavesShadow {
     pub _padding_after_chunk_world_offset: u32,
     pub height_dark_color_rgb10: [u32; 12],
     pub height_light_color_rgb10: [u32; 12],
+}
+
+/// Auto-generated from `PushConstantProbeRelocate` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantProbeRelocate {
+    pub grid_dimensions: [u32; 3],
+    pub spacing_voxels: u32,
+    pub voxels_per_world_unit: [f32; 3],
+    pub terrain_revision: u32,
 }
 
 /// Auto-generated from `PushConstantVsmBlurH` (native Slang source of truth).

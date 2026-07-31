@@ -2,9 +2,9 @@ use super::{
     DdgiAtlasLayout, DdgiVolumeGrid, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_PROBE_BATCH_SIZE,
     DDGI_RAYS_PER_PROBE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
+use crate::generated::gpu_structs::DdgiProbeMetadata;
 use crate::resource::{Resource, ResourceContainer};
 use anyhow::{ensure, Result};
-use bytemuck::{Pod, Zeroable};
 use glam::UVec3;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
@@ -14,14 +14,6 @@ use re_flora_vkn::{
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub struct DdgiProbeMetadataGpu {
-    pub nominal_position_and_min_clearance: [f32; 4],
-    pub actual_position_and_clearance: [f32; 4],
-    pub state_and_reserved: [u32; 4],
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiResourceBytes {
@@ -51,7 +43,7 @@ impl DdgiResourceBytes {
                 * super::DDGI_IRRADIANCE_STORED_SIDE as u64
                 * std::mem::size_of::<[f32; 4]>() as u64,
             probe_metadata: grid.probe_count() as u64
-                * std::mem::size_of::<DdgiProbeMetadataGpu>() as u64,
+                * std::mem::size_of::<DdgiProbeMetadata>() as u64,
             transient_ray_data: DDGI_PROBE_BATCH_SIZE as u64
                 * DDGI_RAYS_PER_PROBE as u64
                 * std::mem::size_of::<[f32; 4]>() as u64,
@@ -73,7 +65,9 @@ pub enum DdgiVolumeStage {
     #[default]
     Allocated,
     GlobalSkyReady,
+    RelocationPending,
     Relocated,
+    RayBatchReady,
     Rebuilding,
     Ready,
 }
@@ -86,6 +80,7 @@ pub struct DdgiVolumeStatus {
     pub resource_bytes: DdgiResourceBytes,
     pub stage: DdgiVolumeStage,
     pub global_sky_revision: u32,
+    pub relocated_terrain_revision: Option<u32>,
 }
 
 impl DdgiVolumeStatus {
@@ -101,6 +96,8 @@ pub struct DdgiVolume {
     resource_bytes: DdgiResourceBytes,
     stage: DdgiVolumeStage,
     global_sky_revision: u32,
+    requested_terrain_revision: Option<u32>,
+    relocated_terrain_revision: Option<u32>,
     pub ddgi_probe_metadata: Resource<Buffer>,
     pub ddgi_transient_ray_data: Resource<Buffer>,
     pub ddgi_irradiance_atlas: Resource<Texture>,
@@ -262,6 +259,8 @@ impl DdgiVolume {
             resource_bytes,
             stage: DdgiVolumeStage::Allocated,
             global_sky_revision: 0,
+            requested_terrain_revision: None,
+            relocated_terrain_revision: None,
             ddgi_probe_metadata: Resource::new(probe_metadata),
             ddgi_transient_ray_data: Resource::new(transient_ray_data),
             ddgi_irradiance_atlas: Resource::new(irradiance_atlas),
@@ -278,6 +277,7 @@ impl DdgiVolume {
             resource_bytes: self.resource_bytes,
             stage: self.stage,
             global_sky_revision: self.global_sky_revision,
+            relocated_terrain_revision: self.relocated_terrain_revision,
         }
     }
 
@@ -289,6 +289,48 @@ impl DdgiVolume {
         self.global_sky_revision = environment_revision;
         self.stage = stage_after_global_sky_update(self.stage);
     }
+
+    pub fn request_initialization(&mut self, terrain_revision: u32) -> bool {
+        if initialization_request_is_duplicate(
+            self.stage,
+            self.requested_terrain_revision,
+            terrain_revision,
+        ) {
+            return false;
+        }
+
+        self.requested_terrain_revision = Some(terrain_revision);
+        self.relocated_terrain_revision = None;
+        self.stage = DdgiVolumeStage::RelocationPending;
+        true
+    }
+
+    pub fn pending_relocation_terrain_revision(&self) -> Option<u32> {
+        (self.stage == DdgiVolumeStage::RelocationPending)
+            .then_some(self.requested_terrain_revision)
+            .flatten()
+    }
+
+    pub fn mark_relocated(&mut self, terrain_revision: u32) {
+        assert_eq!(self.requested_terrain_revision, Some(terrain_revision));
+        self.relocated_terrain_revision = Some(terrain_revision);
+        self.stage = DdgiVolumeStage::Relocated;
+    }
+}
+
+fn initialization_request_is_duplicate(
+    stage: DdgiVolumeStage,
+    requested_terrain_revision: Option<u32>,
+    terrain_revision: u32,
+) -> bool {
+    requested_terrain_revision == Some(terrain_revision)
+        && matches!(
+            stage,
+            DdgiVolumeStage::RelocationPending
+                | DdgiVolumeStage::Relocated
+                | DdgiVolumeStage::RayBatchReady
+                | DdgiVolumeStage::Ready
+        )
 }
 
 fn stage_after_global_sky_update(stage: DdgiVolumeStage) -> DdgiVolumeStage {
@@ -296,9 +338,11 @@ fn stage_after_global_sky_update(stage: DdgiVolumeStage) -> DdgiVolumeStage {
         DdgiVolumeStage::Allocated | DdgiVolumeStage::GlobalSkyReady => {
             DdgiVolumeStage::GlobalSkyReady
         }
-        DdgiVolumeStage::Relocated | DdgiVolumeStage::Rebuilding | DdgiVolumeStage::Ready => {
-            DdgiVolumeStage::Rebuilding
-        }
+        DdgiVolumeStage::RelocationPending => DdgiVolumeStage::RelocationPending,
+        DdgiVolumeStage::Relocated
+        | DdgiVolumeStage::RayBatchReady
+        | DdgiVolumeStage::Rebuilding
+        | DdgiVolumeStage::Ready => DdgiVolumeStage::Rebuilding,
     }
 }
 
@@ -378,6 +422,7 @@ mod tests {
             ),
             stage: DdgiVolumeStage::Allocated,
             global_sky_revision: 0,
+            relocated_terrain_revision: None,
         };
         assert!(!status.is_ready());
     }
@@ -392,5 +437,28 @@ mod tests {
             stage_after_global_sky_update(DdgiVolumeStage::Ready),
             DdgiVolumeStage::Rebuilding
         );
+        assert_eq!(
+            stage_after_global_sky_update(DdgiVolumeStage::RelocationPending),
+            DdgiVolumeStage::RelocationPending
+        );
+    }
+
+    #[test]
+    fn initialization_request_is_idempotent_for_the_same_terrain_revision() {
+        assert!(!initialization_request_is_duplicate(
+            DdgiVolumeStage::Allocated,
+            None,
+            7,
+        ));
+        assert!(initialization_request_is_duplicate(
+            DdgiVolumeStage::RelocationPending,
+            Some(7),
+            7,
+        ));
+        assert!(!initialization_request_is_duplicate(
+            DdgiVolumeStage::RelocationPending,
+            Some(7),
+            8,
+        ));
     }
 }

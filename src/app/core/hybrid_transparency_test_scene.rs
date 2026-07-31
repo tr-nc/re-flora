@@ -190,6 +190,8 @@ impl App {
                     return;
                 }
                 let terrain_revision = self.tracer.environment_probe_terrain_revision();
+                self.tracer
+                    .notify_ddgi_initial_terrain_ready(terrain_revision);
                 log::info!(
                     "[HYBRID_ALPHA_TEST] terrain rebuild complete revision={}; settling {} frames",
                     terrain_revision,

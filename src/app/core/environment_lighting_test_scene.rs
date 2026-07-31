@@ -246,6 +246,8 @@ impl App {
                     return;
                 }
                 let terrain_revision = self.tracer.environment_probe_terrain_revision();
+                self.tracer
+                    .notify_ddgi_initial_terrain_ready(terrain_revision);
                 log::info!(
                     "[ENV_LIGHT_TEST] static terrain ready case={} terrain_revision={} settling_frames={}",
                     case.label(),
