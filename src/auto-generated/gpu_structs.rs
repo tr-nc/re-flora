@@ -644,7 +644,7 @@ pub struct ShadingInfo {
     pub environment_probe_visibility_bias_world: f32,
     pub environment_lighting_backend: u32,
     pub environment_lighting_backend_ready: u32,
-    pub _pad2: [u8; 4],
+    pub environment_irradiance_capture_enabled: u32,
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

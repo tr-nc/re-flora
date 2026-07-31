@@ -1,6 +1,9 @@
 use crate::resource::Resource;
 use re_flora_vkn::vk;
-use re_flora_vkn::{Allocator, Device, Extent2D, ImageDesc, SamplerDesc, Texture, TextureLayout};
+use re_flora_vkn::{
+    Allocator, Buffer, BufferUsage, Device, Extent2D, ImageDesc, MemoryLocation, SamplerDesc,
+    Texture, TextureLayout,
+};
 use resource_container_derive::ResourceContainer;
 
 #[derive(ResourceContainer)]
@@ -8,6 +11,7 @@ pub struct ExtentDependentResources {
     pub gfx_depth_tex: Resource<Texture>,
     pub compute_depth_tex: Resource<Texture>,
     pub compute_output_tex: Resource<Texture>,
+    pub environment_irradiance_capture: Resource<Buffer>,
     pub gfx_output_tex: Resource<Texture>,
     pub god_ray_output_tex: Resource<Texture>,
     pub lens_flare_required_count_tex: Resource<Texture>,
@@ -35,6 +39,11 @@ impl ExtentDependentResources {
             Self::create_compute_depth_tex(device.clone(), allocator.clone(), rendering_extent);
         let compute_output_tex =
             Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        let environment_irradiance_capture = Self::create_environment_irradiance_capture(
+            device.clone(),
+            allocator.clone(),
+            rendering_extent,
+        );
         let gfx_output_tex =
             Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
         let god_ray_output_tex =
@@ -66,6 +75,7 @@ impl ExtentDependentResources {
             gfx_depth_tex: Resource::new(gfx_depth_tex),
             compute_depth_tex: Resource::new(compute_depth_tex),
             compute_output_tex: Resource::new(compute_output_tex),
+            environment_irradiance_capture: Resource::new(environment_irradiance_capture),
             gfx_output_tex: Resource::new(gfx_output_tex),
             god_ray_output_tex: Resource::new(god_ray_output_tex),
             lens_flare_required_count_tex: Resource::new(lens_flare_required_count_tex),
@@ -139,6 +149,23 @@ impl ExtentDependentResources {
             ..Default::default()
         };
         Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+
+    fn create_environment_irradiance_capture(
+        device: Device,
+        allocator: Allocator,
+        rendering_extent: Extent2D,
+    ) -> Buffer {
+        let byte_count = u64::from(rendering_extent.width)
+            * u64::from(rendering_extent.height)
+            * std::mem::size_of::<[f32; 4]>() as u64;
+        Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::storage_buffer().with_transfer_src(),
+            MemoryLocation::GpuOnly,
+            byte_count,
+        )
     }
 
     fn create_gfx_output_tex(

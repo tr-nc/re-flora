@@ -119,6 +119,7 @@ public struct U_ShadingInfo
     public float environment_probe_visibility_bias_world;
     public uint environment_lighting_backend;
     public uint environment_lighting_backend_ready;
+    public uint environment_irradiance_capture_enabled;
 };
 
 public struct U_CameraInfo

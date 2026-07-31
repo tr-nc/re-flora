@@ -34,6 +34,9 @@ RWTexture2D<uint> compute_output_tex;
 [[vk::binding(1, 1)]] [[vk::image_format("r32f")]]
 RWTexture2D<float> compute_depth_tex;
 
+[[vk::binding(2, 1)]]
+RWStructuredBuffer<float4> environment_irradiance_capture;
+
 MarchingResult generalSceneMarching(Ray ray, uint localInvocationIndex)
 {
     return marchScene(contree_node_data, contree_leaf_data, scene_tex,
@@ -126,7 +129,8 @@ float depthFromWorldPosition(float3 worldPosition)
     return ndc.z / ndc.w;
 }
 
-void getPixelColor(out float3 color, out float depth, Ray ray,
+void getPixelColor(out float3 color, out float depth,
+                   out float3 environmentIrradiance, Ray ray,
                    uint localInvocationIndex)
 {
     MarchingResult result = generalSceneMarching(ray, localInvocationIndex);
@@ -134,6 +138,7 @@ void getPixelColor(out float3 color, out float depth, Ray ray,
     {
         depth = 1.0;
         color = float3(0.0);
+        environmentIrradiance = float3(0.0);
         return;
     }
 
@@ -141,8 +146,9 @@ void getPixelColor(out float3 color, out float depth, Ray ray,
 
     float3 albedo;
     parseTraceResult(albedo, result);
-    color = sampleEnvironmentIrradiance(
-        shading_info, result.center_position, result.normal) * albedo;
+    environmentIrradiance = sampleEnvironmentIrradiance(
+        shading_info, result.center_position, result.normal);
+    color = environmentIrradiance * albedo;
     color += directLighting(albedo, result.normal, result.center_position);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
                                         result.center_position);
@@ -162,8 +168,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
 
     float3 color;
+    float3 environmentIrradiance;
     float depth;
-    getPixelColor(color, depth, ray, localInvocationIndex);
+    getPixelColor(color, depth, environmentIrradiance, ray, localInvocationIndex);
+
+    if (shading_info.environment_irradiance_capture_enabled != 0u)
+    {
+        uint captureIndex = dispatchThreadId.x + width * dispatchThreadId.y;
+        environment_irradiance_capture[captureIndex] = float4(
+            environmentIrradiance, depth < 1.0 ? 1.0 : 0.0);
+    }
 
     compute_output_tex[dispatchThreadId.xy] = packRgbe(color);
     compute_depth_tex[dispatchThreadId.xy] = depth;

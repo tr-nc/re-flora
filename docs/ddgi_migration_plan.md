@@ -8,6 +8,13 @@ first milestone is deliberately **sky-only DDGI**: it must make authored environ
 probe-to-surface visibility correct before adding indirect hit radiance, temporal convergence, or
 production compression.
 
+Implementation progress:
+
+- M0 is complete: the three static cases, fail-closed backend selector/readiness seam, pre-albedo
+  float32 irradiance capture, deterministic capture analyzer, and six-configuration runner skeleton
+  are in-tree.
+- M1 is the active implementation milestone.
+
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional
 octahedral maps; it does not remove the probe volume.

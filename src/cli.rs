@@ -179,6 +179,8 @@ pub struct AppOptions {
     pub environment_lighting_test_scene: Option<EnvironmentLightingTestCase>,
     /// Select the temporary environment-lighting backend during DDGI migration.
     pub environment_lighting_backend: EnvironmentLightingBackend,
+    /// Save one pre-albedo linear environment-irradiance capture when the backend is ready.
+    pub environment_irradiance_capture_path: Option<String>,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
     pub hybrid_transparency_test_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
@@ -308,6 +310,10 @@ impl AppOptions {
             })?,
             None => EnvironmentLightingBackend::LocalSh,
         };
+        let environment_irradiance_capture_path = parse_required_string_after(
+            "--environment-irradiance-capture",
+            "an output .rfirr path",
+        )?;
 
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
@@ -386,6 +392,7 @@ impl AppOptions {
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
             environment_lighting_test_scene,
             environment_lighting_backend,
+            environment_irradiance_capture_path,
             hybrid_transparency_test_scene: args
                 .iter()
                 .any(|a| a == "--hybrid-transparency-test-scene"),
@@ -662,6 +669,8 @@ Options:
                               Build a static lighting case: sealed (default), portal, or walls
   --environment-lighting-backend <backend>
                               Select local-sh (default) or ddgi during migration
+  --environment-irradiance-capture <path>
+                              Save pre-albedo linear RGB irradiance plus terrain-hit mask
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
   --environment-probe-spacing-voxels <N>
@@ -697,7 +706,7 @@ Examples:
   re-flora --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
-  re-flora --hidden --mute --windowed --environment-lighting-test-scene sealed --environment-lighting-backend local-sh --screenshot player-default target/environment-lighting-test.png --screenshot-delay 4 --auto-exit 8
+  re-flora --hidden --mute --environment-lighting-test-scene sealed --environment-lighting-backend local-sh --environment-irradiance-capture target/sealed.rfirr --auto-exit 8
   re-flora --hidden --mute --windowed --hybrid-transparency-test-scene --screenshot player-default target/hybrid-transparency-test.png --screenshot-delay 2 --auto-exit 6
   re-flora --latest-log
   re-flora --tail-latest-log 120
@@ -765,6 +774,7 @@ mod tests {
             options.environment_lighting_backend,
             EnvironmentLightingBackend::LocalSh
         );
+        assert!(options.environment_irradiance_capture_path.is_none());
         assert_eq!(
             options.environment_probe_spacing_voxels,
             DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS
@@ -843,6 +853,20 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains("local-sh, ddgi"));
+    }
+
+    #[test]
+    fn parses_environment_irradiance_capture_path() {
+        let options = parse(&[
+            "re-flora",
+            "--environment-irradiance-capture",
+            "target/sealed.rfirr",
+        ]);
+
+        assert_eq!(
+            options.environment_irradiance_capture_path.as_deref(),
+            Some("target/sealed.rfirr")
+        );
     }
 
     #[test]

@@ -439,6 +439,7 @@ pub struct TracerDesc {
     pub environment_probe_spacing_voxels: u32,
     pub environment_probe_visualization_enabled: bool,
     pub environment_lighting_backend: EnvironmentLightingBackend,
+    pub environment_irradiance_capture_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -927,6 +928,48 @@ impl Tracer {
             }
             EnvironmentLightingBackend::Ddgi => false,
         }
+    }
+
+    pub fn environment_irradiance_capture_extent(&self) -> Extent2D {
+        self.resources
+            .extent_dependent_resources
+            .compute_output_tex
+            .get_image()
+            .get_desc()
+            .extent
+            .as_extent_2d()
+            .expect("terrain output must be two-dimensional")
+    }
+
+    pub fn record_environment_irradiance_capture_readback(
+        &self,
+        cmdbuf: &CommandBuffer,
+        readback: &Buffer,
+    ) {
+        let source = &self
+            .resources
+            .extent_dependent_resources
+            .environment_irradiance_capture;
+        assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
+        PipelineBarrier::new(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::TRANSFER,
+            [MemoryBarrier::new(
+                MemoryAccess::SHADER_WRITE,
+                MemoryAccess::TRANSFER_READ,
+            )],
+        )
+        .record_insert(self.vulkan_ctx.device(), cmdbuf);
+        source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
+        PipelineBarrier::new(
+            PipelineStage::TRANSFER,
+            PipelineStage::HOST,
+            [MemoryBarrier::new(
+                MemoryAccess::TRANSFER_WRITE,
+                MemoryAccess::HOST_READ,
+            )],
+        )
+        .record_insert(self.vulkan_ctx.device(), cmdbuf);
     }
 
     pub fn environment_probe_terrain_revision(&self) -> u32 {
@@ -1574,6 +1617,7 @@ impl Tracer {
             self.environment_probe_local_field_ready,
             self.environment_lighting_backend,
             self.environment_lighting_backend_ready(),
+            self.desc.environment_irradiance_capture_enabled,
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;
 
