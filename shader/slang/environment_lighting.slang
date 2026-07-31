@@ -18,6 +18,7 @@ struct EnvironmentProbeCoefficients
 struct EnvironmentProbeVisibility
 {
     uint packed_hit_distances[32];
+    uint packed_distance_moments[64];
 };
 
 struct B_EnvironmentProbeSummaries
@@ -48,8 +49,6 @@ readonly GLSLShaderStorageBuffer<B_EnvironmentProbeVisibility, Std430DataLayout>
     environment_probe_visibility;
 
 static const uint ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE = 8u;
-static const uint ENVIRONMENT_PROBE_MISS_DISTANCE = 65535u;
-static const float ENVIRONMENT_PROBE_MAX_HIT_DISTANCE_WORLD = 4.0;
 
 // Sloan real-SH ordering adapted to the project's Y-up world:
 // [Y00, Y1-1(z), Y10(y), Y11(x), Y2-2(xz), Y2-1(zy),
@@ -146,37 +145,43 @@ float2 encodeEnvironmentProbeDirection(float3 direction)
     return encoded;
 }
 
-uint environmentProbeHitDistance(
+float2 environmentProbeDistanceMoments(
     EnvironmentProbeVisibility visibility,
-    uint directionIndex)
+    uint directionIndex,
+    float maximumDistance)
 {
-    uint packed = visibility.packed_hit_distances[directionIndex >> 1u];
-    return (directionIndex & 1u) == 0u
-        ? packed & 0xffffu
-        : packed >> 16u;
+    uint packed = visibility.packed_distance_moments[directionIndex];
+    float2 normalizedMoments = float2(
+        packed & 0xffffu,
+        packed >> 16u) / 65535.0;
+    return normalizedMoments * float2(
+        maximumDistance,
+        maximumDistance * maximumDistance);
 }
 
-float environmentProbeHitVisibility(
-    uint quantizedDistance,
+float environmentProbeChebyshevVisibility(
+    float2 distanceMoments,
     float distanceToSurface,
     float bias)
 {
-    if (quantizedDistance == ENVIRONMENT_PROBE_MISS_DISTANCE)
-        return 1.0;
+    float biasedDistance = max(0.0, distanceToSurface - bias);
+    if (biasedDistance <= distanceMoments.x) return 1.0;
 
-    float hitDistance =
-        float(quantizedDistance) /
-        float(ENVIRONMENT_PROBE_MISS_DISTANCE - 1u) *
-        ENVIRONMENT_PROBE_MAX_HIT_DISTANCE_WORLD;
-    float distancePastHit = distanceToSurface - hitDistance;
-    return 1.0 - smoothstep(bias, bias * 3.0, distancePastHit);
+    float variance = abs(
+        distanceMoments.y - distanceMoments.x * distanceMoments.x);
+    float distancePastMean = biasedDistance - distanceMoments.x;
+    float chebyshev = variance /
+        max(variance + distancePastMean * distancePastMean, 1.0e-8);
+    chebyshev *= chebyshev * chebyshev;
+    return max(0.05, chebyshev);
 }
 
 float environmentProbeDirectionalVisibility(
     EnvironmentProbeVisibility visibility,
     float3 direction,
     float distanceToSurface,
-    float bias)
+    float bias,
+    float maximumDistance)
 {
     float2 encoded = encodeEnvironmentProbeDirection(direction);
     float2 gridPosition = clamp(
@@ -198,22 +203,20 @@ float environmentProbeDirectionalVisibility(
         ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE * next.y;
     uint direction11 = next.x +
         ENVIRONMENT_PROBE_DIRECTION_GRID_SIDE * next.y;
-    float visibility00 = environmentProbeHitVisibility(
-        environmentProbeHitDistance(visibility, direction00),
-        distanceToSurface, bias);
-    float visibility10 = environmentProbeHitVisibility(
-        environmentProbeHitDistance(visibility, direction10),
-        distanceToSurface, bias);
-    float visibility01 = environmentProbeHitVisibility(
-        environmentProbeHitDistance(visibility, direction01),
-        distanceToSurface, bias);
-    float visibility11 = environmentProbeHitVisibility(
-        environmentProbeHitDistance(visibility, direction11),
-        distanceToSurface, bias);
-    return lerp(
-        lerp(visibility00, visibility10, fraction.x),
-        lerp(visibility01, visibility11, fraction.x),
+    float2 moments00 = environmentProbeDistanceMoments(
+        visibility, direction00, maximumDistance);
+    float2 moments10 = environmentProbeDistanceMoments(
+        visibility, direction10, maximumDistance);
+    float2 moments01 = environmentProbeDistanceMoments(
+        visibility, direction01, maximumDistance);
+    float2 moments11 = environmentProbeDistanceMoments(
+        visibility, direction11, maximumDistance);
+    float2 moments = lerp(
+        lerp(moments00, moments10, fraction.x),
+        lerp(moments01, moments11, fraction.x),
         fraction.y);
+    return environmentProbeChebyshevVisibility(
+        moments, distanceToSurface, bias);
 }
 
 float environmentProbeSurfaceVisibility(
@@ -228,11 +231,15 @@ float environmentProbeSurfaceVisibility(
     if (distanceToSurface <= bias) return 1.0;
 
     float3 direction = probeToSurface / distanceToSurface;
+    float3 probeSpacingWorld =
+        rcp(lighting.environment_probe_world_to_grid_scale);
+    float maximumDistance = length(probeSpacingWorld) * 1.5;
     return environmentProbeDirectionalVisibility(
         environment_probe_visibility.data[probeIndex],
         direction,
         distanceToSurface,
-        bias);
+        bias,
+        maximumDistance);
 }
 
 public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
@@ -324,6 +331,9 @@ public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,
                     probeIndex,
                     probePosition,
                     worldPosition);
+                // Keep the sparse 8x8 moment field continuous here. Cubically
+                // crushing small weights reintroduced probe-cell bands at the
+                // 16-voxel correctness-test density.
                 float trustWeight = normalWeight * visibilityWeight;
                 if (trustWeight > 1.0e-5 &&
                     probeDistanceSquared < nearestTrustedDistanceSquared)

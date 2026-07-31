@@ -186,6 +186,7 @@ pub struct EnvironmentProbeCoefficientsGpu {
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct EnvironmentProbeVisibilityGpu {
     pub packed_hit_distances: [u32; ENVIRONMENT_PROBE_PACKED_HIT_DISTANCE_COUNT],
+    pub packed_distance_moments: [u32; ENVIRONMENT_PROBE_DIRECTION_COUNT],
 }
 
 impl EnvironmentProbeVisibilityGpu {
@@ -193,6 +194,7 @@ impl EnvironmentProbeVisibilityGpu {
         Self {
             packed_hit_distances: [ENVIRONMENT_PROBE_PACKED_MISS_DISTANCES;
                 ENVIRONMENT_PROBE_PACKED_HIT_DISTANCE_COUNT],
+            packed_distance_moments: [u32::MAX; ENVIRONMENT_PROBE_DIRECTION_COUNT],
         }
     }
 }
@@ -881,7 +883,11 @@ mod tests {
         assert_eq!(std::mem::size_of::<EnvironmentProbeSummaryGpu>(), 4 * 16);
         assert_eq!(
             std::mem::size_of::<EnvironmentProbeVisibilityGpu>(),
-            ENVIRONMENT_PROBE_DIRECTION_COUNT * 2
+            ENVIRONMENT_PROBE_DIRECTION_COUNT * 6
+        );
+        assert_eq!(
+            std::mem::size_of::<EnvironmentProbeVisibilityGpu>(),
+            std::mem::size_of::<crate::generated::gpu_structs::EnvironmentProbeVisibility>()
         );
         assert_eq!(
             std::mem::size_of::<EnvironmentProbeDirectionGpu>(),
@@ -891,15 +897,19 @@ mod tests {
             EnvironmentProbeVisibilityGpu::all_miss().packed_hit_distances,
             [ENVIRONMENT_PROBE_PACKED_MISS_DISTANCES; ENVIRONMENT_PROBE_PACKED_HIT_DISTANCE_COUNT]
         );
+        assert_eq!(
+            EnvironmentProbeVisibilityGpu::all_miss().packed_distance_moments,
+            [u32::MAX; ENVIRONMENT_PROBE_DIRECTION_COUNT]
+        );
 
         let grid = EnvironmentProbeGrid::new(WORLD_EXTENT, 16).unwrap();
         assert_eq!(grid.dimensions(), UVec3::splat(33));
         assert_eq!(grid.probe_count(), 35_937);
         let bytes = EnvironmentProbeResourceBytes::for_grid(grid);
-        assert_eq!(bytes.visibility, 4_599_936);
+        assert_eq!(bytes.visibility, 13_799_808);
         assert_eq!(bytes.directions, 10_240);
         assert_eq!(bytes.stats, 64);
-        assert_eq!(bytes.total(), 12_085_136);
+        assert_eq!(bytes.total(), 21_285_008);
     }
 
     #[test]

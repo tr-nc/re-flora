@@ -85,6 +85,7 @@ pub struct EnvironmentProbeSummaries {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct EnvironmentProbeVisibility {
     pub packed_hit_distances: [u32; 32],
+    pub packed_distance_moments: [u32; 64],
 }
 
 /// Auto-generated from `B_FloraVoxelInfos` (native Slang source of truth).

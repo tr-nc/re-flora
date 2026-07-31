@@ -19,6 +19,7 @@ struct EnvironmentProbeCoefficients
 struct EnvironmentProbeVisibility
 {
     uint packed_hit_distances[32];
+    uint packed_distance_moments[64];
 };
 
 struct EnvironmentProbeDirection
@@ -182,6 +183,29 @@ uint packedDistance(EnvironmentProbeVisibility visibility, uint directionIndex)
         : packed >> 16u;
 }
 
+float decodedHitDistance(uint quantizedDistance, float maximumDistance)
+{
+    if (quantizedDistance == PROBE_MISS_DISTANCE) return maximumDistance;
+    float distanceWorld =
+        float(quantizedDistance) /
+        float(PROBE_MISS_DISTANCE - 1u) *
+        PROBE_MAX_HIT_DISTANCE_WORLD;
+    return min(distanceWorld, maximumDistance);
+}
+
+uint packDistanceMoments(float meanDistance,
+                         float meanSquaredDistance,
+                         float maximumDistance)
+{
+    float inverseMaximumDistance = rcp(max(maximumDistance, 1.0e-6));
+    uint mean = uint(round(saturate(
+        meanDistance * inverseMaximumDistance) * 65535.0));
+    uint meanSquared = uint(round(saturate(
+        meanSquaredDistance *
+        inverseMaximumDistance * inverseMaximumDistance) * 65535.0));
+    return mean | (meanSquared << 16u);
+}
+
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID,
@@ -294,6 +318,51 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
 
     if (tracing)
     {
+        float3 probeSpacingWorld =
+            rcp(shading_info.environment_probe_world_to_grid_scale);
+        float maximumMomentDistance = length(probeSpacingWorld) * 1.5;
+        [loop]
+        for (uint momentDirectionIndex = 0u;
+             momentDirectionIndex < PROBE_DIRECTION_COUNT;
+             ++momentDirectionIndex)
+        {
+            float3 momentDirection = normalize(
+                environment_probe_directions
+                    .data[momentDirectionIndex].direction.xyz);
+            float weightedDistance = 0.0;
+            float weightedSquaredDistance = 0.0;
+            float accumulatedMomentWeight = 0.0;
+            [loop]
+            for (uint rayDirectionIndex = 0u;
+                 rayDirectionIndex < PROBE_DIRECTION_COUNT;
+                 ++rayDirectionIndex)
+            {
+                float3 rayDirection = normalize(
+                    environment_probe_directions
+                        .data[rayDirectionIndex].direction.xyz);
+                float cosineWeight =
+                    saturate(dot(momentDirection, rayDirection));
+                // Eight is deliberately broader than RTXGI's high-density
+                // default: this probe uses only an 8x8/64-ray direction set.
+                cosineWeight *= cosineWeight;
+                cosineWeight *= cosineWeight;
+                cosineWeight *= cosineWeight;
+                float rayDistance = decodedHitDistance(
+                    packedDistance(visibility, rayDirectionIndex),
+                    maximumMomentDistance);
+                weightedDistance += rayDistance * cosineWeight;
+                weightedSquaredDistance +=
+                    rayDistance * rayDistance * cosineWeight;
+                accumulatedMomentWeight += cosineWeight;
+            }
+            float inverseMomentWeight =
+                rcp(max(accumulatedMomentWeight, 1.0e-6));
+            visibility.packed_distance_moments[momentDirectionIndex] =
+                packDistanceMoments(
+                    weightedDistance * inverseMomentWeight,
+                    weightedSquaredDistance * inverseMomentWeight,
+                    maximumMomentDistance);
+        }
         environment_probe_visibility.data[probeIndex] = visibility;
         uint2 packedAxialDistances = uint2(0u);
         [unroll]

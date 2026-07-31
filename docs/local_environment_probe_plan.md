@@ -516,25 +516,27 @@ The visibility resource contract uses a deterministic, directly indexable `8 x 8
 full-sphere direction set. Each direction record stores its unit vector, nominal solid angle, and
 nine scalar L2 irradiance projection weights. Nonnegative-Y records participate in authored-sky SH
 projection; all 64 records retain terrain hit distance for future directional uses. The shared
-direction table is 10,240 bytes. Each probe adds 128 bytes containing 64 packed `u16` first-hit
-distances; two `u16::MAX` values packed into `u32::MAX` explicitly represent two environment misses,
-including before the first trace.
+direction table is 10,240 bytes. Each probe stores 128 bytes containing 64 packed `u16` first-hit
+distances plus 256 bytes containing 64 packed `(mean distance, mean squared distance)` pairs. Two
+`u16::MAX` hit distances explicitly represent environment misses. A moment pair initialized to
+`u32::MAX` represents maximum distance and maximum squared distance before the first trace.
 
-For the hot consumer path, six additional exact axial distances are quantized to ten bits and packed
-into two previously reserved words of the 64-byte summary. They add no allocation bytes and avoid
-per-pixel reads from the 128-byte directional visibility record.
+For the hot consumer path, a sample reads and bilinearly blends four packed moment pairs rather than
+turning four raw hit distances into independent binary visibility decisions. Six additional exact
+axial distances remain quantized to ten bits in two previously reserved words of the 64-byte
+summary; they add no allocation bytes.
 
 Together with the existing 144-byte coefficient and 64-byte summary records, the current layout is
-336 bytes per probe plus the fixed 10 KiB direction table and a 64-byte aggregate
+592 bytes per probe plus the fixed 10 KiB direction table and a 64-byte aggregate
 statistics/readback pair. Hidden release allocation runs reported:
 
 | Spacing | Probes | Coefficients | State | Visibility | Directions | Stats | Total |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 32 voxels | 4,913 | 707,472 B | 314,432 B | 628,864 B | 10,240 B | 64 B | 1,661,072 B / 1.58 MiB |
-| 16 voxels | 35,937 | 5,174,928 B | 2,299,968 B | 4,599,936 B | 10,240 B | 64 B | 12,085,136 B / 11.53 MiB |
-| 8 voxels | 274,625 | 39,546,000 B | 17,576,000 B | 35,152,000 B | 10,240 B | 64 B | 92,284,304 B / 88.01 MiB |
+| 32 voxels | 4,913 | 707,472 B | 314,432 B | 1,886,592 B | 10,240 B | 64 B | 2,918,800 B / 2.78 MiB |
+| 16 voxels | 35,937 | 5,174,928 B | 2,299,968 B | 13,799,808 B | 10,240 B | 64 B | 21,285,008 B / 20.30 MiB |
+| 8 voxels | 274,625 | 39,546,000 B | 17,576,000 B | 105,456,000 B | 10,240 B | 64 B | 162,588,304 B / 155.06 MiB |
 
-Both allocations completed on the release Vulkan path, seeded all probes from global SH, reported
+All allocations completed on the release Vulkan path, seeded all probes from global SH, reported
 no error, panic, or validation message, and exited successfully. This validates the resource layout
 and stress allocation only; it is not yet evidence for tracing cost or an 8-voxel production
 default.
@@ -672,6 +674,29 @@ uniform-albedo baseline are gone while the valid circular opening remains lit. T
 converged through terrain revision 3, the run reported no error, panic, or Vulkan validation
 message, and the application exited successfully. Performance was intentionally not used as an
 acceptance criterion for this correctness restoration and remains follow-up work.
+
+Doubling density to 16-voxel spacing exposed a second failure in that raw-distance consumer: each
+probe's visibility still changed too abruptly when a surface crossed its first-hit threshold, so
+the interpolation weights revealed the probe lattice as large wall cells. Disabling only
+directional visibility removed the cells, while a 4x4 angular reconstruction did not; this isolated
+the discontinuous per-probe visibility field rather than SH projection, albedo, or octahedral
+bilinear interpolation.
+
+The update pass now filters the 64 retained ray distances into directional first and second moments.
+For each 8x8 octahedral output direction it applies a cosine-to-the-eighth kernel, clamps ray distance
+to 1.5 times the probe-cell diagonal, and stores normalized `u16` mean and mean-square values in one
+`u32`. The lower exponent is intentional for this sparse 64-ray field; a narrow high-exponent kernel
+would preserve the same undersampling bands. The shared sampler bilinearly interpolates the moments,
+applies the existing two-voxel surface bias, and evaluates a cubed Chebyshev visibility bound with a
+0.05 floor. It deliberately does not apply the reference implementation's later cubic small-weight
+crush: an A/B capture showed that crush reintroduced visible cell boundaries at 16-voxel spacing.
+
+`target/environment-lighting-spacing-16-distance-moments-no-crush.png` is smooth on the left and
+right walls at the failure density while keeping the roofed back wall and portal boundary dark. The
+default-density regression capture
+`target/environment-lighting-spacing-32-distance-moments-no-crush.png` likewise keeps the original
+leak fixed. Both runs reached the final roof-closure terrain revision before capture, reported no
+error, panic, or Vulkan validation message, and exited successfully.
 
 The step used:
 

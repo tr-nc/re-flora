@@ -360,7 +360,9 @@ mod tests {
         assert!(shared.contains("environmentProbeSurfaceVisibility("));
         assert!(shared.contains("encodeEnvironmentProbeDirection("));
         assert!(shared.contains("environmentProbeDirectionalVisibility("));
-        assert!(shared.contains("lerp(visibility00, visibility10, fraction.x)"));
+        assert!(shared.contains("environmentProbeDistanceMoments("));
+        assert!(shared.contains("environmentProbeChebyshevVisibility("));
+        assert!(shared.contains("lerp(moments00, moments10, fraction.x)"));
         assert!(shared.contains("saturate(dot(normal, surfaceToProbeDirection))"));
         assert!(shared.contains("hasNearestTrustedProbe"));
         assert!(terrain.contains("sampleEnvironmentIrradiance("));
