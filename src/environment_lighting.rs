@@ -381,6 +381,7 @@ mod tests {
         let shared = include_str!("../shader/slang/environment_lighting.slang");
         let terrain = include_str!("../shader/slang/tracer.slang");
         let raster = include_str!("../shader/slang/flora_shadow.slang");
+        let pipeline_builder = include_str!("tracer/pipeline_builder.rs");
 
         assert!(shared.contains("worldPosition * lighting.environment_probe_world_to_grid_scale"));
         assert!(shared.contains("environment_probe_coefficients.data[probeIndex]"));
@@ -396,10 +397,13 @@ mod tests {
         assert!(shared.contains("hasNearestTrustedProbe"));
         assert!(shared.contains("sampleDiffuseEnvironment("));
         assert!(shared.contains("sampleLocalShEnvironmentIrradiance("));
+        assert!(shared.contains("import ddgi_query;"));
         assert!(shared.contains("lighting.environment_lighting_backend == 1u"));
+        assert!(shared.contains("return sampleDdgiDiffuseEnvironment("));
         assert!(shared.contains("return sampleDiffuseEnvironment("));
-        assert!(terrain.contains("sampleEnvironmentIrradiance("));
-        assert!(raster.contains("sampleEnvironmentIrradiance("));
+        assert!(terrain.contains("environmentIrradiance = sampleDiffuseEnvironment("));
+        assert!(raster.contains("sampleDiffuseEnvironment("));
+        assert!(raster.contains("shading, voxelCenter, shadingNormal"));
         for consumer in [
             include_str!("../shader/slang/flora.vert.slang"),
             include_str!("../shader/slang/flora_lod.vert.slang"),
@@ -408,6 +412,16 @@ mod tests {
         ] {
             assert!(consumer.contains("import flora_vertex;"));
         }
+        for consumer in [
+            include_str!("../shader/slang/dynamic_fruit.vert.slang"),
+            include_str!("../shader/slang/sprinkler.vert.slang"),
+            include_str!("../shader/slang/particle_lod_textured.vert.slang"),
+        ] {
+            assert!(consumer.contains("import flora_shadow;"));
+            assert!(consumer.contains("applyStylizedVoxelLighting("));
+        }
+        assert!(pipeline_builder.contains("environment_lighting_resources"));
+        assert!(pipeline_builder.contains("[resources, environment_probes, ddgi_volume]"));
     }
 
     #[test]

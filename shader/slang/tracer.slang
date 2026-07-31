@@ -271,18 +271,16 @@ void getPixelColor(out float3 color, out float depth,
 
     float3 albedo;
     parseTraceResult(albedo, result);
-    if (shading_info.environment_lighting_backend == 1u)
+    environmentIrradiance = sampleDiffuseEnvironment(
+        shading_info, result.position, result.normal);
+    if (shading_info.environment_lighting_backend == 1u &&
+        shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {
         DdgiQueryResult ddgiResult = sampleDdgiDiffuseEnvironment(
             shading_info, result.position, result.normal);
         environmentIrradiance = ddgiTerrainDebugValue(
             screenUv, result.position, result.normal, -ray.direction, ddgiResult,
             localInvocationIndex);
-    }
-    else
-    {
-        environmentIrradiance = sampleEnvironmentIrradiance(
-            shading_info, result.center_position, result.normal);
     }
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {

@@ -25,8 +25,13 @@ Implementation progress:
   query, exact segment reference, permanent ablation views, and the six-configuration acceptance
   runner are in-tree. The selected DDGI backend remains fail-closed until the complete volume is
   ready.
-- M4 is the active implementation milestone. Terrain already consumes the DDGI query; the raster
-  consumers still need the same query resources and shared shader seam.
+- M4 is complete: terrain, full/LOD flora and leaves, fruit, sprinklers, particles, and water
+  droplets all consume `sampleDiffuseEnvironment` with their existing world position and
+  procedural normal. Every affected raster pipeline binds the same DDGI metadata, global sky,
+  irradiance atlas, visibility atlas, and shared shading-info revision as terrain; vertex layouts
+  are unchanged.
+- M5 is the active implementation milestone. The validated DDGI path is ready to become the sole
+  backend and the temporary local-SH implementation and selector can be removed.
 
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional

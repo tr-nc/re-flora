@@ -710,11 +710,16 @@ impl PipelineBuilder {
         resources: &TracerResources,
         plain_builder_resources: &PlainBuilderResources,
         environment_probes: &EnvironmentProbeVolume,
+        ddgi_volume: &DdgiVolume,
     ) -> GraphicsPipelines {
-        let flora_resources: [&dyn ResourceContainer; 3] =
-            [resources, plain_builder_resources, environment_probes];
-        let environment_lighting_resources: [&dyn ResourceContainer; 2] =
-            [resources, environment_probes];
+        let flora_resources: [&dyn ResourceContainer; 4] = [
+            resources,
+            plain_builder_resources,
+            environment_probes,
+            ddgi_volume,
+        ];
+        let environment_lighting_resources: [&dyn ResourceContainer; 3] =
+            [resources, environment_probes, ddgi_volume];
         let terrain_depth_prefill_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.terrain_depth_prefill_vert_sm,

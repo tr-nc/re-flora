@@ -784,6 +784,9 @@ impl Tracer {
             &resources,
             plain_builder_resources,
             &environment_probes,
+            ddgi_volume
+                .as_ref()
+                .expect("raster pipelines require DDGI descriptor resources"),
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
@@ -1279,6 +1282,7 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
 
         let tracer_resources = self.tracer_descriptor_resources();
+        let environment_lighting_resources = self.environment_lighting_descriptor_resources();
         update_compute_fn(&self.compute_pipelines.wind_volume_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.shadow_depth_copy_ppl,
@@ -1324,13 +1328,22 @@ impl Tracer {
         );
         update_graphics_fn(&self.graphics_pipelines.flora_ppl, &all_resources);
         update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, &all_resources);
-        update_graphics_fn(&self.graphics_pipelines.leaves_ppl, &tracer_resources);
-        update_graphics_fn(&self.graphics_pipelines.leaves_lod_ppl, &tracer_resources);
+        update_graphics_fn(
+            &self.graphics_pipelines.leaves_ppl,
+            &environment_lighting_resources,
+        );
+        update_graphics_fn(
+            &self.graphics_pipelines.leaves_lod_ppl,
+            &environment_lighting_resources,
+        );
         update_graphics_fn(
             &self.graphics_pipelines.leaves_shadow_lod_ppl,
             &tracer_resources,
         );
-        update_graphics_fn(&self.graphics_pipelines.sprinkler_ppl, &tracer_resources);
+        update_graphics_fn(
+            &self.graphics_pipelines.sprinkler_ppl,
+            &environment_lighting_resources,
+        );
         update_graphics_fn(
             &self.graphics_pipelines.geometry_preview_ppl,
             &tracer_resources,
@@ -1353,10 +1366,17 @@ impl Tracer {
                 .environment_probe_visualization_overlay_ppl,
             &environment_probe_resources,
         );
-        update_graphics_fn(&self.graphics_pipelines.particle_ppl, &tracer_resources);
+        update_graphics_fn(
+            &self.graphics_pipelines.dynamic_fruit_ppl,
+            &environment_lighting_resources,
+        );
+        update_graphics_fn(
+            &self.graphics_pipelines.particle_ppl,
+            &environment_lighting_resources,
+        );
         update_graphics_fn(
             &self.graphics_pipelines.water_droplet_ppl,
-            &tracer_resources,
+            &environment_lighting_resources,
         );
         if let Some(ddgi_volume) = self.ddgi_volume.as_ref() {
             let ddgi_resources: [&dyn ResourceContainer; 2] = [&self.resources, ddgi_volume];
@@ -1398,6 +1418,17 @@ impl Tracer {
         [
             &self.resources as &dyn ResourceContainer,
             &self.environment_probes as &dyn ResourceContainer,
+        ]
+    }
+
+    fn environment_lighting_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
+        [
+            &self.resources as &dyn ResourceContainer,
+            &self.environment_probes as &dyn ResourceContainer,
+            self.ddgi_volume
+                .as_ref()
+                .expect("environment lighting descriptors require DDGI resources")
+                as &dyn ResourceContainer,
         ]
     }
 
@@ -1540,6 +1571,24 @@ impl Tracer {
                 &ddgi_volume.ddgi_probe_metadata,
             ),
         );
+        for pipeline in [
+            &self.graphics_pipelines.flora_ppl,
+            &self.graphics_pipelines.flora_lod_ppl,
+            &self.graphics_pipelines.leaves_ppl,
+            &self.graphics_pipelines.leaves_lod_ppl,
+            &self.graphics_pipelines.sprinkler_ppl,
+            &self.graphics_pipelines.dynamic_fruit_ppl,
+            &self.graphics_pipelines.particle_ppl,
+            &self.graphics_pipelines.water_droplet_ppl,
+        ] {
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    DDGI_PROBE_METADATA_BINDING,
+                    &ddgi_volume.ddgi_probe_metadata,
+                ),
+            );
+        }
         for (binding, texture) in [
             (
                 DDGI_GLOBAL_SKY_BINDING,
@@ -1563,6 +1612,26 @@ impl Tracer {
                     TextureLayout::SHADER_READ_ONLY,
                 ),
             );
+            for pipeline in [
+                &self.graphics_pipelines.flora_ppl,
+                &self.graphics_pipelines.flora_lod_ppl,
+                &self.graphics_pipelines.leaves_ppl,
+                &self.graphics_pipelines.leaves_lod_ppl,
+                &self.graphics_pipelines.sprinkler_ppl,
+                &self.graphics_pipelines.dynamic_fruit_ppl,
+                &self.graphics_pipelines.particle_ppl,
+                &self.graphics_pipelines.water_droplet_ppl,
+            ] {
+                pipeline.write_descriptor_set(
+                    0,
+                    WriteDescriptorSet::new_texture_write(
+                        binding,
+                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                        texture,
+                        TextureLayout::SHADER_READ_ONLY,
+                    ),
+                );
+            }
         }
         Ok(())
     }

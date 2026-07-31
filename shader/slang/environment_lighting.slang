@@ -1,5 +1,6 @@
 module environment_lighting;
 
+import ddgi_query;
 import tracer_types;
 
 struct EnvironmentProbeSummary
@@ -392,9 +393,8 @@ public float3 sampleDiffuseEnvironment(U_ShadingInfo lighting,
 {
     if (lighting.environment_lighting_backend == 1u)
     {
-        // The M0 selector is intentionally fail-closed until the DDGI query exists.
-        // Never make a selected-but-unready DDGI volume look valid by sampling SH.
-        return float3(0.0);
+        return sampleDdgiDiffuseEnvironment(
+            lighting, worldPosition, surfaceNormal).irradiance;
     }
     return sampleLocalShEnvironmentIrradiance(
         lighting, worldPosition, surfaceNormal);

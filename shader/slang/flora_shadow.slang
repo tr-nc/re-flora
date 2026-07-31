@@ -136,7 +136,7 @@ public float3 applyStylizedVoxelLighting(U_SunInfo sun, U_ShadingInfo shading,
 {
     float sunLuminance = sunLuminanceFromDirection(sun.sun_dir, sun.sun_luminance);
     float3 sunLight = sun.sun_color * sunLuminance;
-    float3 environmentLight = sampleEnvironmentIrradiance(
+    float3 environmentLight = sampleDiffuseEnvironment(
         shading, voxelCenter, shadingNormal);
     return baseColor * (sunLight * shadowWeight + environmentLight);
 }
