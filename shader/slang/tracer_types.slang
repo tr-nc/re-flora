@@ -122,7 +122,8 @@ public struct U_ShadingInfo
     public uint environment_irradiance_capture_enabled;
     public uint ddgi_irradiance_tile_columns;
     public uint ddgi_visibility_tile_columns;
-    public uint3 ddgi_padding;
+    public uint ddgi_debug_view;
+    public uint2 ddgi_padding;
 };
 
 public struct U_CameraInfo

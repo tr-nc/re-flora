@@ -1,5 +1,6 @@
 use re_flora_vkn::PresentMode;
 
+use crate::ddgi::DdgiDebugView;
 use crate::environment_lighting::EnvironmentLightingBackend;
 use crate::environment_probes::{
     supported_environment_probe_spacings_label, validate_environment_probe_spacing,
@@ -181,6 +182,8 @@ pub struct AppOptions {
     pub environment_lighting_backend: EnvironmentLightingBackend,
     /// Save one pre-albedo linear environment-irradiance capture when the backend is ready.
     pub environment_irradiance_capture_path: Option<String>,
+    /// Select a permanent DDGI diagnostic view; exact modes are correctness-only and expensive.
+    pub ddgi_debug_view: DdgiDebugView,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
     pub hybrid_transparency_test_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
@@ -314,6 +317,24 @@ impl AppOptions {
             "--environment-irradiance-capture",
             "an output .rfirr path",
         )?;
+        let ddgi_debug_view = match parse_required_string_after(
+            "--ddgi-debug-view",
+            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
+        )? {
+            Some(value) => DdgiDebugView::from_cli_value(&value).ok_or_else(|| {
+                format!(
+                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
+                )
+            })?,
+            None => DdgiDebugView::Final,
+        };
+        if ddgi_debug_view != DdgiDebugView::Final
+            && environment_lighting_backend != EnvironmentLightingBackend::Ddgi
+        {
+            return Err(
+                "--ddgi-debug-view requires --environment-lighting-backend ddgi.".to_owned(),
+            );
+        }
 
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
@@ -393,6 +414,7 @@ impl AppOptions {
             environment_lighting_test_scene,
             environment_lighting_backend,
             environment_irradiance_capture_path,
+            ddgi_debug_view,
             hybrid_transparency_test_scene: args
                 .iter()
                 .any(|a| a == "--hybrid-transparency-test-scene"),
@@ -671,6 +693,8 @@ Options:
                               Select local-sh (default) or ddgi during migration
   --environment-irradiance-capture <path>
                               Save pre-albedo linear RGB irradiance plus terrain-hit mask
+  --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
+                              or atlas DDGI diagnostics (default: final)
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
   --environment-probe-spacing-voxels <N>
@@ -775,6 +799,7 @@ mod tests {
             EnvironmentLightingBackend::LocalSh
         );
         assert!(options.environment_irradiance_capture_path.is_none());
+        assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
         assert_eq!(
             options.environment_probe_spacing_voxels,
             DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS
@@ -867,6 +892,26 @@ mod tests {
             options.environment_irradiance_capture_path.as_deref(),
             Some("target/sealed.rfirr")
         );
+    }
+
+    #[test]
+    fn parses_ddgi_debug_view_and_requires_ddgi_backend() {
+        let options = parse(&[
+            "re-flora",
+            "--environment-lighting-backend",
+            "ddgi",
+            "--ddgi-debug-view",
+            "exact-visibility",
+        ]);
+        assert_eq!(options.ddgi_debug_view, DdgiDebugView::ExactVisibility);
+
+        let result = AppOptions::try_from_arg_strings(
+            ["re-flora", "--ddgi-debug-view", "weight-sum"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        );
+        assert!(result.unwrap_err().contains("requires"));
     }
 
     #[test]

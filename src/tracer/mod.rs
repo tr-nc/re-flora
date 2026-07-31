@@ -61,9 +61,9 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiRayBatch, DdgiVolume, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
-    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
-    DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiDebugView, DdgiRayBatch, DdgiVolume, DDGI_GUTTER_WORKGROUP_SIZE,
+    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
+    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{EnvironmentLightingBackend, EnvironmentLightingCache};
 use crate::environment_probes::{
@@ -498,6 +498,7 @@ pub struct TracerDesc {
     pub environment_probe_visualization_enabled: bool,
     pub environment_lighting_backend: EnvironmentLightingBackend,
     pub environment_irradiance_capture_enabled: bool,
+    pub ddgi_debug_view: DdgiDebugView,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1022,6 +1023,10 @@ impl Tracer {
 
     pub fn environment_lighting_backend(&self) -> EnvironmentLightingBackend {
         self.environment_lighting_backend
+    }
+
+    pub fn ddgi_debug_view(&self) -> DdgiDebugView {
+        self.desc.ddgi_debug_view
     }
 
     pub fn environment_lighting_backend_ready(&self) -> bool {
@@ -1841,6 +1846,7 @@ impl Tracer {
             self.desc.environment_irradiance_capture_enabled,
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
+            self.desc.ddgi_debug_view.as_u32(),
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;
 

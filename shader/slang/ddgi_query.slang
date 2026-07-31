@@ -27,10 +27,22 @@ public struct DdgiQueryResult
 {
     public float3 irradiance;
     public float accumulated_weight;
-    public float accumulated_moment_visibility;
+    public float accumulated_base_weight;
+    public float mean_visibility;
     public uint contributing_probe_count;
     public uint dominant_probe_index;
     public float dominant_probe_weight;
+};
+
+public struct DdgiProbeContribution
+{
+    public bool trustworthy;
+    public uint probe_index;
+    public float3 irradiance;
+    public float3 actual_position;
+    public float3 nominal_position;
+    public float base_weight;
+    public float moment_visibility;
 };
 
 float2 ddgiAtlasUv(uint probeIndex, float3 direction, uint tileColumns,
@@ -46,7 +58,7 @@ float2 ddgiAtlasUv(uint probeIndex, float3 direction, uint tileColumns,
     return texel / float2(width, height);
 }
 
-float3 sampleDdgiGlobalSky(float3 normal)
+public float3 sampleDdgiGlobalSky(float3 normal)
 {
     uint width;
     uint height;
@@ -60,8 +72,8 @@ float3 sampleDdgiGlobalSky(float3 normal)
                    .xyz);
 }
 
-float3 sampleDdgiProbeIrradiance(uint probeIndex, float3 normal,
-                                 U_ShadingInfo lighting)
+public float3 sampleDdgiProbeIrradiance(uint probeIndex, float3 normal,
+                                       U_ShadingInfo lighting)
 {
     float2 uv = ddgiAtlasUv(
         probeIndex, normal, lighting.ddgi_irradiance_tile_columns,
@@ -71,8 +83,8 @@ float3 sampleDdgiProbeIrradiance(uint probeIndex, float3 normal,
                ddgi_irradiance_atlas.SampleLevel(uv, 0.0).xyz);
 }
 
-float2 sampleDdgiDistanceMoments(uint probeIndex, float3 direction,
-                                 U_ShadingInfo lighting)
+public float2 sampleDdgiDistanceMoments(uint probeIndex, float3 direction,
+                                       U_ShadingInfo lighting)
 {
     float2 uv = ddgiAtlasUv(
         probeIndex, direction, lighting.ddgi_visibility_tile_columns,
@@ -109,44 +121,169 @@ float ddgiRelocationAwarePositionWeight(float3 fragmentInCell,
     return axial.x * axial.y * axial.z;
 }
 
-public DdgiQueryResult sampleDdgiDiffuseEnvironment(
-    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+float3 ddgiNormalizedSurfaceNormal(float3 surfaceNormal)
 {
-    DdgiQueryResult result;
-    result.irradiance = float3(0.0);
-    result.accumulated_weight = 0.0;
-    result.accumulated_moment_visibility = 0.0;
-    result.contributing_probe_count = 0u;
-    result.dominant_probe_index = 0u;
-    result.dominant_probe_weight = 0.0;
-
     float normalLengthSquared = dot(surfaceNormal, surfaceNormal);
-    float3 normal = normalLengthSquared > 1.0e-8
+    return normalLengthSquared > 1.0e-8
         ? surfaceNormal * rsqrt(normalLengthSquared)
         : float3(0.0, 1.0, 0.0);
+}
+
+public bool ddgiQueryUsesGlobalSky(U_ShadingInfo lighting,
+                                   float3 worldPosition)
+{
     uint3 dimensions = lighting.environment_probe_grid_dimensions;
     float3 gridScale = lighting.environment_probe_world_to_grid_scale;
     if (lighting.environment_lighting_backend_ready == 0u ||
         any(dimensions < uint3(2u)) || any(gridScale <= float3(0.0)))
     {
-        result.irradiance = sampleDdgiGlobalSky(normal);
-        return result;
+        return true;
     }
-
-    float3 gridMaximum = float3(dimensions - uint3(1u));
     float3 gridPosition = worldPosition * gridScale;
-    if (any(gridPosition < float3(0.0)) || any(gridPosition > gridMaximum))
-    {
-        result.irradiance = sampleDdgiGlobalSky(normal);
-        return result;
-    }
+    return any(gridPosition < float3(0.0)) ||
+           any(gridPosition > float3(dimensions - uint3(1u)));
+}
 
+public DdgiQueryResult makeEmptyDdgiQueryResult()
+{
+    DdgiQueryResult result;
+    result.irradiance = float3(0.0);
+    result.accumulated_weight = 0.0;
+    result.accumulated_base_weight = 0.0;
+    result.mean_visibility = 0.0;
+    result.contributing_probe_count = 0u;
+    result.dominant_probe_index = 0u;
+    result.dominant_probe_weight = 0.0;
+    return result;
+}
+
+public DdgiProbeContribution getDdgiProbeContribution(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    uint3 cageCorner)
+{
+    DdgiProbeContribution contribution;
+    contribution.trustworthy = false;
+    contribution.probe_index = 0u;
+    contribution.irradiance = float3(0.0);
+    contribution.actual_position = float3(0.0);
+    contribution.nominal_position = float3(0.0);
+    contribution.base_weight = 0.0;
+    contribution.moment_visibility = 0.0;
+
+    if (ddgiQueryUsesGlobalSky(lighting, worldPosition)) return contribution;
+
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    uint3 dimensions = lighting.environment_probe_grid_dimensions;
+    float3 gridScale = lighting.environment_probe_world_to_grid_scale;
+    float3 gridPosition = worldPosition * gridScale;
     uint3 base = min(uint3(floor(gridPosition)), dimensions - uint3(2u));
     float3 fragmentInCell = saturate(gridPosition - float3(base));
     float3 spacingWorld = rcp(gridScale);
+    uint3 cornerCoordinate = base + cageCorner;
+    uint probeIndex = cornerCoordinate.x +
+        dimensions.x * (cornerCoordinate.y +
+                        dimensions.y * cornerCoordinate.z);
+    DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
+    if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID)
+    {
+        return contribution;
+    }
+
+    float3 actualPosition = metadata.actual_position_and_clearance.xyz;
+    float3 nominalPosition = metadata.nominal_position_and_min_clearance.xyz;
+    float positionWeight = ddgiRelocationAwarePositionWeight(
+        fragmentInCell, float3(cageCorner), nominalPosition,
+        actualPosition, spacingWorld);
+    if (positionWeight <= DDGI_QUERY_WEIGHT_EPSILON) return contribution;
+
+    float3 surfaceToProbe = actualPosition - worldPosition;
+    float distanceSquared = dot(surfaceToProbe, surfaceToProbe);
+    float3 surfaceToProbeDirection = distanceSquared > 1.0e-10
+        ? surfaceToProbe * rsqrt(distanceSquared)
+        : normal;
+    float surfaceSideWeight = max(0.0, dot(normal, surfaceToProbeDirection));
+    surfaceSideWeight *= surfaceSideWeight;
+    if (surfaceSideWeight <= DDGI_QUERY_WEIGHT_EPSILON) return contribution;
+
     float biasWorld = 0.25 /
         max(max(gridScale.x, gridScale.y), gridScale.z);
     float3 biasedWorldPosition = worldPosition + normal * biasWorld;
+    float3 probeToBiasedSurface = biasedWorldPosition - actualPosition;
+    float distanceToSurface = length(probeToBiasedSurface);
+    if (distanceToSurface <= 1.0e-6)
+    {
+        probeToBiasedSurface = -normal;
+        distanceToSurface = 0.0;
+    }
+    float relocationDistance = distance(actualPosition, nominalPosition);
+    float supportDistance = length(spacingWorld) + relocationDistance;
+    if (distanceToSurface > supportDistance) return contribution;
+
+    float3 probeToSurfaceDirection = normalize(probeToBiasedSurface);
+    float2 moments = sampleDdgiDistanceMoments(
+        probeIndex, probeToSurfaceDirection, lighting);
+    contribution.trustworthy = true;
+    contribution.probe_index = probeIndex;
+    contribution.irradiance = sampleDdgiProbeIrradiance(
+        probeIndex, normal, lighting);
+    contribution.actual_position = actualPosition;
+    contribution.nominal_position = nominalPosition;
+    contribution.base_weight = positionWeight * surfaceSideWeight;
+    contribution.moment_visibility = ddgiChebyshevVisibility(
+        moments, distanceToSurface);
+    return contribution;
+}
+
+public void accumulateDdgiContribution(
+    inout DdgiQueryResult result, DdgiProbeContribution contribution,
+    float visibility)
+{
+    if (!contribution.trustworthy) return;
+    visibility = saturate(visibility);
+    result.accumulated_base_weight += contribution.base_weight;
+    result.mean_visibility += contribution.base_weight * visibility;
+    float weight = contribution.base_weight * visibility;
+    if (weight <= DDGI_QUERY_WEIGHT_EPSILON) return;
+    result.irradiance += contribution.irradiance * weight;
+    result.accumulated_weight += weight;
+    result.contributing_probe_count += 1u;
+    if (weight > result.dominant_probe_weight)
+    {
+        result.dominant_probe_weight = weight;
+        result.dominant_probe_index = contribution.probe_index;
+    }
+}
+
+public void finalizeDdgiQueryResult(inout DdgiQueryResult result)
+{
+    if (result.accumulated_base_weight > DDGI_QUERY_WEIGHT_EPSILON)
+    {
+        result.mean_visibility /= result.accumulated_base_weight;
+    }
+    if (result.accumulated_weight > DDGI_QUERY_WEIGHT_EPSILON)
+    {
+        result.irradiance /= result.accumulated_weight;
+    }
+    else
+    {
+        // Inside a ready volume, all rejected local probes mean zero. Never
+        // resurrect an occluded cage through the global-sky fallback.
+        result.irradiance = float3(0.0);
+    }
+    result.irradiance = max(result.irradiance, float3(0.0));
+}
+
+public DdgiQueryResult sampleDdgiDiffuseEnvironment(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+{
+    DdgiQueryResult result = makeEmptyDdgiQueryResult();
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    if (ddgiQueryUsesGlobalSky(lighting, worldPosition))
+    {
+        result.irradiance = sampleDdgiGlobalSky(normal);
+        result.mean_visibility = 1.0;
+        return result;
+    }
 
     [unroll]
     for (uint z = 0u; z < 2u; ++z)
@@ -157,88 +294,87 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironment(
             [unroll]
             for (uint x = 0u; x < 2u; ++x)
             {
-                uint3 cornerCoordinate = base + uint3(x, y, z);
-                uint probeIndex = cornerCoordinate.x +
-                    dimensions.x *
-                        (cornerCoordinate.y + dimensions.y *
-                                                  cornerCoordinate.z);
-                DdgiProbeMetadata metadata =
-                    ddgi_probe_metadata.data[probeIndex];
-                if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID)
-                {
-                    continue;
-                }
-
-                float3 actualPosition =
-                    metadata.actual_position_and_clearance.xyz;
-                float3 nominalPosition =
-                    metadata.nominal_position_and_min_clearance.xyz;
-                float positionWeight = ddgiRelocationAwarePositionWeight(
-                    fragmentInCell, float3(x, y, z), nominalPosition,
-                    actualPosition, spacingWorld);
-                if (positionWeight <= DDGI_QUERY_WEIGHT_EPSILON) continue;
-
-                float3 surfaceToProbe = actualPosition - worldPosition;
-                float distanceSquared = dot(surfaceToProbe, surfaceToProbe);
-                float3 surfaceToProbeDirection = distanceSquared > 1.0e-10
-                    ? surfaceToProbe * rsqrt(distanceSquared)
-                    : normal;
-                float surfaceSideWeight =
-                    max(0.0, dot(normal, surfaceToProbeDirection));
-                surfaceSideWeight *= surfaceSideWeight;
-                if (surfaceSideWeight <= DDGI_QUERY_WEIGHT_EPSILON) continue;
-
-                float3 probeToBiasedSurface =
-                    biasedWorldPosition - actualPosition;
-                float distanceToSurface = length(probeToBiasedSurface);
-                if (distanceToSurface <= 1.0e-6)
-                {
-                    probeToBiasedSurface = -normal;
-                    distanceToSurface = 0.0;
-                }
-                float relocationDistance =
-                    distance(actualPosition, nominalPosition);
-                float supportDistance = length(spacingWorld) +
-                                        relocationDistance;
-                if (distanceToSurface > supportDistance) continue;
-
-                float3 probeToSurfaceDirection =
-                    normalize(probeToBiasedSurface);
-                float2 moments = sampleDdgiDistanceMoments(
-                    probeIndex, probeToSurfaceDirection, lighting);
-                float momentVisibility = ddgiChebyshevVisibility(
-                    moments, distanceToSurface);
-                float weight = positionWeight * surfaceSideWeight *
-                               momentVisibility;
-                if (weight <= DDGI_QUERY_WEIGHT_EPSILON) continue;
-
-                float3 irradiance = sampleDdgiProbeIrradiance(
-                    probeIndex, normal, lighting);
-                result.irradiance += irradiance * weight;
-                result.accumulated_weight += weight;
-                result.accumulated_moment_visibility +=
-                    momentVisibility * weight;
-                result.contributing_probe_count += 1u;
-                if (weight > result.dominant_probe_weight)
-                {
-                    result.dominant_probe_weight = weight;
-                    result.dominant_probe_index = probeIndex;
-                }
+                DdgiProbeContribution contribution =
+                    getDdgiProbeContribution(
+                        lighting, worldPosition, normal, uint3(x, y, z));
+                accumulateDdgiContribution(
+                    result, contribution, contribution.moment_visibility);
             }
         }
     }
-
-    if (result.accumulated_weight > DDGI_QUERY_WEIGHT_EPSILON)
-    {
-        result.irradiance /= result.accumulated_weight;
-        result.accumulated_moment_visibility /= result.accumulated_weight;
-    }
-    else
-    {
-        // Inside a ready volume, all rejected local probes mean zero. Never
-        // resurrect an occluded cage through the global-sky fallback.
-        result.irradiance = float3(0.0);
-    }
-    result.irradiance = max(result.irradiance, float3(0.0));
+    finalizeDdgiQueryResult(result);
     return result;
+}
+
+public uint ddgiNearestNominalProbeIndex(U_ShadingInfo lighting,
+                                         float3 worldPosition)
+{
+    uint3 dimensions = lighting.environment_probe_grid_dimensions;
+    uint3 coordinate = uint3(clamp(
+        round(worldPosition * lighting.environment_probe_world_to_grid_scale),
+        float3(0.0), float3(dimensions - uint3(1u))));
+    return coordinate.x + dimensions.x *
+        (coordinate.y + dimensions.y * coordinate.z);
+}
+
+public float3 ddgiProbeStateDebugColor(U_ShadingInfo lighting,
+                                       float3 worldPosition)
+{
+    if (ddgiQueryUsesGlobalSky(lighting, worldPosition))
+    {
+        return float3(0.0, 0.25, 1.0);
+    }
+    uint probeIndex = ddgiNearestNominalProbeIndex(lighting, worldPosition);
+    uint state = ddgi_probe_metadata.data[probeIndex].state_and_reserved.x;
+    if (state == DDGI_PROBE_STATE_VALID) return float3(0.0, 1.0, 0.0);
+    if (state == DDGI_PROBE_STATE_RELOCATION_FAILED)
+        return float3(1.0, 0.0, 1.0);
+    return float3(0.1);
+}
+
+public float3 ddgiRelocationDebugColor(U_ShadingInfo lighting,
+                                       float3 worldPosition)
+{
+    if (ddgiQueryUsesGlobalSky(lighting, worldPosition)) return float3(0.0);
+    uint probeIndex = ddgiNearestNominalProbeIndex(lighting, worldPosition);
+    DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
+    if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID)
+        return float3(1.0, 0.0, 1.0);
+    float3 halfSpacing = 0.5 /
+        lighting.environment_probe_world_to_grid_scale;
+    float3 relocation =
+        (metadata.actual_position_and_clearance.xyz -
+         metadata.nominal_position_and_min_clearance.xyz) /
+        max(halfSpacing, float3(1.0e-6));
+    return float3(relocation.xy * 0.5 + 0.5,
+                  saturate(length(relocation)));
+}
+
+public float3 ddgiDominantProbeDebugColor(DdgiQueryResult result)
+{
+    if (result.contributing_probe_count == 0u) return float3(0.0);
+    uint value = result.dominant_probe_index * 747796405u + 2891336453u;
+    value = ((value >> ((value >> 28u) + 4u)) ^ value) * 277803737u;
+    value = (value >> 22u) ^ value;
+    return float3(value & 255u, (value >> 8u) & 255u,
+                  (value >> 16u) & 255u) / 255.0;
+}
+
+public float3 sampleDdgiIrradianceAtlasDebug(float2 screenUv)
+{
+    return max(float3(0.0),
+               ddgi_irradiance_atlas.SampleLevel(screenUv, 0.0).xyz);
+}
+
+public float3 sampleDdgiVisibilityAtlasDebug(U_ShadingInfo lighting,
+                                             float2 screenUv)
+{
+    float2 moments = ddgi_visibility_atlas.SampleLevel(screenUv, 0.0).xy;
+    float supportDistance = length(
+        rcp(lighting.environment_probe_world_to_grid_scale));
+    float variance = max(0.0, moments.y - moments.x * moments.x);
+    return float3(saturate(moments.x / max(supportDistance, 1.0e-6)),
+                  saturate(variance /
+                           max(supportDistance * supportDistance, 1.0e-6)),
+                  0.0);
 }

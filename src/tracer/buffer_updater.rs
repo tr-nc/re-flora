@@ -55,6 +55,7 @@ impl BufferUpdater {
         environment_irradiance_capture_enabled: bool,
         ddgi_irradiance_tile_columns: u32,
         ddgi_visibility_tile_columns: u32,
+        ddgi_debug_view: u32,
     ) -> Result<()> {
         let coefficient = |index: usize| environment.coefficients[index].extend(0.0).to_array();
         let probe_dimensions = environment_probe_grid.dimensions();
@@ -83,6 +84,7 @@ impl BufferUpdater {
             ),
             ddgi_irradiance_tile_columns,
             ddgi_visibility_tile_columns,
+            ddgi_debug_view,
             ..ShadingInfo::zeroed()
         })
     }

@@ -1046,6 +1046,7 @@ impl App {
                 environment_irradiance_capture_enabled: options
                     .environment_irradiance_capture_path
                     .is_some(),
+                ddgi_debug_view: options.ddgi_debug_view,
             },
             spatial_sound_manager.clone(),
         )?;

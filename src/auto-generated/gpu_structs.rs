@@ -736,9 +736,10 @@ pub struct ShadingInfo {
     pub environment_irradiance_capture_enabled: u32,
     pub ddgi_irradiance_tile_columns: u32,
     pub ddgi_visibility_tile_columns: u32,
-    pub _pad2: [u8; 8],
-    pub ddgi_padding: [u32; 3],
-    pub _pad3: [u8; 4],
+    pub ddgi_debug_view: u32,
+    pub _pad2: [u8; 4],
+    pub ddgi_padding: [u32; 2],
+    pub _pad3: [u8; 8],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

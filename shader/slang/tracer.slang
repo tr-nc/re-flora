@@ -51,6 +51,18 @@ static const float TERRAIN_SHADOW_NORMAL_BIAS_VOXELS = 0.25;
 // tangent plane. Keep that quantization thickness, not a world-sized depth
 // epsilon, while preserving most of a four-voxel apple's contact depth.
 static const float TERRAIN_SHADOW_LIGHT_BIAS_VOXELS = 0.75;
+static const uint DDGI_DEBUG_FINAL = 0u;
+static const uint DDGI_DEBUG_MOMENT_VISIBILITY = 1u;
+static const uint DDGI_DEBUG_EXACT_VISIBILITY = 2u;
+static const uint DDGI_DEBUG_VISIBILITY_ERROR = 3u;
+static const uint DDGI_DEBUG_EXACT_IRRADIANCE = 4u;
+static const uint DDGI_DEBUG_IRRADIANCE_ERROR = 5u;
+static const uint DDGI_DEBUG_WEIGHT_SUM = 6u;
+static const uint DDGI_DEBUG_DOMINANT_PROBE = 7u;
+static const uint DDGI_DEBUG_PROBE_STATE = 8u;
+static const uint DDGI_DEBUG_RELOCATION = 9u;
+static const uint DDGI_DEBUG_IRRADIANCE_ATLAS = 10u;
+static const uint DDGI_DEBUG_VISIBILITY_ATLAS = 11u;
 
 float3 voxelSurfacePositionAlongNormal(float3 voxelCenter, float3 normal)
 {
@@ -130,10 +142,116 @@ float depthFromWorldPosition(float3 worldPosition)
     return ndc.z / ndc.w;
 }
 
+float ddgiExactSegmentVisibility(float3 worldPosition,
+                                 DdgiProbeContribution contribution,
+                                 uint localInvocationIndex)
+{
+    float3 segment = contribution.actual_position - worldPosition;
+    float segmentLength = length(segment);
+    if (segmentLength <= 1.0e-6) return 1.0;
+    float3 direction = segment / segmentLength;
+    MarchingResult obstruction = marchScene(
+        contree_node_data, contree_leaf_data, scene_tex,
+        worldPosition, direction, 1.0 / direction, localInvocationIndex);
+    // scene_marching advances by its own geometric epsilon. A hit is relevant
+    // only when it lies strictly before the known-empty probe endpoint.
+    return (!obstruction.is_hit || obstruction.distance >= segmentLength - 1.0e-5)
+        ? 1.0
+        : 0.0;
+}
+
+DdgiQueryResult sampleDdgiExactTerrainReference(
+    float3 worldPosition, float3 surfaceNormal, uint localInvocationIndex)
+{
+    DdgiQueryResult result = makeEmptyDdgiQueryResult();
+    float3 normal = normalize(surfaceNormal);
+    if (ddgiQueryUsesGlobalSky(shading_info, worldPosition))
+    {
+        result.irradiance = sampleDdgiGlobalSky(normal);
+        result.mean_visibility = 1.0;
+        return result;
+    }
+
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                DdgiProbeContribution contribution =
+                    getDdgiProbeContribution(
+                        shading_info, worldPosition, normal, uint3(x, y, z));
+                float visibility = contribution.trustworthy
+                    ? ddgiExactSegmentVisibility(
+                          worldPosition, contribution, localInvocationIndex)
+                    : 0.0;
+                accumulateDdgiContribution(result, contribution, visibility);
+            }
+        }
+    }
+    finalizeDdgiQueryResult(result);
+    return result;
+}
+
+float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
+                             float3 surfaceNormal,
+                             DdgiQueryResult momentResult,
+                             uint localInvocationIndex)
+{
+    uint view = shading_info.ddgi_debug_view;
+    if (view == DDGI_DEBUG_FINAL) return momentResult.irradiance;
+    if (view == DDGI_DEBUG_MOMENT_VISIBILITY)
+        return float3(momentResult.mean_visibility);
+    if (view == DDGI_DEBUG_WEIGHT_SUM)
+        return float3(saturate(momentResult.accumulated_base_weight),
+                      saturate(momentResult.accumulated_weight),
+                      float(momentResult.contributing_probe_count) / 8.0);
+    if (view == DDGI_DEBUG_DOMINANT_PROBE)
+        return ddgiDominantProbeDebugColor(momentResult);
+    if (view == DDGI_DEBUG_PROBE_STATE)
+        return ddgiProbeStateDebugColor(shading_info, worldPosition);
+    if (view == DDGI_DEBUG_RELOCATION)
+        return ddgiRelocationDebugColor(shading_info, worldPosition);
+
+    DdgiQueryResult exactResult = sampleDdgiExactTerrainReference(
+        worldPosition, surfaceNormal, localInvocationIndex);
+    if (view == DDGI_DEBUG_EXACT_VISIBILITY)
+        return float3(exactResult.mean_visibility);
+    if (view == DDGI_DEBUG_VISIBILITY_ERROR)
+        return float3(abs(momentResult.mean_visibility -
+                          exactResult.mean_visibility));
+    if (view == DDGI_DEBUG_EXACT_IRRADIANCE)
+        return exactResult.irradiance;
+    if (view == DDGI_DEBUG_IRRADIANCE_ERROR)
+        return abs(momentResult.irradiance - exactResult.irradiance);
+    return float3(0.0);
+}
+
 void getPixelColor(out float3 color, out float depth,
                    out float3 environmentIrradiance, Ray ray,
-                   uint localInvocationIndex)
+                   float2 screenUv, uint localInvocationIndex)
 {
+    if (shading_info.environment_lighting_backend == 1u &&
+        shading_info.ddgi_debug_view == DDGI_DEBUG_IRRADIANCE_ATLAS)
+    {
+        environmentIrradiance = sampleDdgiIrradianceAtlasDebug(screenUv);
+        color = environmentIrradiance;
+        depth = 0.0;
+        return;
+    }
+    if (shading_info.environment_lighting_backend == 1u &&
+        shading_info.ddgi_debug_view == DDGI_DEBUG_VISIBILITY_ATLAS)
+    {
+        environmentIrradiance = sampleDdgiVisibilityAtlasDebug(
+            shading_info, screenUv);
+        color = environmentIrradiance;
+        depth = 0.0;
+        return;
+    }
+
     MarchingResult result = generalSceneMarching(ray, localInvocationIndex);
     if (!result.is_hit)
     {
@@ -147,11 +265,24 @@ void getPixelColor(out float3 color, out float depth,
 
     float3 albedo;
     parseTraceResult(albedo, result);
-    environmentIrradiance = shading_info.environment_lighting_backend == 1u
-        ? sampleDdgiDiffuseEnvironment(
-              shading_info, result.position, result.normal).irradiance
-        : sampleEnvironmentIrradiance(
-              shading_info, result.center_position, result.normal);
+    if (shading_info.environment_lighting_backend == 1u)
+    {
+        DdgiQueryResult ddgiResult = sampleDdgiDiffuseEnvironment(
+            shading_info, result.position, result.normal);
+        environmentIrradiance = ddgiTerrainDebugValue(
+            screenUv, result.position, result.normal, ddgiResult,
+            localInvocationIndex);
+    }
+    else
+    {
+        environmentIrradiance = sampleEnvironmentIrradiance(
+            shading_info, result.center_position, result.normal);
+    }
+    if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
+    {
+        color = environmentIrradiance;
+        return;
+    }
     color = environmentIrradiance * albedo;
     color += directLighting(albedo, result.normal, result.center_position);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
@@ -174,7 +305,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     float3 color;
     float3 environmentIrradiance;
     float depth;
-    getPixelColor(color, depth, environmentIrradiance, ray, localInvocationIndex);
+    getPixelColor(color, depth, environmentIrradiance, ray, screenUv,
+                  localInvocationIndex);
 
     if (shading_info.environment_irradiance_capture_enabled != 0u)
     {

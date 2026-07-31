@@ -1,4 +1,5 @@
 use super::App;
+use crate::ddgi::DdgiDebugView;
 use crate::environment_lighting::EnvironmentLightingBackend;
 use anyhow::{Context, Result};
 use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, Extent2D, MemoryLocation};
@@ -6,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 1;
+const CAPTURE_VERSION: u32 = 2;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 
 pub(super) struct EnvironmentIrradianceCaptureReadback {
@@ -14,6 +15,7 @@ pub(super) struct EnvironmentIrradianceCaptureReadback {
     extent: Extent2D,
     backend: EnvironmentLightingBackend,
     spacing_voxels: u32,
+    debug_view: DdgiDebugView,
     buffer: Buffer,
 }
 
@@ -51,6 +53,7 @@ impl App {
             extent,
             backend: self.tracer.environment_lighting_backend(),
             spacing_voxels: self.tracer.environment_probe_status().grid.spacing_voxels(),
+            debug_view: self.tracer.ddgi_debug_view(),
             buffer,
         })
     }
@@ -89,18 +92,20 @@ impl App {
             CAPTURE_CHANNEL_COUNT,
             readback.backend.as_u32(),
             readback.spacing_voxels,
+            readback.debug_view.as_u32(),
         ] {
             file.write_all(&value.to_le_bytes())?;
         }
         file.write_all(&raw)?;
         file.flush()?;
         log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} samples={} format=float4-linear-rgb-hit",
+            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} format=float4-linear-rgb-hit",
             readback.path,
             readback.extent.width,
             readback.extent.height,
             readback.backend.label(),
             readback.spacing_voxels,
+            readback.debug_view.label(),
             readback.extent.width * readback.extent.height,
         );
         Ok(())
@@ -116,6 +121,6 @@ mod tests {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
         assert_eq!(CAPTURE_VERSION, 1);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
-        assert_eq!(8 + 6 * std::mem::size_of::<u32>(), 32);
+        assert_eq!(8 + 7 * std::mem::size_of::<u32>(), 36);
     }
 }
