@@ -1,6 +1,5 @@
 use crate::builder::{ContreeBuilderResources, PlainBuilderResources, SceneAccelBuilderResources};
 use crate::ddgi::DdgiVolume;
-use crate::environment_probes::EnvironmentProbeVolume;
 use crate::resource::ResourceContainer;
 use crate::tracer::TracerResources;
 use anyhow::Result;
@@ -17,30 +16,6 @@ impl PipelineBuilder {
         let tracer_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/tracer.comp",
-            "main",
-        )
-        .unwrap();
-        let environment_probe_global_copy_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/environment_probe_global_copy.comp",
-            "main",
-        )
-        .unwrap();
-        let environment_probe_classify_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/environment_probe_classify.comp",
-            "main",
-        )
-        .unwrap();
-        let environment_probe_update_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/environment_probe_update.comp",
-            "main",
-        )
-        .unwrap();
-        let environment_probe_stats_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/environment_probe_stats.comp",
             "main",
         )
         .unwrap();
@@ -369,10 +344,6 @@ impl PipelineBuilder {
 
         Ok(ShaderModules {
             tracer_sm,
-            environment_probe_global_copy_sm,
-            environment_probe_classify_sm,
-            environment_probe_update_sm,
-            environment_probe_stats_sm,
             ddgi_global_sky_filter_sm,
             ddgi_octahedral_gutter_sm,
             ddgi_probe_relocate_sm,
@@ -433,109 +404,63 @@ impl PipelineBuilder {
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
-        environment_probes: &EnvironmentProbeVolume,
-        ddgi_volume: Option<&DdgiVolume>,
+        ddgi_volume: &DdgiVolume,
     ) -> ComputePipelines {
         let device = vulkan_ctx.device();
 
-        let environment_probe_global_copy_ppl = ComputePipeline::new(
+        let ddgi_global_sky_filter_ppl = ComputePipeline::new(
             device,
-            &shader_modules.environment_probe_global_copy_sm,
+            &shader_modules.ddgi_global_sky_filter_sm,
             pool,
-            &[resources, environment_probes],
+            &[resources, ddgi_volume],
         );
-        let environment_probe_classify_ppl = ComputePipeline::new(
+        let ddgi_octahedral_gutter_ppl = ComputePipeline::new(
             device,
-            &shader_modules.environment_probe_classify_sm,
+            &shader_modules.ddgi_octahedral_gutter_sm,
             pool,
-            &[resources, plain_builder_resources, environment_probes],
+            &[ddgi_volume],
         );
-        let environment_probe_update_ppl = ComputePipeline::new(
+        let ddgi_probe_relocate_ppl = ComputePipeline::new(
             device,
-            &shader_modules.environment_probe_update_sm,
+            &shader_modules.ddgi_probe_relocate_sm,
+            pool,
+            &[plain_builder_resources, ddgi_volume],
+        );
+        let ddgi_probe_trace_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.ddgi_probe_trace_sm,
             pool,
             &[
                 resources,
                 contree_builder_resources,
                 scene_accel_resources,
-                environment_probes,
+                ddgi_volume,
             ],
         );
-        let environment_probe_stats_ppl = ComputePipeline::new(
+        let ddgi_irradiance_filter_ppl = ComputePipeline::new(
             device,
-            &shader_modules.environment_probe_stats_sm,
+            &shader_modules.ddgi_irradiance_filter_sm,
             pool,
-            &[environment_probes],
+            &[ddgi_volume],
         );
-        let ddgi_global_sky_filter_ppl = ddgi_volume.map(|ddgi_volume| {
-            ComputePipeline::new(
-                device,
-                &shader_modules.ddgi_global_sky_filter_sm,
-                pool,
-                &[resources, ddgi_volume],
-            )
-        });
-        let ddgi_octahedral_gutter_ppl = ddgi_volume.map(|ddgi_volume| {
-            ComputePipeline::new(
-                device,
-                &shader_modules.ddgi_octahedral_gutter_sm,
-                pool,
-                &[ddgi_volume],
-            )
-        });
-        let ddgi_probe_relocate_ppl = ddgi_volume.map(|ddgi_volume| {
-            ComputePipeline::new(
-                device,
-                &shader_modules.ddgi_probe_relocate_sm,
-                pool,
-                &[plain_builder_resources, ddgi_volume],
-            )
-        });
-        let ddgi_probe_trace_ppl = ddgi_volume.map(|ddgi_volume| {
-            ComputePipeline::new(
-                device,
-                &shader_modules.ddgi_probe_trace_sm,
-                pool,
-                &[
-                    resources,
-                    contree_builder_resources,
-                    scene_accel_resources,
-                    ddgi_volume,
-                ],
-            )
-        });
-        let ddgi_irradiance_filter_ppl = ddgi_volume.map(|ddgi_volume| {
-            ComputePipeline::new(
-                device,
-                &shader_modules.ddgi_irradiance_filter_sm,
-                pool,
-                &[ddgi_volume],
-            )
-        });
-        let ddgi_visibility_filter_ppl = ddgi_volume.map(|ddgi_volume| {
-            ComputePipeline::new(
-                device,
-                &shader_modules.ddgi_visibility_filter_sm,
-                pool,
-                &[ddgi_volume],
-            )
-        });
-        let ddgi_irradiance_gutter_ppl = ddgi_volume.map(|ddgi_volume| {
-            ComputePipeline::new(
-                device,
-                &shader_modules.ddgi_irradiance_gutter_sm,
-                pool,
-                &[ddgi_volume],
-            )
-        });
-        let ddgi_visibility_gutter_ppl = ddgi_volume.map(|ddgi_volume| {
-            ComputePipeline::new(
-                device,
-                &shader_modules.ddgi_visibility_gutter_sm,
-                pool,
-                &[ddgi_volume],
-            )
-        });
+        let ddgi_visibility_filter_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.ddgi_visibility_filter_sm,
+            pool,
+            &[ddgi_volume],
+        );
+        let ddgi_irradiance_gutter_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.ddgi_irradiance_gutter_sm,
+            pool,
+            &[ddgi_volume],
+        );
+        let ddgi_visibility_gutter_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.ddgi_visibility_gutter_sm,
+            pool,
+            &[ddgi_volume],
+        );
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,
@@ -545,8 +470,7 @@ impl PipelineBuilder {
                 contree_builder_resources,
                 scene_accel_resources,
                 plain_builder_resources,
-                environment_probes,
-                ddgi_volume.expect("tracer pipeline requires DDGI descriptor resources"),
+                ddgi_volume,
             ],
         );
 
@@ -643,10 +567,6 @@ impl PipelineBuilder {
         );
 
         ComputePipelines {
-            environment_probe_global_copy_ppl,
-            environment_probe_classify_ppl,
-            environment_probe_update_ppl,
-            environment_probe_stats_ppl,
             ddgi_global_sky_filter_ppl,
             ddgi_octahedral_gutter_ppl,
             ddgi_probe_relocate_ppl,
@@ -709,17 +629,11 @@ impl PipelineBuilder {
         pool: &DescriptorPool,
         resources: &TracerResources,
         plain_builder_resources: &PlainBuilderResources,
-        environment_probes: &EnvironmentProbeVolume,
         ddgi_volume: &DdgiVolume,
     ) -> GraphicsPipelines {
-        let flora_resources: [&dyn ResourceContainer; 4] = [
-            resources,
-            plain_builder_resources,
-            environment_probes,
-            ddgi_volume,
-        ];
-        let environment_lighting_resources: [&dyn ResourceContainer; 3] =
-            [resources, environment_probes, ddgi_volume];
+        let flora_resources: [&dyn ResourceContainer; 3] =
+            [resources, plain_builder_resources, ddgi_volume];
+        let environment_lighting_resources: [&dyn ResourceContainer; 2] = [resources, ddgi_volume];
         let terrain_depth_prefill_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.terrain_depth_prefill_vert_sm,
@@ -818,7 +732,7 @@ impl PipelineBuilder {
             },
         );
         let environment_probe_visualization_resources: [&dyn ResourceContainer; 2] =
-            [resources, environment_probes];
+            [resources, ddgi_volume];
         let environment_probe_visualization_depth_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.environment_probe_visualization_vert_sm,
@@ -1056,10 +970,6 @@ impl PipelineBuilder {
 
 pub struct ShaderModules {
     pub tracer_sm: ShaderModule,
-    pub environment_probe_global_copy_sm: ShaderModule,
-    pub environment_probe_classify_sm: ShaderModule,
-    pub environment_probe_update_sm: ShaderModule,
-    pub environment_probe_stats_sm: ShaderModule,
     pub ddgi_global_sky_filter_sm: ShaderModule,
     pub ddgi_octahedral_gutter_sm: ShaderModule,
     pub ddgi_probe_relocate_sm: ShaderModule,
@@ -1112,18 +1022,14 @@ pub struct ShaderModules {
 }
 
 pub struct ComputePipelines {
-    pub environment_probe_global_copy_ppl: ComputePipeline,
-    pub environment_probe_classify_ppl: ComputePipeline,
-    pub environment_probe_update_ppl: ComputePipeline,
-    pub environment_probe_stats_ppl: ComputePipeline,
-    pub ddgi_global_sky_filter_ppl: Option<ComputePipeline>,
-    pub ddgi_octahedral_gutter_ppl: Option<ComputePipeline>,
-    pub ddgi_probe_relocate_ppl: Option<ComputePipeline>,
-    pub ddgi_probe_trace_ppl: Option<ComputePipeline>,
-    pub ddgi_irradiance_filter_ppl: Option<ComputePipeline>,
-    pub ddgi_visibility_filter_ppl: Option<ComputePipeline>,
-    pub ddgi_irradiance_gutter_ppl: Option<ComputePipeline>,
-    pub ddgi_visibility_gutter_ppl: Option<ComputePipeline>,
+    pub ddgi_global_sky_filter_ppl: ComputePipeline,
+    pub ddgi_octahedral_gutter_ppl: ComputePipeline,
+    pub ddgi_probe_relocate_ppl: ComputePipeline,
+    pub ddgi_probe_trace_ppl: ComputePipeline,
+    pub ddgi_irradiance_filter_ppl: ComputePipeline,
+    pub ddgi_visibility_filter_ppl: ComputePipeline,
+    pub ddgi_irradiance_gutter_ppl: ComputePipeline,
+    pub ddgi_visibility_gutter_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,

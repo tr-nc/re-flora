@@ -1,6 +1,5 @@
-use crate::environment_lighting::EnvironmentIrradiance;
-use crate::environment_lighting::EnvironmentLightingBackend;
-use crate::environment_probes::EnvironmentProbeGrid;
+use crate::ddgi::DdgiVolumeGrid;
+use crate::environment_lighting::EnvironmentLightingState;
 use crate::flora::species::{species, MAX_FLORA_SPECIES};
 use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
@@ -46,39 +45,25 @@ impl BufferUpdater {
 
     pub fn update_shading_info(
         resources: &TracerResources,
-        environment: EnvironmentIrradiance,
-        environment_probe_grid: EnvironmentProbeGrid,
+        environment: EnvironmentLightingState,
+        environment_probe_grid: DdgiVolumeGrid,
         voxels_per_world_unit: glam::UVec3,
-        environment_probe_local_field_ready: bool,
-        environment_lighting_backend: EnvironmentLightingBackend,
-        environment_lighting_backend_ready: bool,
+        ddgi_ready: bool,
         environment_irradiance_capture_enabled: bool,
         ddgi_irradiance_tile_columns: u32,
         ddgi_visibility_tile_columns: u32,
         ddgi_debug_view: u32,
     ) -> Result<()> {
-        let coefficient = |index: usize| environment.coefficients[index].extend(0.0).to_array();
         let probe_dimensions = environment_probe_grid.dimensions();
         let probe_world_to_grid_scale =
             voxels_per_world_unit.as_vec3() / environment_probe_grid.spacing_voxels() as f32;
         resources.uniforms.shading_info.fill_uniform(&ShadingInfo {
-            environment_irradiance_sh_0: coefficient(0),
-            environment_irradiance_sh_1: coefficient(1),
-            environment_irradiance_sh_2: coefficient(2),
-            environment_irradiance_sh_3: coefficient(3),
-            environment_irradiance_sh_4: coefficient(4),
-            environment_irradiance_sh_5: coefficient(5),
-            environment_irradiance_sh_6: coefficient(6),
-            environment_irradiance_sh_7: coefficient(7),
-            environment_irradiance_sh_8: coefficient(8),
             environment_revision: environment.revision,
             environment_probe_grid_dimensions: probe_dimensions.to_array(),
             environment_probe_world_to_grid_scale: probe_world_to_grid_scale.to_array(),
-            environment_probe_uniform_field: u32::from(!environment_probe_local_field_ready),
             environment_probe_visibility_bias_world: 2.0
                 / voxels_per_world_unit.min_element().max(1) as f32,
-            environment_lighting_backend: environment_lighting_backend.as_u32(),
-            environment_lighting_backend_ready: u32::from(environment_lighting_backend_ready),
+            ddgi_ready: u32::from(ddgi_ready),
             environment_irradiance_capture_enabled: u32::from(
                 environment_irradiance_capture_enabled,
             ),

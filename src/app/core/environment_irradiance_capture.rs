@@ -1,6 +1,5 @@
 use super::App;
 use crate::ddgi::DdgiDebugView;
-use crate::environment_lighting::EnvironmentLightingBackend;
 use anyhow::{Context, Result};
 use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, Extent2D, MemoryLocation};
 use std::io::Write;
@@ -9,11 +8,11 @@ use std::path::Path;
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
 const CAPTURE_VERSION: u32 = 2;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
+const DDGI_BACKEND_ID: u32 = 1;
 
 pub(super) struct EnvironmentIrradianceCaptureReadback {
     path: String,
     extent: Extent2D,
-    backend: EnvironmentLightingBackend,
     spacing_voxels: u32,
     debug_view: DdgiDebugView,
     buffer: Buffer,
@@ -51,7 +50,6 @@ impl App {
         Ok(EnvironmentIrradianceCaptureReadback {
             path,
             extent,
-            backend: self.tracer.environment_lighting_backend(),
             spacing_voxels: self.tracer.environment_probe_status().grid.spacing_voxels(),
             debug_view: self.tracer.ddgi_debug_view(),
             buffer,
@@ -90,7 +88,7 @@ impl App {
             readback.extent.width,
             readback.extent.height,
             CAPTURE_CHANNEL_COUNT,
-            readback.backend.as_u32(),
+            DDGI_BACKEND_ID,
             readback.spacing_voxels,
             readback.debug_view.as_u32(),
         ] {
@@ -103,7 +101,7 @@ impl App {
             readback.path,
             readback.extent.width,
             readback.extent.height,
-            readback.backend.label(),
+            "ddgi",
             readback.spacing_voxels,
             readback.debug_view.label(),
             readback.extent.width * readback.extent.height,

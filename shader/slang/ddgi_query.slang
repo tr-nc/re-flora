@@ -23,6 +23,11 @@ Sampler2D ddgi_irradiance_atlas;
 [[vk::binding(28, 0)]]
 Sampler2D ddgi_visibility_atlas;
 
+public DdgiProbeMetadata getDdgiProbeMetadata(uint probeIndex)
+{
+    return ddgi_probe_metadata.data[probeIndex];
+}
+
 public struct DdgiQueryResult
 {
     public float3 irradiance;
@@ -134,7 +139,7 @@ public bool ddgiQueryUsesGlobalSky(U_ShadingInfo lighting,
 {
     uint3 dimensions = lighting.environment_probe_grid_dimensions;
     float3 gridScale = lighting.environment_probe_world_to_grid_scale;
-    if (lighting.environment_lighting_backend_ready == 0u ||
+    if (lighting.ddgi_ready == 0u ||
         any(dimensions < uint3(2u)) || any(gridScale <= float3(0.0)))
     {
         return true;

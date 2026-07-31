@@ -364,12 +364,6 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
-        logical_path: "shader/tracer/environment_probe_global_copy.comp",
-        source_path: "shader/slang/environment_probe_global_copy.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
         logical_path: "shader/ddgi/global_sky_filter.comp",
         source_path: "shader/slang/ddgi_global_sky_filter.slang",
         module_path: "shader/slang",
@@ -414,24 +408,6 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
     ShaderConfig {
         logical_path: "shader/ddgi/visibility_gutter.comp",
         source_path: "shader/slang/ddgi_visibility_gutter.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/tracer/environment_probe_classify.comp",
-        source_path: "shader/slang/environment_probe_classify.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/tracer/environment_probe_update.comp",
-        source_path: "shader/slang/environment_probe_update.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/tracer/environment_probe_stats.comp",
-        source_path: "shader/slang/environment_probe_stats.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Compute,
     },

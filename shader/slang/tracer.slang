@@ -240,16 +240,14 @@ void getPixelColor(out float3 color, out float depth,
                    out float3 environmentIrradiance, Ray ray,
                    float2 screenUv, uint localInvocationIndex)
 {
-    if (shading_info.environment_lighting_backend == 1u &&
-        shading_info.ddgi_debug_view == DDGI_DEBUG_IRRADIANCE_ATLAS)
+    if (shading_info.ddgi_debug_view == DDGI_DEBUG_IRRADIANCE_ATLAS)
     {
         environmentIrradiance = sampleDdgiIrradianceAtlasDebug(screenUv);
         color = environmentIrradiance;
         depth = 0.0;
         return;
     }
-    if (shading_info.environment_lighting_backend == 1u &&
-        shading_info.ddgi_debug_view == DDGI_DEBUG_VISIBILITY_ATLAS)
+    if (shading_info.ddgi_debug_view == DDGI_DEBUG_VISIBILITY_ATLAS)
     {
         environmentIrradiance = sampleDdgiVisibilityAtlasDebug(
             shading_info, screenUv);
@@ -273,8 +271,7 @@ void getPixelColor(out float3 color, out float depth,
     parseTraceResult(albedo, result);
     environmentIrradiance = sampleDiffuseEnvironment(
         shading_info, result.position, result.normal);
-    if (shading_info.environment_lighting_backend == 1u &&
-        shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
+    if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {
         DdgiQueryResult ddgiResult = sampleDdgiDiffuseEnvironment(
             shading_info, result.position, result.normal);

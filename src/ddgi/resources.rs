@@ -59,6 +59,14 @@ pub struct DdgiResourceBytes {
 }
 
 impl DdgiResourceBytes {
+    pub fn for_grid(grid: DdgiVolumeGrid) -> Result<Self> {
+        let irradiance_layout =
+            DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE)?;
+        let visibility_layout =
+            DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE)?;
+        Ok(Self::new(grid, irradiance_layout, visibility_layout))
+    }
+
     fn new(
         grid: DdgiVolumeGrid,
         irradiance_layout: DdgiAtlasLayout,

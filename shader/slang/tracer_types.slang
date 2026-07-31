@@ -103,27 +103,16 @@ public struct U_SunInfo
 
 public struct U_ShadingInfo
 {
-    public float4 environment_irradiance_sh_0;
-    public float4 environment_irradiance_sh_1;
-    public float4 environment_irradiance_sh_2;
-    public float4 environment_irradiance_sh_3;
-    public float4 environment_irradiance_sh_4;
-    public float4 environment_irradiance_sh_5;
-    public float4 environment_irradiance_sh_6;
-    public float4 environment_irradiance_sh_7;
-    public float4 environment_irradiance_sh_8;
     public uint environment_revision;
     public uint3 environment_probe_grid_dimensions;
     public float3 environment_probe_world_to_grid_scale;
-    public uint environment_probe_uniform_field;
     public float environment_probe_visibility_bias_world;
-    public uint environment_lighting_backend;
-    public uint environment_lighting_backend_ready;
+    public uint ddgi_ready;
     public uint environment_irradiance_capture_enabled;
     public uint ddgi_irradiance_tile_columns;
     public uint ddgi_visibility_tile_columns;
     public uint ddgi_debug_view;
-    public uint2 ddgi_padding;
+    public uint3 ddgi_padding;
 };
 
 public struct U_CameraInfo

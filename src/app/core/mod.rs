@@ -53,9 +53,9 @@ use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
+use crate::ddgi::{DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS};
 use crate::environment_probes::{
-    EnvironmentProbeGrid, EnvironmentProbeResourceBytes, EnvironmentProbeVisualizationFilter,
-    EnvironmentProbeVisualizationMode, SUPPORTED_ENVIRONMENT_PROBE_SPACINGS_VOXELS,
+    EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
@@ -1042,7 +1042,6 @@ impl App {
                 voxel_dim_per_chunk: VOXEL_DIM_PER_CHUNK,
                 environment_probe_spacing_voxels: options.environment_probe_spacing_voxels,
                 environment_probe_visualization_enabled: options.environment_probe_visualization,
-                environment_lighting_backend: options.environment_lighting_backend,
                 environment_irradiance_capture_enabled: options
                     .environment_irradiance_capture_path
                     .is_some(),
@@ -2267,13 +2266,14 @@ impl App {
                 let mut drop_collision_probe_requested = false;
                 let mut clear_collision_probe_requested = false;
                 let environment_probe_status = self.tracer.environment_probe_status();
-                let environment_probe_draft_grid = EnvironmentProbeGrid::new(
+                let environment_probe_draft_grid = DdgiVolumeGrid::new(
                     CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
                     self.environment_probe_spacing_draft,
                 )
                 .expect("environment probe UI only exposes supported spacings");
                 let environment_probe_draft_bytes =
-                    EnvironmentProbeResourceBytes::for_grid(environment_probe_draft_grid);
+                    DdgiResourceBytes::for_grid(environment_probe_draft_grid)
+                        .expect("environment probe UI grid must produce valid DDGI atlases");
                 let mut environment_probe_visualization =
                     self.tracer.environment_probe_visualization_settings();
                 let mut environment_probe_rebuild_requested = false;
@@ -2464,7 +2464,7 @@ impl App {
                                                 )
                                                 .show_ui(ui, |ui| {
                                                     for spacing in
-                                                        SUPPORTED_ENVIRONMENT_PROBE_SPACINGS_VOXELS
+                                                        SUPPORTED_DDGI_SPACINGS_VOXELS
                                                     {
                                                         ui.selectable_value(
                                                             &mut self
@@ -2478,32 +2478,31 @@ impl App {
                                             let bytes =
                                                 environment_probe_status.resource_bytes;
                                             ui.monospace(format!(
-                                                "Current {} vox · {} x {} x {} · {} probes · {} valid",
+                                                "Current {} vox · {} x {} x {} · {}/{} filtered · {:?}",
                                                 grid.spacing_voxels(),
                                                 grid.dimensions().x,
                                                 grid.dimensions().y,
                                                 grid.dimensions().z,
+                                                environment_probe_status.filtered_probe_count,
                                                 grid.probe_count(),
-                                                environment_probe_status.valid_probe_count,
-                                            ));
-                                            let counts = environment_probe_status.state_counts;
-                                            ui.monospace(format!(
-                                                "States: inactive {} · solid {} · pending {} · dirty {} · updating {} · failed {}",
-                                                counts.inactive,
-                                                counts.inside_solid,
-                                                counts.relocation_pending,
-                                                counts.dirty,
-                                                counts.updating,
-                                                counts.relocation_failed,
+                                                environment_probe_status.stage,
                                             ));
                                             ui.monospace(format!(
-                                                "Allocated {:.2} MiB (SH {:.2} + state {:.2} + visibility {:.2} + directions {:.2} + stats {:.4})",
+                                                "Revisions: sky {} · terrain {}",
+                                                environment_probe_status.global_sky_revision,
+                                                environment_probe_status
+                                                    .relocated_terrain_revision
+                                                    .map_or_else(|| "pending".to_owned(), |value| value.to_string()),
+                                            ));
+                                            ui.monospace(format!(
+                                                "Allocated {:.2} MiB (irradiance {:.2} + visibility {:.2} + metadata {:.2} + rays {:.2} + sky {:.4} + stats {:.4})",
                                                 bytes.total() as f64 / (1024.0 * 1024.0),
-                                                bytes.coefficients as f64 / (1024.0 * 1024.0),
-                                                bytes.summaries as f64 / (1024.0 * 1024.0),
-                                                bytes.visibility as f64 / (1024.0 * 1024.0),
-                                                bytes.directions as f64 / (1024.0 * 1024.0),
-                                                bytes.stats as f64 / (1024.0 * 1024.0),
+                                                bytes.irradiance_atlas as f64 / (1024.0 * 1024.0),
+                                                bytes.visibility_atlas as f64 / (1024.0 * 1024.0),
+                                                bytes.probe_metadata as f64 / (1024.0 * 1024.0),
+                                                bytes.transient_ray_data as f64 / (1024.0 * 1024.0),
+                                                bytes.global_sky_irradiance as f64 / (1024.0 * 1024.0),
+                                                bytes.trace_stats as f64 / (1024.0 * 1024.0),
                                             ));
                                             if environment_probe_draft_grid != grid {
                                                 ui.monospace(format!(
@@ -3945,7 +3944,7 @@ impl App {
                             .is_none_or(
                             environment_lighting_test_scene::EnvironmentLightingTestScene::is_ready,
                         );
-                        if test_scene_ready && self.tracer.environment_lighting_backend_ready() {
+                        if test_scene_ready && self.tracer.ddgi_ready() {
                             match self.prepare_environment_irradiance_capture_readback(path.clone())
                             {
                                 Ok(readback) => {
@@ -3956,7 +3955,7 @@ impl App {
                                     environment_irradiance_readback = Some(readback);
                                     log::info!(
                                         "[ENV_IRRADIANCE_CAPTURE] recording backend={} path={}",
-                                        self.tracer.environment_lighting_backend().label(),
+                                        "ddgi",
                                         path,
                                     );
                                 }
@@ -4003,8 +4002,7 @@ impl App {
                             .is_none_or(
                             hybrid_transparency_test_scene::HybridTransparencyTestScene::is_ready,
                         );
-                        let environment_lighting_ready =
-                            self.tracer.environment_lighting_backend_ready();
+                        let environment_lighting_ready = self.tracer.ddgi_ready();
                         if elapsed >= delay && test_scene_ready && environment_lighting_ready {
                             self.screenshot_taken = true;
                             log::info!("[SCREENSHOT] Capturing after {:.2}s to {}", elapsed, path);

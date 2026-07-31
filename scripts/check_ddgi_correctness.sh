@@ -3,7 +3,6 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-backend="${DDGI_CORRECTNESS_BACKEND:-ddgi}"
 auto_exit="${DDGI_CORRECTNESS_AUTO_EXIT:-12}"
 output_root="${DDGI_CORRECTNESS_OUTPUT_DIR:-$repo_root/target/ddgi-correctness}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -52,7 +51,6 @@ for case_name in "${cases[@]}"; do
             cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
             --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
             --environment-lighting-test-scene "$case_name"
-            --environment-lighting-backend "$backend"
             --environment-probe-spacing-voxels "$spacing"
             --auto-exit "$auto_exit"
         )
@@ -80,7 +78,7 @@ for case_name in "${cases[@]}"; do
             "exact-irradiance:$exact_irradiance"; do
             view="${view_and_path%%:*}"
             path="${view_and_path#*:}"
-            echo "[DDGI_CORRECTNESS] case=$case_name spacing=$spacing backend=$backend view=$view"
+            echo "[DDGI_CORRECTNESS] case=$case_name spacing=$spacing backend=ddgi view=$view"
             RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
                 "${command[@]}" --ddgi-debug-view "$view" \
                     --environment-irradiance-capture "$path"

@@ -30,8 +30,10 @@ Implementation progress:
   procedural normal. Every affected raster pipeline binds the same DDGI metadata, global sky,
   irradiance atlas, visibility atlas, and shared shading-info revision as terrain; vertex layouts
   are unchanged.
-- M5 is the active implementation milestone. The validated DDGI path is ready to become the sole
-  backend and the temporary local-SH implementation and selector can be removed.
+- M5 is complete: DDGI is the sole environment-lighting backend, the local/global SH resources,
+  shaders, sampling path, selector, and legacy tests are gone, and probe visualization now reads
+  DDGI metadata and atlases directly. The post-removal correctness suite passed all six
+  configurations with bit-exact repeats.
 
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional
@@ -39,7 +41,7 @@ octahedral maps; it does not remove the probe volume.
 
 ## Outcome
 
-The final environment-lighting path will contain:
+The environment-lighting path now contains:
 
 - a fixed world-aligned DDGI volume;
 - one octahedral irradiance map and one octahedral visibility map per probe;
@@ -49,9 +51,9 @@ The final environment-lighting path will contain:
 - no local or global spherical-harmonic environment-lighting representation;
 - direct sun and its shadow paths outside DDGI.
 
-The migration will temporarily retain the existing local-SH backend for deterministic A/B testing.
-After the DDGI backend passes the agreed acceptance suite, the local-SH probe backend, the global-SH
-fallback, and the temporary backend selector will be deleted.
+The temporary local-SH backend was retained only for deterministic A/B testing through M4. M5
+removed it after DDGI passed the agreed acceptance suite; the global sky irradiance map is now the
+only outside-volume and not-ready fallback.
 
 ## Paper Baseline
 
@@ -77,8 +79,7 @@ avoid.
 
 ## Deep Module and Seams
 
-DDGI will be implemented as a new deep module beside the current local-SH implementation during
-migration:
+DDGI is implemented as the environment-lighting deep module:
 
 ```text
 ddgi
@@ -368,8 +369,10 @@ eight-segment reference:
 
 The sealed cases require maximum irradiance and exact-reference error P99 no greater than
 `0.00001`. The portal cases require irradiance P99 of at least `0.10` and exact-reference error P99
-no greater than `0.01`. Every final capture is repeated and required to be bit-exact. The accepted
-run at `target/ddgi-correctness/20260731T215302Z-107772` passed all six configurations.
+no greater than `0.01`. Every final capture is repeated and required to be bit-exact. The M5
+post-removal run at `target/ddgi-correctness/20260731T222545Z-119363` passed all six configurations:
+sealed was exactly zero at both spacings; portal reference-error P99 was `0.004334` at spacing 32
+and `0.003165` at spacing 16; walls reference-error P99 was `0.138412` and `0.130781`, respectively.
 
 The calibrated fix has two parts. First, the query bias is `0.25` voxel at both qualified probe
 spacings; the prior expression accidentally applied `0.25` of a probe spacing and could move the
@@ -457,7 +460,7 @@ After the sky-only static field is correct:
 5. **Additional geometry** — consider dynamic DDGI occluders only after a specific visual need and
    an update/convergence design justify their cost.
 
-The first milestone is complete only when the static field is physically interpretable: a sealed
-room is dark without hidden ambient floors, a valid opening remains lit, thin and diagonal walls do
-not leak, spacing 16 does not expose a probe lattice, and the approximate moment query is measured
-against exact visibility rather than accepted by appearance alone.
+The first milestone is complete: the sealed room is dark without hidden ambient floors, a valid
+opening remains lit, thin and diagonal walls stay within their calibrated exact-reference limits,
+spacing 16 does not expose a probe lattice in the acceptance capture, and the approximate moment
+query is measured against exact visibility rather than accepted by appearance alone.

@@ -61,14 +61,14 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiDebugView, DdgiRayBatch, DdgiVolume, DDGI_GUTTER_WORKGROUP_SIZE,
+    DdgiDebugView, DdgiRayBatch, DdgiVolume, DdgiVolumeStatus, DDGI_GUTTER_WORKGROUP_SIZE,
     DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
     DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
-use crate::environment_lighting::{EnvironmentLightingBackend, EnvironmentLightingCache};
+use crate::environment_lighting::EnvironmentLightingCache;
 use crate::environment_probes::{
     EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
-    EnvironmentProbeVisualizationSettings, EnvironmentProbeVolume, EnvironmentProbeVolumeStatus,
+    EnvironmentProbeVisualizationSettings,
 };
 use crate::gameplay::{
     calculate_directional_light_matrices, Camera, CameraDesc, CameraPose, CameraVectors,
@@ -89,24 +89,15 @@ use re_flora_vkn::{
     TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
 };
 use std::collections::HashMap;
-use std::time::Instant;
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
 const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
-const ENVIRONMENT_PROBE_COEFFICIENT_BINDING: u32 = 18;
-const ENVIRONMENT_PROBE_SUMMARY_BINDING: u32 = 19;
-const ENVIRONMENT_PROBE_VISIBILITY_BINDING: u32 = 20;
-const ENVIRONMENT_PROBE_DIRECTION_BINDING: u32 = 21;
-const ENVIRONMENT_PROBE_STATS_BINDING: u32 = 22;
 const DDGI_GLOBAL_SKY_BINDING: u32 = 23;
 const DDGI_PROBE_METADATA_BINDING: u32 = 24;
 const DDGI_IRRADIANCE_ATLAS_BINDING: u32 = 27;
 const DDGI_VISIBILITY_ATLAS_BINDING: u32 = 28;
-const ENVIRONMENT_PROBE_TRACE_BATCH_SIZE: u32 = 128;
-const ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE: u32 = 70;
-const ENVIRONMENT_PROBE_PRIORITY_REGION_RADIUS: u32 = 1;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -114,24 +105,6 @@ pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 struct WindVolumePushConstants {
     time: f32,
     bucket_index: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct EnvironmentProbeUpdatePushConstants {
-    first_probe_index: u32,
-    probe_count: u32,
-    environment_revision: u32,
-    trace_visibility: u32,
-    priority_grid_min: [u32; 3],
-    priority_side: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct EnvironmentProbeClassificationPushConstants {
-    terrain_revision: u32,
-    _padding: [u32; 3],
 }
 
 #[repr(C)]
@@ -181,25 +154,6 @@ struct DdgiAtlasGutterPushConstants {
     probe_count: u32,
     tile_columns: u32,
     _padding: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct EnvironmentProbeStatsPushConstants {
-    probe_count: u32,
-    _padding: [u32; 3],
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct EnvironmentProbeTraceRegion {
-    grid_min: UVec3,
-    side: u32,
-}
-
-impl EnvironmentProbeTraceRegion {
-    fn dispatch_probe_count(self) -> u32 {
-        self.side * self.side * self.side
-    }
 }
 
 #[repr(C)]
@@ -496,7 +450,6 @@ pub struct TracerDesc {
     pub voxel_dim_per_chunk: UVec3,
     pub environment_probe_spacing_voxels: u32,
     pub environment_probe_visualization_enabled: bool,
-    pub environment_lighting_backend: EnvironmentLightingBackend,
     pub environment_irradiance_capture_enabled: bool,
     pub ddgi_debug_view: DdgiDebugView,
 }
@@ -579,22 +532,11 @@ pub struct Tracer {
     cloud_history_valid: bool,
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
-    environment_lighting_backend: EnvironmentLightingBackend,
-    environment_probes: EnvironmentProbeVolume,
-    ddgi_volume: Option<DdgiVolume>,
+    ddgi_volume: DdgiVolume,
     ddgi_initial_terrain_ready_revision: Option<u32>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     environment_probe_environment_revision: u32,
-    environment_probe_seeded_revision: u32,
-    environment_probe_classification_pending: bool,
-    environment_probe_placement_initialized: bool,
-    environment_probe_trace_cursor: u32,
-    environment_probe_local_field_ready: bool,
-    environment_probe_priority_regions: [Option<EnvironmentProbeTraceRegion>; 2],
     environment_probe_terrain_revision: u32,
-    environment_probe_converged_terrain_revision: u32,
-    environment_probe_refresh_started_at: Option<Instant>,
-    environment_probe_stats_readback_pending: bool,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -737,21 +679,12 @@ impl Tracer {
             GeometryPreviewRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let dynamic_fruit_resources =
             DynamicFruitRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
-        let environment_probes = EnvironmentProbeVolume::new(
-            vulkan_ctx.device().clone(),
-            allocator.clone(),
-            chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
-            desc.voxel_dim_per_chunk,
-            desc.environment_probe_spacing_voxels,
-        )?;
-        // The temporary A/B selector shares shader modules, so both variants need valid DDGI
-        // descriptors. Only the selected DDGI backend schedules initialization or update work.
-        let ddgi_volume = Some(DdgiVolume::new(
+        let ddgi_volume = DdgiVolume::new(
             &vulkan_ctx,
             allocator.clone(),
             chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
             desc.environment_probe_spacing_voxels,
-        )?);
+        )?;
         let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
             vulkan_ctx.device().clone(),
             allocator.clone(),
@@ -765,8 +698,7 @@ impl Tracer {
             contree_builder_resources,
             scene_accel_resources,
             plain_builder_resources,
-            &environment_probes,
-            ddgi_volume.as_ref(),
+            &ddgi_volume,
         );
         let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
@@ -783,10 +715,7 @@ impl Tracer {
             &pool,
             &resources,
             plain_builder_resources,
-            &environment_probes,
-            ddgi_volume
-                .as_ref()
-                .expect("raster pipelines require DDGI descriptor resources"),
+            &ddgi_volume,
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
@@ -840,10 +769,7 @@ impl Tracer {
         let render_target_gui = RenderTarget::new(gui_render_pass, vec![framebuffer_gui]);
 
         let particle_capacity = PARTICLE_CAPACITY;
-        log::info!(
-            "[ENV_LIGHTING] backend={} ready=false state=initializing",
-            desc.environment_lighting_backend.label(),
-        );
+        log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
         Ok(Self {
             vulkan_ctx,
@@ -867,22 +793,11 @@ impl Tracer {
             cloud_history_valid: false,
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
-            environment_lighting_backend: desc.environment_lighting_backend,
-            environment_probes,
             ddgi_volume,
             ddgi_initial_terrain_ready_revision: None,
             ddgi_trace_stats_readback_pending: None,
             environment_probe_environment_revision: 0,
-            environment_probe_seeded_revision: 0,
-            environment_probe_classification_pending: true,
-            environment_probe_placement_initialized: false,
-            environment_probe_trace_cursor: 0,
-            environment_probe_local_field_ready: false,
-            environment_probe_priority_regions: [None, None],
             environment_probe_terrain_revision: 0,
-            environment_probe_converged_terrain_revision: 0,
-            environment_probe_refresh_started_at: None,
-            environment_probe_stats_readback_pending: false,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -904,46 +819,25 @@ impl Tracer {
         })
     }
 
-    pub fn environment_probe_status(&self) -> EnvironmentProbeVolumeStatus {
-        self.environment_probes.status()
+    pub fn environment_probe_status(&self) -> DdgiVolumeStatus {
+        self.ddgi_volume.status()
     }
 
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) -> Result<()> {
-        let replacement = EnvironmentProbeVolume::new(
-            self.vulkan_ctx.device().clone(),
+        let mut replacement = DdgiVolume::new(
+            &self.vulkan_ctx,
             self.allocator.clone(),
             self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
-            self.desc.voxel_dim_per_chunk,
             spacing_voxels,
         )?;
-        self.vulkan_ctx.device().wait_idle();
-        self.environment_probes = replacement;
-        if self.environment_lighting_backend == EnvironmentLightingBackend::Ddgi {
-            let mut replacement = DdgiVolume::new(
-                &self.vulkan_ctx,
-                self.allocator.clone(),
-                self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
-                spacing_voxels,
-            )?;
-            if let Some(terrain_revision) = self.ddgi_initial_terrain_ready_revision {
-                replacement.request_initialization(terrain_revision);
-            }
-            self.ddgi_volume = Some(replacement);
-            self.update_ddgi_descriptors()?;
+        if let Some(terrain_revision) = self.ddgi_initial_terrain_ready_revision {
+            replacement.request_initialization(terrain_revision);
         }
-        self.environment_probe_seeded_revision = 0;
-        self.environment_probe_classification_pending = true;
-        self.environment_probe_placement_initialized = false;
-        self.environment_probe_trace_cursor = 0;
-        self.environment_probe_local_field_ready = false;
-        self.environment_probe_priority_regions = [None, None];
-        self.environment_probe_terrain_revision = 0;
-        self.environment_probe_converged_terrain_revision = 0;
-        self.environment_probe_refresh_started_at = None;
-        self.environment_probe_stats_readback_pending = false;
+        self.vulkan_ctx.device().wait_idle();
+        self.ddgi_volume = replacement;
         self.ddgi_trace_stats_readback_pending = None;
-        self.update_environment_probe_consumer_descriptors();
-        let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.environment_probes];
+        self.update_ddgi_descriptors()?;
+        let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.ddgi_volume];
         self.graphics_pipelines
             .environment_probe_visualization_depth_ppl
             .auto_update_descriptor_sets(&resources)?;
@@ -958,44 +852,20 @@ impl Tracer {
             .environment_probe_terrain_revision
             .wrapping_add(1)
             .max(1);
-        self.environment_probe_classification_pending = true;
-        self.environment_probe_refresh_started_at = Some(Instant::now());
-
-        let grid = self.environment_probes.status().grid;
-        let edit_center = edit_bound.center();
-        let camera_voxel_position =
-            self.camera.position() * self.desc.voxel_dim_per_chunk.as_vec3();
-        let edit_region = Self::environment_probe_priority_region(grid, edit_center);
-        let camera_region = Self::environment_probe_priority_region(grid, camera_voxel_position);
-        self.environment_probe_priority_regions = [
-            Some(edit_region),
-            (camera_region != edit_region).then_some(camera_region),
-        ];
-
         log::info!(
-            "[ENV_PROBES] terrain refresh requested revision={} edit_voxel_bound={:?}..{:?} edit_priority_min={:?} camera_priority_min={:?} region_side={}",
+            "[DDGI] runtime terrain invalidation deferred revision={} edit_voxel_bound={:?}..{:?}",
             self.environment_probe_terrain_revision,
             edit_bound.min(),
             edit_bound.max(),
-            edit_region.grid_min,
-            camera_region.grid_min,
-            edit_region.side,
         );
     }
 
     /// Starts the static DDGI build after the caller has finished all initial terrain work.
     /// Runtime terrain edits intentionally do not call this M2 seam yet.
     pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) {
-        if self.environment_lighting_backend != EnvironmentLightingBackend::Ddgi {
-            return;
-        }
         self.ddgi_initial_terrain_ready_revision = Some(terrain_revision);
-        let volume = self
-            .ddgi_volume
-            .as_mut()
-            .expect("DDGI backend requires an allocated volume");
-        if volume.request_initialization(terrain_revision) {
-            let status = volume.status();
+        if self.ddgi_volume.request_initialization(terrain_revision) {
+            let status = self.ddgi_volume.status();
             log::info!(
                 "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?}",
                 terrain_revision,
@@ -1006,52 +876,17 @@ impl Tracer {
         }
     }
 
-    fn environment_probe_priority_region(
-        grid: crate::environment_probes::EnvironmentProbeGrid,
-        voxel_position: Vec3,
-    ) -> EnvironmentProbeTraceRegion {
-        let maximum_coordinate = grid.dimensions() - UVec3::ONE;
-        let center = (voxel_position / grid.spacing_voxels() as f32)
-            .round()
-            .max(Vec3::ZERO)
-            .as_uvec3()
-            .min(maximum_coordinate);
-        let grid_min =
-            center.saturating_sub(UVec3::splat(ENVIRONMENT_PROBE_PRIORITY_REGION_RADIUS));
-        EnvironmentProbeTraceRegion {
-            grid_min,
-            side: ENVIRONMENT_PROBE_PRIORITY_REGION_RADIUS * 2 + 1,
-        }
-    }
-
-    pub fn environment_lighting_backend(&self) -> EnvironmentLightingBackend {
-        self.environment_lighting_backend
-    }
-
     pub fn ddgi_debug_view(&self) -> DdgiDebugView {
         self.desc.ddgi_debug_view
     }
 
-    pub fn environment_lighting_backend_ready(&self) -> bool {
-        match self.environment_lighting_backend {
-            EnvironmentLightingBackend::LocalSh => self.environment_probe_local_field_ready,
-            EnvironmentLightingBackend::Ddgi => self
-                .ddgi_volume
-                .as_ref()
-                .is_some_and(|volume| volume.status().is_ready()),
-        }
+    pub fn ddgi_ready(&self) -> bool {
+        self.ddgi_volume.status().is_ready()
     }
 
-    pub fn environment_lighting_backend_ready_for_terrain_revision(&self, revision: u32) -> bool {
-        match self.environment_lighting_backend {
-            EnvironmentLightingBackend::LocalSh => {
-                self.environment_probe_terrain_revision_ready(revision)
-            }
-            EnvironmentLightingBackend::Ddgi => self.ddgi_volume.as_ref().is_some_and(|volume| {
-                let status = volume.status();
-                status.is_ready() && status.relocated_terrain_revision == Some(revision)
-            }),
-        }
+    pub fn ddgi_ready_for_terrain_revision(&self, revision: u32) -> bool {
+        let status = self.ddgi_volume.status();
+        status.is_ready() && status.relocated_terrain_revision == Some(revision)
     }
 
     pub fn environment_irradiance_capture_extent(&self) -> Extent2D {
@@ -1101,7 +936,7 @@ impl Tracer {
     }
 
     pub fn environment_probe_terrain_revision_ready(&self, revision: u32) -> bool {
-        revision != 0 && self.environment_probe_converged_terrain_revision == revision
+        revision != 0 && self.ddgi_ready_for_terrain_revision(revision)
     }
 
     pub fn environment_probe_visualization_settings(
@@ -1269,14 +1104,6 @@ impl Tracer {
             plain_builder_resources,
         );
         update_compute_fn(&self.compute_pipelines.tracer_ppl, &all_resources);
-        update_compute_fn(
-            &self.compute_pipelines.environment_probe_classify_ppl,
-            &all_resources,
-        );
-        update_compute_fn(
-            &self.compute_pipelines.environment_probe_update_ppl,
-            &all_resources,
-        );
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
@@ -1348,23 +1175,17 @@ impl Tracer {
             &self.graphics_pipelines.geometry_preview_ppl,
             &tracer_resources,
         );
-        let environment_probe_resources: [&dyn ResourceContainer; 2] =
-            [&self.resources, &self.environment_probes];
-        update_compute_fn(
-            &self.compute_pipelines.environment_probe_global_copy_ppl,
-            &environment_probe_resources,
-        );
         update_graphics_fn(
             &self
                 .graphics_pipelines
                 .environment_probe_visualization_depth_ppl,
-            &environment_probe_resources,
+            &environment_lighting_resources,
         );
         update_graphics_fn(
             &self
                 .graphics_pipelines
                 .environment_probe_visualization_overlay_ppl,
-            &environment_probe_resources,
+            &environment_lighting_resources,
         );
         update_graphics_fn(
             &self.graphics_pipelines.dynamic_fruit_ppl,
@@ -1378,57 +1199,49 @@ impl Tracer {
             &self.graphics_pipelines.water_droplet_ppl,
             &environment_lighting_resources,
         );
-        if let Some(ddgi_volume) = self.ddgi_volume.as_ref() {
-            let ddgi_resources: [&dyn ResourceContainer; 2] = [&self.resources, ddgi_volume];
-            if let Some(pipeline) = self.compute_pipelines.ddgi_global_sky_filter_ppl.as_ref() {
-                update_compute_fn(pipeline, &ddgi_resources);
-            }
-            if let Some(pipeline) = self.compute_pipelines.ddgi_octahedral_gutter_ppl.as_ref() {
-                update_compute_fn(pipeline, &[ddgi_volume]);
-            }
-            if let Some(pipeline) = self.compute_pipelines.ddgi_probe_relocate_ppl.as_ref() {
-                update_compute_fn(pipeline, &[plain_builder_resources, ddgi_volume]);
-            }
-            if let Some(pipeline) = self.compute_pipelines.ddgi_probe_trace_ppl.as_ref() {
-                update_compute_fn(
-                    pipeline,
-                    &[
-                        &self.resources,
-                        contree_builder_resources,
-                        scene_accel_resources,
-                        ddgi_volume,
-                    ],
-                );
-            }
-            for pipeline in [
-                self.compute_pipelines.ddgi_irradiance_filter_ppl.as_ref(),
-                self.compute_pipelines.ddgi_visibility_filter_ppl.as_ref(),
-                self.compute_pipelines.ddgi_irradiance_gutter_ppl.as_ref(),
-                self.compute_pipelines.ddgi_visibility_gutter_ppl.as_ref(),
-            ]
-            .into_iter()
-            .flatten()
-            {
-                update_compute_fn(pipeline, &[ddgi_volume]);
-            }
+        let ddgi_resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.ddgi_volume];
+        update_compute_fn(
+            &self.compute_pipelines.ddgi_global_sky_filter_ppl,
+            &ddgi_resources,
+        );
+        update_compute_fn(
+            &self.compute_pipelines.ddgi_octahedral_gutter_ppl,
+            &[&self.ddgi_volume],
+        );
+        update_compute_fn(
+            &self.compute_pipelines.ddgi_probe_relocate_ppl,
+            &[plain_builder_resources, &self.ddgi_volume],
+        );
+        update_compute_fn(
+            &self.compute_pipelines.ddgi_probe_trace_ppl,
+            &[
+                &self.resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                &self.ddgi_volume,
+            ],
+        );
+        for pipeline in [
+            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
+            &self.compute_pipelines.ddgi_visibility_filter_ppl,
+            &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
+            &self.compute_pipelines.ddgi_visibility_gutter_ppl,
+        ] {
+            update_compute_fn(pipeline, &[&self.ddgi_volume]);
         }
     }
 
     fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
         [
             &self.resources as &dyn ResourceContainer,
-            &self.environment_probes as &dyn ResourceContainer,
+            &self.ddgi_volume as &dyn ResourceContainer,
         ]
     }
 
-    fn environment_lighting_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
+    fn environment_lighting_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
         [
             &self.resources as &dyn ResourceContainer,
-            &self.environment_probes as &dyn ResourceContainer,
-            self.ddgi_volume
-                .as_ref()
-                .expect("environment lighting descriptors require DDGI resources")
-                as &dyn ResourceContainer,
+            &self.ddgi_volume as &dyn ResourceContainer,
         ]
     }
 
@@ -1437,131 +1250,37 @@ impl Tracer {
         contree_builder_resources: &'a ContreeBuilderResources,
         scene_accel_resources: &'a SceneAccelBuilderResources,
         plain_builder_resources: &'a PlainBuilderResources,
-    ) -> [&'a dyn ResourceContainer; 6] {
+    ) -> [&'a dyn ResourceContainer; 5] {
         [
             &self.resources as &dyn ResourceContainer,
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
             plain_builder_resources as &dyn ResourceContainer,
-            &self.environment_probes as &dyn ResourceContainer,
-            self.ddgi_volume
-                .as_ref()
-                .expect("tracer descriptors require DDGI resources")
-                as &dyn ResourceContainer,
+            &self.ddgi_volume as &dyn ResourceContainer,
         ]
-    }
-
-    fn update_environment_probe_consumer_descriptors(&self) {
-        let coefficients = &self.environment_probes.environment_probe_coefficients;
-        let summaries = &self.environment_probes.environment_probe_summaries;
-        let visibility = &self.environment_probes.environment_probe_visibility;
-        let directions = &self.environment_probes.environment_probe_directions;
-        let stats = &self.environment_probes.environment_probe_stats;
-        for pipeline in [
-            &self.compute_pipelines.environment_probe_global_copy_ppl,
-            &self.compute_pipelines.tracer_ppl,
-        ] {
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    ENVIRONMENT_PROBE_COEFFICIENT_BINDING,
-                    coefficients,
-                ),
-            );
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
-            );
-        }
-        self.compute_pipelines.tracer_ppl.write_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_VISIBILITY_BINDING, visibility),
-        );
-        self.compute_pipelines
-            .environment_probe_classify_ppl
-            .write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
-            );
-        self.compute_pipelines
-            .environment_probe_stats_ppl
-            .write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
-            );
-        self.compute_pipelines
-            .environment_probe_stats_ppl
-            .write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_STATS_BINDING, stats),
-            );
-        for (binding, buffer) in [
-            (ENVIRONMENT_PROBE_COEFFICIENT_BINDING, coefficients),
-            (ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
-            (ENVIRONMENT_PROBE_VISIBILITY_BINDING, visibility),
-            (ENVIRONMENT_PROBE_DIRECTION_BINDING, directions),
-        ] {
-            self.compute_pipelines
-                .environment_probe_update_ppl
-                .write_descriptor_set(0, WriteDescriptorSet::new_buffer_write(binding, buffer));
-        }
-        for pipeline in [
-            &self.graphics_pipelines.flora_ppl,
-            &self.graphics_pipelines.flora_lod_ppl,
-            &self.graphics_pipelines.leaves_ppl,
-            &self.graphics_pipelines.leaves_lod_ppl,
-            &self.graphics_pipelines.sprinkler_ppl,
-            &self.graphics_pipelines.dynamic_fruit_ppl,
-            &self.graphics_pipelines.particle_ppl,
-            &self.graphics_pipelines.water_droplet_ppl,
-        ] {
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    ENVIRONMENT_PROBE_COEFFICIENT_BINDING,
-                    coefficients,
-                ),
-            );
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(ENVIRONMENT_PROBE_SUMMARY_BINDING, summaries),
-            );
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    ENVIRONMENT_PROBE_VISIBILITY_BINDING,
-                    visibility,
-                ),
-            );
-        }
     }
 
     fn update_ddgi_descriptors(&self) -> Result<()> {
-        let Some(ddgi_volume) = self.ddgi_volume.as_ref() else {
-            return Ok(());
-        };
+        let ddgi_volume = &self.ddgi_volume;
         let resources: [&dyn ResourceContainer; 2] = [&self.resources, ddgi_volume];
-        if let Some(pipeline) = self.compute_pipelines.ddgi_global_sky_filter_ppl.as_ref() {
-            pipeline.auto_update_descriptor_sets(&resources)?;
-        }
-        if let Some(pipeline) = self.compute_pipelines.ddgi_octahedral_gutter_ppl.as_ref() {
-            pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
-        }
-        if let Some(pipeline) = self.compute_pipelines.ddgi_probe_relocate_ppl.as_ref() {
-            pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
-        }
-        if let Some(pipeline) = self.compute_pipelines.ddgi_probe_trace_ppl.as_ref() {
-            pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
-        }
+        self.compute_pipelines
+            .ddgi_global_sky_filter_ppl
+            .auto_update_descriptor_sets(&resources)?;
+        self.compute_pipelines
+            .ddgi_octahedral_gutter_ppl
+            .auto_update_descriptor_sets(&[ddgi_volume])?;
+        self.compute_pipelines
+            .ddgi_probe_relocate_ppl
+            .auto_update_descriptor_sets(&[ddgi_volume])?;
+        self.compute_pipelines
+            .ddgi_probe_trace_ppl
+            .auto_update_descriptor_sets(&[ddgi_volume])?;
         for pipeline in [
-            self.compute_pipelines.ddgi_irradiance_filter_ppl.as_ref(),
-            self.compute_pipelines.ddgi_visibility_filter_ppl.as_ref(),
-            self.compute_pipelines.ddgi_irradiance_gutter_ppl.as_ref(),
-            self.compute_pipelines.ddgi_visibility_gutter_ppl.as_ref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
+            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
+            &self.compute_pipelines.ddgi_visibility_filter_ppl,
+            &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
+            &self.compute_pipelines.ddgi_visibility_gutter_ppl,
+        ] {
             pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
         }
         self.compute_pipelines.tracer_ppl.write_descriptor_set(
@@ -1580,6 +1299,12 @@ impl Tracer {
             &self.graphics_pipelines.dynamic_fruit_ppl,
             &self.graphics_pipelines.particle_ppl,
             &self.graphics_pipelines.water_droplet_ppl,
+            &self
+                .graphics_pipelines
+                .environment_probe_visualization_depth_ppl,
+            &self
+                .graphics_pipelines
+                .environment_probe_visualization_overlay_ppl,
         ] {
             pipeline.write_descriptor_set(
                 0,
@@ -1621,6 +1346,12 @@ impl Tracer {
                 &self.graphics_pipelines.dynamic_fruit_ppl,
                 &self.graphics_pipelines.particle_ppl,
                 &self.graphics_pipelines.water_droplet_ppl,
+                &self
+                    .graphics_pipelines
+                    .environment_probe_visualization_depth_ppl,
+                &self
+                    .graphics_pipelines
+                    .environment_probe_visualization_overlay_ppl,
             ] {
                 pipeline.write_descriptor_set(
                     0,
@@ -1899,19 +1630,13 @@ impl Tracer {
         )?;
 
         let environment_lighting = self.environment_lighting.update(sun_dir);
-        let ddgi_status = self
-            .ddgi_volume
-            .as_ref()
-            .expect("shading uniforms require DDGI resources")
-            .status();
+        let ddgi_status = self.ddgi_volume.status();
         BufferUpdater::update_shading_info(
             &self.resources,
             environment_lighting,
-            self.environment_probes.status().grid,
+            ddgi_status.grid,
             self.desc.voxel_dim_per_chunk,
-            self.environment_probe_local_field_ready,
-            self.environment_lighting_backend,
-            self.environment_lighting_backend_ready(),
+            self.ddgi_ready(),
             self.desc.environment_irradiance_capture_enabled,
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
@@ -2066,28 +1791,8 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
-        if self.environment_probe_stats_readback_pending {
-            self.environment_probe_stats_readback_pending = false;
-            let counts = self
-                .environment_probes
-                .update_state_counts_from_readback()?;
-            log::info!(
-                "[ENV_PROBES] state counts inactive={} inside_solid={} relocation_pending={} valid={} dirty={} updating={} relocation_failed={} total={}",
-                counts.inactive,
-                counts.inside_solid,
-                counts.relocation_pending,
-                counts.valid,
-                counts.dirty,
-                counts.updating,
-                counts.relocation_failed,
-                counts.total(),
-            );
-        }
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
-            let volume = self
-                .ddgi_volume
-                .as_ref()
-                .expect("DDGI trace stats require an allocated volume");
+            let volume = &self.ddgi_volume;
             let stats = volume.update_trace_stats_from_readback()?;
             anyhow::ensure!(
                 stats.ray_records == batch.probe_count * crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -2184,11 +1889,9 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
-        let ddgi_global_sky_needs_update = self.environment_lighting_backend
-            == EnvironmentLightingBackend::Ddgi
-            && self.ddgi_volume.as_ref().is_some_and(|volume| {
-                volume.global_sky_needs_update(self.environment_probe_environment_revision)
-            });
+        let ddgi_global_sky_needs_update = self
+            .ddgi_volume
+            .global_sky_needs_update(self.environment_probe_environment_revision);
         if ddgi_global_sky_needs_update {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -2208,10 +1911,7 @@ impl Tracer {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
             let environment_revision = self.environment_probe_environment_revision;
-            let volume = self
-                .ddgi_volume
-                .as_mut()
-                .expect("DDGI sky update requires an allocated volume");
+            let volume = &mut self.ddgi_volume;
             volume.mark_global_sky_ready(environment_revision);
             log::info!(
                 "[DDGI] global sky ready revision={} interior={}x{} stored={}x{} samples_per_texel=2048 stage={:?}",
@@ -2224,10 +1924,7 @@ impl Tracer {
             );
         }
 
-        let ddgi_relocation_revision = self
-            .ddgi_volume
-            .as_ref()
-            .and_then(DdgiVolume::pending_relocation_terrain_revision);
+        let ddgi_relocation_revision = self.ddgi_volume.pending_relocation_terrain_revision();
         if let Some(terrain_revision) = ddgi_relocation_revision {
             let terrain_to_relocation_barrier = PipelineBarrier::shader_access(
                 PipelineStage::COMPUTE_SHADER,
@@ -2243,10 +1940,7 @@ impl Tracer {
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-            let volume = self
-                .ddgi_volume
-                .as_mut()
-                .expect("DDGI relocation requires an allocated volume");
+            let volume = &mut self.ddgi_volume;
             volume.mark_relocated(terrain_revision);
             let status = volume.status();
             log::info!(
@@ -2259,16 +1953,10 @@ impl Tracer {
             );
         }
 
-        let ddgi_ray_batch = self
-            .ddgi_volume
-            .as_ref()
-            .and_then(DdgiVolume::next_ray_batch_to_trace);
+        let ddgi_ray_batch = self.ddgi_volume.next_ray_batch_to_trace();
         if let Some(batch) = ddgi_ray_batch {
             {
-                let volume = self
-                    .ddgi_volume
-                    .as_ref()
-                    .expect("DDGI trace requires an allocated volume");
+                let volume = &self.ddgi_volume;
                 volume.ddgi_trace_stats.record_fill(
                     cmdbuf,
                     0,
@@ -2286,10 +1974,7 @@ impl Tracer {
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-            self.ddgi_volume
-                .as_mut()
-                .expect("DDGI trace requires an allocated volume")
-                .mark_ray_batch_ready(batch);
+            self.ddgi_volume.mark_ray_batch_ready(batch);
 
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -2316,19 +2001,13 @@ impl Tracer {
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-            let volume = self
-                .ddgi_volume
-                .as_ref()
-                .expect("DDGI trace requires an allocated volume");
+            let volume = &self.ddgi_volume;
             compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             volume.record_trace_stats_readback(cmdbuf);
             transfer_to_host_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.ddgi_trace_stats_readback_pending = Some(batch);
 
-            let volume = self
-                .ddgi_volume
-                .as_mut()
-                .expect("DDGI filtering requires an allocated volume");
+            let volume = &mut self.ddgi_volume;
             volume.mark_ray_batch_filtered(batch);
             let mut status = volume.status();
             if status.filtered_probe_count == status.grid.probe_count() {
@@ -2342,8 +2021,7 @@ impl Tracer {
                     status.stage,
                 );
                 log::info!(
-                    "[ENV_LIGHTING] backend={} ready=true terrain_revision={}",
-                    self.environment_lighting_backend.label(),
+                    "[ENV_LIGHTING] backend=ddgi ready=true terrain_revision={}",
                     status.relocated_terrain_revision.unwrap_or_default(),
                 );
             }
@@ -2360,244 +2038,6 @@ impl Tracer {
                     status.grid.probe_count(),
                     batch.terrain_revision,
                     status.stage,
-                );
-            }
-        }
-
-        if self.environment_probe_environment_revision != self.environment_probe_seeded_revision {
-            let previous_revision = self.environment_probe_seeded_revision;
-            let probe_read_to_write_barrier = PipelineBarrier::new(
-                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
-                PipelineStage::COMPUTE_SHADER,
-                [MemoryBarrier::new(
-                    MemoryAccess::SHADER_READ,
-                    MemoryAccess::SHADER_WRITE,
-                )],
-            );
-            probe_read_to_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            if self.environment_probe_placement_initialized {
-                let probe_count = self.environment_probes.status().grid.probe_count();
-                Self::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "environment_probes.rederive",
-                    || {
-                        self.record_environment_probe_update_pass(
-                            cmdbuf,
-                            0,
-                            probe_count,
-                            false,
-                            None,
-                        )
-                    },
-                );
-                log::info!(
-                    "[ENV_PROBES] rederived local SH previous_revision={} revision={} probes={} terrain_rays=0",
-                    previous_revision,
-                    self.environment_probe_environment_revision,
-                    probe_count,
-                );
-            } else {
-                Self::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "environment_probes.global_copy",
-                    || self.record_environment_probe_global_copy_pass(cmdbuf),
-                );
-            }
-            let probe_write_barrier = PipelineBarrier::shader_access(
-                PipelineStage::COMPUTE_SHADER,
-                PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
-            );
-            probe_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.environment_probe_seeded_revision = self.environment_probe_environment_revision;
-            if !self.environment_probe_placement_initialized {
-                self.environment_probes.mark_all_valid_global_copy();
-            }
-            if previous_revision == 0 {
-                let status = self.environment_probes.status();
-                log::info!(
-                    "[ENV_PROBES] seeded global SH revision={} probes={} valid={}",
-                    self.environment_probe_seeded_revision,
-                    status.grid.probe_count(),
-                    status.valid_probe_count,
-                );
-            }
-        }
-
-        if self.environment_probe_classification_pending {
-            let retain_partial_local_field = self.environment_probe_local_field_ready;
-            let probe_read_to_classification_barrier = PipelineBarrier::new(
-                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
-                PipelineStage::COMPUTE_SHADER,
-                [MemoryBarrier::new(
-                    MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
-                    MemoryAccess::SHADER_WRITE,
-                )],
-            );
-            probe_read_to_classification_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "environment_probes.classify",
-                || self.record_environment_probe_classification_pass(cmdbuf),
-            );
-            let probe_classification_write_barrier = PipelineBarrier::shader_access(
-                PipelineStage::COMPUTE_SHADER,
-                PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
-            );
-            probe_classification_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.environment_probe_classification_pending = false;
-            self.environment_probe_placement_initialized = true;
-            self.environment_probe_trace_cursor = 0;
-            self.environment_probe_local_field_ready = retain_partial_local_field;
-            self.environment_probes.mark_all_classified_dirty();
-            let status = self.environment_probes.status();
-            log::info!(
-                "[ENV_PROBES] classified placement probes={} spacing_voxels={} terrain_revision={} retained_partial_field={} usable=0 state=dirty_or_invalid",
-                status.grid.probe_count(),
-                status.grid.spacing_voxels(),
-                self.environment_probe_terrain_revision,
-                retain_partial_local_field,
-            );
-
-            let mut priority_dispatch_count = 0;
-            for region in self
-                .environment_probe_priority_regions
-                .into_iter()
-                .flatten()
-            {
-                let region_probe_count = region.dispatch_probe_count();
-                Self::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "environment_probes.trace_priority",
-                    || {
-                        self.record_environment_probe_update_pass(
-                            cmdbuf,
-                            0,
-                            region_probe_count,
-                            true,
-                            Some(region),
-                        )
-                    },
-                );
-                let priority_write_barrier = PipelineBarrier::shader_access(
-                    PipelineStage::COMPUTE_SHADER,
-                    PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
-                );
-                priority_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-                priority_dispatch_count += region_probe_count;
-            }
-            self.environment_probe_priority_regions = [None, None];
-            if priority_dispatch_count > 0 {
-                let response_ms = self
-                    .environment_probe_refresh_started_at
-                    .map(|started| started.elapsed().as_secs_f64() * 1000.0)
-                    .unwrap_or(0.0);
-                log::info!(
-                    "[ENV_PROBES] terrain local response scheduled revision={} priority_dispatch_probes={} rays_per_probe={} schedule_ms={:.2}",
-                    self.environment_probe_terrain_revision,
-                    priority_dispatch_count,
-                    ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE,
-                    response_ms,
-                );
-            }
-        }
-
-        let probe_count = self.environment_probes.status().grid.probe_count();
-        if self.environment_probe_placement_initialized
-            && self.environment_probe_trace_cursor < probe_count
-        {
-            let first_probe_index = self.environment_probe_trace_cursor;
-            let batch_probe_count =
-                (probe_count - first_probe_index).min(ENVIRONMENT_PROBE_TRACE_BATCH_SIZE);
-            let probe_read_to_trace_barrier = PipelineBarrier::new(
-                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
-                PipelineStage::COMPUTE_SHADER,
-                [MemoryBarrier::new(
-                    MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
-                    MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
-                )],
-            );
-            probe_read_to_trace_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "environment_probes.trace",
-                || {
-                    self.record_environment_probe_update_pass(
-                        cmdbuf,
-                        first_probe_index,
-                        batch_probe_count,
-                        true,
-                        None,
-                    )
-                },
-            );
-            let probe_trace_write_barrier = PipelineBarrier::shader_access(
-                PipelineStage::COMPUTE_SHADER,
-                PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
-            );
-            probe_trace_write_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-            self.environment_probe_trace_cursor += batch_probe_count;
-            if first_probe_index == 0 {
-                log::info!(
-                    "[ENV_PROBES] visibility trace started probes={} batch_size={} rays_per_probe={} environment_revision={} terrain_revision={}",
-                    probe_count,
-                    ENVIRONMENT_PROBE_TRACE_BATCH_SIZE,
-                    ENVIRONMENT_PROBE_TRACE_RAYS_PER_PROBE,
-                    self.environment_probe_environment_revision,
-                    self.environment_probe_terrain_revision,
-                );
-            }
-            if self.environment_probe_trace_cursor == probe_count {
-                self.environment_probe_local_field_ready = true;
-                self.environment_probe_converged_terrain_revision =
-                    self.environment_probe_terrain_revision;
-                self.environment_probes.environment_probe_stats.record_fill(
-                    cmdbuf,
-                    0,
-                    self.environment_probes
-                        .environment_probe_stats
-                        .get_size_bytes(),
-                    0,
-                );
-                transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-                Self::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "environment_probes.stats",
-                    || self.record_environment_probe_stats_pass(cmdbuf),
-                );
-                compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-                self.environment_probes.record_state_counts_readback(cmdbuf);
-                transfer_to_host_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-                self.environment_probe_stats_readback_pending = true;
-                let convergence_ms = self
-                    .environment_probe_refresh_started_at
-                    .take()
-                    .map(|started| started.elapsed().as_secs_f64() * 1000.0);
-                log::info!(
-                    "[ENV_PROBES] visibility trace complete processed={} environment_revision={} terrain_revision={} convergence_ms={} local_field_ready=true",
-                    probe_count,
-                    self.environment_probe_environment_revision,
-                    self.environment_probe_terrain_revision,
-                    convergence_ms
-                        .map(|value| format!("{value:.2}"))
-                        .unwrap_or_else(|| "initial".to_string()),
-                );
-                log::info!(
-                    "[ENV_LIGHTING] backend={} ready={} terrain_revision={}",
-                    self.environment_lighting_backend.label(),
-                    self.environment_lighting_backend_ready(),
-                    self.environment_probe_converged_terrain_revision,
                 );
             }
         }
@@ -3647,7 +3087,7 @@ impl Tracer {
 
         let environment_probe_instance_count = self
             .environment_probe_visualization
-            .submitted_instance_count(self.environment_probes.status().grid.probe_count());
+            .submitted_instance_count(self.ddgi_volume.status().grid.probe_count());
         if environment_probe_instance_count > 0 {
             let probe_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
@@ -4057,49 +3497,28 @@ impl Tracer {
         );
     }
 
-    fn record_environment_probe_global_copy_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines
-            .environment_probe_global_copy_ppl
-            .record(
-                cmdbuf,
-                Extent3D::new(self.environment_probes.status().grid.probe_count(), 1, 1),
-                None,
-            );
-    }
-
     fn record_ddgi_global_sky_filter_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines
-            .ddgi_global_sky_filter_ppl
-            .as_ref()
-            .expect("DDGI sky filter pipeline requires the DDGI backend")
-            .record(
-                cmdbuf,
-                Extent3D::new(
-                    DDGI_IRRADIANCE_INTERIOR_SIDE,
-                    DDGI_IRRADIANCE_INTERIOR_SIDE,
-                    1,
-                ),
-                None,
-            );
+        self.compute_pipelines.ddgi_global_sky_filter_ppl.record(
+            cmdbuf,
+            Extent3D::new(
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                1,
+            ),
+            None,
+        );
     }
 
     fn record_ddgi_global_sky_gutter_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines
-            .ddgi_octahedral_gutter_ppl
-            .as_ref()
-            .expect("DDGI gutter pipeline requires the DDGI backend")
-            .record(
-                cmdbuf,
-                Extent3D::new(DDGI_IRRADIANCE_STORED_SIDE, DDGI_IRRADIANCE_STORED_SIDE, 1),
-                None,
-            );
+        self.compute_pipelines.ddgi_octahedral_gutter_ppl.record(
+            cmdbuf,
+            Extent3D::new(DDGI_IRRADIANCE_STORED_SIDE, DDGI_IRRADIANCE_STORED_SIDE, 1),
+            None,
+        );
     }
 
     fn record_ddgi_probe_relocation_pass(&self, cmdbuf: &CommandBuffer, terrain_revision: u32) {
-        let volume = self
-            .ddgi_volume
-            .as_ref()
-            .expect("DDGI relocation requires an allocated volume");
+        let volume = &self.ddgi_volume;
         let grid = volume.status().grid;
         let push_constants = DdgiProbeRelocationPushConstants {
             grid_dimensions: grid.dimensions().to_array(),
@@ -4107,15 +3526,11 @@ impl Tracer {
             voxels_per_world_unit: self.desc.voxel_dim_per_chunk.as_vec3().to_array(),
             terrain_revision,
         };
-        self.compute_pipelines
-            .ddgi_probe_relocate_ppl
-            .as_ref()
-            .expect("DDGI relocation pipeline requires the DDGI backend")
-            .record(
-                cmdbuf,
-                Extent3D::new(grid.probe_count() * DDGI_RELOCATION_WORKGROUP_SIZE, 1, 1),
-                Some(bytemuck::bytes_of(&push_constants)),
-            );
+        self.compute_pipelines.ddgi_probe_relocate_ppl.record(
+            cmdbuf,
+            Extent3D::new(grid.probe_count() * DDGI_RELOCATION_WORKGROUP_SIZE, 1, 1),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
     }
 
     fn record_ddgi_probe_trace_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
@@ -4128,48 +3543,34 @@ impl Tracer {
             far_distance_world,
             _padding_float: [0.0; 3],
         };
-        self.compute_pipelines
-            .ddgi_probe_trace_ppl
-            .as_ref()
-            .expect("DDGI trace pipeline requires the DDGI backend")
-            .record(
-                cmdbuf,
-                Extent3D::new(batch.probe_count * DDGI_TRACE_WORKGROUP_SIZE, 1, 1),
-                Some(bytemuck::bytes_of(&push_constants)),
-            );
+        self.compute_pipelines.ddgi_probe_trace_ppl.record(
+            cmdbuf,
+            Extent3D::new(batch.probe_count * DDGI_TRACE_WORKGROUP_SIZE, 1, 1),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
     }
 
     fn record_ddgi_irradiance_filter_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = self
-            .ddgi_volume
-            .as_ref()
-            .expect("DDGI irradiance filtering requires an allocated volume");
+        let volume = &self.ddgi_volume;
         let push_constants = DdgiAtlasFilterPushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
             tile_columns: volume.status().irradiance_layout.tile_grid().x,
             terrain_revision: batch.terrain_revision,
         };
-        self.compute_pipelines
-            .ddgi_irradiance_filter_ppl
-            .as_ref()
-            .expect("DDGI irradiance filter pipeline requires the DDGI backend")
-            .record(
-                cmdbuf,
-                Extent3D::new(
-                    batch.probe_count * DDGI_IRRADIANCE_INTERIOR_SIDE,
-                    DDGI_IRRADIANCE_INTERIOR_SIDE,
-                    1,
-                ),
-                Some(bytemuck::bytes_of(&push_constants)),
-            );
+        self.compute_pipelines.ddgi_irradiance_filter_ppl.record(
+            cmdbuf,
+            Extent3D::new(
+                batch.probe_count * DDGI_IRRADIANCE_INTERIOR_SIDE,
+                DDGI_IRRADIANCE_INTERIOR_SIDE,
+                1,
+            ),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
     }
 
     fn record_ddgi_visibility_filter_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = self
-            .ddgi_volume
-            .as_ref()
-            .expect("DDGI visibility filtering requires an allocated volume");
+        let volume = &self.ddgi_volume;
         let grid = volume.status().grid;
         let spacing_world =
             Vec3::splat(grid.spacing_voxels() as f32) / self.desc.voxel_dim_per_chunk.as_vec3();
@@ -4182,107 +3583,39 @@ impl Tracer {
             spacing_world: spacing_world.to_array(),
             far_distance_world,
         };
-        self.compute_pipelines
-            .ddgi_visibility_filter_ppl
-            .as_ref()
-            .expect("DDGI visibility filter pipeline requires the DDGI backend")
-            .record(
-                cmdbuf,
-                Extent3D::new(
-                    batch.probe_count * DDGI_VISIBILITY_INTERIOR_SIDE,
-                    DDGI_VISIBILITY_INTERIOR_SIDE,
-                    1,
-                ),
-                Some(bytemuck::bytes_of(&push_constants)),
-            );
+        self.compute_pipelines.ddgi_visibility_filter_ppl.record(
+            cmdbuf,
+            Extent3D::new(
+                batch.probe_count * DDGI_VISIBILITY_INTERIOR_SIDE,
+                DDGI_VISIBILITY_INTERIOR_SIDE,
+                1,
+            ),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
     }
 
     fn record_ddgi_atlas_gutter_passes(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = self
-            .ddgi_volume
-            .as_ref()
-            .expect("DDGI gutter filtering requires an allocated volume");
+        let volume = &self.ddgi_volume;
         let irradiance_push = DdgiAtlasGutterPushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
             tile_columns: volume.status().irradiance_layout.tile_grid().x,
             _padding: 0,
         };
-        self.compute_pipelines
-            .ddgi_irradiance_gutter_ppl
-            .as_ref()
-            .expect("DDGI irradiance gutter pipeline requires the DDGI backend")
-            .record(
-                cmdbuf,
-                Extent3D::new(batch.probe_count * DDGI_GUTTER_WORKGROUP_SIZE, 1, 1),
-                Some(bytemuck::bytes_of(&irradiance_push)),
-            );
+        self.compute_pipelines.ddgi_irradiance_gutter_ppl.record(
+            cmdbuf,
+            Extent3D::new(batch.probe_count * DDGI_GUTTER_WORKGROUP_SIZE, 1, 1),
+            Some(bytemuck::bytes_of(&irradiance_push)),
+        );
 
         let visibility_push = DdgiAtlasGutterPushConstants {
             tile_columns: volume.status().visibility_layout.tile_grid().x,
             ..irradiance_push
         };
-        self.compute_pipelines
-            .ddgi_visibility_gutter_ppl
-            .as_ref()
-            .expect("DDGI visibility gutter pipeline requires the DDGI backend")
-            .record(
-                cmdbuf,
-                Extent3D::new(batch.probe_count * DDGI_GUTTER_WORKGROUP_SIZE, 1, 1),
-                Some(bytemuck::bytes_of(&visibility_push)),
-            );
-    }
-
-    fn record_environment_probe_classification_pass(&self, cmdbuf: &CommandBuffer) {
-        let push_constants = EnvironmentProbeClassificationPushConstants {
-            terrain_revision: self.environment_probe_terrain_revision,
-            _padding: [0; 3],
-        };
-        self.compute_pipelines
-            .environment_probe_classify_ppl
-            .record(
-                cmdbuf,
-                Extent3D::new(self.environment_probes.status().grid.probe_count(), 1, 1),
-                Some(bytemuck::bytes_of(&push_constants)),
-            );
-    }
-
-    fn record_environment_probe_update_pass(
-        &self,
-        cmdbuf: &CommandBuffer,
-        first_probe_index: u32,
-        probe_count: u32,
-        trace_visibility: bool,
-        priority_region: Option<EnvironmentProbeTraceRegion>,
-    ) {
-        let (priority_grid_min, priority_side) = priority_region
-            .map(|region| (region.grid_min.to_array(), region.side))
-            .unwrap_or(([0; 3], 0));
-        let push_constants = EnvironmentProbeUpdatePushConstants {
-            first_probe_index,
-            probe_count,
-            environment_revision: self.environment_probe_environment_revision,
-            trace_visibility: u32::from(trace_visibility),
-            priority_grid_min,
-            priority_side,
-        };
-        self.compute_pipelines.environment_probe_update_ppl.record(
+        self.compute_pipelines.ddgi_visibility_gutter_ppl.record(
             cmdbuf,
-            Extent3D::new(probe_count, 1, 1),
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
-    }
-
-    fn record_environment_probe_stats_pass(&self, cmdbuf: &CommandBuffer) {
-        let probe_count = self.environment_probes.status().grid.probe_count();
-        let push_constants = EnvironmentProbeStatsPushConstants {
-            probe_count,
-            _padding: [0; 3],
-        };
-        self.compute_pipelines.environment_probe_stats_ppl.record(
-            cmdbuf,
-            Extent3D::new(probe_count, 1, 1),
-            Some(bytemuck::bytes_of(&push_constants)),
+            Extent3D::new(batch.probe_count * DDGI_GUTTER_WORKGROUP_SIZE, 1, 1),
+            Some(bytemuck::bytes_of(&visibility_push)),
         );
     }
 

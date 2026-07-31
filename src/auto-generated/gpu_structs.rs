@@ -86,31 +86,6 @@ pub struct EditStats {
     pub added_counts: [u32; 8],
 }
 
-/// Auto-generated from `B_EnvironmentProbeCoefficients` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct EnvironmentProbeCoefficients {
-    pub coefficients: [u32; 36],
-}
-
-/// Auto-generated from `B_EnvironmentProbeSummaries` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct EnvironmentProbeSummaries {
-    pub original_position_visibility: [f32; 4],
-    pub sample_position_confidence: [f32; 4],
-    pub revisions_state: [u32; 4],
-    pub update_info: [u32; 4],
-}
-
-/// Auto-generated from `B_EnvironmentProbeVisibility` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct EnvironmentProbeVisibility {
-    pub packed_hit_distances: [u32; 32],
-    pub packed_distance_moments: [u32; 64],
-}
-
 /// Auto-generated from `B_FloraVoxelInfos` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -715,31 +690,20 @@ pub struct SceneTexUpdateInfo {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ShadingInfo {
-    pub environment_irradiance_sh_0: [f32; 4],
-    pub environment_irradiance_sh_1: [f32; 4],
-    pub environment_irradiance_sh_2: [f32; 4],
-    pub environment_irradiance_sh_3: [f32; 4],
-    pub environment_irradiance_sh_4: [f32; 4],
-    pub environment_irradiance_sh_5: [f32; 4],
-    pub environment_irradiance_sh_6: [f32; 4],
-    pub environment_irradiance_sh_7: [f32; 4],
-    pub environment_irradiance_sh_8: [f32; 4],
     pub environment_revision: u32,
     pub _pad0: [u8; 12],
     pub environment_probe_grid_dimensions: [u32; 3],
     pub _pad1: [u8; 4],
     pub environment_probe_world_to_grid_scale: [f32; 3],
-    pub environment_probe_uniform_field: u32,
     pub environment_probe_visibility_bias_world: f32,
-    pub environment_lighting_backend: u32,
-    pub environment_lighting_backend_ready: u32,
+    pub ddgi_ready: u32,
     pub environment_irradiance_capture_enabled: u32,
     pub ddgi_irradiance_tile_columns: u32,
     pub ddgi_visibility_tile_columns: u32,
     pub ddgi_debug_view: u32,
-    pub _pad2: [u8; 4],
-    pub ddgi_padding: [u32; 2],
-    pub _pad3: [u8; 8],
+    pub _pad2: [u8; 12],
+    pub ddgi_padding: [u32; 3],
+    pub _pad3: [u8; 4],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

@@ -9,11 +9,13 @@ mod octahedral;
 mod resources;
 
 pub use atlas::{
-    DdgiAtlasLayout, DdgiVolumeGrid, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
-    DDGI_IRRADIANCE_STORED_SIDE, DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE,
-    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiVolumeGrid,
+    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
+    DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE, DDGI_RELOCATION_WORKGROUP_SIZE,
+    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE, DEFAULT_DDGI_SPACING_VOXELS,
+    SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
-pub use resources::{DdgiRayBatch, DdgiVolume};
+pub use resources::{DdgiRayBatch, DdgiResourceBytes, DdgiVolume, DdgiVolumeStatus};
 
 /// Permanent DDGI diagnostics. Exact modes are intentionally opt-in because they trace up to
 /// eight additional terrain segments for every shaded terrain pixel.

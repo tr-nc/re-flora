@@ -13,6 +13,26 @@ pub const DDGI_TRACE_WORKGROUP_SIZE: u32 = 64;
 pub const DDGI_GUTTER_WORKGROUP_SIZE: u32 = 64;
 
 pub const SUPPORTED_DDGI_SPACINGS_VOXELS: [u32; 4] = [64, 32, 16, 8];
+pub const DEFAULT_DDGI_SPACING_VOXELS: u32 = 32;
+
+pub fn validate_ddgi_spacing(spacing_voxels: u32) -> Result<u32, String> {
+    if SUPPORTED_DDGI_SPACINGS_VOXELS.contains(&spacing_voxels) {
+        Ok(spacing_voxels)
+    } else {
+        Err(format!(
+            "Unsupported DDGI spacing {spacing_voxels}. Supported values: {}",
+            supported_ddgi_spacings_label()
+        ))
+    }
+}
+
+pub fn supported_ddgi_spacings_label() -> String {
+    SUPPORTED_DDGI_SPACINGS_VOXELS
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiVolumeGrid {

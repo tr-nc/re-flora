@@ -1,10 +1,8 @@
 use re_flora_vkn::PresentMode;
 
-use crate::ddgi::DdgiDebugView;
-use crate::environment_lighting::EnvironmentLightingBackend;
-use crate::environment_probes::{
-    supported_environment_probe_spacings_label, validate_environment_probe_spacing,
-    DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS,
+use crate::ddgi::{
+    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiDebugView,
+    DEFAULT_DDGI_SPACING_VOXELS,
 };
 
 pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
@@ -178,8 +176,6 @@ pub struct AppOptions {
     pub water_edit_soak: bool,
     /// Build one deterministic static terrain case for environment-lighting validation.
     pub environment_lighting_test_scene: Option<EnvironmentLightingTestCase>,
-    /// Select the temporary environment-lighting backend during DDGI migration.
-    pub environment_lighting_backend: EnvironmentLightingBackend,
     /// Save one pre-albedo linear environment-irradiance capture when the backend is ready.
     pub environment_irradiance_capture_path: Option<String>,
     /// Select a permanent DDGI diagnostic view; exact modes are correctness-only and expensive.
@@ -294,25 +290,14 @@ impl AppOptions {
                 let parsed = value.parse::<u32>().map_err(|_| {
                     format!(
                         "Invalid --environment-probe-spacing-voxels '{value}'. Supported values: {}",
-                        supported_environment_probe_spacings_label()
+                        supported_ddgi_spacings_label()
                     )
                 })?;
-                validate_environment_probe_spacing(parsed)?
+                validate_ddgi_spacing(parsed)?
             }
-            None => DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS,
+            None => DEFAULT_DDGI_SPACING_VOXELS,
         };
         let environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
-        let environment_lighting_backend = match parse_required_string_after(
-            "--environment-lighting-backend",
-            "one of: local-sh, ddgi",
-        )? {
-            Some(value) => EnvironmentLightingBackend::from_cli_value(&value).ok_or_else(|| {
-                format!(
-                    "Invalid --environment-lighting-backend '{value}'. Expected one of: local-sh, ddgi."
-                )
-            })?,
-            None => EnvironmentLightingBackend::LocalSh,
-        };
         let environment_irradiance_capture_path = parse_required_string_after(
             "--environment-irradiance-capture",
             "an output .rfirr path",
@@ -328,14 +313,6 @@ impl AppOptions {
             })?,
             None => DdgiDebugView::Final,
         };
-        if ddgi_debug_view != DdgiDebugView::Final
-            && environment_lighting_backend != EnvironmentLightingBackend::Ddgi
-        {
-            return Err(
-                "--ddgi-debug-view requires --environment-lighting-backend ddgi.".to_owned(),
-            );
-        }
-
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
         if screenshot.is_some() && denoiser_bench.is_some() {
@@ -412,7 +389,6 @@ impl AppOptions {
             water_j_min: parse_f32_after("--water-j-min").map(|v| v.clamp(1.0e-4, 1.0)),
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
             environment_lighting_test_scene,
-            environment_lighting_backend,
             environment_irradiance_capture_path,
             ddgi_debug_view,
             hybrid_transparency_test_scene: args
@@ -689,8 +665,6 @@ Options:
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --environment-lighting-test-scene [case]
                               Build a static lighting case: sealed (default), portal, or walls
-  --environment-lighting-backend <backend>
-                              Select local-sh (default) or ddgi during migration
   --environment-irradiance-capture <path>
                               Save pre-albedo linear RGB irradiance plus terrain-hit mask
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
@@ -730,7 +704,7 @@ Examples:
   re-flora --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
-  re-flora --hidden --mute --environment-lighting-test-scene sealed --environment-lighting-backend local-sh --environment-irradiance-capture target/sealed.rfirr --auto-exit 8
+  re-flora --hidden --mute --environment-lighting-test-scene sealed --environment-irradiance-capture target/sealed.rfirr --auto-exit 8
   re-flora --hidden --mute --windowed --hybrid-transparency-test-scene --screenshot player-default target/hybrid-transparency-test.png --screenshot-delay 2 --auto-exit 6
   re-flora --latest-log
   re-flora --tail-latest-log 120
@@ -794,15 +768,11 @@ mod tests {
         assert!(options.camera_snapshot.is_none());
         assert!(!options.list_camera_snapshots);
         assert!(options.environment_lighting_test_scene.is_none());
-        assert_eq!(
-            options.environment_lighting_backend,
-            EnvironmentLightingBackend::LocalSh
-        );
         assert!(options.environment_irradiance_capture_path.is_none());
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
         assert_eq!(
             options.environment_probe_spacing_voxels,
-            DEFAULT_ENVIRONMENT_PROBE_SPACING_VOXELS
+            DEFAULT_DDGI_SPACING_VOXELS
         );
         assert!(!options.environment_probe_visualization);
         assert_eq!(options.tree_bench_samples, 10);
@@ -859,28 +829,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_environment_lighting_backend() {
-        let options = parse(&["re-flora", "--environment-lighting-backend", "ddgi"]);
-
-        assert_eq!(
-            options.environment_lighting_backend,
-            EnvironmentLightingBackend::Ddgi
-        );
-    }
-
-    #[test]
-    fn rejects_unknown_environment_lighting_backend() {
-        let result = AppOptions::try_from_arg_strings(
-            ["re-flora", "--environment-lighting-backend", "ambient"]
-                .iter()
-                .map(|arg| (*arg).to_owned())
-                .collect(),
-        );
-
-        assert!(result.unwrap_err().contains("local-sh, ddgi"));
-    }
-
-    #[test]
     fn parses_environment_irradiance_capture_path() {
         let options = parse(&[
             "re-flora",
@@ -895,23 +843,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_ddgi_debug_view_and_requires_ddgi_backend() {
-        let options = parse(&[
-            "re-flora",
-            "--environment-lighting-backend",
-            "ddgi",
-            "--ddgi-debug-view",
-            "exact-visibility",
-        ]);
+    fn parses_ddgi_debug_view() {
+        let options = parse(&["re-flora", "--ddgi-debug-view", "exact-visibility"]);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::ExactVisibility);
-
-        let result = AppOptions::try_from_arg_strings(
-            ["re-flora", "--ddgi-debug-view", "weight-sum"]
-                .iter()
-                .map(|arg| (*arg).to_owned())
-                .collect(),
-        );
-        assert!(result.unwrap_err().contains("requires"));
     }
 
     #[test]
