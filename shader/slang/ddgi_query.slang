@@ -205,8 +205,10 @@ public DdgiProbeContribution getDdgiProbeContribution(
     surfaceSideWeight *= surfaceSideWeight;
     if (surfaceSideWeight <= DDGI_QUERY_WEIGHT_EPSILON) return contribution;
 
-    float biasWorld = 0.25 /
-        max(max(gridScale.x, gridScale.y), gridScale.z);
+    // Keep this in voxel units. The previous 0.25 / gridScale expression was
+    // 0.25 probe spacing (8 voxels at the default spacing), which crossed
+    // thin walls.
+    float biasWorld = lighting.environment_probe_visibility_bias_world * 0.125;
     float3 biasedWorldPosition = worldPosition + normal * biasWorld;
     float3 probeToBiasedSurface = biasedWorldPosition - actualPosition;
     float distanceToSurface = length(probeToBiasedSurface);

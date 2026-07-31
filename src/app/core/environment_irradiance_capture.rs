@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 1);
+        assert_eq!(CAPTURE_VERSION, 2);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(8 + 7 * std::mem::size_of::<u32>(), 36);
     }

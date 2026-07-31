@@ -148,10 +148,13 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
         return {"compatible": False}
 
     luminance_errors: list[float] = []
+    luminance_overestimates: list[float] = []
     channel_errors: list[float] = []
     hit_mask_matches = True
-    for approx_pixel, exact_pixel in zip(
-        PIXEL.iter_unpack(approximate.payload), PIXEL.iter_unpack(exact.payload)
+    peak_error = (-1.0, 0, 0)
+    peak_overestimate = (0.0, 0, 0)
+    for index, (approx_pixel, exact_pixel) in enumerate(
+        zip(PIXEL.iter_unpack(approximate.payload), PIXEL.iter_unpack(exact.payload))
     ):
         ar, ag, ab, ah = approx_pixel
         er, eg, eb, eh = exact_pixel
@@ -159,11 +162,23 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
         if ah <= 0.5 or eh <= 0.5:
             continue
         rgb_error = (abs(ar - er), abs(ag - eg), abs(ab - eb))
-        luminance_errors.append(
+        luminance_error = (
             0.2126 * rgb_error[0] + 0.7152 * rgb_error[1] + 0.0722 * rgb_error[2]
         )
+        approximate_luminance = 0.2126 * ar + 0.7152 * ag + 0.0722 * ab
+        exact_luminance = 0.2126 * er + 0.7152 * eg + 0.0722 * eb
+        overestimate = max(0.0, approximate_luminance - exact_luminance)
+        x = index % approximate.width
+        y = index // approximate.width
+        if luminance_error > peak_error[0]:
+            peak_error = (luminance_error, x, y)
+        if overestimate > peak_overestimate[0]:
+            peak_overestimate = (overestimate, x, y)
+        luminance_errors.append(luminance_error)
+        luminance_overestimates.append(overestimate)
         channel_errors.append(max(rgb_error))
     luminance_errors.sort()
+    luminance_overestimates.sort()
     channel_errors.sort()
     return {
         "compatible": True,
@@ -174,6 +189,18 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
         ),
         "luminance_error_p99": percentile(luminance_errors, 0.99),
         "luminance_error_max": luminance_errors[-1] if luminance_errors else 0.0,
+        "luminance_error_peak_xy": [peak_error[1], peak_error[2]],
+        "luminance_overestimate_mean": (
+            sum(luminance_overestimates) / len(luminance_overestimates)
+            if luminance_overestimates else 0.0
+        ),
+        "luminance_overestimate_p99": percentile(luminance_overestimates, 0.99),
+        "luminance_overestimate_max": (
+            luminance_overestimates[-1] if luminance_overestimates else 0.0
+        ),
+        "luminance_overestimate_peak_xy": [
+            peak_overestimate[1], peak_overestimate[2]
+        ],
         "channel_error_p99": percentile(channel_errors, 0.99),
         "channel_error_max": channel_errors[-1] if channel_errors else 0.0,
     }
@@ -187,6 +214,7 @@ def main() -> int:
     parser.add_argument("--max-luminance", type=float)
     parser.add_argument("--min-luminance-p99", type=float)
     parser.add_argument("--max-reference-error-p99", type=float)
+    parser.add_argument("--max-reference-overestimate-p99", type=float)
     args = parser.parse_args()
 
     first = load_capture(args.capture)
@@ -206,6 +234,12 @@ def main() -> int:
             args.max_reference_error_p99 is not None
             and reference.get("luminance_error_p99", math.inf)
             > args.max_reference_error_p99
+        ):
+            exit_code = 1
+        if (
+            args.max_reference_overestimate_p99 is not None
+            and reference.get("luminance_overestimate_p99", math.inf)
+            > args.max_reference_overestimate_p99
         ):
             exit_code = 1
     if not report["capture"]["finite"] or report["capture"]["terrain_hit_count"] == 0:

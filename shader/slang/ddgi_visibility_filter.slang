@@ -24,7 +24,7 @@ struct DdgiVisibilityFilterPushConstants
     uint tile_columns;
     uint terrain_revision;
     float3 spacing_world;
-    float padding;
+    float far_distance_world;
 };
 
 [[vk::push_constant]]
@@ -81,14 +81,29 @@ void main(uint3 groupId : SV_GroupID,
             : signedDistance;
         // Rohacek's cage-support correction: a distant directional sample
         // cannot claim support beyond this probe's relocated nominal cage.
-        hitDistance = min(hitDistance, supportDistance);
+        // Preserve sky misses as unoccluded support; reject only distant
+        // geometry hits that would pull a local depth lobe outward.
+        if (hitDistance > supportDistance)
+        {
+            bool skyMiss = signedDistance >= pc.far_distance_world * 0.999;
+            if (!skyMiss) continue;
+            hitDistance = supportDistance;
+        }
         weightedDistance += hitDistance * cosineWeight;
         weightedSquaredDistance +=
             hitDistance * hitDistance * cosineWeight;
         accumulatedWeight += cosineWeight;
     }
 
-    float inverseWeight = rcp(max(accumulatedWeight, 1.0e-8));
-    ddgi_visibility_atlas[atlasCoordinate] =
-        float2(weightedDistance, weightedSquaredDistance) * inverseWeight;
+    if (accumulatedWeight <= 1.0e-8)
+    {
+        ddgi_visibility_atlas[atlasCoordinate] =
+            float2(supportDistance, supportDistance * supportDistance);
+    }
+    else
+    {
+        float inverseWeight = rcp(accumulatedWeight);
+        ddgi_visibility_atlas[atlasCoordinate] =
+            float2(weightedDistance, weightedSquaredDistance) * inverseWeight;
+    }
 }

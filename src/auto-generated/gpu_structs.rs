@@ -369,7 +369,7 @@ pub struct PushConstantVisibilityFilter {
     pub tile_columns: u32,
     pub terrain_revision: u32,
     pub spacing_world: [f32; 3],
-    pub padding: f32,
+    pub far_distance_world: f32,
 }
 
 /// Auto-generated from `PushConstantVisibilityGutter` (native Slang source of truth).

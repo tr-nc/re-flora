@@ -21,8 +21,12 @@ Implementation progress:
   records 256 deterministic full-precision radiance/signed-distance samples per valid probe. GPU
   readback counters verify the ray partition and reject non-finite records. The first batch remains
   owned by the scheduler until M3 filtering consumes it.
-- M3 is the active implementation milestone. The selected DDGI backend remains fail-closed until
-  the atlas filter, visibility-aware query, and exact-reference acceptance checks are complete.
+- M3 is complete: separate full-precision atlas filters and gutters, the visibility-aware terrain
+  query, exact segment reference, permanent ablation views, and the six-configuration acceptance
+  runner are in-tree. The selected DDGI backend remains fail-closed until the complete volume is
+  ready.
+- M4 is the active implementation milestone. Terrain already consumes the DDGI query; the raster
+  consumers still need the same query resources and shared shader seam.
 
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional
@@ -348,6 +352,27 @@ The runner reports at least:
 Numerical thresholds will be chosen from the full-precision exact reference and recorded with the
 first red/green evidence. They will not be guessed from tonemapped screenshots. Screenshots remain
 supplementary human evidence.
+
+The first M3 red/green calibration uses the absolute linear-irradiance error P99 against the exact
+eight-segment reference:
+
+| Case | Spacing | Pre-fix P99 | Accepted P99 | Threshold |
+| --- | ---: | ---: | ---: | ---: |
+| Thin/diagonal walls | 32 | `0.16427` | `0.13841` | `0.15` |
+| Thin/diagonal walls | 16 | `0.13483` | `0.13078` | `0.133` |
+
+The sealed cases require maximum irradiance and exact-reference error P99 no greater than
+`0.00001`. The portal cases require irradiance P99 of at least `0.10` and exact-reference error P99
+no greater than `0.01`. Every final capture is repeated and required to be bit-exact. The accepted
+run at `target/ddgi-correctness/20260731T215302Z-107772` passed all six configurations.
+
+The calibrated fix has two parts. First, the query bias is `0.25` voxel at both qualified probe
+spacings; the prior expression accidentally applied `0.25` of a probe spacing and could move the
+query four or eight voxels through a wall. Second, cage-support filtering distinguishes a true sky
+miss from a distant geometry hit: sky misses clamp to the cage support distance, while distant
+geometry samples are rejected so they cannot pull a local depth lobe through thin geometry. The
+debug-only exact oracle starts `0.25` voxel along the primary camera visibility direction to avoid
+self-intersection without coupling the reference to the shading normal or probe direction.
 
 ## Migration Milestones
 

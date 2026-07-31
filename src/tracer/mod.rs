@@ -171,7 +171,7 @@ struct DdgiVisibilityFilterPushConstants {
     tile_columns: u32,
     terrain_revision: u32,
     spacing_world: [f32; 3],
-    _padding: f32,
+    far_distance_world: f32,
 }
 
 #[repr(C)]
@@ -4104,13 +4104,14 @@ impl Tracer {
         let grid = volume.status().grid;
         let spacing_world =
             Vec3::splat(grid.spacing_voxels() as f32) / self.desc.voxel_dim_per_chunk.as_vec3();
+        let far_distance_world = self.chunk_bound.dimensions().as_vec3().length() * 2.0;
         let push_constants = DdgiVisibilityFilterPushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
             tile_columns: volume.status().visibility_layout.tile_grid().x,
             terrain_revision: batch.terrain_revision,
             spacing_world: spacing_world.to_array(),
-            _padding: 0.0,
+            far_distance_world,
         };
         self.compute_pipelines
             .ddgi_visibility_filter_ppl

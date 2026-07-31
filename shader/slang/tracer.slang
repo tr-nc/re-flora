@@ -143,25 +143,29 @@ float depthFromWorldPosition(float3 worldPosition)
 }
 
 float ddgiExactSegmentVisibility(float3 worldPosition,
+                                 float3 surfaceOutward,
                                  DdgiProbeContribution contribution,
                                  uint localInvocationIndex)
 {
-    float3 segment = contribution.actual_position - worldPosition;
+    // Move one quarter voxel along the primary visibility direction to avoid
+    // a self hit. Keep the exact oracle independent of the shading normal and
+    // of the surface-to-probe direction whose visibility it is measuring.
+    float3 rayOrigin = worldPosition + normalize(surfaceOutward) * (0.25 / 256.0);
+    float3 segment = contribution.actual_position - rayOrigin;
     float segmentLength = length(segment);
     if (segmentLength <= 1.0e-6) return 1.0;
     float3 direction = segment / segmentLength;
     MarchingResult obstruction = marchScene(
         contree_node_data, contree_leaf_data, scene_tex,
-        worldPosition, direction, 1.0 / direction, localInvocationIndex);
-    // scene_marching advances by its own geometric epsilon. A hit is relevant
-    // only when it lies strictly before the known-empty probe endpoint.
+        rayOrigin, direction, 1.0 / direction, localInvocationIndex);
     return (!obstruction.is_hit || obstruction.distance >= segmentLength - 1.0e-5)
         ? 1.0
         : 0.0;
 }
 
 DdgiQueryResult sampleDdgiExactTerrainReference(
-    float3 worldPosition, float3 surfaceNormal, uint localInvocationIndex)
+    float3 worldPosition, float3 surfaceNormal, float3 surfaceOutward,
+    uint localInvocationIndex)
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = normalize(surfaceNormal);
@@ -186,7 +190,8 @@ DdgiQueryResult sampleDdgiExactTerrainReference(
                         shading_info, worldPosition, normal, uint3(x, y, z));
                 float visibility = contribution.trustworthy
                     ? ddgiExactSegmentVisibility(
-                          worldPosition, contribution, localInvocationIndex)
+                          worldPosition, surfaceOutward, contribution,
+                          localInvocationIndex)
                     : 0.0;
                 accumulateDdgiContribution(result, contribution, visibility);
             }
@@ -198,6 +203,7 @@ DdgiQueryResult sampleDdgiExactTerrainReference(
 
 float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
                              float3 surfaceNormal,
+                             float3 surfaceOutward,
                              DdgiQueryResult momentResult,
                              uint localInvocationIndex)
 {
@@ -217,7 +223,7 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
         return ddgiRelocationDebugColor(shading_info, worldPosition);
 
     DdgiQueryResult exactResult = sampleDdgiExactTerrainReference(
-        worldPosition, surfaceNormal, localInvocationIndex);
+        worldPosition, surfaceNormal, surfaceOutward, localInvocationIndex);
     if (view == DDGI_DEBUG_EXACT_VISIBILITY)
         return float3(exactResult.mean_visibility);
     if (view == DDGI_DEBUG_VISIBILITY_ERROR)
@@ -270,7 +276,7 @@ void getPixelColor(out float3 color, out float depth,
         DdgiQueryResult ddgiResult = sampleDdgiDiffuseEnvironment(
             shading_info, result.position, result.normal);
         environmentIrradiance = ddgiTerrainDebugValue(
-            screenUv, result.position, result.normal, ddgiResult,
+            screenUv, result.position, result.normal, -ray.direction, ddgiResult,
             localInvocationIndex);
     }
     else

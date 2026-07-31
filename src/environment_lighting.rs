@@ -409,4 +409,17 @@ mod tests {
             assert!(consumer.contains("import flora_vertex;"));
         }
     }
+
+    #[test]
+    fn ddgi_visibility_policy_keeps_bias_in_voxel_units_and_rejects_distant_hits() {
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let filter = include_str!("../shader/slang/ddgi_visibility_filter.slang");
+
+        assert!(query.contains("lighting.environment_probe_visibility_bias_world * 0.125"));
+        assert!(!query.contains("0.25 / max(gridScale"));
+        assert!(filter.contains("hitDistance > supportDistance"));
+        assert!(filter.contains("signedDistance >= pc.far_distance_world * 0.999"));
+        assert!(filter.contains("if (!skyMiss) continue;"));
+        assert!(filter.contains("hitDistance = supportDistance;"));
+    }
 }
