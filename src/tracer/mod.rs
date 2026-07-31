@@ -60,6 +60,7 @@ use crate::builder::{
     ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
+use crate::ddgi::DdgiVolume;
 use crate::environment_lighting::{EnvironmentLightingBackend, EnvironmentLightingCache};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
@@ -522,6 +523,7 @@ pub struct Tracer {
     environment_lighting: EnvironmentLightingCache,
     environment_lighting_backend: EnvironmentLightingBackend,
     environment_probes: EnvironmentProbeVolume,
+    ddgi_volume: Option<DdgiVolume>,
     environment_probe_environment_revision: u32,
     environment_probe_seeded_revision: u32,
     environment_probe_classification_pending: bool,
@@ -682,6 +684,16 @@ impl Tracer {
             desc.voxel_dim_per_chunk,
             desc.environment_probe_spacing_voxels,
         )?;
+        let ddgi_volume = (desc.environment_lighting_backend == EnvironmentLightingBackend::Ddgi)
+            .then(|| {
+                DdgiVolume::new(
+                    &vulkan_ctx,
+                    allocator.clone(),
+                    chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
+                    desc.environment_probe_spacing_voxels,
+                )
+            })
+            .transpose()?;
         let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
             vulkan_ctx.device().clone(),
             allocator.clone(),
@@ -795,6 +807,7 @@ impl Tracer {
             environment_lighting: EnvironmentLightingCache::default(),
             environment_lighting_backend: desc.environment_lighting_backend,
             environment_probes,
+            ddgi_volume,
             environment_probe_environment_revision: 0,
             environment_probe_seeded_revision: 0,
             environment_probe_classification_pending: true,
@@ -841,6 +854,14 @@ impl Tracer {
         )?;
         self.vulkan_ctx.device().wait_idle();
         self.environment_probes = replacement;
+        if self.environment_lighting_backend == EnvironmentLightingBackend::Ddgi {
+            self.ddgi_volume = Some(DdgiVolume::new(
+                &self.vulkan_ctx,
+                self.allocator.clone(),
+                self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
+                spacing_voxels,
+            )?);
+        }
         self.environment_probe_seeded_revision = 0;
         self.environment_probe_classification_pending = true;
         self.environment_probe_placement_initialized = false;
@@ -917,7 +938,10 @@ impl Tracer {
     pub fn environment_lighting_backend_ready(&self) -> bool {
         match self.environment_lighting_backend {
             EnvironmentLightingBackend::LocalSh => self.environment_probe_local_field_ready,
-            EnvironmentLightingBackend::Ddgi => false,
+            EnvironmentLightingBackend::Ddgi => self
+                .ddgi_volume
+                .as_ref()
+                .is_some_and(|volume| volume.status().is_ready()),
         }
     }
 

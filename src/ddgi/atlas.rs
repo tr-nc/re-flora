@@ -49,10 +49,12 @@ impl DdgiVolumeGrid {
         })
     }
 
+    #[allow(dead_code)]
     pub fn world_extent_voxels(self) -> UVec3 {
         self.world_extent_voxels
     }
 
+    #[allow(dead_code)]
     pub fn spacing_voxels(self) -> u32 {
         self.spacing_voxels
     }
@@ -65,12 +67,14 @@ impl DdgiVolumeGrid {
         self.probe_count
     }
 
+    #[allow(dead_code)]
     pub fn flatten(self, coordinate: UVec3) -> Option<u32> {
         coordinate.cmplt(self.dimensions).all().then(|| {
             coordinate.x + self.dimensions.x * (coordinate.y + self.dimensions.y * coordinate.z)
         })
     }
 
+    #[allow(dead_code)]
     pub fn unflatten(self, index: u32) -> Option<UVec3> {
         if index >= self.probe_count {
             return None;
@@ -86,6 +90,7 @@ impl DdgiVolumeGrid {
         ))
     }
 
+    #[allow(dead_code)]
     pub fn nominal_voxel_position(self, index: u32) -> Option<Vec3> {
         self.unflatten(index)
             .map(|coordinate| coordinate.as_vec3() * self.spacing_voxels as f32)
@@ -128,14 +133,17 @@ impl DdgiAtlasLayout {
         })
     }
 
+    #[allow(dead_code)]
     pub fn probe_count(self) -> u32 {
         self.probe_count
     }
 
+    #[allow(dead_code)]
     pub fn interior_side(self) -> u32 {
         self.interior_side
     }
 
+    #[allow(dead_code)]
     pub fn stored_side(self) -> u32 {
         self.stored_side
     }
@@ -157,11 +165,13 @@ impl DdgiAtlasLayout {
         })
     }
 
+    #[allow(dead_code)]
     pub fn interior_origin(self, probe_index: u32) -> Option<UVec2> {
         self.tile_origin(probe_index)
             .map(|origin| origin + UVec2::splat(DDGI_TILE_GUTTER))
     }
 
+    #[allow(dead_code)]
     pub fn stored_texel(self, probe_index: u32, coordinate: UVec2) -> Option<UVec2> {
         if coordinate.cmplt(UVec2::splat(self.stored_side)).all() {
             self.tile_origin(probe_index)

@@ -4,11 +4,12 @@
 //! depending on the physical GPU texture layout.
 
 mod atlas;
+#[cfg_attr(not(test), allow(dead_code))]
 mod octahedral;
+mod resources;
 
 pub use atlas::{
     DdgiAtlasLayout, DdgiVolumeGrid, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
     DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE, DDGI_VISIBILITY_INTERIOR_SIDE,
-    DDGI_VISIBILITY_STORED_SIDE,
 };
-pub use octahedral::{oct_decode, oct_encode, octahedral_gutter_source};
+pub use resources::DdgiVolume;
