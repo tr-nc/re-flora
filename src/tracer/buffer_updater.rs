@@ -50,6 +50,7 @@ impl BufferUpdater {
         voxels_per_world_unit: glam::UVec3,
         ddgi_ready: bool,
         environment_irradiance_capture_enabled: bool,
+        environment_irradiance_capture_unpublished: bool,
         ddgi_irradiance_tile_columns: u32,
         ddgi_visibility_tile_columns: u32,
         ddgi_debug_view: u32,
@@ -76,6 +77,9 @@ impl BufferUpdater {
             ddgi_ready: u32::from(ddgi_ready),
             environment_irradiance_capture_enabled: u32::from(
                 environment_irradiance_capture_enabled,
+            ),
+            environment_irradiance_capture_unpublished: u32::from(
+                environment_irradiance_capture_unpublished,
             ),
             ddgi_irradiance_tile_columns,
             ddgi_visibility_tile_columns,

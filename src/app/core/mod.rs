@@ -1061,6 +1061,9 @@ impl App {
                 environment_irradiance_capture_enabled: options
                     .environment_irradiance_capture_path
                     .is_some(),
+                environment_irradiance_capture_target: options
+                    .environment_irradiance_capture_target,
+                ddgi_batch_order: options.ddgi_batch_order,
                 ddgi_debug_view: options.ddgi_debug_view,
             },
             spatial_sound_manager.clone(),
@@ -4015,6 +4018,12 @@ impl App {
                             .is_none_or(
                             environment_lighting_test_scene::EnvironmentLightingTestScene::is_capture_ready,
                         );
+                        let target_scene_ready = self
+                            .tracer
+                            .ddgi_capture_target()
+                            .iteration()
+                            .is_some_and(|iteration| iteration == 0)
+                            || test_scene_ready;
                         let inflight_target_revision = self
                             .environment_lighting_test_scene
                             .as_ref()
@@ -4037,7 +4046,9 @@ impl App {
                                         .is_some_and(|stage| stage != DdgiVolumeStage::Ready)
                                     && runtime.full_domain_invalidation_fail_closed
                             });
-                        if test_scene_ready && inflight_checkpoint_ready && self.tracer.ddgi_ready()
+                        if target_scene_ready
+                            && inflight_checkpoint_ready
+                            && self.tracer.ddgi_capture_checkpoint().is_some()
                         {
                             if let Some(target_revision) = inflight_target_revision {
                                 let runtime = self.tracer.ddgi_runtime_status();

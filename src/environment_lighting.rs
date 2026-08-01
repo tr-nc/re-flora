@@ -250,7 +250,10 @@ mod tests {
         assert!(!shared.contains("SH"));
         assert!(!shared.contains("environment_probe_coefficients"));
         assert!(!shared.contains("environment_lighting_backend"));
-        assert!(terrain.contains("environmentIrradiance = sampleDiffuseEnvironment("));
+        assert!(terrain.contains("consumerResult = sampleDdgiDiffuseEnvironment("));
+        assert!(terrain.contains("environmentIrradiance = consumerResult.irradiance"));
+        assert!(terrain.contains("environmentCaptureIrradiance = captureResult.irradiance"));
+        assert!(terrain.contains("color = environmentIrradiance * albedo"));
         assert!(raster.contains("sampleDiffuseEnvironment("));
         assert!(raster.contains("shading, voxelCenter, shadingNormal"));
         for consumer in [
