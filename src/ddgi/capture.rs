@@ -1,4 +1,6 @@
-use super::{DdgiAtlasValidationStats, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldStage};
+use super::{
+    DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldStage,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiCaptureTarget {
@@ -63,6 +65,7 @@ pub struct DdgiCaptureCheckpoint {
     pub field: DdgiFieldIdentity,
     pub validation: DdgiAtlasValidationStats,
     pub publication: DdgiCapturePublication,
+    pub batch_order: DdgiBatchOrder,
 }
 
 #[cfg(test)]

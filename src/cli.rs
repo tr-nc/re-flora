@@ -1,8 +1,8 @@
 use re_flora_vkn::PresentMode;
 
 use crate::ddgi::{
-    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiCaptureTarget, DdgiDebugView,
-    DEFAULT_DDGI_SPACING_VOXELS,
+    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiBatchOrder, DdgiCaptureTarget,
+    DdgiDebugView, DEFAULT_DDGI_SPACING_VOXELS,
 };
 
 pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
@@ -198,6 +198,8 @@ pub struct AppOptions {
     pub environment_irradiance_capture_path: Option<String>,
     /// Select the complete DDGI field recorded by the one-shot irradiance capture.
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
+    /// Select deterministic forward or reverse DDGI probe-batch traversal.
+    pub ddgi_batch_order: DdgiBatchOrder,
     /// Select a permanent DDGI diagnostic view; exact modes are correctness-only and expensive.
     pub ddgi_debug_view: DdgiDebugView,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
@@ -360,6 +362,15 @@ impl AppOptions {
                 })?,
                 None => DdgiCaptureTarget::default(),
             };
+        let ddgi_batch_order =
+            match parse_required_string_after("--ddgi-batch-order", "one of: forward, reverse")? {
+                Some(value) => DdgiBatchOrder::from_cli_value(&value).ok_or_else(|| {
+                    format!(
+                        "Invalid --ddgi-batch-order '{value}'. Expected one of: forward, reverse."
+                    )
+                })?,
+                None => DdgiBatchOrder::Forward,
+            };
         let ddgi_debug_view = match parse_required_string_after(
             "--ddgi-debug-view",
             "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
@@ -457,6 +468,7 @@ impl AppOptions {
             environment_lighting_test_scene,
             environment_irradiance_capture_path,
             environment_irradiance_capture_target,
+            ddgi_batch_order,
             ddgi_debug_view,
             hybrid_transparency_test_scene: args
                 .iter()
@@ -740,6 +752,7 @@ Options:
                               Save DDGI metadata, pre-albedo irradiance/hit mask, world hit, and exact sun visibility
   --environment-irradiance-capture-target <target>
                               Capture s0, s1, a specified sN, converged, or non-converged (default: s1)
+  --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
                               or atlas DDGI diagnostics (default: final)
   --hybrid-transparency-test-scene
@@ -848,6 +861,7 @@ mod tests {
             options.environment_irradiance_capture_target,
             DdgiCaptureTarget::Iteration(1)
         );
+        assert_eq!(options.ddgi_batch_order, DdgiBatchOrder::Forward);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
         assert_eq!(
             options.environment_probe_spacing_voxels,
@@ -957,6 +971,22 @@ mod tests {
             options.environment_irradiance_capture_target,
             DdgiCaptureTarget::Iteration(4)
         );
+    }
+
+    #[test]
+    fn parses_ddgi_batch_order() {
+        let options = parse(&["re-flora", "--ddgi-batch-order", "reverse"]);
+        assert_eq!(options.ddgi_batch_order, DdgiBatchOrder::Reverse);
+
+        let result = AppOptions::try_from_arg_strings(
+            ["re-flora", "--ddgi-batch-order", "inside-out"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        );
+        assert!(result
+            .unwrap_err()
+            .contains("Expected one of: forward, reverse"));
     }
 
     #[test]

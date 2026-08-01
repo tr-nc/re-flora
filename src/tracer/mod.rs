@@ -61,7 +61,7 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
+    DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
     DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch,
     DdgiRefreshState, DdgiStatus, DdgiTerrainRefresh, DdgiTransportScheduler,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid,
@@ -748,6 +748,7 @@ pub struct TracerDesc {
     pub environment_probe_visualization_enabled: bool,
     pub environment_irradiance_capture_enabled: bool,
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
+    pub ddgi_batch_order: DdgiBatchOrder,
     pub ddgi_debug_view: DdgiDebugView,
 }
 
@@ -987,6 +988,7 @@ impl Tracer {
             chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
             desc.environment_probe_spacing_voxels,
             desc.voxel_dim_per_chunk,
+            desc.ddgi_batch_order,
         )?;
         let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
             vulkan_ctx.device().clone(),
@@ -1157,6 +1159,7 @@ impl Tracer {
             self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
             build_token.spacing_voxels(),
             self.desc.voxel_dim_per_chunk,
+            self.desc.ddgi_batch_order,
         )?;
         staging.assign_build_token(build_token);
         staging.request_initialization(build_token.terrain_revision());
@@ -1386,6 +1389,7 @@ impl Tracer {
             field,
             validation,
             publication,
+            batch_order: self.desc.ddgi_batch_order,
         };
         self.ddgi_capture_checkpoint = Some(checkpoint);
         log::info!(
@@ -2604,10 +2608,10 @@ impl Tracer {
                     stats.non_finite_records == 0,
                     "DDGI trace produced non-finite records: {stats:?}",
                 );
-                let filtered_probe_count = batch.first_probe_index + batch.probe_count;
+                let filtered_probe_count = volume.status().filtered_probe_count;
                 let probe_count = volume.status().grid.probe_count();
                 let build_token = volume.status().build_token;
-                if batch.first_probe_index == 0
+                if filtered_probe_count == batch.probe_count
                     || filtered_probe_count == probe_count
                     || filtered_probe_count % 1_024 == 0
                 {
@@ -3062,7 +3066,7 @@ impl Tracer {
             let volume = self.ddgi_volumes.builder_mut();
             volume.mark_ray_batch_filtered(batch);
             let status = volume.status();
-            if batch.first_probe_index == 0
+            if status.filtered_probe_count == batch.probe_count
                 || status.filtered_probe_count == status.grid.probe_count()
                 || status.filtered_probe_count % 1_024 == 0
             {

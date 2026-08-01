@@ -165,6 +165,35 @@ pub struct DdgiRayBatch {
     resident: DdgiResidentIteration,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum DdgiBatchOrder {
+    #[default]
+    Forward = 0,
+    Reverse = 1,
+}
+
+impl DdgiBatchOrder {
+    pub fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "forward" => Some(Self::Forward),
+            "reverse" => Some(Self::Reverse),
+            _ => None,
+        }
+    }
+
+    pub const fn as_u32(self) -> u32 {
+        self as u32
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Forward => "forward",
+            Self::Reverse => "reverse",
+        }
+    }
+}
+
 impl DdgiRayBatch {
     pub fn logical(self) -> DdgiFieldIdentity {
         self.resident.logical
@@ -309,6 +338,28 @@ fn iteration_completes_after_batch(
     probe_count: u32,
 ) -> bool {
     completed_probe_count + batch_probe_count == probe_count
+}
+
+fn ddgi_probe_batch_range(
+    probe_count: u32,
+    batch_size: u32,
+    batch_ordinal: u32,
+    order: DdgiBatchOrder,
+) -> Option<(u32, u32)> {
+    debug_assert!(batch_size > 0);
+    let batch_count = probe_count.div_ceil(batch_size);
+    if batch_ordinal >= batch_count {
+        return None;
+    }
+    let physical_ordinal = match order {
+        DdgiBatchOrder::Forward => batch_ordinal,
+        DdgiBatchOrder::Reverse => batch_count - 1 - batch_ordinal,
+    };
+    let first_probe_index = physical_ordinal * batch_size;
+    Some((
+        first_probe_index,
+        (probe_count - first_probe_index).min(batch_size),
+    ))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -495,7 +546,9 @@ pub struct DdgiVolume {
     requested_terrain_revision: Option<u32>,
     relocated_terrain_revision: Option<u32>,
     active_ray_batch: Option<DdgiRayBatch>,
-    next_probe_index: u32,
+    batch_order: DdgiBatchOrder,
+    filtered_probe_count: u32,
+    next_batch_ordinal: u32,
     pub ddgi_probe_metadata: Resource<Buffer>,
     pub ddgi_transient_ray_data: Resource<Buffer>,
     pub ddgi_trace_stats: Resource<Buffer>,
@@ -638,6 +691,7 @@ impl DdgiVolume {
         world_extent_voxels: UVec3,
         spacing_voxels: u32,
         voxels_per_world_unit: UVec3,
+        batch_order: DdgiBatchOrder,
     ) -> Result<Self> {
         let grid = DdgiVolumeGrid::new(world_extent_voxels, spacing_voxels)?;
         let irradiance_layout =
@@ -846,7 +900,9 @@ impl DdgiVolume {
             requested_terrain_revision: None,
             relocated_terrain_revision: None,
             active_ray_batch: None,
-            next_probe_index: 0,
+            batch_order,
+            filtered_probe_count: 0,
+            next_batch_ordinal: 0,
             ddgi_probe_metadata: Resource::new(probe_metadata),
             ddgi_transient_ray_data: Resource::new(transient_ray_data),
             ddgi_trace_stats: Resource::new(trace_stats),
@@ -892,7 +948,7 @@ impl DdgiVolume {
             radiance_revision: self.radiance_revision,
             relocated_terrain_revision: self.relocated_terrain_revision,
             active_ray_batch: self.active_ray_batch,
-            filtered_probe_count: self.next_probe_index,
+            filtered_probe_count: self.filtered_probe_count,
         }
     }
 
@@ -1003,7 +1059,8 @@ impl DdgiVolume {
         }
         self.scheduled_work = Some(work);
         self.building_iteration = Some(resident);
-        self.next_probe_index = 0;
+        self.filtered_probe_count = 0;
+        self.next_batch_ordinal = 0;
         self.active_ray_batch = None;
         self.last_atlas_validation = None;
         Ok(())
@@ -1021,7 +1078,8 @@ impl DdgiVolume {
         self.requested_terrain_revision = Some(terrain_revision);
         self.relocated_terrain_revision = None;
         self.active_ray_batch = None;
-        self.next_probe_index = 0;
+        self.filtered_probe_count = 0;
+        self.next_batch_ordinal = 0;
         self.scheduled_work = None;
         self.building_iteration = None;
         self.complete_field = None;
@@ -1041,7 +1099,8 @@ impl DdgiVolume {
     pub fn mark_relocated(&mut self, terrain_revision: u32) -> Result<()> {
         assert_eq!(self.requested_terrain_revision, Some(terrain_revision));
         self.relocated_terrain_revision = Some(terrain_revision);
-        self.next_probe_index = 0;
+        self.filtered_probe_count = 0;
+        self.next_batch_ordinal = 0;
         ensure!(
             self.building_iteration.is_some(),
             "DDGI relocation completed before scheduler work was installed"
@@ -1055,15 +1114,20 @@ impl DdgiVolume {
             self.stage,
             DdgiVolumeStage::Relocated | DdgiVolumeStage::Rebuilding
         ) || self.active_ray_batch.is_some()
-            || self.next_probe_index >= self.grid.probe_count()
+            || self.filtered_probe_count >= self.grid.probe_count()
         {
             return None;
         }
         let resident = self.building_iteration?;
+        let (first_probe_index, probe_count) = ddgi_probe_batch_range(
+            self.grid.probe_count(),
+            DDGI_PROBE_BATCH_SIZE,
+            self.next_batch_ordinal,
+            self.batch_order,
+        )?;
         Some(DdgiRayBatch {
-            first_probe_index: self.next_probe_index,
-            probe_count: (self.grid.probe_count() - self.next_probe_index)
-                .min(DDGI_PROBE_BATCH_SIZE),
+            first_probe_index,
+            probe_count,
             resident,
         })
     }
@@ -1074,7 +1138,7 @@ impl DdgiVolume {
         // A later reverse-order scheduler can change `first_probe_index` without changing this
         // gate or accidentally running reduction before every probe has completed.
         iteration_completes_after_batch(
-            self.next_probe_index,
+            self.filtered_probe_count,
             batch.probe_count,
             self.grid.probe_count(),
         )
@@ -1089,11 +1153,12 @@ impl DdgiVolume {
     pub fn mark_ray_batch_filtered(&mut self, batch: DdgiRayBatch) {
         assert_eq!(self.stage, DdgiVolumeStage::RayBatchReady);
         assert_eq!(self.active_ray_batch, Some(batch));
-        self.next_probe_index += batch.probe_count;
+        self.filtered_probe_count += batch.probe_count;
+        self.next_batch_ordinal += 1;
         // Keep the exact batch identity live until the later-frame trace-stat readback has been
         // validated. This prevents the next batch, iteration advance, and publication from
         // overtaking GPU validation.
-        self.stage = if self.next_probe_index == self.grid.probe_count() {
+        self.stage = if self.filtered_probe_count == self.grid.probe_count() {
             DdgiVolumeStage::AtlasReady
         } else {
             DdgiVolumeStage::Rebuilding
@@ -1115,12 +1180,12 @@ impl DdgiVolume {
             self.stage,
         );
         ensure!(
-            self.next_probe_index <= self.grid.probe_count(),
+            self.filtered_probe_count <= self.grid.probe_count(),
             "DDGI iteration filtered {}/{} probes",
-            self.next_probe_index,
+            self.filtered_probe_count,
             self.grid.probe_count(),
         );
-        if self.next_probe_index < self.grid.probe_count() {
+        if self.filtered_probe_count < self.grid.probe_count() {
             self.active_ray_batch = None;
             self.stage = DdgiVolumeStage::Rebuilding;
             return Ok(DdgiVerifiedBatchOutcome::Continue);
@@ -1159,11 +1224,11 @@ impl DdgiVolume {
             self.active_ray_batch
                 .is_some_and(|batch| batch.logical() == identity)
                 && self.stage == DdgiVolumeStage::AtlasReady
-                && self.next_probe_index == self.grid.probe_count(),
+                && self.filtered_probe_count == self.grid.probe_count(),
             "stale DDGI atlas validation identity {identity:?}; batch={:?} stage={:?} filtered={}/{}",
             self.active_ray_batch,
             self.stage,
-            self.next_probe_index,
+            self.filtered_probe_count,
             self.grid.probe_count(),
         );
         ensure!(
@@ -1210,7 +1275,8 @@ impl DdgiVolume {
         self.active_ray_batch = None;
         self.complete_field = Some(iteration.destination);
         self.last_atlas_validation = Some(stats);
-        self.next_probe_index = 0;
+        self.filtered_probe_count = 0;
+        self.next_batch_ordinal = 0;
 
         match identity.field().stage() {
             DdgiFieldStage::SeedSky => {
@@ -1846,6 +1912,74 @@ mod tests {
             assert_eq!(completes, index == 1);
             completed_probe_count += 64;
         }
+    }
+
+    fn assert_batch_traversal_covers_every_probe_once(
+        probe_count: u32,
+        batch_size: u32,
+        order: DdgiBatchOrder,
+    ) -> Vec<(u32, u32)> {
+        let mut ranges = Vec::new();
+        let mut seen = vec![false; probe_count as usize];
+        let mut processed_probe_count = 0;
+        let mut ordinal = 0;
+        while let Some((first_probe_index, batch_probe_count)) =
+            ddgi_probe_batch_range(probe_count, batch_size, ordinal, order)
+        {
+            assert!(batch_probe_count > 0);
+            assert!(first_probe_index + batch_probe_count <= probe_count);
+            for probe_index in first_probe_index..first_probe_index + batch_probe_count {
+                assert!(
+                    !seen[probe_index as usize],
+                    "probe {probe_index} visited twice"
+                );
+                seen[probe_index as usize] = true;
+            }
+            let completes = iteration_completes_after_batch(
+                processed_probe_count,
+                batch_probe_count,
+                probe_count,
+            );
+            processed_probe_count += batch_probe_count;
+            assert_eq!(completes, processed_probe_count == probe_count);
+            ranges.push((first_probe_index, batch_probe_count));
+            ordinal += 1;
+        }
+        assert_eq!(processed_probe_count, probe_count);
+        assert!(seen.into_iter().all(|visited| visited));
+        ranges
+    }
+
+    #[test]
+    fn forward_and_reverse_batch_traversal_have_complete_identical_coverage() {
+        for probe_count in [1, 64, 128, 129, 256, 257, 4_913] {
+            let forward = assert_batch_traversal_covers_every_probe_once(
+                probe_count,
+                DDGI_PROBE_BATCH_SIZE,
+                DdgiBatchOrder::Forward,
+            );
+            let reverse = assert_batch_traversal_covers_every_probe_once(
+                probe_count,
+                DDGI_PROBE_BATCH_SIZE,
+                DdgiBatchOrder::Reverse,
+            );
+            assert_eq!(reverse, forward.iter().copied().rev().collect::<Vec<_>>());
+        }
+
+        assert_eq!(
+            assert_batch_traversal_covers_every_probe_once(
+                4_913,
+                DDGI_PROBE_BATCH_SIZE,
+                DdgiBatchOrder::Reverse,
+            )
+            .first(),
+            Some(&(4_864, 49)),
+            "reverse traversal must process the short tail as ordinal zero",
+        );
+        assert_eq!(
+            ddgi_probe_batch_range(0, DDGI_PROBE_BATCH_SIZE, 0, DdgiBatchOrder::Forward),
+            None,
+        );
     }
 
     #[test]

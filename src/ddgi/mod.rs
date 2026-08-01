@@ -25,9 +25,9 @@ pub use capture::{DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiCaptureTarg
 // not directly name every exported type in a particular build.
 #[allow(unused_imports)]
 pub use resources::{
-    DdgiAtlasValidationStats, DdgiConvergencePolicy, DdgiRayBatch, DdgiResourceBytes, DdgiStatus,
-    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeStage,
-    DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiRayBatch,
+    DdgiResourceBytes, DdgiStatus, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
+    DdgiVolume, DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
 #[allow(unused_imports)]
 pub use scheduler::{

@@ -19,7 +19,6 @@ const CAPTURE_STAGE_CONVERGED: u32 = 4;
 const CAPTURE_STAGE_NON_CONVERGED: u32 = 5;
 #[cfg(test)]
 const CAPTURE_PUBLICATION_PUBLISHED: u32 = 1;
-const CAPTURE_BATCH_ORDER_FORWARD: u32 = 0;
 const CAPTURE_UNKNOWN_U32: u32 = u32::MAX;
 const CAPTURE_UNKNOWN_U64: u64 = u64::MAX;
 
@@ -77,7 +76,7 @@ impl CaptureMetadata {
                 .map(|source| source.radiance_revision())
                 .unwrap_or(CAPTURE_UNKNOWN_U32),
             publication_state: checkpoint.publication as u32,
-            batch_order: CAPTURE_BATCH_ORDER_FORWARD,
+            batch_order: checkpoint.batch_order.as_u32(),
             max_abs_delta: checkpoint.validation.max_absolute_rgb_delta,
             max_rel_delta: checkpoint.validation.max_relative_rgb_delta,
             nonfinite_count: checkpoint.validation.non_finite_count,
@@ -267,8 +266,9 @@ impl App {
 mod tests {
     use super::*;
     use crate::ddgi::{
-        DdgiAtlasValidationStats, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
-        DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey, DdgiFieldStage,
+        DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
+        DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey,
+        DdgiFieldStage,
     };
 
     #[test]
@@ -302,6 +302,7 @@ mod tests {
             field: published,
             validation,
             publication: DdgiCapturePublication::Published,
+            batch_order: DdgiBatchOrder::Reverse,
         };
         let metadata = CaptureMetadata::from_checkpoint(
             checkpoint,
@@ -324,6 +325,7 @@ mod tests {
         assert_eq!(metadata.source_field_serial, 88);
         assert_eq!(metadata.source_radiance_revision, 17);
         assert_eq!(metadata.publication_state, CAPTURE_PUBLICATION_PUBLISHED);
+        assert_eq!(metadata.batch_order, DdgiBatchOrder::Reverse.as_u32());
         assert_eq!(metadata.max_abs_delta, 0.0125);
         assert_eq!(metadata.max_rel_delta, 0.025);
         assert_eq!(metadata.nonfinite_count, 0);

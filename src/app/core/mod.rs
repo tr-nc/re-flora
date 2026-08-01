@@ -1063,6 +1063,7 @@ impl App {
                     .is_some(),
                 environment_irradiance_capture_target: options
                     .environment_irradiance_capture_target,
+                ddgi_batch_order: options.ddgi_batch_order,
                 ddgi_debug_view: options.ddgi_debug_view,
             },
             spatial_sound_manager.clone(),
