@@ -51,6 +51,7 @@ impl DdgiTraceStats {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiResourceBytes {
     pub irradiance_atlas: u64,
+    pub transport_source_irradiance_atlas: u64,
     pub visibility_atlas: u64,
     pub global_sky_irradiance: u64,
     pub probe_metadata: u64,
@@ -78,6 +79,9 @@ impl DdgiResourceBytes {
             irradiance_atlas: irradiance_extent.x as u64
                 * irradiance_extent.y as u64
                 * std::mem::size_of::<[f32; 4]>() as u64,
+            transport_source_irradiance_atlas: irradiance_extent.x as u64
+                * irradiance_extent.y as u64
+                * std::mem::size_of::<[f32; 4]>() as u64,
             visibility_atlas: visibility_extent.x as u64
                 * visibility_extent.y as u64
                 * std::mem::size_of::<[f32; 2]>() as u64,
@@ -95,12 +99,27 @@ impl DdgiResourceBytes {
 
     pub fn total(self) -> u64 {
         self.irradiance_atlas
+            + self.transport_source_irradiance_atlas
             + self.visibility_atlas
             + self.global_sky_irradiance
             + self.probe_metadata
             + self.transient_ray_data
             + self.trace_stats
     }
+}
+
+/// The last complete transport state represented by a volume's irradiance atlas.
+///
+/// Probe batches are deliberately absent: a partial full-volume iteration is never a transport
+/// state and must never become consumer-visible.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum DdgiTransportStage {
+    SeedSky,
+    SingleBounce,
+    Feedback { iteration: u32 },
+    Converged,
+    NonConverged,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -125,6 +144,7 @@ pub struct DdgiVolumeStatus {
     pub visibility_layout: DdgiAtlasLayout,
     pub resource_bytes: DdgiResourceBytes,
     pub stage: DdgiVolumeStage,
+    pub transport_stage: Option<DdgiTransportStage>,
     pub global_sky_revision: u32,
     pub relocated_terrain_revision: Option<u32>,
     pub active_ray_batch: Option<DdgiRayBatch>,
@@ -172,6 +192,7 @@ pub struct DdgiVolume {
     visibility_layout: DdgiAtlasLayout,
     resource_bytes: DdgiResourceBytes,
     stage: DdgiVolumeStage,
+    transport_stage: Option<DdgiTransportStage>,
     global_sky_revision: u32,
     requested_terrain_revision: Option<u32>,
     relocated_terrain_revision: Option<u32>,
@@ -182,6 +203,7 @@ pub struct DdgiVolume {
     pub ddgi_trace_stats: Resource<Buffer>,
     ddgi_trace_stats_readback: Buffer,
     pub ddgi_irradiance_atlas: Resource<Texture>,
+    pub ddgi_transport_source_irradiance_atlas: Resource<Texture>,
     pub ddgi_visibility_atlas: Resource<Texture>,
     pub ddgi_global_sky_irradiance: Resource<Texture>,
 }
@@ -264,6 +286,9 @@ impl ResourceContainer for DdgiVolume {
     fn get_texture(&self, name: &str) -> Option<&Texture> {
         match name {
             "ddgi_irradiance_atlas" => Some(&self.ddgi_irradiance_atlas),
+            "ddgi_transport_source_irradiance_atlas" => {
+                Some(&self.ddgi_transport_source_irradiance_atlas)
+            }
             "ddgi_visibility_atlas" => Some(&self.ddgi_visibility_atlas),
             "ddgi_global_sky_irradiance" => Some(&self.ddgi_global_sky_irradiance),
             _ => None,
@@ -276,6 +301,7 @@ impl ResourceContainer for DdgiVolume {
             "ddgi_transient_ray_data",
             "ddgi_trace_stats",
             "ddgi_irradiance_atlas",
+            "ddgi_transport_source_irradiance_atlas",
             "ddgi_visibility_atlas",
             "ddgi_global_sky_irradiance",
         ]
@@ -388,6 +414,12 @@ impl DdgiVolume {
             &irradiance_desc,
             &sampler_desc,
         );
+        let transport_source_irradiance_atlas = Texture::new(
+            device.clone(),
+            allocator.clone(),
+            &irradiance_desc,
+            &sampler_desc,
+        );
         let visibility_atlas = Texture::new(
             device.clone(),
             allocator.clone(),
@@ -398,7 +430,7 @@ impl DdgiVolume {
             Texture::new(device, allocator, &global_sky_desc, &sampler_desc);
 
         log::info!(
-            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_batch={}x{} metadata_bytes={} irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} global_sky_bytes={} total_mib={:.2}",
+            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} global_sky_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
@@ -412,6 +444,7 @@ impl DdgiVolume {
             DDGI_RAYS_PER_PROBE,
             resource_bytes.probe_metadata,
             resource_bytes.irradiance_atlas,
+            resource_bytes.transport_source_irradiance_atlas,
             resource_bytes.visibility_atlas,
             resource_bytes.transient_ray_data,
             resource_bytes.trace_stats,
@@ -426,6 +459,7 @@ impl DdgiVolume {
             visibility_layout,
             resource_bytes,
             stage: DdgiVolumeStage::Allocated,
+            transport_stage: None,
             global_sky_revision: 0,
             requested_terrain_revision: None,
             relocated_terrain_revision: None,
@@ -436,6 +470,9 @@ impl DdgiVolume {
             ddgi_trace_stats: Resource::new(trace_stats),
             ddgi_trace_stats_readback: trace_stats_readback,
             ddgi_irradiance_atlas: Resource::new(irradiance_atlas),
+            ddgi_transport_source_irradiance_atlas: Resource::new(
+                transport_source_irradiance_atlas,
+            ),
             ddgi_visibility_atlas: Resource::new(visibility_atlas),
             ddgi_global_sky_irradiance: Resource::new(global_sky_irradiance),
         })
@@ -449,6 +486,7 @@ impl DdgiVolume {
             visibility_layout: self.visibility_layout,
             resource_bytes: self.resource_bytes,
             stage: self.stage,
+            transport_stage: self.transport_stage,
             global_sky_revision: self.global_sky_revision,
             relocated_terrain_revision: self.relocated_terrain_revision,
             active_ray_batch: self.active_ray_batch,
@@ -552,6 +590,8 @@ impl DdgiVolume {
     pub fn mark_ready(&mut self) {
         assert_eq!(self.stage, DdgiVolumeStage::AtlasReady);
         assert_eq!(self.next_probe_index, self.grid.probe_count());
+        self.transport_stage
+            .get_or_insert(DdgiTransportStage::SeedSky);
         self.stage = DdgiVolumeStage::Ready;
     }
 
@@ -659,6 +699,7 @@ mod tests {
         assert_eq!(irradiance.extent(), glam::UVec2::new(710, 700));
         assert_eq!(visibility.extent(), glam::UVec2::new(1_278, 1_260));
         assert_eq!(bytes.irradiance_atlas, 7_952_000);
+        assert_eq!(bytes.transport_source_irradiance_atlas, 7_952_000);
         assert_eq!(bytes.visibility_atlas, 12_882_240);
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
@@ -704,6 +745,7 @@ mod tests {
                 DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap(),
             ),
             stage: DdgiVolumeStage::Allocated,
+            transport_stage: None,
             global_sky_revision: 0,
             relocated_terrain_revision: None,
             active_ray_batch: None,
@@ -726,6 +768,8 @@ mod tests {
             visibility_layout,
             resource_bytes: DdgiResourceBytes::new(grid, irradiance_layout, visibility_layout),
             stage,
+            transport_stage: (stage == DdgiVolumeStage::Ready)
+                .then_some(DdgiTransportStage::SeedSky),
             global_sky_revision: 3,
             relocated_terrain_revision: Some(terrain_revision),
             active_ray_batch: None,

@@ -62,9 +62,10 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBuildKind, DdgiBuildToken, DdgiDebugView, DdgiRayBatch, DdgiRefreshState, DdgiStatus,
-    DdgiTerrainRefresh, DdgiVolume, DdgiVolumeGrid, DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes,
-    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiTerrainRefresh, DdgiTransportStage, DdgiVolume, DdgiVolumeGrid, DdgiVolumeStage,
+    DdgiVolumeStatus, DdgiVolumes, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
+    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
+    DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::EnvironmentLightingCache;
 use crate::environment_probes::{
@@ -118,10 +119,12 @@ pub struct DdgiRuntimeStatus {
     pub active_terrain_revision: Option<u32>,
     pub active_spacing_voxels: u32,
     pub active_stage: DdgiVolumeStage,
+    pub active_transport_stage: Option<DdgiTransportStage>,
     pub target_terrain_revision: Option<u32>,
     pub staging_token_serial: Option<u64>,
     pub staging_kind: Option<DdgiBuildKind>,
     pub staging_stage: Option<DdgiVolumeStage>,
+    pub staging_transport_stage: Option<DdgiTransportStage>,
     pub staging_filtered_probe_count: u32,
     pub staging_probe_count: u32,
     pub coordinator_state: DdgiRefreshState,
@@ -139,10 +142,12 @@ impl DdgiRuntimeStatus {
             active_terrain_revision: active.relocated_terrain_revision,
             active_spacing_voxels: active.grid.spacing_voxels(),
             active_stage: active.stage,
+            active_transport_stage: active.transport_stage,
             target_terrain_revision: refresh.latest_terrain_revision(),
             staging_token_serial: staging_token.map(DdgiBuildToken::serial),
             staging_kind: staging_token.map(DdgiBuildToken::kind),
             staging_stage: staging.map(|status| status.stage),
+            staging_transport_stage: staging.and_then(|status| status.transport_stage),
             staging_filtered_probe_count: staging
                 .map(|status| status.filtered_probe_count)
                 .unwrap_or_default(),
@@ -157,24 +162,26 @@ impl DdgiRuntimeStatus {
 
     pub fn active_line(self) -> String {
         format!(
-            "Active token {} · terrain {} · {} vox · {:?}",
+            "Active token {} · terrain {} · {} vox · {:?} · {:?}",
             format_optional(self.active_token_serial),
             format_optional(self.active_terrain_revision),
             self.active_spacing_voxels,
             self.active_stage,
+            self.active_transport_stage,
         )
     }
 
     pub fn builder_line(self) -> String {
         match self.staging_stage {
             Some(stage) => format!(
-                "Builder token {} · {} · {}/{} filtered · {:?}",
+                "Builder token {} · {} · {}/{} filtered · {:?} · {:?}",
                 format_optional(self.staging_token_serial),
                 self.staging_kind
                     .map_or_else(|| "none".to_owned(), |kind| format!("{kind:?}")),
                 self.staging_filtered_probe_count,
                 self.staging_probe_count,
                 stage,
+                self.staging_transport_stage,
             ),
             None => "Builder none".to_owned(),
         }
@@ -530,8 +537,8 @@ mod ddgi_density_rebuild_tests {
         DdgiRuntimeStatus,
     };
     use crate::ddgi::{
-        DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh, DdgiVolumeGrid,
-        DdgiVolumeStage,
+        DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh, DdgiTransportStage,
+        DdgiVolumeGrid, DdgiVolumeStage,
     };
     use crate::geom::UAabb3;
     use glam::UVec3;
@@ -574,10 +581,12 @@ mod ddgi_density_rebuild_tests {
             active_terrain_revision: Some(7),
             active_spacing_voxels: 16,
             active_stage: DdgiVolumeStage::Ready,
+            active_transport_stage: Some(DdgiTransportStage::SeedSky),
             target_terrain_revision: Some(8),
             staging_token_serial: Some(9),
             staging_kind: Some(DdgiBuildKind::Terrain),
             staging_stage: Some(DdgiVolumeStage::Rebuilding),
+            staging_transport_stage: None,
             staging_filtered_probe_count: 2048,
             staging_probe_count: 35937,
             coordinator_state: DdgiRefreshState::BuildingTerrain {
@@ -590,11 +599,11 @@ mod ddgi_density_rebuild_tests {
 
         assert_eq!(
             status.active_line(),
-            "Active token 7 · terrain 7 · 16 vox · Ready"
+            "Active token 7 · terrain 7 · 16 vox · Ready · Some(SeedSky)"
         );
         assert_eq!(
             status.builder_line(),
-            "Builder token 9 · Terrain · 2048/35937 filtered · Rebuilding"
+            "Builder token 9 · Terrain · 2048/35937 filtered · Rebuilding · None"
         );
         assert!(status.coordinator_line().contains("Target terrain 8"));
         assert!(status.coordinator_line().contains("density queued 32"));
