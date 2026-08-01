@@ -276,6 +276,26 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertEqual(report["capture"]["rgb_channel_nonzero_count"], [0, 0, 1])
 
+    def test_v3_nonnegative_gate_rejects_negative_terrain_hit_channel(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "negative-rgb.rfirr"
+            self.write_capture_v3(
+                capture_path,
+                [(-0.000001, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+            )
+
+            result = self.run_analyzer(capture_path, "--require-nonnegative-rgb")
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["capture"]["rgb_channel_negative_count"], [1, 0, 0])
+        self.assertLess(report["capture"]["rgb_channel_min"][0], 0.0)
+        self.assertIn(
+            "terrain-hit RGB contains negative channel values",
+            report["validation_failures"],
+        )
+
     def test_zero_rgb_summary_ignores_negative_zero_and_non_hit_rgb(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "zero.rfirr"

@@ -44,6 +44,7 @@ TRANSPORT_STAGE_LABELS = {
     5: "non-converged",
 }
 PUBLICATION_STATE_LABELS = {
+    0: "unpublished",
     1: "published",
 }
 
@@ -191,6 +192,8 @@ def summarize(
     terrain_hit_count = 0
     rgb_abs_max = 0.0
     rgb_nonzero_count = 0
+    rgb_channel_min = [math.inf, math.inf, math.inf]
+    rgb_channel_negative_count = [0, 0, 0]
     roi_terrain_hit_count = 0
     channel_abs_max = [0.0, 0.0, 0.0]
     channel_nonzero_count = [0, 0, 0]
@@ -223,6 +226,10 @@ def summarize(
                 rgb_abs_max = max(rgb_abs_max, *(abs(value) for value in rgb))
                 if any(value != 0.0 for value in rgb):
                     rgb_nonzero_count += 1
+                for channel, value in enumerate(rgb):
+                    rgb_channel_min[channel] = min(rgb_channel_min[channel], value)
+                    if value < 0.0:
+                        rgb_channel_negative_count[channel] += 1
             in_roi = world_roi is None
             if position is not None and world_roi is not None:
                 min_x, min_y, min_z, max_x, max_y, max_z = world_roi
@@ -263,6 +270,10 @@ def summarize(
         "finite": finite,
         "rgb_abs_max": rgb_abs_max,
         "rgb_nonzero_count": rgb_nonzero_count,
+        "rgb_channel_min": (
+            rgb_channel_min if rgb_channel_min[0] != math.inf else None
+        ),
+        "rgb_channel_negative_count": rgb_channel_negative_count,
         "rgb_channel_abs_max": channel_abs_max,
         "rgb_channel_nonzero_count": channel_nonzero_count,
         "luminance_mean": sum(luminances) / len(luminances) if luminances else 0.0,
@@ -442,6 +453,7 @@ def main() -> int:
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--max-luminance", type=float)
     parser.add_argument("--require-zero-rgb", action="store_true")
+    parser.add_argument("--require-nonnegative-rgb", action="store_true")
     parser.add_argument("--min-luminance-p99", type=float)
     parser.add_argument("--max-reference-error-p99", type=float)
     parser.add_argument("--max-reference-overestimate-p99", type=float)
@@ -544,6 +556,11 @@ def main() -> int:
     ):
         exit_code = 1
     if args.require_zero_rgb and capture_summary["rgb_nonzero_count"] != 0:
+        exit_code = 1
+    if args.require_nonnegative_rgb and any(
+        count != 0 for count in capture_summary["rgb_channel_negative_count"]
+    ):
+        failures.append("terrain-hit RGB contains negative channel values")
         exit_code = 1
     if (
         args.min_luminance_p99 is not None
