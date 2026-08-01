@@ -26,6 +26,11 @@ public struct B_DdgiTraceStats
     public uint data[];
 };
 
+public struct B_DdgiAtlasReduction
+{
+    public uint data[];
+};
+
 // Latched once at the start of a full DDGI build. Builder shaders must not read the live
 // per-frame sun uniform, because one atlas may span many frames.
 public struct U_DdgiRadianceSun

@@ -19,9 +19,14 @@ pub use atlas::{
     DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE, DEFAULT_DDGI_SPACING_VOXELS,
     SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
+// These identities and diagnostics form the capture/analysis seam even when the game binary does
+// not directly name every exported type in a particular build.
+#[allow(unused_imports)]
 pub use resources::{
-    DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiTransportStage, DdgiVerifiedBatchOutcome,
-    DdgiVolume, DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes,
+    DdgiAtlasValidationStats, DdgiConvergencePolicy, DdgiIrradianceSlot, DdgiRayBatch,
+    DdgiResourceBytes, DdgiStatus, DdgiTransportFieldIdentity, DdgiTransportIterationIdentity,
+    DdgiTransportStage, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume,
+    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
 #[allow(unused_imports)]
 pub use scheduler::{

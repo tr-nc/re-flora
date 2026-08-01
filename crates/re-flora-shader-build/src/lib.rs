@@ -412,6 +412,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/ddgi/atlas_reduce.comp",
+        source_path: "shader/slang/ddgi_atlas_reduce.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/builder/surface/active_surface_to_flora_instances.comp",
         source_path: "shader/slang/active_surface_to_flora_instances.slang",
         module_path: "shader/slang",

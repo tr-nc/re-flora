@@ -420,6 +420,14 @@ public DdgiQueryResult sampleDdgiTransportSource(
         worldPosition, surfaceNormal);
 }
 
+public DdgiQueryResult sampleDdgiTransportAtlas0(
+    U_DdgiTransportQueryInfo transport,
+    float3 worldPosition, float3 surfaceNormal)
+{
+    return sampleDdgiTransportSource(
+        transport, ddgi_irradiance_atlas, worldPosition, surfaceNormal);
+}
+
 public uint ddgiNearestNominalProbeIndex(U_ShadingInfo lighting,
                                          float3 worldPosition)
 {

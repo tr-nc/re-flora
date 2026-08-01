@@ -37,7 +37,8 @@ GLSLShaderStorageBuffer<B_DdgiTraceStats, Std430DataLayout>
     ddgi_trace_stats;
 
 // These builder-only bindings shape the immutable source/destination transport seam. S0 does not
-// sample the source atlas; S1 will consume it through sampleDdgiTransportSource in ddgi_query.
+// sample a source atlas; every later iteration consumes the previous complete field through the
+// shared DDGI query path.
 [[vk::binding(29, 0)]]
 Sampler2D ddgi_transport_source_irradiance_atlas;
 
@@ -56,8 +57,9 @@ struct DdgiProbeTracePushConstants
     uint probe_count;
     uint terrain_revision;
     uint transport_iteration;
+    uint source_slot;
     float far_distance_world;
-    float3 padding_float;
+    uint2 padding;
 };
 
 [[vk::push_constant]]
@@ -114,8 +116,8 @@ float ddgiExactTerrainSunVisibility(MarchingResult receiver,
     return shadowHit.is_hit ? 0.0 : 1.0;
 }
 
-float3 ddgiSingleBounceHitRadiance(MarchingResult result,
-                                   uint localInvocationIndex)
+float3 ddgiTransportHitRadiance(MarchingResult result,
+                                uint localInvocationIndex)
 {
     float3 normal = normalize(result.normal);
     float3 sunDirection = normalize(ddgi_radiance_sun.direction);
@@ -127,9 +129,19 @@ float3 ddgiSingleBounceHitRadiance(MarchingResult result,
         : 0.0;
     float3 directIrradiance = ddgi_radiance_sun.color *
         ddgi_radiance_sun.luminance * sunAboveHorizon * cosine * visibility;
-    DdgiQueryResult source = sampleDdgiTransportSource(
-        ddgi_transport_query_info, ddgi_transport_source_irradiance_atlas,
-        result.position, normal);
+    DdgiQueryResult source;
+    if (pc.source_slot == 0u)
+    {
+        source = sampleDdgiTransportAtlas0(
+            ddgi_transport_query_info, result.position, normal);
+    }
+    else
+    {
+        source = sampleDdgiTransportSource(
+            ddgi_transport_query_info,
+            ddgi_transport_source_irradiance_atlas,
+            result.position, normal);
+    }
     float3 albedo = ddgiVoxelColorByTypeAndHash(
         ddgi_radiance_voxel_palette, result.voxel_type, result.hash_id);
     return albedo * (directIrradiance + source.irradiance);
@@ -184,9 +196,9 @@ void main(uint3 groupId : SV_GroupID,
             float hitDistance = max(result.distance, 1.0e-5);
             bool backface = dot(direction, result.normal) > 0.0;
             rayRecord.w = backface ? -hitDistance : hitDistance;
-            if (!backface && pc.transport_iteration == 1u)
+            if (!backface && pc.transport_iteration >= 1u)
             {
-                rayRecord.xyz = ddgiSingleBounceHitRadiance(
+                rayRecord.xyz = ddgiTransportHitRadiance(
                     result, localInvocationId.x);
             }
             recordTraceStat(backface ? 4u : 3u);

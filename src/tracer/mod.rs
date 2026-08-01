@@ -61,11 +61,12 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiBuildKind, DdgiBuildToken, DdgiDebugView, DdgiRayBatch, DdgiRefreshState, DdgiStatus,
-    DdgiTerrainRefresh, DdgiTransportStage, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid,
-    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_GUTTER_WORKGROUP_SIZE,
-    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
-    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiBuildKind, DdgiBuildToken, DdgiDebugView, DdgiIrradianceSlot, DdgiRayBatch,
+    DdgiRefreshState, DdgiStatus, DdgiTerrainRefresh, DdgiTransportStage,
+    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid,
+    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
+    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot, EnvironmentLightingCache,
@@ -123,6 +124,8 @@ pub struct DdgiRuntimeStatus {
     pub active_stage: DdgiVolumeStage,
     pub active_transport_stage: Option<DdgiTransportStage>,
     pub active_radiance_revision: Option<u32>,
+    pub active_published_slot: Option<DdgiIrradianceSlot>,
+    pub active_published_iteration: Option<u32>,
     pub target_terrain_revision: Option<u32>,
     pub staging_token_serial: Option<u64>,
     pub staging_kind: Option<DdgiBuildKind>,
@@ -132,6 +135,8 @@ pub struct DdgiRuntimeStatus {
     pub staging_radiance_revision: Option<u32>,
     pub staging_terrain_revision: Option<u32>,
     pub staging_spacing_voxels: Option<u32>,
+    pub staging_published_slot: Option<DdgiIrradianceSlot>,
+    pub staging_published_iteration: Option<u32>,
     pub staging_filtered_probe_count: u32,
     pub staging_probe_count: u32,
     pub coordinator_state: DdgiRefreshState,
@@ -151,6 +156,12 @@ impl DdgiRuntimeStatus {
             active_stage: active.stage,
             active_transport_stage: active.transport_stage,
             active_radiance_revision: active.radiance_revision,
+            active_published_slot: active
+                .published_iteration
+                .map(|identity| identity.destination.slot),
+            active_published_iteration: active
+                .published_iteration
+                .map(|identity| identity.iteration),
             target_terrain_revision: refresh.latest_terrain_revision(),
             staging_token_serial: staging_token.map(DdgiBuildToken::serial),
             staging_kind: staging_token.map(DdgiBuildToken::kind),
@@ -161,6 +172,16 @@ impl DdgiRuntimeStatus {
             staging_radiance_revision: staging.and_then(|status| status.radiance_revision),
             staging_terrain_revision: staging.and_then(|status| status.relocated_terrain_revision),
             staging_spacing_voxels: staging.map(|status| status.grid.spacing_voxels()),
+            staging_published_slot: staging.and_then(|status| {
+                status
+                    .published_iteration
+                    .map(|identity| identity.destination.slot)
+            }),
+            staging_published_iteration: staging.and_then(|status| {
+                status
+                    .published_iteration
+                    .map(|identity| identity.iteration)
+            }),
             staging_filtered_probe_count: staging
                 .map(|status| status.filtered_probe_count)
                 .unwrap_or_default(),
@@ -175,20 +196,22 @@ impl DdgiRuntimeStatus {
 
     pub fn active_line(self) -> String {
         format!(
-            "Active token {} · terrain {} · radiance {} · {} vox · {:?} · {:?}",
+            "Active token {} · terrain {} · radiance {} · {} vox · {:?} · {:?} · published {:?}/{}",
             format_optional(self.active_token_serial),
             format_optional(self.active_terrain_revision),
             format_optional(self.active_radiance_revision),
             self.active_spacing_voxels,
             self.active_stage,
             self.active_transport_stage,
+            self.active_published_slot,
+            format_optional(self.active_published_iteration),
         )
     }
 
     pub fn builder_line(self) -> String {
         match self.staging_stage {
             Some(stage) => format!(
-                "Builder token {} · {} · terrain {} · radiance {} · {} vox · {}/{} filtered · {:?} · complete {:?} · building {:?} from {:?}",
+                "Builder token {} · {} · terrain {} · radiance {} · {} vox · {}/{} filtered · {:?} · complete {:?} · building {:?} from {:?} · published {:?}/{}",
                 format_optional(self.staging_token_serial),
                 self.staging_kind
                     .map_or_else(|| "none".to_owned(), |kind| format!("{kind:?}")),
@@ -202,6 +225,8 @@ impl DdgiRuntimeStatus {
                 self.staging_building_transport_stage,
                 self.staging_building_transport_stage
                     .and_then(DdgiTransportStage::immutable_source),
+                self.staging_published_slot,
+                format_optional(self.staging_published_iteration),
             ),
             None => "Builder none".to_owned(),
         }
@@ -243,6 +268,8 @@ const DDGI_TRANSPORT_SOURCE_IRRADIANCE_ATLAS_BINDING: u32 = 29;
 const DDGI_RADIANCE_SUN_BINDING: u32 = 30;
 const DDGI_RADIANCE_VOXEL_PALETTE_BINDING: u32 = 31;
 const DDGI_TRANSPORT_QUERY_INFO_BINDING: u32 = 32;
+const DDGI_ATLAS_REDUCTION_BINDING: u32 = 33;
+const DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE: u32 = 64;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -268,8 +295,9 @@ struct DdgiProbeTracePushConstants {
     probe_count: u32,
     terrain_revision: u32,
     transport_iteration: u32,
+    source_slot: u32,
     far_distance_world: f32,
-    _padding_float: [f32; 3],
+    _padding: [u32; 2],
 }
 
 #[repr(C)]
@@ -300,6 +328,19 @@ struct DdgiAtlasGutterPushConstants {
     probe_count: u32,
     tile_columns: u32,
     destination_is_transport_source: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct DdgiAtlasReductionPushConstants {
+    terrain_revision: u32,
+    probe_count: u32,
+    tile_columns: u32,
+    destination_slot: u32,
+    source_slot: u32,
+    has_source: u32,
+    relative_floor: f32,
+    _padding: u32,
 }
 
 #[repr(C)]
@@ -562,8 +603,8 @@ mod ddgi_density_rebuild_tests {
         DdgiRuntimeStatus,
     };
     use crate::ddgi::{
-        DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh, DdgiTransportStage,
-        DdgiVolumeGrid, DdgiVolumeStage,
+        DdgiBuildKind, DdgiBuildToken, DdgiIrradianceSlot, DdgiRefreshState, DdgiTerrainRefresh,
+        DdgiTransportStage, DdgiVolumeGrid, DdgiVolumeStage,
     };
     use crate::geom::UAabb3;
     use glam::UVec3;
@@ -608,6 +649,8 @@ mod ddgi_density_rebuild_tests {
             active_stage: DdgiVolumeStage::Ready,
             active_transport_stage: Some(DdgiTransportStage::SingleBounce),
             active_radiance_revision: Some(3),
+            active_published_slot: Some(DdgiIrradianceSlot::Atlas0),
+            active_published_iteration: Some(1),
             target_terrain_revision: Some(8),
             staging_token_serial: Some(9),
             staging_kind: Some(DdgiBuildKind::Terrain),
@@ -617,6 +660,8 @@ mod ddgi_density_rebuild_tests {
             staging_radiance_revision: Some(4),
             staging_terrain_revision: Some(8),
             staging_spacing_voxels: Some(16),
+            staging_published_slot: Some(DdgiIrradianceSlot::Atlas1),
+            staging_published_iteration: Some(2),
             staging_filtered_probe_count: 2048,
             staging_probe_count: 35937,
             coordinator_state: DdgiRefreshState::BuildingTerrain {
@@ -629,11 +674,11 @@ mod ddgi_density_rebuild_tests {
 
         assert_eq!(
             status.active_line(),
-            "Active token 7 · terrain 7 · radiance 3 · 16 vox · Ready · Some(SingleBounce)"
+            "Active token 7 · terrain 7 · radiance 3 · 16 vox · Ready · Some(SingleBounce) · published Some(Atlas0)/1"
         );
         assert_eq!(
             status.builder_line(),
-            "Builder token 9 · Terrain · terrain 8 · radiance 4 · 16 vox · 2048/35937 filtered · Rebuilding · complete Some(SeedSky) · building Some(SingleBounce) from Some(SeedSky)"
+            "Builder token 9 · Terrain · terrain 8 · radiance 4 · 16 vox · 2048/35937 filtered · Rebuilding · complete Some(SeedSky) · building Some(SingleBounce) from Some(SeedSky) · published Some(Atlas1)/2"
         );
         assert!(status.coordinator_line().contains("Target terrain 8"));
         assert!(status.coordinator_line().contains("density queued 32"));
@@ -1584,6 +1629,7 @@ impl Tracer {
             &self.compute_pipelines.ddgi_visibility_filter_ppl,
             &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
             &self.compute_pipelines.ddgi_visibility_gutter_ppl,
+            &self.compute_pipelines.ddgi_atlas_reduce_ppl,
         ] {
             update_compute_fn(pipeline, &[ddgi_builder]);
         }
@@ -1626,6 +1672,7 @@ impl Tracer {
             &self.compute_pipelines.ddgi_probe_trace_ppl,
             &self.compute_pipelines.ddgi_irradiance_filter_ppl,
             &self.compute_pipelines.ddgi_visibility_filter_ppl,
+            &self.compute_pipelines.ddgi_atlas_reduce_ppl,
         ] {
             pipeline.write_descriptor_set(
                 0,
@@ -1655,6 +1702,15 @@ impl Tracer {
                 WriteDescriptorSet::new_buffer_write(
                     DDGI_TRACE_STATS_BINDING,
                     &ddgi_volume.ddgi_trace_stats,
+                ),
+            );
+        self.compute_pipelines
+            .ddgi_atlas_reduce_ppl
+            .write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    DDGI_ATLAS_REDUCTION_BINDING,
+                    &ddgi_volume.ddgi_atlas_reduction,
                 ),
             );
         for pipeline in [
@@ -1738,6 +1794,7 @@ impl Tracer {
         for pipeline in [
             &self.compute_pipelines.ddgi_irradiance_filter_ppl,
             &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
+            &self.compute_pipelines.ddgi_atlas_reduce_ppl,
         ] {
             pipeline.write_descriptor_set(
                 0,
@@ -1775,6 +1832,9 @@ impl Tracer {
     }
 
     fn update_ddgi_consumer_descriptors(&self, ddgi_volume: &DdgiVolume) {
+        let irradiance_atlas = ddgi_volume
+            .published_irradiance_atlas()
+            .unwrap_or(&ddgi_volume.ddgi_irradiance_atlas);
         self.compute_pipelines.tracer_ppl.write_descriptor_set(
             0,
             WriteDescriptorSet::new_buffer_write(
@@ -1811,10 +1871,7 @@ impl Tracer {
                 DDGI_GLOBAL_SKY_BINDING,
                 &ddgi_volume.ddgi_global_sky_irradiance,
             ),
-            (
-                DDGI_IRRADIANCE_ATLAS_BINDING,
-                &ddgi_volume.ddgi_irradiance_atlas,
-            ),
+            (DDGI_IRRADIANCE_ATLAS_BINDING, irradiance_atlas),
             (
                 DDGI_VISIBILITY_ATLAS_BINDING,
                 &ddgi_volume.ddgi_visibility_atlas,
@@ -1893,28 +1950,38 @@ impl Tracer {
             "promoted DDGI token must still be coordinator-authoritative"
         );
         let active = self.ddgi_volumes.status().active();
+        let published = active
+            .published_iteration
+            .expect("promoted staging volume must have a finite published iteration");
         let promoted_terrain_revision = active.relocated_terrain_revision.unwrap_or_default();
         let cleared_terrain_invalidation = build_token.kind() == DdgiBuildKind::Terrain;
         log::info!(
-            "[DDGI] staging promoted token_serial={} kind={:?} spacing_voxels={} probes={} terrain_revision={} radiance_revision={:?} environment_revision={} transport={:?} iteration={} source={:?} cleared_terrain_invalidation={} stage={:?}",
+            "[DDGI] staging promoted token_serial={} kind={:?} spacing_voxels={} probes={} geometry_revision={} radiance_revision={} environment_revision={} published_transport={:?} published_iteration={} published_slot={} published_source={:?} building={:?} cleared_terrain_invalidation={} stage={:?}",
             build_token.serial(),
             build_token.kind(),
             active.grid.spacing_voxels(),
             active.grid.probe_count(),
             promoted_terrain_revision,
-            active.radiance_revision,
+            published.radiance_revision,
             active.global_sky_revision,
-            active.transport_stage,
-            active.transport_stage.map(DdgiTransportStage::iteration).unwrap_or_default(),
-            active.transport_stage.and_then(DdgiTransportStage::immutable_source),
+            published.stage,
+            published.iteration,
+            published.destination.slot.label(),
+            published.source,
+            active.building_transport_stage,
             cleared_terrain_invalidation,
             active.stage,
         );
         log::info!(
-            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} terrain_revision={} spacing_voxels={} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=update_ddgi_consumer_descriptors",
+            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} published_slot={} transport={:?} iteration={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=update_ddgi_consumer_descriptors",
             build_token.serial(),
             promoted_terrain_revision,
+            published.radiance_revision,
             active.grid.spacing_voxels(),
+            published.destination.slot.label(),
+            published.stage,
+            published.iteration,
+            published.source,
         );
         drop(retired_active);
     }
@@ -2384,6 +2451,7 @@ impl Tracer {
                 );
                 let filtered_probe_count = batch.first_probe_index + batch.probe_count;
                 let probe_count = volume.status().grid.probe_count();
+                let transport = batch.transport;
                 if batch.first_probe_index == 0
                     || filtered_probe_count == probe_count
                     || filtered_probe_count % 1_024 == 0
@@ -2400,43 +2468,125 @@ impl Tracer {
                         stats.frontface_hits,
                         stats.backface_hits,
                         stats.non_finite_records,
-                        batch.terrain_revision,
-                        batch.build_token.map(DdgiBuildToken::serial),
-                        batch.radiance_revision,
-                        batch.transport_stage,
-                        batch.transport_stage.iteration(),
-                        batch.transport_stage.immutable_source(),
+                        transport.geometry_revision,
+                        transport.build_token.map(DdgiBuildToken::serial),
+                        transport.radiance_revision,
+                        transport.stage,
+                        transport.iteration,
+                        transport.source,
                     );
                 }
                 let outcome = self
                     .ddgi_volumes
                     .builder_mut()
                     .mark_trace_stats_verified(batch)?;
-                let status = self.ddgi_volumes.builder().status();
                 match outcome {
                     DdgiVerifiedBatchOutcome::Continue => {}
-                    DdgiVerifiedBatchOutcome::SeedSkyComplete => log::info!(
-                        "[DDGI] transport iteration complete stage=SeedSky iteration=0 published=false source_ready=true probes={} terrain_revision={} token_serial={:?} radiance_revision={} next=SingleBounce",
-                        status.grid.probe_count(),
-                        batch.terrain_revision,
-                        batch.build_token.map(DdgiBuildToken::serial),
-                        batch.radiance_revision,
-                    ),
-                    DdgiVerifiedBatchOutcome::SingleBounceReady => {
+                    DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity) => {
+                        let atlas_stats = self
+                            .ddgi_volumes
+                            .builder()
+                            .update_atlas_validation_from_readback()?;
+                        let validated = self.ddgi_volumes.builder_mut().mark_atlas_validated(
+                            identity,
+                            atlas_stats,
+                            DDGI_CONVERGENCE_POLICY,
+                        )?;
+                        let status = self.ddgi_volumes.builder().status();
                         log::info!(
-                            "[DDGI] volume ready probes={} spacing_voxels={} terrain_revision={} radiance_revision={} token_serial={:?} transport=SingleBounce iteration=1 source=SeedSky stage={:?}",
-                            status.grid.probe_count(),
-                            status.grid.spacing_voxels(),
-                            batch.terrain_revision,
-                            batch.radiance_revision,
-                            batch.build_token.map(DdgiBuildToken::serial),
+                            "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} transport={:?} iteration={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} hard_max={} published_slot={:?} stage={:?}",
+                            identity.build_token.map(DdgiBuildToken::serial),
+                            identity.geometry_revision,
+                            identity.radiance_revision,
+                            identity.spacing_voxels,
+                            identity.stage,
+                            identity.iteration,
+                            identity.source,
+                            identity.source.map(|field| field.slot.label()).unwrap_or("none"),
+                            identity.destination.slot.label(),
+                            atlas_stats.max_absolute_rgb_delta,
+                            atlas_stats.max_relative_rgb_delta,
+                            atlas_stats.non_finite_count,
+                            atlas_stats.negative_rgb_texel_count,
+                            atlas_stats.valid_texel_count,
+                            atlas_stats.scanned_stored_texel_count,
+                            DDGI_CONVERGENCE_POLICY.absolute_threshold,
+                            DDGI_CONVERGENCE_POLICY.relative_threshold,
+                            status.consecutive_below_threshold,
+                            DDGI_CONVERGENCE_POLICY.consecutive_iterations,
+                            DDGI_CONVERGENCE_POLICY.hard_max_iteration,
+                            status.published_field.map(|field| field.slot),
                             status.stage,
                         );
-                        log::info!(
-                            "[ENV_LIGHTING] backend=ddgi ready=true terrain_revision={} transport=SingleBounce radiance_revision={}",
-                            batch.terrain_revision,
-                            batch.radiance_revision,
-                        );
+
+                        let published_field = match validated {
+                            DdgiValidatedIterationOutcome::SeedSkyComplete => {
+                                log::info!(
+                                    "[DDGI] transport iteration complete stage=SeedSky iteration=0 published=false source_ready=true next=SingleBounce identity={identity:?}"
+                                );
+                                None
+                            }
+                            DdgiValidatedIterationOutcome::Published {
+                                field,
+                                next,
+                                consecutive_below_threshold,
+                            } => {
+                                log::info!(
+                                    "[DDGI] finite field published transport={:?} iteration={} slot={} source={:?} next={:?} consecutive_below={} ready=true partial_next_never_visible=true",
+                                    field.stage,
+                                    field.iteration,
+                                    field.slot.label(),
+                                    identity.source,
+                                    next,
+                                    consecutive_below_threshold,
+                                );
+                                Some(field)
+                            }
+                            DdgiValidatedIterationOutcome::Converged { field, iteration } => {
+                                log::info!(
+                                    "[DDGI] transport converged iteration={} slot={} source={:?} ready=true",
+                                    iteration,
+                                    field.slot.label(),
+                                    identity.source,
+                                );
+                                Some(field)
+                            }
+                            DdgiValidatedIterationOutcome::NonConverged { field, iteration } => {
+                                log::warn!(
+                                    "[DDGI] transport hard max reached state=NonConverged iteration={} slot={} latest_finite_visible=true source={:?}",
+                                    iteration,
+                                    field.slot.label(),
+                                    identity.source,
+                                );
+                                Some(field)
+                            }
+                        };
+
+                        if let Some(field) = published_field {
+                            if self.ddgi_volumes.builder_is_active() {
+                                self.vulkan_ctx.device().wait_idle();
+                                self.update_ddgi_consumer_descriptors(self.ddgi_volumes.builder());
+                                log::info!(
+                                    "[DDGI][CONSUMERS] atomically rebound published_slot={} transport={:?} iteration={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?}",
+                                    field.slot.label(),
+                                    field.stage,
+                                    field.iteration,
+                                    field.build_token.map(DdgiBuildToken::serial),
+                                    field.geometry_revision,
+                                    field.radiance_revision,
+                                    field.spacing_voxels,
+                                    identity.source,
+                                );
+                                log::info!(
+                                    "[ENV_LIGHTING] backend=ddgi ready=true geometry_revision={} transport={:?} iteration={} radiance_revision={} slot={}",
+                                    field.geometry_revision,
+                                    field.stage,
+                                    field.iteration,
+                                    field.radiance_revision,
+                                    field.slot.label(),
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -2593,6 +2743,8 @@ impl Tracer {
 
         let ddgi_ray_batch = self.ddgi_volumes.builder().next_ray_batch_to_trace();
         if let Some(batch) = ddgi_ray_batch {
+            let iteration_will_complete =
+                self.ddgi_volumes.builder().iteration_will_complete(batch);
             {
                 let volume = self.ddgi_volumes.builder();
                 volume.ddgi_trace_stats.record_fill(
@@ -2601,6 +2753,14 @@ impl Tracer {
                     volume.status().resource_bytes.trace_stats,
                     0,
                 );
+                if iteration_will_complete {
+                    volume.ddgi_atlas_reduction.record_fill(
+                        cmdbuf,
+                        0,
+                        volume.status().resource_bytes.atlas_reduction,
+                        0,
+                    );
+                }
             }
             transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
@@ -2625,7 +2785,7 @@ impl Tracer {
             // TODO(ddgi-radiance-scheduler): visibility is geometry-owned. A radiance-only S0
             // rebuild should retain this atlas instead of rewriting it; strict bootstrap and
             // geometry rebuilds intentionally write it exactly once in S0 today.
-            if batch.transport_stage == DdgiTransportStage::SeedSky {
+            if batch.transport.stage == DdgiTransportStage::SeedSky {
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
@@ -2643,10 +2803,23 @@ impl Tracer {
                 || self.record_ddgi_atlas_gutter_passes(cmdbuf, batch),
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            if iteration_will_complete {
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "ddgi.atlas_reduce",
+                    || self.record_ddgi_atlas_reduction_pass(cmdbuf, batch),
+                );
+                compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            }
 
             let volume = self.ddgi_volumes.builder();
             compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             volume.record_trace_stats_readback(cmdbuf);
+            if iteration_will_complete {
+                volume.record_atlas_reduction_readback(cmdbuf);
+            }
             transfer_to_host_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.ddgi_trace_stats_readback_pending = Some(batch);
 
@@ -2658,23 +2831,22 @@ impl Tracer {
                 || status.filtered_probe_count % 1_024 == 0
             {
                 log::info!(
-                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} terrain_revision={} token_serial={:?} radiance_revision={} transport={:?} iteration={} destination={} visibility_written={} awaiting_trace_stats=true stage={:?}",
+                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} transport={:?} iteration={} source={:?} destination={} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
                     batch.first_probe_index,
                     batch.probe_count,
                     crate::ddgi::DDGI_RAYS_PER_PROBE,
                     status.filtered_probe_count,
                     status.grid.probe_count(),
-                    batch.terrain_revision,
-                    batch.build_token.map(DdgiBuildToken::serial),
-                    batch.radiance_revision,
-                    batch.transport_stage,
-                    batch.transport_stage.iteration(),
-                    if batch.transport_stage == DdgiTransportStage::SeedSky {
-                        "transport_source"
-                    } else {
-                        "consumer"
-                    },
-                    batch.transport_stage == DdgiTransportStage::SeedSky,
+                    batch.transport.geometry_revision,
+                    batch.transport.build_token.map(DdgiBuildToken::serial),
+                    batch.transport.radiance_revision,
+                    batch.transport.spacing_voxels,
+                    batch.transport.stage,
+                    batch.transport.iteration,
+                    batch.transport.source,
+                    batch.transport.destination.slot.label(),
+                    batch.transport.stage == DdgiTransportStage::SeedSky,
+                    iteration_will_complete,
                     status.stage,
                 );
             }
@@ -4193,10 +4365,15 @@ impl Tracer {
         let push_constants = DdgiProbeTracePushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
-            terrain_revision: batch.terrain_revision,
-            transport_iteration: batch.transport_stage.iteration(),
+            terrain_revision: batch.transport.geometry_revision,
+            transport_iteration: batch.transport.iteration,
+            source_slot: batch
+                .transport
+                .source
+                .map(|source| source.slot as u32)
+                .unwrap_or_default(),
             far_distance_world,
-            _padding_float: [0.0; 3],
+            _padding: [0; 2],
         };
         self.compute_pipelines.ddgi_probe_trace_ppl.record(
             cmdbuf,
@@ -4211,9 +4388,9 @@ impl Tracer {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
             tile_columns: volume.status().irradiance_layout.tile_grid().x,
-            terrain_revision: batch.terrain_revision,
+            terrain_revision: batch.transport.geometry_revision,
             destination_is_transport_source: u32::from(
-                batch.transport_stage == DdgiTransportStage::SeedSky,
+                batch.transport.destination.slot == crate::ddgi::DdgiIrradianceSlot::Atlas1,
             ),
         };
         self.compute_pipelines.ddgi_irradiance_filter_ppl.record(
@@ -4237,7 +4414,7 @@ impl Tracer {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
             tile_columns: volume.status().visibility_layout.tile_grid().x,
-            terrain_revision: batch.terrain_revision,
+            terrain_revision: batch.transport.geometry_revision,
             spacing_world: spacing_world.to_array(),
             far_distance_world,
         };
@@ -4259,7 +4436,7 @@ impl Tracer {
             probe_count: batch.probe_count,
             tile_columns: volume.status().irradiance_layout.tile_grid().x,
             destination_is_transport_source: u32::from(
-                batch.transport_stage == DdgiTransportStage::SeedSky,
+                batch.transport.destination.slot == crate::ddgi::DdgiIrradianceSlot::Atlas1,
             ),
         };
         self.compute_pipelines.ddgi_irradiance_gutter_ppl.record(
@@ -4268,7 +4445,7 @@ impl Tracer {
             Some(bytemuck::bytes_of(&irradiance_push)),
         );
 
-        if batch.transport_stage == DdgiTransportStage::SeedSky {
+        if batch.transport.stage == DdgiTransportStage::SeedSky {
             let visibility_push = DdgiAtlasGutterPushConstants {
                 tile_columns: volume.status().visibility_layout.tile_grid().x,
                 ..irradiance_push
@@ -4279,6 +4456,29 @@ impl Tracer {
                 Some(bytemuck::bytes_of(&visibility_push)),
             );
         }
+    }
+
+    fn record_ddgi_atlas_reduction_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
+        let volume = self.ddgi_volumes.builder();
+        let source = batch.transport.source;
+        let push_constants = DdgiAtlasReductionPushConstants {
+            terrain_revision: batch.transport.geometry_revision,
+            probe_count: volume.status().grid.probe_count(),
+            tile_columns: volume.status().irradiance_layout.tile_grid().x,
+            destination_slot: batch.transport.destination.slot as u32,
+            source_slot: source.map(|field| field.slot as u32).unwrap_or_default(),
+            has_source: u32::from(source.is_some()),
+            relative_floor: DDGI_CONVERGENCE_POLICY.relative_floor,
+            _padding: 0,
+        };
+        let stored_texel_count =
+            volume.status().grid.probe_count() * DDGI_IRRADIANCE_STORED_SIDE.pow(2);
+        let workgroup_count = stored_texel_count.div_ceil(DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE);
+        self.compute_pipelines.ddgi_atlas_reduce_ppl.record(
+            cmdbuf,
+            Extent3D::new(workgroup_count * DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE, 1, 1),
+            Some(bytemuck::bytes_of(&push_constants)),
+        );
     }
 
     fn record_shadow_depth_copy_pass(&self, cmdbuf: &CommandBuffer) {
