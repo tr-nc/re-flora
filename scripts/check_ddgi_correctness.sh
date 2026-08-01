@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 auto_exit="${DDGI_CORRECTNESS_AUTO_EXIT:-12}"
 output_root="${DDGI_CORRECTNESS_OUTPUT_DIR:-$repo_root/target/ddgi-correctness}"
+terrain_hard_origin="${DDGI_CORRECTNESS_TERRAIN_HARD_ORIGIN:-}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 run_dir="$output_root/$run_id"
 dry_run=false
@@ -54,6 +55,9 @@ for case_name in "${cases[@]}"; do
             --environment-probe-spacing-voxels "$spacing"
             --auto-exit "$auto_exit"
         )
+        if [[ -n "$terrain_hard_origin" ]]; then
+            command+=(--ddgi-terrain-hard-origin "$terrain_hard_origin")
+        fi
         if $dry_run; then
             for view_and_path in \
                 "final:$first" \
