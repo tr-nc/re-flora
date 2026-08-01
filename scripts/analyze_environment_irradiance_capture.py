@@ -18,6 +18,7 @@ HEADER_V1 = struct.Struct("<8s6I")
 HEADER_V2 = struct.Struct("<8s7I")
 HEADER_V3 = struct.Struct("<8s10I2Q4IQI2f2I")
 HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
+HEADER_V5 = HEADER_V4
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
@@ -70,6 +71,7 @@ class Capture:
     debug_view: int
     payload: bytes
     world_payload: bytes = b""
+    direct_light_payload: bytes = b""
     plane_count: int = 1
     geometry_revision: int | None = None
     radiance_revision: int | None = None
@@ -167,9 +169,10 @@ def load_capture(path: Path) -> Capture:
             "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
         }
-    elif version == 4:
-        if len(data) < HEADER_V4.size:
-            raise ValueError(f"{path}: truncated v4 header")
+    elif version in (4, 5):
+        header = HEADER_V4 if version == 4 else HEADER_V5
+        if len(data) < header.size:
+            raise ValueError(f"{path}: truncated v{version} header")
         (
             _,
             _,
@@ -197,8 +200,8 @@ def load_capture(path: Path) -> Capture:
             max_rel_delta,
             nonfinite_count,
             valid_count,
-        ) = HEADER_V4.unpack_from(data)
-        header_size = HEADER_V4.size
+        ) = header.unpack_from(data)
+        header_size = header.size
         metadata = {
             "geometry_revision": None if geometry_revision == UNKNOWN_U32 else geometry_revision,
             "radiance_revision": None if radiance_revision == UNKNOWN_U32 else radiance_revision,
@@ -222,8 +225,12 @@ def load_capture(path: Path) -> Capture:
         raise ValueError(f"{path}: unsupported version {version}")
     if channels != 4:
         raise ValueError(f"{path}: expected four float channels, got {channels}")
-    if plane_count not in (1, 2):
-        raise ValueError(f"{path}: expected one or two float4 planes, got {plane_count}")
+    expected_plane_counts = (3,) if version == 5 else (1, 2)
+    if plane_count not in expected_plane_counts:
+        expected_label = "three" if version == 5 else "one or two"
+        raise ValueError(
+            f"{path}: expected {expected_label} float4 planes, got {plane_count}"
+        )
     payload = data[header_size:]
     plane_size = width * height * PIXEL.size
     expected = plane_size * plane_count
@@ -238,7 +245,8 @@ def load_capture(path: Path) -> Capture:
         spacing,
         debug_view,
         payload[:plane_size],
-        payload[plane_size:],
+        payload[plane_size : 2 * plane_size] if plane_count >= 2 else b"",
+        payload[2 * plane_size : 3 * plane_size] if plane_count >= 3 else b"",
         plane_count,
         **metadata,
     )
@@ -254,6 +262,10 @@ def percentile(sorted_values: list[float], fraction: float) -> float:
 def summarize(
     capture: Capture,
     world_roi: tuple[float, float, float, float, float, float] | None = None,
+    direct_light_sunlit_roi: tuple[float, float, float, float, float, float]
+    | None = None,
+    direct_light_shadowed_roi: tuple[float, float, float, float, float, float]
+    | None = None,
 ) -> dict[str, object]:
     luminances: list[float] = []
     finite = True
@@ -329,8 +341,74 @@ def summarize(
                     exact_sun_visibility
                 ):
                     exact_sun_visibilities.append(exact_sun_visibility)
+
+    direct_light_available = bool(capture.direct_light_payload)
+    direct_light_finite = True
+    direct_light_hit_mask_matches: bool | None = (
+        True if direct_light_available else None
+    )
+    direct_light_luminances: list[float] = []
+    direct_light_rgb_channel_negative_count = [0, 0, 0]
+    direct_light_roi_luminances = {
+        "sunlit": [],
+        "shadowed": [],
+    }
+    direct_light_roi_hit_counts = {
+        "sunlit": 0,
+        "shadowed": 0,
+    }
+    direct_light_rois = {
+        "sunlit": direct_light_sunlit_roi,
+        "shadowed": direct_light_shadowed_roi,
+    }
+    if direct_light_available:
+        for irradiance_pixel, world_pixel, direct_pixel in zip(
+            PIXEL.iter_unpack(capture.payload),
+            world_pixels,
+            PIXEL.iter_unpack(capture.direct_light_payload),
+        ):
+            terrain_hit = irradiance_pixel[3] > 0.5
+            direct_red, direct_green, direct_blue, direct_hit = direct_pixel
+            direct_rgb = (direct_red, direct_green, direct_blue)
+            finite_direct_pixel = all(
+                math.isfinite(value) for value in direct_pixel
+            )
+            direct_light_finite = direct_light_finite and finite_direct_pixel
+            direct_light_hit_mask_matches = bool(
+                direct_light_hit_mask_matches
+                and terrain_hit == (direct_hit > 0.5)
+            )
+            if not terrain_hit or not finite_direct_pixel:
+                continue
+            direct_luminance = (
+                0.2126 * direct_red
+                + 0.7152 * direct_green
+                + 0.0722 * direct_blue
+            )
+            direct_light_luminances.append(direct_luminance)
+            for channel, value in enumerate(direct_rgb):
+                if value < 0.0:
+                    direct_light_rgb_channel_negative_count[channel] += 1
+            if world_pixel is None:
+                continue
+            position = world_pixel[:3]
+            for roi_name, roi in direct_light_rois.items():
+                if roi is None:
+                    continue
+                min_x, min_y, min_z, max_x, max_y, max_z = roi
+                if (
+                    min_x <= position[0] <= max_x
+                    and min_y <= position[1] <= max_y
+                    and min_z <= position[2] <= max_z
+                ):
+                    direct_light_roi_hit_counts[roi_name] += 1
+                    direct_light_roi_luminances[roi_name].append(direct_luminance)
+
     luminances.sort()
     roi_luminances.sort()
+    direct_light_luminances.sort()
+    for values in direct_light_roi_luminances.values():
+        values.sort()
     roi_channel_mean = (
         [value / roi_terrain_hit_count for value in roi_channel_sum]
         if roi_terrain_hit_count > 0
@@ -364,7 +442,7 @@ def summarize(
         "debug_view": DEBUG_VIEW_LABELS.get(capture.debug_view, capture.debug_view),
         "sample_count": capture.sample_count,
         "terrain_hit_count": terrain_hit_count,
-        "finite": finite,
+        "finite": finite and direct_light_finite,
         "metadata_finite": metadata_finite,
         "rgb_abs_max": rgb_abs_max,
         "rgb_nonzero_count": rgb_nonzero_count,
@@ -403,6 +481,75 @@ def summarize(
         "exact_direct_sun_visibility_max": (
             max(exact_sun_visibilities) if exact_sun_visibilities else None
         ),
+        "direct_light_available": direct_light_available,
+        "direct_light_finite": direct_light_finite if direct_light_available else None,
+        "direct_light_hit_mask_matches": direct_light_hit_mask_matches,
+        "direct_light_rgb_channel_negative_count": (
+            direct_light_rgb_channel_negative_count
+            if direct_light_available
+            else None
+        ),
+        "direct_light_luminance_mean": (
+            sum(direct_light_luminances) / len(direct_light_luminances)
+            if direct_light_luminances
+            else None
+        ),
+        "direct_light_luminance_p99": (
+            percentile(direct_light_luminances, 0.99)
+            if direct_light_luminances
+            else None
+        ),
+        "direct_light_luminance_max": (
+            direct_light_luminances[-1] if direct_light_luminances else None
+        ),
+        "direct_light_sunlit_roi": (
+            list(direct_light_sunlit_roi)
+            if direct_light_sunlit_roi is not None
+            else None
+        ),
+        "direct_light_sunlit_roi_terrain_hit_count": direct_light_roi_hit_counts[
+            "sunlit"
+        ],
+        "direct_light_sunlit_roi_luminance_mean": (
+            sum(direct_light_roi_luminances["sunlit"])
+            / len(direct_light_roi_luminances["sunlit"])
+            if direct_light_roi_luminances["sunlit"]
+            else None
+        ),
+        "direct_light_sunlit_roi_luminance_p99": (
+            percentile(direct_light_roi_luminances["sunlit"], 0.99)
+            if direct_light_roi_luminances["sunlit"]
+            else None
+        ),
+        "direct_light_sunlit_roi_luminance_max": (
+            direct_light_roi_luminances["sunlit"][-1]
+            if direct_light_roi_luminances["sunlit"]
+            else None
+        ),
+        "direct_light_shadowed_roi": (
+            list(direct_light_shadowed_roi)
+            if direct_light_shadowed_roi is not None
+            else None
+        ),
+        "direct_light_shadowed_roi_terrain_hit_count": direct_light_roi_hit_counts[
+            "shadowed"
+        ],
+        "direct_light_shadowed_roi_luminance_mean": (
+            sum(direct_light_roi_luminances["shadowed"])
+            / len(direct_light_roi_luminances["shadowed"])
+            if direct_light_roi_luminances["shadowed"]
+            else None
+        ),
+        "direct_light_shadowed_roi_luminance_p99": (
+            percentile(direct_light_roi_luminances["shadowed"], 0.99)
+            if direct_light_roi_luminances["shadowed"]
+            else None
+        ),
+        "direct_light_shadowed_roi_luminance_max": (
+            direct_light_roi_luminances["shadowed"][-1]
+            if direct_light_roi_luminances["shadowed"]
+            else None
+        ),
         "geometry_revision": capture.geometry_revision,
         "radiance_revision": capture.radiance_revision,
         "radiance_model_identity": capture.radiance_model_identity,
@@ -431,6 +578,11 @@ def summarize(
         "header_nonfinite_count": capture.nonfinite_count,
         "header_valid_count": capture.valid_count,
         "payload_sha256": hashlib.sha256(capture.payload).hexdigest(),
+        "direct_light_payload_sha256": (
+            hashlib.sha256(capture.direct_light_payload).hexdigest()
+            if direct_light_available
+            else None
+        ),
     }
 
 
@@ -488,9 +640,20 @@ def compare(first: Capture, second: Capture) -> dict[str, object]:
             compatible
             and first.payload == second.payload
             and first.world_payload == second.world_payload
+            and first.direct_light_payload == second.direct_light_payload
         ),
         "first_sha256": hashlib.sha256(first.payload).hexdigest(),
         "second_sha256": hashlib.sha256(second.payload).hexdigest(),
+        "first_direct_light_sha256": (
+            hashlib.sha256(first.direct_light_payload).hexdigest()
+            if first.direct_light_payload
+            else None
+        ),
+        "second_direct_light_sha256": (
+            hashlib.sha256(second.direct_light_payload).hexdigest()
+            if second.direct_light_payload
+            else None
+        ),
     }
 
 
@@ -644,6 +807,10 @@ def main() -> int:
     parser.add_argument("--min-roi-luminance-mean", type=float)
     parser.add_argument("--max-roi-luminance-mean", type=float)
     parser.add_argument("--max-exact-direct-sun-visibility", type=float)
+    parser.add_argument("--direct-light-sunlit-roi", type=float, nargs=6)
+    parser.add_argument("--min-direct-light-sunlit-luminance-mean", type=float)
+    parser.add_argument("--direct-light-shadowed-roi", type=float, nargs=6)
+    parser.add_argument("--max-direct-light-shadowed-luminance-max", type=float)
     parser.add_argument("--expect-version", type=int)
     parser.add_argument("--expect-spacing-voxels", type=int)
     parser.add_argument("--expect-geometry-revision", type=int)
@@ -678,7 +845,18 @@ def main() -> int:
 
     first = load_capture(args.capture)
     capture_summary = summarize(
-        first, tuple(args.world_roi) if args.world_roi is not None else None
+        first,
+        tuple(args.world_roi) if args.world_roi is not None else None,
+        (
+            tuple(args.direct_light_sunlit_roi)
+            if args.direct_light_sunlit_roi is not None
+            else None
+        ),
+        (
+            tuple(args.direct_light_shadowed_roi)
+            if args.direct_light_shadowed_roi is not None
+            else None
+        ),
     )
     failures: list[str] = []
     report: dict[str, object] = {
@@ -744,12 +922,28 @@ def main() -> int:
         "exact_direct_sun_visibility_max",
         args.max_exact_direct_sun_visibility,
     )
+    gate_min(
+        "direct_light_sunlit_roi_luminance_mean",
+        args.min_direct_light_sunlit_luminance_mean,
+    )
+    gate_max(
+        "direct_light_shadowed_roi_luminance_max",
+        args.max_direct_light_shadowed_luminance_max,
+    )
     if first.nonfinite_count is not None:
         expect("header_nonfinite_count", 0)
     if not capture_summary["metadata_finite"]:
         failures.append("capture metadata contains nonfinite convergence values")
     if args.correctness and capture_summary["transport_stage"] == "non-converged":
         failures.append("correctness mode rejects NonConverged DDGI fields")
+    if capture_summary["direct_light_available"]:
+        if not capture_summary["direct_light_hit_mask_matches"]:
+            failures.append("direct-light plane hit mask does not match irradiance plane")
+        if args.correctness and any(
+            count != 0
+            for count in capture_summary["direct_light_rgb_channel_negative_count"]
+        ):
+            failures.append("terrain-hit direct-light RGB contains negative channels")
     if capture_summary["transport_stage"] == "converged":
         for field, threshold in (
             ("max_abs_delta", args.convergence_max_abs_delta),

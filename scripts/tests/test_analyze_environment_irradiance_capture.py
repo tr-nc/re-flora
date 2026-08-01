@@ -15,6 +15,7 @@ import analyze_environment_irradiance_capture as analyzer  # noqa: E402
 
 HEADER_V3 = struct.Struct("<8s10I2Q4IQI2f2I")
 HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
+HEADER_V5 = HEADER_V4
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
@@ -143,6 +144,169 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             for pixel in irradiance_pixels + world_pixels
         )
         path.write_bytes(header + payload)
+
+    def write_capture_v5(
+        self,
+        path: Path,
+        irradiance_pixels: list[tuple[float, float, float, float]],
+        world_pixels: list[tuple[float, float, float, float]],
+        direct_light_pixels: list[tuple[float, float, float, float]],
+    ) -> None:
+        self.assertEqual(len(irradiance_pixels), len(world_pixels))
+        self.assertEqual(len(irradiance_pixels), len(direct_light_pixels))
+        header = HEADER_V5.pack(
+            analyzer.MAGIC,
+            5,
+            len(irradiance_pixels),
+            1,
+            4,
+            1,
+            16,
+            0,
+            3,
+            41,
+            17,
+            0xA11CE,
+            9001,
+            89,
+            2,
+            1,
+            1,
+            0,
+            88,
+            16,
+            1,
+            0,
+            0.0125,
+            0.025,
+            0,
+            len(irradiance_pixels),
+        )
+        payload = b"".join(
+            analyzer.PIXEL.pack(*pixel)
+            for pixel in irradiance_pixels + world_pixels + direct_light_pixels
+        )
+        path.write_bytes(header + payload)
+
+    def test_loads_v5_direct_light_plane_without_breaking_v4(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            v4_path = Path(directory) / "capture-v4.rfirr"
+            v5_path = Path(directory) / "capture-v5.rfirr"
+            self.write_capture_v4(
+                v4_path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+            )
+            direct_pixels = [(0.75, 0.5, 0.25, 1.0)]
+            self.write_capture_v5(
+                v5_path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+                direct_pixels,
+            )
+
+            v4_capture = analyzer.load_capture(v4_path)
+            v5_capture = analyzer.load_capture(v5_path)
+
+        self.assertEqual(v4_capture.version, 4)
+        self.assertEqual(v4_capture.plane_count, 2)
+        self.assertEqual(v4_capture.direct_light_payload, b"")
+        self.assertEqual(v5_capture.version, 5)
+        self.assertEqual(v5_capture.plane_count, 3)
+        self.assertEqual(
+            list(analyzer.PIXEL.iter_unpack(v5_capture.direct_light_payload)),
+            direct_pixels,
+        )
+
+    def test_cli_gates_independent_sunlit_and_shadowed_direct_light_rois(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "direct-light-evidence.rfirr"
+            self.write_capture_v5(
+                capture_path,
+                [
+                    (0.0, 0.0, 0.0, 1.0),
+                    (0.0, 0.0, 0.0, 1.0),
+                ],
+                [
+                    (1.0, 2.0, 3.0, 0.0),
+                    (10.0, 2.0, 3.0, 1.0),
+                ],
+                [
+                    (0.0, 0.0, 0.0, 1.0),
+                    (1.0, 0.5, 0.25, 1.0),
+                ],
+            )
+            common = (
+                "--correctness",
+                "--require-zero-rgb",
+                "--direct-light-shadowed-roi",
+                "0",
+                "0",
+                "0",
+                "5",
+                "5",
+                "5",
+                "--max-direct-light-shadowed-luminance-max",
+                "0",
+                "--direct-light-sunlit-roi",
+                "9",
+                "0",
+                "0",
+                "11",
+                "5",
+                "5",
+                "--min-direct-light-sunlit-luminance-mean",
+            )
+            accepted = self.run_analyzer(capture_path, *common, "0.58")
+            rejected = self.run_analyzer(capture_path, *common, "0.59")
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        summary = json.loads(accepted.stdout)["capture"]
+        self.assertTrue(summary["direct_light_available"])
+        self.assertTrue(summary["direct_light_hit_mask_matches"])
+        self.assertEqual(summary["direct_light_sunlit_roi_terrain_hit_count"], 1)
+        self.assertAlmostEqual(
+            summary["direct_light_sunlit_roi_luminance_mean"], 0.58825
+        )
+        self.assertEqual(
+            summary["direct_light_shadowed_roi_luminance_max"], 0.0
+        )
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        self.assertIn(
+            "direct_light_sunlit_roi_luminance_mean: expected at least 0.59",
+            json.loads(rejected.stdout)["validation_failures"][0],
+        )
+
+    def test_v5_bit_exact_comparison_includes_direct_light_plane(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v5.rfirr"
+            second_path = Path(directory) / "second-v5.rfirr"
+            irradiance = [(0.0, 0.0, 0.0, 1.0)]
+            world = [(1.0, 2.0, 3.0, 1.0)]
+            self.write_capture_v5(
+                first_path,
+                irradiance,
+                world,
+                [(0.75, 0.5, 0.25, 1.0)],
+            )
+            self.write_capture_v5(
+                second_path,
+                irradiance,
+                world,
+                [(0.5, 0.5, 0.25, 1.0)],
+            )
+
+            comparison = analyzer.compare(
+                analyzer.load_capture(first_path),
+                analyzer.load_capture(second_path),
+            )
+
+        self.assertTrue(comparison["compatible"])
+        self.assertFalse(comparison["bit_exact"])
+        self.assertNotEqual(
+            comparison["first_direct_light_sha256"],
+            comparison["second_direct_light_sha256"],
+        )
 
     def test_loads_v4_canonical_field_source_and_build_identities(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
