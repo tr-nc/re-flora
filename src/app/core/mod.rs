@@ -1389,7 +1389,6 @@ impl App {
         }
         app.apply_effective_master_volume_gain("Failed to apply initial master volume");
 
-        app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
         if options.environment_lighting_test_scene.is_some() {
             app.configure_environment_lighting_test_scene_camera();
         }
@@ -1401,6 +1400,10 @@ impl App {
         if options.hybrid_transparency_test_scene {
             app.configure_hybrid_transparency_test_scene()?;
         }
+        // Test scenes provide a useful default pose, but an explicit snapshot
+        // is the caller's final camera choice for screenshots and repro runs.
+        app.apply_startup_camera_snapshot(options.camera_snapshot.as_deref())?;
+        app.sync_cursor_with_panels();
 
         Ok(app)
     }
