@@ -1,0 +1,199 @@
+{
+  "capture_contract": {
+    "authored_scene_marker": "[ENV_LIGHT_TEST] case=portal camera position=(0.650,0.520,1.380) target=(0.650,0.780,1.100) time_of_day=0.455705 auto_cycle=false voxel_color_variance=0.000",
+    "command_template": [
+      "cargo",
+      "run",
+      "--release",
+      "--",
+      "--hidden",
+      "--mute",
+      "--environment-lighting-test-scene",
+      "portal",
+      "--environment-probe-spacing-voxels",
+      "{spacing}",
+      "--environment-irradiance-capture",
+      "{capture}",
+      "--auto-exit",
+      "12"
+    ],
+    "field": "pre-transport-sky-only",
+    "field_reason": "These adjacent commits predate the runtime transport field scheduler and capture-target CLI; the final-view DDGI sky-seeded field was the only field available.",
+    "spacings_voxels": [
+      32,
+      16
+    ]
+  },
+  "cases": [
+    {
+      "captures": {
+        "after": {
+          "backend": 1,
+          "debug_view": "final",
+          "file_sha256": "e6e9cca567591b6f2b7843317e7b09f8ea89febd5f98ac57e980aaa35fa18556",
+          "finite": true,
+          "height": 349,
+          "luminance_max": 0.41559177286103366,
+          "luminance_mean": 0.017563600602696225,
+          "luminance_p99": 0.13759063641130923,
+          "path": "after/portal-spacing32-sky-only.rfirr",
+          "payload_sha256": "0c18af1c80a0e9cf7c85bf335bf419412b053f18ee30f442766c7b0734ed8000",
+          "sample_count": 178688,
+          "spacing_voxels": 32,
+          "terrain_hit_count": 161236,
+          "version": 2,
+          "width": 512
+        },
+        "before": {
+          "backend": 1,
+          "debug_view": "final",
+          "file_sha256": "01380b1fb5533e46bf646820641014d00b515944f644315e951af40dda6ef120",
+          "finite": true,
+          "height": 349,
+          "luminance_max": 0.41559172785580156,
+          "luminance_mean": 0.017563601146313917,
+          "luminance_p99": 0.13759065137207507,
+          "path": "before/portal-spacing32-sky-only.rfirr",
+          "payload_sha256": "4640b659bd6aab6f2a95051998120446336a816f7ea45d0e7f1836502a05012b",
+          "sample_count": 178688,
+          "spacing_voxels": 32,
+          "terrain_hit_count": 161236,
+          "version": 2,
+          "width": 512
+        }
+      },
+      "comparison": {
+        "channel_error_max": 3.5762786865234375e-07,
+        "channel_error_p99": 1.1920928955078125e-07,
+        "compatible": true,
+        "hit_mask_matches": true,
+        "luminance_error_max": 1.1834800243377685e-07,
+        "luminance_error_mean": 9.183755292899597e-10,
+        "luminance_error_p99": 1.535676419734955e-08,
+        "luminance_error_peak_xy": [
+          208,
+          131
+        ],
+        "luminance_overestimate_max": 5.984306339357204e-08,
+        "luminance_overestimate_mean": 8.082601021320108e-11,
+        "luminance_overestimate_p99": 1.0758638389896102e-09,
+        "luminance_overestimate_peak_xy": [
+          313,
+          132
+        ],
+        "metadata_mismatches": [],
+        "sample_count": 161236
+      },
+      "console_logs": {
+        "after": {
+          "file_sha256": "a095114e67c897850e33a075783e22d4620a009d4166eb884eeb2b5e2b3029ce",
+          "path": "after/portal-spacing32-sky-only.console.log"
+        },
+        "before": {
+          "file_sha256": "47de68badcba63e64611c28ac0a16f13f4a4159ccf4b6799e3a12ba3ccf2790c",
+          "path": "before/portal-spacing32-sky-only.console.log"
+        }
+      },
+      "result": "pass",
+      "spacing_voxels": 32
+    },
+    {
+      "captures": {
+        "after": {
+          "backend": 1,
+          "debug_view": "final",
+          "file_sha256": "a4119e4a828136cf367e41de530b4ebdf95e582458f35300a4df97b473bab828",
+          "finite": true,
+          "height": 349,
+          "luminance_max": 0.385941715708375,
+          "luminance_mean": 0.015098889596138015,
+          "luminance_p99": 0.13919597232881933,
+          "path": "after/portal-spacing16-sky-only.rfirr",
+          "payload_sha256": "8da5c993619856e632663e3c86ef2f0d1c9c61cc09b3108664ae4515ff2c0c20",
+          "sample_count": 178688,
+          "spacing_voxels": 16,
+          "terrain_hit_count": 161236,
+          "version": 2,
+          "width": 512
+        },
+        "before": {
+          "backend": 1,
+          "debug_view": "final",
+          "file_sha256": "0d8dad3f8d6e3e8dacfe9e474a12c2e12cda9d94c5e9ccf970a9e065763f7742",
+          "finite": true,
+          "height": 349,
+          "luminance_max": 0.3859417575456202,
+          "luminance_mean": 0.01509888990133113,
+          "luminance_p99": 0.13919598093573005,
+          "path": "before/portal-spacing16-sky-only.rfirr",
+          "payload_sha256": "512c9f4fd091d268a936eeeb3245f7270e462eb4188d3f06ff9ad28f11aff22a",
+          "sample_count": 178688,
+          "spacing_voxels": 16,
+          "terrain_hit_count": 161236,
+          "version": 2,
+          "width": 512
+        }
+      },
+      "comparison": {
+        "channel_error_max": 3.5762786865234375e-07,
+        "channel_error_p99": 5.960464477539063e-08,
+        "compatible": true,
+        "hit_mask_matches": true,
+        "luminance_error_max": 1.0326430201530455e-07,
+        "luminance_error_mean": 6.888521386518378e-10,
+        "luminance_error_p99": 1.6381964087486267e-08,
+        "luminance_error_peak_xy": [
+          315,
+          129
+        ],
+        "luminance_overestimate_max": 7.082596414909048e-08,
+        "luminance_overestimate_mean": 1.302914335839724e-10,
+        "luminance_overestimate_p99": 1.6011297704343619e-09,
+        "luminance_overestimate_peak_xy": [
+          311,
+          132
+        ],
+        "metadata_mismatches": [],
+        "sample_count": 161236
+      },
+      "console_logs": {
+        "after": {
+          "file_sha256": "83d5a5dc118b01fbe5aefcf29ad4287e2e4036841e4dac6b51f1b65327b54819",
+          "path": "after/portal-spacing16-sky-only.console.log"
+        },
+        "before": {
+          "file_sha256": "f3956424173e4eac0a964c489aac8c156be768ab929a94626469c6211c754471",
+          "path": "before/portal-spacing16-sky-only.console.log"
+        }
+      },
+      "result": "pass",
+      "spacing_voxels": 16
+    }
+  ],
+  "git": {
+    "after_commit": "91e23918d9f65b33e0cffa928d0418d69aa038ec",
+    "before_commit": "3b731b6e73a6412107bcb28eb74a741930e4e1bf",
+    "changed_files": [
+      "shader/slang/ddgi_global_sky_filter.slang",
+      "shader/slang/ddgi_irradiance_filter.slang",
+      "shader/slang/ddgi_probe_trace.slang"
+    ],
+    "runtime_transport_symbols_absent": [
+      "DdgiFieldStage",
+      "DdgiFieldKey",
+      "environment_irradiance_capture_target"
+    ],
+    "subjects": {
+      "after": "normalize DDGI diffuse irradiance energy",
+      "before": "specify DDGI indirect transport"
+    }
+  },
+  "hard_thresholds": {
+    "channel_error_max": 1e-06,
+    "hit_mask_matches": true,
+    "luminance_error_max": 1e-06
+  },
+  "overall_result": "pass",
+  "purpose": "Presentation parity across the adjacent DDGI irradiance-normalization change under fixed authored sky-only settings.",
+  "schema_version": 1
+}

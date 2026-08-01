@@ -68,6 +68,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "summarize_ddgi_convergence.py",
             "--consecutive-iterations 2",
             "--hard-max-iteration 8",
+            "check_ddgi_sky_normalization_evidence.py",
         ):
             self.assertIn(contract, output)
 

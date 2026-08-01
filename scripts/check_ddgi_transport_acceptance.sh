@@ -275,6 +275,13 @@ run_child() {
 run_child "$repo_root/scripts/check_ddgi_correctness.sh"
 run_child "$repo_root/scripts/check_ddgi_runtime_terrain_edits.sh"
 
+normalization_evidence_checker="$repo_root/scripts/check_ddgi_sky_normalization_evidence.py"
+if $dry_run; then
+    print_command python3 "$normalization_evidence_checker"
+elif ! python3 "$normalization_evidence_checker"; then
+    failures=$((failures + 1))
+fi
+
 lifecycle_runner="$repo_root/scripts/check_ddgi_lifecycle_acceptance.sh"
 if [[ ! -x "$lifecycle_runner" ]]; then
     echo "[DDGI_TRANSPORT] FAIL lifecycle runner missing: $lifecycle_runner" >&2
