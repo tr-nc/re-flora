@@ -158,7 +158,8 @@ impl ExtentDependentResources {
     ) -> Buffer {
         let byte_count = u64::from(rendering_extent.width)
             * u64::from(rendering_extent.height)
-            * std::mem::size_of::<[f32; 4]>() as u64;
+            * std::mem::size_of::<[f32; 4]>() as u64
+            * 2;
         Buffer::new_sized(
             device,
             allocator,

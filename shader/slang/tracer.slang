@@ -1,5 +1,6 @@
 import aabb;
 import contree_node;
+import ddgi_exact_sun_visibility;
 import ddgi_query;
 import environment_lighting;
 import marching_result;
@@ -238,9 +239,12 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
 }
 
 void getPixelColor(out float3 color, out float depth,
-                   out float3 environmentIrradiance, Ray ray,
+                   out float3 environmentIrradiance, out float terrainHit,
+                   out float4 environmentCaptureWorld, Ray ray,
                    float2 screenUv, uint localInvocationIndex)
 {
+    terrainHit = 0.0;
+    environmentCaptureWorld = float4(0.0);
     if (shading_info.ddgi_debug_view == DDGI_DEBUG_IRRADIANCE_ATLAS)
     {
         environmentIrradiance = sampleDdgiIrradianceAtlasDebug(screenUv);
@@ -266,7 +270,18 @@ void getPixelColor(out float3 color, out float depth,
         return;
     }
 
+    terrainHit = 1.0;
     depth = depthFromWorldPosition(result.position);
+    float exactDirectSunVisibility = 0.0;
+    if (shading_info.environment_irradiance_capture_enabled != 0u)
+    {
+        float3 sunDirection = normalize(sun_info.sun_dir);
+        exactDirectSunVisibility = ddgiExactTerrainSunVisibility(
+            contree_node_data, contree_leaf_data, scene_tex,
+            result, sunDirection, localInvocationIndex);
+    }
+    environmentCaptureWorld = float4(
+        result.position, exactDirectSunVisibility);
 
     float3 albedo;
     parseTraceResult(albedo, result);
@@ -306,15 +321,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
 
     float3 color;
     float3 environmentIrradiance;
+    float terrainHit;
+    float4 environmentCaptureWorld;
     float depth;
-    getPixelColor(color, depth, environmentIrradiance, ray, screenUv,
-                  localInvocationIndex);
+    getPixelColor(color, depth, environmentIrradiance, terrainHit,
+                  environmentCaptureWorld, ray, screenUv, localInvocationIndex);
 
     if (shading_info.environment_irradiance_capture_enabled != 0u)
     {
         uint captureIndex = dispatchThreadId.x + width * dispatchThreadId.y;
         environment_irradiance_capture[captureIndex] = float4(
-            environmentIrradiance, depth < 1.0 ? 1.0 : 0.0);
+            environmentIrradiance, terrainHit);
+        environment_irradiance_capture[captureIndex + width * height] =
+            environmentCaptureWorld;
     }
 
     compute_output_tex[dispatchThreadId.xy] = packRgbe(color);

@@ -705,7 +705,7 @@ Options:
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
   --environment-irradiance-capture <path>
-                              Save pre-albedo linear RGB irradiance plus terrain-hit mask
+                              Save DDGI metadata, pre-albedo irradiance/hit mask, world hit, and exact sun visibility
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
                               or atlas DDGI diagnostics (default: final)
   --hybrid-transparency-test-scene
