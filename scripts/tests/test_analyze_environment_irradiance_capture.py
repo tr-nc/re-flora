@@ -186,6 +186,30 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertFalse(comparison["compatible"])
         self.assertIn("source_field_serial", comparison["metadata_mismatches"])
 
+    def test_cli_requires_the_expected_batch_order(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "reverse.rfirr"
+            self.write_capture_v4(
+                capture_path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+                batch_order=1,
+            )
+
+            accepted = self.run_analyzer(
+                capture_path, "--expect-batch-order", "reverse"
+            )
+            rejected = self.run_analyzer(
+                capture_path, "--expect-batch-order", "forward"
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        self.assertIn(
+            "batch_order: expected forward, got reverse",
+            json.loads(rejected.stdout)["validation_failures"],
+        )
+
     def test_loads_v3_metadata_and_two_float4_planes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "capture-v3.rfirr"
@@ -241,6 +265,114 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             self.assertAlmostEqual(actual, expected)
         self.assertEqual(summary["rgb_channel_nonzero_count"], [1, 1, 1])
         self.assertEqual(summary["exact_direct_sun_visibility_mean"], 1.0)
+
+    def test_cli_applies_receiver_signal_channel_advantage_and_direct_sun_gates_to_world_roi(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "donor-receiver.rfirr"
+            self.write_capture_v3(
+                capture_path,
+                [
+                    (0.4, 0.1, 0.1, 1.0),
+                    (0.2, 0.1, 0.0, 1.0),
+                    (10.0, 10.0, 10.0, 1.0),
+                ],
+                [
+                    (1.0, 2.0, 3.0, 0.0),
+                    (2.0, 2.0, 3.0, 0.0),
+                    (10.0, 2.0, 3.0, 1.0),
+                ],
+            )
+
+            accepted = self.run_analyzer(
+                capture_path,
+                "--world-roi",
+                "0",
+                "0",
+                "0",
+                "5",
+                "5",
+                "5",
+                "--roi-channel",
+                "red",
+                "--min-roi-channel-advantage",
+                "0.19",
+                "--min-roi-luminance-mean",
+                "0.13",
+                "--max-exact-direct-sun-visibility",
+                "0",
+            )
+            rejected = self.run_analyzer(
+                capture_path,
+                "--world-roi",
+                "0",
+                "0",
+                "0",
+                "5",
+                "5",
+                "5",
+                "--roi-channel",
+                "red",
+                "--min-roi-channel-advantage",
+                "0.21",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        summary = json.loads(accepted.stdout)["capture"]
+        for actual, expected in zip(
+            summary["world_roi_rgb_channel_mean"], [0.3, 0.1, 0.05]
+        ):
+            self.assertAlmostEqual(actual, expected)
+        self.assertAlmostEqual(summary["world_roi_channel_advantage"][0], 0.2)
+        self.assertAlmostEqual(summary["world_roi_luminance_mean"], 0.13891)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_cli_gates_luminance_gain_over_a_compatible_world_roi_baseline(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_path = Path(directory) / "dogleg-s1.rfirr"
+            current_path = Path(directory) / "dogleg-s2.rfirr"
+            world = [(1.0, 2.0, 3.0, 0.0), (10.0, 2.0, 3.0, 1.0)]
+            self.write_capture_v3(
+                baseline_path,
+                [(0.1, 0.1, 0.1, 1.0), (5.0, 5.0, 5.0, 1.0)],
+                world,
+                transport_stage=2,
+                transport_iteration=1,
+            )
+            self.write_capture_v3(
+                current_path,
+                [(0.2, 0.2, 0.2, 1.0), (5.0, 5.0, 5.0, 1.0)],
+                world,
+                transport_stage=3,
+                transport_iteration=2,
+                source_stage=2,
+                source_iteration=1,
+            )
+            common = (
+                "--baseline",
+                str(baseline_path),
+                "--world-roi",
+                "0",
+                "0",
+                "0",
+                "5",
+                "5",
+                "5",
+                "--min-roi-luminance-gain",
+            )
+            accepted = self.run_analyzer(current_path, *common, "0.09")
+            rejected = self.run_analyzer(current_path, *common, "0.11")
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        gain = json.loads(accepted.stdout)["baseline_comparison"]
+        self.assertTrue(gain["compatible"])
+        self.assertAlmostEqual(gain["baseline_roi_luminance_mean"], 0.1)
+        self.assertAlmostEqual(gain["current_roi_luminance_mean"], 0.2)
+        self.assertAlmostEqual(gain["roi_luminance_gain"], 0.1)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
     def test_v3_comparison_requires_matching_source_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -350,6 +482,29 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         failures = json.loads(result.stdout)["validation_failures"]
         self.assertIn("max_abs_delta: converged value 0.02 exceeds 0.01", failures)
+
+    def test_correctness_mode_rejects_non_converged_terminal_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "non-converged.rfirr"
+            self.write_capture_v3(
+                capture_path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+                transport_stage=5,
+                transport_iteration=8,
+                max_abs_delta=0.1,
+                max_rel_delta=0.2,
+            )
+
+            diagnostic = self.run_analyzer(capture_path)
+            correctness = self.run_analyzer(capture_path, "--correctness")
+
+        self.assertEqual(diagnostic.returncode, 0, diagnostic.stderr)
+        self.assertEqual(correctness.returncode, 1, correctness.stderr)
+        self.assertIn(
+            "correctness mode rejects NonConverged DDGI fields",
+            json.loads(correctness.stdout)["validation_failures"],
+        )
 
     def test_cli_rejects_nonfinite_convergence_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
