@@ -15,7 +15,9 @@ pub use atlas::{
     DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE, DEFAULT_DDGI_SPACING_VOXELS,
     SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
-pub use resources::{DdgiRayBatch, DdgiResourceBytes, DdgiVolume, DdgiVolumeStatus};
+pub use resources::{
+    DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
+};
 
 /// Permanent DDGI diagnostics. Exact modes are intentionally opt-in because they trace up to
 /// eight additional terrain segments for every shaded terrain pixel.

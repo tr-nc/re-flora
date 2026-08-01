@@ -4,7 +4,7 @@ use super::{
 };
 use crate::generated::gpu_structs::DdgiProbeMetadata;
 use crate::resource::{Resource, ResourceContainer};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use glam::UVec3;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
@@ -136,6 +136,34 @@ impl DdgiVolumeStatus {
     }
 }
 
+/// The consumer-visible DDGI volume and an optional volume being built for a later promotion.
+///
+/// Callers can inspect revisions and readiness without learning which atlas or ray batch the
+/// builder currently owns. Consumers must use `active`; builder passes must use `builder`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiStatus {
+    active: DdgiVolumeStatus,
+    staging: Option<DdgiVolumeStatus>,
+}
+
+impl DdgiStatus {
+    pub fn active(self) -> DdgiVolumeStatus {
+        self.active
+    }
+
+    pub fn staging(self) -> Option<DdgiVolumeStatus> {
+        self.staging
+    }
+
+    pub fn builder(self) -> DdgiVolumeStatus {
+        self.staging.unwrap_or(self.active)
+    }
+
+    pub fn staging_is_ready(self) -> bool {
+        self.staging().is_some_and(DdgiVolumeStatus::is_ready)
+    }
+}
+
 pub struct DdgiVolume {
     grid: DdgiVolumeGrid,
     irradiance_layout: DdgiAtlasLayout,
@@ -154,6 +182,65 @@ pub struct DdgiVolume {
     pub ddgi_irradiance_atlas: Resource<Texture>,
     pub ddgi_visibility_atlas: Resource<Texture>,
     pub ddgi_global_sky_irradiance: Resource<Texture>,
+}
+
+/// Owns the DDGI active/staging lifecycle.
+///
+/// A staging volume is never returned by [`Self::active`]. Promotion is the only operation that
+/// can make it consumer-visible, and promotion rejects incomplete volumes.
+pub struct DdgiVolumes {
+    active: DdgiVolume,
+    staging: Option<DdgiVolume>,
+}
+
+impl DdgiVolumes {
+    pub fn new(active: DdgiVolume) -> Self {
+        Self {
+            active,
+            staging: None,
+        }
+    }
+
+    pub fn status(&self) -> DdgiStatus {
+        DdgiStatus {
+            active: self.active.status(),
+            staging: self.staging.as_ref().map(DdgiVolume::status),
+        }
+    }
+
+    pub fn active(&self) -> &DdgiVolume {
+        &self.active
+    }
+
+    pub fn builder(&self) -> &DdgiVolume {
+        self.staging.as_ref().unwrap_or(&self.active)
+    }
+
+    pub fn builder_mut(&mut self) -> &mut DdgiVolume {
+        self.staging.as_mut().unwrap_or(&mut self.active)
+    }
+
+    /// Installs a new builder target while returning the previous staging volume, if any.
+    /// The caller must rebind builder descriptors before dropping the returned volume.
+    pub fn prepare_staging(&mut self, staging: DdgiVolume) -> Option<DdgiVolume> {
+        self.staging.replace(staging)
+    }
+
+    /// Promotes a complete staging volume and returns the previous active volume.
+    /// The caller must rebind consumer descriptors before dropping the returned volume.
+    pub fn promote_staging(&mut self) -> Result<DdgiVolume> {
+        let staging = self
+            .staging
+            .as_ref()
+            .context("cannot promote DDGI staging volume: no staging volume exists")?;
+        ensure!(
+            staging.status().is_ready(),
+            "cannot promote DDGI staging volume before it is ready (stage={:?})",
+            staging.status().stage,
+        );
+        let staging = self.staging.take().expect("staging presence checked above");
+        Ok(std::mem::replace(&mut self.active, staging))
+    }
 }
 
 impl ResourceContainer for DdgiVolume {
@@ -604,6 +691,46 @@ mod tests {
             filtered_probe_count: 0,
         };
         assert!(!status.is_ready());
+    }
+
+    #[test]
+    fn runtime_status_keeps_staging_out_of_the_consumer_view_until_ready() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let irradiance_layout =
+            DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
+        let visibility_layout =
+            DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
+        let status_for = |stage, terrain_revision| DdgiVolumeStatus {
+            grid,
+            irradiance_layout,
+            visibility_layout,
+            resource_bytes: DdgiResourceBytes::new(grid, irradiance_layout, visibility_layout),
+            stage,
+            global_sky_revision: 3,
+            relocated_terrain_revision: Some(terrain_revision),
+            active_ray_batch: None,
+            filtered_probe_count: 0,
+        };
+
+        let active = status_for(DdgiVolumeStage::Ready, 7);
+        let staging = status_for(DdgiVolumeStage::Rebuilding, 8);
+        let status = DdgiStatus {
+            active,
+            staging: Some(staging),
+        };
+
+        assert_eq!(status.active(), active);
+        assert_eq!(status.builder(), staging);
+        assert!(!status.staging_is_ready());
+
+        let ready_staging = status_for(DdgiVolumeStage::Ready, 8);
+        let status = DdgiStatus {
+            active,
+            staging: Some(ready_staging),
+        };
+        assert_eq!(status.active().relocated_terrain_revision, Some(7));
+        assert_eq!(status.builder().relocated_terrain_revision, Some(8));
+        assert!(status.staging_is_ready());
     }
 
     #[test]
