@@ -30,9 +30,8 @@ pub use resources::{
 };
 #[allow(unused_imports)]
 pub use scheduler::{
-    DdgiConvergenceSample, DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage,
-    DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError, DdgiSchedulingPolicy,
-    DdgiTransportScheduler,
+    DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage, DdgiScheduledWork,
+    DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTransportScheduler,
 };
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
 

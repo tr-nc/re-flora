@@ -154,7 +154,7 @@ impl DdgiFieldIdentity {
         self.source
     }
 
-    fn with_stage(self, stage: DdgiFieldStage) -> Result<Self, DdgiFieldIdentityError> {
+    pub(crate) fn with_stage(self, stage: DdgiFieldStage) -> Result<Self, DdgiFieldIdentityError> {
         Self::new(self.field.with_stage(stage)?, self.source)
     }
 }
@@ -206,32 +206,11 @@ impl DdgiScheduledWork {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DdgiSchedulingPolicy {
-    consecutive_iterations_required: u32,
-    hard_iteration_limit: u32,
-}
-
-impl DdgiSchedulingPolicy {
-    pub fn new(consecutive_iterations_required: u32, hard_iteration_limit: u32) -> Option<Self> {
-        (consecutive_iterations_required > 0 && hard_iteration_limit >= 2).then_some(Self {
-            consecutive_iterations_required,
-            hard_iteration_limit,
-        })
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DdgiConvergenceSample {
-    pub below_threshold: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiSchedulerError {
     Busy,
     NoInFlightWork,
     StaleCompletion,
-    MissingConvergenceSample,
-    UnexpectedConvergenceSample,
+    InvalidCompletion,
     InvalidIdentity(DdgiFieldIdentityError),
 }
 
@@ -251,7 +230,6 @@ struct GeometryRequest {
 /// the volume's responsibility; this type only decides which immutable identity is allowed next.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiTransportScheduler {
-    policy: DdgiSchedulingPolicy,
     next_serial: u64,
     published: Option<DdgiFieldIdentity>,
     in_flight: Option<DdgiScheduledWork>,
@@ -259,14 +237,11 @@ pub struct DdgiTransportScheduler {
     pending_density_spacing_voxels: Option<u32>,
     latest_radiance_revision: Option<u32>,
     feedback_requested: bool,
-    convergence_radiance_revision: Option<u32>,
-    consecutive_iterations_below_threshold: u32,
 }
 
 impl DdgiTransportScheduler {
-    pub fn new(policy: DdgiSchedulingPolicy) -> Self {
+    pub fn new() -> Self {
         Self {
-            policy,
             next_serial: 0,
             published: None,
             in_flight: None,
@@ -274,8 +249,6 @@ impl DdgiTransportScheduler {
             pending_density_spacing_voxels: None,
             latest_radiance_revision: None,
             feedback_requested: false,
-            convergence_radiance_revision: None,
-            consecutive_iterations_below_threshold: 0,
         }
     }
 
@@ -296,7 +269,6 @@ impl DdgiTransportScheduler {
             published.field.stage,
             DdgiFieldStage::SingleBounce | DdgiFieldStage::Feedback
         );
-        self.reset_convergence(published.field.radiance_revision);
         Ok(())
     }
 
@@ -310,10 +282,6 @@ impl DdgiTransportScheduler {
 
     pub fn latest_radiance_revision(self) -> Option<u32> {
         self.latest_radiance_revision
-    }
-
-    pub fn consecutive_iterations_below_threshold(self) -> u32 {
-        self.consecutive_iterations_below_threshold
     }
 
     /// Geometry is strict latest-wins. Any older work becomes immediately unpublishable.
@@ -339,8 +307,6 @@ impl DdgiTransportScheduler {
 
         self.pending_geometry = Some(request);
         self.feedback_requested = false;
-        self.convergence_radiance_revision = None;
-        self.consecutive_iterations_below_threshold = 0;
         let preempted = self.in_flight.take();
         if let Some(work) =
             preempted.filter(|work| work.kind == DdgiScheduledWorkKind::DensityBootstrap)
@@ -377,7 +343,6 @@ impl DdgiTransportScheduler {
             return;
         }
         self.latest_radiance_revision = Some(radiance_revision);
-        self.reset_convergence(radiance_revision);
     }
 
     pub fn request_feedback(&mut self) {
@@ -423,35 +388,17 @@ impl DdgiTransportScheduler {
     pub fn complete_in_flight(
         &mut self,
         work: DdgiScheduledWork,
-        convergence: Option<DdgiConvergenceSample>,
+        published: DdgiFieldIdentity,
     ) -> Result<DdgiFieldIdentity, DdgiSchedulerError> {
         let current = self.in_flight.ok_or(DdgiSchedulerError::NoInFlightWork)?;
         if current != work {
             return Err(DdgiSchedulerError::StaleCompletion);
         }
 
-        let published = match work.kind {
-            DdgiScheduledWorkKind::GeometryBootstrap | DdgiScheduledWorkKind::DensityBootstrap => {
-                if convergence.is_some() {
-                    return Err(DdgiSchedulerError::UnexpectedConvergenceSample);
-                }
-                work.destination
-            }
-            DdgiScheduledWorkKind::RadianceFeedback | DdgiScheduledWorkKind::Feedback => {
-                let sample = convergence.ok_or(DdgiSchedulerError::MissingConvergenceSample)?;
-                self.classify_feedback(work.destination, sample)?
-            }
-        };
+        validate_completion(work, published)?;
 
         self.in_flight = None;
         self.published = Some(published);
-        if matches!(
-            work.kind,
-            DdgiScheduledWorkKind::GeometryBootstrap | DdgiScheduledWorkKind::DensityBootstrap
-        ) && self.latest_radiance_revision == Some(published.field.radiance_revision)
-        {
-            self.reset_convergence(published.field.radiance_revision);
-        }
         self.feedback_requested = matches!(
             published.field.stage,
             DdgiFieldStage::SingleBounce | DdgiFieldStage::Feedback
@@ -532,39 +479,6 @@ impl DdgiTransportScheduler {
         }))
     }
 
-    fn classify_feedback(
-        &mut self,
-        destination: DdgiFieldIdentity,
-        sample: DdgiConvergenceSample,
-    ) -> Result<DdgiFieldIdentity, DdgiSchedulerError> {
-        let field = destination.field;
-        // A newer radiance request arrived while this immutable iteration was running. Its result
-        // may publish, but it must not alter convergence evidence for the latest request.
-        if self.latest_radiance_revision != Some(field.radiance_revision) {
-            return Ok(destination);
-        }
-        if self.convergence_radiance_revision != Some(field.radiance_revision) {
-            self.reset_convergence(field.radiance_revision);
-        }
-        self.consecutive_iterations_below_threshold = if sample.below_threshold {
-            self.consecutive_iterations_below_threshold
-                .saturating_add(1)
-        } else {
-            0
-        };
-
-        let stage = if self.consecutive_iterations_below_threshold
-            >= self.policy.consecutive_iterations_required
-        {
-            DdgiFieldStage::Converged
-        } else if field.iteration >= self.policy.hard_iteration_limit {
-            DdgiFieldStage::NonConverged
-        } else {
-            DdgiFieldStage::Feedback
-        };
-        Ok(destination.with_stage(stage)?)
-    }
-
     fn allocate_serial(&mut self) -> u64 {
         self.next_serial = self
             .next_serial
@@ -572,11 +486,45 @@ impl DdgiTransportScheduler {
             .expect("DDGI transport identity serial exhausted");
         self.next_serial
     }
+}
 
-    fn reset_convergence(&mut self, radiance_revision: u32) {
-        self.convergence_radiance_revision = Some(radiance_revision);
-        self.consecutive_iterations_below_threshold = 0;
+impl Default for DdgiTransportScheduler {
+    fn default() -> Self {
+        Self::new()
     }
+}
+
+fn validate_completion(
+    work: DdgiScheduledWork,
+    published: DdgiFieldIdentity,
+) -> Result<(), DdgiSchedulerError> {
+    let expected = work.destination;
+    if published.source != expected.source {
+        return Err(DdgiSchedulerError::InvalidCompletion);
+    }
+    let actual = published.field;
+    let planned = expected.field;
+    if actual.serial != planned.serial
+        || actual.geometry_revision != planned.geometry_revision
+        || actual.radiance_revision != planned.radiance_revision
+        || actual.spacing_voxels != planned.spacing_voxels
+        || actual.iteration != planned.iteration
+    {
+        return Err(DdgiSchedulerError::InvalidCompletion);
+    }
+    let valid_stage = match work.kind {
+        DdgiScheduledWorkKind::GeometryBootstrap | DdgiScheduledWorkKind::DensityBootstrap => {
+            actual.stage == DdgiFieldStage::SingleBounce
+        }
+        DdgiScheduledWorkKind::RadianceFeedback | DdgiScheduledWorkKind::Feedback => matches!(
+            actual.stage,
+            DdgiFieldStage::Feedback | DdgiFieldStage::Converged | DdgiFieldStage::NonConverged
+        ),
+    };
+    if !valid_stage {
+        return Err(DdgiSchedulerError::InvalidCompletion);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -584,7 +532,7 @@ mod tests {
     use super::*;
 
     fn scheduler() -> DdgiTransportScheduler {
-        DdgiTransportScheduler::new(DdgiSchedulingPolicy::new(2, 4).unwrap())
+        DdgiTransportScheduler::new()
     }
 
     fn single_bounce(
@@ -624,6 +572,10 @@ mod tests {
             .install_published(single_bounce(1, 2, 7, 1, 32))
             .unwrap();
         scheduler
+    }
+
+    fn classified(work: DdgiScheduledWork, stage: DdgiFieldStage) -> DdgiFieldIdentity {
+        work.destination().with_stage(stage).unwrap()
     }
 
     #[test]
@@ -675,7 +627,9 @@ mod tests {
         assert_eq!(geometry.kind(), DdgiScheduledWorkKind::GeometryBootstrap);
         assert_eq!(geometry.destination().field().geometry_revision(), 8);
 
-        let geometry = scheduler.complete_in_flight(geometry, None).unwrap();
+        let geometry = scheduler
+            .complete_in_flight(geometry, geometry.destination())
+            .unwrap();
         assert_eq!(geometry.field().stage(), DdgiFieldStage::SingleBounce);
         let density = scheduler.claim_next().unwrap().unwrap();
         assert_eq!(density.kind(), DdgiScheduledWorkKind::DensityBootstrap);
@@ -696,12 +650,7 @@ mod tests {
         assert_eq!(scheduler.latest_radiance_revision(), Some(4));
 
         let published_two = scheduler
-            .complete_in_flight(
-                revision_two,
-                Some(DdgiConvergenceSample {
-                    below_threshold: false,
-                }),
-            )
+            .complete_in_flight(revision_two, revision_two.destination())
             .unwrap();
         assert_eq!(published_two.field().radiance_revision(), 2);
         let revision_four = scheduler.claim_next().unwrap().unwrap();
@@ -727,7 +676,9 @@ mod tests {
 
         scheduler.observe_radiance(3);
         assert_eq!(scheduler.in_flight(), Some(geometry));
-        let geometry = scheduler.complete_in_flight(geometry, None).unwrap();
+        let geometry = scheduler
+            .complete_in_flight(geometry, geometry.destination())
+            .unwrap();
         assert_eq!(geometry.field().geometry_revision(), 8);
         assert_eq!(geometry.field().radiance_revision(), 2);
 
@@ -746,12 +697,7 @@ mod tests {
         assert_eq!(scheduler.request_density(16), Some(feedback));
         assert_eq!(scheduler.published(), Some(old));
         assert_eq!(
-            scheduler.complete_in_flight(
-                feedback,
-                Some(DdgiConvergenceSample {
-                    below_threshold: true,
-                }),
-            ),
+            scheduler.complete_in_flight(feedback, feedback.destination()),
             Err(DdgiSchedulerError::NoInFlightWork),
         );
 
@@ -761,42 +707,16 @@ mod tests {
     }
 
     #[test]
-    fn a_new_radiance_revision_resets_two_sample_convergence() {
+    fn resource_classification_preserves_the_real_terminal_iteration() {
         let mut scheduler = with_active();
         let s2 = scheduler.claim_next().unwrap().unwrap();
         let s2 = scheduler
-            .complete_in_flight(
-                s2,
-                Some(DdgiConvergenceSample {
-                    below_threshold: true,
-                }),
-            )
+            .complete_in_flight(s2, classified(s2, DdgiFieldStage::Feedback))
             .unwrap();
         assert_eq!(s2.field().stage(), DdgiFieldStage::Feedback);
-        assert_eq!(scheduler.consecutive_iterations_below_threshold(), 1);
-
-        scheduler.observe_radiance(2);
-        assert_eq!(scheduler.consecutive_iterations_below_threshold(), 0);
-        let revision_two_s2 = scheduler.claim_next().unwrap().unwrap();
-        let revision_two_s2 = scheduler
-            .complete_in_flight(
-                revision_two_s2,
-                Some(DdgiConvergenceSample {
-                    below_threshold: true,
-                }),
-            )
-            .unwrap();
-        assert_eq!(revision_two_s2.field().iteration(), 2);
-        assert_eq!(revision_two_s2.field().stage(), DdgiFieldStage::Feedback);
-
-        let revision_two_s3 = scheduler.claim_next().unwrap().unwrap();
+        let s3 = scheduler.claim_next().unwrap().unwrap();
         let converged = scheduler
-            .complete_in_flight(
-                revision_two_s3,
-                Some(DdgiConvergenceSample {
-                    below_threshold: true,
-                }),
-            )
+            .complete_in_flight(s3, classified(s3, DdgiFieldStage::Converged))
             .unwrap();
         assert_eq!(converged.field().stage(), DdgiFieldStage::Converged);
         assert_eq!(converged.field().iteration(), 3);
@@ -804,36 +724,41 @@ mod tests {
     }
 
     #[test]
-    fn hard_limit_reports_nonconverged_at_the_real_iteration() {
-        let mut scheduler = DdgiTransportScheduler::new(DdgiSchedulingPolicy::new(2, 3).unwrap());
-        scheduler
-            .install_published(single_bounce(1, 2, 7, 1, 32))
-            .unwrap();
+    fn a_new_radiance_epoch_starts_at_s2_from_a_terminal_field() {
+        let mut scheduler = with_active();
         let s2 = scheduler.claim_next().unwrap().unwrap();
         let s2 = scheduler
-            .complete_in_flight(
-                s2,
-                Some(DdgiConvergenceSample {
-                    below_threshold: false,
-                }),
-            )
+            .complete_in_flight(s2, classified(s2, DdgiFieldStage::Converged))
             .unwrap();
-        assert_eq!(s2.field().stage(), DdgiFieldStage::Feedback);
-        let s3 = scheduler.claim_next().unwrap().unwrap();
-        let stopped = scheduler
-            .complete_in_flight(
-                s3,
-                Some(DdgiConvergenceSample {
-                    below_threshold: false,
-                }),
-            )
-            .unwrap();
-        assert_eq!(stopped.field().stage(), DdgiFieldStage::NonConverged);
-        assert_eq!(stopped.field().iteration(), 3);
-
         scheduler.observe_radiance(2);
         let restarted = scheduler.claim_next().unwrap().unwrap();
         assert_eq!(restarted.destination().field().iteration(), 2);
-        assert_eq!(restarted.destination().source(), Some(stopped.field()));
+        assert_eq!(restarted.destination().source(), Some(s2.field()));
+    }
+
+    #[test]
+    fn completion_rejects_a_resource_result_with_the_wrong_identity() {
+        let mut scheduler = with_active();
+        let work = scheduler.claim_next().unwrap().unwrap();
+        let expected = work.destination();
+        let wrong_serial = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(
+                expected.field().serial() + 1,
+                expected.field().geometry_revision(),
+                expected.field().radiance_revision(),
+                expected.field().spacing_voxels(),
+                DdgiFieldStage::Feedback,
+                expected.field().iteration(),
+            )
+            .unwrap(),
+            expected.source(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            scheduler.complete_in_flight(work, wrong_serial),
+            Err(DdgiSchedulerError::InvalidCompletion)
+        );
+        assert_eq!(scheduler.in_flight(), Some(work));
     }
 }
