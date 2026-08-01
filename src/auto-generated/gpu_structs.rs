@@ -39,6 +39,13 @@ pub struct Cuboids {
     pub _pad1: f32,
 }
 
+/// Auto-generated from `B_DdgiAtlasReduction` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiAtlasReduction {
+    pub data: [u32; 0],
+}
+
 /// Auto-generated from `B_DdgiProbeMetadata` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -235,6 +242,20 @@ pub struct WindSources {
     pub noise: [f32; 4],
 }
 
+/// Auto-generated from `PushConstantAtlasReduce` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantAtlasReduce {
+    pub terrain_revision: u32,
+    pub probe_count: u32,
+    pub tile_columns: u32,
+    pub destination_slot: u32,
+    pub source_slot: u32,
+    pub has_source: u32,
+    pub relative_floor: f32,
+    pub padding: u32,
+}
+
 /// Auto-generated from `PushConstantChunkModifySample` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -331,10 +352,9 @@ pub struct PushConstantProbeTrace {
     pub probe_count: u32,
     pub terrain_revision: u32,
     pub transport_iteration: u32,
+    pub source_slot: u32,
     pub far_distance_world: f32,
-    pub _pad0: [u8; 12],
-    pub padding_float: [f32; 3],
-    pub _pad1: [u8; 4],
+    pub padding: [u32; 2],
 }
 
 /// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).
