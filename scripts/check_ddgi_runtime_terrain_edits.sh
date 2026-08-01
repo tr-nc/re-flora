@@ -100,6 +100,7 @@ check_lifecycle_markers() {
         required=(
             "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=1"
             "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=1 target_revision=2"
+            "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))"
             "target_terrain_revision=$final_revision"
             "[DDGI] staging promoted"
             "terrain_revision=$final_revision"
