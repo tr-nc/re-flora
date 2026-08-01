@@ -233,7 +233,7 @@ check_inflight_fail_closed_captures() {
         return 1
     fi
     if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-        "$first" --compare "$second" --max-luminance 0.00001; then
+        "$first" --compare "$second" --max-luminance 0.00001 --require-zero-rgb; then
         echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing expected terrain hits and strict zero" >&2
         return 1
     fi

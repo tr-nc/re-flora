@@ -88,10 +88,20 @@ def percentile(sorted_values: list[float], fraction: float) -> float:
 def summarize(capture: Capture) -> dict[str, object]:
     luminances: list[float] = []
     finite = True
+    terrain_hit_count = 0
+    rgb_abs_max = 0.0
+    rgb_nonzero_count = 0
     for red, green, blue, hit in PIXEL.iter_unpack(capture.payload):
-        finite = finite and all(math.isfinite(value) for value in (red, green, blue, hit))
+        rgb = (red, green, blue)
+        finite_rgb = all(math.isfinite(value) for value in rgb)
+        finite = finite and finite_rgb and math.isfinite(hit)
         if hit > 0.5:
-            luminances.append(0.2126 * red + 0.7152 * green + 0.0722 * blue)
+            terrain_hit_count += 1
+            if finite_rgb:
+                luminances.append(0.2126 * red + 0.7152 * green + 0.0722 * blue)
+                rgb_abs_max = max(rgb_abs_max, *(abs(value) for value in rgb))
+                if any(value != 0.0 for value in rgb):
+                    rgb_nonzero_count += 1
     luminances.sort()
     return {
         "path": str(capture.path),
@@ -101,8 +111,10 @@ def summarize(capture: Capture) -> dict[str, object]:
         "spacing_voxels": capture.spacing_voxels,
         "debug_view": DEBUG_VIEW_LABELS.get(capture.debug_view, capture.debug_view),
         "sample_count": capture.sample_count,
-        "terrain_hit_count": len(luminances),
+        "terrain_hit_count": terrain_hit_count,
         "finite": finite,
+        "rgb_abs_max": rgb_abs_max,
+        "rgb_nonzero_count": rgb_nonzero_count,
         "luminance_mean": sum(luminances) / len(luminances) if luminances else 0.0,
         "luminance_p99": percentile(luminances, 0.99),
         "luminance_max": luminances[-1] if luminances else 0.0,
@@ -212,6 +224,7 @@ def main() -> int:
     parser.add_argument("--compare", type=Path)
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--max-luminance", type=float)
+    parser.add_argument("--require-zero-rgb", action="store_true")
     parser.add_argument("--min-luminance-p99", type=float)
     parser.add_argument("--max-reference-error-p99", type=float)
     parser.add_argument("--max-reference-overestimate-p99", type=float)
@@ -248,6 +261,8 @@ def main() -> int:
         args.max_luminance is not None
         and report["capture"]["luminance_max"] > args.max_luminance
     ):
+        exit_code = 1
+    if args.require_zero_rgb and report["capture"]["rgb_nonzero_count"] != 0:
         exit_code = 1
     if (
         args.min_luminance_p99 is not None
