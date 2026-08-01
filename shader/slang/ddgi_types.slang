@@ -25,3 +25,38 @@ public struct B_DdgiTraceStats
 {
     public uint data[];
 };
+
+// Latched once at the start of a full DDGI build. Builder shaders must not read the live
+// per-frame sun uniform, because one atlas may span many frames.
+public struct U_DdgiRadianceSun
+{
+    public float3 direction;
+    public float padding;
+    public float3 color;
+    public float luminance;
+};
+
+// Stable material inputs transported by DDGI. Dynamic moisture, fertility, and edit-preview
+// presentation are deliberately absent from this snapshot.
+public struct U_DdgiRadianceVoxelPalette
+{
+    public float3 dirt_color;
+    public float3 sand_color;
+    public float3 cherry_wood_color;
+    public float3 oak_wood_color;
+    public float3 rock_color;
+    public float hash_color_variance;
+};
+
+// Builder-owned query geometry. This is intentionally separate from U_ShadingInfo, whose
+// contents track active consumers and can change while a full-volume build is in flight.
+public struct U_DdgiTransportQueryInfo
+{
+    public uint3 grid_dimensions;
+    public float visibility_bias_world;
+    public float3 world_to_grid_scale;
+    public uint source_ready;
+    public uint irradiance_tile_columns;
+    public uint visibility_tile_columns;
+    public uint2 padding;
+};

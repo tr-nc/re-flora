@@ -2,9 +2,13 @@ use super::{
     DdgiAtlasLayout, DdgiBuildToken, DdgiVolumeGrid, DDGI_IRRADIANCE_INTERIOR_SIDE,
     DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
-use crate::generated::gpu_structs::DdgiProbeMetadata;
+use crate::environment_lighting::DdgiRadianceSnapshot;
+use crate::generated::gpu_structs::{
+    DdgiProbeMetadata, DdgiRadianceSun, DdgiRadianceVoxelPalette, DdgiTransportQueryInfo,
+};
 use crate::resource::{Resource, ResourceContainer};
 use anyhow::{ensure, Context, Result};
+use bytemuck::Zeroable;
 use glam::UVec3;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
@@ -57,6 +61,9 @@ pub struct DdgiResourceBytes {
     pub probe_metadata: u64,
     pub transient_ray_data: u64,
     pub trace_stats: u64,
+    pub radiance_sun: u64,
+    pub radiance_voxel_palette: u64,
+    pub transport_query_info: u64,
 }
 
 impl DdgiResourceBytes {
@@ -94,6 +101,9 @@ impl DdgiResourceBytes {
                 * DDGI_RAYS_PER_PROBE as u64
                 * std::mem::size_of::<[f32; 4]>() as u64,
             trace_stats: (DDGI_TRACE_STATS_COUNT * std::mem::size_of::<u32>()) as u64,
+            radiance_sun: std::mem::size_of::<DdgiRadianceSun>() as u64,
+            radiance_voxel_palette: std::mem::size_of::<DdgiRadianceVoxelPalette>() as u64,
+            transport_query_info: std::mem::size_of::<DdgiTransportQueryInfo>() as u64,
         }
     }
 
@@ -105,6 +115,9 @@ impl DdgiResourceBytes {
             + self.probe_metadata
             + self.transient_ray_data
             + self.trace_stats
+            + self.radiance_sun
+            + self.radiance_voxel_palette
+            + self.transport_query_info
     }
 }
 
@@ -146,6 +159,7 @@ pub struct DdgiVolumeStatus {
     pub stage: DdgiVolumeStage,
     pub transport_stage: Option<DdgiTransportStage>,
     pub global_sky_revision: u32,
+    pub radiance_revision: Option<u32>,
     pub relocated_terrain_revision: Option<u32>,
     pub active_ray_batch: Option<DdgiRayBatch>,
     pub filtered_probe_count: u32,
@@ -194,6 +208,7 @@ pub struct DdgiVolume {
     stage: DdgiVolumeStage,
     transport_stage: Option<DdgiTransportStage>,
     global_sky_revision: u32,
+    radiance_revision: Option<u32>,
     requested_terrain_revision: Option<u32>,
     relocated_terrain_revision: Option<u32>,
     active_ray_batch: Option<DdgiRayBatch>,
@@ -206,6 +221,9 @@ pub struct DdgiVolume {
     pub ddgi_transport_source_irradiance_atlas: Resource<Texture>,
     pub ddgi_visibility_atlas: Resource<Texture>,
     pub ddgi_global_sky_irradiance: Resource<Texture>,
+    pub ddgi_radiance_sun: Resource<Buffer>,
+    pub ddgi_radiance_voxel_palette: Resource<Buffer>,
+    pub ddgi_transport_query_info: Resource<Buffer>,
 }
 
 /// Owns the DDGI active/staging lifecycle.
@@ -279,6 +297,9 @@ impl ResourceContainer for DdgiVolume {
             "ddgi_probe_metadata" => Some(&self.ddgi_probe_metadata),
             "ddgi_transient_ray_data" => Some(&self.ddgi_transient_ray_data),
             "ddgi_trace_stats" => Some(&self.ddgi_trace_stats),
+            "ddgi_radiance_sun" => Some(&self.ddgi_radiance_sun),
+            "ddgi_radiance_voxel_palette" => Some(&self.ddgi_radiance_voxel_palette),
+            "ddgi_transport_query_info" => Some(&self.ddgi_transport_query_info),
             _ => None,
         }
     }
@@ -300,6 +321,9 @@ impl ResourceContainer for DdgiVolume {
             "ddgi_probe_metadata",
             "ddgi_transient_ray_data",
             "ddgi_trace_stats",
+            "ddgi_radiance_sun",
+            "ddgi_radiance_voxel_palette",
+            "ddgi_transport_query_info",
             "ddgi_irradiance_atlas",
             "ddgi_transport_source_irradiance_atlas",
             "ddgi_visibility_atlas",
@@ -314,6 +338,7 @@ impl DdgiVolume {
         allocator: Allocator,
         world_extent_voxels: UVec3,
         spacing_voxels: u32,
+        voxels_per_world_unit: UVec3,
     ) -> Result<Self> {
         let grid = DdgiVolumeGrid::new(world_extent_voxels, spacing_voxels)?;
         let irradiance_layout =
@@ -408,6 +433,30 @@ impl DdgiVolume {
             MemoryLocation::GpuToCpu,
             resource_bytes.trace_stats,
         );
+        let uniform_buffer = |size| {
+            Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::UNIFORM_BUFFER),
+                MemoryLocation::CpuToGpu,
+                size,
+            )
+        };
+        let radiance_sun = uniform_buffer(resource_bytes.radiance_sun);
+        radiance_sun.fill_uniform(&DdgiRadianceSun::zeroed())?;
+        let radiance_voxel_palette = uniform_buffer(resource_bytes.radiance_voxel_palette);
+        radiance_voxel_palette.fill_uniform(&DdgiRadianceVoxelPalette::zeroed())?;
+        let transport_query_info = uniform_buffer(resource_bytes.transport_query_info);
+        transport_query_info.fill_uniform(&DdgiTransportQueryInfo {
+            grid_dimensions: grid.dimensions().to_array(),
+            visibility_bias_world: 2.0 / voxels_per_world_unit.min_element().max(1) as f32,
+            world_to_grid_scale: (voxels_per_world_unit.as_vec3() / spacing_voxels as f32)
+                .to_array(),
+            source_ready: 0,
+            irradiance_tile_columns: irradiance_layout.tile_grid().x,
+            visibility_tile_columns: visibility_layout.tile_grid().x,
+            padding: [0; 2],
+        })?;
         let irradiance_atlas = Texture::new(
             device.clone(),
             allocator.clone(),
@@ -430,7 +479,7 @@ impl DdgiVolume {
             Texture::new(device, allocator, &global_sky_desc, &sampler_desc);
 
         log::info!(
-            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} global_sky_bytes={} total_mib={:.2}",
+            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
@@ -449,6 +498,8 @@ impl DdgiVolume {
             resource_bytes.transient_ray_data,
             resource_bytes.trace_stats,
             resource_bytes.global_sky_irradiance,
+            resource_bytes.radiance_sun + resource_bytes.radiance_voxel_palette,
+            resource_bytes.transport_query_info,
             resource_bytes.total() as f64 / (1024.0 * 1024.0),
         );
 
@@ -461,6 +512,7 @@ impl DdgiVolume {
             stage: DdgiVolumeStage::Allocated,
             transport_stage: None,
             global_sky_revision: 0,
+            radiance_revision: None,
             requested_terrain_revision: None,
             relocated_terrain_revision: None,
             active_ray_batch: None,
@@ -475,6 +527,9 @@ impl DdgiVolume {
             ),
             ddgi_visibility_atlas: Resource::new(visibility_atlas),
             ddgi_global_sky_irradiance: Resource::new(global_sky_irradiance),
+            ddgi_radiance_sun: Resource::new(radiance_sun),
+            ddgi_radiance_voxel_palette: Resource::new(radiance_voxel_palette),
+            ddgi_transport_query_info: Resource::new(transport_query_info),
         })
     }
 
@@ -488,6 +543,7 @@ impl DdgiVolume {
             stage: self.stage,
             transport_stage: self.transport_stage,
             global_sky_revision: self.global_sky_revision,
+            radiance_revision: self.radiance_revision,
             relocated_terrain_revision: self.relocated_terrain_revision,
             active_ray_batch: self.active_ray_batch,
             filtered_probe_count: self.next_probe_index,
@@ -502,8 +558,44 @@ impl DdgiVolume {
         self.build_token = Some(build_token);
     }
 
-    pub fn global_sky_needs_update(&self, environment_revision: u32) -> bool {
-        self.global_sky_revision != environment_revision
+    pub fn should_latch_radiance_snapshot(&self, latest_revision: u32) -> bool {
+        radiance_snapshot_should_latch(self.stage, self.radiance_revision, latest_revision)
+    }
+
+    pub fn latch_radiance_snapshot(
+        &mut self,
+        revision: u32,
+        snapshot: DdgiRadianceSnapshot,
+    ) -> Result<()> {
+        ensure!(
+            self.should_latch_radiance_snapshot(revision),
+            "cannot replace DDGI radiance revision {:?} with {revision} while stage {:?} is in flight",
+            self.radiance_revision,
+            self.stage,
+        );
+        self.ddgi_radiance_sun.fill_uniform(&DdgiRadianceSun {
+            direction: snapshot.sun_direction.to_array(),
+            padding: 0.0,
+            color: snapshot.sun_color.to_array(),
+            luminance: snapshot.sun_luminance,
+        })?;
+        self.ddgi_radiance_voxel_palette
+            .fill_uniform(&DdgiRadianceVoxelPalette {
+                dirt_color: snapshot.voxel_palette.dirt_color.to_array(),
+                sand_color: snapshot.voxel_palette.sand_color.to_array(),
+                cherry_wood_color: snapshot.voxel_palette.cherry_wood_color.to_array(),
+                oak_wood_color: snapshot.voxel_palette.oak_wood_color.to_array(),
+                rock_color: snapshot.voxel_palette.rock_color.to_array(),
+                hash_color_variance: snapshot.voxel_palette.hash_color_variance,
+                ..DdgiRadianceVoxelPalette::zeroed()
+            })?;
+        self.radiance_revision = Some(revision);
+        Ok(())
+    }
+
+    pub fn global_sky_needs_update(&self) -> bool {
+        self.radiance_revision
+            .is_some_and(|revision| self.global_sky_revision != revision)
     }
 
     pub fn mark_global_sky_ready(&mut self, environment_revision: u32) {
@@ -653,6 +745,17 @@ fn initialization_request_is_duplicate(
         )
 }
 
+fn radiance_snapshot_should_latch(
+    stage: DdgiVolumeStage,
+    latched_revision: Option<u32>,
+    latest_revision: u32,
+) -> bool {
+    if latest_revision == 0 || latched_revision == Some(latest_revision) {
+        return false;
+    }
+    latched_revision.is_none() || stage == DdgiVolumeStage::Ready
+}
+
 fn stage_after_global_sky_update(stage: DdgiVolumeStage) -> DdgiVolumeStage {
     match stage {
         DdgiVolumeStage::Allocated | DdgiVolumeStage::GlobalSkyReady => {
@@ -705,6 +808,9 @@ mod tests {
         assert_eq!(bytes.transient_ray_data, 524_288);
         assert_eq!(bytes.trace_stats, 32);
         assert_eq!(bytes.global_sky_irradiance, 1_600);
+        assert_eq!(bytes.radiance_sun, 32);
+        assert_eq!(bytes.radiance_voxel_palette, 80);
+        assert_eq!(bytes.transport_query_info, 48);
     }
 
     #[test]
@@ -747,6 +853,7 @@ mod tests {
             stage: DdgiVolumeStage::Allocated,
             transport_stage: None,
             global_sky_revision: 0,
+            radiance_revision: None,
             relocated_terrain_revision: None,
             active_ray_batch: None,
             filtered_probe_count: 0,
@@ -771,6 +878,7 @@ mod tests {
             transport_stage: (stage == DdgiVolumeStage::Ready)
                 .then_some(DdgiTransportStage::SeedSky),
             global_sky_revision: 3,
+            radiance_revision: Some(3),
             relocated_terrain_revision: Some(terrain_revision),
             active_ray_batch: None,
             filtered_probe_count: 0,
@@ -811,6 +919,35 @@ mod tests {
             stage_after_global_sky_update(DdgiVolumeStage::RelocationPending),
             DdgiVolumeStage::RelocationPending
         );
+    }
+
+    #[test]
+    fn radiance_snapshot_is_immutable_until_the_full_volume_is_ready() {
+        assert!(radiance_snapshot_should_latch(
+            DdgiVolumeStage::RelocationPending,
+            None,
+            1,
+        ));
+        for stage in [
+            DdgiVolumeStage::GlobalSkyReady,
+            DdgiVolumeStage::RelocationPending,
+            DdgiVolumeStage::Relocated,
+            DdgiVolumeStage::RayBatchReady,
+            DdgiVolumeStage::AtlasReady,
+            DdgiVolumeStage::Rebuilding,
+        ] {
+            assert!(!radiance_snapshot_should_latch(stage, Some(1), 2));
+        }
+        assert!(radiance_snapshot_should_latch(
+            DdgiVolumeStage::Ready,
+            Some(1),
+            2,
+        ));
+        assert!(!radiance_snapshot_should_latch(
+            DdgiVolumeStage::Ready,
+            Some(2),
+            2,
+        ));
     }
 
     #[test]

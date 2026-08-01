@@ -3,7 +3,6 @@ import ddgi_types;
 import marching_result;
 import scene_marching;
 import skylight;
-import tracer_types;
 
 static const uint DDGI_TRACE_WORKGROUP_SIZE = 64u;
 static const uint DDGI_RAYS_PER_PROBE = 256u;
@@ -16,9 +15,6 @@ static const float DDGI_GOLDEN_ANGLE = 2.39996322972865332;
 // this radiance calibration before the normalized filter integrates it.
 static const float DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION =
     3.14159265358979323846;
-
-[[vk::binding(1, 0)]]
-ConstantBuffer<U_SunInfo> sun_info;
 
 [[vk::binding(7, 0)]]
 StructuredBuffer<ContreeNode> contree_node_data;
@@ -40,6 +36,20 @@ GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
 [[vk::binding(26, 0)]]
 GLSLShaderStorageBuffer<B_DdgiTraceStats, Std430DataLayout>
     ddgi_trace_stats;
+
+// These builder-only bindings shape the immutable source/destination transport seam. S0 does not
+// sample the source atlas; S1 will consume it through sampleDdgiTransportSource in ddgi_query.
+[[vk::binding(29, 0)]]
+Sampler2D ddgi_transport_source_irradiance_atlas;
+
+[[vk::binding(30, 0)]]
+ConstantBuffer<U_DdgiRadianceSun> ddgi_radiance_sun;
+
+[[vk::binding(31, 0)]]
+ConstantBuffer<U_DdgiRadianceVoxelPalette> ddgi_radiance_voxel_palette;
+
+[[vk::binding(32, 0)]]
+ConstantBuffer<U_DdgiTransportQueryInfo> ddgi_transport_query_info;
 
 struct DdgiProbeTracePushConstants
 {
@@ -108,7 +118,7 @@ void main(uint3 groupId : SV_GroupID,
         if (!result.is_hit)
         {
             rayRecord.xyz =
-                getSkyColor(direction, normalize(sun_info.sun_dir)) *
+                getSkyColor(direction, normalize(ddgi_radiance_sun.direction)) *
                 DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION;
             recordTraceStat(2u);
         }

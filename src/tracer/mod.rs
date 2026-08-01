@@ -67,7 +67,9 @@ use crate::ddgi::{
     DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
     DDGI_VISIBILITY_INTERIOR_SIDE,
 };
-use crate::environment_lighting::EnvironmentLightingCache;
+use crate::environment_lighting::{
+    DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot, EnvironmentLightingCache,
+};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationPushConstants, EnvironmentProbeVisualizationResources,
     EnvironmentProbeVisualizationSettings,
@@ -219,6 +221,10 @@ const DDGI_TRANSIENT_RAY_DATA_BINDING: u32 = 25;
 const DDGI_TRACE_STATS_BINDING: u32 = 26;
 const DDGI_IRRADIANCE_ATLAS_BINDING: u32 = 27;
 const DDGI_VISIBILITY_ATLAS_BINDING: u32 = 28;
+const DDGI_TRANSPORT_SOURCE_IRRADIANCE_ATLAS_BINDING: u32 = 29;
+const DDGI_RADIANCE_SUN_BINDING: u32 = 30;
+const DDGI_RADIANCE_VOXEL_PALETTE_BINDING: u32 = 31;
+const DDGI_TRANSPORT_QUERY_INFO_BINDING: u32 = 32;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
 #[repr(C)]
@@ -741,6 +747,7 @@ pub struct Tracer {
     ddgi_initial_terrain_ready_revision: Option<u32>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     environment_probe_environment_revision: u32,
+    environment_probe_radiance_snapshot: Option<DdgiRadianceSnapshot>,
     environment_probe_terrain_revision: u32,
     ddgi_terrain_refresh: DdgiTerrainRefresh,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
@@ -891,6 +898,7 @@ impl Tracer {
             allocator.clone(),
             chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
             desc.environment_probe_spacing_voxels,
+            desc.voxel_dim_per_chunk,
         )?;
         let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
             vulkan_ctx.device().clone(),
@@ -1004,6 +1012,7 @@ impl Tracer {
             ddgi_initial_terrain_ready_revision: None,
             ddgi_trace_stats_readback_pending: None,
             environment_probe_environment_revision: 0,
+            environment_probe_radiance_snapshot: None,
             environment_probe_terrain_revision: 0,
             ddgi_terrain_refresh: DdgiTerrainRefresh::default(),
             ddgi_flora_consumer_logged_token_serial: None,
@@ -1057,6 +1066,7 @@ impl Tracer {
             self.allocator.clone(),
             self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
             build_token.spacing_voxels(),
+            self.desc.voxel_dim_per_chunk,
         )?;
         staging.assign_build_token(build_token);
         staging.request_initialization(build_token.terrain_revision());
@@ -1613,6 +1623,43 @@ impl Tracer {
                     &ddgi_volume.ddgi_trace_stats,
                 ),
             );
+        for pipeline in [
+            &self.compute_pipelines.ddgi_global_sky_filter_ppl,
+            &self.compute_pipelines.ddgi_probe_trace_ppl,
+        ] {
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    DDGI_RADIANCE_SUN_BINDING,
+                    &ddgi_volume.ddgi_radiance_sun,
+                ),
+            );
+        }
+        for (binding, buffer) in [
+            (
+                DDGI_RADIANCE_VOXEL_PALETTE_BINDING,
+                &ddgi_volume.ddgi_radiance_voxel_palette,
+            ),
+            (
+                DDGI_TRANSPORT_QUERY_INFO_BINDING,
+                &ddgi_volume.ddgi_transport_query_info,
+            ),
+        ] {
+            self.compute_pipelines
+                .ddgi_probe_trace_ppl
+                .write_descriptor_set(0, WriteDescriptorSet::new_buffer_write(binding, buffer));
+        }
+        self.compute_pipelines
+            .ddgi_probe_trace_ppl
+            .write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_texture_write(
+                    DDGI_TRANSPORT_SOURCE_IRRADIANCE_ATLAS_BINDING,
+                    vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    &ddgi_volume.ddgi_transport_source_irradiance_atlas,
+                    TextureLayout::SHADER_READ_ONLY,
+                ),
+            );
 
         for pipeline in [
             &self.compute_pipelines.ddgi_global_sky_filter_ppl,
@@ -2062,7 +2109,19 @@ impl Tracer {
             sun_azimuth,
         )?;
 
-        let environment_lighting = self.environment_lighting.update(sun_dir);
+        let environment_lighting = self.environment_lighting.update(DdgiRadianceSnapshot {
+            sun_direction: sun_dir,
+            sun_color,
+            sun_luminance,
+            voxel_palette: DdgiVoxelPaletteSnapshot {
+                dirt_color: voxel_dirt_color,
+                sand_color: voxel_sand_color,
+                cherry_wood_color: voxel_cherry_wood_color,
+                oak_wood_color: voxel_oak_wood_color,
+                rock_color: voxel_rock_color,
+                hash_color_variance: voxel_color_variance,
+            },
+        });
         let ddgi_status = self.ddgi_volumes.status().active();
         BufferUpdater::update_shading_info(
             &self.resources,
@@ -2077,6 +2136,7 @@ impl Tracer {
             self.ddgi_terrain_refresh.invalidation_voxel_bound(),
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;
+        self.environment_probe_radiance_snapshot = Some(environment_lighting.snapshot);
 
         BufferUpdater::update_starlight_info(
             &self.resources,
@@ -2323,10 +2383,25 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
-        let ddgi_global_sky_needs_update = self
-            .ddgi_volumes
-            .builder()
-            .global_sky_needs_update(self.environment_probe_environment_revision);
+        if let Some(snapshot) = self.environment_probe_radiance_snapshot {
+            let revision = self.environment_probe_environment_revision;
+            if self
+                .ddgi_volumes
+                .builder()
+                .should_latch_radiance_snapshot(revision)
+            {
+                self.ddgi_volumes
+                    .builder_mut()
+                    .latch_radiance_snapshot(revision, snapshot)?;
+                log::info!(
+                    "[DDGI] radiance snapshot latched revision={} stage={:?}",
+                    revision,
+                    self.ddgi_volumes.status().builder().stage,
+                );
+            }
+        }
+
+        let ddgi_global_sky_needs_update = self.ddgi_volumes.builder().global_sky_needs_update();
         if ddgi_global_sky_needs_update {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -2345,7 +2420,12 @@ impl Tracer {
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-            let environment_revision = self.environment_probe_environment_revision;
+            let environment_revision = self
+                .ddgi_volumes
+                .status()
+                .builder()
+                .radiance_revision
+                .expect("a DDGI global-sky pass requires a latched radiance snapshot");
             let volume = self.ddgi_volumes.builder_mut();
             volume.mark_global_sky_ready(environment_revision);
             log::info!(

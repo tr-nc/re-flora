@@ -445,6 +445,45 @@ pub struct ContreeBuildInfo {
     pub leaf_write_offset: u32,
 }
 
+/// Auto-generated from `U_DdgiRadianceSun` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiRadianceSun {
+    pub direction: [f32; 3],
+    pub padding: f32,
+    pub color: [f32; 3],
+    pub luminance: f32,
+}
+
+/// Auto-generated from `U_DdgiRadianceVoxelPalette` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiRadianceVoxelPalette {
+    pub dirt_color: [f32; 3],
+    pub _pad0: [u8; 4],
+    pub sand_color: [f32; 3],
+    pub _pad1: [u8; 4],
+    pub cherry_wood_color: [f32; 3],
+    pub _pad2: [u8; 4],
+    pub oak_wood_color: [f32; 3],
+    pub _pad3: [u8; 4],
+    pub rock_color: [f32; 3],
+    pub hash_color_variance: f32,
+}
+
+/// Auto-generated from `U_DdgiTransportQueryInfo` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiTransportQueryInfo {
+    pub grid_dimensions: [u32; 3],
+    pub visibility_bias_world: f32,
+    pub world_to_grid_scale: [f32; 3],
+    pub source_ready: u32,
+    pub irradiance_tile_columns: u32,
+    pub visibility_tile_columns: u32,
+    pub padding: [u32; 2],
+}
+
 /// Auto-generated from `U_EditOccupancyInfo` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
