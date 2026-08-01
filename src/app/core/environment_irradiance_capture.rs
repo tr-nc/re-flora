@@ -1,9 +1,6 @@
 use super::App;
-use crate::ddgi::{
-    DdgiAtlasValidationStats, DdgiBuildToken, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage,
-};
+use crate::ddgi::{DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldStage};
 use crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY;
-use crate::tracer::DdgiRuntimeStatus;
 use anyhow::{ensure, Context, Result};
 use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, Extent2D, MemoryLocation};
 use std::io::Write;
@@ -20,6 +17,7 @@ const CAPTURE_STAGE_SINGLE_BOUNCE: u32 = 2;
 const CAPTURE_STAGE_FEEDBACK: u32 = 3;
 const CAPTURE_STAGE_CONVERGED: u32 = 4;
 const CAPTURE_STAGE_NON_CONVERGED: u32 = 5;
+#[cfg(test)]
 const CAPTURE_PUBLICATION_PUBLISHED: u32 = 1;
 const CAPTURE_BATCH_ORDER_FORWARD: u32 = 0;
 const CAPTURE_UNKNOWN_U32: u32 = u32::MAX;
@@ -47,33 +45,22 @@ struct CaptureMetadata {
 }
 
 impl CaptureMetadata {
-    fn from_runtime(
-        runtime: DdgiRuntimeStatus,
-        build_token: DdgiBuildToken,
-        published: DdgiFieldIdentity,
-        validation: DdgiAtlasValidationStats,
+    fn from_checkpoint(
+        checkpoint: DdgiCaptureCheckpoint,
         radiance_model_identity: u64,
     ) -> Result<Self> {
-        let field = published.field();
+        let field = checkpoint.field.field();
         ensure!(
-            runtime.active_token_serial == Some(build_token.serial())
-                && runtime.active_terrain_revision == Some(field.geometry_revision())
-                && runtime.active_radiance_revision == Some(field.radiance_revision())
-                && runtime.active_spacing_voxels == field.spacing_voxels()
-                && runtime.active_published_field == Some(published),
-            "DDGI runtime status does not match the authoritative published field: runtime={runtime:?} published={published:?}"
+            checkpoint.build_token.terrain_revision() == field.geometry_revision()
+                && checkpoint.build_token.spacing_voxels() == field.spacing_voxels(),
+            "DDGI build token does not own the captured field: checkpoint={checkpoint:?}"
         );
-        ensure!(
-            build_token.terrain_revision() == field.geometry_revision()
-                && build_token.spacing_voxels() == field.spacing_voxels(),
-            "DDGI build token does not own the published field: token={build_token:?} published={published:?}"
-        );
-        let source = published.source();
+        let source = checkpoint.field.source();
         Ok(Self {
             geometry_revision: field.geometry_revision(),
             radiance_revision: field.radiance_revision(),
             radiance_model_identity,
-            build_token_serial: build_token.serial(),
+            build_token_serial: checkpoint.build_token.serial(),
             field_serial: field.serial(),
             transport_stage: encode_transport_stage(field.stage()),
             transport_iteration: field.iteration(),
@@ -89,12 +76,12 @@ impl CaptureMetadata {
             source_radiance_revision: source
                 .map(|source| source.radiance_revision())
                 .unwrap_or(CAPTURE_UNKNOWN_U32),
-            publication_state: CAPTURE_PUBLICATION_PUBLISHED,
+            publication_state: checkpoint.publication as u32,
             batch_order: CAPTURE_BATCH_ORDER_FORWARD,
-            max_abs_delta: validation.max_absolute_rgb_delta,
-            max_rel_delta: validation.max_relative_rgb_delta,
-            nonfinite_count: validation.non_finite_count,
-            valid_count: validation.valid_texel_count,
+            max_abs_delta: checkpoint.validation.max_absolute_rgb_delta,
+            max_rel_delta: checkpoint.validation.max_relative_rgb_delta,
+            nonfinite_count: checkpoint.validation.non_finite_count,
+            valid_count: checkpoint.validation.valid_texel_count,
         })
     }
 
@@ -164,24 +151,12 @@ impl App {
             * u64::from(extent.height)
             * std::mem::size_of::<[f32; 4]>() as u64
             * u64::from(CAPTURE_PLANE_COUNT);
-        let runtime = self.tracer.ddgi_runtime_status();
-        let active = self.tracer.environment_probe_status();
-        let build_token = active
-            .build_token
-            .context("cannot capture DDGI without an active build token")?;
-        let published = active
-            .published_field
-            .context("cannot capture DDGI before a complete field is published")?;
-        let validation = active
-            .last_atlas_validation
-            .context("cannot capture DDGI without validation for the published iteration")?;
-        let metadata = CaptureMetadata::from_runtime(
-            runtime,
-            build_token,
-            published,
-            validation,
-            DDGI_AUTHORED_SKY_MODEL_IDENTITY,
-        )?;
+        let checkpoint = self
+            .tracer
+            .ddgi_capture_checkpoint()
+            .context("cannot capture DDGI before the requested field checkpoint is resident")?;
+        let metadata =
+            CaptureMetadata::from_checkpoint(checkpoint, DDGI_AUTHORED_SKY_MODEL_IDENTITY)?;
         let allocator = self
             .tracer
             .get_screen_output_tex()
@@ -198,7 +173,7 @@ impl App {
         Ok(EnvironmentIrradianceCaptureReadback {
             path,
             extent,
-            spacing_voxels: published.field().spacing_voxels(),
+            spacing_voxels: checkpoint.field.field().spacing_voxels(),
             debug_view: self.tracer.ddgi_debug_view(),
             metadata,
             buffer,
@@ -292,10 +267,9 @@ impl App {
 mod tests {
     use super::*;
     use crate::ddgi::{
-        DdgiAtlasValidationStats, DdgiBuildKind, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldKey,
-        DdgiFieldStage, DdgiRefreshState, DdgiVolumeStage,
+        DdgiAtlasValidationStats, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
+        DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey, DdgiFieldStage,
     };
-    use crate::tracer::DdgiRuntimeStatus;
 
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
@@ -323,35 +297,14 @@ mod tests {
             valid_texel_count: 314_432,
             scanned_stored_texel_count: 491_300,
         };
-        let status = DdgiRuntimeStatus {
-            active_token_serial: Some(9001),
-            active_terrain_revision: Some(41),
-            active_spacing_voxels: 16,
-            active_stage: DdgiVolumeStage::Ready,
-            active_published_field: Some(published),
-            active_radiance_revision: Some(17),
-            target_terrain_revision: Some(41),
-            staging_token_serial: None,
-            staging_kind: None,
-            staging_stage: None,
-            staging_complete_field: None,
-            staging_building_field: None,
-            staging_radiance_revision: None,
-            staging_terrain_revision: None,
-            staging_spacing_voxels: None,
-            staging_published_field: None,
-            staging_filtered_probe_count: 0,
-            staging_probe_count: 0,
-            coordinator_state: DdgiRefreshState::Idle,
-            queued_density_spacing_voxels: None,
-            full_domain_invalidation_fail_closed: false,
-        };
-
-        let metadata = CaptureMetadata::from_runtime(
-            status,
-            token,
-            published,
+        let checkpoint = DdgiCaptureCheckpoint {
+            build_token: token,
+            field: published,
             validation,
+            publication: DdgiCapturePublication::Published,
+        };
+        let metadata = CaptureMetadata::from_checkpoint(
+            checkpoint,
             crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
         )
         .unwrap();
@@ -376,14 +329,12 @@ mod tests {
         assert_eq!(metadata.nonfinite_count, 0);
         assert_eq!(metadata.valid_count, 314_432);
 
-        let mismatch = CaptureMetadata::from_runtime(
-            DdgiRuntimeStatus {
-                active_radiance_revision: Some(18),
-                ..status
+        let mismatched_token = DdgiBuildToken::for_test(9002, 42, 16, DdgiBuildKind::Terrain);
+        let mismatch = CaptureMetadata::from_checkpoint(
+            DdgiCaptureCheckpoint {
+                build_token: mismatched_token,
+                ..checkpoint
             },
-            token,
-            published,
-            validation,
             crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
         );
         assert!(

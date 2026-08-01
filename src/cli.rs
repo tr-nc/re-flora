@@ -1,7 +1,7 @@
 use re_flora_vkn::PresentMode;
 
 use crate::ddgi::{
-    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiDebugView,
+    supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiCaptureTarget, DdgiDebugView,
     DEFAULT_DDGI_SPACING_VOXELS,
 };
 
@@ -196,6 +196,8 @@ pub struct AppOptions {
     pub environment_lighting_test_scene: Option<EnvironmentLightingTestCase>,
     /// Save one pre-albedo linear environment-irradiance capture when the backend is ready.
     pub environment_irradiance_capture_path: Option<String>,
+    /// Select the complete DDGI field recorded by the one-shot irradiance capture.
+    pub environment_irradiance_capture_target: DdgiCaptureTarget,
     /// Select a permanent DDGI diagnostic view; exact modes are correctness-only and expensive.
     pub ddgi_debug_view: DdgiDebugView,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
@@ -337,6 +339,27 @@ impl AppOptions {
             "--environment-irradiance-capture",
             "an output .rfirr path",
         )?;
+        let environment_irradiance_capture_target_value = parse_required_string_after(
+            "--environment-irradiance-capture-target",
+            "s0, s1, sN, converged, or non-converged",
+        )?;
+        if environment_irradiance_capture_target_value.is_some()
+            && environment_irradiance_capture_path.is_none()
+        {
+            return Err(
+                "--environment-irradiance-capture-target requires --environment-irradiance-capture"
+                    .to_owned(),
+            );
+        }
+        let environment_irradiance_capture_target =
+            match environment_irradiance_capture_target_value {
+                Some(value) => DdgiCaptureTarget::from_cli_value(&value).ok_or_else(|| {
+                    format!(
+                        "Invalid --environment-irradiance-capture-target '{value}'. Expected s0, s1, sN, converged, or non-converged."
+                    )
+                })?,
+                None => DdgiCaptureTarget::default(),
+            };
         let ddgi_debug_view = match parse_required_string_after(
             "--ddgi-debug-view",
             "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
@@ -425,6 +448,7 @@ impl AppOptions {
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
             environment_lighting_test_scene,
             environment_irradiance_capture_path,
+            environment_irradiance_capture_target,
             ddgi_debug_view,
             hybrid_transparency_test_scene: args
                 .iter()
@@ -706,6 +730,8 @@ Options:
                               terrain-edits-closed
   --environment-irradiance-capture <path>
                               Save DDGI metadata, pre-albedo irradiance/hit mask, world hit, and exact sun visibility
+  --environment-irradiance-capture-target <target>
+                              Capture s0, s1, a specified sN, converged, or non-converged (default: s1)
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
                               or atlas DDGI diagnostics (default: final)
   --hybrid-transparency-test-scene
@@ -810,6 +836,10 @@ mod tests {
         assert!(!options.list_camera_snapshots);
         assert!(options.environment_lighting_test_scene.is_none());
         assert!(options.environment_irradiance_capture_path.is_none());
+        assert_eq!(
+            options.environment_irradiance_capture_target,
+            DdgiCaptureTarget::Iteration(1)
+        );
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
         assert_eq!(
             options.environment_probe_spacing_voxels,
@@ -899,6 +929,40 @@ mod tests {
             options.environment_irradiance_capture_path.as_deref(),
             Some("target/sealed.rfirr")
         );
+        assert_eq!(
+            options.environment_irradiance_capture_target,
+            DdgiCaptureTarget::Iteration(1)
+        );
+    }
+
+    #[test]
+    fn parses_environment_irradiance_capture_target() {
+        let options = parse(&[
+            "re-flora",
+            "--environment-irradiance-capture",
+            "target/sealed-s4.rfirr",
+            "--environment-irradiance-capture-target",
+            "s4",
+        ]);
+
+        assert_eq!(
+            options.environment_irradiance_capture_target,
+            DdgiCaptureTarget::Iteration(4)
+        );
+    }
+
+    #[test]
+    fn rejects_capture_target_without_capture_path() {
+        let result = AppOptions::try_from_arg_strings(
+            ["re-flora", "--environment-irradiance-capture-target", "s2"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        );
+
+        assert!(result.unwrap_err().contains(
+            "--environment-irradiance-capture-target requires --environment-irradiance-capture"
+        ));
     }
 
     #[test]

@@ -61,7 +61,8 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiBuildKind, DdgiBuildToken, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch,
+    DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
+    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch,
     DdgiRefreshState, DdgiStatus, DdgiTerrainRefresh, DdgiTransportScheduler,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid,
     DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
@@ -84,7 +85,7 @@ use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
 use crate::resource::ResourceContainer;
 use crate::util::TimeInfo;
 use crate::wind::WindSource;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, ClearValue,
@@ -728,6 +729,7 @@ pub struct TracerDesc {
     pub environment_probe_spacing_voxels: u32,
     pub environment_probe_visualization_enabled: bool,
     pub environment_irradiance_capture_enabled: bool,
+    pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_debug_view: DdgiDebugView,
 }
 
@@ -811,6 +813,7 @@ pub struct Tracer {
     environment_lighting: EnvironmentLightingCache,
     ddgi_volumes: DdgiVolumes,
     ddgi_transport_scheduler: DdgiTransportScheduler,
+    ddgi_capture_checkpoint: Option<DdgiCaptureCheckpoint>,
     ddgi_initial_terrain_ready_revision: Option<u32>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     environment_probe_environment_revision: u32,
@@ -1077,6 +1080,7 @@ impl Tracer {
             environment_lighting: EnvironmentLightingCache::default(),
             ddgi_volumes: DdgiVolumes::new(ddgi_volume),
             ddgi_transport_scheduler: DdgiTransportScheduler::new(),
+            ddgi_capture_checkpoint: None,
             ddgi_initial_terrain_ready_revision: None,
             ddgi_trace_stats_readback_pending: None,
             environment_probe_environment_revision: 0,
@@ -1323,6 +1327,47 @@ impl Tracer {
 
     pub fn ddgi_debug_view(&self) -> DdgiDebugView {
         self.desc.ddgi_debug_view
+    }
+
+    pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
+        let checkpoint = self.ddgi_capture_checkpoint?;
+        let active = self.ddgi_volumes.status().active();
+        (active.build_token == Some(checkpoint.build_token)
+            && active.published_field == Some(checkpoint.field))
+        .then_some(checkpoint)
+    }
+
+    fn observe_ddgi_capture_checkpoint(
+        &mut self,
+        build_token: DdgiBuildToken,
+        field: DdgiFieldIdentity,
+        validation: crate::ddgi::DdgiAtlasValidationStats,
+        publication: DdgiCapturePublication,
+    ) {
+        if !self.desc.environment_irradiance_capture_enabled
+            || !self
+                .desc
+                .environment_irradiance_capture_target
+                .matches(field)
+        {
+            return;
+        }
+        let checkpoint = DdgiCaptureCheckpoint {
+            build_token,
+            field,
+            validation,
+            publication,
+        };
+        self.ddgi_capture_checkpoint = Some(checkpoint);
+        log::info!(
+            "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} field_serial={} stage={:?} iteration={} publication={:?}",
+            self.desc.environment_irradiance_capture_target.label(),
+            build_token.serial(),
+            field.field().serial(),
+            field.field().stage(),
+            field.field().iteration(),
+            publication,
+        );
     }
 
     pub fn ddgi_ready(&self) -> bool {
@@ -2680,6 +2725,14 @@ impl Tracer {
                                     slot,
                                 );
                             }
+                            let build_token = build_token
+                                .context("validated DDGI field has no volume build token")?;
+                            self.observe_ddgi_capture_checkpoint(
+                                build_token,
+                                field,
+                                atlas_stats,
+                                DdgiCapturePublication::Published,
+                            );
                         }
                     }
                 }

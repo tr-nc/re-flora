@@ -4,6 +4,7 @@
 //! depending on the physical GPU texture layout.
 
 mod atlas;
+mod capture;
 #[cfg_attr(not(test), allow(dead_code))]
 mod octahedral;
 mod resources;
@@ -19,6 +20,7 @@ pub use atlas::{
     DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE, DEFAULT_DDGI_SPACING_VOXELS,
     SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
+pub use capture::{DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiCaptureTarget};
 // These identities and diagnostics form the capture/analysis seam even when the game binary does
 // not directly name every exported type in a particular build.
 #[allow(unused_imports)]
