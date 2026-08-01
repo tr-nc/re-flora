@@ -59,6 +59,8 @@ ROI_CHANNEL_INDICES = {
     "blue": 2,
 }
 WORLD_ROI_BOUNDARY_EPSILON = 1.0e-6
+TERRAIN_VOXELS_PER_WORLD_UNIT = 256.0
+VOXEL_FACE_BOUNDARY_EPSILON = 1.0e-3
 
 
 @dataclass(frozen=True)
@@ -273,6 +275,25 @@ def position_in_world_roi(
     )
 
 
+def quantized_voxel_face_key(
+    position: tuple[float, float, float],
+) -> tuple[int, int, int, int] | None:
+    scaled = tuple(value * TERRAIN_VOXELS_PER_WORLD_UNIT for value in position)
+    face_axis = min(
+        range(3), key=lambda axis: abs(scaled[axis] - round(scaled[axis]))
+    )
+    face_coordinate = round(scaled[face_axis])
+    if abs(scaled[face_axis] - face_coordinate) > VOXEL_FACE_BOUNDARY_EPSILON:
+        return None
+    tangent_axes = tuple(axis for axis in range(3) if axis != face_axis)
+    return (
+        face_axis,
+        face_coordinate,
+        math.floor(scaled[tangent_axes[0]] + VOXEL_FACE_BOUNDARY_EPSILON),
+        math.floor(scaled[tangent_axes[1]] + VOXEL_FACE_BOUNDARY_EPSILON),
+    )
+
+
 def summarize(
     capture: Capture,
     world_roi: tuple[float, float, float, float, float, float] | None = None,
@@ -294,6 +315,7 @@ def summarize(
     roi_channel_sum = [0.0, 0.0, 0.0]
     roi_luminances: list[float] = []
     roi_environment_zero_count = 0
+    roi_environment_voxel_face_states: dict[tuple[int, int, int, int], int] = {}
     world_min = [math.inf, math.inf, math.inf]
     world_max = [-math.inf, -math.inf, -math.inf]
     exact_sun_visibilities: list[float] = []
@@ -338,6 +360,14 @@ def summarize(
                     )
                     if all(value == 0.0 for value in rgb):
                         roi_environment_zero_count += 1
+                    if position is not None:
+                        face_key = quantized_voxel_face_key(position)
+                        if face_key is not None:
+                            state = 1 if all(value == 0.0 for value in rgb) else 2
+                            roi_environment_voxel_face_states[face_key] = (
+                                roi_environment_voxel_face_states.get(face_key, 0)
+                                | state
+                            )
                     for channel, value in enumerate(rgb):
                         roi_channel_sum[channel] += value
                         channel_abs_max[channel] = max(
@@ -362,6 +392,7 @@ def summarize(
     direct_light_luminances: list[float] = []
     direct_light_rgb_channel_negative_count = [0, 0, 0]
     roi_combined_zero_count = 0
+    roi_combined_voxel_face_states: dict[tuple[int, int, int, int], int] = {}
     direct_light_roi_luminances = {
         "sunlit": [],
         "shadowed": [],
@@ -415,6 +446,17 @@ def summarize(
                 )
             ):
                 roi_combined_zero_count += 1
+            if in_world_roi and world_pixel is not None:
+                face_key = quantized_voxel_face_key(world_pixel[:3])
+                if face_key is not None:
+                    combined_zero = all(
+                        irradiance + direct == 0.0
+                        for irradiance, direct in zip(irradiance_rgb, direct_rgb)
+                    )
+                    state = 1 if combined_zero else 2
+                    roi_combined_voxel_face_states[face_key] = (
+                        roi_combined_voxel_face_states.get(face_key, 0) | state
+                    )
             if world_pixel is None:
                 continue
             position = world_pixel[:3]
@@ -497,8 +539,19 @@ def summarize(
             roi_luminances[-1] if roi_luminances else None
         ),
         "world_roi_environment_zero_count": roi_environment_zero_count,
+        "world_roi_quantized_voxel_face_count": len(
+            roi_environment_voxel_face_states
+        ),
+        "world_roi_mixed_environment_zero_voxel_face_count": sum(
+            state == 3 for state in roi_environment_voxel_face_states.values()
+        ),
         "world_roi_combined_zero_count": (
             roi_combined_zero_count if direct_light_available else None
+        ),
+        "world_roi_mixed_combined_zero_voxel_face_count": (
+            sum(state == 3 for state in roi_combined_voxel_face_states.values())
+            if direct_light_available
+            else None
         ),
         "world_position_min": world_min if has_world_positions else None,
         "world_position_max": world_max if has_world_positions else None,
@@ -974,6 +1027,12 @@ def main() -> int:
     parser.add_argument("--max-roi-luminance-mean", type=float)
     parser.add_argument("--max-world-roi-environment-zero-count", type=int)
     parser.add_argument("--max-world-roi-combined-zero-count", type=int)
+    parser.add_argument(
+        "--max-world-roi-mixed-environment-zero-voxel-face-count", type=int
+    )
+    parser.add_argument(
+        "--max-world-roi-mixed-combined-zero-voxel-face-count", type=int
+    )
     parser.add_argument("--max-exact-direct-sun-visibility", type=float)
     parser.add_argument("--direct-light-sunlit-roi", type=float, nargs=6)
     parser.add_argument("--min-direct-light-sunlit-luminance-mean", type=float)
@@ -1101,6 +1160,14 @@ def main() -> int:
     gate_max(
         "world_roi_combined_zero_count",
         args.max_world_roi_combined_zero_count,
+    )
+    gate_max(
+        "world_roi_mixed_environment_zero_voxel_face_count",
+        args.max_world_roi_mixed_environment_zero_voxel_face_count,
+    )
+    gate_max(
+        "world_roi_mixed_combined_zero_voxel_face_count",
+        args.max_world_roi_mixed_combined_zero_voxel_face_count,
     )
     gate_max(
         "exact_direct_sun_visibility_max",
