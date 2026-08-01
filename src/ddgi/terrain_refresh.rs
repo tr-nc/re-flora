@@ -59,24 +59,14 @@ pub enum DdgiRefreshState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DdgiTerrainRefreshPhase {
-    AwaitingTerrain,
-    Building,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DdgiTerrainRefreshRequest {
     terrain_revision: u32,
     edited_voxel_bound: UAabb3,
     invalidation_voxel_bound: UAabb3,
-    phase: DdgiTerrainRefreshPhase,
 }
 
-/// Owns the single in-flight terrain revision supported by the first runtime-refresh milestone.
-///
-/// Edits that arrive before deferred terrain publication completes are combined. Edits that arrive
-/// while a DDGI staging volume is already building are deliberately left to the later
-/// latest-revision-wins milestone.
+/// Arbitrates runtime terrain refreshes and density rebuilds around one physical staging volume.
+/// Terrain always wins; superseded GPU work finishes harmlessly and cannot become consumer-visible.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DdgiTerrainRefresh {
     request: Option<DdgiTerrainRefreshRequest>,
@@ -107,15 +97,7 @@ impl DdgiTerrainRefresh {
                     terrain_revision,
                     edited_voxel_bound: edit_voxel_bound,
                     invalidation_voxel_bound,
-                    phase: DdgiTerrainRefreshPhase::AwaitingTerrain,
                 });
-                true
-            }
-            Some(request) if request.phase == DdgiTerrainRefreshPhase::AwaitingTerrain => {
-                request.terrain_revision = terrain_revision;
-                request.edited_voxel_bound =
-                    request.edited_voxel_bound.union_with(&edit_voxel_bound);
-                request.invalidation_voxel_bound = invalidation_voxel_bound;
                 true
             }
             Some(request) => {
@@ -161,10 +143,6 @@ impl DdgiTerrainRefresh {
                 active_spacing_voxels,
                 DdgiBuildKind::Terrain,
             );
-            self.request
-                .as_mut()
-                .expect("terrain request was present above")
-                .phase = DdgiTerrainRefreshPhase::Building;
             self.candidate = Some(token);
             return Some(token);
         }
@@ -195,10 +173,6 @@ impl DdgiTerrainRefresh {
             spacing_voxels,
             kind,
         }
-    }
-
-    pub fn candidate(self) -> Option<DdgiBuildToken> {
-        self.candidate
     }
 
     pub fn state(self) -> DdgiRefreshState {
@@ -263,36 +237,12 @@ impl DdgiTerrainRefresh {
         }
         self.candidate = None;
         match token.kind {
-            DdgiBuildKind::Terrain => {
-                if let Some(request) = self.request.as_mut() {
-                    request.phase = DdgiTerrainRefreshPhase::AwaitingTerrain;
-                }
-            }
+            DdgiBuildKind::Terrain => {}
             DdgiBuildKind::Density => {
                 self.queued_density_spacing_voxels
                     .get_or_insert(token.spacing_voxels);
             }
         }
-        true
-    }
-
-    pub fn awaiting_terrain_revision(self) -> Option<u32> {
-        self.request.and_then(|request| {
-            (request.phase == DdgiTerrainRefreshPhase::AwaitingTerrain)
-                .then_some(request.terrain_revision)
-        })
-    }
-
-    pub fn mark_building(&mut self, terrain_revision: u32) -> bool {
-        let Some(request) = self.request.as_mut() else {
-            return false;
-        };
-        if request.phase != DdgiTerrainRefreshPhase::AwaitingTerrain
-            || request.terrain_revision != terrain_revision
-        {
-            return false;
-        }
-        request.phase = DdgiTerrainRefreshPhase::Building;
         true
     }
 
@@ -304,28 +254,13 @@ impl DdgiTerrainRefresh {
         self.request.map(|request| request.invalidation_voxel_bound)
     }
 
-    pub fn blocks_density_rebuild(self) -> bool {
-        self.request.is_some()
-    }
-
-    pub fn clear_initial_revision(&mut self, terrain_revision: u32) {
+    pub fn consume_initial_revision(&mut self, terrain_revision: u32) {
         if self
             .request
             .is_some_and(|request| request.terrain_revision == terrain_revision)
         {
             self.request = None;
         }
-    }
-
-    pub fn clear_promoted_revision(&mut self, terrain_revision: u32) -> bool {
-        let clears_request = self.request.is_some_and(|request| {
-            request.phase == DdgiTerrainRefreshPhase::Building
-                && request.terrain_revision == terrain_revision
-        });
-        if clears_request {
-            self.request = None;
-        }
-        clears_request
     }
 }
 
@@ -360,14 +295,18 @@ mod tests {
             UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
             grid(32),
         ));
-        assert_eq!(refresh.awaiting_terrain_revision(), Some(7));
+        assert_eq!(
+            refresh.state(),
+            DdgiRefreshState::AwaitingTerrain {
+                latest_terrain_revision: 7
+            }
+        );
         assert!(refresh.invalidation_voxel_bound().is_some());
 
-        assert!(refresh.mark_building(7));
-        assert_eq!(refresh.awaiting_terrain_revision(), None);
-        assert!(!refresh.clear_promoted_revision(6));
+        refresh.mark_terrain_published(7);
+        let token = refresh.claim_next_build(32, 6).unwrap();
         assert!(refresh.invalidation_voxel_bound().is_some());
-        assert!(refresh.clear_promoted_revision(7));
+        assert!(refresh.mark_promoted(token));
         assert_eq!(refresh.invalidation_voxel_bound(), None);
     }
 
@@ -385,7 +324,12 @@ mod tests {
             grid(16),
         ));
 
-        assert_eq!(refresh.awaiting_terrain_revision(), Some(8));
+        assert_eq!(
+            refresh.state(),
+            DdgiRefreshState::AwaitingTerrain {
+                latest_terrain_revision: 8
+            }
+        );
         let edited = refresh.edited_voxel_bound().unwrap();
         assert_eq!(edited.min(), UVec3::splat(100));
         assert_eq!(edited.max(), UVec3::splat(210));
@@ -429,27 +373,34 @@ mod tests {
             UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
             grid(32),
         ));
-        refresh.clear_initial_revision(6);
-        assert_eq!(refresh.awaiting_terrain_revision(), Some(7));
-        refresh.clear_initial_revision(7);
-        assert_eq!(refresh.awaiting_terrain_revision(), None);
+        refresh.consume_initial_revision(6);
+        assert!(matches!(
+            refresh.state(),
+            DdgiRefreshState::AwaitingTerrain {
+                latest_terrain_revision: 7
+            }
+        ));
+        refresh.consume_initial_revision(7);
+        assert_eq!(refresh.state(), DdgiRefreshState::Idle);
         assert_eq!(refresh.invalidation_voxel_bound(), None);
     }
 
     #[test]
-    fn pending_and_building_refreshes_block_density_rebuilds_until_promotion() {
+    fn pending_and_building_terrain_keeps_density_queued_until_promotion() {
         let mut refresh = DdgiTerrainRefresh::default();
-        assert!(!refresh.blocks_density_rebuild());
         assert!(refresh.request(
             7,
             UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
             grid(32),
         ));
-        assert!(refresh.blocks_density_rebuild());
-        assert!(refresh.mark_building(7));
-        assert!(refresh.blocks_density_rebuild());
-        assert!(refresh.clear_promoted_revision(7));
-        assert!(!refresh.blocks_density_rebuild());
+        refresh.request_density_rebuild(16);
+        refresh.mark_terrain_published(7);
+        let terrain = refresh.claim_next_build(32, 6).unwrap();
+        assert_eq!(terrain.kind(), DdgiBuildKind::Terrain);
+        assert!(refresh.mark_promoted(terrain));
+        let density = refresh.claim_next_build(32, 7).unwrap();
+        assert_eq!(density.kind(), DdgiBuildKind::Density);
+        assert_eq!(density.spacing_voxels(), 16);
     }
 
     #[test]
@@ -460,14 +411,20 @@ mod tests {
             UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
             grid(32),
         ));
-        assert!(refresh.mark_building(7));
-        assert!(refresh.clear_promoted_revision(7));
+        refresh.mark_terrain_published(7);
+        let first = refresh.claim_next_build(32, 6).unwrap();
+        assert!(refresh.mark_promoted(first));
         assert!(refresh.request(
             8,
             UAabb3::new(UVec3::splat(200), UVec3::splat(220)),
             grid(32),
         ));
-        assert_eq!(refresh.awaiting_terrain_revision(), Some(8));
+        assert!(matches!(
+            refresh.state(),
+            DdgiRefreshState::AwaitingTerrain {
+                latest_terrain_revision: 8
+            }
+        ));
     }
 
     #[test]

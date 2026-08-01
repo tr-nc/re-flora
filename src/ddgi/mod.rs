@@ -19,7 +19,7 @@ pub use atlas::{
 pub use resources::{
     DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
 };
-pub use terrain_refresh::DdgiTerrainRefresh;
+pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiTerrainRefresh};
 
 /// Permanent DDGI diagnostics. Exact modes are intentionally opt-in because they trace up to
 /// eight additional terrain segments for every shaded terrain pixel.

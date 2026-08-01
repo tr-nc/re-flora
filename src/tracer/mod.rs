@@ -61,10 +61,10 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiDebugView, DdgiRayBatch, DdgiStatus, DdgiTerrainRefresh, DdgiVolume, DdgiVolumeStatus,
-    DdgiVolumes, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
-    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
-    DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiBuildKind, DdgiBuildToken, DdgiDebugView, DdgiRayBatch, DdgiStatus, DdgiTerrainRefresh,
+    DdgiVolume, DdgiVolumeStatus, DdgiVolumes, DDGI_GUTTER_WORKGROUP_SIZE,
+    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
+    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::EnvironmentLightingCache;
 use crate::environment_probes::{
@@ -858,41 +858,41 @@ impl Tracer {
     }
 
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) -> Result<()> {
-        anyhow::ensure!(
-            !self.ddgi_terrain_refresh.blocks_density_rebuild(),
-            "cannot rebuild DDGI density while terrain refresh revision {} is pending or building",
-            self.environment_probe_terrain_revision,
+        self.ddgi_terrain_refresh
+            .request_density_rebuild(spacing_voxels);
+        log::info!(
+            "[DDGI] density rebuild queued spacing_voxels={} coordinator={:?}",
+            spacing_voxels,
+            self.ddgi_terrain_refresh.state(),
         );
-        let terrain_revision = ddgi_density_rebuild_terrain_revision(
-            self.ddgi_status().active().relocated_terrain_revision,
-            self.ddgi_initial_terrain_ready_revision,
-        );
-        self.prepare_ddgi_staging(spacing_voxels, terrain_revision)
+        self.drive_pending_ddgi_rebuild().map(|_| ())
     }
 
-    /// Prepares a same-density staging volume for terrain that the caller has declared ready.
-    /// Consumers continue sampling the active volume until the staging build completes.
-    #[allow(dead_code)] // Called by the follow-up runtime terrain-ready integration.
-    pub fn prepare_environment_probe_refresh(&mut self, terrain_revision: u32) -> Result<()> {
-        let spacing_voxels = self.ddgi_status().active().grid.spacing_voxels();
-        self.prepare_ddgi_staging(spacing_voxels, Some(terrain_revision))
-    }
-
-    fn prepare_ddgi_staging(
-        &mut self,
-        spacing_voxels: u32,
-        terrain_revision: Option<u32>,
-    ) -> Result<()> {
+    fn prepare_ddgi_staging(&mut self, build_token: DdgiBuildToken) -> Result<()> {
         let mut staging = DdgiVolume::new(
             &self.vulkan_ctx,
             self.allocator.clone(),
             self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
-            spacing_voxels,
+            build_token.spacing_voxels(),
         )?;
-        if let Some(terrain_revision) = terrain_revision {
-            staging.request_initialization(terrain_revision);
-        }
+        staging.assign_build_token(build_token);
+        staging.request_initialization(build_token.terrain_revision());
         self.vulkan_ctx.device().wait_idle();
+        if let Some(retired_token) = self
+            .ddgi_status()
+            .staging()
+            .and_then(|staging| staging.build_token)
+            .filter(|retired_token| *retired_token != build_token)
+        {
+            log::info!(
+                "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} replacement_token_serial={} replacement_terrain_revision={}",
+                retired_token.serial(),
+                retired_token.kind(),
+                retired_token.terrain_revision(),
+                build_token.serial(),
+                build_token.terrain_revision(),
+            );
+        }
         // Builder descriptors move first. Active consumers keep sampling the complete volume until
         // the replacement reaches Ready and is explicitly promoted on a later frame.
         self.update_ddgi_builder_descriptors(&staging);
@@ -901,14 +901,16 @@ impl Tracer {
         drop(retired_staging);
         let status = self.ddgi_status();
         log::info!(
-            "[DDGI] staging prepared spacing_voxels={} probes={} active_terrain_revision={} target_terrain_revision={}",
+            "[DDGI] staging prepared token_serial={} kind={:?} spacing_voxels={} probes={} active_terrain_revision={} target_terrain_revision={}",
+            build_token.serial(),
+            build_token.kind(),
             status.builder().grid.spacing_voxels(),
             status.builder().grid.probe_count(),
             status
                 .active()
                 .relocated_terrain_revision
                 .unwrap_or_default(),
-            terrain_revision.unwrap_or_default(),
+            build_token.terrain_revision(),
         );
         Ok(())
     }
@@ -919,7 +921,7 @@ impl Tracer {
             .wrapping_add(1)
             .max(1);
         let grid = self.ddgi_status().active().grid;
-        let accepted = self.ddgi_terrain_refresh.request(
+        self.ddgi_terrain_refresh.request(
             self.environment_probe_terrain_revision,
             edit_bound,
             grid,
@@ -927,31 +929,54 @@ impl Tracer {
         let edited_bound = self.ddgi_terrain_refresh.edited_voxel_bound();
         let invalidation_bound = self.ddgi_terrain_refresh.invalidation_voxel_bound();
         log::info!(
-            "[DDGI] runtime terrain invalidation deferred revision={} accepted={} edit_voxel_bound={:?}..{:?} combined_edit_voxel_bound={:?} invalidation_voxel_bound={:?}",
+            "[DDGI] runtime terrain invalidation deferred revision={} edit_voxel_bound={:?}..{:?} combined_edit_voxel_bound={:?} invalidation_voxel_bound={:?} coordinator={:?}",
             self.environment_probe_terrain_revision,
-            accepted,
             edit_bound.min(),
             edit_bound.max(),
             edited_bound.map(|bound| (bound.min(), bound.max())),
             invalidation_bound.map(|bound| (bound.min(), bound.max())),
+            self.ddgi_terrain_refresh.state(),
         );
     }
 
-    /// Begins rebuilding a same-density staging field after deferred terrain publication is idle.
-    pub fn start_pending_environment_probe_refresh(&mut self) -> Result<bool> {
-        // Initial terrain construction uses notify_ddgi_initial_terrain_ready to initialize the
-        // active volume. Do not race that one-shot path by allocating a staging volume first.
+    /// Acknowledges the exact terrain revision currently published for GPU tracing.
+    pub fn publish_environment_probe_terrain_revision(&mut self, terrain_revision: u32) {
+        self.ddgi_terrain_refresh
+            .mark_terrain_published(terrain_revision);
+    }
+
+    /// Claims and installs the latest authoritative DDGI build at a GPU-safe replacement point.
+    pub fn drive_pending_ddgi_rebuild(&mut self) -> Result<bool> {
         if !self.ddgi_ready() {
             return Ok(false);
         }
-        let Some(terrain_revision) = self.ddgi_terrain_refresh.awaiting_terrain_revision() else {
+        let active = self.ddgi_status().active();
+        let Some(active_terrain_revision) = ddgi_density_rebuild_terrain_revision(
+            active.relocated_terrain_revision,
+            self.ddgi_initial_terrain_ready_revision,
+        ) else {
             return Ok(false);
         };
-        self.prepare_environment_probe_refresh(terrain_revision)?;
-        assert!(self.ddgi_terrain_refresh.mark_building(terrain_revision));
+        let Some(build_token) = self
+            .ddgi_terrain_refresh
+            .claim_next_build(active.grid.spacing_voxels(), active_terrain_revision)
+        else {
+            return Ok(false);
+        };
+        if let Err(err) = self.prepare_ddgi_staging(build_token) {
+            assert!(
+                self.ddgi_terrain_refresh
+                    .mark_build_preparation_failed(build_token),
+                "claimed DDGI build token must remain current until preparation returns"
+            );
+            return Err(err);
+        }
         log::info!(
-            "[DDGI] runtime terrain refresh started terrain_revision={} edited_voxel_bound={:?} invalidation_voxel_bound={:?}",
-            terrain_revision,
+            "[DDGI] rebuild started token_serial={} kind={:?} terrain_revision={} spacing_voxels={} edited_voxel_bound={:?} invalidation_voxel_bound={:?}",
+            build_token.serial(),
+            build_token.kind(),
+            build_token.terrain_revision(),
+            build_token.spacing_voxels(),
             self.ddgi_terrain_refresh
                 .edited_voxel_bound()
                 .map(|bound| (bound.min(), bound.max())),
@@ -967,7 +992,9 @@ impl Tracer {
     pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) {
         self.ddgi_initial_terrain_ready_revision = Some(terrain_revision);
         self.ddgi_terrain_refresh
-            .clear_initial_revision(terrain_revision);
+            .mark_terrain_published(terrain_revision);
+        self.ddgi_terrain_refresh
+            .consume_initial_revision(terrain_revision);
         if self
             .ddgi_volumes
             .builder_mut()
@@ -1542,6 +1569,21 @@ impl Tracer {
         if !status.staging_is_ready() {
             return;
         }
+        let build_token = status
+            .staging()
+            .and_then(|staging| staging.build_token)
+            .expect("every DDGI staging volume must carry its build token");
+        if !self.ddgi_terrain_refresh.token_can_promote(build_token) {
+            log::info!(
+                "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} spacing_voxels={} coordinator={:?}",
+                build_token.serial(),
+                build_token.kind(),
+                build_token.terrain_revision(),
+                build_token.spacing_voxels(),
+                self.ddgi_terrain_refresh.state(),
+            );
+            return;
+        }
 
         // Previous frames may still sample the active volume. Quiesce them, point every consumer
         // at the complete staging volume, then swap ownership while the previous active resources
@@ -1550,15 +1592,19 @@ impl Tracer {
         self.update_ddgi_consumer_descriptors(self.ddgi_volumes.builder());
         let retired_active = self
             .ddgi_volumes
-            .promote_staging()
+            .promote_staging(build_token)
             .expect("ready DDGI staging volume must be promotable");
+        assert!(
+            self.ddgi_terrain_refresh.mark_promoted(build_token),
+            "promoted DDGI token must still be coordinator-authoritative"
+        );
         let active = self.ddgi_volumes.status().active();
         let promoted_terrain_revision = active.relocated_terrain_revision.unwrap_or_default();
-        let cleared_terrain_invalidation = self
-            .ddgi_terrain_refresh
-            .clear_promoted_revision(promoted_terrain_revision);
+        let cleared_terrain_invalidation = build_token.kind() == DdgiBuildKind::Terrain;
         log::info!(
-            "[DDGI] staging promoted spacing_voxels={} probes={} terrain_revision={} environment_revision={} cleared_terrain_invalidation={} stage={:?}",
+            "[DDGI] staging promoted token_serial={} kind={:?} spacing_voxels={} probes={} terrain_revision={} environment_revision={} cleared_terrain_invalidation={} stage={:?}",
+            build_token.serial(),
+            build_token.kind(),
             active.grid.spacing_voxels(),
             active.grid.probe_count(),
             promoted_terrain_revision,

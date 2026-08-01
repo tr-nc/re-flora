@@ -3138,7 +3138,10 @@ impl App {
                 self.process_environment_lighting_test_scene();
                 self.process_hybrid_transparency_test_scene();
                 if self.deferred_chunk_rebuilds_idle() {
-                    if let Err(err) = self.tracer.start_pending_environment_probe_refresh() {
+                    let published_revision = self.tracer.environment_probe_terrain_revision();
+                    self.tracer
+                        .publish_environment_probe_terrain_revision(published_revision);
+                    if let Err(err) = self.tracer.drive_pending_ddgi_rebuild() {
                         log::error!(
                             "Failed to start DDGI refresh after terrain publication: {err:#}"
                         );

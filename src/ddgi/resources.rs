@@ -1,6 +1,6 @@
 use super::{
-    DdgiAtlasLayout, DdgiVolumeGrid, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_PROBE_BATCH_SIZE,
-    DDGI_RAYS_PER_PROBE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiAtlasLayout, DdgiBuildToken, DdgiVolumeGrid, DDGI_IRRADIANCE_INTERIOR_SIDE,
+    DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::generated::gpu_structs::DdgiProbeMetadata;
 use crate::resource::{Resource, ResourceContainer};
@@ -119,6 +119,7 @@ pub enum DdgiVolumeStage {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiVolumeStatus {
+    pub build_token: Option<DdgiBuildToken>,
     pub grid: DdgiVolumeGrid,
     pub irradiance_layout: DdgiAtlasLayout,
     pub visibility_layout: DdgiAtlasLayout,
@@ -165,6 +166,7 @@ impl DdgiStatus {
 }
 
 pub struct DdgiVolume {
+    build_token: Option<DdgiBuildToken>,
     grid: DdgiVolumeGrid,
     irradiance_layout: DdgiAtlasLayout,
     visibility_layout: DdgiAtlasLayout,
@@ -228,7 +230,7 @@ impl DdgiVolumes {
 
     /// Promotes a complete staging volume and returns the previous active volume.
     /// The caller must rebind consumer descriptors before dropping the returned volume.
-    pub fn promote_staging(&mut self) -> Result<DdgiVolume> {
+    pub fn promote_staging(&mut self, expected_token: DdgiBuildToken) -> Result<DdgiVolume> {
         let staging = self
             .staging
             .as_ref()
@@ -237,6 +239,12 @@ impl DdgiVolumes {
             staging.status().is_ready(),
             "cannot promote DDGI staging volume before it is ready (stage={:?})",
             staging.status().stage,
+        );
+        ensure!(
+            staging.status().build_token == Some(expected_token),
+            "cannot promote DDGI staging volume with token {:?}; expected {:?}",
+            staging.status().build_token,
+            expected_token,
         );
         let staging = self.staging.take().expect("staging presence checked above");
         Ok(std::mem::replace(&mut self.active, staging))
@@ -412,6 +420,7 @@ impl DdgiVolume {
         );
 
         Ok(Self {
+            build_token: None,
             grid,
             irradiance_layout,
             visibility_layout,
@@ -434,6 +443,7 @@ impl DdgiVolume {
 
     pub fn status(&self) -> DdgiVolumeStatus {
         DdgiVolumeStatus {
+            build_token: self.build_token,
             grid: self.grid,
             irradiance_layout: self.irradiance_layout,
             visibility_layout: self.visibility_layout,
@@ -444,6 +454,14 @@ impl DdgiVolume {
             active_ray_batch: self.active_ray_batch,
             filtered_probe_count: self.next_probe_index,
         }
+    }
+
+    pub fn assign_build_token(&mut self, build_token: DdgiBuildToken) {
+        assert!(
+            self.build_token.is_none(),
+            "DDGI build token may only be assigned once"
+        );
+        self.build_token = Some(build_token);
     }
 
     pub fn global_sky_needs_update(&self, environment_revision: u32) -> bool {
@@ -668,6 +686,7 @@ mod tests {
     fn volume_is_not_ready_when_resources_are_only_allocated() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
         let status = DdgiVolumeStatus {
+            build_token: None,
             grid,
             irradiance_layout: DdgiAtlasLayout::new(
                 grid.probe_count(),
@@ -701,6 +720,7 @@ mod tests {
         let visibility_layout =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
         let status_for = |stage, terrain_revision| DdgiVolumeStatus {
+            build_token: None,
             grid,
             irradiance_layout,
             visibility_layout,
