@@ -189,7 +189,8 @@ DdgiQueryResult sampleDdgiExactTerrainReference(
             {
                 DdgiProbeContribution contribution =
                     getDdgiProbeContribution(
-                        shading_info, worldPosition, normal, uint3(x, y, z));
+                        shading_info, worldPosition, normal, surfaceOutward,
+                        uint3(x, y, z));
                 float visibility = contribution.trustworthy
                     ? ddgiExactSegmentVisibility(
                           worldPosition, surfaceOutward, contribution,
@@ -291,12 +292,12 @@ void getPixelColor(out float3 color, out float depth,
     float3 albedo;
     parseTraceResult(albedo, result);
     DdgiQueryResult consumerResult = sampleDdgiDiffuseEnvironment(
-        shading_info, result.position, result.normal);
+        shading_info, result.position, result.normal, -ray.direction);
     DdgiQueryResult captureResult = consumerResult;
     if (shading_info.environment_irradiance_capture_unpublished != 0u)
     {
         captureResult = sampleDdgiUnpublishedCaptureEnvironment(
-            shading_info, result.position, result.normal);
+            shading_info, result.position, result.normal, -ray.direction);
     }
     environmentIrradiance = consumerResult.irradiance;
     environmentCaptureIrradiance = captureResult.irradiance;

@@ -250,7 +250,7 @@ public DdgiQueryResult makeEmptyDdgiQueryResult()
 
 public DdgiProbeContribution getDdgiProbeContribution(
     DdgiQueryInfo query, float3 worldPosition, float3 surfaceNormal,
-    uint3 cageCorner, Sampler2D irradianceAtlas)
+    float3 surfaceOutward, uint3 cageCorner, Sampler2D irradianceAtlas)
 {
     DdgiProbeContribution contribution;
     contribution.trustworthy = false;
@@ -323,8 +323,14 @@ public DdgiProbeContribution getDdgiProbeContribution(
     contribution.base_weight = positionWeight * surfaceSideWeight;
     contribution.moment_visibility = ddgiChebyshevVisibility(
         moments, distanceToSurface);
+    // The stored voxel normal is an irradiance/material normal, not the exact
+    // face from which this query arrived. The caller supplies that outward
+    // direction separately so the hard segment begins in known-free space.
+    // This is only an origin contract; the Contree oracle remains independent.
+    float3 hardVisibilityWorldPosition = worldPosition +
+        ddgiNormalizedSurfaceNormal(surfaceOutward) * biasWorld;
     contribution.hard_visibility = ddgiVoxelSegmentVisibility(
-        biasedWorldPosition, actualPosition, query.geometry_revision);
+        hardVisibilityWorldPosition, actualPosition, query.geometry_revision);
     contribution.irradiance = sampleDdgiProbeIrradiance(
         probeIndex, normal, query.irradiance_tile_columns, irradianceAtlas);
     return contribution;
@@ -332,11 +338,11 @@ public DdgiProbeContribution getDdgiProbeContribution(
 
 public DdgiProbeContribution getDdgiProbeContribution(
     U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
-    uint3 cageCorner)
+    float3 surfaceOutward, uint3 cageCorner)
 {
     return getDdgiProbeContribution(
         ddgiConsumerQueryInfo(lighting), worldPosition, surfaceNormal,
-        cageCorner, ddgi_irradiance_atlas);
+        surfaceOutward, cageCorner, ddgi_irradiance_atlas);
 }
 
 public void accumulateDdgiContribution(
@@ -380,7 +386,7 @@ public void finalizeDdgiQueryResult(inout DdgiQueryResult result)
 
 public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
     DdgiQueryInfo query, Sampler2D irradianceAtlas,
-    float3 worldPosition, float3 surfaceNormal)
+    float3 worldPosition, float3 surfaceNormal, float3 surfaceOutward)
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
@@ -405,7 +411,8 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
             {
                 DdgiProbeContribution contribution =
                     getDdgiProbeContribution(
-                        query, worldPosition, normal, uint3(x, y, z),
+                        query, worldPosition, normal, surfaceOutward,
+                        uint3(x, y, z),
                         irradianceAtlas);
                 accumulateDdgiContribution(
                     result, contribution,
@@ -418,39 +425,42 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
 }
 
 public DdgiQueryResult sampleDdgiDiffuseEnvironment(
-    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    float3 surfaceOutward)
 {
     return sampleDdgiDiffuseEnvironmentFromAtlas(
         ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
-        worldPosition, surfaceNormal);
+        worldPosition, surfaceNormal, surfaceOutward);
 }
 
 public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(
-    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    float3 surfaceOutward)
 {
     DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
     query.ready = 1u;
     query.invalidation_enabled = 0u;
     return sampleDdgiDiffuseEnvironmentFromAtlas(
         query, ddgi_capture_irradiance_atlas,
-        worldPosition, surfaceNormal);
+        worldPosition, surfaceNormal, surfaceOutward);
 }
 
 public DdgiQueryResult sampleDdgiTransportSource(
     U_DdgiTransportQueryInfo transport, Sampler2D sourceIrradianceAtlas,
-    float3 worldPosition, float3 surfaceNormal)
+    float3 worldPosition, float3 surfaceNormal, float3 surfaceOutward)
 {
     return sampleDdgiDiffuseEnvironmentFromAtlas(
         ddgiTransportQueryInfo(transport), sourceIrradianceAtlas,
-        worldPosition, surfaceNormal);
+        worldPosition, surfaceNormal, surfaceOutward);
 }
 
 public DdgiQueryResult sampleDdgiTransportAtlas0(
     U_DdgiTransportQueryInfo transport,
-    float3 worldPosition, float3 surfaceNormal)
+    float3 worldPosition, float3 surfaceNormal, float3 surfaceOutward)
 {
     return sampleDdgiTransportSource(
-        transport, ddgi_irradiance_atlas, worldPosition, surfaceNormal);
+        transport, ddgi_irradiance_atlas, worldPosition, surfaceNormal,
+        surfaceOutward);
 }
 
 public uint ddgiNearestNominalProbeIndex(U_ShadingInfo lighting,

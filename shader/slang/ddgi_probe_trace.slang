@@ -117,6 +117,7 @@ float ddgiExactTerrainSunVisibility(MarchingResult receiver,
 }
 
 float3 ddgiTransportHitRadiance(MarchingResult result,
+                                float3 surfaceOutward,
                                 uint localInvocationIndex)
 {
     float3 normal = normalize(result.normal);
@@ -133,14 +134,15 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
     if (pc.source_slot == 0u)
     {
         source = sampleDdgiTransportAtlas0(
-            ddgi_transport_query_info, result.position, normal);
+            ddgi_transport_query_info, result.position, normal,
+            surfaceOutward);
     }
     else
     {
         source = sampleDdgiTransportSource(
             ddgi_transport_query_info,
             ddgi_transport_source_irradiance_atlas,
-            result.position, normal);
+            result.position, normal, surfaceOutward);
     }
     float3 albedo = ddgiVoxelColorByTypeAndHash(
         ddgi_radiance_voxel_palette, result.voxel_type, result.hash_id);
@@ -199,7 +201,7 @@ void main(uint3 groupId : SV_GroupID,
             if (!backface && pc.transport_iteration >= 1u)
             {
                 rayRecord.xyz = ddgiTransportHitRadiance(
-                    result, localInvocationId.x);
+                    result, -direction, localInvocationId.x);
             }
             recordTraceStat(backface ? 4u : 3u);
         }
