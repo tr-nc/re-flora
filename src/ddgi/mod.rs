@@ -12,6 +12,7 @@ mod resources;
 #[allow(dead_code)]
 mod scheduler;
 mod terrain_refresh;
+mod voxel_visibility;
 
 pub use atlas::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiVolumeGrid,
