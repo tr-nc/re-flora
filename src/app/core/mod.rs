@@ -2304,6 +2304,7 @@ impl App {
                 let mut drop_collision_probe_requested = false;
                 let mut clear_collision_probe_requested = false;
                 let environment_probe_status = self.tracer.environment_probe_status();
+                let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
                 let environment_probe_draft_grid = DdgiVolumeGrid::new(
                     CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
                     self.environment_probe_spacing_draft,
@@ -2532,6 +2533,10 @@ impl App {
                                                     .relocated_terrain_revision
                                                     .map_or_else(|| "pending".to_owned(), |value| value.to_string()),
                                             ));
+                                            ui.monospace(ddgi_runtime_status.active_line());
+                                            ui.monospace(ddgi_runtime_status.builder_line());
+                                            ui.monospace(ddgi_runtime_status.coordinator_line());
+                                            ui.monospace(ddgi_runtime_status.invalidation_line());
                                             ui.monospace(format!(
                                                 "Allocated {:.2} MiB (irradiance {:.2} + visibility {:.2} + metadata {:.2} + rays {:.2} + sky {:.4} + stats {:.4})",
                                                 bytes.total() as f64 / (1024.0 * 1024.0),

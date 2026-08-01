@@ -37,6 +37,21 @@ impl DdgiBuildToken {
     pub fn kind(self) -> DdgiBuildKind {
         self.kind
     }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        serial: u64,
+        terrain_revision: u32,
+        spacing_voxels: u32,
+        kind: DdgiBuildKind,
+    ) -> Self {
+        Self {
+            serial,
+            terrain_revision,
+            spacing_voxels,
+            kind,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -254,6 +269,14 @@ impl DdgiTerrainRefresh {
         self.request.map(|request| request.invalidation_voxel_bound)
     }
 
+    pub fn latest_terrain_revision(self) -> Option<u32> {
+        self.request.map(|request| request.terrain_revision)
+    }
+
+    pub fn queued_density_spacing_voxels(self) -> Option<u32> {
+        self.queued_density_spacing_voxels
+    }
+
     pub fn consume_initial_revision(&mut self, terrain_revision: u32) {
         if self
             .request
@@ -308,6 +331,27 @@ mod tests {
         assert!(refresh.invalidation_voxel_bound().is_some());
         assert!(refresh.mark_promoted(token));
         assert_eq!(refresh.invalidation_voxel_bound(), None);
+    }
+
+    #[test]
+    fn operator_accessors_map_latest_revision_density_queue_and_invalidation() {
+        let mut refresh = DdgiTerrainRefresh::default();
+        refresh.request_density_rebuild(16);
+        assert_eq!(refresh.latest_terrain_revision(), None);
+        assert_eq!(refresh.queued_density_spacing_voxels(), Some(16));
+        assert_eq!(refresh.invalidation_voxel_bound(), None);
+
+        refresh.request(
+            7,
+            UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
+            grid(32),
+        );
+        assert_eq!(refresh.latest_terrain_revision(), Some(7));
+        assert_eq!(refresh.queued_density_spacing_voxels(), Some(16));
+        assert_eq!(
+            refresh.invalidation_voxel_bound(),
+            Some(UAabb3::new(UVec3::ZERO, UVec3::splat(512)))
+        );
     }
 
     #[test]
