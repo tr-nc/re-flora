@@ -768,8 +768,8 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
-        let environment_probe_visualization_resources: [&dyn ResourceContainer; 2] =
-            [resources, ddgi_volume];
+        let environment_probe_visualization_resources: [&dyn ResourceContainer; 3] =
+            [resources, ddgi_volume, ddgi_voxel_visibility];
         let environment_probe_visualization_depth_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.environment_probe_visualization_vert_sm,
