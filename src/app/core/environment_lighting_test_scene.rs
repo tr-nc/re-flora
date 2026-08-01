@@ -36,10 +36,45 @@ const TEST_REBUILD_MAX: UVec3 = UVec3::new(440, 244, 416);
 enum TestScenePhase {
     Pending,
     WaitingForRebuild,
-    Settling { frames: u8, terrain_revision: u32 },
-    WaitingForProbeField { terrain_revision: u32 },
+    Settling {
+        frames: u8,
+        terrain_revision: u32,
+    },
+    WaitingForProbeField {
+        terrain_revision: u32,
+    },
+    WaitingForEditedTerrain {
+        edit: TerrainEdit,
+        target_revision: u32,
+    },
+    WaitingForEditedProbeField {
+        edit: TerrainEdit,
+        target_revision: u32,
+    },
     Ready,
     Failed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerrainEdit {
+    CloseSkylight,
+    ReopenSkylight,
+}
+
+impl TerrainEdit {
+    fn label(self) -> &'static str {
+        match self {
+            Self::CloseSkylight => "close-skylight",
+            Self::ReopenSkylight => "reopen-skylight",
+        }
+    }
+
+    fn voxel_type(self) -> u32 {
+        match self {
+            Self::CloseSkylight => VOXEL_TYPE_ROCK,
+            Self::ReopenSkylight => VOXEL_TYPE_EMPTY,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -58,6 +93,34 @@ impl EnvironmentLightingTestScene {
 
     pub(super) fn is_ready(&self) -> bool {
         self.phase == TestScenePhase::Ready
+    }
+
+    pub(super) fn edit_cycle_target_revision(&self) -> Option<u32> {
+        if self.case != EnvironmentLightingTestCase::TerrainEdits || self.is_ready() {
+            return None;
+        }
+        match self.phase {
+            TestScenePhase::WaitingForEditedTerrain {
+                target_revision, ..
+            }
+            | TestScenePhase::WaitingForEditedProbeField {
+                target_revision, ..
+            } => Some(target_revision),
+            _ => Some(0),
+        }
+    }
+
+    pub(super) fn phase_label(&self) -> &'static str {
+        match self.phase {
+            TestScenePhase::Pending => "pending",
+            TestScenePhase::WaitingForRebuild => "waiting-for-initial-terrain",
+            TestScenePhase::Settling { .. } => "settling-initial-terrain",
+            TestScenePhase::WaitingForProbeField { .. } => "waiting-for-initial-probe-field",
+            TestScenePhase::WaitingForEditedTerrain { .. } => "waiting-for-edited-terrain",
+            TestScenePhase::WaitingForEditedProbeField { .. } => "waiting-for-edited-probe-field",
+            TestScenePhase::Ready => "ready",
+            TestScenePhase::Failed => "failed",
+        }
     }
 }
 
@@ -80,7 +143,7 @@ impl TestSceneGeometry {
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX)],
             ),
-            EnvironmentLightingTestCase::Portal => (
+            EnvironmentLightingTestCase::Portal | EnvironmentLightingTestCase::TerrainEdits => (
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![
                     Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX),
@@ -148,12 +211,25 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     })
 }
 
+fn skylight_edit_plan(edit: TerrainEdit) -> Result<WorldEditPlan> {
+    Ok(WorldEditPlan {
+        voxel_edits: vec![stamp_cuboids(
+            vec![Cuboid::from_min_max(SKYLIGHT_MIN, SKYLIGHT_MAX)],
+            edit.voxel_type(),
+        )?],
+        build_edits: vec![BuildEdit::RebuildMesh(UAabb3::new(
+            SKYLIGHT_MIN.as_uvec3(),
+            SKYLIGHT_MAX.as_uvec3(),
+        ))],
+    })
+}
+
 fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
     match case {
         EnvironmentLightingTestCase::Sealed => {
             (Vec3::new(0.65, 0.58, 1.38), Vec3::new(0.65, 0.64, 1.02))
         }
-        EnvironmentLightingTestCase::Portal => {
+        EnvironmentLightingTestCase::Portal | EnvironmentLightingTestCase::TerrainEdits => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
         }
         EnvironmentLightingTestCase::Walls => {
@@ -279,13 +355,87 @@ impl App {
                 {
                     return;
                 }
+                if case == EnvironmentLightingTestCase::TerrainEdits {
+                    log::info!(
+                        "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision={}",
+                        terrain_revision,
+                    );
+                    match self.apply_environment_lighting_terrain_edit(
+                        TerrainEdit::CloseSkylight,
+                        terrain_revision,
+                    ) {
+                        Ok(target_revision) => TestScenePhase::WaitingForEditedTerrain {
+                            edit: TerrainEdit::CloseSkylight,
+                            target_revision,
+                        },
+                        Err(err) => {
+                            log::error!("[ENV_LIGHT_EDIT_CYCLE] close edit failed: {err:#}");
+                            TestScenePhase::Failed
+                        }
+                    }
+                } else {
+                    log::info!(
+                        "[ENV_LIGHT_TEST] ready case={} backend={} terrain_revision={} geometry=static",
+                        case.label(),
+                        "ddgi",
+                        terrain_revision,
+                    );
+                    TestScenePhase::Ready
+                }
+            }
+            TestScenePhase::WaitingForEditedTerrain {
+                edit,
+                target_revision,
+            } => {
+                if !self.deferred_chunk_rebuilds_idle() {
+                    return;
+                }
                 log::info!(
-                    "[ENV_LIGHT_TEST] ready case={} backend={} terrain_revision={} geometry=static",
-                    case.label(),
-                    "ddgi",
-                    terrain_revision,
+                    "[ENV_LIGHT_EDIT_CYCLE] edited terrain ready edit={} target_revision={}",
+                    edit.label(),
+                    target_revision,
                 );
-                TestScenePhase::Ready
+                TestScenePhase::WaitingForEditedProbeField {
+                    edit,
+                    target_revision,
+                }
+            }
+            TestScenePhase::WaitingForEditedProbeField {
+                edit,
+                target_revision,
+            } => {
+                if !self.tracer.ddgi_ready_for_terrain_revision(target_revision) {
+                    return;
+                }
+                log::info!(
+                    "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit={} terrain_revision={}",
+                    edit.label(),
+                    target_revision,
+                );
+                match edit {
+                    TerrainEdit::CloseSkylight => {
+                        match self.apply_environment_lighting_terrain_edit(
+                            TerrainEdit::ReopenSkylight,
+                            target_revision,
+                        ) {
+                            Ok(reopen_revision) => TestScenePhase::WaitingForEditedTerrain {
+                                edit: TerrainEdit::ReopenSkylight,
+                                target_revision: reopen_revision,
+                            },
+                            Err(err) => {
+                                log::error!("[ENV_LIGHT_EDIT_CYCLE] reopen edit failed: {err:#}");
+                                TestScenePhase::Failed
+                            }
+                        }
+                    }
+                    TerrainEdit::ReopenSkylight => {
+                        log::info!(
+                            "[ENV_LIGHT_EDIT_CYCLE] complete final_terrain_revision={}",
+                            target_revision,
+                        );
+                        TestScenePhase::Ready
+                    }
+                }
             }
             TestScenePhase::Ready | TestScenePhase::Failed => return,
         };
@@ -294,6 +444,32 @@ impl App {
             .as_mut()
             .expect("test scene state disappeared")
             .phase = next_phase;
+    }
+
+    fn apply_environment_lighting_terrain_edit(
+        &mut self,
+        edit: TerrainEdit,
+        source_revision: u32,
+    ) -> Result<u32> {
+        self.execute_edit_plan(
+            skylight_edit_plan(edit).with_context(|| format!("compile {} edit", edit.label()))?,
+        )?;
+        let target_revision = self.tracer.environment_probe_terrain_revision();
+        anyhow::ensure!(
+            target_revision != source_revision,
+            "{} did not advance terrain revision from {}",
+            edit.label(),
+            source_revision,
+        );
+        log::info!(
+            "[ENV_LIGHT_EDIT_CYCLE] requested edit={} source_revision={} target_revision={} voxel_bound={:?}..{:?}",
+            edit.label(),
+            source_revision,
+            target_revision,
+            SKYLIGHT_MIN.as_uvec3(),
+            SKYLIGHT_MAX.as_uvec3(),
+        );
+        Ok(target_revision)
     }
 }
 
@@ -341,5 +517,25 @@ mod tests {
                 )
             }));
         }
+    }
+
+    #[test]
+    fn terrain_edit_cycle_closes_and_reopens_the_authored_skylight() {
+        let close = skylight_edit_plan(TerrainEdit::CloseSkylight).unwrap();
+        let reopen = skylight_edit_plan(TerrainEdit::ReopenSkylight).unwrap();
+
+        assert_eq!(close.voxel_edits.len(), 1);
+        assert_eq!(reopen.voxel_edits.len(), 1);
+        for plan in [close, reopen] {
+            assert_eq!(plan.build_edits.len(), 1);
+            assert!(matches!(
+                plan.build_edits[0],
+                BuildEdit::RebuildMesh(bound)
+                    if bound.min() == SKYLIGHT_MIN.as_uvec3()
+                        && bound.max() == SKYLIGHT_MAX.as_uvec3()
+            ));
+        }
+        assert_eq!(TerrainEdit::CloseSkylight.voxel_type(), VOXEL_TYPE_ROCK);
+        assert_eq!(TerrainEdit::ReopenSkylight.voxel_type(), VOXEL_TYPE_EMPTY);
     }
 }
