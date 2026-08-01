@@ -17,8 +17,10 @@ pub use atlas::{
     SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 pub use resources::{
-    DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiTransportStage, DdgiVerifiedBatchOutcome,
-    DdgiVolume, DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes,
+    DdgiAtlasValidationStats, DdgiConvergencePolicy, DdgiIrradianceSlot, DdgiRayBatch,
+    DdgiResourceBytes, DdgiStatus, DdgiTransportFieldIdentity, DdgiTransportIterationIdentity,
+    DdgiTransportStage, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume,
+    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
 
