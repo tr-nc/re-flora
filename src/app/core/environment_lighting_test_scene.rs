@@ -1,15 +1,19 @@
 use super::App;
 use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldEditPlan};
-use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK};
+use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::EnvironmentLightingTestCase;
 use anyhow::{Context, Result};
+use egui::Color32;
 use glam::{UVec3, Vec3};
 
 const BUILD_DELAY_SECONDS: f32 = 0.5;
 const SETTLE_FRAMES: u8 = 2;
 const TEST_TIME_OF_DAY: f32 = 0.455_705;
+const TEST_LATITUDE: f32 = -0.24;
+const TEST_SEASON: f32 = 0.25;
 const TEST_VOXEL_COLOR_VARIANCE: f32 = 0.0;
+const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 
 pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.72, 0.2, 0.62);
 
@@ -28,6 +32,30 @@ const ONE_VOXEL_WALL_MIN: Vec3 = Vec3::new(96.0, 100.0, 300.0);
 const ONE_VOXEL_WALL_MAX: Vec3 = Vec3::new(192.0, 196.0, 301.0);
 const TWO_VOXEL_WALL_MIN: Vec3 = Vec3::new(208.0, 100.0, 300.0);
 const TWO_VOXEL_WALL_MAX: Vec3 = Vec3::new(304.0, 196.0, 302.0);
+
+const DONOR_CLEAR_MIN: Vec3 = Vec3::new(72.0, 100.0, 200.0);
+const DONOR_CLEAR_MAX: Vec3 = Vec3::new(440.0, 244.0, 416.0);
+const DONOR_FLOOR_MIN: Vec3 = Vec3::new(80.0, 84.0, 208.0);
+const DONOR_FLOOR_MAX: Vec3 = Vec3::new(432.0, 100.0, 408.0);
+const DONOR_BACK_MIN: Vec3 = Vec3::new(80.0, 100.0, 208.0);
+const DONOR_BACK_MAX: Vec3 = Vec3::new(432.0, 164.0, 240.0);
+const DONOR_LEFT_ROOF_MIN: Vec3 = Vec3::new(80.0, 164.0, 208.0);
+const DONOR_LEFT_ROOF_MAX: Vec3 = Vec3::new(224.0, 228.0, 320.0);
+const DONOR_RIGHT_ROOF_MIN: Vec3 = Vec3::new(288.0, 164.0, 208.0);
+const DONOR_RIGHT_ROOF_MAX: Vec3 = Vec3::new(432.0, 228.0, 320.0);
+const DONOR_DIVIDER_MIN: Vec3 = Vec3::new(224.0, 100.0, 208.0);
+const DONOR_DIVIDER_MAX: Vec3 = Vec3::new(288.0, 228.0, 408.0);
+const DONOR_SLAB_MIN: Vec3 = Vec3::new(104.0, 100.0, 336.0);
+const DONOR_SLAB_MAX: Vec3 = Vec3::new(208.0, 116.0, 392.0);
+const DONOR_CONTROL_SLAB_MIN: Vec3 = Vec3::new(304.0, 100.0, 336.0);
+const DONOR_CONTROL_SLAB_MAX: Vec3 = Vec3::new(408.0, 116.0, 392.0);
+
+const DONOR_RECEIVER_ROI_MIN: Vec3 = Vec3::new(136.0, 112.0, 240.0);
+const DONOR_RECEIVER_ROI_MAX: Vec3 = Vec3::new(208.0, 152.0, 240.0);
+const DONOR_CONTROL_RECEIVER_ROI_MIN: Vec3 = Vec3::new(336.0, 112.0, 240.0);
+const DONOR_CONTROL_RECEIVER_ROI_MAX: Vec3 = Vec3::new(408.0, 152.0, 240.0);
+const DONOR_SURFACE_ROI_MIN: Vec3 = Vec3::new(112.0, 116.0, 344.0);
+const DONOR_SURFACE_ROI_MAX: Vec3 = Vec3::new(200.0, 116.0, 384.0);
 
 const TEST_REBUILD_MIN: UVec3 = UVec3::new(72, 76, 200);
 const TEST_REBUILD_MAX: UVec3 = UVec3::new(440, 244, 416);
@@ -155,8 +183,10 @@ impl EnvironmentLightingTestScene {
 
 struct TestSceneGeometry {
     cleared_startup_obstacle: Vec<Cuboid>,
+    cleared_test_scene: Vec<Cuboid>,
     rock: Vec<Cuboid>,
     carved_empty: Vec<Cuboid>,
+    sand: Vec<Cuboid>,
     startup_obstacle_rebuild_bound: UAabb3,
     test_rebuild_bound: UAabb3,
 }
@@ -167,21 +197,25 @@ impl TestSceneGeometry {
         let startup_obstacle = Cuboid::from_min_max(startup_obstacle_min, startup_obstacle_max);
         let startup_obstacle_aabb = startup_obstacle.aabb();
 
-        let (rock, carved_empty) = match case {
+        let (cleared_test_scene, rock, carved_empty, sand) = match case {
             EnvironmentLightingTestCase::Sealed => (
+                Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX)],
+                Vec::new(),
             ),
             EnvironmentLightingTestCase::Portal
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
             | EnvironmentLightingTestCase::TerrainEditsClosed => (
+                Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![
                     Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX),
                     Cuboid::from_min_max(SKYLIGHT_MIN, SKYLIGHT_MAX),
                 ],
+                Vec::new(),
             ),
             EnvironmentLightingTestCase::Walls => {
                 let mut rock = vec![
@@ -198,14 +232,29 @@ impl TestSceneGeometry {
                         Vec3::new(x + 8.0, 196.0, z + 1.0),
                     ));
                 }
-                (rock, Vec::new())
+                (Vec::new(), rock, Vec::new(), Vec::new())
             }
+            EnvironmentLightingTestCase::Donor => (
+                vec![Cuboid::from_min_max(DONOR_CLEAR_MIN, DONOR_CLEAR_MAX)],
+                vec![
+                    Cuboid::from_min_max(DONOR_FLOOR_MIN, DONOR_FLOOR_MAX),
+                    Cuboid::from_min_max(DONOR_BACK_MIN, DONOR_BACK_MAX),
+                    Cuboid::from_min_max(DONOR_LEFT_ROOF_MIN, DONOR_LEFT_ROOF_MAX),
+                    Cuboid::from_min_max(DONOR_RIGHT_ROOF_MIN, DONOR_RIGHT_ROOF_MAX),
+                    Cuboid::from_min_max(DONOR_DIVIDER_MIN, DONOR_DIVIDER_MAX),
+                    Cuboid::from_min_max(DONOR_CONTROL_SLAB_MIN, DONOR_CONTROL_SLAB_MAX),
+                ],
+                Vec::new(),
+                vec![Cuboid::from_min_max(DONOR_SLAB_MIN, DONOR_SLAB_MAX)],
+            ),
         };
 
         Self {
             cleared_startup_obstacle: vec![startup_obstacle],
+            cleared_test_scene,
             rock,
             carved_empty,
+            sand,
             startup_obstacle_rebuild_bound: UAabb3::new(
                 startup_obstacle_aabb.min_uvec3(),
                 startup_obstacle_aabb.max_uvec3(),
@@ -219,9 +268,15 @@ impl TestSceneGeometry {
             self.cleared_startup_obstacle,
             VOXEL_TYPE_EMPTY,
         )?];
+        if !self.cleared_test_scene.is_empty() {
+            voxel_edits.push(stamp_cuboids(self.cleared_test_scene, VOXEL_TYPE_EMPTY)?);
+        }
         voxel_edits.push(stamp_cuboids(self.rock, VOXEL_TYPE_ROCK)?);
         if !self.carved_empty.is_empty() {
             voxel_edits.push(stamp_cuboids(self.carved_empty, VOXEL_TYPE_EMPTY)?);
+        }
+        if !self.sand.is_empty() {
+            voxel_edits.push(stamp_cuboids(self.sand, VOXEL_TYPE_SAND)?);
         }
         Ok(WorldEditPlan {
             voxel_edits,
@@ -272,7 +327,40 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         EnvironmentLightingTestCase::Walls => {
             (Vec3::new(1.00, 0.62, 1.76), Vec3::new(1.00, 0.58, 1.10))
         }
+        EnvironmentLightingTestCase::Donor => {
+            (Vec3::new(0.50, 0.29, 1.32), Vec3::new(0.50, 0.26, 0.56))
+        }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TestVoxelPalette {
+    dirt: Color32,
+    sand: Color32,
+    cherry_wood: Color32,
+    oak_wood: Color32,
+    rock: Color32,
+}
+
+fn voxel_palette(case: EnvironmentLightingTestCase) -> TestVoxelPalette {
+    TestVoxelPalette {
+        dirt: Color32::from_rgb(95, 95, 95),
+        sand: if case == EnvironmentLightingTestCase::Donor {
+            Color32::from_rgb(224, 48, 32)
+        } else {
+            Color32::from_rgb(194, 176, 115)
+        },
+        cherry_wood: Color32::from_rgb(202, 176, 92),
+        oak_wood: Color32::from_rgb(166, 144, 75),
+        rock: Color32::from_rgb(122, 125, 128),
+    }
+}
+
+fn voxel_roi_to_world(min_voxel: Vec3, max_voxel: Vec3) -> (Vec3, Vec3) {
+    (
+        min_voxel / VOXELS_PER_WORLD_UNIT,
+        max_voxel / VOXELS_PER_WORLD_UNIT,
+    )
 }
 
 impl App {
@@ -283,9 +371,20 @@ impl App {
             .expect("test scene camera requires test scene")
             .case;
         let (camera_position, camera_target) = camera_pose(case);
+        let palette = voxel_palette(case);
         self.current_time_of_day = TEST_TIME_OF_DAY;
         self.debug_settings.adjustables.time_of_day.value = TEST_TIME_OF_DAY;
+        self.debug_settings.adjustables.latitude.value = TEST_LATITUDE;
+        self.debug_settings.adjustables.season.value = TEST_SEASON;
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
+        self.debug_settings.adjustables.voxel_dirt_color.value = palette.dirt;
+        self.debug_settings.adjustables.voxel_sand_color.value = palette.sand;
+        self.debug_settings
+            .adjustables
+            .voxel_cherry_wood_color
+            .value = palette.cherry_wood;
+        self.debug_settings.adjustables.voxel_oak_wood_color.value = palette.oak_wood;
+        self.debug_settings.adjustables.voxel_rock_color.value = palette.rock;
         self.debug_settings.adjustables.voxel_color_variance.value = TEST_VOXEL_COLOR_VARIANCE;
         self.orbit_camera_focus = camera_target;
         if self
@@ -294,7 +393,7 @@ impl App {
         {
             self.request_vsm_history_reset();
             log::info!(
-                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} auto_cycle=false voxel_color_variance={:.3}",
+                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} latitude={:.3} season={:.3} auto_cycle=false voxel_color_variance={:.3}",
                 case.label(),
                 camera_position.x,
                 camera_position.y,
@@ -303,8 +402,29 @@ impl App {
                 camera_target.y,
                 camera_target.z,
                 TEST_TIME_OF_DAY,
+                TEST_LATITUDE,
+                TEST_SEASON,
                 TEST_VOXEL_COLOR_VARIANCE,
             );
+            if case == EnvironmentLightingTestCase::Donor {
+                let (donor_receiver_min, donor_receiver_max) =
+                    voxel_roi_to_world(DONOR_RECEIVER_ROI_MIN, DONOR_RECEIVER_ROI_MAX);
+                let (control_receiver_min, control_receiver_max) = voxel_roi_to_world(
+                    DONOR_CONTROL_RECEIVER_ROI_MIN,
+                    DONOR_CONTROL_RECEIVER_ROI_MAX,
+                );
+                let (donor_surface_min, donor_surface_max) =
+                    voxel_roi_to_world(DONOR_SURFACE_ROI_MIN, DONOR_SURFACE_ROI_MAX);
+                log::info!(
+                    "[ENV_LIGHT_TEST_ROI] case=donor donor_receiver_world={:?}..{:?} control_receiver_world={:?}..{:?} donor_surface_world={:?}..{:?}",
+                    donor_receiver_min,
+                    donor_receiver_max,
+                    control_receiver_min,
+                    control_receiver_max,
+                    donor_surface_min,
+                    donor_surface_max,
+                );
+            }
         } else {
             log::error!("[ENV_LIGHT_TEST] failed to apply deterministic camera pose");
         }
@@ -682,6 +802,7 @@ mod tests {
             EnvironmentLightingTestCase::Sealed,
             EnvironmentLightingTestCase::Portal,
             EnvironmentLightingTestCase::Walls,
+            EnvironmentLightingTestCase::Donor,
             EnvironmentLightingTestCase::TerrainEdits,
             EnvironmentLightingTestCase::TerrainEditsInflight,
             EnvironmentLightingTestCase::TerrainEditsClosed,
@@ -696,6 +817,123 @@ mod tests {
                         if bound.max().cmple(UVec3::splat(512)).all()
                 )
             }));
+        }
+    }
+
+    #[test]
+    fn donor_scene_has_saturated_terrain_donor_and_neutral_control_materials() {
+        let palette = voxel_palette(EnvironmentLightingTestCase::Donor);
+        assert!(palette.sand.r() > palette.sand.g() * 4);
+        assert!(palette.sand.r() > palette.sand.b() * 4);
+        assert!((palette.rock.r() as i16 - palette.rock.b() as i16).abs() <= 6);
+
+        let geometry = TestSceneGeometry::build(EnvironmentLightingTestCase::Donor);
+        assert_eq!(geometry.sand.len(), 1);
+        assert_eq!(geometry.sand[0].aabb().min(), DONOR_SLAB_MIN);
+        assert_eq!(geometry.sand[0].aabb().max(), DONOR_SLAB_MAX);
+    }
+
+    #[test]
+    fn donor_receiver_bays_are_symmetric_and_spacing_32_robust() {
+        let donor_receiver_size = DONOR_RECEIVER_ROI_MAX - DONOR_RECEIVER_ROI_MIN;
+        let control_receiver_size = DONOR_CONTROL_RECEIVER_ROI_MAX - DONOR_CONTROL_RECEIVER_ROI_MIN;
+        assert_eq!(donor_receiver_size, control_receiver_size);
+        assert_eq!(
+            DONOR_SLAB_MAX - DONOR_SLAB_MIN,
+            DONOR_CONTROL_SLAB_MAX - DONOR_CONTROL_SLAB_MIN
+        );
+        assert_eq!(
+            DONOR_LEFT_ROOF_MAX - DONOR_LEFT_ROOF_MIN,
+            DONOR_RIGHT_ROOF_MAX - DONOR_RIGHT_ROOF_MIN
+        );
+        assert!(DONOR_LEFT_ROOF_MAX.y - DONOR_LEFT_ROOF_MIN.y >= 64.0);
+        assert!(DONOR_DIVIDER_MAX.x - DONOR_DIVIDER_MIN.x >= 64.0);
+        assert!(DONOR_BACK_MAX.z - DONOR_BACK_MIN.z >= 32.0);
+    }
+
+    #[test]
+    fn donor_receivers_are_sun_occluded_while_donor_top_is_exposed() {
+        let (sun_altitude, sun_azimuth) = crate::app::environment::calculate_sun_position(
+            TEST_TIME_OF_DAY,
+            TEST_LATITUDE,
+            TEST_SEASON,
+        );
+        let sun_dir =
+            crate::util::get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
+        assert!(sun_dir.y > 0.0);
+
+        let at_roof_height = |surface_point: Vec3| {
+            let distance = (DONOR_LEFT_ROOF_MIN.y + 1.0 - surface_point.y) / sun_dir.y;
+            surface_point + sun_dir * distance
+        };
+        for (receiver_min, receiver_max, roof_min, roof_max) in [
+            (
+                DONOR_RECEIVER_ROI_MIN,
+                DONOR_RECEIVER_ROI_MAX,
+                DONOR_LEFT_ROOF_MIN,
+                DONOR_LEFT_ROOF_MAX,
+            ),
+            (
+                DONOR_CONTROL_RECEIVER_ROI_MIN,
+                DONOR_CONTROL_RECEIVER_ROI_MAX,
+                DONOR_RIGHT_ROOF_MIN,
+                DONOR_RIGHT_ROOF_MAX,
+            ),
+        ] {
+            for x in [receiver_min.x, receiver_max.x] {
+                for y in [receiver_min.y, receiver_max.y] {
+                    let sun_ray = at_roof_height(Vec3::new(x, y, receiver_min.z));
+                    assert!(sun_ray.cmpge(roof_min).all());
+                    assert!(sun_ray.cmple(roof_max).all());
+                }
+            }
+        }
+
+        for x in [DONOR_SURFACE_ROI_MIN.x, DONOR_SURFACE_ROI_MAX.x] {
+            for z in [DONOR_SURFACE_ROI_MIN.z, DONOR_SURFACE_ROI_MAX.z] {
+                let donor_top_sun_ray = at_roof_height(Vec3::new(x, DONOR_SURFACE_ROI_MIN.y, z));
+                assert!(donor_top_sun_ray.z > DONOR_LEFT_ROOF_MAX.z);
+            }
+        }
+    }
+
+    #[test]
+    fn donor_capture_regions_stay_on_authored_surfaces() {
+        for point in [DONOR_RECEIVER_ROI_MIN, DONOR_RECEIVER_ROI_MAX] {
+            assert!(point.x >= DONOR_BACK_MIN.x && point.x <= DONOR_BACK_MAX.x);
+            assert!(point.y >= DONOR_BACK_MIN.y && point.y <= DONOR_BACK_MAX.y);
+            assert_eq!(point.z, DONOR_BACK_MAX.z);
+        }
+        for point in [
+            DONOR_CONTROL_RECEIVER_ROI_MIN,
+            DONOR_CONTROL_RECEIVER_ROI_MAX,
+        ] {
+            assert!(point.x >= DONOR_BACK_MIN.x && point.x <= DONOR_BACK_MAX.x);
+            assert!(point.y >= DONOR_BACK_MIN.y && point.y <= DONOR_BACK_MAX.y);
+            assert_eq!(point.z, DONOR_BACK_MAX.z);
+        }
+        for point in [DONOR_SURFACE_ROI_MIN, DONOR_SURFACE_ROI_MAX] {
+            assert!(point.x >= DONOR_SLAB_MIN.x && point.x <= DONOR_SLAB_MAX.x);
+            assert_eq!(point.y, DONOR_SLAB_MAX.y);
+            assert!(point.z >= DONOR_SLAB_MIN.z && point.z <= DONOR_SLAB_MAX.z);
+        }
+    }
+
+    #[test]
+    fn donor_capture_regions_have_explicit_world_space_contract() {
+        for (min_voxel, max_voxel) in [
+            (DONOR_RECEIVER_ROI_MIN, DONOR_RECEIVER_ROI_MAX),
+            (
+                DONOR_CONTROL_RECEIVER_ROI_MIN,
+                DONOR_CONTROL_RECEIVER_ROI_MAX,
+            ),
+            (DONOR_SURFACE_ROI_MIN, DONOR_SURFACE_ROI_MAX),
+        ] {
+            let (min_world, max_world) = voxel_roi_to_world(min_voxel, max_voxel);
+            assert!(min_world.cmpge(Vec3::ZERO).all());
+            assert!(max_world.cmple(Vec3::splat(2.0)).all());
+            assert_eq!(min_world * VOXELS_PER_WORLD_UNIT, min_voxel);
+            assert_eq!(max_world * VOXELS_PER_WORLD_UNIT, max_voxel);
         }
     }
 
