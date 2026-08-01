@@ -321,6 +321,103 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(environment_only.returncode, 0, environment_only.stderr)
         self.assertEqual(including_direct.returncode, 1, including_direct.stderr)
 
+    def test_cli_gates_direct_light_roi_delta_from_environment_identical_baseline(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_path = Path(directory) / "baseline.rfirr"
+            changed_path = Path(directory) / "changed.rfirr"
+            irradiance = [(0.1, 0.2, 0.3, 1.0)]
+            baseline_world = [(1.0, 2.0, 3.0, 0.0)]
+            changed_world = [(1.0, 2.0, 3.0, 1.0)]
+            self.write_capture_v5(
+                baseline_path,
+                irradiance,
+                baseline_world,
+                [(0.1, 0.1, 0.1, 1.0)],
+            )
+            self.write_capture_v5(
+                changed_path,
+                irradiance,
+                changed_world,
+                [(0.4, 0.4, 0.4, 1.0)],
+            )
+            common = (
+                "--radiance-frame-baseline",
+                str(baseline_path),
+                "--direct-light-baseline",
+                str(baseline_path),
+                "--direct-light-sunlit-roi",
+                "0",
+                "0",
+                "0",
+                "2",
+                "3",
+                "4",
+                "--min-direct-light-sunlit-roi-luminance-absolute-delta",
+            )
+            accepted = self.run_analyzer(changed_path, *common, "0.29")
+            rejected = self.run_analyzer(changed_path, *common, "0.31")
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        report = json.loads(accepted.stdout)
+        self.assertTrue(
+            report["radiance_frame_comparison"]["environment_payload_bit_exact"]
+        )
+        self.assertTrue(report["radiance_frame_comparison"]["world_xyz_bit_exact"])
+        self.assertTrue(
+            report["radiance_frame_comparison"]["terrain_hit_mask_bit_exact"]
+        )
+        self.assertFalse(
+            report["radiance_frame_comparison"]["exact_sun_visibility_bit_exact"]
+        )
+        self.assertAlmostEqual(
+            report["direct_light_baseline_comparison"][
+                "sunlit_roi_luminance_absolute_delta"
+            ],
+            0.3,
+        )
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_radiance_frame_compares_terrain_hit_mask_independently(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_path = Path(directory) / "baseline.rfirr"
+            same_mask_path = Path(directory) / "same-mask.rfirr"
+            changed_mask_path = Path(directory) / "changed-mask.rfirr"
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            direct = [(0.1, 0.1, 0.1, 1.0)]
+            self.write_capture_v5(
+                baseline_path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                world,
+                direct,
+            )
+            self.write_capture_v5(
+                same_mask_path,
+                [(0.4, 0.5, 0.6, 1.0)],
+                world,
+                direct,
+            )
+            self.write_capture_v5(
+                changed_mask_path,
+                [(0.1, 0.2, 0.3, 0.0)],
+                world,
+                direct,
+            )
+
+            baseline = analyzer.load_capture(baseline_path)
+            same_mask = analyzer.compare_radiance_frame(
+                analyzer.load_capture(same_mask_path), baseline
+            )
+            changed_mask = analyzer.compare_radiance_frame(
+                analyzer.load_capture(changed_mask_path), baseline
+            )
+
+        self.assertFalse(same_mask["environment_payload_bit_exact"])
+        self.assertTrue(same_mask["terrain_hit_mask_bit_exact"])
+        self.assertFalse(changed_mask["environment_payload_bit_exact"])
+        self.assertFalse(changed_mask["terrain_hit_mask_bit_exact"])
+
     def test_loads_v4_canonical_field_source_and_build_identities(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "capture-v4.rfirr"

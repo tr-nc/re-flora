@@ -4070,12 +4070,12 @@ impl App {
                                         cmdbuf, &readback,
                                     );
                                     self.environment_irradiance_capture_taken = true;
-                                    environment_irradiance_readback = Some(readback);
                                     log::info!(
                                         "[ENV_IRRADIANCE_CAPTURE] recording backend={} path={}",
                                         "ddgi",
-                                        path,
+                                        readback.path(),
                                     );
+                                    environment_irradiance_readback = Some(readback);
                                 }
                                 Err(err) => log::error!(
                                     "[ENV_IRRADIANCE_CAPTURE] failed to prepare {}: {err:#}",
@@ -4210,9 +4210,21 @@ impl App {
                     match frame.wait_until_complete() {
                         Ok(()) => {
                             if let Some(readback) = environment_irradiance_readback.take() {
+                                let radiance_checkpoint = readback.radiance_checkpoint();
                                 match Self::write_environment_irradiance_capture_readback(readback)
                                 {
-                                    Ok(()) => environment_irradiance_capture_complete = true,
+                                    Ok(()) => {
+                                        environment_irradiance_capture_complete =
+                                            if let Some(checkpoint) = radiance_checkpoint {
+                                                self.environment_irradiance_capture_taken = false;
+                                                self.environment_lighting_test_scene
+                                                    .as_mut()
+                                                    .expect("radiance capture lost test scene")
+                                                    .complete_radiance_capture(checkpoint)
+                                            } else {
+                                                true
+                                            };
+                                    }
                                     Err(err) => {
                                         log::error!(
                                             "[ENV_IRRADIANCE_CAPTURE] failed to write capture: {err:#}"
@@ -4262,6 +4274,7 @@ impl App {
                         }
                     }
                 }
+                self.process_radiance_test_mutation_after_render();
                 if let Some(benchmark) = self.denoiser_bench.as_mut() {
                     benchmark.mark_frame_presented();
                 }

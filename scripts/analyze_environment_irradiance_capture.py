@@ -673,6 +673,64 @@ def compare(first: Capture, second: Capture) -> dict[str, object]:
     }
 
 
+def world_xyz_payload(payload: bytes) -> bytes:
+    return b"".join(
+        pixel[:12]
+        for pixel in (
+            payload[index : index + PIXEL.size]
+            for index in range(0, len(payload), PIXEL.size)
+        )
+    )
+
+
+def float4_alpha_payload(payload: bytes) -> bytes:
+    return b"".join(
+        pixel[12:]
+        for pixel in (
+            payload[index : index + PIXEL.size]
+            for index in range(0, len(payload), PIXEL.size)
+        )
+    )
+
+
+def compare_radiance_frame(current: Capture, baseline: Capture) -> dict[str, object]:
+    base_compatible = (
+        current.version,
+        current.width,
+        current.height,
+        current.backend,
+        current.spacing_voxels,
+        current.debug_view,
+    ) == (
+        baseline.version,
+        baseline.width,
+        baseline.height,
+        baseline.backend,
+        baseline.spacing_voxels,
+        baseline.debug_view,
+    )
+    mismatches = metadata_mismatches(current, baseline)
+    environment_payload_bit_exact = current.payload == baseline.payload
+    terrain_hit_mask_bit_exact = float4_alpha_payload(
+        current.payload
+    ) == float4_alpha_payload(baseline.payload)
+    world_xyz_bit_exact = world_xyz_payload(current.world_payload) == world_xyz_payload(
+        baseline.world_payload
+    )
+    exact_sun_visibility_bit_exact = float4_alpha_payload(
+        current.world_payload
+    ) == float4_alpha_payload(baseline.world_payload)
+    compatible = base_compatible and not mismatches
+    return {
+        "compatible": compatible,
+        "metadata_mismatches": mismatches,
+        "environment_payload_bit_exact": environment_payload_bit_exact,
+        "world_xyz_bit_exact": world_xyz_bit_exact,
+        "terrain_hit_mask_bit_exact": terrain_hit_mask_bit_exact,
+        "exact_sun_visibility_bit_exact": exact_sun_visibility_bit_exact,
+    }
+
+
 def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]:
     base_compatible = (
         approximate.width,
@@ -817,10 +875,54 @@ def compare_roi_baseline(
     }
 
 
+def compare_direct_light_baseline(
+    current: Capture,
+    baseline: Capture,
+    sunlit_roi: tuple[float, float, float, float, float, float] | None,
+) -> dict[str, object]:
+    current_summary = summarize(current, direct_light_sunlit_roi=sunlit_roi)
+    baseline_summary = summarize(baseline, direct_light_sunlit_roi=sunlit_roi)
+    current_mean = current_summary["direct_light_sunlit_roi_luminance_mean"]
+    baseline_mean = baseline_summary["direct_light_sunlit_roi_luminance_mean"]
+    current_hits = current_summary["direct_light_sunlit_roi_terrain_hit_count"]
+    baseline_hits = baseline_summary["direct_light_sunlit_roi_terrain_hit_count"]
+    compatible = (
+        current.version == 5
+        and baseline.version == 5
+        and current.width == baseline.width
+        and current.height == baseline.height
+        and current.backend == baseline.backend
+        and current.spacing_voxels == baseline.spacing_voxels
+        and world_xyz_payload(current.world_payload)
+        == world_xyz_payload(baseline.world_payload)
+        and current_hits == baseline_hits
+        and current_hits > 0
+        and current_mean is not None
+        and baseline_mean is not None
+    )
+    delta = current_mean - baseline_mean if compatible else None
+    return {
+        "compatible": compatible,
+        "sunlit_roi": list(sunlit_roi) if sunlit_roi is not None else None,
+        "sunlit_roi_terrain_hit_count": current_hits if compatible else None,
+        "baseline_sunlit_roi_luminance_mean": baseline_mean,
+        "current_sunlit_roi_luminance_mean": current_mean,
+        "sunlit_roi_luminance_delta": delta,
+        "sunlit_roi_luminance_absolute_delta": abs(delta) if delta is not None else None,
+        "baseline_direct_light_sha256": hashlib.sha256(
+            baseline.direct_light_payload
+        ).hexdigest(),
+        "current_direct_light_sha256": hashlib.sha256(
+            current.direct_light_payload
+        ).hexdigest(),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("capture", type=Path)
     parser.add_argument("--compare", type=Path)
+    parser.add_argument("--radiance-frame-baseline", type=Path)
     parser.add_argument(
         "--compare-direct-light",
         action="store_true",
@@ -828,6 +930,10 @@ def main() -> int:
     )
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--direct-light-baseline", type=Path)
+    parser.add_argument(
+        "--min-direct-light-sunlit-roi-luminance-absolute-delta", type=float
+    )
     parser.add_argument("--min-roi-luminance-gain", type=float)
     parser.add_argument("--max-luminance", type=float)
     parser.add_argument("--require-zero-rgb", action="store_true")
@@ -1018,6 +1124,49 @@ def main() -> int:
             exit_code = 1
     elif args.compare_direct_light:
         failures.append("--compare-direct-light requires --compare")
+        exit_code = 1
+    if args.radiance_frame_baseline is not None:
+        radiance_frame = compare_radiance_frame(
+            first, load_capture(args.radiance_frame_baseline)
+        )
+        report["radiance_frame_comparison"] = radiance_frame
+        if not (
+            radiance_frame["compatible"]
+            and radiance_frame["environment_payload_bit_exact"]
+            and radiance_frame["world_xyz_bit_exact"]
+            and radiance_frame["terrain_hit_mask_bit_exact"]
+        ):
+            failures.append(
+                "radiance frame changed active DDGI irradiance, world XYZ, or terrain hit mask"
+            )
+            exit_code = 1
+    if args.direct_light_baseline is not None:
+        direct_baseline = compare_direct_light_baseline(
+            first,
+            load_capture(args.direct_light_baseline),
+            (
+                tuple(args.direct_light_sunlit_roi)
+                if args.direct_light_sunlit_roi is not None
+                else None
+            ),
+        )
+        report["direct_light_baseline_comparison"] = direct_baseline
+        if not direct_baseline["compatible"]:
+            failures.append("direct-light baseline comparison is incompatible")
+            exit_code = 1
+        threshold = args.min_direct_light_sunlit_roi_luminance_absolute_delta
+        actual = direct_baseline["sunlit_roi_luminance_absolute_delta"]
+        if threshold is not None and (actual is None or actual < threshold):
+            failures.append(
+                "direct-light sunlit ROI luminance absolute delta: "
+                f"expected at least {threshold:g}, got {actual}"
+            )
+            exit_code = 1
+    elif args.min_direct_light_sunlit_roi_luminance_absolute_delta is not None:
+        failures.append(
+            "--min-direct-light-sunlit-roi-luminance-absolute-delta requires "
+            "--direct-light-baseline"
+        )
         exit_code = 1
     if args.reference is not None:
         reference = compare_reference(first, load_capture(args.reference))

@@ -9,6 +9,7 @@ output_root="${DDGI_LIFECYCLE_OUTPUT_DIR:-$repo_root/target/ddgi-lifecycle-accep
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 run_dir="$output_root/$run_id"
 analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
+radiance_validator="$repo_root/scripts/validate_ddgi_radiance_lifecycle.py"
 failures=0
 dry_run=false
 if [[ $# -eq 1 && "$1" == "--dry-run" ]]; then
@@ -52,15 +53,16 @@ require_markers() {
 run_hidden() {
     local group="$1"
     local scene="$2"
-    local capture_target="$3"
-    local capture="$4"
-    local console="$5"
-    shift 5
+    local spacing_voxels="$3"
+    local capture_target="$4"
+    local capture="$5"
+    local console="$6"
+    shift 6
     local command=(
         cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$scene"
-        --environment-probe-spacing-voxels 32
+        --environment-probe-spacing-voxels "$spacing_voxels"
         --environment-irradiance-capture "$capture"
         --environment-irradiance-capture-target "$capture_target"
         --auto-exit "$auto_exit"
@@ -89,18 +91,23 @@ run_hidden() {
 }
 
 check_radiance() {
-    local capture="$run_dir/radiance-changes.rfirr"
-    local console="$run_dir/radiance-changes.console.log"
-    run_hidden RADIANCE radiance-changes s2 "$capture" "$console" || return 1
+    local spacing_voxels="$1"
+    local capture="$run_dir/radiance-changes-spacing-${spacing_voxels}.rfirr"
+    local console="$run_dir/radiance-changes-spacing-${spacing_voxels}.console.log"
+    run_hidden "RADIANCE-${spacing_voxels}" radiance-changes "$spacing_voxels" published "$capture" "$console" || return 1
     if $dry_run; then
         return 0
     fi
     require_markers RADIANCE "$console" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=r1-terminal" \
+        "[DDGI_ACCEPT][RADIANCE] checkpoint=baseline" \
+        "[DDGI_ACCEPT][RADIANCE] checkpoint=r2-next-frame" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=r2-midflight" \
         "old_field_visible=true" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=r3-observed" \
         "field_serial_allocated=false" \
+        "[DDGI_ACCEPT][RADIANCE] checkpoint=r4-next-frame" \
+        "immutable_inflight_radiance_revision=2" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=r4-midflight" \
         "r3_coalesced=true" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=complete" \
@@ -114,7 +121,7 @@ check_radiance() {
     field_serial="$(field_value "$complete" field_serial)"
     source_field_serial="$(field_value "$complete" source_field_serial)"
     local checkpoint
-    checkpoint="$(grep -F "[ENV_IRRADIANCE_CAPTURE] checkpoint target=s2" "$console" | grep -F "field_serial=$field_serial" | tail -n 1)"
+    checkpoint="$(grep -F "[ENV_IRRADIANCE_CAPTURE] checkpoint target=published" "$console" | grep -F "field_serial=$field_serial" | tail -n 1)"
     local build_token_serial
     build_token_serial="$(field_value "$checkpoint" build_token_serial)"
     [[ -n "$field_serial" && -n "$source_field_serial" && -n "$build_token_serial" ]] || {
@@ -124,7 +131,7 @@ check_radiance() {
 
     "$analyzer" "$capture" \
         --expect-version 5 \
-        --expect-spacing-voxels 32 \
+        --expect-spacing-voxels "$spacing_voxels" \
         --expect-geometry-revision 1 \
         --expect-radiance-revision 4 \
         --expect-build-token-serial "$build_token_serial" \
@@ -137,14 +144,19 @@ check_radiance() {
         --expect-source-radiance-revision 2 \
         --expect-publication-state published \
         --expect-batch-order forward \
-        --require-nonnegative-rgb >"$run_dir/radiance-changes.analysis.json"
-    echo "[DDGI_LIFECYCLE] PASS group=RADIANCE field_serial=$field_serial source_field_serial=$source_field_serial"
+        --require-nonnegative-rgb >"$run_dir/radiance-changes-spacing-${spacing_voxels}.analysis.json"
+    "$radiance_validator" "$capture" \
+        --expect-spacing-voxels "$spacing_voxels" \
+        --direct-light-sunlit-roi 0.85 0.60 1.025 0.875 0.675 1.125 \
+        --min-direct-light-roi-delta 0.02 \
+        >"$run_dir/radiance-changes-spacing-${spacing_voxels}.lifecycle.json"
+    echo "[DDGI_LIFECYCLE] PASS group=RADIANCE spacing_voxels=$spacing_voxels field_serial=$field_serial source_field_serial=$source_field_serial"
 }
 
 check_density() {
     local capture="$run_dir/density-changes.rfirr"
     local console="$run_dir/density-changes.console.log"
-    run_hidden DENSITY density-changes s1 "$capture" "$console" \
+    run_hidden DENSITY density-changes 32 s1 "$capture" "$console" \
         --environment-probe-rebuild-spacing-voxels 16 || return 1
     if $dry_run; then
         return 0
@@ -203,7 +215,10 @@ check_density() {
     echo "[DDGI_LIFECYCLE] PASS group=DENSITY field_serial=$field_serial source_field_serial=$source_field_serial obsolete_token=$obsolete_token"
 }
 
-if ! check_radiance; then
+if ! check_radiance 32; then
+    failures=$((failures + 1))
+fi
+if ! check_radiance 16; then
     failures=$((failures + 1))
 fi
 if ! check_density; then
@@ -211,7 +226,7 @@ if ! check_density; then
 fi
 
 if $dry_run; then
-    echo "[DDGI_LIFECYCLE] dry-run complete scenarios=2"
+    echo "[DDGI_LIFECYCLE] dry-run complete scenarios=3"
     exit 0
 fi
 

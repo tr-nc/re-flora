@@ -543,6 +543,7 @@ pub struct DdgiVolume {
     last_atlas_validation: Option<DdgiAtlasValidationStats>,
     global_sky_revisions: [u32; 2],
     radiance_revision: Option<u32>,
+    radiance_snapshot: Option<DdgiRadianceSnapshot>,
     requested_terrain_revision: Option<u32>,
     relocated_terrain_revision: Option<u32>,
     active_ray_batch: Option<DdgiRayBatch>,
@@ -898,6 +899,7 @@ impl DdgiVolume {
             last_atlas_validation: None,
             global_sky_revisions: [0; 2],
             radiance_revision: None,
+            radiance_snapshot: None,
             requested_terrain_revision: None,
             relocated_terrain_revision: None,
             active_ray_batch: None,
@@ -996,7 +998,12 @@ impl DdgiVolume {
                 ..DdgiRadianceVoxelPalette::zeroed()
             })?;
         self.radiance_revision = Some(revision);
+        self.radiance_snapshot = Some(snapshot);
         Ok(())
+    }
+
+    pub(crate) fn radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
+        self.radiance_snapshot
     }
 
     pub fn global_sky_needs_update(&self) -> bool {
