@@ -53,7 +53,10 @@ use crate::builder::{
     ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
-use crate::ddgi::{DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS};
+use crate::ddgi::{
+    DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid, DdgiVolumeStage,
+    SUPPORTED_DDGI_SPACINGS_VOXELS,
+};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
 };
@@ -2304,6 +2307,7 @@ impl App {
                 let mut drop_collision_probe_requested = false;
                 let mut clear_collision_probe_requested = false;
                 let environment_probe_status = self.tracer.environment_probe_status();
+                let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
                 let environment_probe_draft_grid = DdgiVolumeGrid::new(
                     CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
                     self.environment_probe_spacing_draft,
@@ -2532,6 +2536,10 @@ impl App {
                                                     .relocated_terrain_revision
                                                     .map_or_else(|| "pending".to_owned(), |value| value.to_string()),
                                             ));
+                                            ui.monospace(ddgi_runtime_status.active_line());
+                                            ui.monospace(ddgi_runtime_status.builder_line());
+                                            ui.monospace(ddgi_runtime_status.coordinator_line());
+                                            ui.monospace(ddgi_runtime_status.invalidation_line());
                                             ui.monospace(format!(
                                                 "Allocated {:.2} MiB (irradiance {:.2} + visibility {:.2} + metadata {:.2} + rays {:.2} + sky {:.4} + stats {:.4})",
                                                 bytes.total() as f64 / (1024.0 * 1024.0),
@@ -4005,9 +4013,45 @@ impl App {
                             .environment_lighting_test_scene
                             .as_ref()
                             .is_none_or(
-                            environment_lighting_test_scene::EnvironmentLightingTestScene::is_ready,
+                            environment_lighting_test_scene::EnvironmentLightingTestScene::is_capture_ready,
                         );
-                        if test_scene_ready && self.tracer.ddgi_ready() {
+                        let inflight_target_revision = self
+                            .environment_lighting_test_scene
+                            .as_ref()
+                            .and_then(environment_lighting_test_scene::EnvironmentLightingTestScene::inflight_capture_target_revision);
+                        let inflight_checkpoint_ready =
+                            inflight_target_revision.is_none_or(|target_revision| {
+                                let runtime = self.tracer.ddgi_runtime_status();
+                                matches!(
+                                    runtime.coordinator_state,
+                                    DdgiRefreshState::BuildingTerrain {
+                                        candidate,
+                                        latest_terrain_revision,
+                                    } if candidate.terrain_revision() == target_revision
+                                        && latest_terrain_revision == target_revision
+                                ) && runtime.target_terrain_revision == Some(target_revision)
+                                    && runtime.active_terrain_revision == Some(1)
+                                    && runtime.staging_token_serial.is_some()
+                                    && runtime
+                                        .staging_stage
+                                        .is_some_and(|stage| stage != DdgiVolumeStage::Ready)
+                                    && runtime.full_domain_invalidation_fail_closed
+                            });
+                        if test_scene_ready && inflight_checkpoint_ready && self.tracer.ddgi_ready()
+                        {
+                            if let Some(target_revision) = inflight_target_revision {
+                                let runtime = self.tracer.ddgi_runtime_status();
+                                log::info!(target: "re_flora::app::core::environment_irradiance_capture",
+                                    "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision={:?} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=full-domain-fail-closed",
+                                    runtime.active_terrain_revision,
+                                    target_revision,
+                                    runtime.staging_token_serial,
+                                    runtime.staging_stage,
+                                    runtime.staging_filtered_probe_count,
+                                    runtime.staging_probe_count,
+                                    runtime.coordinator_state,
+                                );
+                            }
                             match self.prepare_environment_irradiance_capture_readback(path.clone())
                             {
                                 Ok(readback) => {
@@ -4147,6 +4191,7 @@ impl App {
                 }
 
                 let mut denoiser_bench_complete = false;
+                let mut environment_irradiance_capture_complete = false;
                 if screenshot_readback.is_some() || environment_irradiance_readback.is_some() {
                     // Finish the GPU copy before handing CPU processing to a worker. Waiting on
                     // this frame's fence from the worker raced the frame manager resetting the
@@ -4154,12 +4199,14 @@ impl App {
                     match frame.wait_until_complete() {
                         Ok(()) => {
                             if let Some(readback) = environment_irradiance_readback.take() {
-                                if let Err(err) =
-                                    Self::write_environment_irradiance_capture_readback(readback)
+                                match Self::write_environment_irradiance_capture_readback(readback)
                                 {
-                                    log::error!(
-                                        "[ENV_IRRADIANCE_CAPTURE] failed to write capture: {err:#}"
-                                    );
+                                    Ok(()) => environment_irradiance_capture_complete = true,
+                                    Err(err) => {
+                                        log::error!(
+                                            "[ENV_IRRADIANCE_CAPTURE] failed to write capture: {err:#}"
+                                        );
+                                    }
                                 }
                             }
                             if let Some(readback) = screenshot_readback.take() {
@@ -4286,6 +4333,10 @@ impl App {
                     }
                 }
                 if denoiser_bench_complete {
+                    self.on_terminate(event_loop);
+                }
+                if environment_irradiance_capture_complete {
+                    log::info!(target: "re_flora::app::core::environment_irradiance_capture", "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run");
                     self.on_terminate(event_loop);
                 }
             }

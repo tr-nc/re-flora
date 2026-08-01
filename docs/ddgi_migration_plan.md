@@ -34,6 +34,11 @@ Implementation progress:
   shaders, sampling path, selector, and legacy tests are gone, and probe visualization now reads
   DDGI metadata and atlases directly. The post-removal correctness suite passed all six
   configurations with bit-exact repeats.
+- The runtime-terrain-edit milestone is complete: active and staging volumes carry immutable build
+  tokens, latest-revision terrain work preempts obsolete candidates, density requests remain
+  queued behind terrain correctness, and promotion switches every terrain/raster consumer to one
+  complete token and terrain revision. While terrain staging is outstanding, the full DDGI world
+  domain fails closed; dependency-exact invalidation is deliberately deferred as an optimization.
 
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional
@@ -128,7 +133,7 @@ only if a concrete consumer demonstrates that the distinction is necessary.
 
 ### Explicitly Deferred
 
-- Runtime terrain-edit reclassification and re-relocation.
+- Dependency-exact invalidation and partial-volume terrain refresh.
 - Random ray rotation, temporal hysteresis, adaptive convergence, and sleeping states.
 - Compressed atlas formats and perceptual irradiance encoding.
 - Indirect hit radiance, DDGI feedback, terrain color bleeding, and multi-bounce lighting.
@@ -169,9 +174,9 @@ The GPU implementation should use a workgroup per probe so candidate evaluation 
 run in parallel without per-probe CPU readback. Relocation is a correction toward the nearest safe
 position, not an optimization that drives many probes toward the most open part of a room.
 
-For this milestone, all test geometry must be finalized before the one-time classification and
-relocation pass. Runtime edit support is tracked separately in
-[the existing local-field plan](local_environment_probe_plan.md#deferred-ddgi-terrain-edit-relocation).
+The initial volume still waits for finalized startup terrain. After initialization, runtime edits
+build a complete replacement volume and publish it atomically as described under the runtime-edit
+milestone below.
 
 ## GPU Resource Contract
 
@@ -427,6 +432,46 @@ Each milestone is a focused, validated commit before the next begins.
 - Remove the temporary backend selector.
 - Re-run the complete correctness suite and normal repository validation.
 
+### M6: Runtime Terrain Edits
+
+- Publish a terrain revision only after its deferred GPU terrain rebuild is idle, then prepare a
+  same-spacing staging volume for that exact revision.
+- Fail closed across the complete DDGI world domain while edited staging is incomplete; never use
+  stale active lighting or the global-sky fallback in that domain.
+- Give each staging allocation an immutable serial token. A later edit obsoletes older work, so an
+  obsolete Ready notification can neither promote nor clear invalidation.
+- Arbitrate one physical staging slot with terrain priority. A density rebuild remains queued until
+  the newest terrain revision promotes, and then rebuilds that active terrain revision.
+- Promote metadata, irradiance, visibility, spacing, and revision as one consumer-visible unit.
+  The centralized promotion seam records terrain compute and representative flora raster consumers
+  against the same active token and terrain revision.
+- Expose active/target identity, builder progress, coordinator state, queued density, and
+  full-domain fail-closed state in the Environment Probes debug panel.
+
+The permanent unattended gate is:
+
+```bash
+scripts/check_ddgi_runtime_terrain_edits.sh
+```
+
+It runs initial-open, runtime-closed, sequential-reopened, and edit-during-build latest-wins states
+at spacing 32 and 16. Every final state is captured twice and must be bit-exact. Open states require
+linear irradiance P99 of at least `0.10`; closed requires maximum irradiance at most `0.00001`.
+Every final capture is also compared with the same-camera exact-irradiance oracle (`0.01` maximum
+P99 error for portal states). The runner checks active/target/token and shared-consumer evidence,
+rejects promotion of obsolete terrain revision 2, scans logs for validation/descriptor/stale
+readback failures, and returns one aggregate exit status with one output directory.
+
+The gate also captures the ordinary final DDGI output while the latest terrain candidate is still
+`BuildingTerrain`: active revision 1 remains bound, target revision 3 has a nonzero staging token
+and GPU filtering progress, full-domain invalidation is on, neither terrain candidate has promoted,
+and every terrain hit must receive bit-exact zero in all three irradiance channels. A separate
+flora-enabled runtime run requires a nonzero flora instance draw to report the exact final active
+token and terrain revision recorded by the shared consumer promotion seam. Capture runs are
+one-shot tasks and exit immediately after the file is successfully flushed; the default 60-second
+auto-exit is only a slow-machine or failure timeout and can be overridden with
+`DDGI_RUNTIME_TERRAIN_EDIT_AUTO_EXIT`.
+
 ## Validation Ladder
 
 Every shader/Rust milestone follows the repository policy:
@@ -453,8 +498,9 @@ After the sky-only static field is correct:
    full-precision static oracle.
 2. **Indirect hit shading** — first shade terrain hits for a single indirect bounce, then add
    previous-DDGI feedback for multi-bounce propagation without changing atlas/query seams.
-3. **Runtime terrain edits** — invalidate, reclassify, relocate, retrace, and revision-synchronize
-   only the affected support region. This is the committed follow-up TODO.
+3. **Dependency-exact terrain refresh** — measure and record probe-to-geometry dependencies, then
+   replace correctness-first full-domain invalidation and full-volume staging with a provably safe
+   local refresh. This is an optimization; it must preserve token/latest-wins promotion semantics.
 4. **Scale and activity** — qualify spacing 8, measure sleeping/vigilant states, and only then
    consider tracking volumes, cascades, paging, and cross-volume blending.
 5. **Additional geometry** — consider dynamic DDGI occluders only after a specific visual need and

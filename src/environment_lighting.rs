@@ -51,6 +51,7 @@ mod tests {
         let terrain = include_str!("../shader/slang/tracer.slang");
         let raster = include_str!("../shader/slang/flora_shadow.slang");
         let pipeline_builder = include_str!("tracer/pipeline_builder.rs");
+        let tracer_host = include_str!("tracer/mod.rs");
 
         assert!(shared.contains("import ddgi_query;"));
         assert!(shared.contains("return sampleDdgiDiffuseEnvironment("));
@@ -78,6 +79,35 @@ mod tests {
         }
         assert!(pipeline_builder.contains("environment_lighting_resources"));
         assert!(!pipeline_builder.contains("environment_probes"));
+
+        let consumer_update = tracer_host
+            .split_once("fn update_ddgi_consumer_descriptors")
+            .expect("DDGI consumer promotion seam must exist")
+            .1
+            .split_once("fn promote_ready_ddgi_staging")
+            .expect("consumer update must remain adjacent to promotion")
+            .0;
+        assert!(consumer_update.contains("compute_pipelines.tracer_ppl"));
+        assert!(consumer_update.contains("graphics_pipelines.flora_ppl"));
+        assert!(consumer_update.contains("DDGI_PROBE_METADATA_BINDING"));
+        assert!(consumer_update.contains("DDGI_IRRADIANCE_ATLAS_BINDING"));
+        assert!(consumer_update.contains("DDGI_VISIBILITY_ATLAS_BINDING"));
+
+        let promotion = tracer_host
+            .split_once("fn promote_ready_ddgi_staging")
+            .expect("DDGI promotion must exist")
+            .1;
+        let descriptor_rebind = promotion
+            .find("update_ddgi_consumer_descriptors")
+            .expect("promotion must rebind every shared consumer");
+        let ownership_swap = promotion
+            .find("promote_staging(build_token)")
+            .expect("promotion must swap the same builder token");
+        assert!(descriptor_rebind < ownership_swap);
+        assert!(promotion.contains("[DDGI][CONSUMERS]"));
+        assert!(promotion.contains("consumer_set=terrain_compute,flora_raster"));
+        assert!(tracer_host.contains("[DDGI][FLORA_CONSUMER] draw_recorded"));
+        assert!(tracer_host.contains("recorded_flora_instance_count > 0"));
     }
 
     #[test]

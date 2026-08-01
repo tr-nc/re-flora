@@ -54,6 +54,9 @@ enum TestScenePhase {
     WaitingForDensityRebuild {
         terrain_revision: u32,
     },
+    CapturingInflightFailClosed {
+        target_revision: u32,
+    },
     Ready,
     Failed,
 }
@@ -98,6 +101,23 @@ impl EnvironmentLightingTestScene {
         self.phase == TestScenePhase::Ready
     }
 
+    pub(super) fn is_capture_ready(&self) -> bool {
+        self.is_ready()
+            || matches!(
+                self.phase,
+                TestScenePhase::CapturingInflightFailClosed { .. }
+            )
+    }
+
+    pub(super) fn inflight_capture_target_revision(&self) -> Option<u32> {
+        match self.phase {
+            TestScenePhase::CapturingInflightFailClosed { target_revision } => {
+                Some(target_revision)
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn edit_cycle_target_revision(&self) -> Option<u32> {
         if !is_terrain_edit_case(self.case) || self.is_ready() {
             return None;
@@ -108,7 +128,10 @@ impl EnvironmentLightingTestScene {
             }
             | TestScenePhase::WaitingForEditedProbeField {
                 target_revision, ..
-            } => Some(target_revision),
+            }
+            | TestScenePhase::CapturingInflightFailClosed { target_revision } => {
+                Some(target_revision)
+            }
             TestScenePhase::WaitingForDensityRebuild { terrain_revision } => Some(terrain_revision),
             _ => Some(0),
         }
@@ -123,6 +146,7 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForEditedTerrain { .. } => "waiting-for-edited-terrain",
             TestScenePhase::WaitingForEditedProbeField { .. } => "waiting-for-edited-probe-field",
             TestScenePhase::WaitingForDensityRebuild { .. } => "waiting-for-density-rebuild",
+            TestScenePhase::CapturingInflightFailClosed { .. } => "capturing-inflight-fail-closed",
             TestScenePhase::Ready => "ready",
             TestScenePhase::Failed => "failed",
         }
@@ -151,6 +175,7 @@ impl TestSceneGeometry {
             EnvironmentLightingTestCase::Portal
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
+            | EnvironmentLightingTestCase::TerrainEditsInflightCapture
             | EnvironmentLightingTestCase::TerrainEditsClosed => (
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![
@@ -240,6 +265,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         EnvironmentLightingTestCase::Portal
         | EnvironmentLightingTestCase::TerrainEdits
         | EnvironmentLightingTestCase::TerrainEditsInflight
+        | EnvironmentLightingTestCase::TerrainEditsInflightCapture
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
         }
@@ -415,8 +441,11 @@ impl App {
                 edit,
                 target_revision,
             } => {
-                if case == EnvironmentLightingTestCase::TerrainEditsInflight
-                    && edit == TerrainEdit::CloseSkylight
+                if matches!(
+                    case,
+                    EnvironmentLightingTestCase::TerrainEditsInflight
+                        | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+                ) && edit == TerrainEdit::CloseSkylight
                 {
                     let status = self.tracer.ddgi_status();
                     let Some(staging) = status.staging().filter(|staging| !staging.is_ready())
@@ -447,6 +476,41 @@ impl App {
                         .as_mut()
                         .expect("test scene state disappeared")
                         .phase = phase;
+                    return;
+                } else if case == EnvironmentLightingTestCase::TerrainEditsInflightCapture
+                    && edit == TerrainEdit::ReopenSkylight
+                {
+                    let runtime = self.tracer.ddgi_runtime_status();
+                    let latest_is_building = matches!(
+                        runtime.coordinator_state,
+                        crate::ddgi::DdgiRefreshState::BuildingTerrain {
+                            candidate,
+                            latest_terrain_revision,
+                        } if candidate.terrain_revision() == target_revision
+                            && latest_terrain_revision == target_revision
+                    );
+                    if !latest_is_building
+                        || !runtime.full_domain_invalidation_fail_closed
+                        || runtime
+                            .staging_stage
+                            .is_none_or(|stage| stage == crate::ddgi::DdgiVolumeStage::Ready)
+                    {
+                        return;
+                    }
+                    log::info!(
+                        "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed active_terrain_revision={:?} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=full-domain-fail-closed",
+                        runtime.active_terrain_revision,
+                        target_revision,
+                        runtime.staging_token_serial,
+                        runtime.staging_stage,
+                        runtime.staging_filtered_probe_count,
+                        runtime.staging_probe_count,
+                        runtime.coordinator_state,
+                    );
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("test scene state disappeared")
+                        .phase = TestScenePhase::CapturingInflightFailClosed { target_revision };
                     return;
                 } else if !self.tracer.ddgi_ready_for_terrain_revision(target_revision) {
                     return;
@@ -525,7 +589,9 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
-            TestScenePhase::Ready | TestScenePhase::Failed => return,
+            TestScenePhase::CapturingInflightFailClosed { .. }
+            | TestScenePhase::Ready
+            | TestScenePhase::Failed => return,
         };
 
         self.environment_lighting_test_scene
@@ -566,6 +632,7 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
         case,
         EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
+            | EnvironmentLightingTestCase::TerrainEditsInflightCapture
             | EnvironmentLightingTestCase::TerrainEditsClosed
     )
 }
@@ -573,6 +640,19 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inflight_checkpoint_is_capture_ready_without_becoming_final_ready() {
+        let scene = EnvironmentLightingTestScene {
+            case: EnvironmentLightingTestCase::TerrainEditsInflightCapture,
+            phase: TestScenePhase::CapturingInflightFailClosed { target_revision: 3 },
+        };
+
+        assert!(scene.is_capture_ready());
+        assert!(!scene.is_ready());
+        assert_eq!(scene.inflight_capture_target_revision(), Some(3));
+        assert_eq!(scene.edit_cycle_target_revision(), Some(3));
+    }
 
     #[test]
     fn sealed_interior_stays_inside_shell() {

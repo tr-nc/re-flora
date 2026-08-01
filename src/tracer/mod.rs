@@ -61,10 +61,10 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiBuildKind, DdgiBuildToken, DdgiDebugView, DdgiRayBatch, DdgiStatus, DdgiTerrainRefresh,
-    DdgiVolume, DdgiVolumeGrid, DdgiVolumeStatus, DdgiVolumes, DDGI_GUTTER_WORKGROUP_SIZE,
-    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
-    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiBuildKind, DdgiBuildToken, DdgiDebugView, DdgiRayBatch, DdgiRefreshState, DdgiStatus,
+    DdgiTerrainRefresh, DdgiVolume, DdgiVolumeGrid, DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes,
+    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
+    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::EnvironmentLightingCache;
 use crate::environment_probes::{
@@ -108,6 +108,98 @@ fn record_published_ddgi_terrain_edit(
     refresh.request(published_terrain_revision, edit_bound, grid);
     refresh.mark_terrain_published(published_terrain_revision);
     published_terrain_revision
+}
+
+/// Operator-facing DDGI lifecycle state. This deliberately exposes logical identity and progress,
+/// not atlas ownership or descriptor update ordering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiRuntimeStatus {
+    pub active_token_serial: Option<u64>,
+    pub active_terrain_revision: Option<u32>,
+    pub active_spacing_voxels: u32,
+    pub active_stage: DdgiVolumeStage,
+    pub target_terrain_revision: Option<u32>,
+    pub staging_token_serial: Option<u64>,
+    pub staging_kind: Option<DdgiBuildKind>,
+    pub staging_stage: Option<DdgiVolumeStage>,
+    pub staging_filtered_probe_count: u32,
+    pub staging_probe_count: u32,
+    pub coordinator_state: DdgiRefreshState,
+    pub queued_density_spacing_voxels: Option<u32>,
+    pub full_domain_invalidation_fail_closed: bool,
+}
+
+impl DdgiRuntimeStatus {
+    fn new(volumes: DdgiStatus, refresh: DdgiTerrainRefresh) -> Self {
+        let active = volumes.active();
+        let staging = volumes.staging();
+        let staging_token = staging.and_then(|status| status.build_token);
+        Self {
+            active_token_serial: active.build_token.map(DdgiBuildToken::serial),
+            active_terrain_revision: active.relocated_terrain_revision,
+            active_spacing_voxels: active.grid.spacing_voxels(),
+            active_stage: active.stage,
+            target_terrain_revision: refresh.latest_terrain_revision(),
+            staging_token_serial: staging_token.map(DdgiBuildToken::serial),
+            staging_kind: staging_token.map(DdgiBuildToken::kind),
+            staging_stage: staging.map(|status| status.stage),
+            staging_filtered_probe_count: staging
+                .map(|status| status.filtered_probe_count)
+                .unwrap_or_default(),
+            staging_probe_count: staging
+                .map(|status| status.grid.probe_count())
+                .unwrap_or_default(),
+            coordinator_state: refresh.state(),
+            queued_density_spacing_voxels: refresh.queued_density_spacing_voxels(),
+            full_domain_invalidation_fail_closed: refresh.invalidation_voxel_bound().is_some(),
+        }
+    }
+
+    pub fn active_line(self) -> String {
+        format!(
+            "Active token {} · terrain {} · {} vox · {:?}",
+            format_optional(self.active_token_serial),
+            format_optional(self.active_terrain_revision),
+            self.active_spacing_voxels,
+            self.active_stage,
+        )
+    }
+
+    pub fn builder_line(self) -> String {
+        match self.staging_stage {
+            Some(stage) => format!(
+                "Builder token {} · {} · {}/{} filtered · {:?}",
+                format_optional(self.staging_token_serial),
+                self.staging_kind
+                    .map_or_else(|| "none".to_owned(), |kind| format!("{kind:?}")),
+                self.staging_filtered_probe_count,
+                self.staging_probe_count,
+                stage,
+            ),
+            None => "Builder none".to_owned(),
+        }
+    }
+
+    pub fn coordinator_line(self) -> String {
+        format!(
+            "Target terrain {} · coordinator {:?} · density queued {}",
+            format_optional(self.target_terrain_revision),
+            self.coordinator_state,
+            format_optional(self.queued_density_spacing_voxels),
+        )
+    }
+
+    pub fn invalidation_line(self) -> &'static str {
+        if self.full_domain_invalidation_fail_closed {
+            "Invalidation: full domain · fail-closed ON"
+        } else {
+            "Invalidation: none · fail-closed OFF"
+        }
+    }
+}
+
+fn format_optional<T: std::fmt::Display>(value: Option<T>) -> String {
+    value.map_or_else(|| "none".to_owned(), |value| value.to_string())
 }
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
@@ -433,8 +525,14 @@ mod default_camera_tests {
 
 #[cfg(test)]
 mod ddgi_density_rebuild_tests {
-    use super::{ddgi_density_rebuild_terrain_revision, record_published_ddgi_terrain_edit};
-    use crate::ddgi::{DdgiBuildKind, DdgiTerrainRefresh, DdgiVolumeGrid};
+    use super::{
+        ddgi_density_rebuild_terrain_revision, record_published_ddgi_terrain_edit,
+        DdgiRuntimeStatus,
+    };
+    use crate::ddgi::{
+        DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh, DdgiVolumeGrid,
+        DdgiVolumeStage,
+    };
     use crate::geom::UAabb3;
     use glam::UVec3;
 
@@ -466,6 +564,44 @@ mod ddgi_density_rebuild_tests {
         assert_eq!(published_revision, 8);
         assert_eq!(token.terrain_revision(), published_revision);
         assert_eq!(token.kind(), DdgiBuildKind::Terrain);
+    }
+
+    #[test]
+    fn runtime_status_formats_operator_identity_progress_and_invalidation() {
+        let candidate = DdgiBuildToken::for_test(9, 8, 16, DdgiBuildKind::Terrain);
+        let status = DdgiRuntimeStatus {
+            active_token_serial: Some(7),
+            active_terrain_revision: Some(7),
+            active_spacing_voxels: 16,
+            active_stage: DdgiVolumeStage::Ready,
+            target_terrain_revision: Some(8),
+            staging_token_serial: Some(9),
+            staging_kind: Some(DdgiBuildKind::Terrain),
+            staging_stage: Some(DdgiVolumeStage::Rebuilding),
+            staging_filtered_probe_count: 2048,
+            staging_probe_count: 35937,
+            coordinator_state: DdgiRefreshState::BuildingTerrain {
+                candidate,
+                latest_terrain_revision: 8,
+            },
+            queued_density_spacing_voxels: Some(32),
+            full_domain_invalidation_fail_closed: true,
+        };
+
+        assert_eq!(
+            status.active_line(),
+            "Active token 7 · terrain 7 · 16 vox · Ready"
+        );
+        assert_eq!(
+            status.builder_line(),
+            "Builder token 9 · Terrain · 2048/35937 filtered · Rebuilding"
+        );
+        assert!(status.coordinator_line().contains("Target terrain 8"));
+        assert!(status.coordinator_line().contains("density queued 32"));
+        assert_eq!(
+            status.invalidation_line(),
+            "Invalidation: full domain · fail-closed ON"
+        );
     }
 }
 
@@ -598,6 +734,7 @@ pub struct Tracer {
     environment_probe_environment_revision: u32,
     environment_probe_terrain_revision: u32,
     ddgi_terrain_refresh: DdgiTerrainRefresh,
+    ddgi_flora_consumer_logged_token_serial: Option<u64>,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -860,6 +997,7 @@ impl Tracer {
             environment_probe_environment_revision: 0,
             environment_probe_terrain_revision: 0,
             ddgi_terrain_refresh: DdgiTerrainRefresh::default(),
+            ddgi_flora_consumer_logged_token_serial: None,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -887,6 +1025,10 @@ impl Tracer {
 
     pub fn ddgi_status(&self) -> DdgiStatus {
         self.ddgi_volumes.status()
+    }
+
+    pub fn ddgi_runtime_status(&self) -> DdgiRuntimeStatus {
+        DdgiRuntimeStatus::new(self.ddgi_volumes.status(), self.ddgi_terrain_refresh)
     }
 
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) -> Result<()> {
@@ -1638,6 +1780,12 @@ impl Tracer {
             active.global_sky_revision,
             cleared_terrain_invalidation,
             active.stage,
+        );
+        log::info!(
+            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} terrain_revision={} spacing_voxels={} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=update_ddgi_consumer_descriptors",
+            build_token.serial(),
+            promoted_terrain_revision,
+            active.grid.spacing_voxels(),
         );
         drop(retired_active);
     }
@@ -2903,7 +3051,7 @@ impl Tracer {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::needless_option_as_deref)]
     fn record_all_graphics_passes(
-        &self,
+        &mut self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
         lod_distance: f32,
@@ -3015,6 +3163,7 @@ impl Tracer {
 
         // Draw all flora species, both LOD levels
         if enable_flora {
+            let mut recorded_flora_instance_count = 0u64;
             let flora_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
                     gpu_profiler_frame_slot,
@@ -3083,7 +3232,23 @@ impl Tracer {
                                 push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
                             }),
                         );
+                        recorded_flora_instance_count += u64::from(instance_count);
                     }
+                }
+            }
+            if recorded_flora_instance_count > 0 {
+                let active = self.ddgi_volumes.status().active();
+                if let Some(token) = active.build_token.filter(|token| {
+                    self.ddgi_flora_consumer_logged_token_serial != Some(token.serial())
+                }) {
+                    self.ddgi_flora_consumer_logged_token_serial = Some(token.serial());
+                    log::info!(
+                        "[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial={} terrain_revision={} spacing_voxels={} instance_count={} sampler=sampleDiffuseEnvironment shading_info=shared",
+                        token.serial(),
+                        active.relocated_terrain_revision.unwrap_or_default(),
+                        active.grid.spacing_voxels(),
+                        recorded_flora_instance_count,
+                    );
                 }
             }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), flora_scope) {

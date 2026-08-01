@@ -899,17 +899,23 @@ denoiser baseline, whose medians were 13,465/10,721 us; the current 32-voxel med
 6,146/4,339 us. The historical comparison spans an evolved scene and should be treated as
 architectural context, while the three density rows above are the matched production decision.
 
-### Deferred DDGI Terrain-Edit Relocation
+### Runtime DDGI Terrain-Edit Relocation
 
-The first sky-only DDGI correctness milestone will run GPU probe classification and voxel-native
-relocation exactly once, after the initial terrain has finished building. Its deterministic test
-geometry must therefore reach its final state before the DDGI volume is initialized; runtime
-terrain edits are not part of this milestone's supported behavior.
+This subsection is the current DDGI status and supersedes the archived local-SH implementation
+evidence earlier in this document. In particular, current runtime invalidation does not use global
+SH, nearest-valid fill, local priority regions, or a partially trusted active field.
 
-- [ ] After the static DDGI result is correct, add local GPU reclassification and re-relocation for
-  terrain edits. Expand edited bounds by the relocation search support, invalidate the affected
-  probe atlas tiles, retrace them, and define revision synchronization so consumers never mix stale
-  positions with new visibility data.
+Startup classification and voxel-native relocation still run only after initial terrain is ready.
+Runtime terrain edits are now supported by a correctness-first full-volume staging rebuild. The
+edited world domain returns strict-zero environment irradiance until the exact latest terrain
+revision reaches Ready; promotion
+then switches terrain and raster consumers to one immutable build token and revision. Edits during
+a build obsolete the older candidate, while density changes remain queued behind terrain work.
+
+- [x] Reclassify, relocate, retrace, and atomically promote runtime terrain edits at spacing 32 and
+  16, including sequential edits and latest-revision-wins replacement.
+- [ ] After measurement shows a need, add dependency-exact invalidation and partial-volume refresh
+  without weakening full-domain correctness, token identity, or atomic consumer promotion.
 
 ### Known Limitations
 
@@ -918,14 +924,15 @@ terrain edits are not part of this milestone's supported behavior.
 - Animated flora and leaves consume the field but are intentionally not probe occluders. Their
   direct leaf-shadow temporal filter remains separate and can still need responsiveness tuning for
   fast motion.
-- Terrain edits use a conservative full-volume refresh after two small priority regions. This is
-  correct but makes 16- and especially 8-voxel convergence too slow for the default.
-- Relocation-failed probes remain invalid. Leak-resistant weighting and nearest-valid fallback keep
-  them from contributing, but narrow geometry below the 32-voxel sampling scale can still justify a
-  temporary 16-voxel quality run.
-- Aggregate state counts update after full convergence; the debug panel shows conservative
-  all-dirty progress while a refresh is in flight rather than performing a per-frame volume
-  readback.
+- Terrain edits use conservative full-domain fail-closed invalidation and a full-volume staging
+  rebuild. Dependency-exact/local refresh remains a performance optimization, and spacing 8 is not
+  runtime-edit qualified.
+- Relocation-failed probes remain invalid and contribute zero; the current query does not substitute
+  nearest-valid or global-SH lighting. Narrow geometry below the 32-voxel sampling scale can still
+  justify a temporary 16-voxel quality run.
+- Runtime progress is reported as active-to-target revision/token identity, staging stage and
+  filtered-probe progress, coordinator state, queued density, and full-domain fail-closed state.
+  It does not use the archived local-SH aggregate/all-dirty model or per-frame full-volume readback.
 - Probe spacing changes rebuild the complete finite volume explicitly. Runtime paging,
   camera-relative scrolling, dependency-exact invalidation, local direct lights, and ReSTIR DI
   remain future work.

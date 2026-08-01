@@ -17,9 +17,10 @@ pub use atlas::{
     SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 pub use resources::{
-    DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
+    DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiVolume, DdgiVolumeStage, DdgiVolumeStatus,
+    DdgiVolumes,
 };
-pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiTerrainRefresh};
+pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
 
 /// Permanent DDGI diagnostics. Exact modes are intentionally opt-in because they trace up to
 /// eight additional terrain segments for every shaded terrain pixel.
