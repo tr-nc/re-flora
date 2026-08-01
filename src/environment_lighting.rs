@@ -389,6 +389,7 @@ mod tests {
         assert!(query.contains("import ddgi_voxel_visibility;"));
         assert!(query.contains("ddgiVoxelSegmentVisibility("));
         assert!(query.contains("worldPosition + normal * biasWorld"));
+        assert!(query.contains("float3 hardVisibilityWorldPosition"));
         assert!(!query.contains("surfaceOutward"));
         let probe_trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
         assert!(!probe_trace.contains("surfaceOutward"));
@@ -403,7 +404,16 @@ mod tests {
         assert!(tracer.contains(
             "voxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));
-        assert!(tracer.contains("shading_info, ddgiReceiverPosition, result.normal"));
+        assert!(tracer.contains("terrainDdgiHardVisibilityOrigin("));
+        assert!(
+            tracer.contains("voxelCenter + normalDirection * DDGI_MAIN_BRANCH_ORIGIN_OFFSET_WORLD")
+        );
+        assert!(tracer.contains(
+            "surfacePosition +\n            normalDirection * DDGI_MAIN_BRANCH_ORIGIN_OFFSET_WORLD"
+        ));
+        assert!(tracer.contains(
+            "shading_info, ddgiReceiverPosition, result.normal,\n        ddgiHardVisibilityOrigin"
+        ));
         let exact_reference = tracer
             .split_once("DdgiQueryResult sampleDdgiExactTerrainReference(")
             .expect("exact voxel reference must exist")

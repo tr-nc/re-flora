@@ -1065,6 +1065,7 @@ impl App {
                     .environment_irradiance_capture_target,
                 ddgi_batch_order: options.ddgi_batch_order,
                 ddgi_debug_view: options.ddgi_debug_view,
+                ddgi_terrain_hard_origin: options.ddgi_terrain_hard_origin,
             },
             spatial_sound_manager.clone(),
         )?;

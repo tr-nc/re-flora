@@ -777,11 +777,13 @@ pub struct ShadingInfo {
     pub ddgi_irradiance_tile_columns: u32,
     pub ddgi_visibility_tile_columns: u32,
     pub ddgi_debug_view: u32,
+    pub ddgi_terrain_hard_origin: u32,
     pub ddgi_invalidation_enabled: u32,
+    pub _pad2: [u8; 12],
     pub ddgi_invalidation_world_min: [f32; 3],
-    pub _pad2: [u8; 4],
-    pub ddgi_invalidation_world_max: [f32; 3],
     pub _pad3: [u8; 4],
+    pub ddgi_invalidation_world_max: [f32; 3],
+    pub _pad4: [u8; 4],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

@@ -811,6 +811,7 @@ pub struct TracerDesc {
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_batch_order: DdgiBatchOrder,
     pub ddgi_debug_view: DdgiDebugView,
+    pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1052,6 +1053,10 @@ impl Tracer {
             desc.voxel_dim_per_chunk,
             desc.ddgi_batch_order,
         )?;
+        log::info!(
+            "[DDGI][HARD_ORIGIN] terrain_mode={}",
+            desc.ddgi_terrain_hard_origin.label()
+        );
         let ddgi_voxel_visibility = DdgiVoxelVisibility::new(
             &vulkan_ctx,
             allocator.clone(),
@@ -2600,6 +2605,7 @@ impl Tracer {
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
+            self.desc.ddgi_terrain_hard_origin.as_u32(),
             self.ddgi_terrain_refresh.invalidation_voxel_bound(),
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;

@@ -38,6 +38,40 @@ pub use scheduler::{
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
 pub use voxel_visibility::DdgiVoxelVisibility;
 
+/// Terrain-only hard-visibility origin variants used to isolate voxel receiver self-occlusion.
+/// The DDGI surface anchor and filtered moment query remain unchanged for every variant.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum DdgiTerrainHardOrigin {
+    #[default]
+    SurfaceQuarterVoxel = 0,
+    CenterFixedWorld = 1,
+    SurfaceFixedWorld = 2,
+}
+
+impl DdgiTerrainHardOrigin {
+    pub fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "surface-quarter" => Some(Self::SurfaceQuarterVoxel),
+            "center-fixed" => Some(Self::CenterFixedWorld),
+            "surface-fixed" => Some(Self::SurfaceFixedWorld),
+            _ => None,
+        }
+    }
+
+    pub const fn as_u32(self) -> u32 {
+        self as u32
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::SurfaceQuarterVoxel => "surface-quarter",
+            Self::CenterFixedWorld => "center-fixed",
+            Self::SurfaceFixedWorld => "surface-fixed",
+        }
+    }
+}
+
 /// Permanent DDGI diagnostics. Exact modes expose the packed-voxel visibility gate separately
 /// from the filtered moment term used by the final query.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

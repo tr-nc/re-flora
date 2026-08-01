@@ -55,6 +55,7 @@ impl BufferUpdater {
         ddgi_irradiance_tile_columns: u32,
         ddgi_visibility_tile_columns: u32,
         ddgi_debug_view: u32,
+        ddgi_terrain_hard_origin: u32,
         ddgi_invalidation_voxel_bound: Option<crate::geom::UAabb3>,
     ) -> Result<()> {
         let probe_dimensions = environment_probe_grid.dimensions();
@@ -86,6 +87,7 @@ impl BufferUpdater {
             ddgi_irradiance_tile_columns,
             ddgi_visibility_tile_columns,
             ddgi_debug_view,
+            ddgi_terrain_hard_origin,
             ddgi_invalidation_enabled,
             ddgi_invalidation_world_min,
             ddgi_invalidation_world_max,

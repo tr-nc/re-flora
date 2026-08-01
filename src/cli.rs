@@ -2,7 +2,7 @@ use re_flora_vkn::PresentMode;
 
 use crate::ddgi::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiBatchOrder, DdgiCaptureTarget,
-    DdgiDebugView, DEFAULT_DDGI_SPACING_VOXELS,
+    DdgiDebugView, DdgiTerrainHardOrigin, DEFAULT_DDGI_SPACING_VOXELS,
 };
 
 pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
@@ -208,6 +208,8 @@ pub struct AppOptions {
     pub ddgi_batch_order: DdgiBatchOrder,
     /// Select a permanent DDGI diagnostic view; exact modes are correctness-only and expensive.
     pub ddgi_debug_view: DdgiDebugView,
+    /// Select the terrain-only exact-visibility origin used for receiver diagnostics.
+    pub ddgi_terrain_hard_origin: DdgiTerrainHardOrigin,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
     pub hybrid_transparency_test_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
@@ -388,6 +390,17 @@ impl AppOptions {
             })?,
             None => DdgiDebugView::Final,
         };
+        let ddgi_terrain_hard_origin = match parse_required_string_after(
+            "--ddgi-terrain-hard-origin",
+            "one of: surface-quarter, center-fixed, surface-fixed",
+        )? {
+            Some(value) => DdgiTerrainHardOrigin::from_cli_value(&value).ok_or_else(|| {
+                format!(
+                    "Invalid --ddgi-terrain-hard-origin '{value}'. Expected one of: surface-quarter, center-fixed, surface-fixed."
+                )
+            })?,
+            None => DdgiTerrainHardOrigin::default(),
+        };
         if environment_irradiance_capture_target.iteration() == Some(0)
             && ddgi_debug_view != DdgiDebugView::Final
         {
@@ -476,6 +489,7 @@ impl AppOptions {
             environment_irradiance_capture_target,
             ddgi_batch_order,
             ddgi_debug_view,
+            ddgi_terrain_hard_origin,
             hybrid_transparency_test_scene: args
                 .iter()
                 .any(|a| a == "--hybrid-transparency-test-scene"),
@@ -761,6 +775,9 @@ Options:
   --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
                               or atlas DDGI diagnostics (default: final)
+  --ddgi-terrain-hard-origin <mode>
+                              Select surface-quarter, center-fixed, or surface-fixed exact visibility origin
+                              for terrain receiver experiments (default: surface-quarter)
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
   --environment-probe-spacing-voxels <N>
@@ -869,6 +886,10 @@ mod tests {
         );
         assert_eq!(options.ddgi_batch_order, DdgiBatchOrder::Forward);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
+        assert_eq!(
+            options.ddgi_terrain_hard_origin,
+            DdgiTerrainHardOrigin::SurfaceQuarterVoxel
+        );
         assert_eq!(
             options.environment_probe_spacing_voxels,
             DEFAULT_DDGI_SPACING_VOXELS
@@ -1021,6 +1042,35 @@ mod tests {
     fn parses_ddgi_debug_view() {
         let options = parse(&["re-flora", "--ddgi-debug-view", "exact-visibility"]);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::ExactVisibility);
+    }
+
+    #[test]
+    fn parses_ddgi_terrain_hard_origin() {
+        for (value, expected) in [
+            (
+                "surface-quarter",
+                DdgiTerrainHardOrigin::SurfaceQuarterVoxel,
+            ),
+            ("center-fixed", DdgiTerrainHardOrigin::CenterFixedWorld),
+            ("surface-fixed", DdgiTerrainHardOrigin::SurfaceFixedWorld),
+        ] {
+            let options = parse(&["re-flora", "--ddgi-terrain-hard-origin", value]);
+            assert_eq!(options.ddgi_terrain_hard_origin, expected);
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_ddgi_terrain_hard_origin() {
+        let result = AppOptions::try_from_arg_strings(
+            ["re-flora", "--ddgi-terrain-hard-origin", "first-empty"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        );
+
+        assert!(result
+            .unwrap_err()
+            .contains("Expected one of: surface-quarter, center-fixed, surface-fixed"));
     }
 
     #[test]

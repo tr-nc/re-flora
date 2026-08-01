@@ -250,7 +250,8 @@ public DdgiQueryResult makeEmptyDdgiQueryResult()
 
 public DdgiProbeContribution getDdgiProbeContribution(
     DdgiQueryInfo query, float3 worldPosition, float3 surfaceNormal,
-    uint3 cageCorner, Sampler2D irradianceAtlas)
+    float3 hardVisibilityWorldPosition, uint3 cageCorner,
+    Sampler2D irradianceAtlas)
 {
     DdgiProbeContribution contribution;
     contribution.trustworthy = false;
@@ -323,7 +324,6 @@ public DdgiProbeContribution getDdgiProbeContribution(
     contribution.base_weight = positionWeight * surfaceSideWeight;
     contribution.moment_visibility = ddgiChebyshevVisibility(
         moments, distanceToSurface);
-    float3 hardVisibilityWorldPosition = worldPosition + normal * biasWorld;
     contribution.hard_visibility = ddgiVoxelSegmentVisibility(
         hardVisibilityWorldPosition, actualPosition, query.geometry_revision);
     contribution.irradiance = sampleDdgiProbeIrradiance(
@@ -333,11 +333,22 @@ public DdgiProbeContribution getDdgiProbeContribution(
 
 public DdgiProbeContribution getDdgiProbeContribution(
     U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
-    uint3 cageCorner)
+    float3 hardVisibilityWorldPosition, uint3 cageCorner)
 {
     return getDdgiProbeContribution(
         ddgiConsumerQueryInfo(lighting), worldPosition, surfaceNormal,
-        cageCorner, ddgi_irradiance_atlas);
+        hardVisibilityWorldPosition, cageCorner, ddgi_irradiance_atlas);
+}
+
+public DdgiProbeContribution getDdgiProbeContribution(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    uint3 cageCorner)
+{
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    float biasWorld = lighting.environment_probe_visibility_bias_world * 0.125;
+    return getDdgiProbeContribution(
+        ddgiConsumerQueryInfo(lighting), worldPosition, surfaceNormal,
+        worldPosition + normal * biasWorld, cageCorner, ddgi_irradiance_atlas);
 }
 
 public void accumulateDdgiContribution(
@@ -381,7 +392,8 @@ public void finalizeDdgiQueryResult(inout DdgiQueryResult result)
 
 public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
     DdgiQueryInfo query, Sampler2D irradianceAtlas,
-    float3 worldPosition, float3 surfaceNormal)
+    float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
@@ -406,7 +418,8 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
             {
                 DdgiProbeContribution contribution =
                     getDdgiProbeContribution(
-                        query, worldPosition, normal, uint3(x, y, z),
+                        query, worldPosition, normal,
+                        hardVisibilityWorldPosition, uint3(x, y, z),
                         irradianceAtlas);
                 accumulateDdgiContribution(
                     result, contribution,
@@ -419,31 +432,56 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
 }
 
 public DdgiQueryResult sampleDdgiDiffuseEnvironment(
-    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
 {
     return sampleDdgiDiffuseEnvironmentFromAtlas(
         ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
-        worldPosition, surfaceNormal);
+        worldPosition, surfaceNormal, hardVisibilityWorldPosition);
+}
+
+public DdgiQueryResult sampleDdgiDiffuseEnvironment(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+{
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    float biasWorld = lighting.environment_probe_visibility_bias_world * 0.125;
+    return sampleDdgiDiffuseEnvironment(
+        lighting, worldPosition, surfaceNormal,
+        worldPosition + normal * biasWorld);
 }
 
 public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(
-    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
 {
     DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
     query.ready = 1u;
     query.invalidation_enabled = 0u;
     return sampleDdgiDiffuseEnvironmentFromAtlas(
         query, ddgi_capture_irradiance_atlas,
-        worldPosition, surfaceNormal);
+        worldPosition, surfaceNormal, hardVisibilityWorldPosition);
+}
+
+public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+{
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    float biasWorld = lighting.environment_probe_visibility_bias_world * 0.125;
+    return sampleDdgiUnpublishedCaptureEnvironment(
+        lighting, worldPosition, surfaceNormal,
+        worldPosition + normal * biasWorld);
 }
 
 public DdgiQueryResult sampleDdgiTransportSource(
     U_DdgiTransportQueryInfo transport, Sampler2D sourceIrradianceAtlas,
     float3 worldPosition, float3 surfaceNormal)
 {
+    DdgiQueryInfo query = ddgiTransportQueryInfo(transport);
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    float biasWorld = transport.visibility_bias_world * 0.125;
     return sampleDdgiDiffuseEnvironmentFromAtlas(
-        ddgiTransportQueryInfo(transport), sourceIrradianceAtlas,
-        worldPosition, surfaceNormal);
+        query, sourceIrradianceAtlas, worldPosition, surfaceNormal,
+        worldPosition + normal * biasWorld);
 }
 
 public DdgiQueryResult sampleDdgiTransportAtlas0(
