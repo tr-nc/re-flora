@@ -23,16 +23,14 @@ pub use atlas::{
 // not directly name every exported type in a particular build.
 #[allow(unused_imports)]
 pub use resources::{
-    DdgiAtlasValidationStats, DdgiConvergencePolicy, DdgiIrradianceSlot, DdgiRayBatch,
-    DdgiResourceBytes, DdgiStatus, DdgiTransportFieldIdentity, DdgiTransportIterationIdentity,
-    DdgiTransportStage, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume,
-    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiAtlasValidationStats, DdgiConvergencePolicy, DdgiRayBatch, DdgiResourceBytes, DdgiStatus,
+    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeStage,
+    DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
 #[allow(unused_imports)]
 pub use scheduler::{
-    DdgiConvergenceSample, DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage,
-    DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError, DdgiSchedulingPolicy,
-    DdgiTransportScheduler,
+    DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage, DdgiScheduledWork,
+    DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTransportScheduler,
 };
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
 
