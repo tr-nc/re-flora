@@ -41,6 +41,11 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
                     f"case=dogleg spacing={spacing} target={stage} order=forward",
                     output,
                 )
+            for case_name in ("portal", "donor", "dogleg"):
+                self.assertIn(
+                    f"case={case_name} spacing={spacing} target=converged order=forward",
+                    output,
+                )
             self.assertIn(
                 f"case=donor spacing={spacing} target=s1 order=reverse", output
             )
@@ -59,6 +64,10 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "check_ddgi_runtime_terrain_edits.sh --dry-run",
             "threshold_provenance=docs/ddgi_transport_acceptance.md",
             "direct-sun-framebuffer=PROVEN",
+            "convergence_provenance=docs/ddgi_convergence_calibration.md",
+            "summarize_ddgi_convergence.py",
+            "--consecutive-iterations 2",
+            "--hard-max-iteration 8",
         ):
             self.assertIn(contract, output)
 
@@ -76,6 +85,13 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             self.assertIn(contract, result.stdout)
         self.assertNotIn("CALIBRATE_", result.stdout + result.stderr)
         self.assertNotIn("missing calibrated threshold", result.stdout + result.stderr)
+        self.assertEqual(result.stdout.count("--expect-transport-stage converged"), 8)
+        self.assertEqual(
+            result.stdout.count("--convergence-max-abs-delta 0.0025"), 8
+        )
+        self.assertEqual(
+            result.stdout.count("--convergence-max-rel-delta 0.02"), 8
+        )
 
 
 if __name__ == "__main__":
