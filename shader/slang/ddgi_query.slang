@@ -2,6 +2,7 @@ module ddgi_query;
 
 import ddgi_octahedral;
 import ddgi_types;
+import ddgi_voxel_visibility;
 import tracer_types;
 
 static const uint DDGI_IRRADIANCE_INTERIOR_SIDE = 8u;
@@ -53,6 +54,7 @@ public struct DdgiProbeContribution
     public float3 nominal_position;
     public float base_weight;
     public float moment_visibility;
+    public float hard_visibility;
 };
 
 // The visibility-aware eight-probe algorithm consumes this narrow value instead of a renderer
@@ -65,6 +67,7 @@ public struct DdgiQueryInfo
     public uint irradiance_tile_columns;
     public uint visibility_tile_columns;
     public uint ready;
+    public uint geometry_revision;
     public uint invalidation_enabled;
     public float3 invalidation_world_min;
     public float3 invalidation_world_max;
@@ -79,6 +82,7 @@ DdgiQueryInfo ddgiConsumerQueryInfo(U_ShadingInfo lighting)
     query.irradiance_tile_columns = lighting.ddgi_irradiance_tile_columns;
     query.visibility_tile_columns = lighting.ddgi_visibility_tile_columns;
     query.ready = lighting.ddgi_ready;
+    query.geometry_revision = lighting.ddgi_geometry_revision;
     query.invalidation_enabled = lighting.ddgi_invalidation_enabled;
     query.invalidation_world_min = lighting.ddgi_invalidation_world_min;
     query.invalidation_world_max = lighting.ddgi_invalidation_world_max;
@@ -94,6 +98,7 @@ DdgiQueryInfo ddgiTransportQueryInfo(U_DdgiTransportQueryInfo transport)
     query.irradiance_tile_columns = transport.irradiance_tile_columns;
     query.visibility_tile_columns = transport.visibility_tile_columns;
     query.ready = transport.source_ready;
+    query.geometry_revision = transport.geometry_revision;
     query.invalidation_enabled = 0u;
     query.invalidation_world_min = float3(0.0);
     query.invalidation_world_max = float3(0.0);
@@ -255,6 +260,7 @@ public DdgiProbeContribution getDdgiProbeContribution(
     contribution.nominal_position = float3(0.0);
     contribution.base_weight = 0.0;
     contribution.moment_visibility = 0.0;
+    contribution.hard_visibility = 0.0;
 
     if (ddgiQueryUsesGlobalSky(query, worldPosition)) return contribution;
 
@@ -317,6 +323,8 @@ public DdgiProbeContribution getDdgiProbeContribution(
     contribution.base_weight = positionWeight * surfaceSideWeight;
     contribution.moment_visibility = ddgiChebyshevVisibility(
         moments, distanceToSurface);
+    contribution.hard_visibility = ddgiVoxelSegmentVisibility(
+        biasedWorldPosition, actualPosition, query.geometry_revision);
     contribution.irradiance = sampleDdgiProbeIrradiance(
         probeIndex, normal, query.irradiance_tile_columns, irradianceAtlas);
     return contribution;
@@ -400,7 +408,8 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
                         query, worldPosition, normal, uint3(x, y, z),
                         irradianceAtlas);
                 accumulateDdgiContribution(
-                    result, contribution, contribution.moment_visibility);
+                    result, contribution,
+                    contribution.hard_visibility * contribution.moment_visibility);
             }
         }
     }

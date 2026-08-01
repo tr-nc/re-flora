@@ -63,7 +63,8 @@ public struct U_DdgiTransportQueryInfo
     public uint source_ready;
     public uint irradiance_tile_columns;
     public uint visibility_tile_columns;
-    public uint2 padding;
+    public uint geometry_revision;
+    public uint padding;
 };
 
 // Exact authoritative voxel occupancy published for DDGI query visibility. X is packed into

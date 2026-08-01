@@ -103,16 +103,27 @@ fn ddgi_density_rebuild_terrain_revision(
     active_terrain_revision.or(initial_terrain_revision)
 }
 
-fn record_published_ddgi_terrain_edit(
+fn ddgi_shading_geometry_revision(
+    active_published_revision: Option<u32>,
+    capture_checkpoint_revision: Option<u32>,
+    unpublished_capture: bool,
+) -> u32 {
+    if unpublished_capture {
+        capture_checkpoint_revision.unwrap_or_default()
+    } else {
+        active_published_revision.unwrap_or_default()
+    }
+}
+
+fn request_ddgi_terrain_edit_revision(
     refresh: &mut DdgiTerrainRefresh,
     current_terrain_revision: u32,
     edit_bound: UAabb3,
     grid: DdgiVolumeGrid,
 ) -> u32 {
-    let published_terrain_revision = current_terrain_revision.wrapping_add(1).max(1);
-    refresh.request(published_terrain_revision, edit_bound, grid);
-    refresh.mark_terrain_published(published_terrain_revision);
-    published_terrain_revision
+    let requested_terrain_revision = current_terrain_revision.wrapping_add(1).max(1);
+    refresh.request(requested_terrain_revision, edit_bound, grid);
+    requested_terrain_revision
 }
 
 fn validate_unpublished_capture_volume(builder_is_active: bool) -> Result<()> {
@@ -601,8 +612,8 @@ mod default_camera_tests {
 #[cfg(test)]
 mod ddgi_density_rebuild_tests {
     use super::{
-        ddgi_density_rebuild_terrain_revision, record_published_ddgi_terrain_edit,
-        validate_unpublished_capture_volume, DdgiRuntimeStatus,
+        ddgi_density_rebuild_terrain_revision, ddgi_shading_geometry_revision,
+        request_ddgi_terrain_edit_revision, validate_unpublished_capture_volume, DdgiRuntimeStatus,
     };
     use crate::ddgi::{
         DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh,
@@ -625,19 +636,28 @@ mod ddgi_density_rebuild_tests {
     }
 
     #[test]
-    fn successful_visible_edit_records_its_exact_publication_before_drive() {
+    fn unpublished_s0_query_uses_its_exact_capture_checkpoint_revision() {
+        assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), true), 7);
+        assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), false), 3);
+        assert_eq!(ddgi_shading_geometry_revision(Some(3), None, true), 0);
+    }
+
+    #[test]
+    fn requested_edit_cannot_be_claimed_until_exact_visibility_is_published() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
         let mut refresh = DdgiTerrainRefresh::default();
-        let published_revision = record_published_ddgi_terrain_edit(
+        let requested_revision = request_ddgi_terrain_edit_revision(
             &mut refresh,
             7,
             UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
             grid,
         );
 
+        assert_eq!(requested_revision, 8);
+        assert_eq!(refresh.claim_next_build(32, 7), None);
+        refresh.mark_terrain_published(requested_revision);
         let token = refresh.claim_next_build(32, 7).unwrap();
-        assert_eq!(published_revision, 8);
-        assert_eq!(token.terrain_revision(), published_revision);
+        assert_eq!(token.terrain_revision(), requested_revision);
         assert_eq!(token.kind(), DdgiBuildKind::Terrain);
     }
 
@@ -1244,13 +1264,53 @@ impl Tracer {
         Ok(true)
     }
 
-    /// Records a refresh for terrain whose visible GPU rebuild has already succeeded.
+    fn rebuild_ddgi_voxel_visibility(&mut self, geometry_revision: u32) -> Result<()> {
+        let started = std::time::Instant::now();
+        self.ddgi_voxel_visibility.begin_pack(geometry_revision)?;
+        let dispatch = self.ddgi_voxel_visibility.word_dimensions();
+        let pack_to_queries = PipelineBarrier::shader_access(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
+        );
+        execute_one_time_gpu_job(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.compute_pipelines
+                    .ddgi_voxel_visibility_pack_ppl
+                    .record(
+                        cmdbuf,
+                        Extent3D::new(dispatch.x, dispatch.y, dispatch.z),
+                        None,
+                    );
+                pack_to_queries.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            },
+        );
+        self.ddgi_voxel_visibility.publish_pack(geometry_revision)?;
+        debug_assert_eq!(
+            self.ddgi_voxel_visibility.published_revision(),
+            Some(geometry_revision)
+        );
+        log::info!(
+            "[DDGI][VOXEL_VISIBILITY] published geometry_revision={} packed={}x{}x{} elapsed_ms={:.3}",
+            geometry_revision,
+            dispatch.x,
+            dispatch.y,
+            dispatch.z,
+            started.elapsed().as_secs_f64() * 1000.0,
+        );
+        Ok(())
+    }
+
+    /// Records a refresh after the visible terrain GPU rebuild, then synchronously publishes the
+    /// matching exact occupancy before allowing any DDGI scheduler work for that revision.
     pub fn request_published_environment_probe_refresh_near_voxel_bound(
         &mut self,
         edit_bound: UAabb3,
-    ) {
+    ) -> Result<()> {
         let grid = self.ddgi_status().active().grid;
-        self.environment_probe_terrain_revision = record_published_ddgi_terrain_edit(
+        self.environment_probe_terrain_revision = request_ddgi_terrain_edit_revision(
             &mut self.ddgi_terrain_refresh,
             self.environment_probe_terrain_revision,
             edit_bound,
@@ -1267,6 +1327,15 @@ impl Tracer {
             invalidation_bound.map(|bound| (bound.min(), bound.max())),
             self.ddgi_terrain_refresh.state(),
         );
+        self.rebuild_ddgi_voxel_visibility(self.environment_probe_terrain_revision)?;
+        self.ddgi_terrain_refresh
+            .mark_terrain_published(self.environment_probe_terrain_revision);
+        log::info!(
+            "[DDGI] runtime terrain and exact visibility published revision={} coordinator={:?}",
+            self.environment_probe_terrain_revision,
+            self.ddgi_terrain_refresh.state(),
+        );
+        Ok(())
     }
 
     /// Claims and installs the latest authoritative DDGI build at a GPU-safe replacement point.
@@ -1323,7 +1392,8 @@ impl Tracer {
 
     /// Starts the static DDGI build after the caller has finished all initial terrain work.
     /// A matching pre-initialization edit request is consumed by this initial build.
-    pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) {
+    pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) -> Result<()> {
+        self.rebuild_ddgi_voxel_visibility(terrain_revision)?;
         self.ddgi_initial_terrain_ready_revision = Some(terrain_revision);
         self.ddgi_terrain_refresh
             .mark_terrain_published(terrain_revision);
@@ -1355,6 +1425,7 @@ impl Tracer {
                 status.stage,
             );
         }
+        Ok(())
     }
 
     pub fn ddgi_debug_view(&self) -> DdgiDebugView {
@@ -2438,12 +2509,23 @@ impl Tracer {
             },
         });
         let ddgi_status = self.ddgi_volumes.status().active();
+        let unpublished_capture = self.desc.environment_irradiance_capture_enabled
+            && self.desc.environment_irradiance_capture_target.iteration() == Some(0);
+        let ddgi_geometry_revision = ddgi_shading_geometry_revision(
+            ddgi_status
+                .published_field
+                .map(|field| field.field().geometry_revision()),
+            self.ddgi_capture_checkpoint()
+                .map(|checkpoint| checkpoint.field.field().geometry_revision()),
+            unpublished_capture,
+        );
         BufferUpdater::update_shading_info(
             &self.resources,
             environment_lighting,
             ddgi_status.grid,
             self.desc.voxel_dim_per_chunk,
             self.ddgi_ready(),
+            ddgi_geometry_revision,
             self.desc.environment_irradiance_capture_enabled,
             self.desc.environment_irradiance_capture_target.iteration() == Some(0),
             ddgi_status.irradiance_layout.tile_grid().x,

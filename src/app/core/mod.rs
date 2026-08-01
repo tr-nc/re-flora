@@ -1838,7 +1838,7 @@ impl App {
         self.terrain_physics
             .mark_terrain_voxel_bound_dirty(refresh_bound);
         self.tracer
-            .request_published_environment_probe_refresh_near_voxel_bound(refresh_bound);
+            .request_published_environment_probe_refresh_near_voxel_bound(refresh_bound)?;
         Ok(())
     }
 
@@ -1852,7 +1852,7 @@ impl App {
         }
         if let Some(edit_bound) = environment_probe_edit_bound {
             self.tracer
-                .request_published_environment_probe_refresh_near_voxel_bound(edit_bound);
+                .request_published_environment_probe_refresh_near_voxel_bound(edit_bound)?;
         }
         Ok(())
     }

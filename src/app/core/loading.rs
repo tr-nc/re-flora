@@ -362,8 +362,12 @@ impl App {
             && self.hybrid_transparency_test_scene.is_none()
         {
             let terrain_revision = self.tracer.environment_probe_terrain_revision();
-            self.tracer
-                .notify_ddgi_initial_terrain_ready(terrain_revision);
+            if let Err(err) = self
+                .tracer
+                .notify_ddgi_initial_terrain_ready(terrain_revision)
+            {
+                log::error!("[DDGI] initial exact voxel visibility publication failed: {err:#}");
+            }
         }
         self.time_info.reset_frame_delta();
         self.render_start_time = Some(Instant::now());

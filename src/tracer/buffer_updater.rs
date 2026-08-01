@@ -49,6 +49,7 @@ impl BufferUpdater {
         environment_probe_grid: DdgiVolumeGrid,
         voxels_per_world_unit: glam::UVec3,
         ddgi_ready: bool,
+        ddgi_geometry_revision: u32,
         environment_irradiance_capture_enabled: bool,
         environment_irradiance_capture_unpublished: bool,
         ddgi_irradiance_tile_columns: u32,
@@ -75,6 +76,7 @@ impl BufferUpdater {
             environment_probe_visibility_bias_world: 2.0
                 / voxels_per_world_unit.min_element().max(1) as f32,
             ddgi_ready: u32::from(ddgi_ready),
+            ddgi_geometry_revision,
             environment_irradiance_capture_enabled: u32::from(
                 environment_irradiance_capture_enabled,
             ),

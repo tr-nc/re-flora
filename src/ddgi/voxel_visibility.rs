@@ -24,7 +24,6 @@ pub const DDGI_VOXEL_VISIBILITY_MAX_STEPS: u32 = 2048;
 /// before packing, and is only republished with the exact geometry revision after the GPU job has
 /// completed.
 pub struct DdgiVoxelVisibility {
-    dimensions: UVec3,
     word_dimensions: UVec3,
     info_snapshot: DdgiVoxelVisibilityInfo,
     published_revision: Option<u32>,
@@ -116,17 +115,12 @@ impl DdgiVoxelVisibility {
         );
 
         Ok(Self {
-            dimensions,
             word_dimensions,
             info_snapshot,
             published_revision: None,
             ddgi_voxel_visibility_bits: Resource::new(texture),
             ddgi_voxel_visibility_info: Resource::new(info),
         })
-    }
-
-    pub fn dimensions(&self) -> UVec3 {
-        self.dimensions
     }
 
     pub fn word_dimensions(&self) -> UVec3 {

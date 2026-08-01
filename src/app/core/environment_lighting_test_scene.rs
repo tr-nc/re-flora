@@ -557,17 +557,26 @@ impl App {
                     return;
                 }
                 let terrain_revision = self.tracer.environment_probe_terrain_revision();
-                self.tracer
-                    .notify_ddgi_initial_terrain_ready(terrain_revision);
-                log::info!(
-                    "[ENV_LIGHT_TEST] static terrain ready case={} terrain_revision={} settling_frames={}",
-                    case.label(),
-                    terrain_revision,
-                    SETTLE_FRAMES,
-                );
-                TestScenePhase::Settling {
-                    frames: SETTLE_FRAMES,
-                    terrain_revision,
+                match self
+                    .tracer
+                    .notify_ddgi_initial_terrain_ready(terrain_revision)
+                {
+                    Ok(()) => {
+                        log::info!(
+                            "[ENV_LIGHT_TEST] static terrain ready case={} terrain_revision={} settling_frames={}",
+                            case.label(),
+                            terrain_revision,
+                            SETTLE_FRAMES,
+                        );
+                        TestScenePhase::Settling {
+                            frames: SETTLE_FRAMES,
+                            terrain_revision,
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("[ENV_LIGHT_TEST] DDGI visibility publication failed: {err:#}");
+                        TestScenePhase::Failed
+                    }
                 }
             }
             TestScenePhase::Settling {
