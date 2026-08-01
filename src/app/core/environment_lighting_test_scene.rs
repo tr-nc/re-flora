@@ -150,6 +150,7 @@ impl TestSceneGeometry {
             ),
             EnvironmentLightingTestCase::Portal
             | EnvironmentLightingTestCase::TerrainEdits
+            | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsClosed => (
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![
@@ -238,6 +239,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         }
         EnvironmentLightingTestCase::Portal
         | EnvironmentLightingTestCase::TerrainEdits
+        | EnvironmentLightingTestCase::TerrainEditsInflight
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
         }
@@ -413,7 +415,40 @@ impl App {
                 edit,
                 target_revision,
             } => {
-                if !self.tracer.ddgi_ready_for_terrain_revision(target_revision) {
+                if case == EnvironmentLightingTestCase::TerrainEditsInflight
+                    && edit == TerrainEdit::CloseSkylight
+                {
+                    let status = self.tracer.ddgi_status();
+                    let Some(staging) = status.staging().filter(|staging| !staging.is_ready())
+                    else {
+                        return;
+                    };
+                    log::info!(
+                        "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision={} stage={:?} active_terrain_revision={:?} token={:?}",
+                        target_revision,
+                        staging.stage,
+                        status.active().relocated_terrain_revision,
+                        staging.build_token,
+                    );
+                    let phase = match self.apply_environment_lighting_terrain_edit(
+                        TerrainEdit::ReopenSkylight,
+                        target_revision,
+                    ) {
+                        Ok(reopen_revision) => TestScenePhase::WaitingForEditedTerrain {
+                            edit: TerrainEdit::ReopenSkylight,
+                            target_revision: reopen_revision,
+                        },
+                        Err(err) => {
+                            log::error!("[ENV_LIGHT_EDIT_INFLIGHT] reopen edit failed: {err:#}");
+                            TestScenePhase::Failed
+                        }
+                    };
+                    self.environment_lighting_test_scene
+                        .as_mut()
+                        .expect("test scene state disappeared")
+                        .phase = phase;
+                    return;
+                } else if !self.tracer.ddgi_ready_for_terrain_revision(target_revision) {
                     return;
                 }
                 log::info!(
@@ -529,7 +564,9 @@ impl App {
 fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
     matches!(
         case,
-        EnvironmentLightingTestCase::TerrainEdits | EnvironmentLightingTestCase::TerrainEditsClosed
+        EnvironmentLightingTestCase::TerrainEdits
+            | EnvironmentLightingTestCase::TerrainEditsInflight
+            | EnvironmentLightingTestCase::TerrainEditsClosed
     )
 }
 
@@ -566,6 +603,7 @@ mod tests {
             EnvironmentLightingTestCase::Portal,
             EnvironmentLightingTestCase::Walls,
             EnvironmentLightingTestCase::TerrainEdits,
+            EnvironmentLightingTestCase::TerrainEditsInflight,
             EnvironmentLightingTestCase::TerrainEditsClosed,
         ] {
             let plan = TestSceneGeometry::build(case).compile().unwrap();
