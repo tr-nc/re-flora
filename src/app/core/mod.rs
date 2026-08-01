@@ -1832,7 +1832,7 @@ impl App {
         self.terrain_physics
             .mark_terrain_voxel_bound_dirty(refresh_bound);
         self.tracer
-            .request_environment_probe_refresh_near_voxel_bound(refresh_bound);
+            .request_published_environment_probe_refresh_near_voxel_bound(refresh_bound);
         Ok(())
     }
 
@@ -1846,7 +1846,7 @@ impl App {
         }
         if let Some(edit_bound) = environment_probe_edit_bound {
             self.tracer
-                .request_environment_probe_refresh_near_voxel_bound(edit_bound);
+                .request_published_environment_probe_refresh_near_voxel_bound(edit_bound);
         }
         Ok(())
     }
@@ -3138,7 +3138,7 @@ impl App {
                 self.process_environment_lighting_test_scene();
                 self.process_hybrid_transparency_test_scene();
                 if self.deferred_chunk_rebuilds_idle() {
-                    if let Err(err) = self.tracer.start_pending_environment_probe_refresh() {
+                    if let Err(err) = self.tracer.drive_pending_ddgi_rebuild() {
                         log::error!(
                             "Failed to start DDGI refresh after terrain publication: {err:#}"
                         );
