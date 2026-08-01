@@ -50,4 +50,4 @@ change; the generated run artifact remains authoritative.
 All eight curves reached two consecutive passing iterations at least two iterations before the S8
 hard maximum. The tightest observed absolute margin was `0.00207789`; the tightest relative margin
 was `0.01589011`. The source artifact for this table is
-`target/ddgi-transport-acceptance/20260801T130318Z-1006985/convergence-calibration.json`.
+`target/ddgi-transport-acceptance/20260801T132942Z-1090600/convergence-calibration.json`.

@@ -1,9 +1,10 @@
 # DDGI Transport Acceptance
 
 `scripts/check_ddgi_transport_acceptance.sh` is the top-level hidden release-mode acceptance
-runner for the transport specification. It runs the stage-specific transport captures first, then
-the existing portal/walls correctness runner, runtime terrain-edit runner, and the radiance/density
-lifecycle runner. All three child runners are mandatory; a missing runner is an acceptance failure.
+runner for the transport specification. It runs the stage-specific transport captures and
+convergence summarizer first, then the portal/walls correctness runner, runtime terrain-edit runner,
+radiance/density lifecycle runner, and committed sky-normalization evidence checker. Every
+subordinate check is mandatory; a missing checker or runner is an acceptance failure.
 
 ## Evidence
 
@@ -23,9 +24,11 @@ DDGI determinism checks require the environment/world planes because temporal ra
 legitimately differ between independent processes; the dedicated fail-closed scenario adds
 `--compare-direct-light` and requires all three planes to match.
 
-The required matrix covers spacing 32 and 16, sealed S0/S1/S2/converged, donor S0/S1, dogleg S1/S2,
-and donor S1 in both forward and reverse batch order. `NonConverged` remains a valid diagnostic
-capture state, but analyzer `--correctness` rejects it.
+The required matrix covers spacing 32 and 16, sealed S0/S1/S2/converged,
+portal S1 plus converged, donor S0/S1/converged, dogleg S1/S2/converged, and donor S1 in both
+forward and reverse batch order. The eight complete convergence curves are summarized separately in
+`docs/ddgi_convergence_calibration.md`. `NonConverged` remains a valid diagnostic capture state, but
+analyzer `--correctness` rejects it.
 
 ## Threshold provenance
 
@@ -57,6 +60,15 @@ that the red donor raises red's share from about 3.7% to 12–13% while also rai
 This distinguishes transported donor energy from the unchanged sky seed without changing the game's
 authored sky.
 
+## Sky-normalization presentation parity
+
+`scripts/check_ddgi_sky_normalization_evidence.py` validates the committed machine-readable evidence
+in `docs/evidence/ddgi_sky_normalization.json`. The evidence compares release-mode portal captures
+from the adjacent pre-transport commits immediately before and after the `E/pi` normalization at
+spacing 32 and 16, with identical authored camera, time, and voxel variance. Both hit masks match;
+the observed maximum RGB channel error is `3.58e-7` and the maximum luminance error is `1.18e-7`,
+below the committed `1e-6` limits.
+
 ## Independent direct-sun evidence
 
 Capture v5's third float4 plane is the actual raster terrain `directLighting` term after albedo,
@@ -73,3 +85,13 @@ both spacings while the DDGI environment plane is strict zero:
 The spacing 32 and 16 direct-light payloads were themselves bit-exact and contained 5,277 sunlit and
 24,455 shadowed samples. The top-level runner therefore reports
 `direct-sun-framebuffer=PROVEN seam=v5-direct-light-plane`.
+
+## Dynamic radiance lifecycle evidence
+
+The radiance lifecycle runner captures four v5 frames in one process at both required spacings:
+the terminal baseline, the first rendered frame after R2, the first rendered frame after R4, and the
+final R4 field. Identity sidecars prove `capture_frame = mutation_frame + 1`, that R2 remains the
+immutable in-flight snapshot when R4 arrives, and that R3 is coalesced while the final active field
+uses R4 from R2. On both spacings the old DDGI irradiance payload, world XYZ, and terrain-hit mask are
+bit-exact during the immediate direct-light changes. The sunlit ROI changes from `0.168975` to
+`0.303398` at R2 and `0.073722` at R4; both absolute deltas exceed the committed `0.02` gate.
