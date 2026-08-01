@@ -7,6 +7,7 @@ pub enum DdgiCaptureTarget {
     Iteration(u32),
     Converged,
     NonConverged,
+    Published,
 }
 
 impl DdgiCaptureTarget {
@@ -14,6 +15,7 @@ impl DdgiCaptureTarget {
         match value {
             "converged" => Some(Self::Converged),
             "non-converged" => Some(Self::NonConverged),
+            "published" => Some(Self::Published),
             _ => value
                 .strip_prefix('s')
                 .and_then(|iteration| iteration.parse::<u32>().ok())
@@ -24,7 +26,7 @@ impl DdgiCaptureTarget {
     pub fn iteration(self) -> Option<u32> {
         match self {
             Self::Iteration(iteration) => Some(iteration),
-            Self::Converged | Self::NonConverged => None,
+            Self::Converged | Self::NonConverged | Self::Published => None,
         }
     }
 
@@ -33,6 +35,7 @@ impl DdgiCaptureTarget {
             Self::Iteration(iteration) => format!("s{iteration}"),
             Self::Converged => "converged".to_owned(),
             Self::NonConverged => "non-converged".to_owned(),
+            Self::Published => "published".to_owned(),
         }
     }
 
@@ -42,7 +45,17 @@ impl DdgiCaptureTarget {
             Self::Iteration(iteration) => field.iteration() == iteration,
             Self::Converged => field.stage() == DdgiFieldStage::Converged,
             Self::NonConverged => field.stage() == DdgiFieldStage::NonConverged,
+            Self::Published => true,
         }
+    }
+
+    pub fn matches_checkpoint(
+        self,
+        identity: DdgiFieldIdentity,
+        publication: DdgiCapturePublication,
+    ) -> bool {
+        self.matches(identity)
+            && (self != Self::Published || publication == DdgiCapturePublication::Published)
     }
 }
 
@@ -108,6 +121,10 @@ mod tests {
             Some(DdgiCaptureTarget::Converged)
         );
         assert_eq!(DdgiCaptureTarget::from_cli_value("sn"), None);
+        assert_eq!(
+            DdgiCaptureTarget::from_cli_value("published"),
+            Some(DdgiCaptureTarget::Published)
+        );
     }
 
     #[test]
@@ -116,5 +133,9 @@ mod tests {
         assert!(DdgiCaptureTarget::Iteration(6).matches(converged));
         assert!(DdgiCaptureTarget::Converged.matches(converged));
         assert!(!DdgiCaptureTarget::NonConverged.matches(converged));
+        assert!(DdgiCaptureTarget::Published
+            .matches_checkpoint(converged, DdgiCapturePublication::Published));
+        assert!(!DdgiCaptureTarget::Published
+            .matches_checkpoint(converged, DdgiCapturePublication::Unpublished));
     }
 }

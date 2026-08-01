@@ -1479,6 +1479,18 @@ impl Tracer {
         self.desc.ddgi_debug_view
     }
 
+    pub(crate) fn ddgi_live_radiance_revision(&self) -> u32 {
+        self.environment_probe_environment_revision
+    }
+
+    pub(crate) fn ddgi_live_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
+        self.environment_probe_radiance_snapshot
+    }
+
+    pub(crate) fn ddgi_builder_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
+        self.ddgi_volumes.builder().radiance_snapshot()
+    }
+
     pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
         let checkpoint = self.ddgi_capture_checkpoint?;
         let active = self.ddgi_volumes.status().active();
@@ -1509,7 +1521,7 @@ impl Tracer {
             || !self
                 .desc
                 .environment_irradiance_capture_target
-                .matches(field)
+                .matches_checkpoint(field, publication)
         {
             return;
         }
@@ -2864,7 +2876,10 @@ impl Tracer {
                                 if self
                                     .desc
                                     .environment_irradiance_capture_target
-                                    .matches(identity)
+                                    .matches_checkpoint(
+                                        identity,
+                                        DdgiCapturePublication::Unpublished,
+                                    )
                                 {
                                     // The capture-only query intentionally shares metadata,
                                     // visibility, and global-sky resources with the active

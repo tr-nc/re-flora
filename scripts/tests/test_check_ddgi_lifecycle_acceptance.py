@@ -26,7 +26,9 @@ class CheckDdgiLifecycleAcceptanceTests(unittest.TestCase):
             env=env,
         )
 
-    def test_dry_run_prints_both_cargo_commands_without_side_effects(self) -> None:
+    def test_dry_run_prints_both_radiance_spacings_and_density_without_side_effects(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             temp_root = Path(directory)
             fake_bin = temp_root / "bin"
@@ -48,15 +50,20 @@ class CheckDdgiLifecycleAcceptanceTests(unittest.TestCase):
             self.assertFalse(output_root.exists())
 
         output = result.stdout
-        self.assertEqual(output.count("cargo run --quiet --release"), 2)
+        self.assertEqual(output.count("cargo run --quiet --release"), 3)
         self.assertIn(
             "--environment-lighting-test-scene radiance-changes", output
         )
-        self.assertIn("--environment-irradiance-capture-target s2", output)
+        self.assertEqual(
+            output.count("--environment-lighting-test-scene radiance-changes"), 2
+        )
+        self.assertEqual(output.count("--environment-irradiance-capture-target published"), 2)
+        self.assertIn("--environment-probe-spacing-voxels 32", output)
+        self.assertIn("--environment-probe-spacing-voxels 16", output)
         self.assertIn("--environment-lighting-test-scene density-changes", output)
         self.assertIn("--environment-probe-rebuild-spacing-voxels 16", output)
         self.assertIn("--environment-irradiance-capture-target s1", output)
-        self.assertIn("[DDGI_LIFECYCLE] dry-run complete scenarios=2", output)
+        self.assertIn("[DDGI_LIFECYCLE] dry-run complete scenarios=3", output)
 
     def test_rejects_unknown_arguments_without_running_cargo(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

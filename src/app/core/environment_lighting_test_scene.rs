@@ -18,6 +18,17 @@ const TEST_LATITUDE: f32 = -0.24;
 const TEST_SEASON: f32 = 0.25;
 const TEST_VOXEL_COLOR_VARIANCE: f32 = 0.0;
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
+const RADIANCE_R1_SUN_COLOR: Color32 = Color32::from_rgb(255, 241, 224);
+const RADIANCE_R1_SUN_LUMINANCE: f32 = 1.65;
+const RADIANCE_R2_TIME_OF_DAY: f32 = 0.465_705;
+const RADIANCE_R2_SUN_COLOR: Color32 = Color32::from_rgb(255, 180, 128);
+const RADIANCE_R2_SUN_LUMINANCE: f32 = 3.3;
+const RADIANCE_R3_TIME_OF_DAY: f32 = 0.475_705;
+const RADIANCE_R3_SUN_COLOR: Color32 = Color32::from_rgb(180, 220, 255);
+const RADIANCE_R3_SUN_LUMINANCE: f32 = 2.2;
+const RADIANCE_R4_TIME_OF_DAY: f32 = 0.485_705;
+const RADIANCE_R4_SUN_COLOR: Color32 = Color32::from_rgb(128, 180, 255);
+const RADIANCE_R4_SUN_LUMINANCE: f32 = 0.8;
 const RADIANCE_R2_ROCK_COLOR: Color32 = Color32::from_rgb(126, 125, 128);
 const RADIANCE_R3_ROCK_COLOR: Color32 = Color32::from_rgb(130, 125, 128);
 const RADIANCE_R4_ROCK_COLOR: Color32 = Color32::from_rgb(134, 125, 128);
@@ -107,6 +118,16 @@ enum TestScenePhase {
     WaitingForRadianceBaseline {
         terrain_revision: u32,
     },
+    CapturingRadianceBaseline {
+        r1: DdgiFieldIdentity,
+    },
+    MutatingRadianceR2 {
+        r1: DdgiFieldIdentity,
+    },
+    CapturingRadianceR2NextFrame {
+        r1: DdgiFieldIdentity,
+        mutation_frame: u64,
+    },
     WaitingForRadianceR2Midflight {
         r1: DdgiFieldIdentity,
     },
@@ -114,11 +135,25 @@ enum TestScenePhase {
         r1: DdgiFieldIdentity,
         r2: DdgiFieldIdentity,
     },
+    MutatingRadianceR4 {
+        r1: DdgiFieldIdentity,
+        r2: DdgiFieldIdentity,
+    },
+    CapturingRadianceR4NextFrame {
+        r1: DdgiFieldIdentity,
+        r2: DdgiFieldIdentity,
+        mutation_frame: u64,
+    },
     WaitingForRadianceR4Midflight {
         r1: DdgiFieldIdentity,
         r2: DdgiFieldIdentity,
     },
     WaitingForRadianceR4Published {
+        r1: DdgiFieldIdentity,
+        r2: DdgiFieldIdentity,
+        r4: DdgiFieldIdentity,
+    },
+    CapturingRadianceR4Published {
         r1: DdgiFieldIdentity,
         r2: DdgiFieldIdentity,
         r4: DdgiFieldIdentity,
@@ -167,6 +202,31 @@ enum TestScenePhase {
     },
     Ready,
     Failed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RadianceCaptureCheckpoint {
+    Baseline,
+    R2NextFrame,
+    R4NextFrame,
+    Final,
+}
+
+impl RadianceCaptureCheckpoint {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::R2NextFrame => "r2-next-frame",
+            Self::R4NextFrame => "r4-next-frame",
+            Self::Final => "final",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct RadianceCaptureRequest {
+    pub checkpoint: RadianceCaptureCheckpoint,
+    pub mutation_frame: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -277,7 +337,61 @@ impl EnvironmentLightingTestScene {
             || matches!(
                 self.phase,
                 TestScenePhase::CapturingInflightFailClosed { .. }
+                    | TestScenePhase::CapturingRadianceBaseline { .. }
+                    | TestScenePhase::CapturingRadianceR2NextFrame { .. }
+                    | TestScenePhase::CapturingRadianceR4NextFrame { .. }
+                    | TestScenePhase::CapturingRadianceR4Published { .. }
             )
+    }
+
+    pub(super) fn radiance_capture_request(&self) -> Option<RadianceCaptureRequest> {
+        let (checkpoint, mutation_frame) = match self.phase {
+            TestScenePhase::CapturingRadianceBaseline { .. } => {
+                (RadianceCaptureCheckpoint::Baseline, None)
+            }
+            TestScenePhase::CapturingRadianceR2NextFrame { mutation_frame, .. } => {
+                (RadianceCaptureCheckpoint::R2NextFrame, Some(mutation_frame))
+            }
+            TestScenePhase::CapturingRadianceR4NextFrame { mutation_frame, .. } => {
+                (RadianceCaptureCheckpoint::R4NextFrame, Some(mutation_frame))
+            }
+            TestScenePhase::CapturingRadianceR4Published { .. } => {
+                (RadianceCaptureCheckpoint::Final, None)
+            }
+            _ => return None,
+        };
+        Some(RadianceCaptureRequest {
+            checkpoint,
+            mutation_frame,
+        })
+    }
+
+    pub(super) fn complete_radiance_capture(
+        &mut self,
+        checkpoint: RadianceCaptureCheckpoint,
+    ) -> bool {
+        self.phase = match (self.phase, checkpoint) {
+            (
+                TestScenePhase::CapturingRadianceBaseline { r1 },
+                RadianceCaptureCheckpoint::Baseline,
+            ) => TestScenePhase::MutatingRadianceR2 { r1 },
+            (
+                TestScenePhase::CapturingRadianceR2NextFrame { r1, .. },
+                RadianceCaptureCheckpoint::R2NextFrame,
+            ) => TestScenePhase::WaitingForRadianceR2Midflight { r1 },
+            (
+                TestScenePhase::CapturingRadianceR4NextFrame { r1, r2, .. },
+                RadianceCaptureCheckpoint::R4NextFrame,
+            ) => TestScenePhase::WaitingForRadianceR4Midflight { r1, r2 },
+            (
+                TestScenePhase::CapturingRadianceR4Published { .. },
+                RadianceCaptureCheckpoint::Final,
+            ) => TestScenePhase::Ready,
+            (phase, actual) => {
+                panic!("radiance capture completion mismatch phase={phase:?} checkpoint={actual:?}")
+            }
+        };
+        self.is_ready()
     }
 
     pub(super) fn inflight_capture_target_revision(&self) -> Option<u32> {
@@ -310,10 +424,16 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForRadianceBaseline { terrain_revision } => {
                 Some(terrain_revision)
             }
-            TestScenePhase::WaitingForRadianceR2Midflight { r1 }
+            TestScenePhase::CapturingRadianceBaseline { r1 }
+            | TestScenePhase::MutatingRadianceR2 { r1 }
+            | TestScenePhase::CapturingRadianceR2NextFrame { r1, .. }
+            | TestScenePhase::WaitingForRadianceR2Midflight { r1 }
             | TestScenePhase::WaitingForRadianceR3Observed { r1, .. }
+            | TestScenePhase::MutatingRadianceR4 { r1, .. }
+            | TestScenePhase::CapturingRadianceR4NextFrame { r1, .. }
             | TestScenePhase::WaitingForRadianceR4Midflight { r1, .. }
-            | TestScenePhase::WaitingForRadianceR4Published { r1, .. } => {
+            | TestScenePhase::WaitingForRadianceR4Published { r1, .. }
+            | TestScenePhase::CapturingRadianceR4Published { r1, .. } => {
                 Some(r1.field().geometry_revision())
             }
             TestScenePhase::WaitingForDensityMidflight { baseline } => {
@@ -340,17 +460,29 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::Settling { .. } => "settling-initial-terrain",
             TestScenePhase::WaitingForProbeField { .. } => "waiting-for-initial-probe-field",
             TestScenePhase::WaitingForRadianceBaseline { .. } => "waiting-for-radiance-baseline",
+            TestScenePhase::CapturingRadianceBaseline { .. } => "capturing-radiance-baseline",
+            TestScenePhase::MutatingRadianceR2 { .. } => "mutating-radiance-r2",
+            TestScenePhase::CapturingRadianceR2NextFrame { .. } => {
+                "capturing-radiance-r2-next-frame"
+            }
             TestScenePhase::WaitingForRadianceR2Midflight { .. } => {
                 "waiting-for-radiance-r2-midflight"
             }
             TestScenePhase::WaitingForRadianceR3Observed { .. } => {
                 "waiting-for-radiance-r3-observed"
             }
+            TestScenePhase::MutatingRadianceR4 { .. } => "mutating-radiance-r4",
+            TestScenePhase::CapturingRadianceR4NextFrame { .. } => {
+                "capturing-radiance-r4-next-frame"
+            }
             TestScenePhase::WaitingForRadianceR4Midflight { .. } => {
                 "waiting-for-radiance-r4-midflight"
             }
             TestScenePhase::WaitingForRadianceR4Published { .. } => {
                 "waiting-for-radiance-r4-published"
+            }
+            TestScenePhase::CapturingRadianceR4Published { .. } => {
+                "capturing-radiance-r4-published"
             }
             TestScenePhase::WaitingForDensityMidflight { .. } => "waiting-for-density-midflight",
             TestScenePhase::WaitingForDensityGeometryReplacement { .. } => {
@@ -604,6 +736,8 @@ impl App {
         self.debug_settings.adjustables.latitude.value = TEST_LATITUDE;
         self.debug_settings.adjustables.season.value = TEST_SEASON;
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
+        self.debug_settings.adjustables.sun_color.value = RADIANCE_R1_SUN_COLOR;
+        self.debug_settings.adjustables.sun_luminance.value = RADIANCE_R1_SUN_LUMINANCE;
         self.debug_settings.adjustables.voxel_dirt_color.value = palette.dirt;
         self.debug_settings.adjustables.voxel_sand_color.value = palette.sand;
         self.debug_settings
@@ -677,6 +811,100 @@ impl App {
         } else {
             log::error!("[ENV_LIGHT_TEST] failed to apply deterministic camera pose");
         }
+    }
+
+    fn apply_radiance_test_mutation(
+        &mut self,
+        time_of_day: f32,
+        sun_color: Color32,
+        sun_luminance: f32,
+        rock_color: Color32,
+    ) {
+        self.current_time_of_day = time_of_day;
+        self.debug_settings.adjustables.time_of_day.value = time_of_day;
+        self.debug_settings.adjustables.sun_color.value = sun_color;
+        self.debug_settings.adjustables.sun_luminance.value = sun_luminance;
+        self.debug_settings.adjustables.voxel_rock_color.value = rock_color;
+        self.request_vsm_history_reset();
+    }
+
+    pub(super) fn process_radiance_test_mutation_after_render(&mut self) {
+        let Some(phase) = self
+            .environment_lighting_test_scene
+            .as_ref()
+            .map(|scene| scene.phase)
+        else {
+            return;
+        };
+        let mutation_frame = self.time_info.total_frame_count();
+        let next_phase = match phase {
+            TestScenePhase::MutatingRadianceR2 { r1 } => {
+                self.apply_radiance_test_mutation(
+                    RADIANCE_R2_TIME_OF_DAY,
+                    RADIANCE_R2_SUN_COLOR,
+                    RADIANCE_R2_SUN_LUMINANCE,
+                    RADIANCE_R2_ROCK_COLOR,
+                );
+                log::info!(
+                    "[DDGI_ACCEPT][RADIANCE] mutation=r2 after_render_frame={} first_affected_render_frame={} time_of_day={} sun_rgb={},{},{} sun_luminance={} rock_rgb={},{},{} expected_radiance_revision={}",
+                    mutation_frame,
+                    mutation_frame + 1,
+                    RADIANCE_R2_TIME_OF_DAY,
+                    RADIANCE_R2_SUN_COLOR.r(),
+                    RADIANCE_R2_SUN_COLOR.g(),
+                    RADIANCE_R2_SUN_COLOR.b(),
+                    RADIANCE_R2_SUN_LUMINANCE,
+                    RADIANCE_R2_ROCK_COLOR.r(),
+                    RADIANCE_R2_ROCK_COLOR.g(),
+                    RADIANCE_R2_ROCK_COLOR.b(),
+                    next_nonzero_revision(r1.field().radiance_revision()),
+                );
+                TestScenePhase::CapturingRadianceR2NextFrame { r1, mutation_frame }
+            }
+            TestScenePhase::MutatingRadianceR4 { r1, r2 } => {
+                let r4_revision =
+                    next_nonzero_revision(next_nonzero_revision(r2.field().radiance_revision()));
+                let active = self.tracer.ddgi_status().active();
+                assert_eq!(active.published_field, Some(r1));
+                assert_eq!(active.building_field, Some(r2));
+                assert_eq!(
+                    active.radiance_revision,
+                    Some(r2.field().radiance_revision())
+                );
+                self.apply_radiance_test_mutation(
+                    RADIANCE_R4_TIME_OF_DAY,
+                    RADIANCE_R4_SUN_COLOR,
+                    RADIANCE_R4_SUN_LUMINANCE,
+                    RADIANCE_R4_ROCK_COLOR,
+                );
+                log::info!(
+                    "[DDGI_ACCEPT][RADIANCE] mutation=r4 after_render_frame={} first_affected_render_frame={} time_of_day={} sun_rgb={},{},{} sun_luminance={} rock_rgb={},{},{} expected_radiance_revision={} inflight_field_serial={} immutable_inflight_radiance_revision={} latest_coalescing_pending=true",
+                    mutation_frame,
+                    mutation_frame + 1,
+                    RADIANCE_R4_TIME_OF_DAY,
+                    RADIANCE_R4_SUN_COLOR.r(),
+                    RADIANCE_R4_SUN_COLOR.g(),
+                    RADIANCE_R4_SUN_COLOR.b(),
+                    RADIANCE_R4_SUN_LUMINANCE,
+                    RADIANCE_R4_ROCK_COLOR.r(),
+                    RADIANCE_R4_ROCK_COLOR.g(),
+                    RADIANCE_R4_ROCK_COLOR.b(),
+                    r4_revision,
+                    r2.field().serial(),
+                    r2.field().radiance_revision(),
+                );
+                TestScenePhase::CapturingRadianceR4NextFrame {
+                    r1,
+                    r2,
+                    mutation_frame,
+                }
+            }
+            _ => return,
+        };
+        self.environment_lighting_test_scene
+            .as_mut()
+            .expect("radiance mutation lost test scene")
+            .phase = next_phase;
     }
 
     pub(super) fn process_environment_lighting_test_scene(&mut self) {
@@ -830,16 +1058,39 @@ impl App {
                     Some(r1.field().radiance_revision())
                 );
                 log_acceptance_field("RADIANCE", "r1-terminal", r1);
-                self.debug_settings.adjustables.voxel_rock_color.value = RADIANCE_R2_ROCK_COLOR;
-                log::info!(
-                    "[DDGI_ACCEPT][RADIANCE] mutation=r2 rock_rgb={},{},{} expected_radiance_revision={}",
-                    RADIANCE_R2_ROCK_COLOR.r(),
-                    RADIANCE_R2_ROCK_COLOR.g(),
-                    RADIANCE_R2_ROCK_COLOR.b(),
-                    next_nonzero_revision(r1.field().radiance_revision()),
-                );
-                TestScenePhase::WaitingForRadianceR2Midflight { r1 }
+                if self.environment_irradiance_capture_path.is_some() {
+                    assert_eq!(
+                        self.tracer.ddgi_capture_target(),
+                        crate::ddgi::DdgiCaptureTarget::Published,
+                        "radiance lifecycle capture requires target=published"
+                    );
+                    TestScenePhase::CapturingRadianceBaseline { r1 }
+                } else {
+                    self.apply_radiance_test_mutation(
+                        RADIANCE_R2_TIME_OF_DAY,
+                        RADIANCE_R2_SUN_COLOR,
+                        RADIANCE_R2_SUN_LUMINANCE,
+                        RADIANCE_R2_ROCK_COLOR,
+                    );
+                    log::info!(
+                        "[DDGI_ACCEPT][RADIANCE] mutation=r2 frame={} time_of_day={} sun_rgb={},{},{} sun_luminance={} rock_rgb={},{},{} expected_radiance_revision={}",
+                        self.time_info.total_frame_count(),
+                        RADIANCE_R2_TIME_OF_DAY,
+                        RADIANCE_R2_SUN_COLOR.r(),
+                        RADIANCE_R2_SUN_COLOR.g(),
+                        RADIANCE_R2_SUN_COLOR.b(),
+                        RADIANCE_R2_SUN_LUMINANCE,
+                        RADIANCE_R2_ROCK_COLOR.r(),
+                        RADIANCE_R2_ROCK_COLOR.g(),
+                        RADIANCE_R2_ROCK_COLOR.b(),
+                        next_nonzero_revision(r1.field().radiance_revision()),
+                    );
+                    TestScenePhase::WaitingForRadianceR2Midflight { r1 }
+                }
             }
+            TestScenePhase::CapturingRadianceBaseline { .. } => return,
+            TestScenePhase::MutatingRadianceR2 { .. } => return,
+            TestScenePhase::CapturingRadianceR2NextFrame { .. } => return,
             TestScenePhase::WaitingForRadianceR2Midflight { r1 } => {
                 let status = self.tracer.ddgi_status();
                 assert!(status.staging().is_none());
@@ -880,9 +1131,20 @@ impl App {
                     active.filtered_probe_count,
                     active.grid.probe_count(),
                 );
-                self.debug_settings.adjustables.voxel_rock_color.value = RADIANCE_R3_ROCK_COLOR;
+                self.apply_radiance_test_mutation(
+                    RADIANCE_R3_TIME_OF_DAY,
+                    RADIANCE_R3_SUN_COLOR,
+                    RADIANCE_R3_SUN_LUMINANCE,
+                    RADIANCE_R3_ROCK_COLOR,
+                );
                 log::info!(
-                    "[DDGI_ACCEPT][RADIANCE] mutation=r3 rock_rgb={},{},{} expected_radiance_revision={}",
+                    "[DDGI_ACCEPT][RADIANCE] mutation=r3 frame={} time_of_day={} sun_rgb={},{},{} sun_luminance={} rock_rgb={},{},{} expected_radiance_revision={}",
+                    self.time_info.total_frame_count(),
+                    RADIANCE_R3_TIME_OF_DAY,
+                    RADIANCE_R3_SUN_COLOR.r(),
+                    RADIANCE_R3_SUN_COLOR.g(),
+                    RADIANCE_R3_SUN_COLOR.b(),
+                    RADIANCE_R3_SUN_LUMINANCE,
                     RADIANCE_R3_ROCK_COLOR.r(),
                     RADIANCE_R3_ROCK_COLOR.g(),
                     RADIANCE_R3_ROCK_COLOR.b(),
@@ -904,16 +1166,10 @@ impl App {
                     r2.field().serial(),
                     r2.field().radiance_revision(),
                 );
-                self.debug_settings.adjustables.voxel_rock_color.value = RADIANCE_R4_ROCK_COLOR;
-                log::info!(
-                    "[DDGI_ACCEPT][RADIANCE] mutation=r4 rock_rgb={},{},{} expected_radiance_revision={}",
-                    RADIANCE_R4_ROCK_COLOR.r(),
-                    RADIANCE_R4_ROCK_COLOR.g(),
-                    RADIANCE_R4_ROCK_COLOR.b(),
-                    next_nonzero_revision(r3_revision),
-                );
-                TestScenePhase::WaitingForRadianceR4Midflight { r1, r2 }
+                TestScenePhase::MutatingRadianceR4 { r1, r2 }
             }
+            TestScenePhase::MutatingRadianceR4 { .. } => return,
+            TestScenePhase::CapturingRadianceR4NextFrame { .. } => return,
             TestScenePhase::WaitingForRadianceR4Midflight { r1, r2 } => {
                 let active = self.tracer.ddgi_status().active();
                 let r4_revision =
@@ -977,8 +1233,13 @@ impl App {
                 log::info!(
                     "[DDGI_ACCEPT][RADIANCE] complete r3_coalesced=true field_serial_gap_r2_to_r4=1 geometry_unchanged=true spacing_unchanged=true"
                 );
-                TestScenePhase::Ready
+                if self.environment_irradiance_capture_path.is_some() {
+                    TestScenePhase::CapturingRadianceR4Published { r1, r2, r4 }
+                } else {
+                    TestScenePhase::Ready
+                }
             }
+            TestScenePhase::CapturingRadianceR4Published { .. } => return,
             TestScenePhase::WaitingForDensityMidflight { baseline } => {
                 let status = self.tracer.ddgi_status();
                 let runtime = self.tracer.ddgi_runtime_status();

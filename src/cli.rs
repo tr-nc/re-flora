@@ -349,7 +349,7 @@ impl AppOptions {
         )?;
         let environment_irradiance_capture_target_value = parse_required_string_after(
             "--environment-irradiance-capture-target",
-            "s0, s1, sN, converged, or non-converged",
+            "s0, s1, sN, converged, non-converged, or published",
         )?;
         if environment_irradiance_capture_target_value.is_some()
             && environment_irradiance_capture_path.is_none()
@@ -363,7 +363,7 @@ impl AppOptions {
             match environment_irradiance_capture_target_value {
                 Some(value) => DdgiCaptureTarget::from_cli_value(&value).ok_or_else(|| {
                     format!(
-                        "Invalid --environment-irradiance-capture-target '{value}'. Expected s0, s1, sN, converged, or non-converged."
+                        "Invalid --environment-irradiance-capture-target '{value}'. Expected s0, s1, sN, converged, non-converged, or published."
                     )
                 })?,
                 None => DdgiCaptureTarget::default(),

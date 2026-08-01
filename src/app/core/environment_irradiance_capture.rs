@@ -1,10 +1,11 @@
+use super::environment_lighting_test_scene::{RadianceCaptureCheckpoint, RadianceCaptureRequest};
 use super::App;
-use crate::ddgi::{DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldStage};
-use crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY;
+use crate::ddgi::{DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage};
+use crate::environment_lighting::{DdgiRadianceSnapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY};
 use anyhow::{ensure, Context, Result};
 use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, Extent2D, MemoryLocation};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
 const CAPTURE_VERSION: u32 = 5;
@@ -130,14 +131,143 @@ pub(super) struct EnvironmentIrradianceCaptureReadback {
     spacing_voxels: u32,
     debug_view: DdgiDebugView,
     metadata: CaptureMetadata,
+    radiance_evidence: Option<RadianceCaptureEvidence>,
     buffer: Buffer,
+}
+
+impl EnvironmentIrradianceCaptureReadback {
+    pub(super) fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub(super) fn radiance_checkpoint(&self) -> Option<RadianceCaptureCheckpoint> {
+        self.radiance_evidence
+            .map(|evidence| evidence.request.checkpoint)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RadianceCaptureEvidence {
+    request: RadianceCaptureRequest,
+    capture_frame: u64,
+    live_radiance_revision: u32,
+    live_snapshot: DdgiRadianceSnapshot,
+    latest_radiance_revision: Option<u32>,
+    active_field: DdgiFieldIdentity,
+    building_field: Option<DdgiFieldIdentity>,
+    builder_latched_radiance_revision: Option<u32>,
+    builder_latched_snapshot: Option<DdgiRadianceSnapshot>,
+}
+
+fn radiance_capture_path(base: &str, checkpoint: RadianceCaptureCheckpoint) -> PathBuf {
+    if checkpoint == RadianceCaptureCheckpoint::Final {
+        return PathBuf::from(base);
+    }
+    let base = Path::new(base);
+    let stem = base
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("radiance-capture");
+    let extension = base.extension().and_then(|extension| extension.to_str());
+    let file_name = match extension {
+        Some(extension) => format!("{stem}.{}.{extension}", checkpoint.label()),
+        None => format!("{stem}.{}", checkpoint.label()),
+    };
+    base.with_file_name(file_name)
+}
+
+fn field_json(field: Option<DdgiFieldIdentity>) -> String {
+    let Some(field) = field else {
+        return "null".to_owned();
+    };
+    let key = field.field();
+    let source = field.source();
+    format!(
+        "{{\"field_serial\":{},\"geometry_revision\":{},\"radiance_revision\":{},\"spacing_voxels\":{},\"transport_stage\":\"{:?}\",\"transport_iteration\":{},\"source_field_serial\":{},\"source_radiance_revision\":{}}}",
+        key.serial(),
+        key.geometry_revision(),
+        key.radiance_revision(),
+        key.spacing_voxels(),
+        key.stage(),
+        key.iteration(),
+        source.map_or(0, |source| source.serial()),
+        source.map_or(0, |source| source.radiance_revision()),
+    )
+}
+
+fn snapshot_json(snapshot: Option<DdgiRadianceSnapshot>) -> String {
+    let Some(snapshot) = snapshot else {
+        return "null".to_owned();
+    };
+    format!(
+        "{{\"sun_direction\":[{},{},{}],\"sun_color\":[{},{},{}],\"sun_luminance\":{}}}",
+        snapshot.sun_direction.x,
+        snapshot.sun_direction.y,
+        snapshot.sun_direction.z,
+        snapshot.sun_color.x,
+        snapshot.sun_color.y,
+        snapshot.sun_color.z,
+        snapshot.sun_luminance,
+    )
+}
+
+fn option_u32_json(value: Option<u32>) -> String {
+    value.map_or_else(|| "null".to_owned(), |value| value.to_string())
+}
+
+impl RadianceCaptureEvidence {
+    fn write(self, capture_path: &str) -> Result<()> {
+        let identity_path = format!("{capture_path}.identity.json");
+        let mut file = std::fs::File::create(&identity_path)
+            .with_context(|| format!("create {identity_path}"))?;
+        let mutation_frame = self
+            .request
+            .mutation_frame
+            .map_or_else(|| "null".to_owned(), |frame| frame.to_string());
+        write!(
+            file,
+            "{{\n  \"schema\": \"re-flora-ddgi-radiance-capture-v1\",\n  \"checkpoint\": \"{}\",\n  \"mutation_frame\": {},\n  \"capture_frame\": {},\n  \"live_radiance_revision\": {},\n  \"live_snapshot\": {},\n  \"latest_radiance_revision\": {},\n  \"active_field\": {},\n  \"building_field\": {},\n  \"builder_latched_radiance_revision\": {},\n  \"builder_latched_snapshot\": {}\n}}\n",
+            self.request.checkpoint.label(),
+            mutation_frame,
+            self.capture_frame,
+            self.live_radiance_revision,
+            snapshot_json(Some(self.live_snapshot)),
+            option_u32_json(self.latest_radiance_revision),
+            field_json(Some(self.active_field)),
+            field_json(self.building_field),
+            option_u32_json(self.builder_latched_radiance_revision),
+            snapshot_json(self.builder_latched_snapshot),
+        )?;
+        file.flush()?;
+        log::info!(
+            "[ENV_IRRADIANCE_CAPTURE] radiance identity saved path={} checkpoint={} mutation_frame={:?} capture_frame={} live_radiance_revision={} active_field_serial={} active_radiance_revision={} latest_radiance_revision={:?}",
+            identity_path,
+            self.request.checkpoint.label(),
+            self.request.mutation_frame,
+            self.capture_frame,
+            self.live_radiance_revision,
+            self.active_field.field().serial(),
+            self.active_field.field().radiance_revision(),
+            self.latest_radiance_revision,
+        );
+        Ok(())
+    }
 }
 
 impl App {
     pub(super) fn prepare_environment_irradiance_capture_readback(
         &self,
-        path: String,
+        base_path: String,
     ) -> Result<EnvironmentIrradianceCaptureReadback> {
+        let radiance_request = self
+            .environment_lighting_test_scene
+            .as_ref()
+            .and_then(|scene| scene.radiance_capture_request());
+        let path = radiance_request.map_or_else(
+            || PathBuf::from(&base_path),
+            |request| radiance_capture_path(&base_path, request.checkpoint),
+        );
+        let path = path.to_string_lossy().into_owned();
         let output_path = Path::new(&path);
         if let Some(parent) = output_path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
@@ -156,6 +286,106 @@ impl App {
             .context("cannot capture DDGI before the requested field checkpoint is resident")?;
         let metadata =
             CaptureMetadata::from_checkpoint(checkpoint, DDGI_AUTHORED_SKY_MODEL_IDENTITY)?;
+        let radiance_evidence = radiance_request
+            .map(|request| {
+                let capture_frame = self.time_info.total_frame_count();
+                if let Some(mutation_frame) = request.mutation_frame {
+                    ensure!(
+                        capture_frame == mutation_frame + 1,
+                        "{} capture frame {} is not mutation frame {} + 1",
+                        request.checkpoint.label(),
+                        capture_frame,
+                        mutation_frame,
+                    );
+                }
+                let status = self.tracer.ddgi_status();
+                let active = status.active();
+                let active_field = active
+                    .published_field
+                    .context("radiance evidence requires a published active field")?;
+                ensure!(
+                    checkpoint.field == active_field,
+                    "radiance evidence checkpoint {:?} is not active field {:?}",
+                    checkpoint.field,
+                    active_field,
+                );
+                let evidence = RadianceCaptureEvidence {
+                    request,
+                    capture_frame,
+                    live_radiance_revision: self.tracer.ddgi_live_radiance_revision(),
+                    live_snapshot: self
+                        .tracer
+                        .ddgi_live_radiance_snapshot()
+                        .context("radiance evidence requires the live renderer snapshot")?,
+                    latest_radiance_revision: self.tracer.ddgi_latest_radiance_revision(),
+                    active_field,
+                    building_field: status.builder().building_field,
+                    builder_latched_radiance_revision: status.builder().radiance_revision,
+                    builder_latched_snapshot: self.tracer.ddgi_builder_radiance_snapshot(),
+                };
+                let active_revision = evidence.active_field.field().radiance_revision();
+                match request.checkpoint {
+                    RadianceCaptureCheckpoint::Baseline => {
+                        ensure!(
+                            evidence.live_radiance_revision == active_revision
+                                && evidence.latest_radiance_revision == Some(active_revision),
+                            "baseline live/latest revision does not match active field"
+                        );
+                    }
+                    RadianceCaptureCheckpoint::R2NextFrame => {
+                        let expected_live = active_revision.wrapping_add(1).max(1);
+                        let building = evidence
+                            .building_field
+                            .context("r2 next-frame evidence requires in-flight r2")?;
+                        ensure!(
+                            evidence.live_radiance_revision == expected_live
+                                && evidence.latest_radiance_revision == Some(expected_live)
+                                && building.field().radiance_revision() == expected_live
+                                && evidence.builder_latched_radiance_revision
+                                    == Some(expected_live)
+                                && evidence.builder_latched_snapshot == Some(evidence.live_snapshot),
+                            "r2 next-frame live/builder snapshot identity mismatch"
+                        );
+                    }
+                    RadianceCaptureCheckpoint::R4NextFrame => {
+                        let building = evidence
+                            .building_field
+                            .context("r4 next-frame evidence requires immutable in-flight r2")?;
+                        let r2_revision = building.field().radiance_revision();
+                        let expected_live = r2_revision.wrapping_add(2).max(1);
+                        ensure!(
+                            active_revision.wrapping_add(1).max(1) == r2_revision
+                                && evidence.live_radiance_revision == expected_live
+                                && evidence.latest_radiance_revision == Some(expected_live)
+                                && evidence.builder_latched_radiance_revision == Some(r2_revision)
+                                && evidence.builder_latched_snapshot.is_some()
+                                && evidence.builder_latched_snapshot != Some(evidence.live_snapshot),
+                            "r4 next-frame did not preserve r2 snapshot while latest r4 coalesced"
+                        );
+                    }
+                    RadianceCaptureCheckpoint::Final => {
+                        ensure!(
+                            evidence.live_radiance_revision == active_revision
+                                && evidence.latest_radiance_revision == Some(active_revision),
+                            "final live/latest revision does not match active field"
+                        );
+                    }
+                }
+                log::info!(
+                    "[DDGI_ACCEPT][RADIANCE] checkpoint={} mutation_frame={:?} capture_frame={} active_field_serial={} active_radiance_revision={} building_field_serial={} builder_latched_radiance_revision={:?} live_radiance_revision={} latest_radiance_revision={:?}",
+                    request.checkpoint.label(),
+                    request.mutation_frame,
+                    capture_frame,
+                    evidence.active_field.field().serial(),
+                    active_revision,
+                    evidence.building_field.map_or(0, |field| field.field().serial()),
+                    evidence.builder_latched_radiance_revision,
+                    evidence.live_radiance_revision,
+                    evidence.latest_radiance_revision,
+                );
+                Ok::<_, anyhow::Error>(evidence)
+            })
+            .transpose()?;
         let allocator = self
             .tracer
             .get_screen_output_tex()
@@ -175,6 +405,7 @@ impl App {
             spacing_voxels: checkpoint.field.field().spacing_voxels(),
             debug_view: self.tracer.ddgi_debug_view(),
             metadata,
+            radiance_evidence,
             buffer,
         })
     }
@@ -231,6 +462,9 @@ impl App {
         file.write_all(&header)?;
         file.write_all(&raw)?;
         file.flush()?;
+        if let Some(evidence) = readback.radiance_evidence {
+            evidence.write(&readback.path)?;
+        }
         log::info!(
             "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} transport_stage={} transport_iteration={} source_stage={} source_iteration={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit",
             readback.path,
