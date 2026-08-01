@@ -4017,6 +4017,12 @@ impl App {
                             .is_none_or(
                             environment_lighting_test_scene::EnvironmentLightingTestScene::is_capture_ready,
                         );
+                        let target_scene_ready = self
+                            .tracer
+                            .ddgi_capture_target()
+                            .iteration()
+                            .is_some_and(|iteration| iteration == 0)
+                            || test_scene_ready;
                         let inflight_target_revision = self
                             .environment_lighting_test_scene
                             .as_ref()
@@ -4039,7 +4045,7 @@ impl App {
                                         .is_some_and(|stage| stage != DdgiVolumeStage::Ready)
                                     && runtime.full_domain_invalidation_fail_closed
                             });
-                        if test_scene_ready
+                        if target_scene_ready
                             && inflight_checkpoint_ready
                             && self.tracer.ddgi_capture_checkpoint().is_some()
                         {

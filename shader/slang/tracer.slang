@@ -239,15 +239,19 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
 }
 
 void getPixelColor(out float3 color, out float depth,
-                   out float3 environmentIrradiance, out float terrainHit,
+                   out float3 environmentIrradiance,
+                   out float3 environmentCaptureIrradiance,
+                   out float terrainHit,
                    out float4 environmentCaptureWorld, Ray ray,
                    float2 screenUv, uint localInvocationIndex)
 {
     terrainHit = 0.0;
+    environmentCaptureIrradiance = float3(0.0);
     environmentCaptureWorld = float4(0.0);
     if (shading_info.ddgi_debug_view == DDGI_DEBUG_IRRADIANCE_ATLAS)
     {
         environmentIrradiance = sampleDdgiIrradianceAtlasDebug(screenUv);
+        environmentCaptureIrradiance = environmentIrradiance;
         color = environmentIrradiance;
         depth = 0.0;
         return;
@@ -256,6 +260,7 @@ void getPixelColor(out float3 color, out float depth,
     {
         environmentIrradiance = sampleDdgiVisibilityAtlasDebug(
             shading_info, screenUv);
+        environmentCaptureIrradiance = environmentIrradiance;
         color = environmentIrradiance;
         depth = 0.0;
         return;
@@ -285,14 +290,23 @@ void getPixelColor(out float3 color, out float depth,
 
     float3 albedo;
     parseTraceResult(albedo, result);
-    environmentIrradiance = sampleDiffuseEnvironment(
+    DdgiQueryResult consumerResult = sampleDdgiDiffuseEnvironment(
         shading_info, result.position, result.normal);
+    DdgiQueryResult captureResult = consumerResult;
+    if (shading_info.environment_irradiance_capture_unpublished != 0u)
+    {
+        captureResult = sampleDdgiUnpublishedCaptureEnvironment(
+            shading_info, result.position, result.normal);
+    }
+    environmentIrradiance = consumerResult.irradiance;
+    environmentCaptureIrradiance = captureResult.irradiance;
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {
-        DdgiQueryResult ddgiResult = sampleDdgiDiffuseEnvironment(
-            shading_info, result.position, result.normal);
         environmentIrradiance = ddgiTerrainDebugValue(
-            screenUv, result.position, result.normal, -ray.direction, ddgiResult,
+            screenUv, result.position, result.normal, -ray.direction, consumerResult,
+            localInvocationIndex);
+        environmentCaptureIrradiance = ddgiTerrainDebugValue(
+            screenUv, result.position, result.normal, -ray.direction, captureResult,
             localInvocationIndex);
     }
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
@@ -321,17 +335,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
 
     float3 color;
     float3 environmentIrradiance;
+    float3 environmentCaptureIrradiance;
     float terrainHit;
     float4 environmentCaptureWorld;
     float depth;
-    getPixelColor(color, depth, environmentIrradiance, terrainHit,
+    getPixelColor(color, depth, environmentIrradiance,
+                  environmentCaptureIrradiance, terrainHit,
                   environmentCaptureWorld, ray, screenUv, localInvocationIndex);
 
     if (shading_info.environment_irradiance_capture_enabled != 0u)
     {
         uint captureIndex = dispatchThreadId.x + width * dispatchThreadId.y;
         environment_irradiance_capture[captureIndex] = float4(
-            environmentIrradiance, terrainHit);
+            environmentCaptureIrradiance, terrainHit);
         environment_irradiance_capture[captureIndex + width * height] =
             environmentCaptureWorld;
     }

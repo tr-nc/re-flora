@@ -599,6 +599,9 @@ impl ResourceContainer for DdgiVolume {
     fn get_texture(&self, name: &str) -> Option<&Texture> {
         match name {
             "ddgi_irradiance_atlas" => Some(&self.ddgi_irradiance_atlas),
+            // Descriptor bootstrap only. The capture adapter replaces this alias with the
+            // requested logical field after validation; no physical slot identity escapes.
+            "ddgi_capture_irradiance_atlas" => Some(&self.ddgi_irradiance_atlas),
             "ddgi_transport_source_irradiance_atlas" => {
                 Some(&self.ddgi_transport_source_irradiance_atlas)
             }
@@ -619,6 +622,7 @@ impl ResourceContainer for DdgiVolume {
             "ddgi_radiance_voxel_palette",
             "ddgi_transport_query_info",
             "ddgi_irradiance_atlas",
+            "ddgi_capture_irradiance_atlas",
             "ddgi_transport_source_irradiance_atlas",
             "ddgi_visibility_atlas",
             "ddgi_global_sky_irradiance",
@@ -1329,6 +1333,25 @@ impl DdgiVolume {
             DdgiIrradianceSlot::Atlas0 => &self.ddgi_irradiance_atlas,
             DdgiIrradianceSlot::Atlas1 => &self.ddgi_transport_source_irradiance_atlas,
         }
+    }
+
+    /// Resolves a logical field to its private resident atlas for capture diagnostics. Physical
+    /// ping-pong ownership remains inside the DDGI module and is never exposed to App or consumers.
+    pub(crate) fn capture_irradiance_atlas(
+        &self,
+        identity: DdgiFieldIdentity,
+    ) -> Option<&Resource<Texture>> {
+        let building = self.building_iteration;
+        [
+            self.complete_field,
+            self.published_field,
+            building.and_then(|iteration| iteration.source),
+            building.map(|iteration| iteration.destination),
+        ]
+        .into_iter()
+        .flatten()
+        .find(|field| field.logical == identity)
+        .map(|field| self.irradiance_atlas(field.irradiance_slot))
     }
 
     pub fn published_irradiance_atlas(&self) -> Option<&Resource<Texture>> {

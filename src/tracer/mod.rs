@@ -115,6 +115,14 @@ fn record_published_ddgi_terrain_edit(
     published_terrain_revision
 }
 
+fn validate_unpublished_capture_volume(builder_is_active: bool) -> Result<()> {
+    anyhow::ensure!(
+        builder_is_active,
+        "unpublished S0 capture requires the initial active bootstrap; staging S0 cannot use active capture query resources",
+    );
+    Ok(())
+}
+
 /// Operator-facing DDGI lifecycle state. This deliberately exposes logical identity and progress,
 /// not atlas ownership or descriptor update ordering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -262,6 +270,7 @@ const DDGI_RADIANCE_SUN_BINDING: u32 = 30;
 const DDGI_RADIANCE_VOXEL_PALETTE_BINDING: u32 = 31;
 const DDGI_TRANSPORT_QUERY_INFO_BINDING: u32 = 32;
 const DDGI_ATLAS_REDUCTION_BINDING: u32 = 33;
+const DDGI_CAPTURE_IRRADIANCE_ATLAS_BINDING: u32 = 34;
 const DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE: u32 = 64;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
@@ -593,7 +602,7 @@ mod default_camera_tests {
 mod ddgi_density_rebuild_tests {
     use super::{
         ddgi_density_rebuild_terrain_revision, record_published_ddgi_terrain_edit,
-        DdgiRuntimeStatus,
+        validate_unpublished_capture_volume, DdgiRuntimeStatus,
     };
     use crate::ddgi::{
         DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh,
@@ -630,6 +639,15 @@ mod ddgi_density_rebuild_tests {
         assert_eq!(published_revision, 8);
         assert_eq!(token.terrain_revision(), published_revision);
         assert_eq!(token.kind(), DdgiBuildKind::Terrain);
+    }
+
+    #[test]
+    fn unpublished_capture_rejects_staging_volume_resource_mix() {
+        validate_unpublished_capture_volume(true)
+            .expect("initial active bootstrap owns all S0 query resources");
+        let error = validate_unpublished_capture_volume(false)
+            .expect_err("staging S0 must not mix its atlas with active query resources");
+        assert!(error.to_string().contains("staging S0"));
     }
 
     #[test]
@@ -1332,9 +1350,20 @@ impl Tracer {
     pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
         let checkpoint = self.ddgi_capture_checkpoint?;
         let active = self.ddgi_volumes.status().active();
-        (active.build_token == Some(checkpoint.build_token)
-            && active.published_field == Some(checkpoint.field))
-        .then_some(checkpoint)
+        if active.build_token != Some(checkpoint.build_token) {
+            return None;
+        }
+        let resident = match checkpoint.publication {
+            DdgiCapturePublication::Published => active.published_field == Some(checkpoint.field),
+            DdgiCapturePublication::Unpublished => {
+                active.published_field.is_none() && active.complete_field == Some(checkpoint.field)
+            }
+        };
+        resident.then_some(checkpoint)
+    }
+
+    pub fn ddgi_capture_target(&self) -> DdgiCaptureTarget {
+        self.desc.environment_irradiance_capture_target
     }
 
     fn observe_ddgi_capture_checkpoint(
@@ -1368,6 +1397,26 @@ impl Tracer {
             field.field().iteration(),
             publication,
         );
+    }
+
+    fn update_ddgi_capture_descriptor(
+        &self,
+        volume: &DdgiVolume,
+        field: DdgiFieldIdentity,
+    ) -> Result<()> {
+        let irradiance_atlas = volume
+            .capture_irradiance_atlas(field)
+            .context("DDGI capture field has no resident irradiance atlas")?;
+        self.compute_pipelines.tracer_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_texture_write(
+                DDGI_CAPTURE_IRRADIANCE_ATLAS_BINDING,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                irradiance_atlas,
+                TextureLayout::SHADER_READ_ONLY,
+            ),
+        );
+        Ok(())
     }
 
     pub fn ddgi_ready(&self) -> bool {
@@ -1930,6 +1979,15 @@ impl Tracer {
                 &ddgi_volume.ddgi_probe_metadata,
             ),
         );
+        self.compute_pipelines.tracer_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_texture_write(
+                DDGI_CAPTURE_IRRADIANCE_ATLAS_BINDING,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                irradiance_atlas,
+                TextureLayout::SHADER_READ_ONLY,
+            ),
+        );
         for pipeline in [
             &self.graphics_pipelines.flora_ppl,
             &self.graphics_pipelines.flora_lod_ppl,
@@ -2364,6 +2422,7 @@ impl Tracer {
             self.desc.voxel_dim_per_chunk,
             self.ddgi_ready(),
             self.desc.environment_irradiance_capture_enabled,
+            self.desc.environment_irradiance_capture_target.iteration() == Some(0),
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
@@ -2640,6 +2699,35 @@ impl Tracer {
                                 log::info!(
                                     "[DDGI] transport iteration complete stage=SeedSky iteration=0 published=false source_ready=true next=SingleBounce identity={identity:?}"
                                 );
+                                if self
+                                    .desc
+                                    .environment_irradiance_capture_target
+                                    .matches(identity)
+                                {
+                                    // The capture-only query intentionally shares metadata,
+                                    // visibility, and global-sky resources with the active
+                                    // consumer volume. Until those bindings also have private
+                                    // capture adapters, only the initial active bootstrap can
+                                    // expose S0 without mixing resources from two volumes.
+                                    validate_unpublished_capture_volume(
+                                        self.ddgi_volumes.builder_is_active(),
+                                    )?;
+                                    // Previous frames can still reference this descriptor set.
+                                    // Match consumer publication's lifetime rule before rebinding.
+                                    self.vulkan_ctx.device().wait_idle();
+                                    self.update_ddgi_capture_descriptor(
+                                        self.ddgi_volumes.builder(),
+                                        identity,
+                                    )?;
+                                    let build_token = build_token
+                                        .context("validated DDGI S0 has no volume build token")?;
+                                    self.observe_ddgi_capture_checkpoint(
+                                        build_token,
+                                        identity,
+                                        atlas_stats,
+                                        DdgiCapturePublication::Unpublished,
+                                    );
+                                }
                                 None
                             }
                             DdgiValidatedIterationOutcome::Published {

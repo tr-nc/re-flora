@@ -371,6 +371,14 @@ impl AppOptions {
             })?,
             None => DdgiDebugView::Final,
         };
+        if environment_irradiance_capture_target.iteration() == Some(0)
+            && ddgi_debug_view != DdgiDebugView::Final
+        {
+            return Err(
+                "--environment-irradiance-capture-target s0 requires --ddgi-debug-view final"
+                    .to_owned(),
+            );
+        }
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
         if screenshot.is_some() && denoiser_bench.is_some() {
@@ -969,6 +977,28 @@ mod tests {
     fn parses_ddgi_debug_view() {
         let options = parse(&["re-flora", "--ddgi-debug-view", "exact-visibility"]);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::ExactVisibility);
+    }
+
+    #[test]
+    fn rejects_unpublished_s0_capture_with_non_final_debug_view() {
+        let result = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--environment-irradiance-capture",
+                "target/sealed-s0.rfirr",
+                "--environment-irradiance-capture-target",
+                "s0",
+                "--ddgi-debug-view",
+                "exact-irradiance",
+            ]
+            .iter()
+            .map(|arg| (*arg).to_owned())
+            .collect(),
+        );
+
+        assert!(result
+            .unwrap_err()
+            .contains("s0 requires --ddgi-debug-view final"));
     }
 
     #[test]

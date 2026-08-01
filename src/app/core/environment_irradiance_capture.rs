@@ -351,7 +351,7 @@ mod tests {
 
         assert!(tracer.contains("import ddgi_exact_sun_visibility;"));
         assert!(tracer.contains("captureIndex + width * height"));
-        assert!(tracer.contains("environmentIrradiance, terrainHit"));
+        assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
         assert!(tracer.contains("environmentCaptureWorld"));
         let capture_visibility = tracer
             .split_once("if (shading_info.environment_irradiance_capture_enabled != 0u)")
@@ -380,5 +380,28 @@ mod tests {
                 "probe exact-shadow path lost contract `{contract}`"
             );
         }
+    }
+
+    #[test]
+    fn unpublished_s0_capture_uses_a_private_atlas_without_changing_consumers() {
+        let tracer = include_str!("../../../shader/slang/tracer.slang");
+        let query = include_str!("../../../shader/slang/ddgi_query.slang");
+
+        assert!(tracer.contains("sampleDdgiUnpublishedCaptureEnvironment("));
+        assert!(tracer.contains("environmentCaptureIrradiance = captureResult.irradiance"));
+        assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
+        assert!(tracer.contains("color = environmentIrradiance * albedo"));
+        assert!(query.contains("[[vk::binding(27, 0)]]\nSampler2D ddgi_irradiance_atlas"));
+        assert!(query.contains("[[vk::binding(34, 0)]]\nSampler2D ddgi_capture_irradiance_atlas"));
+        let capture_query = query
+            .split_once("public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(")
+            .expect("capture-only DDGI query must exist")
+            .1
+            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
+            .expect("capture-only query must remain isolated")
+            .0;
+        assert!(capture_query.contains("query.ready = 1u"));
+        assert!(capture_query.contains("query.invalidation_enabled = 0u"));
+        assert!(capture_query.contains("ddgi_capture_irradiance_atlas"));
     }
 }

@@ -23,6 +23,11 @@ Sampler2D ddgi_irradiance_atlas;
 [[vk::binding(28, 0)]]
 Sampler2D ddgi_visibility_atlas;
 
+// Capture-only field selection. Runtime consumers continue to use binding 27 and can never
+// observe an unpublished builder field.
+[[vk::binding(34, 0)]]
+Sampler2D ddgi_capture_irradiance_atlas;
+
 public DdgiProbeMetadata getDdgiProbeMetadata(uint probeIndex)
 {
     return ddgi_probe_metadata.data[probeIndex];
@@ -408,6 +413,17 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironment(
 {
     return sampleDdgiDiffuseEnvironmentFromAtlas(
         ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
+        worldPosition, surfaceNormal);
+}
+
+public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+{
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    query.ready = 1u;
+    query.invalidation_enabled = 0u;
+    return sampleDdgiDiffuseEnvironmentFromAtlas(
+        query, ddgi_capture_irradiance_atlas,
         worldPosition, surfaceNormal);
 }
 

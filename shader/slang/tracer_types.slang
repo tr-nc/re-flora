@@ -109,6 +109,7 @@ public struct U_ShadingInfo
     public float environment_probe_visibility_bias_world;
     public uint ddgi_ready;
     public uint environment_irradiance_capture_enabled;
+    public uint environment_irradiance_capture_unpublished;
     public uint ddgi_irradiance_tile_columns;
     public uint ddgi_visibility_tile_columns;
     public uint ddgi_debug_view;

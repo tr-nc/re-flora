@@ -53,7 +53,6 @@ impl Default for DdgiCaptureTarget {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum DdgiCapturePublication {
-    #[allow(dead_code)]
     Unpublished = 0,
     Published = 1,
 }
