@@ -296,6 +296,29 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(summary["rgb_channel_nonzero_count"], [1, 1, 1])
         self.assertEqual(summary["exact_direct_sun_visibility_mean"], 1.0)
 
+    def test_world_roi_includes_gpu_positions_within_boundary_epsilon(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "world-roi-boundary.rfirr"
+            self.write_capture_v3(
+                capture_path,
+                [(0.3, 0.1, 0.05, 1.0), (9.0, 9.0, 9.0, 1.0)],
+                [
+                    (0.5, 0.5, 0.49999988, 0.0),
+                    (0.5, 0.5, 0.499, 0.0),
+                ],
+            )
+
+            summary = analyzer.summarize(
+                analyzer.load_capture(capture_path),
+                world_roi=(0.0, 0.0, 0.5, 1.0, 1.0, 0.5),
+            )
+
+        self.assertEqual(summary["world_roi_terrain_hit_count"], 1)
+        for actual, expected in zip(
+            summary["world_roi_rgb_channel_mean"], [0.3, 0.1, 0.05]
+        ):
+            self.assertAlmostEqual(actual, expected)
+
     def test_cli_applies_receiver_signal_channel_advantage_and_direct_sun_gates_to_world_roi(
         self,
     ) -> None:

@@ -549,7 +549,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
             (Vec3::new(1.00, 0.62, 1.76), Vec3::new(1.00, 0.58, 1.10))
         }
         EnvironmentLightingTestCase::Donor => {
-            (Vec3::new(0.50, 0.29, 1.32), Vec3::new(0.50, 0.26, 0.56))
+            (Vec3::new(0.67, 0.50, 1.32), Vec3::new(0.67, 0.50, 0.56))
         }
         EnvironmentLightingTestCase::Dogleg => {
             (Vec3::new(1.52, 0.55, 0.58), Vec3::new(1.22, 0.52, 0.50))
@@ -1713,6 +1713,22 @@ mod tests {
             assert_eq!(point.y, DONOR_SLAB_MAX.y);
             assert!(point.z >= DONOR_SLAB_MIN.z && point.z <= DONOR_SLAB_MAX.z);
         }
+    }
+
+    #[test]
+    fn donor_camera_center_ray_crosses_the_receiver_roi() {
+        let (position, target) = camera_pose(EnvironmentLightingTestCase::Donor);
+        let receiver_plane_z = DONOR_RECEIVER_ROI_MIN.z / VOXELS_PER_WORLD_UNIT;
+        let distance_fraction = (receiver_plane_z - position.z) / (target.z - position.z);
+        let receiver_plane_point = position + distance_fraction * (target - position);
+        let (receiver_min, receiver_max) =
+            voxel_roi_to_world(DONOR_RECEIVER_ROI_MIN, DONOR_RECEIVER_ROI_MAX);
+
+        assert!((0.0..=1.0).contains(&distance_fraction));
+        assert!(receiver_plane_point.x >= receiver_min.x);
+        assert!(receiver_plane_point.x <= receiver_max.x);
+        assert!(receiver_plane_point.y >= receiver_min.y);
+        assert!(receiver_plane_point.y <= receiver_max.y);
     }
 
     #[test]

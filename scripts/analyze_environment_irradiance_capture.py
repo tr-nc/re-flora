@@ -57,6 +57,7 @@ ROI_CHANNEL_INDICES = {
     "green": 1,
     "blue": 2,
 }
+WORLD_ROI_BOUNDARY_EPSILON = 1.0e-6
 
 
 @dataclass(frozen=True)
@@ -303,10 +304,11 @@ def summarize(
             in_roi = world_roi is None
             if position is not None and world_roi is not None:
                 min_x, min_y, min_z, max_x, max_y, max_z = world_roi
+                epsilon = WORLD_ROI_BOUNDARY_EPSILON
                 in_roi = (
-                    min_x <= position[0] <= max_x
-                    and min_y <= position[1] <= max_y
-                    and min_z <= position[2] <= max_z
+                    min_x - epsilon <= position[0] <= max_x + epsilon
+                    and min_y - epsilon <= position[1] <= max_y + epsilon
+                    and min_z - epsilon <= position[2] <= max_z + epsilon
                 )
             if in_roi:
                 roi_terrain_hit_count += 1
