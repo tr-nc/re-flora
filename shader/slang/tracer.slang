@@ -242,12 +242,14 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
 void getPixelColor(out float3 color, out float depth,
                    out float3 environmentIrradiance,
                    out float3 environmentCaptureIrradiance,
+                   out float3 directLight,
                    out float terrainHit,
                    out float4 environmentCaptureWorld, Ray ray,
                    float2 screenUv, uint localInvocationIndex)
 {
     terrainHit = 0.0;
     environmentCaptureIrradiance = float3(0.0);
+    directLight = float3(0.0);
     environmentCaptureWorld = float4(0.0);
     if (shading_info.ddgi_debug_view == DDGI_DEBUG_IRRADIANCE_ATLAS)
     {
@@ -291,6 +293,11 @@ void getPixelColor(out float3 color, out float depth,
 
     float3 albedo;
     parseTraceResult(albedo, result);
+    if (shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL ||
+        shading_info.environment_irradiance_capture_enabled != 0u)
+    {
+        directLight = directLighting(albedo, result.normal, result.center_position);
+    }
     DdgiQueryResult consumerResult = sampleDdgiDiffuseEnvironment(
         shading_info, result.position, result.normal, -ray.direction);
     DdgiQueryResult captureResult = consumerResult;
@@ -316,7 +323,7 @@ void getPixelColor(out float3 color, out float depth,
         return;
     }
     color = environmentIrradiance * albedo;
-    color += directLighting(albedo, result.normal, result.center_position);
+    color += directLight;
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
                                         result.center_position);
 }
@@ -337,11 +344,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     float3 color;
     float3 environmentIrradiance;
     float3 environmentCaptureIrradiance;
+    float3 directLight;
     float terrainHit;
     float4 environmentCaptureWorld;
     float depth;
     getPixelColor(color, depth, environmentIrradiance,
-                  environmentCaptureIrradiance, terrainHit,
+                  environmentCaptureIrradiance, directLight, terrainHit,
                   environmentCaptureWorld, ray, screenUv, localInvocationIndex);
 
     if (shading_info.environment_irradiance_capture_enabled != 0u)
@@ -351,6 +359,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
             environmentCaptureIrradiance, terrainHit);
         environment_irradiance_capture[captureIndex + width * height] =
             environmentCaptureWorld;
+        environment_irradiance_capture[captureIndex + 2 * width * height] =
+            float4(directLight, terrainHit);
     }
 
     compute_output_tex[dispatchThreadId.xy] = packRgbe(color);

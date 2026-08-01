@@ -7,9 +7,9 @@ use std::io::Write;
 use std::path::Path;
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 4;
+const CAPTURE_VERSION: u32 = 5;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
-const CAPTURE_PLANE_COUNT: u32 = 2;
+const CAPTURE_PLANE_COUNT: u32 = 3;
 const CAPTURE_HEADER_BYTE_COUNT: usize = 124;
 const DDGI_BACKEND_ID: u32 = 1;
 const CAPTURE_STAGE_SEED_SKY: u32 = 1;
@@ -232,7 +232,7 @@ impl App {
         file.write_all(&raw)?;
         file.flush()?;
         log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} transport_stage={} transport_iteration={} source_stage={} source_iteration={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility",
+            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} transport_stage={} transport_iteration={} source_stage={} source_iteration={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit",
             readback.path,
             readback.extent.width,
             readback.extent.height,
@@ -274,9 +274,9 @@ mod tests {
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 4);
+        assert_eq!(CAPTURE_VERSION, 5);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
-        assert_eq!(CAPTURE_PLANE_COUNT, 2);
+        assert_eq!(CAPTURE_PLANE_COUNT, 3);
         assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 124);
     }
 
@@ -382,6 +382,27 @@ mod tests {
                 "probe exact-shadow path lost contract `{contract}`"
             );
         }
+    }
+
+    #[test]
+    fn capture_shader_writes_direct_light_without_ddgi_environment() {
+        let tracer = include_str!("../../../shader/slang/tracer.slang");
+
+        let direct_lighting = tracer
+            .split_once("float3 directLighting(")
+            .expect("terrain direct-light function must exist")
+            .1
+            .split_once("float depthFromWorldPosition(")
+            .expect("terrain direct-light function must remain isolated")
+            .0;
+        assert!(!direct_lighting.contains("Ddgi"));
+        assert!(!direct_lighting.contains("environmentIrradiance"));
+        assert!(!direct_lighting.contains("sampleDdgi"));
+        assert!(tracer.contains("out float3 directLight"));
+        assert!(tracer.contains("directLight = directLighting("));
+        assert!(tracer.contains("color += directLight"));
+        assert!(tracer.contains("captureIndex + 2 * width * height"));
+        assert!(tracer.contains("float4(directLight, terrainHit)"));
     }
 
     #[test]
