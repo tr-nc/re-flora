@@ -52,6 +52,11 @@ BATCH_ORDER_LABELS = {
     0: "forward",
     1: "reverse",
 }
+ROI_CHANNEL_INDICES = {
+    "red": 0,
+    "green": 1,
+    "blue": 2,
+}
 
 
 @dataclass(frozen=True)
@@ -260,6 +265,8 @@ def summarize(
     roi_terrain_hit_count = 0
     channel_abs_max = [0.0, 0.0, 0.0]
     channel_nonzero_count = [0, 0, 0]
+    roi_channel_sum = [0.0, 0.0, 0.0]
+    roi_luminances: list[float] = []
     world_min = [math.inf, math.inf, math.inf]
     world_max = [-math.inf, -math.inf, -math.inf]
     exact_sun_visibilities: list[float] = []
@@ -304,7 +311,11 @@ def summarize(
             if in_roi:
                 roi_terrain_hit_count += 1
                 if finite_rgb:
+                    roi_luminances.append(
+                        0.2126 * red + 0.7152 * green + 0.0722 * blue
+                    )
                     for channel, value in enumerate(rgb):
+                        roi_channel_sum[channel] += value
                         channel_abs_max[channel] = max(
                             channel_abs_max[channel], abs(value)
                         )
@@ -319,6 +330,25 @@ def summarize(
                 ):
                     exact_sun_visibilities.append(exact_sun_visibility)
     luminances.sort()
+    roi_luminances.sort()
+    roi_channel_mean = (
+        [value / roi_terrain_hit_count for value in roi_channel_sum]
+        if roi_terrain_hit_count > 0
+        else None
+    )
+    roi_channel_advantage = (
+        [
+            value
+            - max(
+                other
+                for other_index, other in enumerate(roi_channel_mean)
+                if other_index != channel
+            )
+            for channel, value in enumerate(roi_channel_mean)
+        ]
+        if roi_channel_mean is not None
+        else None
+    )
     has_world_positions = world_min[0] != math.inf
     metadata_finite = all(
         value is None or math.isfinite(value)
@@ -349,6 +379,17 @@ def summarize(
         "luminance_max": luminances[-1] if luminances else 0.0,
         "world_roi": list(world_roi) if world_roi is not None else None,
         "world_roi_terrain_hit_count": roi_terrain_hit_count,
+        "world_roi_rgb_channel_mean": roi_channel_mean,
+        "world_roi_channel_advantage": roi_channel_advantage,
+        "world_roi_luminance_mean": (
+            sum(roi_luminances) / len(roi_luminances) if roi_luminances else None
+        ),
+        "world_roi_luminance_p99": (
+            percentile(roi_luminances, 0.99) if roi_luminances else None
+        ),
+        "world_roi_luminance_max": (
+            roi_luminances[-1] if roi_luminances else None
+        ),
         "world_position_min": world_min if has_world_positions else None,
         "world_position_max": world_max if has_world_positions else None,
         "exact_direct_sun_visibility_mean": (
@@ -530,11 +571,64 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     }
 
 
+def compare_roi_baseline(
+    current: Capture,
+    baseline: Capture,
+    world_roi: tuple[float, float, float, float, float, float] | None,
+) -> dict[str, object]:
+    metadata_fields = (
+        "geometry_revision",
+        "radiance_revision",
+        "radiance_model_identity",
+    )
+    metadata_mismatches = [
+        field
+        for field in metadata_fields
+        if getattr(current, field) != getattr(baseline, field)
+    ]
+    base_compatible = (
+        current.width,
+        current.height,
+        current.backend,
+        current.spacing_voxels,
+        current.debug_view,
+    ) == (
+        baseline.width,
+        baseline.height,
+        baseline.backend,
+        baseline.spacing_voxels,
+        baseline.debug_view,
+    )
+    if current.world_payload != baseline.world_payload:
+        metadata_mismatches.append("world_payload")
+    current_summary = summarize(current, world_roi)
+    baseline_summary = summarize(baseline, world_roi)
+    current_mean = current_summary["world_roi_luminance_mean"]
+    baseline_mean = baseline_summary["world_roi_luminance_mean"]
+    compatible = (
+        base_compatible
+        and not metadata_mismatches
+        and current_mean is not None
+        and baseline_mean is not None
+    )
+    return {
+        "compatible": compatible,
+        "metadata_mismatches": metadata_mismatches,
+        "baseline_roi_luminance_mean": baseline_mean,
+        "current_roi_luminance_mean": current_mean,
+        "roi_luminance_gain": (
+            current_mean - baseline_mean if compatible else None
+        ),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("capture", type=Path)
     parser.add_argument("--compare", type=Path)
     parser.add_argument("--reference", type=Path)
+    parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--min-roi-luminance-gain", type=float)
     parser.add_argument("--max-luminance", type=float)
     parser.add_argument("--require-zero-rgb", action="store_true")
     parser.add_argument("--require-nonnegative-rgb", action="store_true")
@@ -542,6 +636,16 @@ def main() -> int:
     parser.add_argument("--max-reference-error-p99", type=float)
     parser.add_argument("--max-reference-overestimate-p99", type=float)
     parser.add_argument("--world-roi", type=float, nargs=6)
+    parser.add_argument(
+        "--roi-channel", choices=tuple(ROI_CHANNEL_INDICES), default="red"
+    )
+    parser.add_argument("--min-roi-channel-advantage", type=float)
+    parser.add_argument("--max-roi-channel-advantage", type=float)
+    parser.add_argument("--min-roi-luminance-mean", type=float)
+    parser.add_argument("--max-roi-luminance-mean", type=float)
+    parser.add_argument("--max-exact-direct-sun-visibility", type=float)
+    parser.add_argument("--expect-version", type=int)
+    parser.add_argument("--expect-spacing-voxels", type=int)
     parser.add_argument("--expect-geometry-revision", type=int)
     parser.add_argument("--expect-radiance-revision", type=int)
     parser.add_argument("--expect-build-token-serial", type=int)
@@ -560,8 +664,16 @@ def main() -> int:
     parser.add_argument(
         "--expect-publication-state", choices=tuple(PUBLICATION_STATE_LABELS.values())
     )
+    parser.add_argument(
+        "--expect-batch-order", choices=tuple(BATCH_ORDER_LABELS.values())
+    )
     parser.add_argument("--convergence-max-abs-delta", type=float)
     parser.add_argument("--convergence-max-rel-delta", type=float)
+    parser.add_argument(
+        "--correctness",
+        action="store_true",
+        help="apply correctness-gate policy, including rejecting NonConverged fields",
+    )
     args = parser.parse_args()
 
     first = load_capture(args.capture)
@@ -582,6 +694,8 @@ def main() -> int:
         if actual != expected:
             failures.append(f"{field}: expected {expected}, got {actual}")
 
+    expect("version", args.expect_version)
+    expect("spacing_voxels", args.expect_spacing_voxels)
     expect("geometry_revision", args.expect_geometry_revision)
     expect("radiance_revision", args.expect_radiance_revision)
     expect("build_token_serial", args.expect_build_token_serial)
@@ -594,10 +708,48 @@ def main() -> int:
     expect("source_field_serial", args.expect_source_field_serial)
     expect("source_radiance_revision", args.expect_source_radiance_revision)
     expect("publication_state", args.expect_publication_state)
+    expect("batch_order", args.expect_batch_order)
+
+    def gate_min(field: str, threshold: float | None) -> None:
+        nonlocal exit_code
+        if threshold is None:
+            return
+        actual = capture_summary[field]
+        if actual is None or actual < threshold:
+            failures.append(f"{field}: expected at least {threshold:g}, got {actual}")
+            exit_code = 1
+
+    def gate_max(field: str, threshold: float | None) -> None:
+        nonlocal exit_code
+        if threshold is None:
+            return
+        actual = capture_summary[field]
+        if actual is None or actual > threshold:
+            failures.append(f"{field}: expected at most {threshold:g}, got {actual}")
+            exit_code = 1
+
+    roi_advantages = capture_summary["world_roi_channel_advantage"]
+    selected_advantage = (
+        roi_advantages[ROI_CHANNEL_INDICES[args.roi_channel]]
+        if roi_advantages is not None
+        else None
+    )
+    capture_summary["selected_roi_channel"] = args.roi_channel
+    capture_summary["selected_roi_channel_advantage"] = selected_advantage
+    gate_min("selected_roi_channel_advantage", args.min_roi_channel_advantage)
+    gate_max("selected_roi_channel_advantage", args.max_roi_channel_advantage)
+    gate_min("world_roi_luminance_mean", args.min_roi_luminance_mean)
+    gate_max("world_roi_luminance_mean", args.max_roi_luminance_mean)
+    gate_max(
+        "exact_direct_sun_visibility_max",
+        args.max_exact_direct_sun_visibility,
+    )
     if first.nonfinite_count is not None:
         expect("header_nonfinite_count", 0)
     if not capture_summary["metadata_finite"]:
         failures.append("capture metadata contains nonfinite convergence values")
+    if args.correctness and capture_summary["transport_stage"] == "non-converged":
+        failures.append("correctness mode rejects NonConverged DDGI fields")
     if capture_summary["transport_stage"] == "converged":
         for field, threshold in (
             ("max_abs_delta", args.convergence_max_abs_delta),
@@ -638,6 +790,30 @@ def main() -> int:
             > args.max_reference_overestimate_p99
         ):
             exit_code = 1
+    if args.baseline is not None:
+        baseline_comparison = compare_roi_baseline(
+            first,
+            load_capture(args.baseline),
+            tuple(args.world_roi) if args.world_roi is not None else None,
+        )
+        report["baseline_comparison"] = baseline_comparison
+        if not baseline_comparison["compatible"]:
+            failures.append("ROI baseline capture is incompatible")
+            exit_code = 1
+        elif (
+            args.min_roi_luminance_gain is not None
+            and baseline_comparison["roi_luminance_gain"]
+            < args.min_roi_luminance_gain
+        ):
+            failures.append(
+                "roi_luminance_gain: expected at least "
+                f"{args.min_roi_luminance_gain:g}, got "
+                f"{baseline_comparison['roi_luminance_gain']}"
+            )
+            exit_code = 1
+    elif args.min_roi_luminance_gain is not None:
+        failures.append("--min-roi-luminance-gain requires --baseline")
+        exit_code = 1
     if not capture_summary["finite"]:
         failures.append("payload contains nonfinite values")
         exit_code = 1

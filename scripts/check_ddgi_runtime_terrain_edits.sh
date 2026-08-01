@@ -141,17 +141,17 @@ check_lifecycle_markers() {
         fi
     done
     if [[ "$state" != "initial-open" ]]; then
-        if ! grep -Eq "\\[DDGI\\]\\[CONSUMERS\\].*active_token_serial=[0-9]+.*terrain_revision=$final_revision([^0-9]|$)" "$console"; then
-            echo "[DDGI_RUNTIME_EDIT] missing exact consumer parity state=$state spacing=$spacing revision=$final_revision" >&2
+        if ! grep -Eq "\\[DDGI\\]\\[CONSUMERS\\] consumer_set=terrain_compute,flora_raster .*active_token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*transport=SingleBounce.*iteration=1([^0-9]|$)" "$console"; then
+            echo "[DDGI_RUNTIME_EDIT] missing shared consumer first-current-geometry S1 publication state=$state spacing=$spacing revision=$final_revision" >&2
             missing=$((missing + 1))
         fi
-        if ! grep -Eq "\\[DDGI\\] staging promoted .*token_serial=[0-9]+.*terrain_revision=$final_revision([^0-9]|$)" "$console"; then
-            echo "[DDGI_RUNTIME_EDIT] missing exact active promotion state=$state spacing=$spacing revision=$final_revision" >&2
+        if ! grep -Eq "\\[DDGI\\] staging promoted .*token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*published_transport=SingleBounce.*published_iteration=1([^0-9]|$)" "$console"; then
+            echo "[DDGI_RUNTIME_EDIT] missing exact active S1 promotion state=$state spacing=$spacing revision=$final_revision" >&2
             missing=$((missing + 1))
         fi
     fi
     if [[ "$state" == "inflight-latest-wins" ]] && \
-        grep -Eq '\[DDGI\] staging promoted .*kind=Terrain.*terrain_revision=2([^0-9]|$)' "$console"; then
+        grep -Eq '\[DDGI\] staging promoted .*kind=Terrain.*geometry_revision=2([^0-9]|$)' "$console"; then
         echo "[DDGI_RUNTIME_EDIT] obsolete revision 2 promoted state=$state spacing=$spacing" >&2
         missing=$((missing + 1))
     fi
@@ -189,7 +189,7 @@ check_inflight_fail_closed_markers() {
         echo "[DDGI_RUNTIME_EDIT] missing GPU-visible staging progress spacing=$spacing" >&2
         missing=$((missing + 1))
     fi
-    if grep -Eq '\[DDGI\] staging promoted .*kind=Terrain.*terrain_revision=(2|3)([^0-9]|$)' "$console"; then
+    if grep -Eq '\[DDGI\] staging promoted .*kind=Terrain.*geometry_revision=(2|3)([^0-9]|$)' "$console"; then
         echo "[DDGI_RUNTIME_EDIT] transient capture occurred after a terrain promotion spacing=$spacing" >&2
         missing=$((missing + 1))
     fi
