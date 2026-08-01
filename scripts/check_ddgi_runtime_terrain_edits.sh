@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-auto_exit="${DDGI_RUNTIME_TERRAIN_EDIT_AUTO_EXIT:-60}"
+auto_exit="${DDGI_RUNTIME_TERRAIN_EDIT_AUTO_EXIT:-12}"
 output_root="${DDGI_RUNTIME_TERRAIN_EDIT_OUTPUT_DIR:-$repo_root/target/ddgi-runtime-terrain-edits}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 run_dir="$output_root/$run_id"
