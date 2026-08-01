@@ -687,6 +687,52 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
+    def test_camera_position_detects_mixed_zero_pixels_within_one_receiver_voxel(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "mixed-receiver-voxel.rfirr"
+            voxel = 1.0 / analyzer.TERRAIN_VOXELS_PER_WORLD_UNIT
+            camera = (0.5 * voxel, 0.5 * voxel, -1.0)
+            self.write_capture_v5(
+                capture_path,
+                [
+                    (0.0, 0.0, 0.0, 1.0),
+                    (0.0, 0.0, 0.0, 1.0),
+                    (0.2, 0.1, 0.05, 1.0),
+                    (0.2, 0.1, 0.05, 1.0),
+                ],
+                [
+                    (0.25 * voxel, 0.25 * voxel, 0.0, 0.0),
+                    (0.35 * voxel, 0.35 * voxel, 0.0, 0.0),
+                    (0.65 * voxel, 0.65 * voxel, 0.0, 0.0),
+                    (0.75 * voxel, 0.75 * voxel, 0.0, 0.0),
+                ],
+                [(0.0, 0.0, 0.0, 1.0)] * 4,
+            )
+
+            summary = analyzer.summarize(
+                analyzer.load_capture(capture_path), camera_position=camera
+            )
+            rejected = self.run_analyzer(
+                capture_path,
+                "--camera-position",
+                *(str(value) for value in camera),
+                "--max-world-roi-mixed-environment-zero-receiver-voxel-count",
+                "0",
+                "--max-world-roi-mixed-combined-zero-receiver-voxel-count",
+                "0",
+            )
+
+        self.assertEqual(summary["world_roi_receiver_voxel_count"], 1)
+        self.assertEqual(
+            summary["world_roi_mixed_environment_zero_receiver_voxel_count"], 1
+        )
+        self.assertEqual(
+            summary["world_roi_mixed_combined_zero_receiver_voxel_count"], 1
+        )
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
     def test_world_roi_includes_gpu_positions_within_boundary_epsilon(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "world-roi-boundary.rfirr"
