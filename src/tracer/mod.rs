@@ -62,7 +62,7 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBuildKind, DdgiBuildToken, DdgiDebugView, DdgiRayBatch, DdgiStatus, DdgiTerrainRefresh,
-    DdgiVolume, DdgiVolumeStatus, DdgiVolumes, DDGI_GUTTER_WORKGROUP_SIZE,
+    DdgiVolume, DdgiVolumeGrid, DdgiVolumeStatus, DdgiVolumes, DDGI_GUTTER_WORKGROUP_SIZE,
     DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
     DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
@@ -96,6 +96,18 @@ fn ddgi_density_rebuild_terrain_revision(
     initial_terrain_revision: Option<u32>,
 ) -> Option<u32> {
     active_terrain_revision.or(initial_terrain_revision)
+}
+
+fn record_published_ddgi_terrain_edit(
+    refresh: &mut DdgiTerrainRefresh,
+    current_terrain_revision: u32,
+    edit_bound: UAabb3,
+    grid: DdgiVolumeGrid,
+) -> u32 {
+    let published_terrain_revision = current_terrain_revision.wrapping_add(1).max(1);
+    refresh.request(published_terrain_revision, edit_bound, grid);
+    refresh.mark_terrain_published(published_terrain_revision);
+    published_terrain_revision
 }
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
@@ -421,7 +433,10 @@ mod default_camera_tests {
 
 #[cfg(test)]
 mod ddgi_density_rebuild_tests {
-    use super::ddgi_density_rebuild_terrain_revision;
+    use super::{ddgi_density_rebuild_terrain_revision, record_published_ddgi_terrain_edit};
+    use crate::ddgi::{DdgiBuildKind, DdgiTerrainRefresh, DdgiVolumeGrid};
+    use crate::geom::UAabb3;
+    use glam::UVec3;
 
     #[test]
     fn completed_runtime_revision_wins_over_the_initial_revision() {
@@ -434,6 +449,23 @@ mod ddgi_density_rebuild_tests {
             Some(1)
         );
         assert_eq!(ddgi_density_rebuild_terrain_revision(None, None), None);
+    }
+
+    #[test]
+    fn successful_visible_edit_records_its_exact_publication_before_drive() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let mut refresh = DdgiTerrainRefresh::default();
+        let published_revision = record_published_ddgi_terrain_edit(
+            &mut refresh,
+            7,
+            UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
+            grid,
+        );
+
+        let token = refresh.claim_next_build(32, 7).unwrap();
+        assert_eq!(published_revision, 8);
+        assert_eq!(token.terrain_revision(), published_revision);
+        assert_eq!(token.kind(), DdgiBuildKind::Terrain);
     }
 }
 
@@ -915,13 +947,14 @@ impl Tracer {
         Ok(())
     }
 
-    pub fn request_environment_probe_refresh_near_voxel_bound(&mut self, edit_bound: UAabb3) {
-        self.environment_probe_terrain_revision = self
-            .environment_probe_terrain_revision
-            .wrapping_add(1)
-            .max(1);
+    /// Records a refresh for terrain whose visible GPU rebuild has already succeeded.
+    pub fn request_published_environment_probe_refresh_near_voxel_bound(
+        &mut self,
+        edit_bound: UAabb3,
+    ) {
         let grid = self.ddgi_status().active().grid;
-        self.ddgi_terrain_refresh.request(
+        self.environment_probe_terrain_revision = record_published_ddgi_terrain_edit(
+            &mut self.ddgi_terrain_refresh,
             self.environment_probe_terrain_revision,
             edit_bound,
             grid,
@@ -937,12 +970,6 @@ impl Tracer {
             invalidation_bound.map(|bound| (bound.min(), bound.max())),
             self.ddgi_terrain_refresh.state(),
         );
-    }
-
-    /// Acknowledges the exact terrain revision currently published for GPU tracing.
-    pub fn publish_environment_probe_terrain_revision(&mut self, terrain_revision: u32) {
-        self.ddgi_terrain_refresh
-            .mark_terrain_published(terrain_revision);
     }
 
     /// Claims and installs the latest authoritative DDGI build at a GPU-safe replacement point.
