@@ -644,6 +644,8 @@ def main() -> int:
     parser.add_argument("--min-roi-luminance-mean", type=float)
     parser.add_argument("--max-roi-luminance-mean", type=float)
     parser.add_argument("--max-exact-direct-sun-visibility", type=float)
+    parser.add_argument("--expect-version", type=int)
+    parser.add_argument("--expect-spacing-voxels", type=int)
     parser.add_argument("--expect-geometry-revision", type=int)
     parser.add_argument("--expect-radiance-revision", type=int)
     parser.add_argument("--expect-build-token-serial", type=int)
@@ -692,6 +694,8 @@ def main() -> int:
         if actual != expected:
             failures.append(f"{field}: expected {expected}, got {actual}")
 
+    expect("version", args.expect_version)
+    expect("spacing_voxels", args.expect_spacing_voxels)
     expect("geometry_revision", args.expect_geometry_revision)
     expect("radiance_revision", args.expect_radiance_revision)
     expect("build_token_serial", args.expect_build_token_serial)

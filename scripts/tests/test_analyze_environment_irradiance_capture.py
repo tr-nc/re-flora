@@ -210,6 +210,36 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             json.loads(rejected.stdout)["validation_failures"],
         )
 
+    def test_cli_requires_expected_capture_version_and_spacing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "spacing16-v4.rfirr"
+            self.write_capture_v4(
+                capture_path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+            )
+
+            accepted = self.run_analyzer(
+                capture_path,
+                "--expect-version",
+                "4",
+                "--expect-spacing-voxels",
+                "16",
+            )
+            rejected = self.run_analyzer(
+                capture_path,
+                "--expect-version",
+                "3",
+                "--expect-spacing-voxels",
+                "32",
+            )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(rejected.returncode, 1, rejected.stderr)
+        failures = json.loads(rejected.stdout)["validation_failures"]
+        self.assertIn("version: expected 3, got 4", failures)
+        self.assertIn("spacing_voxels: expected 32, got 16", failures)
+
     def test_loads_v3_metadata_and_two_float4_planes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "capture-v3.rfirr"
