@@ -42,6 +42,7 @@ pub enum EnvironmentLightingTestCase {
     Walls,
     Donor,
     Dogleg,
+    RadianceChanges,
     TerrainEdits,
     TerrainEditsInflight,
     TerrainEditsInflightCapture,
@@ -56,6 +57,7 @@ impl EnvironmentLightingTestCase {
             "walls" => Some(Self::Walls),
             "donor" => Some(Self::Donor),
             "dogleg" => Some(Self::Dogleg),
+            "radiance-changes" => Some(Self::RadianceChanges),
             "terrain-edits" => Some(Self::TerrainEdits),
             "terrain-edits-inflight" => Some(Self::TerrainEditsInflight),
             "terrain-edits-inflight-capture" => Some(Self::TerrainEditsInflightCapture),
@@ -71,6 +73,7 @@ impl EnvironmentLightingTestCase {
             Self::Walls => "walls",
             Self::Donor => "donor",
             Self::Dogleg => "dogleg",
+            Self::RadianceChanges => "radiance-changes",
             Self::TerrainEdits => "terrain-edits",
             Self::TerrainEditsInflight => "terrain-edits-inflight",
             Self::TerrainEditsInflightCapture => "terrain-edits-inflight-capture",
@@ -556,7 +559,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, portal, walls, donor, dogleg, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, portal, walls, donor, dogleg, radiance-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
                 )
             }),
     }
@@ -745,7 +748,7 @@ Options:
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --environment-lighting-test-scene [case]
                               Build a lighting case: sealed (default), portal, walls, donor, dogleg,
-                              terrain-edits,
+                              radiance-changes, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
   --environment-irradiance-capture <path>
@@ -906,6 +909,10 @@ mod tests {
             ("walls", EnvironmentLightingTestCase::Walls),
             ("donor", EnvironmentLightingTestCase::Donor),
             ("dogleg", EnvironmentLightingTestCase::Dogleg),
+            (
+                "radiance-changes",
+                EnvironmentLightingTestCase::RadianceChanges,
+            ),
             ("terrain-edits", EnvironmentLightingTestCase::TerrainEdits),
             (
                 "terrain-edits-inflight",
