@@ -57,6 +57,32 @@ const DONOR_CONTROL_RECEIVER_ROI_MAX: Vec3 = Vec3::new(408.0, 152.0, 240.0);
 const DONOR_SURFACE_ROI_MIN: Vec3 = Vec3::new(112.0, 116.0, 344.0);
 const DONOR_SURFACE_ROI_MAX: Vec3 = Vec3::new(200.0, 116.0, 384.0);
 
+// A solid block is carved into a low, roofed L-shaped light trap. The first reflector sits in
+// the open light well, the second is the east wall of the first tunnel leg, and the final receiver
+// is the north wall after the turn. Straight paths first->second and second->receiver are open;
+// first->receiver crosses uncarved rock at the inner corner.
+const DOGLEG_CLEAR_MIN: Vec3 = Vec3::new(48.0, 72.0, 96.0);
+const DOGLEG_CLEAR_MAX: Vec3 = Vec3::new(464.0, 256.0, 448.0);
+const DOGLEG_BLOCK_MIN: Vec3 = Vec3::new(64.0, 80.0, 96.0);
+const DOGLEG_BLOCK_MAX: Vec3 = Vec3::new(448.0, 240.0, 432.0);
+const DOGLEG_LIGHT_WELL_MIN: Vec3 = Vec3::new(80.0, 96.0, 288.0);
+const DOGLEG_LIGHT_WELL_MAX: Vec3 = Vec3::new(192.0, 240.0, 416.0);
+const DOGLEG_FIRST_LEG_MIN: Vec3 = Vec3::new(192.0, 96.0, 288.0);
+const DOGLEG_FIRST_LEG_MAX: Vec3 = Vec3::new(352.0, 176.0, 368.0);
+const DOGLEG_SECOND_LEG_MIN: Vec3 = Vec3::new(272.0, 96.0, 144.0);
+const DOGLEG_SECOND_LEG_MAX: Vec3 = Vec3::new(352.0, 176.0, 288.0);
+const DOGLEG_RECEIVER_CHAMBER_MIN: Vec3 = Vec3::new(256.0, 96.0, 128.0);
+const DOGLEG_RECEIVER_CHAMBER_MAX: Vec3 = Vec3::new(400.0, 176.0, 192.0);
+const DOGLEG_FIRST_REFLECTOR_MIN: Vec3 = Vec3::new(112.0, 144.0, 320.0);
+const DOGLEG_FIRST_REFLECTOR_MAX: Vec3 = Vec3::new(192.0, 160.0, 384.0);
+
+const DOGLEG_FIRST_REFLECTOR_ROI_MIN: Vec3 = Vec3::new(144.0, 160.0, 336.0);
+const DOGLEG_FIRST_REFLECTOR_ROI_MAX: Vec3 = Vec3::new(176.0, 160.0, 368.0);
+const DOGLEG_SECOND_REFLECTOR_ROI_MIN: Vec3 = Vec3::new(352.0, 112.0, 304.0);
+const DOGLEG_SECOND_REFLECTOR_ROI_MAX: Vec3 = Vec3::new(352.0, 160.0, 352.0);
+const DOGLEG_FINAL_RECEIVER_ROI_MIN: Vec3 = Vec3::new(288.0, 112.0, 128.0);
+const DOGLEG_FINAL_RECEIVER_ROI_MAX: Vec3 = Vec3::new(336.0, 160.0, 128.0);
+
 const TEST_REBUILD_MIN: UVec3 = UVec3::new(72, 76, 200);
 const TEST_REBUILD_MAX: UVec3 = UVec3::new(440, 244, 416);
 
@@ -191,12 +217,21 @@ struct TestSceneGeometry {
     test_rebuild_bound: UAabb3,
 }
 
+fn test_rebuild_bound(case: EnvironmentLightingTestCase) -> UAabb3 {
+    if case == EnvironmentLightingTestCase::Dogleg {
+        UAabb3::new(DOGLEG_CLEAR_MIN.as_uvec3(), DOGLEG_CLEAR_MAX.as_uvec3())
+    } else {
+        UAabb3::new(TEST_REBUILD_MIN, TEST_REBUILD_MAX)
+    }
+}
+
 impl TestSceneGeometry {
     fn build(case: EnvironmentLightingTestCase) -> Self {
         let (startup_obstacle_min, startup_obstacle_max) = App::debug_startup_block_bounds();
         let startup_obstacle = Cuboid::from_min_max(startup_obstacle_min, startup_obstacle_max);
         let startup_obstacle_aabb = startup_obstacle.aabb();
 
+        let test_rebuild_bound = test_rebuild_bound(case);
         let (cleared_test_scene, rock, carved_empty, sand) = match case {
             EnvironmentLightingTestCase::Sealed => (
                 Vec::new(),
@@ -247,6 +282,20 @@ impl TestSceneGeometry {
                 Vec::new(),
                 vec![Cuboid::from_min_max(DONOR_SLAB_MIN, DONOR_SLAB_MAX)],
             ),
+            EnvironmentLightingTestCase::Dogleg => (
+                vec![Cuboid::from_min_max(DOGLEG_CLEAR_MIN, DOGLEG_CLEAR_MAX)],
+                vec![Cuboid::from_min_max(DOGLEG_BLOCK_MIN, DOGLEG_BLOCK_MAX)],
+                vec![
+                    Cuboid::from_min_max(DOGLEG_LIGHT_WELL_MIN, DOGLEG_LIGHT_WELL_MAX),
+                    Cuboid::from_min_max(DOGLEG_FIRST_LEG_MIN, DOGLEG_FIRST_LEG_MAX),
+                    Cuboid::from_min_max(DOGLEG_SECOND_LEG_MIN, DOGLEG_SECOND_LEG_MAX),
+                    Cuboid::from_min_max(DOGLEG_RECEIVER_CHAMBER_MIN, DOGLEG_RECEIVER_CHAMBER_MAX),
+                ],
+                vec![Cuboid::from_min_max(
+                    DOGLEG_FIRST_REFLECTOR_MIN,
+                    DOGLEG_FIRST_REFLECTOR_MAX,
+                )],
+            ),
         };
 
         Self {
@@ -259,7 +308,7 @@ impl TestSceneGeometry {
                 startup_obstacle_aabb.min_uvec3(),
                 startup_obstacle_aabb.max_uvec3(),
             ),
-            test_rebuild_bound: UAabb3::new(TEST_REBUILD_MIN, TEST_REBUILD_MAX),
+            test_rebuild_bound,
         }
     }
 
@@ -330,6 +379,9 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         EnvironmentLightingTestCase::Donor => {
             (Vec3::new(0.50, 0.29, 1.32), Vec3::new(0.50, 0.26, 0.56))
         }
+        EnvironmentLightingTestCase::Dogleg => {
+            (Vec3::new(1.52, 0.55, 0.58), Vec3::new(1.22, 0.52, 0.50))
+        }
     }
 }
 
@@ -345,7 +397,10 @@ struct TestVoxelPalette {
 fn voxel_palette(case: EnvironmentLightingTestCase) -> TestVoxelPalette {
     TestVoxelPalette {
         dirt: Color32::from_rgb(95, 95, 95),
-        sand: if case == EnvironmentLightingTestCase::Donor {
+        sand: if matches!(
+            case,
+            EnvironmentLightingTestCase::Donor | EnvironmentLightingTestCase::Dogleg
+        ) {
             Color32::from_rgb(224, 48, 32)
         } else {
             Color32::from_rgb(194, 176, 115)
@@ -424,6 +479,28 @@ impl App {
                     donor_surface_min,
                     donor_surface_max,
                 );
+            } else if case == EnvironmentLightingTestCase::Dogleg {
+                let (first_min, first_max) = voxel_roi_to_world(
+                    DOGLEG_FIRST_REFLECTOR_ROI_MIN,
+                    DOGLEG_FIRST_REFLECTOR_ROI_MAX,
+                );
+                let (second_min, second_max) = voxel_roi_to_world(
+                    DOGLEG_SECOND_REFLECTOR_ROI_MIN,
+                    DOGLEG_SECOND_REFLECTOR_ROI_MAX,
+                );
+                let (receiver_min, receiver_max) = voxel_roi_to_world(
+                    DOGLEG_FINAL_RECEIVER_ROI_MIN,
+                    DOGLEG_FINAL_RECEIVER_ROI_MAX,
+                );
+                log::info!(
+                    "[ENV_LIGHT_TEST_ROI] case=dogleg first_reflector_world={:?}..{:?} second_reflector_world={:?}..{:?} final_receiver_world={:?}..{:?} expected_first_signal_stage=S2 final_receiver_direct_sun=occluded",
+                    first_min,
+                    first_max,
+                    second_min,
+                    second_max,
+                    receiver_min,
+                    receiver_max,
+                );
             }
         } else {
             log::error!("[ENV_LIGHT_TEST] failed to apply deterministic camera pose");
@@ -460,11 +537,12 @@ impl App {
                     .and_then(|plan| self.execute_edit_plan(plan))
                 {
                     Ok(()) => {
+                        let rebuild_bound = test_rebuild_bound(case);
                         log::info!(
                             "[ENV_LIGHT_TEST] static edits applied case={} rebuild_voxel_bound={:?}..{:?}",
                             case.label(),
-                            TEST_REBUILD_MIN,
-                            TEST_REBUILD_MAX,
+                            rebuild_bound.min(),
+                            rebuild_bound.max(),
                         );
                         TestScenePhase::WaitingForRebuild
                     }
@@ -803,6 +881,7 @@ mod tests {
             EnvironmentLightingTestCase::Portal,
             EnvironmentLightingTestCase::Walls,
             EnvironmentLightingTestCase::Donor,
+            EnvironmentLightingTestCase::Dogleg,
             EnvironmentLightingTestCase::TerrainEdits,
             EnvironmentLightingTestCase::TerrainEditsInflight,
             EnvironmentLightingTestCase::TerrainEditsClosed,
@@ -928,6 +1007,117 @@ mod tests {
                 DONOR_CONTROL_RECEIVER_ROI_MAX,
             ),
             (DONOR_SURFACE_ROI_MIN, DONOR_SURFACE_ROI_MAX),
+        ] {
+            let (min_world, max_world) = voxel_roi_to_world(min_voxel, max_voxel);
+            assert!(min_world.cmpge(Vec3::ZERO).all());
+            assert!(max_world.cmple(Vec3::splat(2.0)).all());
+            assert_eq!(min_world * VOXELS_PER_WORLD_UNIT, min_voxel);
+            assert_eq!(max_world * VOXELS_PER_WORLD_UNIT, max_voxel);
+        }
+    }
+
+    fn dogleg_point_is_carved(point: Vec3) -> bool {
+        [
+            (DOGLEG_LIGHT_WELL_MIN, DOGLEG_LIGHT_WELL_MAX),
+            (DOGLEG_FIRST_LEG_MIN, DOGLEG_FIRST_LEG_MAX),
+            (DOGLEG_SECOND_LEG_MIN, DOGLEG_SECOND_LEG_MAX),
+            (DOGLEG_RECEIVER_CHAMBER_MIN, DOGLEG_RECEIVER_CHAMBER_MAX),
+        ]
+        .into_iter()
+        .any(|(min, max)| point.cmpge(min).all() && point.cmple(max).all())
+    }
+
+    fn dogleg_segment_stays_in_carved_space(start: Vec3, end: Vec3) -> bool {
+        (1..2_048).all(|step| {
+            let fraction = step as f32 / 2_048.0;
+            dogleg_point_is_carved(start.lerp(end, fraction))
+        })
+    }
+
+    #[test]
+    fn dogleg_scene_has_one_saturated_source_and_neutral_later_surfaces() {
+        let palette = voxel_palette(EnvironmentLightingTestCase::Dogleg);
+        assert!(palette.sand.r() > palette.sand.g() * 4);
+        assert!(palette.sand.r() > palette.sand.b() * 4);
+        assert!((palette.rock.r() as i16 - palette.rock.b() as i16).abs() <= 6);
+
+        let geometry = TestSceneGeometry::build(EnvironmentLightingTestCase::Dogleg);
+        assert_eq!(geometry.sand.len(), 1);
+        assert_eq!(geometry.sand[0].aabb().min(), DOGLEG_FIRST_REFLECTOR_MIN);
+        assert_eq!(geometry.sand[0].aabb().max(), DOGLEG_FIRST_REFLECTOR_MAX);
+    }
+
+    #[test]
+    fn dogleg_blockers_are_spacing_16_and_spacing_32_robust() {
+        assert!(DOGLEG_BLOCK_MAX.y - DOGLEG_FIRST_LEG_MAX.y >= 64.0);
+        assert!(DOGLEG_RECEIVER_CHAMBER_MIN.z - DOGLEG_BLOCK_MIN.z >= 32.0);
+        assert!(DOGLEG_SECOND_LEG_MIN.x - DOGLEG_FIRST_LEG_MIN.x >= 64.0);
+        assert!(DOGLEG_BLOCK_MAX.x - DOGLEG_FIRST_LEG_MAX.x >= 64.0);
+    }
+
+    #[test]
+    fn dogleg_requires_two_ordered_straight_transport_segments() {
+        let first =
+            (DOGLEG_FIRST_REFLECTOR_ROI_MIN + DOGLEG_FIRST_REFLECTOR_ROI_MAX) * 0.5 + Vec3::Y;
+        let second =
+            (DOGLEG_SECOND_REFLECTOR_ROI_MIN + DOGLEG_SECOND_REFLECTOR_ROI_MAX) * 0.5 - Vec3::X;
+        let receiver =
+            (DOGLEG_FINAL_RECEIVER_ROI_MIN + DOGLEG_FINAL_RECEIVER_ROI_MAX) * 0.5 + Vec3::Z;
+
+        assert!(dogleg_segment_stays_in_carved_space(first, second));
+        assert!(dogleg_segment_stays_in_carved_space(second, receiver));
+        assert!(!dogleg_segment_stays_in_carved_space(first, receiver));
+    }
+
+    #[test]
+    fn dogleg_first_reflector_is_sun_exposed_but_later_surfaces_are_roofed() {
+        let (sun_altitude, sun_azimuth) = crate::app::environment::calculate_sun_position(
+            TEST_TIME_OF_DAY,
+            TEST_LATITUDE,
+            TEST_SEASON,
+        );
+        let sun_dir =
+            crate::util::get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
+        assert!(sun_dir.y > 0.0);
+        let at_height =
+            |point: Vec3, height: f32| point + sun_dir * ((height - point.y) / sun_dir.y);
+
+        let first = (DOGLEG_FIRST_REFLECTOR_ROI_MIN + DOGLEG_FIRST_REFLECTOR_ROI_MAX) * 0.5;
+        let first_at_top = at_height(first, DOGLEG_BLOCK_MAX.y + 1.0);
+        assert!(first_at_top.x >= DOGLEG_LIGHT_WELL_MIN.x);
+        assert!(first_at_top.x <= DOGLEG_LIGHT_WELL_MAX.x);
+        assert!(first_at_top.z >= DOGLEG_LIGHT_WELL_MIN.z);
+        assert!(first_at_top.z <= DOGLEG_LIGHT_WELL_MAX.z);
+
+        for (surface, roof_height) in [
+            (
+                (DOGLEG_SECOND_REFLECTOR_ROI_MIN + DOGLEG_SECOND_REFLECTOR_ROI_MAX) * 0.5 - Vec3::X,
+                DOGLEG_FIRST_LEG_MAX.y + 1.0,
+            ),
+            (
+                (DOGLEG_FINAL_RECEIVER_ROI_MIN + DOGLEG_FINAL_RECEIVER_ROI_MAX) * 0.5 + Vec3::Z,
+                DOGLEG_RECEIVER_CHAMBER_MAX.y + 1.0,
+            ),
+        ] {
+            let roof_hit = at_height(surface, roof_height);
+            assert!(roof_hit.cmpge(DOGLEG_BLOCK_MIN).all());
+            assert!(roof_hit.cmple(DOGLEG_BLOCK_MAX).all());
+            assert!(!dogleg_point_is_carved(roof_hit));
+        }
+    }
+
+    #[test]
+    fn dogleg_capture_regions_have_explicit_world_space_contract() {
+        for (min_voxel, max_voxel) in [
+            (
+                DOGLEG_FIRST_REFLECTOR_ROI_MIN,
+                DOGLEG_FIRST_REFLECTOR_ROI_MAX,
+            ),
+            (
+                DOGLEG_SECOND_REFLECTOR_ROI_MIN,
+                DOGLEG_SECOND_REFLECTOR_ROI_MAX,
+            ),
+            (DOGLEG_FINAL_RECEIVER_ROI_MIN, DOGLEG_FINAL_RECEIVER_ROI_MAX),
         ] {
             let (min_world, max_world) = voxel_roi_to_world(min_voxel, max_voxel);
             assert!(min_world.cmpge(Vec3::ZERO).all());
