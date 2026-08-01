@@ -3,7 +3,7 @@
 `scripts/check_ddgi_transport_acceptance.sh` is the top-level hidden release-mode acceptance
 runner for the transport specification. It runs the stage-specific transport captures first, then
 the existing portal/walls correctness runner, runtime terrain-edit runner, and the radiance/density
-lifecycle runner when that script is present.
+lifecycle runner. All three child runners are mandatory; a missing runner is an acceptance failure.
 
 ## Evidence
 
