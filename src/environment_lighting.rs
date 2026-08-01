@@ -106,6 +106,8 @@ mod tests {
         assert!(descriptor_rebind < ownership_swap);
         assert!(promotion.contains("[DDGI][CONSUMERS]"));
         assert!(promotion.contains("consumer_set=terrain_compute,flora_raster"));
+        assert!(tracer_host.contains("[DDGI][FLORA_CONSUMER] draw_recorded"));
+        assert!(tracer_host.contains("recorded_flora_instance_count > 0"));
     }
 
     #[test]

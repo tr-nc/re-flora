@@ -734,6 +734,7 @@ pub struct Tracer {
     environment_probe_environment_revision: u32,
     environment_probe_terrain_revision: u32,
     ddgi_terrain_refresh: DdgiTerrainRefresh,
+    ddgi_flora_consumer_logged_token_serial: Option<u64>,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -996,6 +997,7 @@ impl Tracer {
             environment_probe_environment_revision: 0,
             environment_probe_terrain_revision: 0,
             ddgi_terrain_refresh: DdgiTerrainRefresh::default(),
+            ddgi_flora_consumer_logged_token_serial: None,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -3049,7 +3051,7 @@ impl Tracer {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::needless_option_as_deref)]
     fn record_all_graphics_passes(
-        &self,
+        &mut self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
         lod_distance: f32,
@@ -3161,6 +3163,7 @@ impl Tracer {
 
         // Draw all flora species, both LOD levels
         if enable_flora {
+            let mut recorded_flora_instance_count = 0u64;
             let flora_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
                     gpu_profiler_frame_slot,
@@ -3229,7 +3232,23 @@ impl Tracer {
                                 push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
                             }),
                         );
+                        recorded_flora_instance_count += u64::from(instance_count);
                     }
+                }
+            }
+            if recorded_flora_instance_count > 0 {
+                let active = self.ddgi_volumes.status().active();
+                if let Some(token) = active.build_token.filter(|token| {
+                    self.ddgi_flora_consumer_logged_token_serial != Some(token.serial())
+                }) {
+                    self.ddgi_flora_consumer_logged_token_serial = Some(token.serial());
+                    log::info!(
+                        "[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial={} terrain_revision={} spacing_voxels={} instance_count={} sampler=sampleDiffuseEnvironment shading_info=shared",
+                        token.serial(),
+                        active.relocated_terrain_revision.unwrap_or_default(),
+                        active.grid.spacing_voxels(),
+                        recorded_flora_instance_count,
+                    );
                 }
             }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), flora_scope) {
