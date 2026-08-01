@@ -1,8 +1,8 @@
-//! Exact voxel-occupancy visibility used as the conservative DDGI query gate.
+//! Exact voxel-occupancy visibility used as the DDGI query gate.
 //!
 //! The GPU representation packs the authoritative voxel atlas along X, one bit per voxel.  The
 //! small CPU model below is deliberately kept equivalent to the shader contract so boundary,
-//! supercover, revision, and fail-closed behavior can be tested without a Vulkan device.
+//! optical-boundary, revision, and fail-closed behavior can be tested without a Vulkan device.
 
 use crate::generated::gpu_structs::DdgiVoxelVisibilityInfo;
 use crate::resource::{Resource, ResourceContainer};
@@ -219,7 +219,7 @@ impl CpuVisibilityVolume {
         if !self.ready || self.geometry_revision != expected_geometry_revision {
             return false;
         }
-        conservative_open_segment_visible(self, start_voxels, end_voxels, max_steps)
+        optical_open_segment_visible(self, start_voxels, end_voxels, max_steps)
     }
 }
 
@@ -239,7 +239,7 @@ fn packed_word_index(dimensions: UVec3, coordinate: UVec3) -> Option<(usize, u32
 }
 
 #[cfg(test)]
-fn conservative_open_segment_visible(
+fn optical_open_segment_visible(
     volume: &CpuVisibilityVolume,
     start: Vec3,
     end: Vec3,
@@ -311,24 +311,6 @@ fn conservative_open_segment_visible(
             (next.y - crossing).abs() <= OPEN_SEGMENT_EPSILON_VOXELS,
             (next.z - crossing).abs() <= OPEN_SEGMENT_EPSILON_VOXELS,
         ];
-        let tied_mask = u32::from(tie[0]) | (u32::from(tie[1]) << 1) | (u32::from(tie[2]) << 2);
-
-        // At an edge/corner crossing, every non-empty subset of tied axes names a touched cell.
-        // Checking all of them is the conservative supercover rule that closes diagonal cracks.
-        let mut subset = tied_mask;
-        while subset != 0 {
-            let candidate = cell
-                + glam::IVec3::new(
-                    if subset & 1 != 0 { step.x } else { 0 },
-                    if subset & 2 != 0 { step.y } else { 0 },
-                    if subset & 4 != 0 { step.z } else { 0 },
-                );
-            if occupied_cell(volume, candidate) {
-                return false;
-            }
-            subset = (subset - 1) & tied_mask;
-        }
-
         if tie[0] {
             cell.x += step.x;
             next.x += delta.x;
@@ -340,6 +322,9 @@ fn conservative_open_segment_visible(
         if tie[2] {
             cell.z += step.z;
             next.z += delta.z;
+        }
+        if occupied_cell(volume, cell) {
+            return false;
         }
         if cell == end_cell {
             return true;
@@ -454,9 +439,9 @@ mod tests {
     }
 
     #[test]
-    fn diagonal_edge_tie_checks_both_side_cells() {
+    fn diagonal_edge_tie_ignores_zero_area_side_contact() {
         let volume = volume(UVec3::splat(4), &[UVec3::new(1, 0, 0)]);
-        assert!(!volume.segment_visible(
+        assert!(volume.segment_visible(
             REVISION,
             Vec3::new(0.25, 0.25, 0.5),
             Vec3::new(2.75, 2.75, 0.5),
@@ -465,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn diagonal_corner_tie_checks_all_seven_neighbor_cells() {
+    fn diagonal_corner_tie_only_checks_the_entered_cell() {
         for blocker in [
             UVec3::new(1, 0, 0),
             UVec3::new(0, 1, 0),
@@ -473,14 +458,15 @@ mod tests {
             UVec3::new(1, 1, 0),
             UVec3::new(1, 0, 1),
             UVec3::new(0, 1, 1),
-            UVec3::new(1, 1, 1),
         ] {
             let volume = volume(UVec3::splat(4), &[blocker]);
             assert!(
-                !volume.segment_visible(REVISION, Vec3::splat(0.25), Vec3::splat(2.75), 16,),
-                "corner supercover skipped {blocker:?}",
+                volume.segment_visible(REVISION, Vec3::splat(0.25), Vec3::splat(2.75), 16,),
+                "zero-area corner contact blocked on {blocker:?}",
             );
         }
+        let diagonal = volume(UVec3::splat(4), &[UVec3::new(1, 1, 1)]);
+        assert!(!diagonal.segment_visible(REVISION, Vec3::splat(0.25), Vec3::splat(2.75), 16,));
     }
 
     #[test]

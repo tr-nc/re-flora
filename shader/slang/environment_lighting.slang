@@ -8,7 +8,7 @@ public float3 sampleDiffuseEnvironment(U_ShadingInfo lighting,
                                        float3 surfaceNormal)
 {
     return sampleDdgiDiffuseEnvironment(
-        lighting, worldPosition, surfaceNormal, surfaceNormal).irradiance;
+        lighting, worldPosition, surfaceNormal).irradiance;
 }
 
 public float3 sampleEnvironmentIrradiance(U_ShadingInfo lighting,

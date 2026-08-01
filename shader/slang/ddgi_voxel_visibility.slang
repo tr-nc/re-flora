@@ -140,26 +140,13 @@ public float ddgiVoxelSegmentVisibility(float3 biasedWorldPosition,
             return 0.0;
         bool3 tie = abs(next - float3(crossing)) <=
                     float3(DDGI_VOXEL_OPEN_SEGMENT_EPSILON);
-        uint tiedMask = (tie.x ? 1u : 0u) |
-                        (tie.y ? 2u : 0u) |
-                        (tie.z ? 4u : 0u);
-
-        // Enumerating all non-empty subsets is the 3D supercover rule at edge/corner ties.
-        // It conservatively tests every voxel touched at the crossing, including side cells.
-        uint subset = tiedMask;
-        while (subset != 0u)
-        {
-            int3 candidate = cell + int3(
-                (subset & 1u) != 0u ? step.x : 0,
-                (subset & 2u) != 0u ? step.y : 0,
-                (subset & 4u) != 0u ? step.z : 0);
-            if (ddgiVoxelIsOccupied(candidate, info.voxel_dimensions)) return 0.0;
-            subset = (subset - 1u) & tiedMask;
-        }
-
         if (tie.x) { cell.x += step.x; next.x += delta.x; }
         if (tie.y) { cell.y += step.y; next.y += delta.y; }
         if (tie.z) { cell.z += step.z; next.z += delta.z; }
+        // At an exact edge or corner crossing the ray enters only the cell
+        // reached by advancing every tied axis. Side cells touched at a
+        // zero-area boundary do not occlude an optical segment.
+        if (ddgiVoxelIsOccupied(cell, info.voxel_dimensions)) return 0.0;
         if (all(cell == endCell)) return 1.0;
     }
     return 0.0;

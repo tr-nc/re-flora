@@ -379,13 +379,19 @@ post-removal run at `target/ddgi-correctness/20260731T222545Z-119363` passed all
 sealed was exactly zero at both spacings; portal reference-error P99 was `0.004334` at spacing 32
 and `0.003165` at spacing 16; walls reference-error P99 was `0.138412` and `0.130781`, respectively.
 
-The calibrated fix has two parts. First, the query bias is `0.25` voxel at both qualified probe
-spacings; the prior expression accidentally applied `0.25` of a probe spacing and could move the
-query four or eight voxels through a wall. Second, cage-support filtering distinguishes a true sky
-miss from a distant geometry hit: sky misses clamp to the cage support distance, while distant
-geometry samples are rejected so they cannot pull a local depth lobe through thin geometry. The
-debug-only exact oracle starts `0.25` voxel along the primary camera visibility direction to avoid
-self-intersection without coupling the reference to the shading normal or probe direction.
+The calibrated fix first keeps the query bias at `0.25` voxel at both qualified probe spacings; the
+prior expression accidentally applied `0.25` of a probe spacing and could move the query four or
+eight voxels through a wall. Cage-support filtering distinguishes a true sky miss from a distant
+geometry hit: sky misses clamp to the cage support distance, while distant geometry samples are
+rejected so they cannot pull a local depth lobe through thin geometry.
+
+The later packed-voxel gate starts that same `0.25` voxel bias along the stored voxel normal, never
+the camera ray. Its optical DDA advances all tied axes together at exact voxel edge/corner
+crossings, so a zero-area boundary touch does not count as an occluder; the cell the ray actually
+enters is still tested and stale or unavailable occupancy still fails closed. The exact debug views
+expose this hard visibility separately from the filtered moment term. This removed the deterministic
+tree-branch black pixels at spacing 16 while the walls reference-error P99 remained `0.02381` at
+spacing 32 and `0.00344` at spacing 16.
 
 ## Migration Milestones
 

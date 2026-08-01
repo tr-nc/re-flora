@@ -377,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_query_multiplies_exact_voxel_and_moment_visibility_but_oracle_stays_independent() {
+    fn shared_query_multiplies_exact_voxel_and_moment_visibility_without_camera_direction() {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let shared = query
             .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
@@ -388,21 +388,21 @@ mod tests {
             .0;
         assert!(query.contains("import ddgi_voxel_visibility;"));
         assert!(query.contains("ddgiVoxelSegmentVisibility("));
-        assert!(query.contains("ddgiNormalizedSurfaceNormal(surfaceOutward) * biasWorld"));
+        assert!(query.contains("worldPosition + normal * biasWorld"));
+        assert!(!query.contains("surfaceOutward"));
         let probe_trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
-        assert!(probe_trace.contains("result, -direction, localInvocationId.x"));
+        assert!(!probe_trace.contains("surfaceOutward"));
         assert!(shared.contains("contribution.hard_visibility * contribution.moment_visibility"));
 
         let tracer = include_str!("../shader/slang/tracer.slang");
-        assert!(tracer.contains("result.position, result.normal, -ray.direction"));
+        assert!(!tracer.contains("result.position, result.normal, -ray.direction"));
         let exact_reference = tracer
             .split_once("DdgiQueryResult sampleDdgiExactTerrainReference(")
-            .expect("independent Contree reference must exist")
+            .expect("exact voxel reference must exist")
             .1
             .split_once("float3 ddgiTerrainDebugValue(")
             .expect("exact reference must remain isolated")
             .0;
-        assert!(exact_reference.contains("ddgiExactSegmentVisibility("));
-        assert!(!exact_reference.contains("hard_visibility"));
+        assert!(exact_reference.contains("contribution.hard_visibility"));
     }
 }

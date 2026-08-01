@@ -38,8 +38,8 @@ pub use scheduler::{
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
 pub use voxel_visibility::DdgiVoxelVisibility;
 
-/// Permanent DDGI diagnostics. Exact modes are intentionally opt-in because they trace up to
-/// eight additional terrain segments for every shaded terrain pixel.
+/// Permanent DDGI diagnostics. Exact modes expose the packed-voxel visibility gate separately
+/// from the filtered moment term used by the final query.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u32)]
 pub enum DdgiDebugView {
