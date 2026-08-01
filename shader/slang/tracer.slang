@@ -271,22 +271,27 @@ void getPixelColor(out float3 color, out float depth,
     {
         directLight = directLighting(albedo, result.normal, result.center_position);
     }
+    // DDGI is part of the flat voxel material contract. Every pixel that hits
+    // this voxel must query from the same receiver, independent of the camera
+    // ray's exact intersection point on the visible face.
+    float3 ddgiReceiverPosition = voxelSurfacePositionAlongNormal(
+        result.center_position, result.normal);
     DdgiQueryResult consumerResult = sampleDdgiDiffuseEnvironment(
-        shading_info, result.position, result.normal);
+        shading_info, ddgiReceiverPosition, result.normal);
     DdgiQueryResult captureResult = consumerResult;
     if (shading_info.environment_irradiance_capture_unpublished != 0u)
     {
         captureResult = sampleDdgiUnpublishedCaptureEnvironment(
-            shading_info, result.position, result.normal);
+            shading_info, ddgiReceiverPosition, result.normal);
     }
     environmentIrradiance = consumerResult.irradiance;
     environmentCaptureIrradiance = captureResult.irradiance;
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {
         environmentIrradiance = ddgiTerrainDebugValue(
-            screenUv, result.position, result.normal, consumerResult);
+            screenUv, ddgiReceiverPosition, result.normal, consumerResult);
         environmentCaptureIrradiance = ddgiTerrainDebugValue(
-            screenUv, result.position, result.normal, captureResult);
+            screenUv, ddgiReceiverPosition, result.normal, captureResult);
     }
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {

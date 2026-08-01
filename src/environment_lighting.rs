@@ -392,10 +392,18 @@ mod tests {
         assert!(!query.contains("surfaceOutward"));
         let probe_trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
         assert!(!probe_trace.contains("surfaceOutward"));
+        assert!(probe_trace.contains(
+            "ddgiVoxelSurfacePositionAlongNormal(\n        result.center_position, normal)"
+        ));
+        assert!(!probe_trace.contains("ddgi_transport_query_info, result.position"));
         assert!(shared.contains("contribution.hard_visibility * contribution.moment_visibility"));
 
         let tracer = include_str!("../shader/slang/tracer.slang");
         assert!(!tracer.contains("result.position, result.normal, -ray.direction"));
+        assert!(tracer.contains(
+            "voxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
+        ));
+        assert!(tracer.contains("shading_info, ddgiReceiverPosition, result.normal"));
         let exact_reference = tracer
             .split_once("DdgiQueryResult sampleDdgiExactTerrainReference(")
             .expect("exact voxel reference must exist")

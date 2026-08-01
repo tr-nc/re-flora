@@ -129,18 +129,20 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
         : 0.0;
     float3 directIrradiance = ddgi_radiance_sun.color *
         ddgi_radiance_sun.luminance * sunAboveHorizon * cosine * visibility;
+    float3 ddgiReceiverPosition = ddgiVoxelSurfacePositionAlongNormal(
+        result.center_position, normal);
     DdgiQueryResult source;
     if (pc.source_slot == 0u)
     {
         source = sampleDdgiTransportAtlas0(
-            ddgi_transport_query_info, result.position, normal);
+            ddgi_transport_query_info, ddgiReceiverPosition, normal);
     }
     else
     {
         source = sampleDdgiTransportSource(
             ddgi_transport_query_info,
             ddgi_transport_source_irradiance_atlas,
-            result.position, normal);
+            ddgiReceiverPosition, normal);
     }
     float3 albedo = ddgiVoxelColorByTypeAndHash(
         ddgi_radiance_voxel_palette, result.voxel_type, result.hash_id);

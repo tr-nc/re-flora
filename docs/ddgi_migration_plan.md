@@ -389,9 +389,22 @@ The later packed-voxel gate starts that same `0.25` voxel bias along the stored 
 the camera ray. Its optical DDA advances all tied axes together at exact voxel edge/corner
 crossings, so a zero-area boundary touch does not count as an occluder; the cell the ray actually
 enters is still tested and stale or unavailable occupancy still fails closed. The exact debug views
-expose this hard visibility separately from the filtered moment term. This removed the deterministic
-tree-branch black pixels at spacing 16 while the walls reference-error P99 remained `0.02381` at
-spacing 32 and `0.00344` at spacing 16.
+expose this hard visibility separately from the filtered moment term. This removed the original
+tree-branch ROI's black pixels, but the later `blacky` camera snapshot exposed a separate violation:
+terrain still queried DDGI from the per-pixel ray intersection, so one voxel face could contain
+triangular black and lit regions even though its material normal and albedo were voxel-constant.
+
+Terrain consumers and probe-transport terrain hits now construct one canonical receiver from the
+voxel center and stored voxel normal by intersecting that direction with the voxel cube. Probe cage
+selection, weighting, moments, and hard visibility therefore receive the same surface position for
+every pixel of a voxel; the existing `0.25`-voxel normal bias is still applied inside the shared
+query. A camera-directed capture gate recovers receiver voxel IDs and rejects any voxel containing
+both black and non-black pixels. In `blacky`, mixed environment/combined voxels changed from
+`867`/`513` to `0`/`0` at spacing 32 and remained `0`/`0` at spacing 16. Entirely black voxels are a
+separate remaining visibility-quality issue: environment/combined black pixels changed from
+`36,318`/`23,798` to `19,232`/`13,441` at spacing 32 and measured `14,198`/`8,981` at spacing 16.
+The post-change walls reference-error P99 is `0.02630` at spacing 32 and `0.00402` at spacing 16,
+with all six correctness cases still accepted.
 
 ## Migration Milestones
 
