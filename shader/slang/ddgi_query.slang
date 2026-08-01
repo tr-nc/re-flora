@@ -50,6 +50,51 @@ public struct DdgiProbeContribution
     public float moment_visibility;
 };
 
+// The visibility-aware eight-probe algorithm consumes this narrow value instead of a renderer
+// uniform. Consumer and transport adapters can therefore share the exact same implementation.
+public struct DdgiQueryInfo
+{
+    public uint3 grid_dimensions;
+    public float3 world_to_grid_scale;
+    public float visibility_bias_world;
+    public uint irradiance_tile_columns;
+    public uint visibility_tile_columns;
+    public uint ready;
+    public uint invalidation_enabled;
+    public float3 invalidation_world_min;
+    public float3 invalidation_world_max;
+};
+
+DdgiQueryInfo ddgiConsumerQueryInfo(U_ShadingInfo lighting)
+{
+    DdgiQueryInfo query;
+    query.grid_dimensions = lighting.environment_probe_grid_dimensions;
+    query.world_to_grid_scale = lighting.environment_probe_world_to_grid_scale;
+    query.visibility_bias_world = lighting.environment_probe_visibility_bias_world;
+    query.irradiance_tile_columns = lighting.ddgi_irradiance_tile_columns;
+    query.visibility_tile_columns = lighting.ddgi_visibility_tile_columns;
+    query.ready = lighting.ddgi_ready;
+    query.invalidation_enabled = lighting.ddgi_invalidation_enabled;
+    query.invalidation_world_min = lighting.ddgi_invalidation_world_min;
+    query.invalidation_world_max = lighting.ddgi_invalidation_world_max;
+    return query;
+}
+
+DdgiQueryInfo ddgiTransportQueryInfo(U_DdgiTransportQueryInfo transport)
+{
+    DdgiQueryInfo query;
+    query.grid_dimensions = transport.grid_dimensions;
+    query.world_to_grid_scale = transport.world_to_grid_scale;
+    query.visibility_bias_world = transport.visibility_bias_world;
+    query.irradiance_tile_columns = transport.irradiance_tile_columns;
+    query.visibility_tile_columns = transport.visibility_tile_columns;
+    query.ready = transport.source_ready;
+    query.invalidation_enabled = 0u;
+    query.invalidation_world_min = float3(0.0);
+    query.invalidation_world_max = float3(0.0);
+    return query;
+}
+
 float2 ddgiAtlasUv(uint probeIndex, float3 direction, uint tileColumns,
                    uint interiorSide, uint storedSide, Sampler2D atlas)
 {
@@ -78,21 +123,30 @@ public float3 sampleDdgiGlobalSky(float3 normal)
 }
 
 public float3 sampleDdgiProbeIrradiance(uint probeIndex, float3 normal,
-                                       U_ShadingInfo lighting)
+                                       uint tileColumns,
+                                       Sampler2D irradianceAtlas)
 {
     float2 uv = ddgiAtlasUv(
-        probeIndex, normal, lighting.ddgi_irradiance_tile_columns,
+        probeIndex, normal, tileColumns,
         DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-        ddgi_irradiance_atlas);
+        irradianceAtlas);
     return max(float3(0.0),
-               ddgi_irradiance_atlas.SampleLevel(uv, 0.0).xyz);
+               irradianceAtlas.SampleLevel(uv, 0.0).xyz);
+}
+
+public float3 sampleDdgiProbeIrradiance(uint probeIndex, float3 normal,
+                                       U_ShadingInfo lighting)
+{
+    return sampleDdgiProbeIrradiance(
+        probeIndex, normal, lighting.ddgi_irradiance_tile_columns,
+        ddgi_irradiance_atlas);
 }
 
 public float2 sampleDdgiDistanceMoments(uint probeIndex, float3 direction,
-                                       U_ShadingInfo lighting)
+                                       DdgiQueryInfo query)
 {
     float2 uv = ddgiAtlasUv(
-        probeIndex, direction, lighting.ddgi_visibility_tile_columns,
+        probeIndex, direction, query.visibility_tile_columns,
         DDGI_VISIBILITY_INTERIOR_SIDE, DDGI_VISIBILITY_STORED_SIDE,
         ddgi_visibility_atlas);
     return ddgi_visibility_atlas.SampleLevel(uv, 0.0).xy;
@@ -134,12 +188,12 @@ float3 ddgiNormalizedSurfaceNormal(float3 surfaceNormal)
         : float3(0.0, 1.0, 0.0);
 }
 
-public bool ddgiQueryUsesGlobalSky(U_ShadingInfo lighting,
+public bool ddgiQueryUsesGlobalSky(DdgiQueryInfo query,
                                    float3 worldPosition)
 {
-    uint3 dimensions = lighting.environment_probe_grid_dimensions;
-    float3 gridScale = lighting.environment_probe_world_to_grid_scale;
-    if (lighting.ddgi_ready == 0u ||
+    uint3 dimensions = query.grid_dimensions;
+    float3 gridScale = query.world_to_grid_scale;
+    if (query.ready == 0u ||
         any(dimensions < uint3(2u)) || any(gridScale <= float3(0.0)))
     {
         return true;
@@ -149,12 +203,26 @@ public bool ddgiQueryUsesGlobalSky(U_ShadingInfo lighting,
            any(gridPosition > float3(dimensions - uint3(1u)));
 }
 
-public bool ddgiQueryIsTerrainInvalidated(U_ShadingInfo lighting,
+public bool ddgiQueryUsesGlobalSky(U_ShadingInfo lighting,
+                                   float3 worldPosition)
+{
+    return ddgiQueryUsesGlobalSky(
+        ddgiConsumerQueryInfo(lighting), worldPosition);
+}
+
+public bool ddgiQueryIsTerrainInvalidated(DdgiQueryInfo query,
                                            float3 worldPosition)
 {
-    return lighting.ddgi_invalidation_enabled != 0u &&
-           all(worldPosition >= lighting.ddgi_invalidation_world_min) &&
-           all(worldPosition <= lighting.ddgi_invalidation_world_max);
+    return query.invalidation_enabled != 0u &&
+           all(worldPosition >= query.invalidation_world_min) &&
+           all(worldPosition <= query.invalidation_world_max);
+}
+
+public bool ddgiQueryIsTerrainInvalidated(U_ShadingInfo lighting,
+                                          float3 worldPosition)
+{
+    return ddgiQueryIsTerrainInvalidated(
+        ddgiConsumerQueryInfo(lighting), worldPosition);
 }
 
 public DdgiQueryResult makeEmptyDdgiQueryResult()
@@ -171,8 +239,8 @@ public DdgiQueryResult makeEmptyDdgiQueryResult()
 }
 
 public DdgiProbeContribution getDdgiProbeContribution(
-    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
-    uint3 cageCorner)
+    DdgiQueryInfo query, float3 worldPosition, float3 surfaceNormal,
+    uint3 cageCorner, Sampler2D irradianceAtlas)
 {
     DdgiProbeContribution contribution;
     contribution.trustworthy = false;
@@ -183,11 +251,11 @@ public DdgiProbeContribution getDdgiProbeContribution(
     contribution.base_weight = 0.0;
     contribution.moment_visibility = 0.0;
 
-    if (ddgiQueryUsesGlobalSky(lighting, worldPosition)) return contribution;
+    if (ddgiQueryUsesGlobalSky(query, worldPosition)) return contribution;
 
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    uint3 dimensions = lighting.environment_probe_grid_dimensions;
-    float3 gridScale = lighting.environment_probe_world_to_grid_scale;
+    uint3 dimensions = query.grid_dimensions;
+    float3 gridScale = query.world_to_grid_scale;
     float3 gridPosition = worldPosition * gridScale;
     uint3 base = min(uint3(floor(gridPosition)), dimensions - uint3(2u));
     float3 fragmentInCell = saturate(gridPosition - float3(base));
@@ -221,7 +289,7 @@ public DdgiProbeContribution getDdgiProbeContribution(
     // Keep this in voxel units. The previous 0.25 / gridScale expression was
     // 0.25 probe spacing (8 voxels at the default spacing), which crossed
     // thin walls.
-    float biasWorld = lighting.environment_probe_visibility_bias_world * 0.125;
+    float biasWorld = query.visibility_bias_world * 0.125;
     float3 biasedWorldPosition = worldPosition + normal * biasWorld;
     float3 probeToBiasedSurface = biasedWorldPosition - actualPosition;
     float distanceToSurface = length(probeToBiasedSurface);
@@ -236,17 +304,26 @@ public DdgiProbeContribution getDdgiProbeContribution(
 
     float3 probeToSurfaceDirection = normalize(probeToBiasedSurface);
     float2 moments = sampleDdgiDistanceMoments(
-        probeIndex, probeToSurfaceDirection, lighting);
+        probeIndex, probeToSurfaceDirection, query);
     contribution.trustworthy = true;
     contribution.probe_index = probeIndex;
-    contribution.irradiance = sampleDdgiProbeIrradiance(
-        probeIndex, normal, lighting);
     contribution.actual_position = actualPosition;
     contribution.nominal_position = nominalPosition;
     contribution.base_weight = positionWeight * surfaceSideWeight;
     contribution.moment_visibility = ddgiChebyshevVisibility(
         moments, distanceToSurface);
+    contribution.irradiance = sampleDdgiProbeIrradiance(
+        probeIndex, normal, query.irradiance_tile_columns, irradianceAtlas);
     return contribution;
+}
+
+public DdgiProbeContribution getDdgiProbeContribution(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    uint3 cageCorner)
+{
+    return getDdgiProbeContribution(
+        ddgiConsumerQueryInfo(lighting), worldPosition, surfaceNormal,
+        cageCorner, ddgi_irradiance_atlas);
 }
 
 public void accumulateDdgiContribution(
@@ -288,15 +365,16 @@ public void finalizeDdgiQueryResult(inout DdgiQueryResult result)
     result.irradiance = max(result.irradiance, float3(0.0));
 }
 
-public DdgiQueryResult sampleDdgiDiffuseEnvironment(
-    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
+    DdgiQueryInfo query, Sampler2D irradianceAtlas,
+    float3 worldPosition, float3 surfaceNormal)
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
     // Once terrain has changed, neither the active probe field nor its global-sky fallback is
     // trustworthy inside the edit's interpolation/relocation influence region.
-    if (ddgiQueryIsTerrainInvalidated(lighting, worldPosition)) return result;
-    if (ddgiQueryUsesGlobalSky(lighting, worldPosition))
+    if (ddgiQueryIsTerrainInvalidated(query, worldPosition)) return result;
+    if (ddgiQueryUsesGlobalSky(query, worldPosition))
     {
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
@@ -314,7 +392,8 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironment(
             {
                 DdgiProbeContribution contribution =
                     getDdgiProbeContribution(
-                        lighting, worldPosition, normal, uint3(x, y, z));
+                        query, worldPosition, normal, uint3(x, y, z),
+                        irradianceAtlas);
                 accumulateDdgiContribution(
                     result, contribution, contribution.moment_visibility);
             }
@@ -324,12 +403,30 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironment(
     return result;
 }
 
+public DdgiQueryResult sampleDdgiDiffuseEnvironment(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+{
+    return sampleDdgiDiffuseEnvironmentFromAtlas(
+        ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
+        worldPosition, surfaceNormal);
+}
+
+public DdgiQueryResult sampleDdgiTransportSource(
+    U_DdgiTransportQueryInfo transport, Sampler2D sourceIrradianceAtlas,
+    float3 worldPosition, float3 surfaceNormal)
+{
+    return sampleDdgiDiffuseEnvironmentFromAtlas(
+        ddgiTransportQueryInfo(transport), sourceIrradianceAtlas,
+        worldPosition, surfaceNormal);
+}
+
 public uint ddgiNearestNominalProbeIndex(U_ShadingInfo lighting,
                                          float3 worldPosition)
 {
-    uint3 dimensions = lighting.environment_probe_grid_dimensions;
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    uint3 dimensions = query.grid_dimensions;
     uint3 coordinate = uint3(clamp(
-        round(worldPosition * lighting.environment_probe_world_to_grid_scale),
+        round(worldPosition * query.world_to_grid_scale),
         float3(0.0), float3(dimensions - uint3(1u))));
     return coordinate.x + dimensions.x *
         (coordinate.y + dimensions.y * coordinate.z);
@@ -338,7 +435,7 @@ public uint ddgiNearestNominalProbeIndex(U_ShadingInfo lighting,
 public float3 ddgiProbeStateDebugColor(U_ShadingInfo lighting,
                                        float3 worldPosition)
 {
-    if (ddgiQueryUsesGlobalSky(lighting, worldPosition))
+    if (ddgiQueryUsesGlobalSky(ddgiConsumerQueryInfo(lighting), worldPosition))
     {
         return float3(0.0, 0.25, 1.0);
     }
@@ -353,7 +450,8 @@ public float3 ddgiProbeStateDebugColor(U_ShadingInfo lighting,
 public float3 ddgiRelocationDebugColor(U_ShadingInfo lighting,
                                        float3 worldPosition)
 {
-    if (ddgiQueryUsesGlobalSky(lighting, worldPosition)) return float3(0.0);
+    if (ddgiQueryUsesGlobalSky(ddgiConsumerQueryInfo(lighting), worldPosition))
+        return float3(0.0);
     uint probeIndex = ddgiNearestNominalProbeIndex(lighting, worldPosition);
     DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
     if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID)

@@ -1,5 +1,5 @@
+import ddgi_types;
 import skylight;
-import tracer_types;
 
 static const uint DDGI_IRRADIANCE_INTERIOR_SIDE = 8u;
 static const uint DDGI_SKY_FILTER_SAMPLE_COUNT = 2048u;
@@ -8,11 +8,11 @@ static const float DDGI_FOUR = 4.0;
 static const float DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION =
     3.14159265358979323846;
 
-[[vk::binding(1, 0)]]
-ConstantBuffer<U_SunInfo> sun_info;
-
 [[vk::binding(23, 0)]]
 RWTexture2D<float4> ddgi_global_sky_irradiance;
+
+[[vk::binding(30, 0)]]
+ConstantBuffer<U_DdgiRadianceSun> ddgi_radiance_sun;
 
 float signNotZero(float value)
 {
@@ -62,7 +62,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         float3 direction = fibonacciDirection(sampleIndex);
         float cosineWeight = max(0.0, dot(normal, direction));
-        irradiance += getSkyColor(direction, normalize(sun_info.sun_dir)) *
+        irradiance += getSkyColor(direction, normalize(ddgi_radiance_sun.direction)) *
                       DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION * cosineWeight;
     }
     // Store diffuse irradiance divided by pi. The authored-sky calibration

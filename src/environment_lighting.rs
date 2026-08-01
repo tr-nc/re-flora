@@ -1,30 +1,83 @@
 use glam::Vec3;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DdgiVoxelPaletteSnapshot {
+    pub dirt_color: Vec3,
+    pub sand_color: Vec3,
+    pub cherry_wood_color: Vec3,
+    pub oak_wood_color: Vec3,
+    pub rock_color: Vec3,
+    pub hash_color_variance: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct DdgiRadianceSnapshot {
+    pub sun_direction: Vec3,
+    pub sun_color: Vec3,
+    pub sun_luminance: f32,
+    pub voxel_palette: DdgiVoxelPaletteSnapshot,
+}
+
+impl DdgiRadianceSnapshot {
+    fn identity(self) -> DdgiRadianceIdentity {
+        DdgiRadianceIdentity {
+            sun_direction: self.sun_direction.to_array().map(f32::to_bits),
+            sun_color: self.sun_color.to_array().map(f32::to_bits),
+            sun_luminance: self.sun_luminance.to_bits(),
+            dirt_color: self.voxel_palette.dirt_color.to_array().map(f32::to_bits),
+            sand_color: self.voxel_palette.sand_color.to_array().map(f32::to_bits),
+            cherry_wood_color: self
+                .voxel_palette
+                .cherry_wood_color
+                .to_array()
+                .map(f32::to_bits),
+            oak_wood_color: self
+                .voxel_palette
+                .oak_wood_color
+                .to_array()
+                .map(f32::to_bits),
+            rock_color: self.voxel_palette.rock_color.to_array().map(f32::to_bits),
+            hash_color_variance: self.voxel_palette.hash_color_variance.to_bits(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DdgiRadianceIdentity {
+    sun_direction: [u32; 3],
+    sun_color: [u32; 3],
+    sun_luminance: u32,
+    dirt_color: [u32; 3],
+    sand_color: [u32; 3],
+    cherry_wood_color: [u32; 3],
+    oak_wood_color: [u32; 3],
+    rock_color: [u32; 3],
+    hash_color_variance: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EnvironmentLightingState {
     pub revision: u32,
+    pub snapshot: DdgiRadianceSnapshot,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct EnvironmentLightingCache {
     current_revision: u32,
-    last_sun_direction_bits: Option<[u32; 3]>,
+    last_identity: Option<DdgiRadianceIdentity>,
 }
 
 impl EnvironmentLightingCache {
-    pub fn update(&mut self, sun_direction: Vec3) -> EnvironmentLightingState {
-        let sun_direction = sun_direction.normalize_or_zero();
-        let direction_bits = [
-            sun_direction.x.to_bits(),
-            sun_direction.y.to_bits(),
-            sun_direction.z.to_bits(),
-        ];
-        if self.last_sun_direction_bits != Some(direction_bits) {
+    pub fn update(&mut self, mut snapshot: DdgiRadianceSnapshot) -> EnvironmentLightingState {
+        snapshot.sun_direction = snapshot.sun_direction.normalize_or_zero();
+        let identity = snapshot.identity();
+        if self.last_identity != Some(identity) {
             self.current_revision = self.current_revision.wrapping_add(1).max(1);
-            self.last_sun_direction_bits = Some(direction_bits);
+            self.last_identity = Some(identity);
         }
         EnvironmentLightingState {
             revision: self.current_revision,
+            snapshot,
         }
     }
 }
@@ -33,16 +86,82 @@ impl EnvironmentLightingCache {
 mod tests {
     use super::*;
 
+    fn snapshot() -> DdgiRadianceSnapshot {
+        DdgiRadianceSnapshot {
+            sun_direction: Vec3::Y,
+            sun_color: Vec3::new(1.0, 0.9, 0.8),
+            sun_luminance: 2.0,
+            voxel_palette: DdgiVoxelPaletteSnapshot {
+                dirt_color: Vec3::new(0.1, 0.2, 0.3),
+                sand_color: Vec3::new(0.4, 0.5, 0.6),
+                cherry_wood_color: Vec3::new(0.7, 0.2, 0.1),
+                oak_wood_color: Vec3::new(0.2, 0.3, 0.1),
+                rock_color: Vec3::splat(0.4),
+                hash_color_variance: 0.5,
+            },
+        }
+    }
+
     #[test]
-    fn cache_revision_changes_only_with_environment_direction() {
+    fn cache_revision_is_stable_for_an_identical_radiance_snapshot() {
         let mut cache = EnvironmentLightingCache::default();
-        let first = cache.update(Vec3::Y);
-        let unchanged = cache.update(Vec3::Y);
-        let changed = cache.update(Vec3::Z);
+        let first = cache.update(snapshot());
+        let unchanged = cache.update(snapshot());
 
         assert_eq!(first.revision, 1);
         assert_eq!(unchanged.revision, first.revision);
-        assert_eq!(changed.revision, first.revision + 1);
+        assert_eq!(unchanged.snapshot, first.snapshot);
+    }
+
+    #[test]
+    fn cache_revision_covers_every_transport_radiance_input() {
+        let mut variants = Vec::new();
+        let mut value = snapshot();
+        value.sun_direction = Vec3::Z;
+        variants.push(value);
+        value = snapshot();
+        value.sun_color.x += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.sun_luminance += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.voxel_palette.dirt_color.x += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.voxel_palette.sand_color.y += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.voxel_palette.cherry_wood_color.z += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.voxel_palette.oak_wood_color.x += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.voxel_palette.rock_color.y += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.voxel_palette.hash_color_variance += 0.1;
+        variants.push(value);
+
+        for changed in variants {
+            let mut cache = EnvironmentLightingCache::default();
+            let first = cache.update(snapshot());
+            let changed = cache.update(changed);
+            assert_eq!(changed.revision, first.revision + 1);
+        }
+    }
+
+    #[test]
+    fn cache_identity_uses_the_normalized_sun_direction() {
+        let mut cache = EnvironmentLightingCache::default();
+        let first = cache.update(snapshot());
+        let mut scaled = snapshot();
+        scaled.sun_direction *= 10.0;
+        let unchanged = cache.update(scaled);
+
+        assert_eq!(unchanged.revision, first.revision);
+        assert_eq!(unchanged.snapshot.sun_direction, Vec3::Y);
     }
 
     #[test]
@@ -115,7 +234,7 @@ mod tests {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let filter = include_str!("../shader/slang/ddgi_visibility_filter.slang");
 
-        assert!(query.contains("lighting.environment_probe_visibility_bias_world * 0.125"));
+        assert!(query.contains("query.visibility_bias_world * 0.125"));
         assert!(!query.contains("0.25 / max(gridScale"));
         assert!(filter.contains("hitDistance > supportDistance"));
         assert!(filter.contains("signedDistance >= pc.far_distance_world * 0.999"));
@@ -127,7 +246,7 @@ mod tests {
     fn terrain_invalidation_fails_closed_before_the_global_sky_fallback() {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let sampler = query
-            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
+            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
             .expect("shared DDGI sampler must exist")
             .1;
         let invalidation = sampler
@@ -139,5 +258,45 @@ mod tests {
 
         assert!(invalidation < global_sky);
         assert!(sampler[invalidation..global_sky].contains("return result;"));
+    }
+
+    #[test]
+    fn consumer_and_transport_adapters_share_one_eight_probe_query() {
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let shared = query
+            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
+            .expect("shared atlas-parametric DDGI query must exist")
+            .1
+            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
+            .expect("consumer adapter must follow the shared query")
+            .0;
+        let consumer = query
+            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
+            .expect("consumer adapter must exist")
+            .1
+            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
+            .expect("transport adapter must follow the consumer adapter")
+            .0;
+        let transport = query
+            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
+            .expect("transport adapter must exist")
+            .1
+            .split_once("public uint ddgiNearestNominalProbeIndex")
+            .expect("debug helpers must follow both adapters")
+            .0;
+
+        assert_eq!(shared.matches("for (uint z = 0u; z < 2u; ++z)").count(), 1);
+        assert!(consumer.contains("sampleDdgiDiffuseEnvironmentFromAtlas("));
+        assert!(consumer.contains("ddgi_irradiance_atlas"));
+        assert!(transport.contains("sampleDdgiDiffuseEnvironmentFromAtlas("));
+        assert!(transport.contains("sourceIrradianceAtlas"));
+
+        let trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
+        assert!(!trace.contains("ConstantBuffer<U_SunInfo>"));
+        assert!(!trace.contains("ConstantBuffer<U_ShadingInfo>"));
+        assert!(trace.contains("[[vk::binding(29, 0)]]"));
+        assert!(trace.contains("[[vk::binding(30, 0)]]"));
+        assert!(trace.contains("[[vk::binding(31, 0)]]"));
+        assert!(trace.contains("[[vk::binding(32, 0)]]"));
     }
 }
