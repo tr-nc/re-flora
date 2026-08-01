@@ -17,6 +17,7 @@ HEADER_PREFIX = struct.Struct("<8sI")
 HEADER_V1 = struct.Struct("<8s6I")
 HEADER_V2 = struct.Struct("<8s7I")
 HEADER_V3 = struct.Struct("<8s10I2Q4IQI2f2I")
+HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
@@ -47,6 +48,10 @@ PUBLICATION_STATE_LABELS = {
     0: "unpublished",
     1: "published",
 }
+BATCH_ORDER_LABELS = {
+    0: "forward",
+    1: "reverse",
+}
 
 
 @dataclass(frozen=True)
@@ -64,13 +69,17 @@ class Capture:
     geometry_revision: int | None = None
     radiance_revision: int | None = None
     radiance_model_identity: int | None = None
-    token_serial: int | None = None
+    build_token_serial: int | None = None
+    field_serial: int | None = None
     transport_stage: int | None = None
     transport_iteration: int | None = None
     source_stage: int | None = None
     source_iteration: int | None = None
     source_identity: int | None = None
+    source_field_serial: int | None = None
+    source_radiance_revision: int | None = None
     publication_state: int | None = None
+    batch_order: int | None = None
     max_abs_delta: float | None = None
     max_rel_delta: float | None = None
     nonfinite_count: int | None = None
@@ -79,6 +88,11 @@ class Capture:
     @property
     def sample_count(self) -> int:
         return self.width * self.height
+
+    @property
+    def token_serial(self) -> int | None:
+        """Backward-compatible name for the volume build-attempt serial."""
+        return self.build_token_serial
 
 
 def load_capture(path: Path) -> Capture:
@@ -95,14 +109,14 @@ def load_capture(path: Path) -> Capture:
         debug_view = 0
         header_size = HEADER_V1.size
         plane_count = 1
-        metadata: tuple[object, ...] = (None,) * 14
+        metadata: dict[str, object] = {}
     elif version == 2:
         if len(data) < HEADER_V2.size:
             raise ValueError(f"{path}: truncated v2 header")
         _, _, width, height, channels, backend, spacing, debug_view = HEADER_V2.unpack_from(data)
         header_size = HEADER_V2.size
         plane_count = 1
-        metadata = (None,) * 14
+        metadata = {}
     elif version == 3:
         if len(data) < HEADER_V3.size:
             raise ValueError(f"{path}: truncated v3 header")
@@ -132,24 +146,73 @@ def load_capture(path: Path) -> Capture:
             valid_count,
         ) = HEADER_V3.unpack_from(data)
         header_size = HEADER_V3.size
-        metadata = (
-            None if geometry_revision == UNKNOWN_U32 else geometry_revision,
-            None if radiance_revision == UNKNOWN_U32 else radiance_revision,
-            None
-            if radiance_model_identity == UNKNOWN_U64
-            else radiance_model_identity,
-            None if token_serial == UNKNOWN_U64 else token_serial,
-            None if transport_stage == UNKNOWN_U32 else transport_stage,
-            None if transport_iteration == UNKNOWN_U32 else transport_iteration,
-            None if source_stage == UNKNOWN_U32 else source_stage,
-            None if source_iteration == UNKNOWN_U32 else source_iteration,
-            None if source_identity == UNKNOWN_U64 else source_identity,
-            None if publication_state == UNKNOWN_U32 else publication_state,
-            None if max_abs_delta == UNKNOWN_DELTA else max_abs_delta,
-            None if max_rel_delta == UNKNOWN_DELTA else max_rel_delta,
-            None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
-            None if valid_count == UNKNOWN_U32 else valid_count,
-        )
+        metadata = {
+            "geometry_revision": None if geometry_revision == UNKNOWN_U32 else geometry_revision,
+            "radiance_revision": None if radiance_revision == UNKNOWN_U32 else radiance_revision,
+            "radiance_model_identity": None if radiance_model_identity == UNKNOWN_U64 else radiance_model_identity,
+            "build_token_serial": None if token_serial == UNKNOWN_U64 else token_serial,
+            "transport_stage": None if transport_stage == UNKNOWN_U32 else transport_stage,
+            "transport_iteration": None if transport_iteration == UNKNOWN_U32 else transport_iteration,
+            "source_stage": None if source_stage == UNKNOWN_U32 else source_stage,
+            "source_iteration": None if source_iteration == UNKNOWN_U32 else source_iteration,
+            "source_identity": None if source_identity == UNKNOWN_U64 else source_identity,
+            "publication_state": None if publication_state == UNKNOWN_U32 else publication_state,
+            "max_abs_delta": None if max_abs_delta == UNKNOWN_DELTA else max_abs_delta,
+            "max_rel_delta": None if max_rel_delta == UNKNOWN_DELTA else max_rel_delta,
+            "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
+            "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
+        }
+    elif version == 4:
+        if len(data) < HEADER_V4.size:
+            raise ValueError(f"{path}: truncated v4 header")
+        (
+            _,
+            _,
+            width,
+            height,
+            channels,
+            backend,
+            spacing,
+            debug_view,
+            plane_count,
+            geometry_revision,
+            radiance_revision,
+            radiance_model_identity,
+            build_token_serial,
+            field_serial,
+            transport_stage,
+            transport_iteration,
+            source_stage,
+            source_iteration,
+            source_field_serial,
+            source_radiance_revision,
+            publication_state,
+            batch_order,
+            max_abs_delta,
+            max_rel_delta,
+            nonfinite_count,
+            valid_count,
+        ) = HEADER_V4.unpack_from(data)
+        header_size = HEADER_V4.size
+        metadata = {
+            "geometry_revision": None if geometry_revision == UNKNOWN_U32 else geometry_revision,
+            "radiance_revision": None if radiance_revision == UNKNOWN_U32 else radiance_revision,
+            "radiance_model_identity": None if radiance_model_identity == UNKNOWN_U64 else radiance_model_identity,
+            "build_token_serial": None if build_token_serial == UNKNOWN_U64 else build_token_serial,
+            "field_serial": None if field_serial == UNKNOWN_U64 else field_serial,
+            "transport_stage": None if transport_stage == UNKNOWN_U32 else transport_stage,
+            "transport_iteration": None if transport_iteration == UNKNOWN_U32 else transport_iteration,
+            "source_stage": None if source_stage == UNKNOWN_U32 else source_stage,
+            "source_iteration": None if source_iteration == UNKNOWN_U32 else source_iteration,
+            "source_field_serial": None if source_field_serial == UNKNOWN_U64 else source_field_serial,
+            "source_radiance_revision": None if source_radiance_revision == UNKNOWN_U32 else source_radiance_revision,
+            "publication_state": None if publication_state == UNKNOWN_U32 else publication_state,
+            "batch_order": None if batch_order == UNKNOWN_U32 else batch_order,
+            "max_abs_delta": None if max_abs_delta == UNKNOWN_DELTA else max_abs_delta,
+            "max_rel_delta": None if max_rel_delta == UNKNOWN_DELTA else max_rel_delta,
+            "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
+            "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
+        }
     else:
         raise ValueError(f"{path}: unsupported version {version}")
     if channels != 4:
@@ -172,7 +235,7 @@ def load_capture(path: Path) -> Capture:
         payload[:plane_size],
         payload[plane_size:],
         plane_count,
-        *metadata,
+        **metadata,
     )
 
 
@@ -302,7 +365,9 @@ def summarize(
         "geometry_revision": capture.geometry_revision,
         "radiance_revision": capture.radiance_revision,
         "radiance_model_identity": capture.radiance_model_identity,
-        "token_serial": capture.token_serial,
+        "token_serial": capture.build_token_serial,
+        "build_token_serial": capture.build_token_serial,
+        "field_serial": capture.field_serial,
         "transport_stage": TRANSPORT_STAGE_LABELS.get(
             capture.transport_stage, capture.transport_stage
         ),
@@ -312,8 +377,13 @@ def summarize(
         ),
         "source_iteration": capture.source_iteration,
         "source_identity": capture.source_identity,
+        "source_field_serial": capture.source_field_serial,
+        "source_radiance_revision": capture.source_radiance_revision,
         "publication_state": PUBLICATION_STATE_LABELS.get(
             capture.publication_state, capture.publication_state
+        ),
+        "batch_order": BATCH_ORDER_LABELS.get(
+            capture.batch_order, capture.batch_order
         ),
         "max_abs_delta": capture.max_abs_delta,
         "max_rel_delta": capture.max_rel_delta,
@@ -326,20 +396,29 @@ def summarize(
 def metadata_mismatches(first: Capture, second: Capture) -> list[str]:
     if first.version < 3 and second.version < 3:
         return []
-    fields = (
+    fields = [
         "version",
         "plane_count",
         "geometry_revision",
         "radiance_revision",
         "radiance_model_identity",
-        "token_serial",
+        "build_token_serial",
         "transport_stage",
         "transport_iteration",
         "source_stage",
         "source_iteration",
-        "source_identity",
         "publication_state",
-    )
+    ]
+    if first.version >= 4 or second.version >= 4:
+        fields.extend(
+            [
+                "field_serial",
+                "source_field_serial",
+                "source_radiance_revision",
+            ]
+        )
+    else:
+        fields.append("source_identity")
     return [
         field for field in fields if getattr(first, field) != getattr(second, field)
     ]
@@ -465,6 +544,8 @@ def main() -> int:
     parser.add_argument("--world-roi", type=float, nargs=6)
     parser.add_argument("--expect-geometry-revision", type=int)
     parser.add_argument("--expect-radiance-revision", type=int)
+    parser.add_argument("--expect-build-token-serial", type=int)
+    parser.add_argument("--expect-field-serial", type=int)
     parser.add_argument(
         "--expect-transport-stage", choices=tuple(TRANSPORT_STAGE_LABELS.values())
     )
@@ -474,6 +555,8 @@ def main() -> int:
     )
     parser.add_argument("--expect-source-iteration", type=int)
     parser.add_argument("--expect-source-identity", type=int)
+    parser.add_argument("--expect-source-field-serial", type=int)
+    parser.add_argument("--expect-source-radiance-revision", type=int)
     parser.add_argument(
         "--expect-publication-state", choices=tuple(PUBLICATION_STATE_LABELS.values())
     )
@@ -501,11 +584,15 @@ def main() -> int:
 
     expect("geometry_revision", args.expect_geometry_revision)
     expect("radiance_revision", args.expect_radiance_revision)
+    expect("build_token_serial", args.expect_build_token_serial)
+    expect("field_serial", args.expect_field_serial)
     expect("transport_stage", args.expect_transport_stage)
     expect("transport_iteration", args.expect_transport_iteration)
     expect("source_stage", args.expect_source_stage)
     expect("source_iteration", args.expect_source_iteration)
     expect("source_identity", args.expect_source_identity)
+    expect("source_field_serial", args.expect_source_field_serial)
+    expect("source_radiance_revision", args.expect_source_radiance_revision)
     expect("publication_state", args.expect_publication_state)
     if first.nonfinite_count is not None:
         expect("header_nonfinite_count", 0)

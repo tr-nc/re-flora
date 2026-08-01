@@ -14,6 +14,7 @@ sys.path.insert(0, str(SCRIPTS))
 import analyze_environment_irradiance_capture as analyzer  # noqa: E402
 
 HEADER_V3 = struct.Struct("<8s10I2Q4IQI2f2I")
+HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
@@ -95,6 +96,95 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             for pixel in irradiance_pixels + world_pixels
         )
         path.write_bytes(header + payload)
+
+    def write_capture_v4(
+        self,
+        path: Path,
+        irradiance_pixels: list[tuple[float, float, float, float]],
+        world_pixels: list[tuple[float, float, float, float]],
+        *,
+        build_token_serial: int = 9001,
+        field_serial: int = 89,
+        source_field_serial: int = 88,
+        source_radiance_revision: int = 16,
+        batch_order: int = 0,
+    ) -> None:
+        self.assertEqual(len(irradiance_pixels), len(world_pixels))
+        header = HEADER_V4.pack(
+            analyzer.MAGIC,
+            4,
+            len(irradiance_pixels),
+            1,
+            4,
+            1,
+            16,
+            0,
+            2,
+            41,
+            17,
+            0xA11CE,
+            build_token_serial,
+            field_serial,
+            3,
+            6,
+            3,
+            5,
+            source_field_serial,
+            source_radiance_revision,
+            1,
+            batch_order,
+            0.0125,
+            0.025,
+            0,
+            len(irradiance_pixels),
+        )
+        payload = b"".join(
+            analyzer.PIXEL.pack(*pixel)
+            for pixel in irradiance_pixels + world_pixels
+        )
+        path.write_bytes(header + payload)
+
+    def test_loads_v4_canonical_field_source_and_build_identities(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "capture-v4.rfirr"
+            self.write_capture_v4(
+                capture_path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 0.0)],
+            )
+
+            capture = analyzer.load_capture(capture_path)
+            summary = analyzer.summarize(capture)
+
+        self.assertEqual(capture.version, 4)
+        self.assertEqual(capture.build_token_serial, 9001)
+        self.assertEqual(capture.field_serial, 89)
+        self.assertEqual(capture.source_field_serial, 88)
+        self.assertEqual(capture.source_radiance_revision, 16)
+        self.assertIsNone(capture.source_identity)
+        self.assertEqual(summary["batch_order"], "forward")
+
+    def test_v4_comparison_rejects_different_canonical_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v4.rfirr"
+            second_path = Path(directory) / "second-v4.rfirr"
+            pixels = [(0.1, 0.2, 0.3, 1.0)]
+            world = [(1.0, 2.0, 3.0, 1.0)]
+            self.write_capture_v4(first_path, pixels, world)
+            self.write_capture_v4(
+                second_path,
+                pixels,
+                world,
+                source_field_serial=87,
+            )
+
+            comparison = analyzer.compare(
+                analyzer.load_capture(first_path),
+                analyzer.load_capture(second_path),
+            )
+
+        self.assertFalse(comparison["compatible"])
+        self.assertIn("source_field_serial", comparison["metadata_mismatches"])
 
     def test_loads_v3_metadata_and_two_float4_planes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

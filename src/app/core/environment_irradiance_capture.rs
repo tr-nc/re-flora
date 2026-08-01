@@ -1,7 +1,6 @@
 use super::App;
 use crate::ddgi::{
-    DdgiAtlasValidationStats, DdgiBuildKind, DdgiDebugView, DdgiTransportFieldIdentity,
-    DdgiTransportIterationIdentity, DdgiTransportStage,
+    DdgiAtlasValidationStats, DdgiBuildToken, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage,
 };
 use crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY;
 use crate::tracer::DdgiRuntimeStatus;
@@ -11,10 +10,10 @@ use std::io::Write;
 use std::path::Path;
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 3;
+const CAPTURE_VERSION: u32 = 4;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = 2;
-const CAPTURE_HEADER_BYTE_COUNT: usize = 108;
+const CAPTURE_HEADER_BYTE_COUNT: usize = 124;
 const DDGI_BACKEND_ID: u32 = 1;
 const CAPTURE_STAGE_SEED_SKY: u32 = 1;
 const CAPTURE_STAGE_SINGLE_BOUNCE: u32 = 2;
@@ -22,21 +21,25 @@ const CAPTURE_STAGE_FEEDBACK: u32 = 3;
 const CAPTURE_STAGE_CONVERGED: u32 = 4;
 const CAPTURE_STAGE_NON_CONVERGED: u32 = 5;
 const CAPTURE_PUBLICATION_PUBLISHED: u32 = 1;
-const CAPTURE_FNV1A64_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-const CAPTURE_FNV1A64_PRIME: u64 = 0x100000001b3;
+const CAPTURE_BATCH_ORDER_FORWARD: u32 = 0;
+const CAPTURE_UNKNOWN_U32: u32 = u32::MAX;
+const CAPTURE_UNKNOWN_U64: u64 = u64::MAX;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct CaptureMetadata {
     geometry_revision: u32,
     radiance_revision: u32,
     radiance_model_identity: u64,
-    token_serial: u64,
+    build_token_serial: u64,
+    field_serial: u64,
     transport_stage: u32,
     transport_iteration: u32,
     source_stage: u32,
     source_iteration: u32,
-    source_identity: u64,
+    source_field_serial: u64,
+    source_radiance_revision: u32,
     publication_state: u32,
+    batch_order: u32,
     max_abs_delta: f32,
     max_rel_delta: f32,
     nonfinite_count: u32,
@@ -46,62 +49,48 @@ struct CaptureMetadata {
 impl CaptureMetadata {
     fn from_runtime(
         runtime: DdgiRuntimeStatus,
-        published: DdgiTransportIterationIdentity,
+        build_token: DdgiBuildToken,
+        published: DdgiFieldIdentity,
         validation: DdgiAtlasValidationStats,
         radiance_model_identity: u64,
     ) -> Result<Self> {
-        let token = published
-            .build_token
-            .context("published DDGI iteration has no build token")?;
-        let transport = runtime
-            .active_transport_stage
-            .context("published DDGI runtime has no transport stage")?;
-        let source = published
-            .source
-            .context("published DDGI iteration has no immutable source field")?;
+        let field = published.field();
         ensure!(
-            runtime.active_token_serial == Some(token.serial())
-                && runtime.active_terrain_revision == Some(published.geometry_revision)
-                && runtime.active_radiance_revision == Some(published.radiance_revision)
-                && runtime.active_spacing_voxels == published.spacing_voxels
-                && runtime.active_published_slot == Some(published.destination.slot)
-                && runtime.active_published_iteration == Some(published.iteration),
-            "DDGI runtime status does not match the authoritative published iteration: runtime={runtime:?} published={published:?}"
+            runtime.active_token_serial == Some(build_token.serial())
+                && runtime.active_terrain_revision == Some(field.geometry_revision())
+                && runtime.active_radiance_revision == Some(field.radiance_revision())
+                && runtime.active_spacing_voxels == field.spacing_voxels()
+                && runtime.active_published_field == Some(published),
+            "DDGI runtime status does not match the authoritative published field: runtime={runtime:?} published={published:?}"
         );
         ensure!(
-            published.destination.build_token == published.build_token
-                && published.destination.geometry_revision == published.geometry_revision
-                && published.destination.radiance_revision == published.radiance_revision
-                && published.destination.spacing_voxels == published.spacing_voxels
-                && published.destination.stage == published.stage
-                && published.destination.iteration == published.iteration,
-            "DDGI published destination identity is inconsistent: {published:?}"
+            build_token.terrain_revision() == field.geometry_revision()
+                && build_token.spacing_voxels() == field.spacing_voxels(),
+            "DDGI build token does not own the published field: token={build_token:?} published={published:?}"
         );
-        match transport {
-            DdgiTransportStage::Converged { iteration }
-            | DdgiTransportStage::NonConverged { iteration } => ensure!(
-                published.stage == DdgiTransportStage::Feedback { iteration }
-                    && published.iteration == iteration,
-                "terminal DDGI runtime stage does not name its published feedback iteration: runtime={transport:?} published={published:?}"
-            ),
-            _ => ensure!(
-                transport == published.stage && transport.iteration() == published.iteration,
-                "DDGI runtime transport stage does not match published iteration: runtime={transport:?} published={published:?}"
-            ),
-        }
-        let (transport_stage, transport_iteration) = encode_transport_stage(transport);
-        let (source_stage, source_iteration) = encode_transport_stage(source.stage);
+        let source = published.source();
         Ok(Self {
-            geometry_revision: published.geometry_revision,
-            radiance_revision: published.radiance_revision,
+            geometry_revision: field.geometry_revision(),
+            radiance_revision: field.radiance_revision(),
             radiance_model_identity,
-            token_serial: token.serial(),
-            transport_stage,
-            transport_iteration,
-            source_stage,
-            source_iteration,
-            source_identity: source_field_fingerprint(source),
+            build_token_serial: build_token.serial(),
+            field_serial: field.serial(),
+            transport_stage: encode_transport_stage(field.stage()),
+            transport_iteration: field.iteration(),
+            source_stage: source
+                .map(|source| encode_transport_stage(source.stage()))
+                .unwrap_or(CAPTURE_UNKNOWN_U32),
+            source_iteration: source
+                .map(|source| source.iteration())
+                .unwrap_or(CAPTURE_UNKNOWN_U32),
+            source_field_serial: source
+                .map(|source| source.serial())
+                .unwrap_or(CAPTURE_UNKNOWN_U64),
+            source_radiance_revision: source
+                .map(|source| source.radiance_revision())
+                .unwrap_or(CAPTURE_UNKNOWN_U32),
             publication_state: CAPTURE_PUBLICATION_PUBLISHED,
+            batch_order: CAPTURE_BATCH_ORDER_FORWARD,
             max_abs_delta: validation.max_absolute_rgb_delta,
             max_rel_delta: validation.max_relative_rgb_delta,
             nonfinite_count: validation.non_finite_count,
@@ -113,7 +102,8 @@ impl CaptureMetadata {
         writer.write_all(&self.geometry_revision.to_le_bytes())?;
         writer.write_all(&self.radiance_revision.to_le_bytes())?;
         writer.write_all(&self.radiance_model_identity.to_le_bytes())?;
-        writer.write_all(&self.token_serial.to_le_bytes())?;
+        writer.write_all(&self.build_token_serial.to_le_bytes())?;
+        writer.write_all(&self.field_serial.to_le_bytes())?;
         for value in [
             self.transport_stage,
             self.transport_iteration,
@@ -122,8 +112,14 @@ impl CaptureMetadata {
         ] {
             writer.write_all(&value.to_le_bytes())?;
         }
-        writer.write_all(&self.source_identity.to_le_bytes())?;
-        writer.write_all(&self.publication_state.to_le_bytes())?;
+        writer.write_all(&self.source_field_serial.to_le_bytes())?;
+        for value in [
+            self.source_radiance_revision,
+            self.publication_state,
+            self.batch_order,
+        ] {
+            writer.write_all(&value.to_le_bytes())?;
+        }
         writer.write_all(&self.max_abs_delta.to_le_bytes())?;
         writer.write_all(&self.max_rel_delta.to_le_bytes())?;
         writer.write_all(&self.nonfinite_count.to_le_bytes())?;
@@ -132,55 +128,14 @@ impl CaptureMetadata {
     }
 }
 
-fn encode_transport_stage(stage: DdgiTransportStage) -> (u32, u32) {
+fn encode_transport_stage(stage: DdgiFieldStage) -> u32 {
     match stage {
-        DdgiTransportStage::SeedSky => (CAPTURE_STAGE_SEED_SKY, 0),
-        DdgiTransportStage::SingleBounce => (CAPTURE_STAGE_SINGLE_BOUNCE, 1),
-        DdgiTransportStage::Feedback { iteration } => (CAPTURE_STAGE_FEEDBACK, iteration),
-        DdgiTransportStage::Converged { iteration } => (CAPTURE_STAGE_CONVERGED, iteration),
-        DdgiTransportStage::NonConverged { iteration } => (CAPTURE_STAGE_NON_CONVERGED, iteration),
+        DdgiFieldStage::SeedSky => CAPTURE_STAGE_SEED_SKY,
+        DdgiFieldStage::SingleBounce => CAPTURE_STAGE_SINGLE_BOUNCE,
+        DdgiFieldStage::Feedback => CAPTURE_STAGE_FEEDBACK,
+        DdgiFieldStage::Converged => CAPTURE_STAGE_CONVERGED,
+        DdgiFieldStage::NonConverged => CAPTURE_STAGE_NON_CONVERGED,
     }
-}
-
-/// Stable on-disk fingerprint of every logical source-field identity component. Atlas slot is
-/// included because ping-pong ownership is part of the immutable source named by an iteration.
-fn source_field_fingerprint(field: DdgiTransportFieldIdentity) -> u64 {
-    let mut hash = CAPTURE_FNV1A64_OFFSET_BASIS;
-    let (token_present, token_serial, token_terrain, token_spacing, token_kind) =
-        match field.build_token {
-            Some(token) => (
-                1,
-                token.serial(),
-                token.terrain_revision(),
-                token.spacing_voxels(),
-                match token.kind() {
-                    DdgiBuildKind::Terrain => 1,
-                    DdgiBuildKind::Density => 2,
-                },
-            ),
-            None => (0, 0, 0, 0, 0),
-        };
-    let (stage, stage_iteration) = encode_transport_stage(field.stage);
-    for value in [
-        token_present,
-        token_serial,
-        u64::from(token_terrain),
-        u64::from(token_spacing),
-        token_kind,
-        u64::from(field.geometry_revision),
-        u64::from(field.radiance_revision),
-        u64::from(field.spacing_voxels),
-        u64::from(stage),
-        u64::from(stage_iteration),
-        u64::from(field.iteration),
-        field.slot as u64,
-    ] {
-        for byte in value.to_le_bytes() {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(CAPTURE_FNV1A64_PRIME);
-        }
-    }
-    hash
 }
 
 pub(super) struct EnvironmentIrradianceCaptureReadback {
@@ -211,14 +166,18 @@ impl App {
             * u64::from(CAPTURE_PLANE_COUNT);
         let runtime = self.tracer.ddgi_runtime_status();
         let active = self.tracer.environment_probe_status();
+        let build_token = active
+            .build_token
+            .context("cannot capture DDGI without an active build token")?;
         let published = active
-            .published_iteration
-            .context("cannot capture DDGI before a complete iteration is published")?;
+            .published_field
+            .context("cannot capture DDGI before a complete field is published")?;
         let validation = active
             .last_atlas_validation
             .context("cannot capture DDGI without validation for the published iteration")?;
         let metadata = CaptureMetadata::from_runtime(
             runtime,
+            build_token,
             published,
             validation,
             DDGI_AUTHORED_SKY_MODEL_IDENTITY,
@@ -239,7 +198,7 @@ impl App {
         Ok(EnvironmentIrradianceCaptureReadback {
             path,
             extent,
-            spacing_voxels: published.spacing_voxels,
+            spacing_voxels: published.field().spacing_voxels(),
             debug_view: self.tracer.ddgi_debug_view(),
             metadata,
             buffer,
@@ -299,7 +258,7 @@ impl App {
         file.write_all(&raw)?;
         file.flush()?;
         log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} token_serial={} transport_stage={} transport_iteration={} source_stage={} source_iteration={} source_identity={} publication_state={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility",
+            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} transport_stage={} transport_iteration={} source_stage={} source_iteration={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility",
             readback.path,
             readback.extent.width,
             readback.extent.height,
@@ -310,13 +269,16 @@ impl App {
             readback.metadata.geometry_revision,
             readback.metadata.radiance_revision,
             readback.metadata.radiance_model_identity,
-            readback.metadata.token_serial,
+            readback.metadata.build_token_serial,
+            readback.metadata.field_serial,
             readback.metadata.transport_stage,
             readback.metadata.transport_iteration,
             readback.metadata.source_stage,
             readback.metadata.source_iteration,
-            readback.metadata.source_identity,
+            readback.metadata.source_field_serial,
+            readback.metadata.source_radiance_revision,
             readback.metadata.publication_state,
+            readback.metadata.batch_order,
             readback.metadata.max_abs_delta,
             readback.metadata.max_rel_delta,
             readback.metadata.nonfinite_count,
@@ -330,49 +292,29 @@ impl App {
 mod tests {
     use super::*;
     use crate::ddgi::{
-        DdgiAtlasValidationStats, DdgiBuildKind, DdgiBuildToken, DdgiIrradianceSlot,
-        DdgiRefreshState, DdgiTransportFieldIdentity, DdgiTransportIterationIdentity,
-        DdgiTransportStage, DdgiVolumeStage,
+        DdgiAtlasValidationStats, DdgiBuildKind, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldKey,
+        DdgiFieldStage, DdgiRefreshState, DdgiVolumeStage,
     };
     use crate::tracer::DdgiRuntimeStatus;
 
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 3);
+        assert_eq!(CAPTURE_VERSION, 4);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(CAPTURE_PLANE_COUNT, 2);
-        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 108);
+        assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 124);
     }
 
     #[test]
     fn capture_metadata_uses_authoritative_published_terminal_identity() {
         let token = DdgiBuildToken::for_test(9001, 41, 16, DdgiBuildKind::Terrain);
-        let source = DdgiTransportFieldIdentity {
-            build_token: Some(token),
-            geometry_revision: 41,
-            radiance_revision: 17,
-            spacing_voxels: 16,
-            stage: DdgiTransportStage::Feedback { iteration: 5 },
-            iteration: 5,
-            slot: DdgiIrradianceSlot::Atlas0,
-        };
-        let destination = DdgiTransportFieldIdentity {
-            stage: DdgiTransportStage::Feedback { iteration: 6 },
-            iteration: 6,
-            slot: DdgiIrradianceSlot::Atlas1,
-            ..source
-        };
-        let published = DdgiTransportIterationIdentity {
-            build_token: Some(token),
-            geometry_revision: 41,
-            radiance_revision: 17,
-            spacing_voxels: 16,
-            stage: DdgiTransportStage::Feedback { iteration: 6 },
-            iteration: 6,
-            source: Some(source),
-            destination,
-        };
+        let source = DdgiFieldKey::new(88, 41, 17, 16, DdgiFieldStage::Feedback, 5).unwrap();
+        let published = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(89, 41, 17, 16, DdgiFieldStage::Converged, 6).unwrap(),
+            Some(source),
+        )
+        .unwrap();
         let validation = DdgiAtlasValidationStats {
             max_absolute_rgb_delta: 0.0125,
             max_relative_rgb_delta: 0.025,
@@ -386,21 +328,18 @@ mod tests {
             active_terrain_revision: Some(41),
             active_spacing_voxels: 16,
             active_stage: DdgiVolumeStage::Ready,
-            active_transport_stage: Some(DdgiTransportStage::Converged { iteration: 6 }),
+            active_published_field: Some(published),
             active_radiance_revision: Some(17),
-            active_published_slot: Some(DdgiIrradianceSlot::Atlas1),
-            active_published_iteration: Some(6),
             target_terrain_revision: Some(41),
             staging_token_serial: None,
             staging_kind: None,
             staging_stage: None,
-            staging_transport_stage: None,
-            staging_building_transport_stage: None,
+            staging_complete_field: None,
+            staging_building_field: None,
             staging_radiance_revision: None,
             staging_terrain_revision: None,
             staging_spacing_voxels: None,
-            staging_published_slot: None,
-            staging_published_iteration: None,
+            staging_published_field: None,
             staging_filtered_probe_count: 0,
             staging_probe_count: 0,
             coordinator_state: DdgiRefreshState::Idle,
@@ -410,6 +349,7 @@ mod tests {
 
         let metadata = CaptureMetadata::from_runtime(
             status,
+            token,
             published,
             validation,
             crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
@@ -422,13 +362,14 @@ mod tests {
             metadata.radiance_model_identity,
             crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY
         );
-        assert_eq!(metadata.token_serial, 9001);
+        assert_eq!(metadata.build_token_serial, 9001);
+        assert_eq!(metadata.field_serial, 89);
         assert_eq!(metadata.transport_stage, CAPTURE_STAGE_CONVERGED);
         assert_eq!(metadata.transport_iteration, 6);
         assert_eq!(metadata.source_stage, CAPTURE_STAGE_FEEDBACK);
         assert_eq!(metadata.source_iteration, 5);
-        assert_eq!(metadata.source_identity, source_field_fingerprint(source));
-        assert_ne!(metadata.source_identity, 9001);
+        assert_eq!(metadata.source_field_serial, 88);
+        assert_eq!(metadata.source_radiance_revision, 17);
         assert_eq!(metadata.publication_state, CAPTURE_PUBLICATION_PUBLISHED);
         assert_eq!(metadata.max_abs_delta, 0.0125);
         assert_eq!(metadata.max_rel_delta, 0.025);
@@ -440,6 +381,7 @@ mod tests {
                 active_radiance_revision: Some(18),
                 ..status
             },
+            token,
             published,
             validation,
             crate::environment_lighting::DDGI_AUTHORED_SKY_MODEL_IDENTITY,
