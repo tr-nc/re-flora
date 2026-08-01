@@ -293,6 +293,7 @@ def summarize(
     channel_nonzero_count = [0, 0, 0]
     roi_channel_sum = [0.0, 0.0, 0.0]
     roi_luminances: list[float] = []
+    roi_environment_zero_count = 0
     world_min = [math.inf, math.inf, math.inf]
     world_max = [-math.inf, -math.inf, -math.inf]
     exact_sun_visibilities: list[float] = []
@@ -335,6 +336,8 @@ def summarize(
                     roi_luminances.append(
                         0.2126 * red + 0.7152 * green + 0.0722 * blue
                     )
+                    if all(value == 0.0 for value in rgb):
+                        roi_environment_zero_count += 1
                     for channel, value in enumerate(rgb):
                         roi_channel_sum[channel] += value
                         channel_abs_max[channel] = max(
@@ -358,6 +361,7 @@ def summarize(
     )
     direct_light_luminances: list[float] = []
     direct_light_rgb_channel_negative_count = [0, 0, 0]
+    roi_combined_zero_count = 0
     direct_light_roi_luminances = {
         "sunlit": [],
         "shadowed": [],
@@ -398,6 +402,19 @@ def summarize(
             for channel, value in enumerate(direct_rgb):
                 if value < 0.0:
                     direct_light_rgb_channel_negative_count[channel] += 1
+            in_world_roi = world_roi is None
+            if world_pixel is not None and world_roi is not None:
+                in_world_roi = position_in_world_roi(world_pixel[:3], world_roi)
+            irradiance_rgb = irradiance_pixel[:3]
+            if (
+                in_world_roi
+                and all(math.isfinite(value) for value in irradiance_rgb)
+                and all(
+                    irradiance + direct == 0.0
+                    for irradiance, direct in zip(irradiance_rgb, direct_rgb)
+                )
+            ):
+                roi_combined_zero_count += 1
             if world_pixel is None:
                 continue
             position = world_pixel[:3]
@@ -478,6 +495,10 @@ def summarize(
         ),
         "world_roi_luminance_max": (
             roi_luminances[-1] if roi_luminances else None
+        ),
+        "world_roi_environment_zero_count": roi_environment_zero_count,
+        "world_roi_combined_zero_count": (
+            roi_combined_zero_count if direct_light_available else None
         ),
         "world_position_min": world_min if has_world_positions else None,
         "world_position_max": world_max if has_world_positions else None,
@@ -951,6 +972,8 @@ def main() -> int:
     parser.add_argument("--min-roi-channel-share-gain", type=float)
     parser.add_argument("--min-roi-luminance-mean", type=float)
     parser.add_argument("--max-roi-luminance-mean", type=float)
+    parser.add_argument("--max-world-roi-environment-zero-count", type=int)
+    parser.add_argument("--max-world-roi-combined-zero-count", type=int)
     parser.add_argument("--max-exact-direct-sun-visibility", type=float)
     parser.add_argument("--direct-light-sunlit-roi", type=float, nargs=6)
     parser.add_argument("--min-direct-light-sunlit-luminance-mean", type=float)
@@ -1071,6 +1094,14 @@ def main() -> int:
     gate_max("selected_roi_channel_share", args.max_roi_channel_share)
     gate_min("world_roi_luminance_mean", args.min_roi_luminance_mean)
     gate_max("world_roi_luminance_mean", args.max_roi_luminance_mean)
+    gate_max(
+        "world_roi_environment_zero_count",
+        args.max_world_roi_environment_zero_count,
+    )
+    gate_max(
+        "world_roi_combined_zero_count",
+        args.max_world_roi_combined_zero_count,
+    )
     gate_max(
         "exact_direct_sun_visibility_max",
         args.max_exact_direct_sun_visibility,
