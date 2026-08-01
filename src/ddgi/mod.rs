@@ -7,6 +7,9 @@ mod atlas;
 #[cfg_attr(not(test), allow(dead_code))]
 mod octahedral;
 mod resources;
+// This host-only seam is intentionally landed before its tracer/volume integration.
+#[allow(dead_code)]
+mod scheduler;
 mod terrain_refresh;
 
 pub use atlas::{
@@ -19,6 +22,12 @@ pub use atlas::{
 pub use resources::{
     DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiTransportStage, DdgiVerifiedBatchOutcome,
     DdgiVolume, DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes,
+};
+#[allow(unused_imports)]
+pub use scheduler::{
+    DdgiConvergenceSample, DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage,
+    DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError, DdgiSchedulingPolicy,
+    DdgiTransportScheduler,
 };
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
 
