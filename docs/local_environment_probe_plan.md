@@ -901,9 +901,14 @@ architectural context, while the three density rows above are the matched produc
 
 ### Runtime DDGI Terrain-Edit Relocation
 
+This subsection is the current DDGI status and supersedes the archived local-SH implementation
+evidence earlier in this document. In particular, current runtime invalidation does not use global
+SH, nearest-valid fill, local priority regions, or a partially trusted active field.
+
 Startup classification and voxel-native relocation still run only after initial terrain is ready.
 Runtime terrain edits are now supported by a correctness-first full-volume staging rebuild. The
-edited world domain fails closed until the exact latest terrain revision reaches Ready; promotion
+edited world domain returns strict-zero environment irradiance until the exact latest terrain
+revision reaches Ready; promotion
 then switches terrain and raster consumers to one immutable build token and revision. Edits during
 a build obsolete the older candidate, while density changes remain queued behind terrain work.
 
@@ -922,12 +927,12 @@ a build obsolete the older candidate, while density changes remain queued behind
 - Terrain edits use conservative full-domain fail-closed invalidation and a full-volume staging
   rebuild. Dependency-exact/local refresh remains a performance optimization, and spacing 8 is not
   runtime-edit qualified.
-- Relocation-failed probes remain invalid. Leak-resistant weighting and nearest-valid fallback keep
-  them from contributing, but narrow geometry below the 32-voxel sampling scale can still justify a
-  temporary 16-voxel quality run.
-- Aggregate state counts update after full convergence; the debug panel shows conservative
-  all-dirty progress while a refresh is in flight rather than performing a per-frame volume
-  readback.
+- Relocation-failed probes remain invalid and contribute zero; the current query does not substitute
+  nearest-valid or global-SH lighting. Narrow geometry below the 32-voxel sampling scale can still
+  justify a temporary 16-voxel quality run.
+- Runtime progress is reported as active-to-target revision/token identity, staging stage and
+  filtered-probe progress, coordinator state, queued density, and full-domain fail-closed state.
+  It does not use the archived local-SH aggregate/all-dirty model or per-frame full-volume readback.
 - Probe spacing changes rebuild the complete finite volume explicitly. Runtime paging,
   camera-relative scrolling, dependency-exact invalidation, local direct lights, and ReSTIR DI
   remain future work.

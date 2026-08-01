@@ -462,6 +462,15 @@ P99 error for portal states). The runner checks active/target/token and shared-c
 rejects promotion of obsolete terrain revision 2, scans logs for validation/descriptor/stale
 readback failures, and returns one aggregate exit status with one output directory.
 
+The gate also captures the ordinary final DDGI output while the latest terrain candidate is still
+`BuildingTerrain`: active revision 1 remains bound, target revision 3 has a nonzero staging token
+and GPU filtering progress, full-domain invalidation is on, neither terrain candidate has promoted,
+and every terrain hit must receive strict-zero irradiance. A separate flora-enabled runtime run
+requires a nonzero flora instance draw to report the exact final active token and terrain revision
+recorded by the shared consumer promotion seam. Capture runs are one-shot tasks and exit immediately
+after the file is successfully flushed; the default 60-second auto-exit is only a slow-machine or
+failure timeout and can be overridden with `DDGI_RUNTIME_TERRAIN_EDIT_AUTO_EXIT`.
+
 ## Validation Ladder
 
 Every shader/Rust milestone follows the repository policy:
