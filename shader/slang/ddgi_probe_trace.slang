@@ -10,6 +10,12 @@ static const uint DDGI_RAYS_PER_PROBE = 256u;
 static const uint DDGI_RAYS_PER_THREAD =
     DDGI_RAYS_PER_PROBE / DDGI_TRACE_WORKGROUP_SIZE;
 static const float DDGI_GOLDEN_ANGLE = 2.39996322972865332;
+// DDGI stores diffuse irradiance divided by pi so diffuse consumers apply
+// albedo exactly once. Preserve the existing authored sky presentation by
+// treating the current sky function as an engine-authored value that needs
+// this radiance calibration before the normalized filter integrates it.
+static const float DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION =
+    3.14159265358979323846;
 
 [[vk::binding(1, 0)]]
 ConstantBuffer<U_SunInfo> sun_info;
@@ -102,7 +108,8 @@ void main(uint3 groupId : SV_GroupID,
         if (!result.is_hit)
         {
             rayRecord.xyz =
-                getSkyColor(direction, normalize(sun_info.sun_dir));
+                getSkyColor(direction, normalize(sun_info.sun_dir)) *
+                DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION;
             recordTraceStat(2u);
         }
         else

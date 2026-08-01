@@ -4,7 +4,9 @@ import tracer_types;
 static const uint DDGI_IRRADIANCE_INTERIOR_SIDE = 8u;
 static const uint DDGI_SKY_FILTER_SAMPLE_COUNT = 2048u;
 static const float DDGI_GOLDEN_ANGLE = 2.39996322972865332;
-static const float DDGI_FOUR_PI = 12.566370614359172;
+static const float DDGI_FOUR = 4.0;
+static const float DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION =
+    3.14159265358979323846;
 
 [[vk::binding(1, 0)]]
 ConstantBuffer<U_SunInfo> sun_info;
@@ -61,9 +63,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         float3 direction = fibonacciDirection(sampleIndex);
         float cosineWeight = max(0.0, dot(normal, direction));
         irradiance += getSkyColor(direction, normalize(sun_info.sun_dir)) *
-                      cosineWeight;
+                      DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION * cosineWeight;
     }
-    irradiance *= DDGI_FOUR_PI / float(DDGI_SKY_FILTER_SAMPLE_COUNT);
+    // Store diffuse irradiance divided by pi. The authored-sky calibration
+    // above keeps this scene-facing result at the established brightness.
+    irradiance *= DDGI_FOUR / float(DDGI_SKY_FILTER_SAMPLE_COUNT);
 
     ddgi_global_sky_irradiance[dispatchThreadId.xy + uint2(1u, 1u)] =
         float4(irradiance, 1.0);

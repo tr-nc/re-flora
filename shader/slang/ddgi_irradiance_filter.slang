@@ -4,7 +4,7 @@ import ddgi_types;
 static const uint DDGI_RAYS_PER_PROBE = 256u;
 static const uint DDGI_IRRADIANCE_INTERIOR_SIDE = 8u;
 static const uint DDGI_IRRADIANCE_STORED_SIDE = 10u;
-static const float DDGI_FOUR_PI = 12.566370614359172;
+static const float DDGI_FOUR = 4.0;
 
 [[vk::binding(24, 0)]]
 readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
@@ -68,6 +68,8 @@ void main(uint3 groupId : SV_GroupID,
                 .xyz;
         irradiance += radiance * cosineWeight;
     }
-    irradiance *= DDGI_FOUR_PI / float(DDGI_RAYS_PER_PROBE);
+    // Uniform-sphere Monte Carlo estimate of diffuse irradiance divided by pi:
+    // (1 / pi) * (4 * pi / N) * sum(L * max(0, n dot w)).
+    irradiance *= DDGI_FOUR / float(DDGI_RAYS_PER_PROBE);
     ddgi_irradiance_atlas[atlasCoordinate] = float4(irradiance, 1.0);
 }
