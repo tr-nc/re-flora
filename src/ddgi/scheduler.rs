@@ -385,17 +385,25 @@ impl DdgiTransportScheduler {
     }
 
     /// Completes work only after the caller has validated and atomically published its resources.
+    pub fn validate_in_flight_completion(
+        &self,
+        work: DdgiScheduledWork,
+        published: DdgiFieldIdentity,
+    ) -> Result<(), DdgiSchedulerError> {
+        let current = self.in_flight.ok_or(DdgiSchedulerError::NoInFlightWork)?;
+        if current != work {
+            return Err(DdgiSchedulerError::StaleCompletion);
+        }
+        validate_completion(work, published)
+    }
+
+    /// Completes work only after the caller has validated and atomically published its resources.
     pub fn complete_in_flight(
         &mut self,
         work: DdgiScheduledWork,
         published: DdgiFieldIdentity,
     ) -> Result<DdgiFieldIdentity, DdgiSchedulerError> {
-        let current = self.in_flight.ok_or(DdgiSchedulerError::NoInFlightWork)?;
-        if current != work {
-            return Err(DdgiSchedulerError::StaleCompletion);
-        }
-
-        validate_completion(work, published)?;
+        self.validate_in_flight_completion(work, published)?;
 
         self.in_flight = None;
         self.published = Some(published);
@@ -696,6 +704,10 @@ mod tests {
 
         assert_eq!(scheduler.request_density(16), Some(feedback));
         assert_eq!(scheduler.published(), Some(old));
+        assert_eq!(
+            scheduler.validate_in_flight_completion(feedback, feedback.destination()),
+            Err(DdgiSchedulerError::NoInFlightWork),
+        );
         assert_eq!(
             scheduler.complete_in_flight(feedback, feedback.destination()),
             Err(DdgiSchedulerError::NoInFlightWork),
