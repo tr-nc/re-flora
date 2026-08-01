@@ -59,6 +59,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "check_ddgi_runtime_terrain_edits.sh --dry-run",
             "threshold_provenance=docs/ddgi_transport_acceptance.md",
             "direct-sun-framebuffer=PROVEN",
+            "check_ddgi_sky_normalization_evidence.py",
         ):
             self.assertIn(contract, output)
 
