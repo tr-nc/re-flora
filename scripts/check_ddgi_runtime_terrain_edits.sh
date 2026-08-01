@@ -193,7 +193,7 @@ check_inflight_fail_closed_markers() {
         echo "[DDGI_RUNTIME_EDIT] transient capture occurred after a terrain promotion spacing=$spacing" >&2
         missing=$((missing + 1))
     fi
-    if grep -Eq '\[DDGI\]\[CONSUMERS\].*terrain_revision=(2|3)([^0-9]|$)' "$console"; then
+    if grep -Eq '\[DDGI\]\[CONSUMERS\].*geometry_revision=(2|3)([^0-9]|$)' "$console"; then
         echo "[DDGI_RUNTIME_EDIT] transient capture exposed an unready terrain revision spacing=$spacing" >&2
         missing=$((missing + 1))
     fi
@@ -244,7 +244,7 @@ check_flora_consumer() {
     local console="$1"
     local capture="$2"
     local consumer_line
-    consumer_line="$(grep -E '\[DDGI\]\[CONSUMERS\].*terrain_revision=3([^0-9]|$)' "$console" | tail -n 1 || true)"
+    consumer_line="$(grep -E '\[DDGI\]\[CONSUMERS\].*geometry_revision=3([^0-9]|$)' "$console" | tail -n 1 || true)"
     local active_token
     active_token="$(sed -n 's/.*active_token_serial=\([0-9][0-9]*\).*/\1/p' <<<"$consumer_line")"
     if [[ -z "$active_token" ]]; then
