@@ -8,12 +8,25 @@ auto_exit="${DDGI_LIFECYCLE_AUTO_EXIT:-90}"
 output_root="${DDGI_LIFECYCLE_OUTPUT_DIR:-$repo_root/target/ddgi-lifecycle-acceptance}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 run_dir="$output_root/$run_id"
-binary="$repo_root/target/release/re-flora"
 analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
 failures=0
+dry_run=false
+if [[ $# -eq 1 && "$1" == "--dry-run" ]]; then
+    dry_run=true
+elif [[ $# -ne 0 ]]; then
+    echo "usage: $0 [--dry-run]" >&2
+    exit 2
+fi
 
-mkdir -p "$run_dir"
-cargo build --release --manifest-path "$repo_root/Cargo.toml"
+if ! $dry_run; then
+    mkdir -p "$run_dir"
+    cargo build --release --manifest-path "$repo_root/Cargo.toml"
+fi
+
+print_command() {
+    printf '%q ' "$@"
+    printf '\n'
+}
 
 field_value() {
     local line="$1"
@@ -44,7 +57,7 @@ run_hidden() {
     local console="$5"
     shift 5
     local command=(
-        "$binary"
+        cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
         --environment-lighting-test-scene "$scene"
         --environment-probe-spacing-voxels 32
@@ -55,6 +68,10 @@ run_hidden() {
     )
 
     echo "[DDGI_LIFECYCLE] group=$group scene=$scene target=$capture_target running"
+    if $dry_run; then
+        print_command "${command[@]}"
+        return 0
+    fi
     set +e
     RUST_LOG="warn,re_flora::tracer=info,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
         "${command[@]}" 2>&1 | tee "$console"
@@ -75,6 +92,9 @@ check_radiance() {
     local capture="$run_dir/radiance-changes.rfirr"
     local console="$run_dir/radiance-changes.console.log"
     run_hidden RADIANCE radiance-changes s2 "$capture" "$console" || return 1
+    if $dry_run; then
+        return 0
+    fi
     require_markers RADIANCE "$console" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=r1-terminal" \
         "[DDGI_ACCEPT][RADIANCE] checkpoint=r2-midflight" \
@@ -126,6 +146,9 @@ check_density() {
     local console="$run_dir/density-changes.console.log"
     run_hidden DENSITY density-changes s1 "$capture" "$console" \
         --environment-probe-rebuild-spacing-voxels 16 || return 1
+    if $dry_run; then
+        return 0
+    fi
     require_markers DENSITY "$console" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=baseline" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=density-midflight" \
@@ -185,6 +208,11 @@ if ! check_radiance; then
 fi
 if ! check_density; then
     failures=$((failures + 1))
+fi
+
+if $dry_run; then
+    echo "[DDGI_LIFECYCLE] dry-run complete scenarios=2"
+    exit 0
 fi
 
 echo "[DDGI_LIFECYCLE] output=$run_dir failures=$failures"
