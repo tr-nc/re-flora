@@ -41,6 +41,7 @@ pub enum EnvironmentLightingTestCase {
     Portal,
     Walls,
     TerrainEdits,
+    TerrainEditsClosed,
 }
 
 impl EnvironmentLightingTestCase {
@@ -50,6 +51,7 @@ impl EnvironmentLightingTestCase {
             "portal" => Some(Self::Portal),
             "walls" => Some(Self::Walls),
             "terrain-edits" => Some(Self::TerrainEdits),
+            "terrain-edits-closed" => Some(Self::TerrainEditsClosed),
             _ => None,
         }
     }
@@ -60,6 +62,7 @@ impl EnvironmentLightingTestCase {
             Self::Portal => "portal",
             Self::Walls => "walls",
             Self::TerrainEdits => "terrain-edits",
+            Self::TerrainEditsClosed => "terrain-edits-closed",
         }
     }
 }
@@ -497,7 +500,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, portal, walls, terrain-edits."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, portal, walls, terrain-edits, terrain-edits-closed."
                 )
             }),
     }
@@ -685,7 +688,8 @@ Options:
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --environment-lighting-test-scene [case]
-                              Build a lighting case: sealed (default), portal, walls, or terrain-edits
+                              Build a lighting case: sealed (default), portal, walls, terrain-edits,
+                              or terrain-edits-closed
   --environment-irradiance-capture <path>
                               Save pre-albedo linear RGB irradiance plus terrain-hit mask
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
@@ -835,6 +839,10 @@ mod tests {
             ("portal", EnvironmentLightingTestCase::Portal),
             ("walls", EnvironmentLightingTestCase::Walls),
             ("terrain-edits", EnvironmentLightingTestCase::TerrainEdits),
+            (
+                "terrain-edits-closed",
+                EnvironmentLightingTestCase::TerrainEditsClosed,
+            ),
         ] {
             let options = parse(&["re-flora", "--environment-lighting-test-scene", name]);
             assert_eq!(options.environment_lighting_test_scene, Some(expected));
@@ -852,7 +860,7 @@ mod tests {
 
         assert!(result
             .unwrap_err()
-            .contains("sealed, portal, walls, terrain-edits"));
+            .contains("sealed, portal, walls, terrain-edits, terrain-edits-closed"));
     }
 
     #[test]

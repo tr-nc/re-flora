@@ -1496,10 +1496,13 @@ impl App {
                     chunk_ids: rebuild_chunk_ids,
                 },
             )?;
-            if terrain_changed {
-                self.terrain_physics
-                    .mark_terrain_voxel_bound_dirty(rebuild_bound);
-            }
+            // TerrainRebuild returns only after its flora-preserving visible rebuild succeeds.
+            self.finish_player_terrain_edit_publication(
+                terrain_changed,
+                true,
+                rebuild_bound,
+                "terrain removal",
+            )?;
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
                 .lock()
@@ -1561,10 +1564,12 @@ impl App {
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             );
-            if terrain_changed && rebuilt {
-                self.terrain_physics
-                    .mark_terrain_voxel_bound_dirty(rebuild_bound);
-            }
+            self.finish_player_terrain_edit_publication(
+                terrain_changed,
+                rebuilt,
+                rebuild_bound,
+                "terrain placement",
+            )?;
             let _mesh_elapsed = mesh_start.elapsed();
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
@@ -1662,10 +1667,13 @@ impl App {
         self.request_vsm_history_reset();
         let rebuild_chunk_ids =
             world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
-        if self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids) {
-            self.terrain_physics
-                .mark_terrain_voxel_bound_dirty(rebuild_bound);
-        }
+        let rebuilt = self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
+        self.finish_player_terrain_edit_publication(
+            true,
+            rebuilt,
+            rebuild_bound,
+            "terrain smoothing",
+        )?;
         Ok(())
     }
 

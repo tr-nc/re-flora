@@ -149,6 +149,14 @@ public bool ddgiQueryUsesGlobalSky(U_ShadingInfo lighting,
            any(gridPosition > float3(dimensions - uint3(1u)));
 }
 
+public bool ddgiQueryIsTerrainInvalidated(U_ShadingInfo lighting,
+                                           float3 worldPosition)
+{
+    return lighting.ddgi_invalidation_enabled != 0u &&
+           all(worldPosition >= lighting.ddgi_invalidation_world_min) &&
+           all(worldPosition <= lighting.ddgi_invalidation_world_max);
+}
+
 public DdgiQueryResult makeEmptyDdgiQueryResult()
 {
     DdgiQueryResult result;
@@ -285,6 +293,9 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironment(
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    // Once terrain has changed, neither the active probe field nor its global-sky fallback is
+    // trustworthy inside the edit's interpolation/relocation influence region.
+    if (ddgiQueryIsTerrainInvalidated(lighting, worldPosition)) return result;
     if (ddgiQueryUsesGlobalSky(lighting, worldPosition))
     {
         result.irradiance = sampleDdgiGlobalSky(normal);

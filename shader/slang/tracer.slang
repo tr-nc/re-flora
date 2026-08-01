@@ -169,6 +169,7 @@ DdgiQueryResult sampleDdgiExactTerrainReference(
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
     float3 normal = normalize(surfaceNormal);
+    if (ddgiQueryIsTerrainInvalidated(shading_info, worldPosition)) return result;
     if (ddgiQueryUsesGlobalSky(shading_info, worldPosition))
     {
         result.irradiance = sampleDdgiGlobalSky(normal);
