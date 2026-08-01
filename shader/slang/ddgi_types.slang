@@ -63,5 +63,18 @@ public struct U_DdgiTransportQueryInfo
     public uint source_ready;
     public uint irradiance_tile_columns;
     public uint visibility_tile_columns;
-    public uint2 padding;
+    public uint geometry_revision;
+    public uint padding;
+};
+
+// Exact authoritative voxel occupancy published for DDGI query visibility. X is packed into
+// 32-bit words while Y/Z retain voxel resolution.
+public struct U_DdgiVoxelVisibilityInfo
+{
+    public uint3 voxel_dimensions;
+    public uint geometry_revision;
+    public uint3 packed_word_dimensions;
+    public uint ready;
+    public float3 world_to_voxel_scale;
+    public uint max_steps;
 };

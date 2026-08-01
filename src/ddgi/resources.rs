@@ -826,7 +826,8 @@ impl DdgiVolume {
             source_ready: 0,
             irradiance_tile_columns: irradiance_layout.tile_grid().x,
             visibility_tile_columns: visibility_layout.tile_grid().x,
-            padding: [0; 2],
+            geometry_revision: 0,
+            padding: 0,
         };
         transport_query_info.fill_uniform(&transport_query_snapshot)?;
         let irradiance_atlas = Texture::new(
@@ -1039,6 +1040,7 @@ impl DdgiVolume {
         let radiance_changed = self.published_field.is_some_and(|source| {
             destination.field().radiance_revision() != source.logical.field().radiance_revision()
         });
+        self.transport_query_snapshot.geometry_revision = destination.field().geometry_revision();
         let resident = resident_iteration_for_work(work, self.published_field)?;
         match work.kind() {
             DdgiScheduledWorkKind::GeometryBootstrap | DdgiScheduledWorkKind::DensityBootstrap => {

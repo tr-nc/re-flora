@@ -65,7 +65,7 @@ use crate::ddgi::{
     DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch,
     DdgiRefreshState, DdgiStatus, DdgiTerrainRefresh, DdgiTransportScheduler,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid,
-    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY,
     DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
     DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
@@ -103,16 +103,45 @@ fn ddgi_density_rebuild_terrain_revision(
     active_terrain_revision.or(initial_terrain_revision)
 }
 
-fn record_published_ddgi_terrain_edit(
+fn ddgi_shading_geometry_revision(
+    active_published_revision: Option<u32>,
+    capture_checkpoint_revision: Option<u32>,
+    unpublished_capture: bool,
+) -> u32 {
+    if unpublished_capture {
+        capture_checkpoint_revision.unwrap_or_default()
+    } else {
+        active_published_revision.unwrap_or_default()
+    }
+}
+
+fn ddgi_unpublished_capture_geometry_revision(
+    target: DdgiCaptureTarget,
+    checkpoint: Option<DdgiCaptureCheckpoint>,
+    complete_field: Option<DdgiFieldIdentity>,
+    building_field: Option<DdgiFieldIdentity>,
+) -> Option<u32> {
+    checkpoint
+        .filter(|checkpoint| target.matches(checkpoint.field))
+        .map(|checkpoint| checkpoint.field.field().geometry_revision())
+        .or_else(|| {
+            [complete_field, building_field]
+                .into_iter()
+                .flatten()
+                .find(|field| target.matches(*field))
+                .map(|field| field.field().geometry_revision())
+        })
+}
+
+fn request_ddgi_terrain_edit_revision(
     refresh: &mut DdgiTerrainRefresh,
     current_terrain_revision: u32,
     edit_bound: UAabb3,
     grid: DdgiVolumeGrid,
 ) -> u32 {
-    let published_terrain_revision = current_terrain_revision.wrapping_add(1).max(1);
-    refresh.request(published_terrain_revision, edit_bound, grid);
-    refresh.mark_terrain_published(published_terrain_revision);
-    published_terrain_revision
+    let requested_terrain_revision = current_terrain_revision.wrapping_add(1).max(1);
+    refresh.request(requested_terrain_revision, edit_bound, grid);
+    requested_terrain_revision
 }
 
 fn validate_unpublished_capture_volume(builder_is_active: bool) -> Result<()> {
@@ -601,7 +630,8 @@ mod default_camera_tests {
 #[cfg(test)]
 mod ddgi_density_rebuild_tests {
     use super::{
-        ddgi_density_rebuild_terrain_revision, record_published_ddgi_terrain_edit,
+        ddgi_density_rebuild_terrain_revision, ddgi_shading_geometry_revision,
+        ddgi_unpublished_capture_geometry_revision, request_ddgi_terrain_edit_revision,
         validate_unpublished_capture_volume, DdgiRuntimeStatus,
     };
     use crate::ddgi::{
@@ -625,19 +655,50 @@ mod ddgi_density_rebuild_tests {
     }
 
     #[test]
-    fn successful_visible_edit_records_its_exact_publication_before_drive() {
+    fn unpublished_s0_query_uses_its_exact_capture_checkpoint_revision() {
+        assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), true), 7);
+        assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), false), 3);
+        assert_eq!(ddgi_shading_geometry_revision(Some(3), None, true), 0);
+    }
+
+    #[test]
+    fn unpublished_s0_revision_survives_the_private_s0_to_s1_residency_transition() {
+        let mut scheduler = DdgiTransportScheduler::new();
+        scheduler.observe_radiance(4);
+        scheduler.request_geometry(7, 32);
+        let work = scheduler.claim_next().unwrap().unwrap();
+        let s1 = work.destination();
+        let s0 = crate::ddgi::DdgiFieldIdentity::new(s1.source().unwrap(), None).unwrap();
+        let target = crate::ddgi::DdgiCaptureTarget::Iteration(0);
+
+        assert_eq!(
+            ddgi_unpublished_capture_geometry_revision(target, None, None, Some(s0)),
+            Some(7),
+            "pre-validation query must use the private building S0 field",
+        );
+        assert_eq!(
+            ddgi_unpublished_capture_geometry_revision(target, None, Some(s0), Some(s1)),
+            Some(7),
+            "post-validation query must prefer the private complete S0 over building S1",
+        );
+    }
+
+    #[test]
+    fn requested_edit_cannot_be_claimed_until_exact_visibility_is_published() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
         let mut refresh = DdgiTerrainRefresh::default();
-        let published_revision = record_published_ddgi_terrain_edit(
+        let requested_revision = request_ddgi_terrain_edit_revision(
             &mut refresh,
             7,
             UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
             grid,
         );
 
+        assert_eq!(requested_revision, 8);
+        assert_eq!(refresh.claim_next_build(32, 7), None);
+        refresh.mark_terrain_published(requested_revision);
         let token = refresh.claim_next_build(32, 7).unwrap();
-        assert_eq!(published_revision, 8);
-        assert_eq!(token.terrain_revision(), published_revision);
+        assert_eq!(token.terrain_revision(), requested_revision);
         assert_eq!(token.kind(), DdgiBuildKind::Terrain);
     }
 
@@ -831,6 +892,7 @@ pub struct Tracer {
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
     ddgi_volumes: DdgiVolumes,
+    ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_transport_scheduler: DdgiTransportScheduler,
     ddgi_capture_checkpoint: Option<DdgiCaptureCheckpoint>,
     ddgi_initial_terrain_ready_revision: Option<u32>,
@@ -990,6 +1052,13 @@ impl Tracer {
             desc.voxel_dim_per_chunk,
             desc.ddgi_batch_order,
         )?;
+        let ddgi_voxel_visibility = DdgiVoxelVisibility::new(
+            &vulkan_ctx,
+            allocator.clone(),
+            chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
+            desc.voxel_dim_per_chunk,
+            &shader_modules.ddgi_voxel_visibility_pack_sm,
+        )?;
         let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
             vulkan_ctx.device().clone(),
             allocator.clone(),
@@ -1004,6 +1073,7 @@ impl Tracer {
             scene_accel_resources,
             plain_builder_resources,
             &ddgi_volume,
+            &ddgi_voxel_visibility,
         );
         let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
@@ -1021,6 +1091,7 @@ impl Tracer {
             &resources,
             plain_builder_resources,
             &ddgi_volume,
+            &ddgi_voxel_visibility,
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
@@ -1099,6 +1170,7 @@ impl Tracer {
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
             ddgi_volumes: DdgiVolumes::new(ddgi_volume),
+            ddgi_voxel_visibility,
             ddgi_transport_scheduler: DdgiTransportScheduler::new(),
             ddgi_capture_checkpoint: None,
             ddgi_initial_terrain_ready_revision: None,
@@ -1239,13 +1311,53 @@ impl Tracer {
         Ok(true)
     }
 
-    /// Records a refresh for terrain whose visible GPU rebuild has already succeeded.
+    fn rebuild_ddgi_voxel_visibility(&mut self, geometry_revision: u32) -> Result<()> {
+        let started = std::time::Instant::now();
+        self.ddgi_voxel_visibility.begin_pack(geometry_revision)?;
+        let dispatch = self.ddgi_voxel_visibility.word_dimensions();
+        let pack_to_queries = PipelineBarrier::shader_access(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
+        );
+        execute_one_time_gpu_job(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.compute_pipelines
+                    .ddgi_voxel_visibility_pack_ppl
+                    .record(
+                        cmdbuf,
+                        Extent3D::new(dispatch.x, dispatch.y, dispatch.z),
+                        None,
+                    );
+                pack_to_queries.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            },
+        );
+        self.ddgi_voxel_visibility.publish_pack(geometry_revision)?;
+        debug_assert_eq!(
+            self.ddgi_voxel_visibility.published_revision(),
+            Some(geometry_revision)
+        );
+        log::info!(
+            "[DDGI][VOXEL_VISIBILITY] published geometry_revision={} packed={}x{}x{} elapsed_ms={:.3}",
+            geometry_revision,
+            dispatch.x,
+            dispatch.y,
+            dispatch.z,
+            started.elapsed().as_secs_f64() * 1000.0,
+        );
+        Ok(())
+    }
+
+    /// Records a refresh after the visible terrain GPU rebuild, then synchronously publishes the
+    /// matching exact occupancy before allowing any DDGI scheduler work for that revision.
     pub fn request_published_environment_probe_refresh_near_voxel_bound(
         &mut self,
         edit_bound: UAabb3,
-    ) {
+    ) -> Result<()> {
         let grid = self.ddgi_status().active().grid;
-        self.environment_probe_terrain_revision = record_published_ddgi_terrain_edit(
+        self.environment_probe_terrain_revision = request_ddgi_terrain_edit_revision(
             &mut self.ddgi_terrain_refresh,
             self.environment_probe_terrain_revision,
             edit_bound,
@@ -1262,6 +1374,15 @@ impl Tracer {
             invalidation_bound.map(|bound| (bound.min(), bound.max())),
             self.ddgi_terrain_refresh.state(),
         );
+        self.rebuild_ddgi_voxel_visibility(self.environment_probe_terrain_revision)?;
+        self.ddgi_terrain_refresh
+            .mark_terrain_published(self.environment_probe_terrain_revision);
+        log::info!(
+            "[DDGI] runtime terrain and exact visibility published revision={} coordinator={:?}",
+            self.environment_probe_terrain_revision,
+            self.ddgi_terrain_refresh.state(),
+        );
+        Ok(())
     }
 
     /// Claims and installs the latest authoritative DDGI build at a GPU-safe replacement point.
@@ -1318,7 +1439,8 @@ impl Tracer {
 
     /// Starts the static DDGI build after the caller has finished all initial terrain work.
     /// A matching pre-initialization edit request is consumed by this initial build.
-    pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) {
+    pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) -> Result<()> {
+        self.rebuild_ddgi_voxel_visibility(terrain_revision)?;
         self.ddgi_initial_terrain_ready_revision = Some(terrain_revision);
         self.ddgi_terrain_refresh
             .mark_terrain_published(terrain_revision);
@@ -1350,6 +1472,7 @@ impl Tracer {
                 status.stage,
             );
         }
+        Ok(())
     }
 
     pub fn ddgi_debug_view(&self) -> DdgiDebugView {
@@ -1769,7 +1892,12 @@ impl Tracer {
                 contree_builder_resources,
                 scene_accel_resources,
                 ddgi_builder,
+                &self.ddgi_voxel_visibility,
             ],
+        );
+        update_compute_fn(
+            &self.compute_pipelines.ddgi_voxel_visibility_pack_ppl,
+            &[plain_builder_resources, &self.ddgi_voxel_visibility],
         );
         for pipeline in [
             &self.compute_pipelines.ddgi_irradiance_filter_ppl,
@@ -1782,17 +1910,19 @@ impl Tracer {
         }
     }
 
-    fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
+    fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
         [
             &self.resources as &dyn ResourceContainer,
             self.ddgi_volumes.active() as &dyn ResourceContainer,
+            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
         ]
     }
 
-    fn environment_lighting_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
+    fn environment_lighting_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
         [
             &self.resources as &dyn ResourceContainer,
             self.ddgi_volumes.active() as &dyn ResourceContainer,
+            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
         ]
     }
 
@@ -1801,13 +1931,14 @@ impl Tracer {
         contree_builder_resources: &'a ContreeBuilderResources,
         scene_accel_resources: &'a SceneAccelBuilderResources,
         plain_builder_resources: &'a PlainBuilderResources,
-    ) -> [&'a dyn ResourceContainer; 5] {
+    ) -> [&'a dyn ResourceContainer; 6] {
         [
             &self.resources as &dyn ResourceContainer,
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
             plain_builder_resources as &dyn ResourceContainer,
             self.ddgi_volumes.active() as &dyn ResourceContainer,
+            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
         ]
     }
 
@@ -2425,12 +2556,33 @@ impl Tracer {
             },
         });
         let ddgi_status = self.ddgi_volumes.status().active();
+        let unpublished_capture = self.desc.environment_irradiance_capture_enabled
+            && self.desc.environment_irradiance_capture_target.iteration() == Some(0);
+        let builder_status = self.ddgi_volumes.status().builder();
+        let unpublished_capture_geometry_revision = unpublished_capture
+            .then(|| {
+                ddgi_unpublished_capture_geometry_revision(
+                    self.desc.environment_irradiance_capture_target,
+                    self.ddgi_capture_checkpoint(),
+                    builder_status.complete_field,
+                    builder_status.building_field,
+                )
+            })
+            .flatten();
+        let ddgi_geometry_revision = ddgi_shading_geometry_revision(
+            ddgi_status
+                .published_field
+                .map(|field| field.field().geometry_revision()),
+            unpublished_capture_geometry_revision,
+            unpublished_capture,
+        );
         BufferUpdater::update_shading_info(
             &self.resources,
             environment_lighting,
             ddgi_status.grid,
             self.desc.voxel_dim_per_chunk,
             self.ddgi_ready(),
+            ddgi_geometry_revision,
             self.desc.environment_irradiance_capture_enabled,
             self.desc.environment_irradiance_capture_target.iteration() == Some(0),
             ddgi_status.irradiance_layout.tile_grid().x,

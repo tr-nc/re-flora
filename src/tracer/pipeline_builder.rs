@@ -1,5 +1,5 @@
 use crate::builder::{ContreeBuilderResources, PlainBuilderResources, SceneAccelBuilderResources};
-use crate::ddgi::DdgiVolume;
+use crate::ddgi::{DdgiVolume, DdgiVoxelVisibility};
 use crate::resource::ResourceContainer;
 use crate::tracer::TracerResources;
 use anyhow::Result;
@@ -70,6 +70,12 @@ impl PipelineBuilder {
         let ddgi_atlas_reduce_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/ddgi/atlas_reduce.comp",
+            "main",
+        )
+        .unwrap();
+        let ddgi_voxel_visibility_pack_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/voxel_visibility_pack.comp",
             "main",
         )
         .unwrap();
@@ -359,6 +365,7 @@ impl PipelineBuilder {
             ddgi_irradiance_gutter_sm,
             ddgi_visibility_gutter_sm,
             ddgi_atlas_reduce_sm,
+            ddgi_voxel_visibility_pack_sm,
             tracer_shadow_sm,
             shadow_depth_copy_sm,
             leaf_shadow_temporal_sm,
@@ -412,6 +419,7 @@ impl PipelineBuilder {
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
         ddgi_volume: &DdgiVolume,
+        ddgi_voxel_visibility: &DdgiVoxelVisibility,
     ) -> ComputePipelines {
         let device = vulkan_ctx.device();
 
@@ -442,6 +450,7 @@ impl PipelineBuilder {
                 contree_builder_resources,
                 scene_accel_resources,
                 ddgi_volume,
+                ddgi_voxel_visibility,
             ],
         );
         let ddgi_irradiance_filter_ppl = ComputePipeline::new(
@@ -474,6 +483,12 @@ impl PipelineBuilder {
             pool,
             &[ddgi_volume],
         );
+        let ddgi_voxel_visibility_pack_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.ddgi_voxel_visibility_pack_sm,
+            pool,
+            &[plain_builder_resources, ddgi_voxel_visibility],
+        );
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,
@@ -484,6 +499,7 @@ impl PipelineBuilder {
                 scene_accel_resources,
                 plain_builder_resources,
                 ddgi_volume,
+                ddgi_voxel_visibility,
             ],
         );
 
@@ -589,6 +605,7 @@ impl PipelineBuilder {
             ddgi_irradiance_gutter_ppl,
             ddgi_visibility_gutter_ppl,
             ddgi_atlas_reduce_ppl,
+            ddgi_voxel_visibility_pack_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
@@ -644,10 +661,16 @@ impl PipelineBuilder {
         resources: &TracerResources,
         plain_builder_resources: &PlainBuilderResources,
         ddgi_volume: &DdgiVolume,
+        ddgi_voxel_visibility: &DdgiVoxelVisibility,
     ) -> GraphicsPipelines {
-        let flora_resources: [&dyn ResourceContainer; 3] =
-            [resources, plain_builder_resources, ddgi_volume];
-        let environment_lighting_resources: [&dyn ResourceContainer; 2] = [resources, ddgi_volume];
+        let flora_resources: [&dyn ResourceContainer; 4] = [
+            resources,
+            plain_builder_resources,
+            ddgi_volume,
+            ddgi_voxel_visibility,
+        ];
+        let environment_lighting_resources: [&dyn ResourceContainer; 3] =
+            [resources, ddgi_volume, ddgi_voxel_visibility];
         let terrain_depth_prefill_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.terrain_depth_prefill_vert_sm,
@@ -745,8 +768,8 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
-        let environment_probe_visualization_resources: [&dyn ResourceContainer; 2] =
-            [resources, ddgi_volume];
+        let environment_probe_visualization_resources: [&dyn ResourceContainer; 3] =
+            [resources, ddgi_volume, ddgi_voxel_visibility];
         let environment_probe_visualization_depth_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.environment_probe_visualization_vert_sm,
@@ -993,6 +1016,7 @@ pub struct ShaderModules {
     pub ddgi_irradiance_gutter_sm: ShaderModule,
     pub ddgi_visibility_gutter_sm: ShaderModule,
     pub ddgi_atlas_reduce_sm: ShaderModule,
+    pub ddgi_voxel_visibility_pack_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
     pub shadow_depth_copy_sm: ShaderModule,
     pub leaf_shadow_temporal_sm: ShaderModule,
@@ -1046,6 +1070,7 @@ pub struct ComputePipelines {
     pub ddgi_irradiance_gutter_ppl: ComputePipeline,
     pub ddgi_visibility_gutter_ppl: ComputePipeline,
     pub ddgi_atlas_reduce_ppl: ComputePipeline,
+    pub ddgi_voxel_visibility_pack_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,

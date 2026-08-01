@@ -12,6 +12,7 @@ mod resources;
 #[allow(dead_code)]
 mod scheduler;
 mod terrain_refresh;
+mod voxel_visibility;
 
 pub use atlas::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiVolumeGrid,
@@ -35,6 +36,7 @@ pub use scheduler::{
     DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTransportScheduler,
 };
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
+pub use voxel_visibility::DdgiVoxelVisibility;
 
 /// Permanent DDGI diagnostics. Exact modes are intentionally opt-in because they trace up to
 /// eight additional terrain segments for every shaded terrain pixel.

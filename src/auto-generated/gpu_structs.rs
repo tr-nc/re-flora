@@ -503,7 +503,20 @@ pub struct DdgiTransportQueryInfo {
     pub source_ready: u32,
     pub irradiance_tile_columns: u32,
     pub visibility_tile_columns: u32,
-    pub padding: [u32; 2],
+    pub geometry_revision: u32,
+    pub padding: u32,
+}
+
+/// Auto-generated from `U_DdgiVoxelVisibilityInfo` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiVoxelVisibilityInfo {
+    pub voxel_dimensions: [u32; 3],
+    pub geometry_revision: u32,
+    pub packed_word_dimensions: [u32; 3],
+    pub ready: u32,
+    pub world_to_voxel_scale: [f32; 3],
+    pub max_steps: u32,
 }
 
 /// Auto-generated from `U_EditOccupancyInfo` (native Slang source of truth).
@@ -758,17 +771,17 @@ pub struct ShadingInfo {
     pub environment_probe_world_to_grid_scale: [f32; 3],
     pub environment_probe_visibility_bias_world: f32,
     pub ddgi_ready: u32,
+    pub ddgi_geometry_revision: u32,
     pub environment_irradiance_capture_enabled: u32,
     pub environment_irradiance_capture_unpublished: u32,
     pub ddgi_irradiance_tile_columns: u32,
     pub ddgi_visibility_tile_columns: u32,
     pub ddgi_debug_view: u32,
     pub ddgi_invalidation_enabled: u32,
-    pub _pad2: [u8; 4],
     pub ddgi_invalidation_world_min: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _pad2: [u8; 4],
     pub ddgi_invalidation_world_max: [f32; 3],
-    pub _pad4: [u8; 4],
+    pub _pad3: [u8; 4],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).
