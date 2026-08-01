@@ -245,14 +245,11 @@ run_child "$repo_root/scripts/check_ddgi_correctness.sh"
 run_child "$repo_root/scripts/check_ddgi_runtime_terrain_edits.sh"
 
 lifecycle_runner="$repo_root/scripts/check_ddgi_lifecycle_acceptance.sh"
-if [[ -x "$lifecycle_runner" ]]; then
-    run_child "$lifecycle_runner"
-elif $dry_run; then
-    echo "[DDGI_TRANSPORT] lifecycle-runner=pending-integration path=$lifecycle_runner"
-else
+if [[ ! -x "$lifecycle_runner" ]]; then
     echo "[DDGI_TRANSPORT] FAIL lifecycle runner missing: $lifecycle_runner" >&2
-    failures=$((failures + 1))
+    exit 1
 fi
+run_child "$lifecycle_runner"
 
 if $dry_run; then
     echo "[DDGI_TRANSPORT] dry-run complete spacings=2 sealed_stages=4 donor_stages=2 dogleg_stages=2 batch_orders=2"

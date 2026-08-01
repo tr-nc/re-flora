@@ -1,6 +1,6 @@
 # DDGI Terrain Indirect Transport Specification
 
-Status: `ready-for-agent`
+Status: `implemented-and-acceptance-qualified` (2026-08-01)
 
 This is a local project specification. It intentionally replaces issue-tracker publication for
 this work.
