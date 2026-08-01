@@ -53,10 +53,20 @@ impl BufferUpdater {
         ddgi_irradiance_tile_columns: u32,
         ddgi_visibility_tile_columns: u32,
         ddgi_debug_view: u32,
+        ddgi_invalidation_voxel_bound: Option<crate::geom::UAabb3>,
     ) -> Result<()> {
         let probe_dimensions = environment_probe_grid.dimensions();
         let probe_world_to_grid_scale =
             voxels_per_world_unit.as_vec3() / environment_probe_grid.spacing_voxels() as f32;
+        let (ddgi_invalidation_enabled, ddgi_invalidation_world_min, ddgi_invalidation_world_max) =
+            ddgi_invalidation_voxel_bound.map_or((0, [0.0; 3], [0.0; 3]), |bound| {
+                let voxels_per_world_unit = voxels_per_world_unit.as_vec3();
+                (
+                    1,
+                    (bound.min().as_vec3() / voxels_per_world_unit).to_array(),
+                    (bound.max().as_vec3() / voxels_per_world_unit).to_array(),
+                )
+            });
         resources.uniforms.shading_info.fill_uniform(&ShadingInfo {
             environment_revision: environment.revision,
             environment_probe_grid_dimensions: probe_dimensions.to_array(),
@@ -70,6 +80,9 @@ impl BufferUpdater {
             ddgi_irradiance_tile_columns,
             ddgi_visibility_tile_columns,
             ddgi_debug_view,
+            ddgi_invalidation_enabled,
+            ddgi_invalidation_world_min,
+            ddgi_invalidation_world_max,
             ..ShadingInfo::zeroed()
         })
     }

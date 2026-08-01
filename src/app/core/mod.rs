@@ -3102,6 +3102,13 @@ impl App {
                 });
                 self.process_environment_lighting_test_scene();
                 self.process_hybrid_transparency_test_scene();
+                if self.deferred_chunk_rebuilds_idle() {
+                    if let Err(err) = self.tracer.start_pending_environment_probe_refresh() {
+                        log::error!(
+                            "Failed to start DDGI refresh after terrain publication: {err:#}"
+                        );
+                    }
+                }
 
                 if self.render_start_time.is_some() {
                     if let Some(spacing_voxels) =

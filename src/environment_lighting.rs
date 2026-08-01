@@ -92,4 +92,22 @@ mod tests {
         assert!(filter.contains("if (!skyMiss) continue;"));
         assert!(filter.contains("hitDistance = supportDistance;"));
     }
+
+    #[test]
+    fn terrain_invalidation_fails_closed_before_the_global_sky_fallback() {
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let sampler = query
+            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
+            .expect("shared DDGI sampler must exist")
+            .1;
+        let invalidation = sampler
+            .find("ddgiQueryIsTerrainInvalidated")
+            .expect("shared sampler must reject invalidated terrain");
+        let global_sky = sampler
+            .find("ddgiQueryUsesGlobalSky")
+            .expect("shared sampler must retain the outside-volume sky fallback");
+
+        assert!(invalidation < global_sky);
+        assert!(sampler[invalidation..global_sky].contains("return result;"));
+    }
 }

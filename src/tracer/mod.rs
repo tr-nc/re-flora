@@ -61,9 +61,10 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiDebugView, DdgiRayBatch, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
-    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiDebugView, DdgiRayBatch, DdgiStatus, DdgiTerrainRefresh, DdgiVolume, DdgiVolumeStatus,
+    DdgiVolumes, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
+    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
+    DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::EnvironmentLightingCache;
 use crate::environment_probes::{
@@ -539,6 +540,7 @@ pub struct Tracer {
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     environment_probe_environment_revision: u32,
     environment_probe_terrain_revision: u32,
+    ddgi_terrain_refresh: DdgiTerrainRefresh,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     compute_pipelines: ComputePipelines,
@@ -800,6 +802,7 @@ impl Tracer {
             ddgi_trace_stats_readback_pending: None,
             environment_probe_environment_revision: 0,
             environment_probe_terrain_revision: 0,
+            ddgi_terrain_refresh: DdgiTerrainRefresh::default(),
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -881,18 +884,51 @@ impl Tracer {
             .environment_probe_terrain_revision
             .wrapping_add(1)
             .max(1);
-        log::info!(
-            "[DDGI] runtime terrain invalidation deferred revision={} edit_voxel_bound={:?}..{:?}",
+        let grid = self.ddgi_status().active().grid;
+        let accepted = self.ddgi_terrain_refresh.request(
             self.environment_probe_terrain_revision,
+            edit_bound,
+            grid,
+        );
+        let influence_bound = self.ddgi_terrain_refresh.influence_voxel_bound();
+        log::info!(
+            "[DDGI] runtime terrain invalidation deferred revision={} accepted={} edit_voxel_bound={:?}..{:?} influence_voxel_bound={:?}",
+            self.environment_probe_terrain_revision,
+            accepted,
             edit_bound.min(),
             edit_bound.max(),
+            influence_bound.map(|bound| (bound.min(), bound.max())),
         );
     }
 
+    /// Begins rebuilding a same-density staging field after deferred terrain publication is idle.
+    pub fn start_pending_environment_probe_refresh(&mut self) -> Result<bool> {
+        // Initial terrain construction uses notify_ddgi_initial_terrain_ready to initialize the
+        // active volume. Do not race that one-shot path by allocating a staging volume first.
+        if !self.ddgi_ready() {
+            return Ok(false);
+        }
+        let Some(terrain_revision) = self.ddgi_terrain_refresh.awaiting_terrain_revision() else {
+            return Ok(false);
+        };
+        self.prepare_environment_probe_refresh(terrain_revision)?;
+        assert!(self.ddgi_terrain_refresh.mark_building(terrain_revision));
+        log::info!(
+            "[DDGI] runtime terrain refresh started terrain_revision={} influence_voxel_bound={:?}",
+            terrain_revision,
+            self.ddgi_terrain_refresh
+                .influence_voxel_bound()
+                .map(|bound| (bound.min(), bound.max())),
+        );
+        Ok(true)
+    }
+
     /// Starts the static DDGI build after the caller has finished all initial terrain work.
-    /// Runtime terrain edits intentionally do not call this M2 seam yet.
+    /// A matching pre-initialization edit request is consumed by this initial build.
     pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) {
         self.ddgi_initial_terrain_ready_revision = Some(terrain_revision);
+        self.ddgi_terrain_refresh
+            .clear_initial_revision(terrain_revision);
         if self
             .ddgi_volumes
             .builder_mut()
@@ -1478,12 +1514,17 @@ impl Tracer {
             .promote_staging()
             .expect("ready DDGI staging volume must be promotable");
         let active = self.ddgi_volumes.status().active();
+        let promoted_terrain_revision = active.relocated_terrain_revision.unwrap_or_default();
+        let cleared_terrain_invalidation = self
+            .ddgi_terrain_refresh
+            .clear_promoted_revision(promoted_terrain_revision);
         log::info!(
-            "[DDGI] staging promoted spacing_voxels={} probes={} terrain_revision={} environment_revision={} stage={:?}",
+            "[DDGI] staging promoted spacing_voxels={} probes={} terrain_revision={} environment_revision={} cleared_terrain_invalidation={} stage={:?}",
             active.grid.spacing_voxels(),
             active.grid.probe_count(),
-            active.relocated_terrain_revision.unwrap_or_default(),
+            promoted_terrain_revision,
             active.global_sky_revision,
+            cleared_terrain_invalidation,
             active.stage,
         );
         drop(retired_active);
@@ -1764,6 +1805,7 @@ impl Tracer {
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
+            self.ddgi_terrain_refresh.influence_voxel_bound(),
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;
 

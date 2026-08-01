@@ -7,6 +7,7 @@ mod atlas;
 #[cfg_attr(not(test), allow(dead_code))]
 mod octahedral;
 mod resources;
+mod terrain_refresh;
 
 pub use atlas::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiVolumeGrid,
@@ -18,6 +19,7 @@ pub use atlas::{
 pub use resources::{
     DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
 };
+pub use terrain_refresh::DdgiTerrainRefresh;
 
 /// Permanent DDGI diagnostics. Exact modes are intentionally opt-in because they trace up to
 /// eight additional terrain segments for every shaded terrain pixel.
