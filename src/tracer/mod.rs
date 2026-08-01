@@ -1141,6 +1141,12 @@ impl Tracer {
         DdgiRuntimeStatus::new(self.ddgi_volumes.status(), self.ddgi_terrain_refresh)
     }
 
+    /// Latest radiance identity observed by the transport scheduler. Test scenes use this logical
+    /// lifecycle value to sequence deterministic changes without inspecting GPU resource slots.
+    pub fn ddgi_latest_radiance_revision(&self) -> Option<u32> {
+        self.ddgi_transport_scheduler.latest_radiance_revision()
+    }
+
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) -> Result<()> {
         self.ddgi_terrain_refresh
             .request_density_rebuild(spacing_voxels);
