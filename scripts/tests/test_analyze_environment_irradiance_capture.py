@@ -640,15 +640,21 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 capture_path,
                 [
                     (0.0, 0.0, 0.0, 1.0),
+                    (0.0, 0.0, 0.0, 1.0),
+                    (0.2, 0.1, 0.05, 1.0),
                     (0.2, 0.1, 0.05, 1.0),
                     (0.0, 0.0, 0.0, 1.0),
                 ],
                 [
                     (voxel, 0.25 * voxel, 0.25 * voxel, 0.0),
+                    (voxel, 0.35 * voxel, 0.35 * voxel, 0.0),
+                    (voxel, 0.65 * voxel, 0.65 * voxel, 0.0),
                     (voxel, 0.75 * voxel, 0.75 * voxel, 0.0),
                     (2.0 * voxel, 0.25 * voxel, 0.25 * voxel, 0.0),
                 ],
                 [
+                    (0.0, 0.0, 0.0, 1.0),
+                    (0.0, 0.0, 0.0, 1.0),
                     (0.0, 0.0, 0.0, 1.0),
                     (0.0, 0.0, 0.0, 1.0),
                     (0.0, 0.0, 0.0, 1.0),

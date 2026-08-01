@@ -61,6 +61,7 @@ ROI_CHANNEL_INDICES = {
 WORLD_ROI_BOUNDARY_EPSILON = 1.0e-6
 TERRAIN_VOXELS_PER_WORLD_UNIT = 256.0
 VOXEL_FACE_BOUNDARY_EPSILON = 1.0e-3
+VOXEL_FACE_MIN_MIXED_CLASS_PIXELS = 2
 
 
 @dataclass(frozen=True)
@@ -315,7 +316,9 @@ def summarize(
     roi_channel_sum = [0.0, 0.0, 0.0]
     roi_luminances: list[float] = []
     roi_environment_zero_count = 0
-    roi_environment_voxel_face_states: dict[tuple[int, int, int, int], int] = {}
+    roi_environment_voxel_face_counts: dict[
+        tuple[int, int, int, int], list[int]
+    ] = {}
     world_min = [math.inf, math.inf, math.inf]
     world_max = [-math.inf, -math.inf, -math.inf]
     exact_sun_visibilities: list[float] = []
@@ -363,11 +366,12 @@ def summarize(
                     if position is not None:
                         face_key = quantized_voxel_face_key(position)
                         if face_key is not None:
-                            state = 1 if all(value == 0.0 for value in rgb) else 2
-                            roi_environment_voxel_face_states[face_key] = (
-                                roi_environment_voxel_face_states.get(face_key, 0)
-                                | state
+                            counts = roi_environment_voxel_face_counts.setdefault(
+                                face_key, [0, 0]
                             )
+                            counts[
+                                0 if all(value == 0.0 for value in rgb) else 1
+                            ] += 1
                     for channel, value in enumerate(rgb):
                         roi_channel_sum[channel] += value
                         channel_abs_max[channel] = max(
@@ -392,7 +396,9 @@ def summarize(
     direct_light_luminances: list[float] = []
     direct_light_rgb_channel_negative_count = [0, 0, 0]
     roi_combined_zero_count = 0
-    roi_combined_voxel_face_states: dict[tuple[int, int, int, int], int] = {}
+    roi_combined_voxel_face_counts: dict[
+        tuple[int, int, int, int], list[int]
+    ] = {}
     direct_light_roi_luminances = {
         "sunlit": [],
         "shadowed": [],
@@ -453,10 +459,10 @@ def summarize(
                         irradiance + direct == 0.0
                         for irradiance, direct in zip(irradiance_rgb, direct_rgb)
                     )
-                    state = 1 if combined_zero else 2
-                    roi_combined_voxel_face_states[face_key] = (
-                        roi_combined_voxel_face_states.get(face_key, 0) | state
+                    counts = roi_combined_voxel_face_counts.setdefault(
+                        face_key, [0, 0]
                     )
+                    counts[0 if combined_zero else 1] += 1
             if world_pixel is None:
                 continue
             position = world_pixel[:3]
@@ -540,16 +546,20 @@ def summarize(
         ),
         "world_roi_environment_zero_count": roi_environment_zero_count,
         "world_roi_quantized_voxel_face_count": len(
-            roi_environment_voxel_face_states
+            roi_environment_voxel_face_counts
         ),
         "world_roi_mixed_environment_zero_voxel_face_count": sum(
-            state == 3 for state in roi_environment_voxel_face_states.values()
+            min(counts) >= VOXEL_FACE_MIN_MIXED_CLASS_PIXELS
+            for counts in roi_environment_voxel_face_counts.values()
         ),
         "world_roi_combined_zero_count": (
             roi_combined_zero_count if direct_light_available else None
         ),
         "world_roi_mixed_combined_zero_voxel_face_count": (
-            sum(state == 3 for state in roi_combined_voxel_face_states.values())
+            sum(
+                min(counts) >= VOXEL_FACE_MIN_MIXED_CLASS_PIXELS
+                for counts in roi_combined_voxel_face_counts.values()
+            )
             if direct_light_available
             else None
         ),
