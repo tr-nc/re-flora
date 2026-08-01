@@ -277,7 +277,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             json.loads(rejected.stdout)["validation_failures"][0],
         )
 
-    def test_v5_bit_exact_comparison_includes_direct_light_plane(self) -> None:
+    def test_v5_comparison_reports_and_optionally_gates_direct_light_plane(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             first_path = Path(directory) / "first-v5.rfirr"
             second_path = Path(directory) / "second-v5.rfirr"
@@ -300,13 +300,26 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 analyzer.load_capture(first_path),
                 analyzer.load_capture(second_path),
             )
+            environment_only = self.run_analyzer(
+                first_path, "--compare", str(second_path)
+            )
+            including_direct = self.run_analyzer(
+                first_path,
+                "--compare",
+                str(second_path),
+                "--compare-direct-light",
+            )
 
         self.assertTrue(comparison["compatible"])
+        self.assertTrue(comparison["environment_bit_exact"])
+        self.assertFalse(comparison["direct_light_bit_exact"])
         self.assertFalse(comparison["bit_exact"])
         self.assertNotEqual(
             comparison["first_direct_light_sha256"],
             comparison["second_direct_light_sha256"],
         )
+        self.assertEqual(environment_only.returncode, 0, environment_only.stderr)
+        self.assertEqual(including_direct.returncode, 1, including_direct.stderr)
 
     def test_loads_v4_canonical_field_source_and_build_identities(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -590,6 +603,63 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertAlmostEqual(gain["current_roi_luminance_mean"], 0.2)
         self.assertAlmostEqual(gain["roi_luminance_gain"], 0.1)
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_cli_gates_selected_channel_share_and_gain_over_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_path = Path(directory) / "donor-s0.rfirr"
+            current_path = Path(directory) / "donor-s1.rfirr"
+            world = [(0.67, 0.50, 0.93749988, 0.0)]
+            self.write_capture_v3(
+                baseline_path,
+                [(0.01, 0.08, 0.31, 1.0)],
+                world,
+                transport_stage=1,
+                transport_iteration=0,
+                publication_state=0,
+            )
+            self.write_capture_v3(
+                current_path,
+                [(0.08, 0.15, 0.44, 1.0)],
+                world,
+                transport_stage=2,
+                transport_iteration=1,
+            )
+            roi = (
+                "--world-roi",
+                "0.53125",
+                "0.4375",
+                "0.9375",
+                "0.8125",
+                "0.59375",
+                "0.9375",
+                "--roi-channel",
+                "red",
+            )
+            seed_accepted = self.run_analyzer(
+                baseline_path, *roi, "--max-roi-channel-share", "0.03"
+            )
+            gain_accepted = self.run_analyzer(
+                current_path,
+                "--baseline",
+                str(baseline_path),
+                *roi,
+                "--min-roi-channel-share-gain",
+                "0.09",
+            )
+            gain_rejected = self.run_analyzer(
+                current_path,
+                "--baseline",
+                str(baseline_path),
+                *roi,
+                "--min-roi-channel-share-gain",
+                "0.10",
+            )
+
+        self.assertEqual(seed_accepted.returncode, 0, seed_accepted.stderr)
+        self.assertEqual(gain_accepted.returncode, 0, gain_accepted.stderr)
+        comparison = json.loads(gain_accepted.stdout)["baseline_comparison"]
+        self.assertGreater(comparison["selected_roi_channel_share_gain"], 0.09)
+        self.assertEqual(gain_rejected.returncode, 1, gain_rejected.stderr)
 
     def test_v3_comparison_requires_matching_source_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -16,29 +16,13 @@ elif [[ $# -ne 0 ]]; then
     exit 2
 fi
 
-# These values deliberately have no permissive defaults. They must be calibrated from captures
-# after the exact voxel visibility hard gate lands; see docs/ddgi_transport_acceptance.md.
-calibrated_threshold_names=(
-    DDGI_DONOR_MAX_S0_RED_ADVANTAGE
-    DDGI_DONOR_MIN_S1_RED_ADVANTAGE
-    DDGI_DONOR_MIN_S1_LUMINANCE_MEAN
-    DDGI_DOGLEG_MAX_S1_LUMINANCE_MEAN
-    DDGI_DOGLEG_MIN_S2_LUMINANCE_GAIN
-)
-if ! $dry_run; then
-    for threshold_name in "${calibrated_threshold_names[@]}"; do
-        if [[ -z "${!threshold_name:-}" ]]; then
-            echo "[DDGI_TRANSPORT] missing calibrated threshold $threshold_name; see docs/ddgi_transport_acceptance.md" >&2
-            exit 2
-        fi
-    done
-fi
-
-donor_max_s0_red_advantage="${DDGI_DONOR_MAX_S0_RED_ADVANTAGE:-CALIBRATE_DONOR_S0_RED_ADVANTAGE}"
-donor_min_s1_red_advantage="${DDGI_DONOR_MIN_S1_RED_ADVANTAGE:-CALIBRATE_DONOR_S1_RED_ADVANTAGE}"
-donor_min_s1_luminance_mean="${DDGI_DONOR_MIN_S1_LUMINANCE_MEAN:-CALIBRATE_DONOR_S1_LUMINANCE}"
-dogleg_max_s1_luminance_mean="${DDGI_DOGLEG_MAX_S1_LUMINANCE_MEAN:-CALIBRATE_DOGLEG_S1_BASELINE}"
-dogleg_min_s2_luminance_gain="${DDGI_DOGLEG_MIN_S2_LUMINANCE_GAIN:-CALIBRATE_DOGLEG_S2_GAIN}"
+# Committed exact-gate calibration. These are correctness limits, not environment overrides;
+# provenance and the tighter spacing-specific observations live in the companion document.
+donor_max_s0_red_share=0.05
+donor_min_s1_red_share_gain=0.065
+donor_min_s1_luminance_gain=0.045
+dogleg_max_s1_luminance_mean=0.00002
+dogleg_min_s2_luminance_gain=0.00007
 convergence_max_abs_delta=0.0025
 convergence_max_rel_delta=0.02
 
@@ -49,7 +33,7 @@ analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
 failures=0
 
 echo "[DDGI_TRANSPORT] threshold_provenance=docs/ddgi_transport_acceptance.md"
-echo "[DDGI_TRANSPORT] direct-sun-framebuffer=UNPROVEN seam=pre-albedo-environment-capture-does-not-contain-final-direct-light"
+echo "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v5-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
@@ -118,7 +102,7 @@ run_analysis() {
     local command=(
         "$analyzer" "$capture"
         --correctness
-        --expect-version 4
+        --expect-version 5
         --require-nonnegative-rgb
         "$@"
     )
@@ -188,7 +172,7 @@ for spacing in "${spacings[@]}"; do
         --expect-publication-state unpublished \
         --world-roi "${donor_roi[@]}" \
         --roi-channel red \
-        --max-roi-channel-advantage "$donor_max_s0_red_advantage" \
+        --max-roi-channel-share "$donor_max_s0_red_share" \
         --max-exact-direct-sun-visibility 0 || true
     donor_s1="$(capture_path donor "$spacing" s1 forward)"
     run_stage donor "$spacing" s1 forward \
@@ -199,8 +183,9 @@ for spacing in "${spacings[@]}"; do
         --expect-publication-state published \
         --world-roi "${donor_roi[@]}" \
         --roi-channel red \
-        --min-roi-channel-advantage "$donor_min_s1_red_advantage" \
-        --min-roi-luminance-mean "$donor_min_s1_luminance_mean" \
+        --baseline "$donor_s0" \
+        --min-roi-channel-share-gain "$donor_min_s1_red_share_gain" \
+        --min-roi-luminance-gain "$donor_min_s1_luminance_gain" \
         --max-exact-direct-sun-visibility 0 || true
     donor_reverse="$(capture_path donor "$spacing" s1 reverse)"
     run_stage donor "$spacing" s1 reverse \
@@ -211,8 +196,9 @@ for spacing in "${spacings[@]}"; do
         --expect-publication-state published \
         --world-roi "${donor_roi[@]}" \
         --roi-channel red \
-        --min-roi-channel-advantage "$donor_min_s1_red_advantage" \
-        --min-roi-luminance-mean "$donor_min_s1_luminance_mean" \
+        --baseline "$donor_s0" \
+        --min-roi-channel-share-gain "$donor_min_s1_red_share_gain" \
+        --min-roi-luminance-gain "$donor_min_s1_luminance_gain" \
         --max-exact-direct-sun-visibility 0 \
         --compare "$donor_s1" || true
 

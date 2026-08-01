@@ -260,6 +260,19 @@ def percentile(sorted_values: list[float], fraction: float) -> float:
     return sorted_values[max(0, min(index, len(sorted_values) - 1))]
 
 
+def position_in_world_roi(
+    position: tuple[float, float, float],
+    world_roi: tuple[float, float, float, float, float, float],
+) -> bool:
+    min_x, min_y, min_z, max_x, max_y, max_z = world_roi
+    epsilon = WORLD_ROI_BOUNDARY_EPSILON
+    return (
+        min_x - epsilon <= position[0] <= max_x + epsilon
+        and min_y - epsilon <= position[1] <= max_y + epsilon
+        and min_z - epsilon <= position[2] <= max_z + epsilon
+    )
+
+
 def summarize(
     capture: Capture,
     world_roi: tuple[float, float, float, float, float, float] | None = None,
@@ -315,13 +328,7 @@ def summarize(
                         rgb_channel_negative_count[channel] += 1
             in_roi = world_roi is None
             if position is not None and world_roi is not None:
-                min_x, min_y, min_z, max_x, max_y, max_z = world_roi
-                epsilon = WORLD_ROI_BOUNDARY_EPSILON
-                in_roi = (
-                    min_x - epsilon <= position[0] <= max_x + epsilon
-                    and min_y - epsilon <= position[1] <= max_y + epsilon
-                    and min_z - epsilon <= position[2] <= max_z + epsilon
-                )
+                in_roi = position_in_world_roi(position, world_roi)
             if in_roi:
                 roi_terrain_hit_count += 1
                 if finite_rgb:
@@ -397,12 +404,7 @@ def summarize(
             for roi_name, roi in direct_light_rois.items():
                 if roi is None:
                     continue
-                min_x, min_y, min_z, max_x, max_y, max_z = roi
-                if (
-                    min_x <= position[0] <= max_x
-                    and min_y <= position[1] <= max_y
-                    and min_z <= position[2] <= max_z
-                ):
+                if position_in_world_roi(position, roi):
                     direct_light_roi_hit_counts[roi_name] += 1
                     direct_light_roi_luminances[roi_name].append(direct_luminance)
 
@@ -427,6 +429,12 @@ def summarize(
             for channel, value in enumerate(roi_channel_mean)
         ]
         if roi_channel_mean is not None
+        else None
+    )
+    roi_channel_total = sum(roi_channel_mean) if roi_channel_mean is not None else 0.0
+    roi_channel_share = (
+        [value / roi_channel_total for value in roi_channel_mean]
+        if roi_channel_mean is not None and roi_channel_total > 0.0
         else None
     )
     has_world_positions = world_min[0] != math.inf
@@ -461,6 +469,7 @@ def summarize(
         "world_roi_terrain_hit_count": roi_terrain_hit_count,
         "world_roi_rgb_channel_mean": roi_channel_mean,
         "world_roi_channel_advantage": roi_channel_advantage,
+        "world_roi_channel_share": roi_channel_share,
         "world_roi_luminance_mean": (
             sum(roi_luminances) / len(roi_luminances) if roi_luminances else None
         ),
@@ -635,15 +644,20 @@ def compare(first: Capture, second: Capture) -> dict[str, object]:
     )
     mismatches = metadata_mismatches(first, second)
     compatible = base_compatible and not mismatches
+    environment_bit_exact = (
+        compatible
+        and first.payload == second.payload
+        and first.world_payload == second.world_payload
+    )
+    direct_light_bit_exact = (
+        compatible and first.direct_light_payload == second.direct_light_payload
+    )
     return {
         "compatible": compatible,
         "metadata_mismatches": mismatches,
-        "bit_exact": (
-            compatible
-            and first.payload == second.payload
-            and first.world_payload == second.world_payload
-            and first.direct_light_payload == second.direct_light_payload
-        ),
+        "environment_bit_exact": environment_bit_exact,
+        "direct_light_bit_exact": direct_light_bit_exact,
+        "bit_exact": environment_bit_exact and direct_light_bit_exact,
         "first_sha256": hashlib.sha256(first.payload).hexdigest(),
         "second_sha256": hashlib.sha256(second.payload).hexdigest(),
         "first_direct_light_sha256": (
@@ -770,11 +784,15 @@ def compare_roi_baseline(
     baseline_summary = summarize(baseline, world_roi)
     current_mean = current_summary["world_roi_luminance_mean"]
     baseline_mean = baseline_summary["world_roi_luminance_mean"]
+    current_channel_share = current_summary["world_roi_channel_share"]
+    baseline_channel_share = baseline_summary["world_roi_channel_share"]
     compatible = (
         base_compatible
         and not metadata_mismatches
         and current_mean is not None
         and baseline_mean is not None
+        and current_channel_share is not None
+        and baseline_channel_share is not None
     )
     return {
         "compatible": compatible,
@@ -784,6 +802,18 @@ def compare_roi_baseline(
         "roi_luminance_gain": (
             current_mean - baseline_mean if compatible else None
         ),
+        "baseline_roi_channel_share": baseline_channel_share,
+        "current_roi_channel_share": current_channel_share,
+        "roi_channel_share_gain": (
+            [
+                current - baseline
+                for current, baseline in zip(
+                    current_channel_share, baseline_channel_share
+                )
+            ]
+            if compatible
+            else None
+        ),
     }
 
 
@@ -791,6 +821,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("capture", type=Path)
     parser.add_argument("--compare", type=Path)
+    parser.add_argument(
+        "--compare-direct-light",
+        action="store_true",
+        help="also require the optional direct-light plane to be bit-exact",
+    )
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--min-roi-luminance-gain", type=float)
@@ -806,6 +841,8 @@ def main() -> int:
     )
     parser.add_argument("--min-roi-channel-advantage", type=float)
     parser.add_argument("--max-roi-channel-advantage", type=float)
+    parser.add_argument("--max-roi-channel-share", type=float)
+    parser.add_argument("--min-roi-channel-share-gain", type=float)
     parser.add_argument("--min-roi-luminance-mean", type=float)
     parser.add_argument("--max-roi-luminance-mean", type=float)
     parser.add_argument("--max-exact-direct-sun-visibility", type=float)
@@ -916,8 +953,16 @@ def main() -> int:
     )
     capture_summary["selected_roi_channel"] = args.roi_channel
     capture_summary["selected_roi_channel_advantage"] = selected_advantage
+    roi_channel_shares = capture_summary["world_roi_channel_share"]
+    selected_channel_share = (
+        roi_channel_shares[ROI_CHANNEL_INDICES[args.roi_channel]]
+        if roi_channel_shares is not None
+        else None
+    )
+    capture_summary["selected_roi_channel_share"] = selected_channel_share
     gate_min("selected_roi_channel_advantage", args.min_roi_channel_advantage)
     gate_max("selected_roi_channel_advantage", args.max_roi_channel_advantage)
+    gate_max("selected_roi_channel_share", args.max_roi_channel_share)
     gate_min("world_roi_luminance_mean", args.min_roi_luminance_mean)
     gate_max("world_roi_luminance_mean", args.max_roi_luminance_mean)
     gate_max(
@@ -967,8 +1012,13 @@ def main() -> int:
     if args.compare is not None:
         comparison = compare(first, load_capture(args.compare))
         report["comparison"] = comparison
-        if not comparison["bit_exact"]:
+        if not comparison["environment_bit_exact"]:
             exit_code = 1
+        if args.compare_direct_light and not comparison["direct_light_bit_exact"]:
+            exit_code = 1
+    elif args.compare_direct_light:
+        failures.append("--compare-direct-light requires --compare")
+        exit_code = 1
     if args.reference is not None:
         reference = compare_reference(first, load_capture(args.reference))
         report["reference_comparison"] = reference
@@ -996,19 +1046,36 @@ def main() -> int:
         if not baseline_comparison["compatible"]:
             failures.append("ROI baseline capture is incompatible")
             exit_code = 1
-        elif (
-            args.min_roi_luminance_gain is not None
-            and baseline_comparison["roi_luminance_gain"]
-            < args.min_roi_luminance_gain
-        ):
-            failures.append(
-                "roi_luminance_gain: expected at least "
-                f"{args.min_roi_luminance_gain:g}, got "
-                f"{baseline_comparison['roi_luminance_gain']}"
-            )
-            exit_code = 1
-    elif args.min_roi_luminance_gain is not None:
-        failures.append("--min-roi-luminance-gain requires --baseline")
+        else:
+            if (
+                args.min_roi_luminance_gain is not None
+                and baseline_comparison["roi_luminance_gain"]
+                < args.min_roi_luminance_gain
+            ):
+                failures.append(
+                    "roi_luminance_gain: expected at least "
+                    f"{args.min_roi_luminance_gain:g}, got "
+                    f"{baseline_comparison['roi_luminance_gain']}"
+                )
+                exit_code = 1
+            share_gains = baseline_comparison["roi_channel_share_gain"]
+            selected_share_gain = share_gains[ROI_CHANNEL_INDICES[args.roi_channel]]
+            baseline_comparison["selected_roi_channel"] = args.roi_channel
+            baseline_comparison["selected_roi_channel_share_gain"] = selected_share_gain
+            if (
+                args.min_roi_channel_share_gain is not None
+                and selected_share_gain < args.min_roi_channel_share_gain
+            ):
+                failures.append(
+                    "selected_roi_channel_share_gain: expected at least "
+                    f"{args.min_roi_channel_share_gain:g}, got {selected_share_gain}"
+                )
+                exit_code = 1
+    elif (
+        args.min_roi_luminance_gain is not None
+        or args.min_roi_channel_share_gain is not None
+    ):
+        failures.append("ROI gain gates require --baseline")
         exit_code = 1
     if not capture_summary["finite"]:
         failures.append("payload contains nonfinite values")

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import unittest
 from pathlib import Path
@@ -12,25 +11,13 @@ RUNNER = SCRIPTS / "check_ddgi_transport_acceptance.sh"
 
 class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
     def run_runner(
-        self, *arguments: str, environment: dict[str, str] | None = None
+        self, *arguments: str
     ) -> subprocess.CompletedProcess[str]:
-        env = os.environ.copy()
-        for name in (
-            "DDGI_DONOR_MAX_S0_RED_ADVANTAGE",
-            "DDGI_DONOR_MIN_S1_RED_ADVANTAGE",
-            "DDGI_DONOR_MIN_S1_LUMINANCE_MEAN",
-            "DDGI_DOGLEG_MAX_S1_LUMINANCE_MEAN",
-            "DDGI_DOGLEG_MIN_S2_LUMINANCE_GAIN",
-        ):
-            env.pop(name, None)
-        if environment is not None:
-            env.update(environment)
         return subprocess.run(
             [str(RUNNER), *arguments],
             check=False,
             capture_output=True,
             text=True,
-            env=env,
         )
 
     def test_dry_run_exposes_the_required_transport_matrix(self) -> None:
@@ -65,24 +52,30 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
             "--expect-batch-order reverse",
             "--ddgi-batch-order reverse",
             "--min-roi-luminance-gain",
+            "--min-roi-channel-share-gain 0.065",
+            "--max-roi-channel-share 0.05",
+            "--expect-version 5",
             "check_ddgi_correctness.sh --dry-run",
             "check_ddgi_runtime_terrain_edits.sh --dry-run",
             "threshold_provenance=docs/ddgi_transport_acceptance.md",
-            "direct-sun-framebuffer=UNPROVEN",
+            "direct-sun-framebuffer=PROVEN",
         ):
             self.assertIn(contract, output)
 
-    def test_real_run_requires_calibrated_donor_and_dogleg_thresholds_before_build(
+    def test_dry_run_uses_committed_thresholds_without_calibration_placeholders(
         self,
     ) -> None:
-        result = self.run_runner()
+        result = self.run_runner("--dry-run")
 
-        self.assertEqual(result.returncode, 2)
-        self.assertIn(
-            "missing calibrated threshold DDGI_DONOR_MAX_S0_RED_ADVANTAGE",
-            result.stderr,
-        )
-        self.assertNotIn("cargo build", result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for contract in (
+            "--min-roi-luminance-gain 0.045",
+            "--max-roi-luminance-mean 0.00002",
+            "--min-roi-luminance-gain 0.00007",
+        ):
+            self.assertIn(contract, result.stdout)
+        self.assertNotIn("CALIBRATE_", result.stdout + result.stderr)
+        self.assertNotIn("missing calibrated threshold", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

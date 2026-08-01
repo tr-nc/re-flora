@@ -10,11 +10,18 @@ lifecycle runner when that script is present.
 Every stage capture writes three adjacent artifacts below
 `target/ddgi-transport-acceptance/<run-id>/`:
 
-- `<case>-spacing<spacing>-<stage>-<order>.rfirr` is the v4 pre-albedo capture;
+- `<case>-spacing<spacing>-<stage>-<order>.rfirr` is the v5 capture: pre-albedo
+  environment irradiance, world position plus exact sun visibility, and the raster terrain's
+  independent direct-light RGB;
 - the matching `.analysis.json` records capture identity, ROI measurements, and convergence deltas;
 - the matching `.console.log` records every full-atlas validation reached on the way to the requested
   stage. The `[DDGI] full-atlas validated` records are the complete per-iteration convergence curve,
   including absolute and relative delta.
+
+Analyzer comparisons report environment/world and direct-light bit exactness separately. General
+DDGI determinism checks require the environment/world planes because temporal raster shadows may
+legitimately differ between independent processes; the dedicated fail-closed scenario adds
+`--compare-direct-light` and requires all three planes to match.
 
 The required matrix covers spacing 32 and 16, sealed S0/S1/S2/converged, donor S0/S1, dogleg S1/S2,
 and donor S1 in both forward and reverse batch order. `NonConverged` remains a valid diagnostic
@@ -32,32 +39,37 @@ These limits are not widened by the runner. The existing portal/walls exact-refe
 remain owned by `scripts/check_ddgi_correctness.sh`: walls p99 is `0.15` at spacing 32 and `0.133` at
 spacing 16.
 
-Donor and dogleg signal thresholds must be calibrated after the exact voxel visibility hard gate is
-merged. The runner intentionally has no broad defaults and fails before building unless all five
-values are supplied:
+The exact-voxel hard-gate calibration used the committed deterministic camera, authored palette,
+printed world-space ROIs, and exact requested field identities. The limits are committed in the
+runner, so a normal correctness run cannot weaken them through environment variables:
 
-```text
-DDGI_DONOR_MAX_S0_RED_ADVANTAGE
-DDGI_DONOR_MIN_S1_RED_ADVANTAGE
-DDGI_DONOR_MIN_S1_LUMINANCE_MEAN
-DDGI_DOGLEG_MAX_S1_LUMINANCE_MEAN
-DDGI_DOGLEG_MIN_S2_LUMINANCE_GAIN
-```
+| Signal | spacing 32 | spacing 16 | committed gate | margin from tighter observation |
+|---|---:|---:|---:|---:|
+| donor S0 red channel share | 0.036368 | 0.037327 | at most 0.05 | +0.012673 |
+| donor S1 minus S0 red-share gain | 0.091683 | 0.083320 | at least 0.065 | 22.0% |
+| donor S1 minus S0 luminance gain | 0.069264 | 0.057747 | at least 0.045 | 22.1% |
+| dogleg S1 receiver luminance mean | 0.000013900 | 0.000010577 | at most 0.00002 | +43.9% |
+| dogleg S2 minus S1 luminance gain | 0.000085190 | 0.000092319 | at least 0.00007 | 17.8% |
 
-Calibration must use the committed deterministic camera, authored palette, ROIs printed by the test
-scene, both required spacings, and the analyzer JSON emitted for the exact requested field identity.
-Choose limits from the tighter of the two spacings with a documented numerical margin; do not tune
-around a walls/roof leak or a `NonConverged` result. `--dry-run` prints every capture and analyzer
-command without requiring provisional values.
+The donor gate uses red *share gain*, rather than absolute red-minus-blue advantage. The authored sky
+is intentionally blue, so absolute blue remains larger at S1; the stable stage-boundary evidence is
+that the red donor raises red's share from about 3.7% to 12–13% while also raising total irradiance.
+This distinguishes transported donor energy from the unchanged sky seed without changing the game's
+authored sky.
 
-## Remaining direct-sun evidence seam
+## Independent direct-sun evidence
 
-The `.rfirr` payload records pre-albedo environment irradiance and exact direct-sun visibility. It
-does not record the visible renderer's final direct-light RGB, so it can prove that the receiver is
-shadowed but cannot prove that independent direct sun stays lit elsewhere while DDGI is fail-closed.
+Capture v5's third float4 plane is the actual raster terrain `directLighting` term after albedo,
+cosine, and VSM/leaf/cloud shadowing, but before it is added to the DDGI environment term. It never
+samples a DDGI atlas. The in-flight terrain-edit acceptance capture requires all of the following at
+both spacings while the DDGI environment plane is strict zero:
 
-The minimal follow-up is a v5 optional third float4 plane containing visible-surface direct-light RGB
-and the terrain hit mask, written before environment/direct composition. The analyzer can then require
-strict-zero environment RGB inside the invalidated domain while requiring positive direct-light
-luminance in a separate sunlit ROI. Until that seam exists, the runner reports
-`direct-sun-framebuffer=UNPROVEN` and does not claim this evidence.
+- sunlit ROI mean direct-light luminance at least `0.15` (observed `0.168975`, 11.2% margin);
+- shadowed ROI maximum direct-light luminance exactly `0`;
+- direct-light and environment terrain-hit masks match;
+- all direct-light channels are finite and nonnegative;
+- repeated captures are bit-exact.
+
+The spacing 32 and 16 direct-light payloads were themselves bit-exact and contained 5,277 sunlit and
+24,455 shadowed samples. The top-level runner therefore reports
+`direct-sun-framebuffer=PROVEN seam=v5-direct-light-plane`.

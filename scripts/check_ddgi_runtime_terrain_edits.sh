@@ -19,6 +19,8 @@ spacings=(32 16)
 states=(initial-open closed sequential-reopened inflight-latest-wins)
 failures=0
 
+echo "[DDGI_RUNTIME_EDIT] direct-sun-evidence=v5-direct-light-plane sunlit_min_mean=0.15 shadowed_max=0"
+
 if ! $dry_run; then
     mkdir -p "$run_dir"
     cargo build --release --manifest-path "$repo_root/Cargo.toml"
@@ -212,16 +214,12 @@ check_captures() {
     else
         thresholds+=(--min-luminance-p99 0.10)
     fi
-    if ! cmp -s "$first" "$second"; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL state=$state spacing=$spacing final captures are not bit-exact" >&2
-        return 1
-    fi
     if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
         "$first" --compare "$second" --reference "$reference" "${thresholds[@]}"; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL state=$state spacing=$spacing luminance/reference threshold" >&2
+        echo "[DDGI_RUNTIME_EDIT] FAIL state=$state spacing=$spacing environment determinism/luminance/reference threshold" >&2
         return 1
     fi
-    echo "[DDGI_RUNTIME_EDIT] PASS state=$state spacing=$spacing deterministic exact-reference-qualified"
+    echo "[DDGI_RUNTIME_EDIT] PASS state=$state spacing=$spacing environment-bit-exact exact-reference-qualified"
 }
 
 check_inflight_fail_closed_captures() {
@@ -233,11 +231,17 @@ check_inflight_fail_closed_captures() {
         return 1
     fi
     if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-        "$first" --compare "$second" --max-luminance 0.00001 --require-zero-rgb; then
+        "$first" --compare "$second" --compare-direct-light --expect-version 5 \
+        --max-luminance 0.00001 --require-zero-rgb --require-nonnegative-rgb \
+        --correctness \
+        --direct-light-sunlit-roi 0.85 0.60 1.025 0.875 0.675 1.125 \
+        --min-direct-light-sunlit-luminance-mean 0.15 \
+        --direct-light-shadowed-roi 0.425 0.60 1.075 0.45 0.85 1.275 \
+        --max-direct-light-shadowed-luminance-max 0; then
         echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing expected terrain hits and strict zero" >&2
         return 1
     fi
-    echo "[DDGI_RUNTIME_EDIT] PASS state=inflight-fail-closed spacing=$spacing GPU-visible strict-zero deterministic"
+    echo "[DDGI_RUNTIME_EDIT] PASS state=inflight-fail-closed spacing=$spacing GPU-visible strict-zero deterministic direct-sun-independent"
 }
 
 check_flora_consumer() {
