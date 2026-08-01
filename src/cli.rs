@@ -40,6 +40,7 @@ pub enum EnvironmentLightingTestCase {
     Sealed,
     Portal,
     Walls,
+    Donor,
     TerrainEdits,
     TerrainEditsInflight,
     TerrainEditsInflightCapture,
@@ -52,6 +53,7 @@ impl EnvironmentLightingTestCase {
             "sealed" => Some(Self::Sealed),
             "portal" => Some(Self::Portal),
             "walls" => Some(Self::Walls),
+            "donor" => Some(Self::Donor),
             "terrain-edits" => Some(Self::TerrainEdits),
             "terrain-edits-inflight" => Some(Self::TerrainEditsInflight),
             "terrain-edits-inflight-capture" => Some(Self::TerrainEditsInflightCapture),
@@ -65,6 +67,7 @@ impl EnvironmentLightingTestCase {
             Self::Sealed => "sealed",
             Self::Portal => "portal",
             Self::Walls => "walls",
+            Self::Donor => "donor",
             Self::TerrainEdits => "terrain-edits",
             Self::TerrainEditsInflight => "terrain-edits-inflight",
             Self::TerrainEditsInflightCapture => "terrain-edits-inflight-capture",
@@ -506,7 +509,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, portal, walls, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, portal, walls, donor, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
                 )
             }),
     }
@@ -694,7 +697,7 @@ Options:
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --environment-lighting-test-scene [case]
-                              Build a lighting case: sealed (default), portal, walls, terrain-edits,
+                              Build a lighting case: sealed (default), portal, walls, donor, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
   --environment-irradiance-capture <path>
@@ -845,6 +848,7 @@ mod tests {
             ("sealed", EnvironmentLightingTestCase::Sealed),
             ("portal", EnvironmentLightingTestCase::Portal),
             ("walls", EnvironmentLightingTestCase::Walls),
+            ("donor", EnvironmentLightingTestCase::Donor),
             ("terrain-edits", EnvironmentLightingTestCase::TerrainEdits),
             (
                 "terrain-edits-inflight",
@@ -874,7 +878,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, portal, walls, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
+            "sealed, portal, walls, donor, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
         ));
     }
 
