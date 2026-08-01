@@ -4224,6 +4224,20 @@ impl App {
 
                     if let Some(auto_exit_delay) = self.auto_exit_delay {
                         if elapsed >= auto_exit_delay {
+                            if let Some(scene) = self
+                                .environment_lighting_test_scene
+                                .as_ref()
+                                .filter(|scene| scene.edit_cycle_target_revision().is_some())
+                            {
+                                let status = self.tracer.environment_probe_status();
+                                panic!(
+                                    "[ENV_LIGHT_EDIT_CYCLE] timed out before completion phase={} target_revision={} ddgi_stage={:?} ddgi_relocated_terrain_revision={:?}",
+                                    scene.phase_label(),
+                                    scene.edit_cycle_target_revision().unwrap_or(0),
+                                    status.stage,
+                                    status.relocated_terrain_revision,
+                                );
+                            }
                             log::info!("[AUTO-EXIT] Exiting after {:.2}s", elapsed);
                             self.on_terminate(event_loop);
                         }
