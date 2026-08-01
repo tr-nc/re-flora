@@ -899,7 +899,7 @@ denoiser baseline, whose medians were 13,465/10,721 us; the current 32-voxel med
 6,146/4,339 us. The historical comparison spans an evolved scene and should be treated as
 architectural context, while the three density rows above are the matched production decision.
 
-### Deferred DDGI Terrain-Edit Relocation
+### Runtime DDGI Terrain-Edit Relocation
 
 Startup classification and voxel-native relocation still run only after initial terrain is ready.
 Runtime terrain edits are now supported by a correctness-first full-volume staging rebuild. The
