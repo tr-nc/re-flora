@@ -25,14 +25,18 @@ dogleg_max_s1_luminance_mean=0.00002
 dogleg_min_s2_luminance_gain=0.00007
 convergence_max_abs_delta=0.0025
 convergence_max_rel_delta=0.02
+convergence_consecutive_iterations=2
+convergence_hard_max_iteration=8
 
 spacings=(32 16)
 donor_roi=(0.53125 0.4375 0.9375 0.8125 0.59375 0.9375)
 dogleg_receiver_roi=(1.125 0.4375 0.5 1.3125 0.625 0.5)
 analyzer="$repo_root/scripts/analyze_environment_irradiance_capture.py"
+convergence_summarizer="$repo_root/scripts/summarize_ddgi_convergence.py"
 failures=0
 
 echo "[DDGI_TRANSPORT] threshold_provenance=docs/ddgi_transport_acceptance.md"
+echo "[DDGI_TRANSPORT] convergence_provenance=docs/ddgi_convergence_calibration.md"
 echo "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v5-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
 
 if ! $dry_run; then
@@ -223,6 +227,14 @@ for spacing in "${spacings[@]}"; do
         --min-roi-luminance-gain "$dogleg_min_s2_luminance_gain" \
         --max-exact-direct-sun-visibility 0 || true
 
+    for convergence_case in portal donor dogleg; do
+        run_stage "$convergence_case" "$spacing" converged forward \
+            --expect-transport-stage converged \
+            --expect-publication-state published \
+            --convergence-max-abs-delta "$convergence_max_abs_delta" \
+            --convergence-max-rel-delta "$convergence_max_rel_delta" || true
+    done
+
     if ! $dry_run && [[ -f "$donor_s0" ]]; then
         echo "[DDGI_TRANSPORT] evidence donor_s0=$donor_s0"
     fi
@@ -230,6 +242,25 @@ for spacing in "${spacings[@]}"; do
         echo "[DDGI_TRANSPORT] evidence donor_reverse=$donor_reverse"
     fi
 done
+
+convergence_summary="$run_dir/convergence-calibration.json"
+convergence_summary_command=(
+    "$convergence_summarizer"
+    --run-dir "$run_dir"
+    --output "$convergence_summary"
+    --absolute-threshold "$convergence_max_abs_delta"
+    --relative-threshold "$convergence_max_rel_delta"
+    --consecutive-iterations "$convergence_consecutive_iterations"
+    --hard-max-iteration "$convergence_hard_max_iteration"
+)
+if $dry_run; then
+    print_command "${convergence_summary_command[@]}"
+elif ! "${convergence_summary_command[@]}"; then
+    echo "[DDGI_TRANSPORT] FAIL convergence provenance summary" >&2
+    failures=$((failures + 1))
+else
+    echo "[DDGI_TRANSPORT] convergence-calibration=$convergence_summary"
+fi
 
 run_child() {
     local script="$1"
@@ -252,7 +283,7 @@ fi
 run_child "$lifecycle_runner"
 
 if $dry_run; then
-    echo "[DDGI_TRANSPORT] dry-run complete spacings=2 sealed_stages=4 donor_stages=2 dogleg_stages=2 batch_orders=2"
+    echo "[DDGI_TRANSPORT] dry-run complete spacings=2 sealed_stages=4 portal_stages=1 donor_stages=3 dogleg_stages=3 convergence_curves=8 batch_orders=2"
     exit 0
 fi
 
