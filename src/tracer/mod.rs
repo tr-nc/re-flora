@@ -65,7 +65,7 @@ use crate::ddgi::{
     DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch,
     DdgiRefreshState, DdgiStatus, DdgiTerrainRefresh, DdgiTransportScheduler,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid,
-    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY,
     DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
     DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
@@ -831,6 +831,7 @@ pub struct Tracer {
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
     ddgi_volumes: DdgiVolumes,
+    ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_transport_scheduler: DdgiTransportScheduler,
     ddgi_capture_checkpoint: Option<DdgiCaptureCheckpoint>,
     ddgi_initial_terrain_ready_revision: Option<u32>,
@@ -990,6 +991,13 @@ impl Tracer {
             desc.voxel_dim_per_chunk,
             desc.ddgi_batch_order,
         )?;
+        let ddgi_voxel_visibility = DdgiVoxelVisibility::new(
+            &vulkan_ctx,
+            allocator.clone(),
+            chunk_bound.dimensions() * desc.voxel_dim_per_chunk,
+            desc.voxel_dim_per_chunk,
+            &shader_modules.ddgi_voxel_visibility_pack_sm,
+        )?;
         let environment_probe_visualization_resources = EnvironmentProbeVisualizationResources::new(
             vulkan_ctx.device().clone(),
             allocator.clone(),
@@ -1004,6 +1012,7 @@ impl Tracer {
             scene_accel_resources,
             plain_builder_resources,
             &ddgi_volume,
+            &ddgi_voxel_visibility,
         );
         let render_passes = PipelineBuilder::create_render_passes(
             &vulkan_ctx,
@@ -1021,6 +1030,7 @@ impl Tracer {
             &resources,
             plain_builder_resources,
             &ddgi_volume,
+            &ddgi_voxel_visibility,
         );
 
         let framebuffer_color_and_depth = Self::create_framebuffer_color_and_depth(
@@ -1099,6 +1109,7 @@ impl Tracer {
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
             ddgi_volumes: DdgiVolumes::new(ddgi_volume),
+            ddgi_voxel_visibility,
             ddgi_transport_scheduler: DdgiTransportScheduler::new(),
             ddgi_capture_checkpoint: None,
             ddgi_initial_terrain_ready_revision: None,
@@ -1763,7 +1774,12 @@ impl Tracer {
                 contree_builder_resources,
                 scene_accel_resources,
                 ddgi_builder,
+                &self.ddgi_voxel_visibility,
             ],
+        );
+        update_compute_fn(
+            &self.compute_pipelines.ddgi_voxel_visibility_pack_ppl,
+            &[plain_builder_resources, &self.ddgi_voxel_visibility],
         );
         for pipeline in [
             &self.compute_pipelines.ddgi_irradiance_filter_ppl,
@@ -1776,17 +1792,19 @@ impl Tracer {
         }
     }
 
-    fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
+    fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
         [
             &self.resources as &dyn ResourceContainer,
             self.ddgi_volumes.active() as &dyn ResourceContainer,
+            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
         ]
     }
 
-    fn environment_lighting_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
+    fn environment_lighting_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
         [
             &self.resources as &dyn ResourceContainer,
             self.ddgi_volumes.active() as &dyn ResourceContainer,
+            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
         ]
     }
 
@@ -1795,13 +1813,14 @@ impl Tracer {
         contree_builder_resources: &'a ContreeBuilderResources,
         scene_accel_resources: &'a SceneAccelBuilderResources,
         plain_builder_resources: &'a PlainBuilderResources,
-    ) -> [&'a dyn ResourceContainer; 5] {
+    ) -> [&'a dyn ResourceContainer; 6] {
         [
             &self.resources as &dyn ResourceContainer,
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
             plain_builder_resources as &dyn ResourceContainer,
             self.ddgi_volumes.active() as &dyn ResourceContainer,
+            &self.ddgi_voxel_visibility as &dyn ResourceContainer,
         ]
     }
 

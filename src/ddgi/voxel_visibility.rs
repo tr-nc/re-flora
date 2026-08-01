@@ -4,11 +4,181 @@
 //! small CPU model below is deliberately kept equivalent to the shader contract so boundary,
 //! supercover, revision, and fail-closed behavior can be tested without a Vulkan device.
 
-use glam::{UVec3, Vec3};
+use crate::generated::gpu_structs::DdgiVoxelVisibilityInfo;
+use crate::resource::{Resource, ResourceContainer};
+use anyhow::{ensure, Result};
+use glam::UVec3;
+#[cfg(test)]
+use glam::Vec3;
+use re_flora_vkn::vk;
+use re_flora_vkn::{
+    Allocator, Buffer, Extent3D, ImageDesc, SamplerDesc, ShaderModule, Texture, TextureLayout,
+    VulkanContext,
+};
 
+pub const DDGI_VOXEL_VISIBILITY_MAX_STEPS: u32 = 2048;
+
+/// Deep owner of the exact voxel-occupancy publication consumed by every production DDGI query.
+///
+/// A single fixed-size bit volume is safe because rebuilding is synchronous. `ready` is cleared
+/// before packing, and is only republished with the exact geometry revision after the GPU job has
+/// completed.
+pub struct DdgiVoxelVisibility {
+    dimensions: UVec3,
+    word_dimensions: UVec3,
+    info_snapshot: DdgiVoxelVisibilityInfo,
+    published_revision: Option<u32>,
+    pub ddgi_voxel_visibility_bits: Resource<Texture>,
+    pub ddgi_voxel_visibility_info: Resource<Buffer>,
+}
+
+impl DdgiVoxelVisibility {
+    pub fn new(
+        vulkan_ctx: &VulkanContext,
+        allocator: Allocator,
+        dimensions: UVec3,
+        voxels_per_world_unit: UVec3,
+        pack_shader: &ShaderModule,
+    ) -> Result<Self> {
+        ensure!(
+            dimensions.min_element() > 0,
+            "DDGI voxel visibility dimensions must be nonzero"
+        );
+        ensure!(
+            voxels_per_world_unit.min_element() > 0,
+            "DDGI voxel visibility world scale must be nonzero",
+        );
+        let word_dimensions = packed_word_dimensions(dimensions);
+        let max_steps = dimensions.element_sum().saturating_add(3);
+        ensure!(
+            max_steps <= DDGI_VOXEL_VISIBILITY_MAX_STEPS,
+            "DDGI voxel visibility grid needs {max_steps} steps, exceeding shader budget {DDGI_VOXEL_VISIBILITY_MAX_STEPS}",
+        );
+        let max_image_dimension = unsafe {
+            vulkan_ctx
+                .instance()
+                .as_raw()
+                .get_physical_device_properties(vulkan_ctx.physical_device().as_raw())
+                .limits
+                .max_image_dimension3_d
+        };
+        ensure!(
+            word_dimensions.max_element() <= max_image_dimension,
+            "DDGI voxel visibility volume {}x{}x{} exceeds device 3D texture limit {max_image_dimension}",
+            word_dimensions.x,
+            word_dimensions.y,
+            word_dimensions.z,
+        );
+
+        let texture = Texture::new(
+            vulkan_ctx.device().clone(),
+            allocator.clone(),
+            &ImageDesc {
+                extent: Extent3D::new(word_dimensions.x, word_dimensions.y, word_dimensions.z),
+                format: vk::Format::R32_UINT,
+                usage: vk::ImageUsageFlags::STORAGE,
+                initial_layout: TextureLayout::UNDEFINED,
+                aspect: vk::ImageAspectFlags::COLOR,
+                ..Default::default()
+            },
+            &SamplerDesc::default(),
+        );
+        let info = Buffer::from_uniform_layout(
+            vulkan_ctx.device().clone(),
+            allocator,
+            pack_shader
+                .get_buffer_layout("U_DdgiVoxelVisibilityInfo")
+                .expect("voxel visibility pack shader must reflect its info uniform")
+                .clone(),
+        );
+        let info_snapshot = DdgiVoxelVisibilityInfo {
+            voxel_dimensions: dimensions.to_array(),
+            geometry_revision: 0,
+            packed_word_dimensions: word_dimensions.to_array(),
+            ready: 0,
+            world_to_voxel_scale: voxels_per_world_unit.as_vec3().to_array(),
+            max_steps,
+        };
+        info.fill_uniform(&info_snapshot)?;
+
+        let bytes = word_dimensions.element_product() as u64 * std::mem::size_of::<u32>() as u64;
+        log::info!(
+            "[DDGI][VOXEL_VISIBILITY] allocated voxels={}x{}x{} packed={}x{}x{} bytes={} mib={:.2} max_steps={}",
+            dimensions.x,
+            dimensions.y,
+            dimensions.z,
+            word_dimensions.x,
+            word_dimensions.y,
+            word_dimensions.z,
+            bytes,
+            bytes as f64 / (1024.0 * 1024.0),
+            max_steps,
+        );
+
+        Ok(Self {
+            dimensions,
+            word_dimensions,
+            info_snapshot,
+            published_revision: None,
+            ddgi_voxel_visibility_bits: Resource::new(texture),
+            ddgi_voxel_visibility_info: Resource::new(info),
+        })
+    }
+
+    pub fn dimensions(&self) -> UVec3 {
+        self.dimensions
+    }
+
+    pub fn word_dimensions(&self) -> UVec3 {
+        self.word_dimensions
+    }
+
+    pub fn published_revision(&self) -> Option<u32> {
+        self.published_revision
+    }
+
+    pub fn begin_pack(&mut self, geometry_revision: u32) -> Result<()> {
+        self.info_snapshot.geometry_revision = geometry_revision;
+        self.info_snapshot.ready = 0;
+        self.published_revision = None;
+        self.ddgi_voxel_visibility_info
+            .fill_uniform(&self.info_snapshot)
+    }
+
+    pub fn publish_pack(&mut self, geometry_revision: u32) -> Result<()> {
+        ensure!(
+            self.info_snapshot.geometry_revision == geometry_revision,
+            "cannot publish DDGI voxel visibility revision {geometry_revision}; packing revision {}",
+            self.info_snapshot.geometry_revision,
+        );
+        self.info_snapshot.ready = 1;
+        self.ddgi_voxel_visibility_info
+            .fill_uniform(&self.info_snapshot)?;
+        self.published_revision = Some(geometry_revision);
+        Ok(())
+    }
+}
+
+impl ResourceContainer for DdgiVoxelVisibility {
+    fn get_buffer(&self, name: &str) -> Option<&Buffer> {
+        (name == "ddgi_voxel_visibility_info").then_some(&self.ddgi_voxel_visibility_info)
+    }
+
+    fn get_texture(&self, name: &str) -> Option<&Texture> {
+        (name == "ddgi_voxel_visibility_bits").then_some(&self.ddgi_voxel_visibility_bits)
+    }
+
+    fn get_resource_names(&self) -> Vec<&'static str> {
+        vec!["ddgi_voxel_visibility_bits", "ddgi_voxel_visibility_info"]
+    }
+}
+
+#[cfg(test)]
 const ENDPOINT_CLIP_GRACE_VOXELS: f32 = 0.5;
+#[cfg(test)]
 const OPEN_SEGMENT_EPSILON_VOXELS: f32 = 1.0e-4;
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 struct CpuVisibilityVolume {
     dimensions: UVec3,
@@ -17,6 +187,7 @@ struct CpuVisibilityVolume {
     words: Vec<u32>,
 }
 
+#[cfg(test)]
 impl CpuVisibilityVolume {
     fn from_occupancy(
         dimensions: UVec3,
@@ -62,6 +233,7 @@ fn packed_word_dimensions(dimensions: UVec3) -> UVec3 {
     UVec3::new(dimensions.x.div_ceil(32), dimensions.y, dimensions.z)
 }
 
+#[cfg(test)]
 fn packed_word_index(dimensions: UVec3, coordinate: UVec3) -> Option<(usize, u32)> {
     if dimensions.min_element() == 0 || !coordinate.cmplt(dimensions).all() {
         return None;
@@ -72,6 +244,7 @@ fn packed_word_index(dimensions: UVec3, coordinate: UVec3) -> Option<(usize, u32
     Some((linear as usize, 1 << (coordinate.x & 31)))
 }
 
+#[cfg(test)]
 fn conservative_open_segment_visible(
     volume: &CpuVisibilityVolume,
     start: Vec3,
@@ -181,6 +354,7 @@ fn conservative_open_segment_visible(
     false
 }
 
+#[cfg(test)]
 fn occupied_cell(volume: &CpuVisibilityVolume, cell: glam::IVec3) -> bool {
     if cell.min_element() < 0 {
         return true;
@@ -189,11 +363,13 @@ fn occupied_cell(volume: &CpuVisibilityVolume, cell: glam::IVec3) -> bool {
     !coordinate.cmplt(volume.dimensions).all() || volume.occupied(coordinate)
 }
 
+#[cfg(test)]
 fn endpoint_is_grossly_outside(point: Vec3, dimensions: Vec3) -> bool {
     let grace = Vec3::splat(ENDPOINT_CLIP_GRACE_VOXELS);
     (point.cmplt(-grace) | point.cmpgt(dimensions + grace)).any()
 }
 
+#[cfg(test)]
 fn clip_segment_to_voxel_domain(
     start: Vec3,
     segment: Vec3,
@@ -221,6 +397,7 @@ fn clip_segment_to_voxel_domain(
     Some((entry.max(0.0), exit.min(1.0)))
 }
 
+#[cfg(test)]
 fn axis_delta(direction: f32) -> f32 {
     if direction.abs() <= f32::EPSILON {
         f32::INFINITY
@@ -229,6 +406,7 @@ fn axis_delta(direction: f32) -> f32 {
     }
 }
 
+#[cfg(test)]
 fn axis_next(origin: f32, direction: f32, cell: i32, step: i32) -> f32 {
     if step == 0 {
         f32::INFINITY

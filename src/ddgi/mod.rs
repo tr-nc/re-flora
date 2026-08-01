@@ -36,6 +36,7 @@ pub use scheduler::{
     DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTransportScheduler,
 };
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
+pub use voxel_visibility::DdgiVoxelVisibility;
 
 /// Permanent DDGI diagnostics. Exact modes are intentionally opt-in because they trace up to
 /// eight additional terrain segments for every shaded terrain pixel.

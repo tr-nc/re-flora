@@ -506,6 +506,18 @@ pub struct DdgiTransportQueryInfo {
     pub padding: [u32; 2],
 }
 
+/// Auto-generated from `U_DdgiVoxelVisibilityInfo` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiVoxelVisibilityInfo {
+    pub voxel_dimensions: [u32; 3],
+    pub geometry_revision: u32,
+    pub packed_word_dimensions: [u32; 3],
+    pub ready: u32,
+    pub world_to_voxel_scale: [f32; 3],
+    pub max_steps: u32,
+}
+
 /// Auto-generated from `U_EditOccupancyInfo` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
