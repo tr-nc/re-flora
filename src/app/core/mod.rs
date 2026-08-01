@@ -181,6 +181,7 @@ pub struct App {
     tree_placement_preview_desc: TreeDesc,
     config_panel_visible: bool,
     environment_probe_spacing_draft: u32,
+    environment_probe_rebuild_spacing_voxels: Option<u32>,
     camera_snapshots: CameraSnapshotLibrary,
     camera_snapshot_draft_name: String,
     camera_snapshot_draft_description: String,
@@ -1265,6 +1266,8 @@ impl App {
             tree_records: HashMap::new(),
             config_panel_visible: false,
             environment_probe_spacing_draft: options.environment_probe_spacing_voxels,
+            environment_probe_rebuild_spacing_voxels: options
+                .environment_probe_rebuild_spacing_voxels,
             camera_snapshots,
             camera_snapshot_draft_name,
             camera_snapshot_draft_description: String::new(),
@@ -3099,6 +3102,24 @@ impl App {
                 });
                 self.process_environment_lighting_test_scene();
                 self.process_hybrid_transparency_test_scene();
+
+                if self.render_start_time.is_some() {
+                    if let Some(spacing_voxels) =
+                        self.environment_probe_rebuild_spacing_voxels.take()
+                    {
+                        log::info!(
+                            "[DDGI][RUNTIME_REBUILD] requested spacing_voxels={spacing_voxels}"
+                        );
+                        match self.tracer.rebuild_environment_probes(spacing_voxels) {
+                            Ok(()) => log::info!(
+                                "[DDGI][RUNTIME_REBUILD] complete spacing_voxels={spacing_voxels}"
+                            ),
+                            Err(err) => log::error!(
+                                "[DDGI][RUNTIME_REBUILD] failed spacing_voxels={spacing_voxels}: {err:#}"
+                            ),
+                        }
+                    }
+                }
 
                 let mut sun_update_ticks = 0;
                 if self.debug_settings.adjustables.auto_daynight_cycle.value && world_tick_steps > 0

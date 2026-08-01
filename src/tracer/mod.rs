@@ -96,6 +96,8 @@ const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
 const DDGI_GLOBAL_SKY_BINDING: u32 = 23;
 const DDGI_PROBE_METADATA_BINDING: u32 = 24;
+const DDGI_TRANSIENT_RAY_DATA_BINDING: u32 = 25;
+const DDGI_TRACE_STATS_BINDING: u32 = 26;
 const DDGI_IRRADIANCE_ATLAS_BINDING: u32 = 27;
 const DDGI_VISIBILITY_ATLAS_BINDING: u32 = 28;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
@@ -834,16 +836,10 @@ impl Tracer {
             replacement.request_initialization(terrain_revision);
         }
         self.vulkan_ctx.device().wait_idle();
-        self.ddgi_volume = replacement;
+        // Keep the current volume alive until every consumer points at the replacement.
+        self.update_ddgi_descriptors(&replacement);
         self.ddgi_trace_stats_readback_pending = None;
-        self.update_ddgi_descriptors()?;
-        let resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.ddgi_volume];
-        self.graphics_pipelines
-            .environment_probe_visualization_depth_ppl
-            .auto_update_descriptor_sets(&resources)?;
-        self.graphics_pipelines
-            .environment_probe_visualization_overlay_ppl
-            .auto_update_descriptor_sets(&resources)?;
+        self.ddgi_volume = replacement;
         Ok(())
     }
 
@@ -1260,36 +1256,90 @@ impl Tracer {
         ]
     }
 
-    fn update_ddgi_descriptors(&self) -> Result<()> {
-        let ddgi_volume = &self.ddgi_volume;
-        let resources: [&dyn ResourceContainer; 2] = [&self.resources, ddgi_volume];
-        self.compute_pipelines
-            .ddgi_global_sky_filter_ppl
-            .auto_update_descriptor_sets(&resources)?;
-        self.compute_pipelines
-            .ddgi_octahedral_gutter_ppl
-            .auto_update_descriptor_sets(&[ddgi_volume])?;
-        self.compute_pipelines
-            .ddgi_probe_relocate_ppl
-            .auto_update_descriptor_sets(&[ddgi_volume])?;
-        self.compute_pipelines
-            .ddgi_probe_trace_ppl
-            .auto_update_descriptor_sets(&[ddgi_volume])?;
+    fn update_ddgi_descriptors(&self, ddgi_volume: &DdgiVolume) {
+        // Rewrite only volume-owned bindings. Builder and scene resources stay valid and
+        // must not be omitted from a reflected full-pipeline auto update.
         for pipeline in [
+            &self.compute_pipelines.ddgi_probe_relocate_ppl,
+            &self.compute_pipelines.ddgi_probe_trace_ppl,
             &self.compute_pipelines.ddgi_irradiance_filter_ppl,
             &self.compute_pipelines.ddgi_visibility_filter_ppl,
+            &self.compute_pipelines.tracer_ppl,
+        ] {
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    DDGI_PROBE_METADATA_BINDING,
+                    &ddgi_volume.ddgi_probe_metadata,
+                ),
+            );
+        }
+        for pipeline in [
+            &self.compute_pipelines.ddgi_probe_trace_ppl,
+            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
+            &self.compute_pipelines.ddgi_visibility_filter_ppl,
+        ] {
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    DDGI_TRANSIENT_RAY_DATA_BINDING,
+                    &ddgi_volume.ddgi_transient_ray_data,
+                ),
+            );
+        }
+        self.compute_pipelines
+            .ddgi_probe_trace_ppl
+            .write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    DDGI_TRACE_STATS_BINDING,
+                    &ddgi_volume.ddgi_trace_stats,
+                ),
+            );
+
+        for pipeline in [
+            &self.compute_pipelines.ddgi_global_sky_filter_ppl,
+            &self.compute_pipelines.ddgi_octahedral_gutter_ppl,
+        ] {
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_texture_write(
+                    DDGI_GLOBAL_SKY_BINDING,
+                    vk::DescriptorType::STORAGE_IMAGE,
+                    &ddgi_volume.ddgi_global_sky_irradiance,
+                    TextureLayout::GENERAL,
+                ),
+            );
+        }
+        for pipeline in [
+            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
             &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
+        ] {
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_texture_write(
+                    DDGI_IRRADIANCE_ATLAS_BINDING,
+                    vk::DescriptorType::STORAGE_IMAGE,
+                    &ddgi_volume.ddgi_irradiance_atlas,
+                    TextureLayout::GENERAL,
+                ),
+            );
+        }
+        for pipeline in [
+            &self.compute_pipelines.ddgi_visibility_filter_ppl,
             &self.compute_pipelines.ddgi_visibility_gutter_ppl,
         ] {
-            pipeline.auto_update_descriptor_sets(&[ddgi_volume])?;
+            pipeline.write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_texture_write(
+                    DDGI_VISIBILITY_ATLAS_BINDING,
+                    vk::DescriptorType::STORAGE_IMAGE,
+                    &ddgi_volume.ddgi_visibility_atlas,
+                    TextureLayout::GENERAL,
+                ),
+            );
         }
-        self.compute_pipelines.tracer_ppl.write_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(
-                DDGI_PROBE_METADATA_BINDING,
-                &ddgi_volume.ddgi_probe_metadata,
-            ),
-        );
+
         for pipeline in [
             &self.graphics_pipelines.flora_ppl,
             &self.graphics_pipelines.flora_lod_ppl,
@@ -1364,7 +1414,6 @@ impl Tracer {
                 );
             }
         }
-        Ok(())
     }
 
     // create a lower resolution texture for rendering, for better performance,

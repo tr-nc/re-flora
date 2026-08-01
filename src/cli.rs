@@ -184,6 +184,8 @@ pub struct AppOptions {
     pub hybrid_transparency_test_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
     pub environment_probe_spacing_voxels: u32,
+    /// Rebuild the environment probe grid once at runtime with this spacing.
+    pub environment_probe_rebuild_spacing_voxels: Option<u32>,
     /// Visualize the environment probe grid at startup.
     pub environment_probe_visualization: bool,
     /// Run the lightweight tree replacement benchmark and exit after completion.
@@ -297,6 +299,21 @@ impl AppOptions {
             }
             None => DEFAULT_DDGI_SPACING_VOXELS,
         };
+        let environment_probe_rebuild_spacing_voxels = match parse_required_string_after(
+            "--environment-probe-rebuild-spacing-voxels",
+            "one of: 64, 32, 16, 8",
+        )? {
+            Some(value) => {
+                let parsed = value.parse::<u32>().map_err(|_| {
+                    format!(
+                        "Invalid --environment-probe-rebuild-spacing-voxels '{value}'. Supported values: {}",
+                        supported_ddgi_spacings_label()
+                    )
+                })?;
+                Some(validate_ddgi_spacing(parsed)?)
+            }
+            None => None,
+        };
         let environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
         let environment_irradiance_capture_path = parse_required_string_after(
             "--environment-irradiance-capture",
@@ -395,6 +412,7 @@ impl AppOptions {
                 .iter()
                 .any(|a| a == "--hybrid-transparency-test-scene"),
             environment_probe_spacing_voxels,
+            environment_probe_rebuild_spacing_voxels,
             environment_probe_visualization: args
                 .iter()
                 .any(|a| a == "--environment-probe-visualization"),
@@ -673,6 +691,8 @@ Options:
                               Build the deterministic raster/terrain transparency regression scene
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
+  --environment-probe-rebuild-spacing-voxels <N>
+                              Rebuild probes once after rendering starts, for runtime validation
   --environment-probe-visualization
                               Visualize the environment probe grid (debug; default: off)
   --tree-bench                Run tree replacement benchmark and exit
@@ -774,6 +794,7 @@ mod tests {
             options.environment_probe_spacing_voxels,
             DEFAULT_DDGI_SPACING_VOXELS
         );
+        assert!(options.environment_probe_rebuild_spacing_voxels.is_none());
         assert!(!options.environment_probe_visualization);
         assert_eq!(options.tree_bench_samples, 10);
         assert!(!options.authored_flora_bench);
@@ -861,10 +882,13 @@ mod tests {
             "re-flora",
             "--environment-probe-spacing-voxels",
             "16",
+            "--environment-probe-rebuild-spacing-voxels",
+            "32",
             "--environment-probe-visualization",
         ]);
 
         assert_eq!(options.environment_probe_spacing_voxels, 16);
+        assert_eq!(options.environment_probe_rebuild_spacing_voxels, Some(32));
         assert!(options.environment_probe_visualization);
     }
 
@@ -875,6 +899,24 @@ mod tests {
                 .iter()
                 .map(|arg| (*arg).to_owned())
                 .collect(),
+        );
+
+        assert!(result
+            .unwrap_err()
+            .contains("Supported values: 64, 32, 16, 8"));
+    }
+
+    #[test]
+    fn rejects_unsupported_environment_probe_rebuild_spacing() {
+        let result = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--environment-probe-rebuild-spacing-voxels",
+                "24",
+            ]
+            .iter()
+            .map(|arg| (*arg).to_owned())
+            .collect(),
         );
 
         assert!(result
