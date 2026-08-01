@@ -115,6 +115,24 @@ fn ddgi_shading_geometry_revision(
     }
 }
 
+fn ddgi_unpublished_capture_geometry_revision(
+    target: DdgiCaptureTarget,
+    checkpoint: Option<DdgiCaptureCheckpoint>,
+    complete_field: Option<DdgiFieldIdentity>,
+    building_field: Option<DdgiFieldIdentity>,
+) -> Option<u32> {
+    checkpoint
+        .filter(|checkpoint| target.matches(checkpoint.field))
+        .map(|checkpoint| checkpoint.field.field().geometry_revision())
+        .or_else(|| {
+            [complete_field, building_field]
+                .into_iter()
+                .flatten()
+                .find(|field| target.matches(*field))
+                .map(|field| field.field().geometry_revision())
+        })
+}
+
 fn request_ddgi_terrain_edit_revision(
     refresh: &mut DdgiTerrainRefresh,
     current_terrain_revision: u32,
@@ -613,7 +631,8 @@ mod default_camera_tests {
 mod ddgi_density_rebuild_tests {
     use super::{
         ddgi_density_rebuild_terrain_revision, ddgi_shading_geometry_revision,
-        request_ddgi_terrain_edit_revision, validate_unpublished_capture_volume, DdgiRuntimeStatus,
+        ddgi_unpublished_capture_geometry_revision, request_ddgi_terrain_edit_revision,
+        validate_unpublished_capture_volume, DdgiRuntimeStatus,
     };
     use crate::ddgi::{
         DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh,
@@ -640,6 +659,28 @@ mod ddgi_density_rebuild_tests {
         assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), true), 7);
         assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), false), 3);
         assert_eq!(ddgi_shading_geometry_revision(Some(3), None, true), 0);
+    }
+
+    #[test]
+    fn unpublished_s0_revision_survives_the_private_s0_to_s1_residency_transition() {
+        let mut scheduler = DdgiTransportScheduler::new();
+        scheduler.observe_radiance(4);
+        scheduler.request_geometry(7, 32);
+        let work = scheduler.claim_next().unwrap().unwrap();
+        let s1 = work.destination();
+        let s0 = crate::ddgi::DdgiFieldIdentity::new(s1.source().unwrap(), None).unwrap();
+        let target = crate::ddgi::DdgiCaptureTarget::Iteration(0);
+
+        assert_eq!(
+            ddgi_unpublished_capture_geometry_revision(target, None, None, Some(s0)),
+            Some(7),
+            "pre-validation query must use the private building S0 field",
+        );
+        assert_eq!(
+            ddgi_unpublished_capture_geometry_revision(target, None, Some(s0), Some(s1)),
+            Some(7),
+            "post-validation query must prefer the private complete S0 over building S1",
+        );
     }
 
     #[test]
@@ -2511,12 +2552,22 @@ impl Tracer {
         let ddgi_status = self.ddgi_volumes.status().active();
         let unpublished_capture = self.desc.environment_irradiance_capture_enabled
             && self.desc.environment_irradiance_capture_target.iteration() == Some(0);
+        let builder_status = self.ddgi_volumes.status().builder();
+        let unpublished_capture_geometry_revision = unpublished_capture
+            .then(|| {
+                ddgi_unpublished_capture_geometry_revision(
+                    self.desc.environment_irradiance_capture_target,
+                    self.ddgi_capture_checkpoint(),
+                    builder_status.complete_field,
+                    builder_status.building_field,
+                )
+            })
+            .flatten();
         let ddgi_geometry_revision = ddgi_shading_geometry_revision(
             ddgi_status
                 .published_field
                 .map(|field| field.field().geometry_revision()),
-            self.ddgi_capture_checkpoint()
-                .map(|checkpoint| checkpoint.field.field().geometry_revision()),
+            unpublished_capture_geometry_revision,
             unpublished_capture,
         );
         BufferUpdater::update_shading_info(
