@@ -22,13 +22,16 @@ if ! $dry_run; then
 fi
 
 failures=0
-for spacing in "${spacings[@]}"; do
-    capture="$run_dir/terrain-edits-spacing${spacing}-reopened.rfirr"
-    console="$run_dir/terrain-edits-spacing${spacing}.console.log"
+run_case() {
+    local spacing="$1"
+    local scenario="$2"
+    local mode="$3"
+    local capture="$run_dir/terrain-edits-spacing${spacing}-${mode}.rfirr"
+    local console="$run_dir/terrain-edits-spacing${spacing}-${mode}.console.log"
     command=(
         cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" --
         --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
-        --environment-lighting-test-scene terrain-edits
+        --environment-lighting-test-scene "$scenario"
         --environment-probe-spacing-voxels "$spacing"
         --environment-irradiance-capture "$capture"
         --auto-exit "$auto_exit"
@@ -36,59 +39,76 @@ for spacing in "${spacings[@]}"; do
     if $dry_run; then
         printf '%q ' "${command[@]}"
         printf '\n'
-        continue
+        return 0
     fi
 
-    echo "[DDGI_TERRAIN_EDIT] spacing=$spacing running close/reopen lifecycle"
+    echo "[DDGI_TERRAIN_EDIT] spacing=$spacing running mode=$mode lifecycle"
     set +e
     RUST_LOG="warn,re_flora::app::core::environment_irradiance_capture=info,re_flora::app::core::environment_lighting_test_scene=info" \
         "${command[@]}" 2>&1 | tee "$console"
     command_status=${PIPESTATUS[0]}
     set -e
 
-    log_path="$(cargo run --quiet --release --manifest-path "$repo_root/Cargo.toml" -- --latest-log)"
-    if [[ -z "$log_path" || ! -f "$log_path" ]]; then
-        echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing could not locate run log" >&2
-        failures=$((failures + 1))
-        continue
-    fi
     required=(
         "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready"
-        "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight"
-        "[ENV_LIGHT_EDIT_CYCLE] edited terrain ready edit=close-skylight"
-        "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=close-skylight"
-        "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight"
-        "[ENV_LIGHT_EDIT_CYCLE] edited terrain ready edit=reopen-skylight"
-        "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=reopen-skylight"
-        "[ENV_LIGHT_EDIT_CYCLE] complete"
+        "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=1 target_revision=2"
+        "[ENV_LIGHT_EDIT_CYCLE] edited terrain ready edit=close-skylight target_revision=2"
+        "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=close-skylight terrain_revision=2"
         "[ENV_IRRADIANCE_CAPTURE] saved"
     )
+    if [[ "$mode" == "closed" ]]; then
+        required+=(
+            "[ENV_LIGHT_EDIT_CYCLE] complete mode=closed final_terrain_revision=2"
+        )
+    else
+        required+=(
+            "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=2 target_revision=3"
+            "[ENV_LIGHT_EDIT_CYCLE] edited terrain ready edit=reopen-skylight target_revision=3"
+            "[ENV_LIGHT_EDIT_CYCLE] edited probe field ready edit=reopen-skylight terrain_revision=3"
+            "[ENV_LIGHT_EDIT_CYCLE] requested density rebuild terrain_revision=3 spacing_voxels=$spacing"
+            "[ENV_LIGHT_EDIT_CYCLE] density rebuild ready terrain_revision=3"
+            "[ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision=3"
+        )
+    fi
     missing=()
     for marker in "${required[@]}"; do
-        if ! grep -Fq "$marker" "$log_path"; then
+        if ! grep -Fq "$marker" "$console"; then
             missing+=("$marker")
         fi
     done
     if (( command_status != 0 || ${#missing[@]} != 0 )) || [[ ! -f "$capture" ]]; then
-        echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing status=$command_status missing_markers=${#missing[@]} capture_present=$([[ -f "$capture" ]] && echo yes || echo no)" >&2
+        echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing mode=$mode status=$command_status missing_markers=${#missing[@]} capture_present=$([[ -f "$capture" ]] && echo yes || echo no)" >&2
         for marker in "${missing[@]}"; do
             echo "[DDGI_TERRAIN_EDIT] missing: $marker" >&2
         done
-        grep -E "ENV_LIGHT_EDIT_CYCLE|runtime terrain invalidation" "$log_path" | tail -n 20 >&2 || true
-        failures=$((failures + 1))
-        continue
+        grep -E "ENV_LIGHT_EDIT_CYCLE|runtime terrain invalidation" "$console" | tail -n 24 >&2 || true
+        return 1
     fi
-    if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+    if [[ "$mode" == "closed" ]]; then
+        if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
+            "$capture" --max-luminance 0.00001; then
+            echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing post-close capture leaks light" >&2
+            return 1
+        fi
+    elif ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
         "$capture" --min-luminance-p99 0.10; then
         echo "[DDGI_TERRAIN_EDIT] FAIL spacing=$spacing reopened portal capture is not lit" >&2
-        failures=$((failures + 1))
-        continue
+        return 1
     fi
-    echo "[DDGI_TERRAIN_EDIT] PASS spacing=$spacing initial-close-reopen revisions ready before final capture"
+    echo "[DDGI_TERRAIN_EDIT] PASS spacing=$spacing mode=$mode exact revisions ready before capture"
+}
+
+for spacing in "${spacings[@]}"; do
+    if ! run_case "$spacing" terrain-edits-closed closed; then
+        failures=$((failures + 1))
+    fi
+    if ! run_case "$spacing" terrain-edits reopened; then
+        failures=$((failures + 1))
+    fi
 done
 
 if $dry_run; then
-    echo "[DDGI_TERRAIN_EDIT] dry-run matrix spacings=2 lifecycle=initial-close-reopen"
+    echo "[DDGI_TERRAIN_EDIT] dry-run matrix spacings=2 scenarios=closed,reopened"
     exit 0
 fi
 

@@ -91,6 +91,13 @@ use re_flora_vkn::{
 };
 use std::collections::HashMap;
 
+fn ddgi_density_rebuild_terrain_revision(
+    active_terrain_revision: Option<u32>,
+    initial_terrain_revision: Option<u32>,
+) -> Option<u32> {
+    active_terrain_revision.or(initial_terrain_revision)
+}
+
 const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
 const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
@@ -409,6 +416,24 @@ mod default_camera_tests {
         )
         .normalize();
         assert!(camera_front.distance((focus - position).normalize()) < 1.0e-6);
+    }
+}
+
+#[cfg(test)]
+mod ddgi_density_rebuild_tests {
+    use super::ddgi_density_rebuild_terrain_revision;
+
+    #[test]
+    fn completed_runtime_revision_wins_over_the_initial_revision() {
+        assert_eq!(
+            ddgi_density_rebuild_terrain_revision(Some(3), Some(1)),
+            Some(3)
+        );
+        assert_eq!(
+            ddgi_density_rebuild_terrain_revision(None, Some(1)),
+            Some(1)
+        );
+        assert_eq!(ddgi_density_rebuild_terrain_revision(None, None), None);
     }
 }
 
@@ -833,7 +858,16 @@ impl Tracer {
     }
 
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) -> Result<()> {
-        self.prepare_ddgi_staging(spacing_voxels, self.ddgi_initial_terrain_ready_revision)
+        anyhow::ensure!(
+            !self.ddgi_terrain_refresh.blocks_density_rebuild(),
+            "cannot rebuild DDGI density while terrain refresh revision {} is pending or building",
+            self.environment_probe_terrain_revision,
+        );
+        let terrain_revision = ddgi_density_rebuild_terrain_revision(
+            self.ddgi_status().active().relocated_terrain_revision,
+            self.ddgi_initial_terrain_ready_revision,
+        );
+        self.prepare_ddgi_staging(spacing_voxels, terrain_revision)
     }
 
     /// Prepares a same-density staging volume for terrain that the caller has declared ready.
@@ -890,14 +924,16 @@ impl Tracer {
             edit_bound,
             grid,
         );
-        let influence_bound = self.ddgi_terrain_refresh.influence_voxel_bound();
+        let edited_bound = self.ddgi_terrain_refresh.edited_voxel_bound();
+        let invalidation_bound = self.ddgi_terrain_refresh.invalidation_voxel_bound();
         log::info!(
-            "[DDGI] runtime terrain invalidation deferred revision={} accepted={} edit_voxel_bound={:?}..{:?} influence_voxel_bound={:?}",
+            "[DDGI] runtime terrain invalidation deferred revision={} accepted={} edit_voxel_bound={:?}..{:?} combined_edit_voxel_bound={:?} invalidation_voxel_bound={:?}",
             self.environment_probe_terrain_revision,
             accepted,
             edit_bound.min(),
             edit_bound.max(),
-            influence_bound.map(|bound| (bound.min(), bound.max())),
+            edited_bound.map(|bound| (bound.min(), bound.max())),
+            invalidation_bound.map(|bound| (bound.min(), bound.max())),
         );
     }
 
@@ -914,10 +950,13 @@ impl Tracer {
         self.prepare_environment_probe_refresh(terrain_revision)?;
         assert!(self.ddgi_terrain_refresh.mark_building(terrain_revision));
         log::info!(
-            "[DDGI] runtime terrain refresh started terrain_revision={} influence_voxel_bound={:?}",
+            "[DDGI] runtime terrain refresh started terrain_revision={} edited_voxel_bound={:?} invalidation_voxel_bound={:?}",
             terrain_revision,
             self.ddgi_terrain_refresh
-                .influence_voxel_bound()
+                .edited_voxel_bound()
+                .map(|bound| (bound.min(), bound.max())),
+            self.ddgi_terrain_refresh
+                .invalidation_voxel_bound()
                 .map(|bound| (bound.min(), bound.max())),
         );
         Ok(true)
@@ -1805,7 +1844,7 @@ impl Tracer {
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
-            self.ddgi_terrain_refresh.influence_voxel_bound(),
+            self.ddgi_terrain_refresh.invalidation_voxel_bound(),
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;
 

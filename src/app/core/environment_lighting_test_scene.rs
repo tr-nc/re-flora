@@ -51,6 +51,9 @@ enum TestScenePhase {
         edit: TerrainEdit,
         target_revision: u32,
     },
+    WaitingForDensityRebuild {
+        terrain_revision: u32,
+    },
     Ready,
     Failed,
 }
@@ -96,7 +99,7 @@ impl EnvironmentLightingTestScene {
     }
 
     pub(super) fn edit_cycle_target_revision(&self) -> Option<u32> {
-        if self.case != EnvironmentLightingTestCase::TerrainEdits || self.is_ready() {
+        if !is_terrain_edit_case(self.case) || self.is_ready() {
             return None;
         }
         match self.phase {
@@ -106,6 +109,7 @@ impl EnvironmentLightingTestScene {
             | TestScenePhase::WaitingForEditedProbeField {
                 target_revision, ..
             } => Some(target_revision),
+            TestScenePhase::WaitingForDensityRebuild { terrain_revision } => Some(terrain_revision),
             _ => Some(0),
         }
     }
@@ -118,6 +122,7 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForProbeField { .. } => "waiting-for-initial-probe-field",
             TestScenePhase::WaitingForEditedTerrain { .. } => "waiting-for-edited-terrain",
             TestScenePhase::WaitingForEditedProbeField { .. } => "waiting-for-edited-probe-field",
+            TestScenePhase::WaitingForDensityRebuild { .. } => "waiting-for-density-rebuild",
             TestScenePhase::Ready => "ready",
             TestScenePhase::Failed => "failed",
         }
@@ -143,7 +148,9 @@ impl TestSceneGeometry {
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX)],
             ),
-            EnvironmentLightingTestCase::Portal | EnvironmentLightingTestCase::TerrainEdits => (
+            EnvironmentLightingTestCase::Portal
+            | EnvironmentLightingTestCase::TerrainEdits
+            | EnvironmentLightingTestCase::TerrainEditsClosed => (
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![
                     Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX),
@@ -229,7 +236,9 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         EnvironmentLightingTestCase::Sealed => {
             (Vec3::new(0.65, 0.58, 1.38), Vec3::new(0.65, 0.64, 1.02))
         }
-        EnvironmentLightingTestCase::Portal | EnvironmentLightingTestCase::TerrainEdits => {
+        EnvironmentLightingTestCase::Portal
+        | EnvironmentLightingTestCase::TerrainEdits
+        | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
         }
         EnvironmentLightingTestCase::Walls => {
@@ -355,7 +364,7 @@ impl App {
                 {
                     return;
                 }
-                if case == EnvironmentLightingTestCase::TerrainEdits {
+                if is_terrain_edit_case(case) {
                     log::info!(
                         "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision={}",
                         terrain_revision,
@@ -414,28 +423,72 @@ impl App {
                 );
                 match edit {
                     TerrainEdit::CloseSkylight => {
-                        match self.apply_environment_lighting_terrain_edit(
-                            TerrainEdit::ReopenSkylight,
-                            target_revision,
-                        ) {
-                            Ok(reopen_revision) => TestScenePhase::WaitingForEditedTerrain {
-                                edit: TerrainEdit::ReopenSkylight,
-                                target_revision: reopen_revision,
-                            },
-                            Err(err) => {
-                                log::error!("[ENV_LIGHT_EDIT_CYCLE] reopen edit failed: {err:#}");
-                                TestScenePhase::Failed
+                        if case == EnvironmentLightingTestCase::TerrainEditsClosed {
+                            log::info!(
+                                "[ENV_LIGHT_EDIT_CYCLE] complete mode=closed final_terrain_revision={}",
+                                target_revision,
+                            );
+                            TestScenePhase::Ready
+                        } else {
+                            match self.apply_environment_lighting_terrain_edit(
+                                TerrainEdit::ReopenSkylight,
+                                target_revision,
+                            ) {
+                                Ok(reopen_revision) => TestScenePhase::WaitingForEditedTerrain {
+                                    edit: TerrainEdit::ReopenSkylight,
+                                    target_revision: reopen_revision,
+                                },
+                                Err(err) => {
+                                    log::error!(
+                                        "[ENV_LIGHT_EDIT_CYCLE] reopen edit failed: {err:#}"
+                                    );
+                                    TestScenePhase::Failed
+                                }
                             }
                         }
                     }
                     TerrainEdit::ReopenSkylight => {
-                        log::info!(
-                            "[ENV_LIGHT_EDIT_CYCLE] complete final_terrain_revision={}",
-                            target_revision,
-                        );
-                        TestScenePhase::Ready
+                        let spacing_voxels =
+                            self.tracer.environment_probe_status().grid.spacing_voxels();
+                        match self.tracer.rebuild_environment_probes(spacing_voxels) {
+                            Ok(()) => {
+                                log::info!(
+                                    "[ENV_LIGHT_EDIT_CYCLE] requested density rebuild terrain_revision={} spacing_voxels={}",
+                                    target_revision,
+                                    spacing_voxels,
+                                );
+                                TestScenePhase::WaitingForDensityRebuild {
+                                    terrain_revision: target_revision,
+                                }
+                            }
+                            Err(err) => {
+                                log::error!(
+                                    "[ENV_LIGHT_EDIT_CYCLE] post-edit density rebuild failed: {err:#}"
+                                );
+                                TestScenePhase::Failed
+                            }
+                        }
                     }
                 }
+            }
+            TestScenePhase::WaitingForDensityRebuild { terrain_revision } => {
+                let status = self.tracer.ddgi_status();
+                if status.staging().is_some()
+                    || !self
+                        .tracer
+                        .ddgi_ready_for_terrain_revision(terrain_revision)
+                {
+                    return;
+                }
+                log::info!(
+                    "[ENV_LIGHT_EDIT_CYCLE] density rebuild ready terrain_revision={}",
+                    terrain_revision,
+                );
+                log::info!(
+                    "[ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision={}",
+                    terrain_revision,
+                );
+                TestScenePhase::Ready
             }
             TestScenePhase::Ready | TestScenePhase::Failed => return,
         };
@@ -473,6 +526,13 @@ impl App {
     }
 }
 
+fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
+    matches!(
+        case,
+        EnvironmentLightingTestCase::TerrainEdits | EnvironmentLightingTestCase::TerrainEditsClosed
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,6 +565,8 @@ mod tests {
             EnvironmentLightingTestCase::Sealed,
             EnvironmentLightingTestCase::Portal,
             EnvironmentLightingTestCase::Walls,
+            EnvironmentLightingTestCase::TerrainEdits,
+            EnvironmentLightingTestCase::TerrainEditsClosed,
         ] {
             let plan = TestSceneGeometry::build(case).compile().unwrap();
             assert!(plan.voxel_edits.len() >= 2);

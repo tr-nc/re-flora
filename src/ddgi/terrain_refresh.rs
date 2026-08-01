@@ -3,11 +3,6 @@ use glam::UVec3;
 
 use super::DdgiVolumeGrid;
 
-/// A terrain edit can change the probe selected anywhere in the adjacent interpolation cage.
-/// One probe spacing covers that cage, another half spacing covers relocation, and four voxels
-/// cover the relocation clearance scan.
-const DDGI_TERRAIN_INVALIDATION_CLEARANCE_VOXELS: u32 = 4;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DdgiTerrainRefreshPhase {
     AwaitingTerrain,
@@ -17,7 +12,8 @@ enum DdgiTerrainRefreshPhase {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DdgiTerrainRefreshRequest {
     terrain_revision: u32,
-    influence_voxel_bound: UAabb3,
+    edited_voxel_bound: UAabb3,
+    invalidation_voxel_bound: UAabb3,
     phase: DdgiTerrainRefreshPhase,
 }
 
@@ -38,21 +34,22 @@ impl DdgiTerrainRefresh {
         edit_voxel_bound: UAabb3,
         grid: DdgiVolumeGrid,
     ) -> bool {
-        let influence_voxel_bound = terrain_edit_influence_bound(edit_voxel_bound, grid);
+        let invalidation_voxel_bound = terrain_invalidation_bound(grid);
         match self.request.as_mut() {
             None => {
                 self.request = Some(DdgiTerrainRefreshRequest {
                     terrain_revision,
-                    influence_voxel_bound,
+                    edited_voxel_bound: edit_voxel_bound,
+                    invalidation_voxel_bound,
                     phase: DdgiTerrainRefreshPhase::AwaitingTerrain,
                 });
                 true
             }
             Some(request) if request.phase == DdgiTerrainRefreshPhase::AwaitingTerrain => {
                 request.terrain_revision = terrain_revision;
-                request.influence_voxel_bound = request
-                    .influence_voxel_bound
-                    .union_with(&influence_voxel_bound);
+                request.edited_voxel_bound =
+                    request.edited_voxel_bound.union_with(&edit_voxel_bound);
+                request.invalidation_voxel_bound = invalidation_voxel_bound;
                 true
             }
             Some(_) => false,
@@ -79,8 +76,16 @@ impl DdgiTerrainRefresh {
         true
     }
 
-    pub fn influence_voxel_bound(self) -> Option<UAabb3> {
-        self.request.map(|request| request.influence_voxel_bound)
+    pub fn edited_voxel_bound(self) -> Option<UAabb3> {
+        self.request.map(|request| request.edited_voxel_bound)
+    }
+
+    pub fn invalidation_voxel_bound(self) -> Option<UAabb3> {
+        self.request.map(|request| request.invalidation_voxel_bound)
+    }
+
+    pub fn blocks_density_rebuild(self) -> bool {
+        self.request.is_some()
     }
 
     pub fn clear_initial_revision(&mut self, terrain_revision: u32) {
@@ -104,20 +109,10 @@ impl DdgiTerrainRefresh {
     }
 }
 
-fn terrain_edit_influence_bound(edit_voxel_bound: UAabb3, grid: DdgiVolumeGrid) -> UAabb3 {
-    let spacing_voxels = grid.spacing_voxels();
-    let margin = UVec3::splat(
-        spacing_voxels
-            .saturating_add(spacing_voxels / 2)
-            .saturating_add(DDGI_TERRAIN_INVALIDATION_CLEARANCE_VOXELS),
-    );
-    UAabb3::new(
-        edit_voxel_bound.min().saturating_sub(margin),
-        edit_voxel_bound
-            .max()
-            .saturating_add(margin)
-            .min(grid.world_extent_voxels()),
-    )
+fn terrain_invalidation_bound(grid: DdgiVolumeGrid) -> UAabb3 {
+    // Any probe can trace through the edited geometry, so no subset of the old probe field is
+    // generally trustworthy. Local dependency tracking is a future optimization.
+    UAabb3::new(UVec3::ZERO, grid.world_extent_voxels())
 }
 
 #[cfg(test)]
@@ -129,16 +124,12 @@ mod tests {
     }
 
     #[test]
-    fn edit_influence_covers_cage_relocation_and_clearance_and_clamps_to_the_volume() {
-        let interior =
-            terrain_edit_influence_bound(UAabb3::new(UVec3::splat(50), UVec3::splat(60)), grid(16));
-        assert_eq!(interior.min(), UVec3::splat(22));
-        assert_eq!(interior.max(), UVec3::splat(88));
-
-        let edge =
-            terrain_edit_influence_bound(UAabb3::new(UVec3::splat(8), UVec3::splat(500)), grid(32));
-        assert_eq!(edge.min(), UVec3::ZERO);
-        assert_eq!(edge.max(), UVec3::splat(512));
+    fn terrain_refresh_invalidates_the_full_ddgi_world_domain() {
+        for spacing_voxels in [32, 16] {
+            let invalidation = terrain_invalidation_bound(grid(spacing_voxels));
+            assert_eq!(invalidation.min(), UVec3::ZERO);
+            assert_eq!(invalidation.max(), UVec3::splat(512));
+        }
     }
 
     #[test]
@@ -150,14 +141,14 @@ mod tests {
             grid(32),
         ));
         assert_eq!(refresh.awaiting_terrain_revision(), Some(7));
-        assert!(refresh.influence_voxel_bound().is_some());
+        assert!(refresh.invalidation_voxel_bound().is_some());
 
         assert!(refresh.mark_building(7));
         assert_eq!(refresh.awaiting_terrain_revision(), None);
         assert!(!refresh.clear_promoted_revision(6));
-        assert!(refresh.influence_voxel_bound().is_some());
+        assert!(refresh.invalidation_voxel_bound().is_some());
         assert!(refresh.clear_promoted_revision(7));
-        assert_eq!(refresh.influence_voxel_bound(), None);
+        assert_eq!(refresh.invalidation_voxel_bound(), None);
     }
 
     #[test]
@@ -175,9 +166,12 @@ mod tests {
         ));
 
         assert_eq!(refresh.awaiting_terrain_revision(), Some(8));
-        let influence = refresh.influence_voxel_bound().unwrap();
-        assert_eq!(influence.min(), UVec3::splat(72));
-        assert_eq!(influence.max(), UVec3::splat(238));
+        let edited = refresh.edited_voxel_bound().unwrap();
+        assert_eq!(edited.min(), UVec3::splat(100));
+        assert_eq!(edited.max(), UVec3::splat(210));
+        let invalidation = refresh.invalidation_voxel_bound().unwrap();
+        assert_eq!(invalidation.min(), UVec3::ZERO);
+        assert_eq!(invalidation.max(), UVec3::splat(512));
     }
 
     #[test]
@@ -189,7 +183,7 @@ mod tests {
             grid(32),
         ));
         assert!(refresh.mark_building(7));
-        let influence_before_second_edit = refresh.influence_voxel_bound();
+        let invalidation_before_second_edit = refresh.invalidation_voxel_bound();
 
         assert!(!refresh.request(
             8,
@@ -197,8 +191,8 @@ mod tests {
             grid(32),
         ));
         assert_eq!(
-            refresh.influence_voxel_bound(),
-            influence_before_second_edit
+            refresh.invalidation_voxel_bound(),
+            invalidation_before_second_edit
         );
         assert!(!refresh.clear_promoted_revision(8));
         assert!(refresh.clear_promoted_revision(7));
@@ -216,7 +210,23 @@ mod tests {
         assert_eq!(refresh.awaiting_terrain_revision(), Some(7));
         refresh.clear_initial_revision(7);
         assert_eq!(refresh.awaiting_terrain_revision(), None);
-        assert_eq!(refresh.influence_voxel_bound(), None);
+        assert_eq!(refresh.invalidation_voxel_bound(), None);
+    }
+
+    #[test]
+    fn pending_and_building_refreshes_block_density_rebuilds_until_promotion() {
+        let mut refresh = DdgiTerrainRefresh::default();
+        assert!(!refresh.blocks_density_rebuild());
+        assert!(refresh.request(
+            7,
+            UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
+            grid(32),
+        ));
+        assert!(refresh.blocks_density_rebuild());
+        assert!(refresh.mark_building(7));
+        assert!(refresh.blocks_density_rebuild());
+        assert!(refresh.clear_promoted_revision(7));
+        assert!(!refresh.blocks_density_rebuild());
     }
 
     #[test]
