@@ -1,5 +1,40 @@
 use glam::Vec3;
 
+// Authored sky lighting is compiled into these shaders rather than supplied through a runtime
+// uniform. Hash the authoritative sources so a capture or cached field can still name the exact
+// sky model that produced it. Adding runtime sky controls later should replace this compilation-
+// bound identity with their explicit snapshot values.
+pub(crate) const DDGI_AUTHORED_SKY_MODEL_IDENTITY: u64 = authored_sky_model_identity();
+const FNV1A64_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+const FNV1A64_PRIME: u64 = 0x100000001b3;
+
+const fn authored_sky_model_identity() -> u64 {
+    let mut hash = FNV1A64_OFFSET_BASIS;
+    hash = hash_bytes(
+        hash,
+        include_bytes!("../shader/slang/sky_environment_data.slang"),
+    );
+    hash = hash_bytes(hash, include_bytes!("../shader/slang/skylight.slang"));
+    hash = hash_bytes(
+        hash,
+        include_bytes!("../shader/slang/ddgi_global_sky_filter.slang"),
+    );
+    hash_bytes(
+        hash,
+        include_bytes!("../shader/slang/ddgi_probe_trace.slang"),
+    )
+}
+
+const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
+    let mut index = 0;
+    while index < bytes.len() {
+        hash ^= bytes[index] as u64;
+        hash = hash.wrapping_mul(FNV1A64_PRIME);
+        index += 1;
+    }
+    hash
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct DdgiVoxelPaletteSnapshot {
     pub dirt_color: Vec3,
@@ -10,7 +45,7 @@ pub(crate) struct DdgiVoxelPaletteSnapshot {
     pub hash_color_variance: f32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct DdgiRadianceSnapshot {
     pub sun_direction: Vec3,
     pub sun_color: Vec3,
@@ -20,7 +55,12 @@ pub(crate) struct DdgiRadianceSnapshot {
 
 impl DdgiRadianceSnapshot {
     fn identity(self) -> DdgiRadianceIdentity {
+        self.identity_for_authored_sky(DDGI_AUTHORED_SKY_MODEL_IDENTITY)
+    }
+
+    fn identity_for_authored_sky(self, authored_sky_model_identity: u64) -> DdgiRadianceIdentity {
         DdgiRadianceIdentity {
+            authored_sky_model_identity,
             sun_direction: self.sun_direction.to_array().map(f32::to_bits),
             sun_color: self.sun_color.to_array().map(f32::to_bits),
             sun_luminance: self.sun_luminance.to_bits(),
@@ -42,8 +82,15 @@ impl DdgiRadianceSnapshot {
     }
 }
 
+impl PartialEq for DdgiRadianceSnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity() == other.identity()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DdgiRadianceIdentity {
+    authored_sky_model_identity: u64,
     sun_direction: [u32; 3],
     sun_color: [u32; 3],
     sun_luminance: u32,
@@ -69,15 +116,23 @@ pub(crate) struct EnvironmentLightingCache {
 
 impl EnvironmentLightingCache {
     pub fn update(&mut self, mut snapshot: DdgiRadianceSnapshot) -> EnvironmentLightingState {
+        self.update_for_authored_sky(&mut snapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY)
+    }
+
+    fn update_for_authored_sky(
+        &mut self,
+        snapshot: &mut DdgiRadianceSnapshot,
+        authored_sky_model_identity: u64,
+    ) -> EnvironmentLightingState {
         snapshot.sun_direction = snapshot.sun_direction.normalize_or_zero();
-        let identity = snapshot.identity();
+        let identity = snapshot.identity_for_authored_sky(authored_sky_model_identity);
         if self.last_identity != Some(identity) {
             self.current_revision = self.current_revision.wrapping_add(1).max(1);
             self.last_identity = Some(identity);
         }
         EnvironmentLightingState {
             revision: self.current_revision,
-            snapshot,
+            snapshot: *snapshot,
         }
     }
 }
@@ -150,6 +205,24 @@ mod tests {
             let changed = cache.update(changed);
             assert_eq!(changed.revision, first.revision + 1);
         }
+    }
+
+    #[test]
+    fn cache_revision_covers_the_compiled_authored_sky_model() {
+        assert_ne!(DDGI_AUTHORED_SKY_MODEL_IDENTITY, 0);
+        assert_eq!(
+            snapshot().identity().authored_sky_model_identity,
+            DDGI_AUTHORED_SKY_MODEL_IDENTITY,
+        );
+
+        let mut cache = EnvironmentLightingCache::default();
+        let mut value = snapshot();
+        let first = cache.update_for_authored_sky(&mut value, DDGI_AUTHORED_SKY_MODEL_IDENTITY);
+        let changed = cache
+            .update_for_authored_sky(&mut value, DDGI_AUTHORED_SKY_MODEL_IDENTITY.wrapping_add(1));
+
+        assert_eq!(changed.revision, first.revision + 1);
+        assert_eq!(changed.snapshot, first.snapshot);
     }
 
     #[test]
