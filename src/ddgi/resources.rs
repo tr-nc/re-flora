@@ -1,6 +1,7 @@
 use super::{
-    DdgiAtlasLayout, DdgiBuildToken, DdgiVolumeGrid, DDGI_IRRADIANCE_INTERIOR_SIDE,
-    DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiAtlasLayout, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldStage, DdgiScheduledWork,
+    DdgiScheduledWorkKind, DdgiVolumeGrid, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_PROBE_BATCH_SIZE,
+    DDGI_RAYS_PER_PROBE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::DdgiRadianceSnapshot;
 use crate::generated::gpu_structs::{
@@ -43,13 +44,20 @@ pub const DDGI_CONVERGENCE_POLICY: DdgiConvergencePolicy = DdgiConvergencePolicy
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
-pub enum DdgiIrradianceSlot {
+enum DdgiIrradianceSlot {
     Atlas0 = 0,
     Atlas1 = 1,
 }
 
 impl DdgiIrradianceSlot {
-    pub fn label(self) -> &'static str {
+    fn other(self) -> Self {
+        match self {
+            Self::Atlas0 => Self::Atlas1,
+            Self::Atlas1 => Self::Atlas0,
+        }
+    }
+
+    fn label(self) -> &'static str {
         match self {
             Self::Atlas0 => "atlas0",
             Self::Atlas1 => "atlas1",
@@ -58,33 +66,163 @@ impl DdgiIrradianceSlot {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DdgiTransportFieldIdentity {
-    pub build_token: Option<DdgiBuildToken>,
-    pub geometry_revision: u32,
-    pub radiance_revision: u32,
-    pub spacing_voxels: u32,
-    pub stage: DdgiTransportStage,
-    pub iteration: u32,
-    pub slot: DdgiIrradianceSlot,
+enum DdgiSkySlot {
+    Sky0,
+    Sky1,
+}
+
+impl DdgiSkySlot {
+    fn other(self) -> Self {
+        match self {
+            Self::Sky0 => Self::Sky1,
+            Self::Sky1 => Self::Sky0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DdgiTransportIterationIdentity {
-    pub build_token: Option<DdgiBuildToken>,
-    pub geometry_revision: u32,
-    pub radiance_revision: u32,
-    pub spacing_voxels: u32,
-    pub stage: DdgiTransportStage,
-    pub iteration: u32,
-    pub source: Option<DdgiTransportFieldIdentity>,
-    pub destination: DdgiTransportFieldIdentity,
+struct DdgiResidentField {
+    logical: DdgiFieldIdentity,
+    irradiance_slot: DdgiIrradianceSlot,
+    sky_slot: DdgiSkySlot,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DdgiResidentIteration {
+    work: DdgiScheduledWork,
+    logical: DdgiFieldIdentity,
+    source: Option<DdgiResidentField>,
+    destination: DdgiResidentField,
+}
+
+fn resident_iteration_for_work(
+    work: DdgiScheduledWork,
+    published: Option<DdgiResidentField>,
+) -> Result<DdgiResidentIteration> {
+    let destination = work.destination();
+    match work.kind() {
+        DdgiScheduledWorkKind::GeometryBootstrap | DdgiScheduledWorkKind::DensityBootstrap => {
+            ensure!(
+                published.is_none(),
+                "DDGI bootstrap must use an unpublished staging volume"
+            );
+            let seed = work
+                .seed()
+                .context("DDGI bootstrap work lost S0 identity")?;
+            ensure!(
+                destination.source() == Some(seed.field()),
+                "DDGI bootstrap destination does not consume its scheduled S0"
+            );
+            let destination = DdgiResidentField {
+                logical: seed,
+                irradiance_slot: DdgiIrradianceSlot::Atlas1,
+                sky_slot: DdgiSkySlot::Sky0,
+            };
+            Ok(DdgiResidentIteration {
+                work,
+                logical: seed,
+                source: None,
+                destination,
+            })
+        }
+        DdgiScheduledWorkKind::RadianceFeedback | DdgiScheduledWorkKind::Feedback => {
+            ensure!(
+                work.seed().is_none(),
+                "DDGI feedback work cannot contain S0"
+            );
+            let source = published.context("DDGI feedback requires a resident published source")?;
+            ensure!(
+                destination.source() == Some(source.logical.field()),
+                "DDGI feedback source {:?} does not match resident source {:?}",
+                destination.source(),
+                source.logical,
+            );
+            let radiance_changed = destination.field().radiance_revision()
+                != source.logical.field().radiance_revision();
+            let destination = DdgiResidentField {
+                logical: destination,
+                irradiance_slot: source.irradiance_slot.other(),
+                sky_slot: if radiance_changed {
+                    source.sky_slot.other()
+                } else {
+                    source.sky_slot
+                },
+            };
+            Ok(DdgiResidentIteration {
+                work,
+                logical: destination.logical,
+                source: Some(source),
+                destination,
+            })
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiRayBatch {
     pub first_probe_index: u32,
     pub probe_count: u32,
-    pub transport: DdgiTransportIterationIdentity,
+    resident: DdgiResidentIteration,
+}
+
+impl DdgiRayBatch {
+    pub fn logical(self) -> DdgiFieldIdentity {
+        self.resident.logical
+    }
+
+    pub fn geometry_revision(self) -> u32 {
+        self.resident.logical.field().geometry_revision()
+    }
+
+    pub fn radiance_revision(self) -> u32 {
+        self.resident.logical.field().radiance_revision()
+    }
+
+    pub fn spacing_voxels(self) -> u32 {
+        self.resident.logical.field().spacing_voxels()
+    }
+
+    pub fn stage(self) -> DdgiFieldStage {
+        self.resident.logical.field().stage()
+    }
+
+    pub fn iteration(self) -> u32 {
+        self.resident.logical.field().iteration()
+    }
+
+    pub fn source(self) -> Option<DdgiFieldIdentity> {
+        self.resident.source.map(|source| source.logical)
+    }
+
+    pub fn source_slot_index(self) -> u32 {
+        self.resident
+            .source
+            .map(|source| source.irradiance_slot as u32)
+            .unwrap_or_default()
+    }
+
+    pub fn destination_slot_index(self) -> u32 {
+        self.resident.destination.irradiance_slot as u32
+    }
+
+    pub fn destination_is_transport_source(self) -> bool {
+        self.resident.destination.irradiance_slot == DdgiIrradianceSlot::Atlas1
+    }
+
+    pub fn destination_label(self) -> &'static str {
+        self.resident.destination.irradiance_slot.label()
+    }
+
+    pub fn source_label(self) -> &'static str {
+        self.resident
+            .source
+            .map(|source| source.irradiance_slot.label())
+            .unwrap_or("none")
+    }
+
+    pub fn writes_visibility(self) -> bool {
+        self.stage() == DdgiFieldStage::SeedSky
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -216,7 +354,8 @@ impl DdgiResourceBytes {
                 * std::mem::size_of::<[f32; 2]>() as u64,
             global_sky_irradiance: super::DDGI_IRRADIANCE_STORED_SIDE as u64
                 * super::DDGI_IRRADIANCE_STORED_SIDE as u64
-                * std::mem::size_of::<[f32; 4]>() as u64,
+                * std::mem::size_of::<[f32; 4]>() as u64
+                * 2,
             probe_metadata: grid.probe_count() as u64
                 * std::mem::size_of::<DdgiProbeMetadata>() as u64,
             transient_ray_data: DDGI_PROBE_BATCH_SIZE as u64
@@ -245,78 +384,27 @@ impl DdgiResourceBytes {
     }
 }
 
-/// The last complete transport state owned by a volume.
-///
-/// SeedSky lives in the builder's transport-source atlas while SingleBounce lives in the consumer
-/// atlas. Probe batches are deliberately absent: a partial full-volume iteration is never a
-/// transport state and must never become consumer-visible.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum DdgiTransportStage {
-    SeedSky,
-    SingleBounce,
-    Feedback { iteration: u32 },
-    Converged { iteration: u32 },
-    NonConverged { iteration: u32 },
-}
-
-impl DdgiTransportStage {
-    pub fn iteration(self) -> u32 {
-        match self {
-            Self::SeedSky => 0,
-            Self::SingleBounce => 1,
-            Self::Feedback { iteration } => iteration,
-            Self::Converged { iteration } | Self::NonConverged { iteration } => iteration,
-        }
-    }
-
-    pub fn immutable_source(self) -> Option<Self> {
-        match self {
-            Self::SeedSky => None,
-            Self::SingleBounce => Some(Self::SeedSky),
-            Self::Feedback { iteration: 2 } => Some(Self::SingleBounce),
-            Self::Feedback { iteration } if iteration > 2 => Some(Self::Feedback {
-                iteration: iteration - 1,
-            }),
-            Self::Feedback { .. } | Self::Converged { .. } | Self::NonConverged { .. } => None,
-        }
-    }
-
-    pub fn destination_slot(self) -> Option<DdgiIrradianceSlot> {
-        match self {
-            Self::SeedSky => Some(DdgiIrradianceSlot::Atlas1),
-            Self::SingleBounce => Some(DdgiIrradianceSlot::Atlas0),
-            Self::Feedback { iteration } => Some(if iteration % 2 == 0 {
-                DdgiIrradianceSlot::Atlas1
-            } else {
-                DdgiIrradianceSlot::Atlas0
-            }),
-            Self::Converged { .. } | Self::NonConverged { .. } => None,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiVerifiedBatchOutcome {
     Continue,
-    AwaitingAtlasValidation(DdgiTransportIterationIdentity),
+    AwaitingAtlasValidation(DdgiFieldIdentity),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiValidatedIterationOutcome {
     SeedSkyComplete,
     Published {
-        field: DdgiTransportFieldIdentity,
-        next: DdgiTransportStage,
+        work: DdgiScheduledWork,
+        field: DdgiFieldIdentity,
         consecutive_below_threshold: u32,
     },
     Converged {
-        field: DdgiTransportFieldIdentity,
-        iteration: u32,
+        work: DdgiScheduledWork,
+        field: DdgiFieldIdentity,
     },
     NonConverged {
-        field: DdgiTransportFieldIdentity,
-        iteration: u32,
+        work: DdgiScheduledWork,
+        field: DdgiFieldIdentity,
     },
 }
 
@@ -342,11 +430,10 @@ pub struct DdgiVolumeStatus {
     pub visibility_layout: DdgiAtlasLayout,
     pub resource_bytes: DdgiResourceBytes,
     pub stage: DdgiVolumeStage,
-    pub transport_stage: Option<DdgiTransportStage>,
-    pub building_transport_stage: Option<DdgiTransportStage>,
-    pub complete_field: Option<DdgiTransportFieldIdentity>,
-    pub published_field: Option<DdgiTransportFieldIdentity>,
-    pub published_iteration: Option<DdgiTransportIterationIdentity>,
+    pub scheduled_work: Option<DdgiScheduledWork>,
+    pub complete_field: Option<DdgiFieldIdentity>,
+    pub published_field: Option<DdgiFieldIdentity>,
+    pub building_field: Option<DdgiFieldIdentity>,
     pub consecutive_below_threshold: u32,
     pub last_atlas_validation: Option<DdgiAtlasValidationStats>,
     pub global_sky_revision: u32,
@@ -358,7 +445,7 @@ pub struct DdgiVolumeStatus {
 
 impl DdgiVolumeStatus {
     pub fn is_ready(self) -> bool {
-        self.published_iteration.is_some()
+        self.published_field.is_some()
     }
 }
 
@@ -397,14 +484,13 @@ pub struct DdgiVolume {
     visibility_layout: DdgiAtlasLayout,
     resource_bytes: DdgiResourceBytes,
     stage: DdgiVolumeStage,
-    transport_stage: Option<DdgiTransportStage>,
-    building_transport_stage: Option<DdgiTransportStage>,
-    complete_field: Option<DdgiTransportFieldIdentity>,
-    published_field: Option<DdgiTransportFieldIdentity>,
-    published_iteration: Option<DdgiTransportIterationIdentity>,
+    scheduled_work: Option<DdgiScheduledWork>,
+    building_iteration: Option<DdgiResidentIteration>,
+    complete_field: Option<DdgiResidentField>,
+    published_field: Option<DdgiResidentField>,
     consecutive_below_threshold: u32,
     last_atlas_validation: Option<DdgiAtlasValidationStats>,
-    global_sky_revision: u32,
+    global_sky_revisions: [u32; 2],
     radiance_revision: Option<u32>,
     requested_terrain_revision: Option<u32>,
     relocated_terrain_revision: Option<u32>,
@@ -420,6 +506,7 @@ pub struct DdgiVolume {
     pub ddgi_transport_source_irradiance_atlas: Resource<Texture>,
     pub ddgi_visibility_atlas: Resource<Texture>,
     pub ddgi_global_sky_irradiance: Resource<Texture>,
+    pub ddgi_global_sky_irradiance_alt: Resource<Texture>,
     pub ddgi_radiance_sun: Resource<Buffer>,
     pub ddgi_radiance_voxel_palette: Resource<Buffer>,
     pub ddgi_transport_query_info: Resource<Buffer>,
@@ -517,6 +604,7 @@ impl ResourceContainer for DdgiVolume {
             }
             "ddgi_visibility_atlas" => Some(&self.ddgi_visibility_atlas),
             "ddgi_global_sky_irradiance" => Some(&self.ddgi_global_sky_irradiance),
+            "ddgi_global_sky_irradiance_alt" => Some(&self.ddgi_global_sky_irradiance_alt),
             _ => None,
         }
     }
@@ -534,6 +622,7 @@ impl ResourceContainer for DdgiVolume {
             "ddgi_transport_source_irradiance_atlas",
             "ddgi_visibility_atlas",
             "ddgi_global_sky_irradiance",
+            "ddgi_global_sky_irradiance_alt",
         ]
     }
 }
@@ -700,7 +789,13 @@ impl DdgiVolume {
             &visibility_desc,
             &sampler_desc,
         );
-        let global_sky_irradiance =
+        let global_sky_irradiance = Texture::new(
+            device.clone(),
+            allocator.clone(),
+            &global_sky_desc,
+            &sampler_desc,
+        );
+        let global_sky_irradiance_alt =
             Texture::new(device, allocator, &global_sky_desc, &sampler_desc);
 
         log::info!(
@@ -736,14 +831,13 @@ impl DdgiVolume {
             visibility_layout,
             resource_bytes,
             stage: DdgiVolumeStage::Allocated,
-            transport_stage: None,
-            building_transport_stage: None,
+            scheduled_work: None,
+            building_iteration: None,
             complete_field: None,
             published_field: None,
-            published_iteration: None,
             consecutive_below_threshold: 0,
             last_atlas_validation: None,
-            global_sky_revision: 0,
+            global_sky_revisions: [0; 2],
             radiance_revision: None,
             requested_terrain_revision: None,
             relocated_terrain_revision: None,
@@ -761,6 +855,7 @@ impl DdgiVolume {
             ),
             ddgi_visibility_atlas: Resource::new(visibility_atlas),
             ddgi_global_sky_irradiance: Resource::new(global_sky_irradiance),
+            ddgi_global_sky_irradiance_alt: Resource::new(global_sky_irradiance_alt),
             ddgi_radiance_sun: Resource::new(radiance_sun),
             ddgi_radiance_voxel_palette: Resource::new(radiance_voxel_palette),
             ddgi_transport_query_info: Resource::new(transport_query_info),
@@ -776,14 +871,20 @@ impl DdgiVolume {
             visibility_layout: self.visibility_layout,
             resource_bytes: self.resource_bytes,
             stage: self.stage,
-            transport_stage: self.transport_stage,
-            building_transport_stage: self.building_transport_stage,
-            complete_field: self.complete_field,
-            published_field: self.published_field,
-            published_iteration: self.published_iteration,
+            scheduled_work: self.scheduled_work,
+            complete_field: self.complete_field.map(|field| field.logical),
+            published_field: self.published_field.map(|field| field.logical),
+            building_field: self.building_iteration.map(|iteration| iteration.logical),
             consecutive_below_threshold: self.consecutive_below_threshold,
             last_atlas_validation: self.last_atlas_validation,
-            global_sky_revision: self.global_sky_revision,
+            global_sky_revision: self
+                .published_field
+                .map(|field| self.global_sky_revision(field.sky_slot))
+                .or_else(|| {
+                    self.building_iteration
+                        .map(|iteration| self.global_sky_revision(iteration.destination.sky_slot))
+                })
+                .unwrap_or_default(),
             radiance_revision: self.radiance_revision,
             relocated_terrain_revision: self.relocated_terrain_revision,
             active_ray_batch: self.active_ray_batch,
@@ -800,7 +901,10 @@ impl DdgiVolume {
     }
 
     pub fn should_latch_radiance_snapshot(&self, latest_revision: u32) -> bool {
-        radiance_snapshot_should_latch(self.stage, self.radiance_revision, latest_revision)
+        self.scheduled_work.is_some_and(|work| {
+            work.destination().field().radiance_revision() == latest_revision
+                && self.radiance_revision != Some(latest_revision)
+        })
     }
 
     pub fn latch_radiance_snapshot(
@@ -835,32 +939,69 @@ impl DdgiVolume {
     }
 
     pub fn global_sky_needs_update(&self) -> bool {
-        self.radiance_revision
-            .is_some_and(|revision| self.global_sky_revision != revision)
+        self.building_iteration.is_some_and(|iteration| {
+            self.radiance_revision == Some(iteration.logical.field().radiance_revision())
+                && self.global_sky_revision(iteration.destination.sky_slot)
+                    != iteration.logical.field().radiance_revision()
+        })
     }
 
     pub fn mark_global_sky_ready(&mut self, environment_revision: u32) -> Result<()> {
-        self.global_sky_revision = environment_revision;
-        if matches!(
-            self.stage,
-            DdgiVolumeStage::Relocated
-                | DdgiVolumeStage::RayBatchReady
-                | DdgiVolumeStage::AtlasReady
-                | DdgiVolumeStage::Rebuilding
-                | DdgiVolumeStage::Ready
-        ) {
-            self.next_probe_index = 0;
-            self.active_ray_batch = None;
-            self.transport_stage = None;
-            self.building_transport_stage = Some(DdgiTransportStage::SeedSky);
-            self.complete_field = None;
-            self.published_field = None;
-            self.published_iteration = None;
-            self.consecutive_below_threshold = 0;
-            self.last_atlas_validation = None;
-            self.set_transport_source_ready(false)?;
-        }
+        let iteration = self
+            .building_iteration
+            .context("cannot publish DDGI global sky without scheduled work")?;
+        ensure!(
+            iteration.logical.field().radiance_revision() == environment_revision
+                && self.radiance_revision == Some(environment_revision),
+            "DDGI global sky revision {environment_revision} does not match building field {:?}",
+            iteration.logical,
+        );
+        self.set_global_sky_revision(iteration.destination.sky_slot, environment_revision);
         self.stage = stage_after_global_sky_update(self.stage);
+        Ok(())
+    }
+
+    /// Installs scheduler-authoritative work and derives only its physical residency here.
+    pub fn begin_scheduled_work(&mut self, work: DdgiScheduledWork) -> Result<()> {
+        ensure!(
+            self.scheduled_work.is_none() && self.building_iteration.is_none(),
+            "DDGI volume already owns scheduled work {:?}",
+            self.scheduled_work,
+        );
+        let destination = work.destination();
+        ensure!(
+            destination.field().spacing_voxels() == self.grid.spacing_voxels(),
+            "DDGI work spacing {} does not match volume spacing {}",
+            destination.field().spacing_voxels(),
+            self.grid.spacing_voxels(),
+        );
+
+        let radiance_changed = self.published_field.is_some_and(|source| {
+            destination.field().radiance_revision() != source.logical.field().radiance_revision()
+        });
+        let resident = resident_iteration_for_work(work, self.published_field)?;
+        match work.kind() {
+            DdgiScheduledWorkKind::GeometryBootstrap | DdgiScheduledWorkKind::DensityBootstrap => {
+                ensure!(
+                    self.complete_field.is_none(),
+                    "DDGI bootstrap must not retain a complete field"
+                );
+                self.consecutive_below_threshold = 0;
+                self.set_transport_source_ready(false)?;
+            }
+            DdgiScheduledWorkKind::RadianceFeedback | DdgiScheduledWorkKind::Feedback => {
+                if radiance_changed {
+                    self.consecutive_below_threshold = 0;
+                }
+                self.set_transport_source_ready(true)?;
+                self.stage = DdgiVolumeStage::Rebuilding;
+            }
+        }
+        self.scheduled_work = Some(work);
+        self.building_iteration = Some(resident);
+        self.next_probe_index = 0;
+        self.active_ray_batch = None;
+        self.last_atlas_validation = None;
         Ok(())
     }
 
@@ -877,11 +1018,10 @@ impl DdgiVolume {
         self.relocated_terrain_revision = None;
         self.active_ray_batch = None;
         self.next_probe_index = 0;
-        self.transport_stage = None;
-        self.building_transport_stage = None;
+        self.scheduled_work = None;
+        self.building_iteration = None;
         self.complete_field = None;
         self.published_field = None;
-        self.published_iteration = None;
         self.consecutive_below_threshold = 0;
         self.last_atlas_validation = None;
         self.stage = DdgiVolumeStage::RelocationPending;
@@ -898,14 +1038,10 @@ impl DdgiVolume {
         assert_eq!(self.requested_terrain_revision, Some(terrain_revision));
         self.relocated_terrain_revision = Some(terrain_revision);
         self.next_probe_index = 0;
-        self.transport_stage = None;
-        self.building_transport_stage = Some(DdgiTransportStage::SeedSky);
-        self.complete_field = None;
-        self.published_field = None;
-        self.published_iteration = None;
-        self.consecutive_below_threshold = 0;
-        self.last_atlas_validation = None;
-        self.set_transport_source_ready(false)?;
+        ensure!(
+            self.building_iteration.is_some(),
+            "DDGI relocation completed before scheduler work was installed"
+        );
         self.stage = DdgiVolumeStage::Relocated;
         Ok(())
     }
@@ -919,51 +1055,12 @@ impl DdgiVolume {
         {
             return None;
         }
-        let transport = self.current_iteration_identity()?;
+        let resident = self.building_iteration?;
         Some(DdgiRayBatch {
             first_probe_index: self.next_probe_index,
             probe_count: (self.grid.probe_count() - self.next_probe_index)
                 .min(DDGI_PROBE_BATCH_SIZE),
-            transport,
-        })
-    }
-
-    fn current_iteration_identity(&self) -> Option<DdgiTransportIterationIdentity> {
-        let stage = self.building_transport_stage?;
-        let destination_slot = stage.destination_slot()?;
-        let geometry_revision = self.relocated_terrain_revision?;
-        let radiance_revision = self.radiance_revision?;
-        let destination = DdgiTransportFieldIdentity {
-            build_token: self.build_token,
-            geometry_revision,
-            radiance_revision,
-            spacing_voxels: self.grid.spacing_voxels(),
-            stage,
-            iteration: stage.iteration(),
-            slot: destination_slot,
-        };
-        let source = match stage.immutable_source() {
-            None => None,
-            Some(expected_stage) => {
-                let source = self.complete_field?;
-                if source.stage != expected_stage
-                    || source.iteration != expected_stage.iteration()
-                    || source.slot == destination_slot
-                {
-                    return None;
-                }
-                Some(source)
-            }
-        };
-        Some(DdgiTransportIterationIdentity {
-            build_token: self.build_token,
-            geometry_revision,
-            radiance_revision,
-            spacing_voxels: self.grid.spacing_voxels(),
-            stage,
-            iteration: stage.iteration(),
-            source,
-            destination,
+            resident,
         })
     }
 
@@ -1025,24 +1122,38 @@ impl DdgiVolume {
             return Ok(DdgiVerifiedBatchOutcome::Continue);
         }
         let identity = self
-            .current_iteration_identity()
+            .building_iteration
             .context("DDGI full iteration lost its transport identity")?;
         ensure!(
-            identity == batch.transport,
+            identity == batch.resident,
             "DDGI full iteration identity changed"
         );
-        Ok(DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(identity))
+        Ok(DdgiVerifiedBatchOutcome::AwaitingAtlasValidation(
+            identity.logical,
+        ))
     }
 
     pub fn mark_atlas_validated(
         &mut self,
-        identity: DdgiTransportIterationIdentity,
+        identity: DdgiFieldIdentity,
         stats: DdgiAtlasValidationStats,
         policy: DdgiConvergencePolicy,
     ) -> Result<DdgiValidatedIterationOutcome> {
+        let classified_field = self.preview_validated_field(identity, stats, policy)?;
+        self.publish_validated_field(identity, classified_field, stats, policy)
+    }
+
+    /// Classifies a completed GPU iteration without mutating residency. The runtime uses this to
+    /// ask the scheduler whether the completion is still authoritative before publication.
+    pub fn preview_validated_field(
+        &self,
+        identity: DdgiFieldIdentity,
+        stats: DdgiAtlasValidationStats,
+        policy: DdgiConvergencePolicy,
+    ) -> Result<DdgiFieldIdentity> {
         ensure!(
             self.active_ray_batch
-                .is_some_and(|batch| batch.transport == identity)
+                .is_some_and(|batch| batch.logical() == identity)
                 && self.stage == DdgiVolumeStage::AtlasReady
                 && self.next_probe_index == self.grid.probe_count(),
             "stale DDGI atlas validation identity {identity:?}; batch={:?} stage={:?} filtered={}/{}",
@@ -1052,109 +1163,168 @@ impl DdgiVolume {
             self.grid.probe_count(),
         );
         ensure!(
-            self.current_iteration_identity() == Some(identity),
+            self.building_iteration
+                .is_some_and(|iteration| iteration.logical == identity),
             "DDGI atlas validation no longer matches the builder iteration"
         );
         validate_atlas_stats(stats)?;
+        match identity.field().stage() {
+            DdgiFieldStage::SeedSky | DdgiFieldStage::SingleBounce => Ok(identity),
+            DdgiFieldStage::Feedback => {
+                match classify_feedback_iteration(
+                    policy,
+                    identity.field().iteration(),
+                    self.consecutive_below_threshold,
+                    stats,
+                ) {
+                    DdgiFeedbackDecision::Continue { .. } => Ok(identity),
+                    DdgiFeedbackDecision::Converged { .. } => identity
+                        .with_stage(DdgiFieldStage::Converged)
+                        .map_err(|error| anyhow::anyhow!("invalid converged field: {error:?}")),
+                    DdgiFeedbackDecision::NonConverged { .. } => identity
+                        .with_stage(DdgiFieldStage::NonConverged)
+                        .map_err(|error| anyhow::anyhow!("invalid non-converged field: {error:?}")),
+                }
+            }
+            DdgiFieldStage::Converged | DdgiFieldStage::NonConverged => {
+                anyhow::bail!("terminal DDGI stage cannot be built: {identity:?}")
+            }
+        }
+    }
 
+    fn publish_validated_field(
+        &mut self,
+        identity: DdgiFieldIdentity,
+        classified_field: DdgiFieldIdentity,
+        stats: DdgiAtlasValidationStats,
+        policy: DdgiConvergencePolicy,
+    ) -> Result<DdgiValidatedIterationOutcome> {
+        let iteration = self
+            .building_iteration
+            .context("DDGI atlas validation lost resident iteration")?;
         let previous_complete = self.complete_field;
         self.active_ray_batch = None;
-        self.complete_field = Some(identity.destination);
+        self.complete_field = Some(iteration.destination);
         self.last_atlas_validation = Some(stats);
         self.next_probe_index = 0;
 
-        match identity.stage {
-            DdgiTransportStage::SeedSky => {
+        match identity.field().stage() {
+            DdgiFieldStage::SeedSky => {
                 ensure!(
-                    identity.source.is_none(),
+                    iteration.source.is_none(),
                     "DDGI S0 must not have a source field"
                 );
-                self.transport_stage = Some(DdgiTransportStage::SeedSky);
-                self.building_transport_stage = Some(DdgiTransportStage::SingleBounce);
+                let seed = iteration.destination;
+                let destination = DdgiResidentField {
+                    logical: iteration.work.destination(),
+                    irradiance_slot: seed.irradiance_slot.other(),
+                    sky_slot: seed.sky_slot,
+                };
+                self.building_iteration = Some(DdgiResidentIteration {
+                    work: iteration.work,
+                    logical: destination.logical,
+                    source: Some(seed),
+                    destination,
+                });
                 self.set_transport_source_ready(true)?;
                 self.stage = DdgiVolumeStage::Rebuilding;
                 Ok(DdgiValidatedIterationOutcome::SeedSkyComplete)
             }
-            DdgiTransportStage::SingleBounce => {
+            DdgiFieldStage::SingleBounce => {
                 ensure!(
-                    identity.source == previous_complete,
+                    iteration.source == previous_complete,
                     "DDGI S1 did not consume the immutable S0 field"
                 );
-                self.transport_stage = Some(DdgiTransportStage::SingleBounce);
-                self.published_field = Some(identity.destination);
-                self.published_iteration = Some(identity);
+                self.published_field = Some(iteration.destination);
                 self.consecutive_below_threshold = 0;
-                let next = DdgiTransportStage::Feedback { iteration: 2 };
-                self.building_transport_stage = Some(next);
-                self.stage = DdgiVolumeStage::Rebuilding;
+                self.building_iteration = None;
+                self.scheduled_work = None;
+                self.stage = DdgiVolumeStage::Ready;
                 Ok(DdgiValidatedIterationOutcome::Published {
-                    field: identity.destination,
-                    next,
+                    work: iteration.work,
+                    field: identity,
                     consecutive_below_threshold: 0,
                 })
             }
-            DdgiTransportStage::Feedback { iteration } => {
+            DdgiFieldStage::Feedback => {
+                let iteration_number = identity.field().iteration();
                 ensure!(
-                    identity.source == previous_complete,
-                    "DDGI feedback iteration S{iteration} did not consume the previous field"
+                    iteration.source == previous_complete,
+                    "DDGI feedback iteration S{iteration_number} did not consume the previous field"
                 );
-                self.published_field = Some(identity.destination);
-                self.published_iteration = Some(identity);
                 match classify_feedback_iteration(
                     policy,
-                    iteration,
+                    iteration_number,
                     self.consecutive_below_threshold,
                     stats,
                 ) {
                     DdgiFeedbackDecision::Continue {
                         consecutive_below_threshold,
                     } => {
-                        self.transport_stage = Some(identity.stage);
                         self.consecutive_below_threshold = consecutive_below_threshold;
-                        let next = DdgiTransportStage::Feedback {
-                            iteration: iteration + 1,
-                        };
-                        self.building_transport_stage = Some(next);
-                        self.stage = DdgiVolumeStage::Rebuilding;
+                        self.published_field = Some(iteration.destination);
+                        self.building_iteration = None;
+                        self.scheduled_work = None;
+                        self.stage = DdgiVolumeStage::Ready;
                         Ok(DdgiValidatedIterationOutcome::Published {
-                            field: identity.destination,
-                            next,
+                            work: iteration.work,
+                            field: identity,
                             consecutive_below_threshold,
                         })
                     }
                     DdgiFeedbackDecision::Converged {
                         consecutive_below_threshold,
                     } => {
-                        self.transport_stage = Some(DdgiTransportStage::Converged { iteration });
-                        self.building_transport_stage = None;
+                        let field = classified_field;
+                        ensure!(
+                            field.field().stage() == DdgiFieldStage::Converged,
+                            "DDGI feedback preview changed before publication"
+                        );
+                        self.complete_field = Some(DdgiResidentField {
+                            logical: field,
+                            ..iteration.destination
+                        });
+                        self.published_field = self.complete_field;
+                        self.building_iteration = None;
+                        self.scheduled_work = None;
                         self.consecutive_below_threshold = consecutive_below_threshold;
                         self.stage = DdgiVolumeStage::Ready;
                         Ok(DdgiValidatedIterationOutcome::Converged {
-                            field: identity.destination,
-                            iteration,
+                            work: iteration.work,
+                            field,
                         })
                     }
                     DdgiFeedbackDecision::NonConverged {
                         consecutive_below_threshold,
                     } => {
-                        self.transport_stage = Some(DdgiTransportStage::NonConverged { iteration });
-                        self.building_transport_stage = None;
+                        let field = classified_field;
+                        ensure!(
+                            field.field().stage() == DdgiFieldStage::NonConverged,
+                            "DDGI feedback preview changed before publication"
+                        );
+                        self.complete_field = Some(DdgiResidentField {
+                            logical: field,
+                            ..iteration.destination
+                        });
+                        self.published_field = self.complete_field;
+                        self.building_iteration = None;
+                        self.scheduled_work = None;
                         self.consecutive_below_threshold = consecutive_below_threshold;
                         self.stage = DdgiVolumeStage::Ready;
                         Ok(DdgiValidatedIterationOutcome::NonConverged {
-                            field: identity.destination,
-                            iteration,
+                            work: iteration.work,
+                            field,
                         })
                     }
                 }
             }
-            DdgiTransportStage::Converged { .. } | DdgiTransportStage::NonConverged { .. } => {
-                anyhow::bail!("terminal DDGI stage cannot be built: {:?}", identity.stage)
+            DdgiFieldStage::Converged | DdgiFieldStage::NonConverged => {
+                anyhow::bail!("terminal DDGI stage cannot be built: {:?}", identity)
             }
         }
     }
 
-    pub fn irradiance_atlas(&self, slot: DdgiIrradianceSlot) -> &Resource<Texture> {
+    fn irradiance_atlas(&self, slot: DdgiIrradianceSlot) -> &Resource<Texture> {
         match slot {
             DdgiIrradianceSlot::Atlas0 => &self.ddgi_irradiance_atlas,
             DdgiIrradianceSlot::Atlas1 => &self.ddgi_transport_source_irradiance_atlas,
@@ -1162,8 +1332,51 @@ impl DdgiVolume {
     }
 
     pub fn published_irradiance_atlas(&self) -> Option<&Resource<Texture>> {
-        self.published_iteration
-            .map(|identity| self.irradiance_atlas(identity.destination.slot))
+        self.published_field
+            .map(|field| self.irradiance_atlas(field.irradiance_slot))
+    }
+
+    pub fn published_irradiance_label(&self) -> Option<&'static str> {
+        self.published_field
+            .map(|field| field.irradiance_slot.label())
+    }
+
+    pub fn building_global_sky_irradiance(&self) -> &Resource<Texture> {
+        self.global_sky_irradiance(
+            self.building_iteration
+                .map(|iteration| iteration.destination.sky_slot)
+                .or_else(|| self.published_field.map(|field| field.sky_slot))
+                .unwrap_or(DdgiSkySlot::Sky0),
+        )
+    }
+
+    pub fn published_global_sky_irradiance(&self) -> &Resource<Texture> {
+        self.global_sky_irradiance(
+            self.published_field
+                .map(|field| field.sky_slot)
+                .unwrap_or(DdgiSkySlot::Sky0),
+        )
+    }
+
+    fn global_sky_irradiance(&self, slot: DdgiSkySlot) -> &Resource<Texture> {
+        match slot {
+            DdgiSkySlot::Sky0 => &self.ddgi_global_sky_irradiance,
+            DdgiSkySlot::Sky1 => &self.ddgi_global_sky_irradiance_alt,
+        }
+    }
+
+    fn global_sky_revision(&self, slot: DdgiSkySlot) -> u32 {
+        self.global_sky_revisions[match slot {
+            DdgiSkySlot::Sky0 => 0,
+            DdgiSkySlot::Sky1 => 1,
+        }]
+    }
+
+    fn set_global_sky_revision(&mut self, slot: DdgiSkySlot, revision: u32) {
+        self.global_sky_revisions[match slot {
+            DdgiSkySlot::Sky0 => 0,
+            DdgiSkySlot::Sky1 => 1,
+        }] = revision;
     }
 
     fn set_transport_source_ready(&mut self, ready: bool) -> Result<()> {
@@ -1303,17 +1516,6 @@ fn initialization_request_is_duplicate(
         )
 }
 
-fn radiance_snapshot_should_latch(
-    stage: DdgiVolumeStage,
-    latched_revision: Option<u32>,
-    latest_revision: u32,
-) -> bool {
-    if latest_revision == 0 || latched_revision == Some(latest_revision) {
-        return false;
-    }
-    latched_revision.is_none() || stage == DdgiVolumeStage::Ready
-}
-
 fn stage_after_global_sky_update(stage: DdgiVolumeStage) -> DdgiVolumeStage {
     match stage {
         DdgiVolumeStage::Allocated | DdgiVolumeStage::GlobalSkyReady => {
@@ -1348,6 +1550,17 @@ fn atlas_image_desc(
 mod tests {
     use super::*;
 
+    fn bootstrap_work(
+        geometry_revision: u32,
+        radiance_revision: u32,
+        spacing_voxels: u32,
+    ) -> DdgiScheduledWork {
+        let mut scheduler = super::super::DdgiTransportScheduler::new();
+        scheduler.observe_radiance(radiance_revision);
+        scheduler.request_geometry(geometry_revision, spacing_voxels);
+        scheduler.claim_next().unwrap().unwrap()
+    }
+
     #[test]
     fn spacing_32_resource_contract_is_full_precision_and_batch_bounded() {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
@@ -1366,7 +1579,7 @@ mod tests {
         assert_eq!(bytes.transient_ray_data, 524_288);
         assert_eq!(bytes.trace_stats, 32);
         assert_eq!(bytes.atlas_reduction, 24);
-        assert_eq!(bytes.global_sky_irradiance, 1_600);
+        assert_eq!(bytes.global_sky_irradiance, 3_200);
         assert_eq!(bytes.radiance_sun, 32);
         assert_eq!(bytes.radiance_voxel_palette, 80);
         assert_eq!(bytes.transport_query_info, 48);
@@ -1410,11 +1623,10 @@ mod tests {
                 DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap(),
             ),
             stage: DdgiVolumeStage::Allocated,
-            transport_stage: None,
-            building_transport_stage: None,
+            scheduled_work: None,
             complete_field: None,
             published_field: None,
-            published_iteration: None,
+            building_field: None,
             consecutive_below_threshold: 0,
             last_atlas_validation: None,
             global_sky_revision: 0,
@@ -1433,30 +1645,7 @@ mod tests {
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
         let visibility_layout =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
-        let field_for = |terrain_revision| DdgiTransportFieldIdentity {
-            build_token: None,
-            geometry_revision: terrain_revision,
-            radiance_revision: 3,
-            spacing_voxels: 32,
-            stage: DdgiTransportStage::SingleBounce,
-            iteration: 1,
-            slot: DdgiIrradianceSlot::Atlas0,
-        };
-        let iteration_for = |terrain_revision| DdgiTransportIterationIdentity {
-            build_token: None,
-            geometry_revision: terrain_revision,
-            radiance_revision: 3,
-            spacing_voxels: 32,
-            stage: DdgiTransportStage::SingleBounce,
-            iteration: 1,
-            source: Some(DdgiTransportFieldIdentity {
-                stage: DdgiTransportStage::SeedSky,
-                iteration: 0,
-                slot: DdgiIrradianceSlot::Atlas1,
-                ..field_for(terrain_revision)
-            }),
-            destination: field_for(terrain_revision),
-        };
+        let field_for = |terrain_revision| bootstrap_work(terrain_revision, 3, 32).destination();
         let status_for = |stage: DdgiVolumeStage,
                           terrain_revision: u32,
                           published: bool|
@@ -1468,12 +1657,10 @@ mod tests {
                 visibility_layout,
                 resource_bytes: DdgiResourceBytes::new(grid, irradiance_layout, visibility_layout),
                 stage,
-                transport_stage: published.then_some(DdgiTransportStage::SingleBounce),
-                building_transport_stage: (stage == DdgiVolumeStage::Rebuilding)
-                    .then_some(DdgiTransportStage::Feedback { iteration: 2 }),
+                scheduled_work: None,
                 complete_field: published.then(|| field_for(terrain_revision)),
                 published_field: published.then(|| field_for(terrain_revision)),
-                published_iteration: published.then(|| iteration_for(terrain_revision)),
+                building_field: None,
                 consecutive_below_threshold: 0,
                 last_atlas_validation: None,
                 global_sky_revision: 3,
@@ -1507,7 +1694,7 @@ mod tests {
     }
 
     #[test]
-    fn sky_update_preserves_initialization_but_invalidates_a_complete_volume() {
+    fn sky_update_preserves_initialization_and_feedback_residency() {
         assert_eq!(
             stage_after_global_sky_update(DdgiVolumeStage::Allocated),
             DdgiVolumeStage::GlobalSkyReady
@@ -1520,35 +1707,6 @@ mod tests {
             stage_after_global_sky_update(DdgiVolumeStage::RelocationPending),
             DdgiVolumeStage::RelocationPending
         );
-    }
-
-    #[test]
-    fn radiance_snapshot_is_immutable_until_the_full_volume_is_ready() {
-        assert!(radiance_snapshot_should_latch(
-            DdgiVolumeStage::RelocationPending,
-            None,
-            1,
-        ));
-        for stage in [
-            DdgiVolumeStage::GlobalSkyReady,
-            DdgiVolumeStage::RelocationPending,
-            DdgiVolumeStage::Relocated,
-            DdgiVolumeStage::RayBatchReady,
-            DdgiVolumeStage::AtlasReady,
-            DdgiVolumeStage::Rebuilding,
-        ] {
-            assert!(!radiance_snapshot_should_latch(stage, Some(1), 2));
-        }
-        assert!(radiance_snapshot_should_latch(
-            DdgiVolumeStage::Ready,
-            Some(1),
-            2,
-        ));
-        assert!(!radiance_snapshot_should_latch(
-            DdgiVolumeStage::Ready,
-            Some(2),
-            2,
-        ));
     }
 
     #[test]
@@ -1571,30 +1729,84 @@ mod tests {
     }
 
     #[test]
-    fn transport_slots_strictly_ping_pong_previous_field_to_distinct_destination() {
+    fn physical_slots_are_derived_only_by_toggling_the_resident_source() {
         assert_eq!(
-            DdgiTransportStage::SeedSky.destination_slot(),
-            Some(DdgiIrradianceSlot::Atlas1)
+            DdgiIrradianceSlot::Atlas0.other(),
+            DdgiIrradianceSlot::Atlas1
         );
         assert_eq!(
-            DdgiTransportStage::SingleBounce.destination_slot(),
-            Some(DdgiIrradianceSlot::Atlas0)
+            DdgiIrradianceSlot::Atlas1.other(),
+            DdgiIrradianceSlot::Atlas0
         );
-        for iteration in 2..=8 {
-            let destination = DdgiTransportStage::Feedback { iteration }
-                .destination_slot()
-                .unwrap();
-            let previous = if iteration == 2 {
-                DdgiIrradianceSlot::Atlas0
-            } else {
-                DdgiTransportStage::Feedback {
-                    iteration: iteration - 1,
-                }
-                .destination_slot()
-                .unwrap()
-            };
-            assert_ne!(destination, previous);
-        }
+        assert_eq!(DdgiSkySlot::Sky0.other(), DdgiSkySlot::Sky1);
+        assert_eq!(DdgiSkySlot::Sky1.other(), DdgiSkySlot::Sky0);
+    }
+
+    #[test]
+    fn resident_feedback_uses_the_exact_source_slot_and_only_rotates_sky_for_new_radiance() {
+        let bootstrap = bootstrap_work(7, 3, 32);
+        let published = DdgiResidentField {
+            logical: bootstrap.destination(),
+            irradiance_slot: DdgiIrradianceSlot::Atlas0,
+            sky_slot: DdgiSkySlot::Sky0,
+        };
+        let mut scheduler = super::super::DdgiTransportScheduler::new();
+        scheduler.install_published(published.logical).unwrap();
+        let same_radiance = scheduler.claim_next().unwrap().unwrap();
+        let same = resident_iteration_for_work(same_radiance, Some(published)).unwrap();
+        assert_eq!(same.source, Some(published));
+        assert_eq!(same.destination.irradiance_slot, DdgiIrradianceSlot::Atlas1);
+        assert_eq!(same.destination.sky_slot, DdgiSkySlot::Sky0);
+
+        let published = same.destination;
+        scheduler
+            .complete_in_flight(same_radiance, same_radiance.destination())
+            .unwrap();
+        scheduler.observe_radiance(4);
+        let new_radiance = scheduler.claim_next().unwrap().unwrap();
+        let changed = resident_iteration_for_work(new_radiance, Some(published)).unwrap();
+        assert_eq!(changed.source, Some(published));
+        assert_eq!(
+            changed.destination.irradiance_slot,
+            DdgiIrradianceSlot::Atlas0
+        );
+        assert_eq!(changed.destination.sky_slot, DdgiSkySlot::Sky1);
+        assert_eq!(changed.logical.field().iteration(), 2);
+    }
+
+    #[test]
+    fn only_bootstrap_seed_batches_write_visibility() {
+        let work = bootstrap_work(7, 3, 32);
+        let seed = DdgiResidentField {
+            logical: work.seed().unwrap(),
+            irradiance_slot: DdgiIrradianceSlot::Atlas1,
+            sky_slot: DdgiSkySlot::Sky0,
+        };
+        let seed_batch = DdgiRayBatch {
+            first_probe_index: 0,
+            probe_count: 64,
+            resident: DdgiResidentIteration {
+                work,
+                logical: seed.logical,
+                source: None,
+                destination: seed,
+            },
+        };
+        let single_bounce_batch = DdgiRayBatch {
+            resident: DdgiResidentIteration {
+                logical: work.destination(),
+                source: Some(seed),
+                destination: DdgiResidentField {
+                    logical: work.destination(),
+                    irradiance_slot: DdgiIrradianceSlot::Atlas0,
+                    sky_slot: DdgiSkySlot::Sky0,
+                },
+                ..seed_batch.resident
+            },
+            ..seed_batch
+        };
+        assert!(seed_batch.writes_visibility());
+        assert!(!single_bounce_batch.writes_visibility());
     }
 
     #[test]
@@ -1698,26 +1910,21 @@ mod tests {
 
     #[test]
     fn trace_stat_readback_requires_exact_batch_and_iteration_identity() {
+        let work = bootstrap_work(7, 3, 32);
+        let seed = work.seed().unwrap();
+        let resident = DdgiResidentField {
+            logical: seed,
+            irradiance_slot: DdgiIrradianceSlot::Atlas1,
+            sky_slot: DdgiSkySlot::Sky0,
+        };
         let batch = DdgiRayBatch {
             first_probe_index: 64,
             probe_count: 64,
-            transport: DdgiTransportIterationIdentity {
-                build_token: None,
-                geometry_revision: 7,
-                radiance_revision: 3,
-                spacing_voxels: 32,
-                stage: DdgiTransportStage::SeedSky,
-                iteration: 0,
+            resident: DdgiResidentIteration {
+                work,
+                logical: seed,
                 source: None,
-                destination: DdgiTransportFieldIdentity {
-                    build_token: None,
-                    geometry_revision: 7,
-                    radiance_revision: 3,
-                    spacing_voxels: 32,
-                    stage: DdgiTransportStage::SeedSky,
-                    iteration: 0,
-                    slot: DdgiIrradianceSlot::Atlas1,
-                },
+                destination: resident,
             },
         };
         assert!(pending_trace_stats_batch_matches(
@@ -1734,10 +1941,9 @@ mod tests {
             Some(batch),
             DdgiVolumeStage::Rebuilding,
             DdgiRayBatch {
-                transport: DdgiTransportIterationIdentity {
-                    stage: DdgiTransportStage::SingleBounce,
-                    iteration: 1,
-                    ..batch.transport
+                resident: DdgiResidentIteration {
+                    logical: work.destination(),
+                    ..batch.resident
                 },
                 ..batch
             },
