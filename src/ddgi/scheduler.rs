@@ -285,6 +285,10 @@ impl DdgiTransportScheduler {
     }
 
     /// Geometry is strict latest-wins. Any older work becomes immediately unpublishable.
+    ///
+    /// Density retries are owned by the physical-volume coordinator. Geometry therefore drops
+    /// both pending and in-flight logical density work; the coordinator requests density again
+    /// only after it has installed a matching-spacing staging volume.
     pub fn request_geometry(
         &mut self,
         geometry_revision: u32,
@@ -306,15 +310,9 @@ impl DdgiTransportScheduler {
         }
 
         self.pending_geometry = Some(request);
+        self.pending_density_spacing_voxels = None;
         self.feedback_requested = false;
-        let preempted = self.in_flight.take();
-        if let Some(work) =
-            preempted.filter(|work| work.kind == DdgiScheduledWorkKind::DensityBootstrap)
-        {
-            self.pending_density_spacing_voxels
-                .get_or_insert(work.destination.field.spacing_voxels);
-        }
-        preempted
+        self.in_flight.take()
     }
 
     /// Density is lower priority than geometry but preempts feedback. The old published spacing
@@ -639,9 +637,37 @@ mod tests {
             .complete_in_flight(geometry, geometry.destination())
             .unwrap();
         assert_eq!(geometry.field().stage(), DdgiFieldStage::SingleBounce);
-        let density = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(density.kind(), DdgiScheduledWorkKind::DensityBootstrap);
-        assert_eq!(density.destination().field().geometry_revision(), 8);
+        let feedback = scheduler.claim_next().unwrap().unwrap();
+        assert_eq!(feedback.kind(), DdgiScheduledWorkKind::Feedback);
+        assert_eq!(feedback.destination().field().geometry_revision(), 8);
+        assert_eq!(feedback.destination().field().spacing_voxels(), 32);
+
+        assert_eq!(scheduler.request_density(16), Some(feedback));
+        let retried_density = scheduler.claim_next().unwrap().unwrap();
+        assert_eq!(
+            retried_density.kind(),
+            DdgiScheduledWorkKind::DensityBootstrap
+        );
+        assert_eq!(retried_density.destination().field().geometry_revision(), 8);
+        assert_eq!(retried_density.destination().field().spacing_voxels(), 16);
+    }
+
+    #[test]
+    fn pending_density_requires_an_explicit_retry_after_geometry() {
+        let mut scheduler = with_active();
+        let feedback = scheduler.claim_next().unwrap().unwrap();
+        assert_eq!(scheduler.request_density(16), Some(feedback));
+
+        assert_eq!(scheduler.request_geometry(8, 32), None);
+        let geometry = scheduler.claim_next().unwrap().unwrap();
+        assert_eq!(geometry.kind(), DdgiScheduledWorkKind::GeometryBootstrap);
+        scheduler
+            .complete_in_flight(geometry, geometry.destination())
+            .unwrap();
+
+        let next = scheduler.claim_next().unwrap().unwrap();
+        assert_eq!(next.kind(), DdgiScheduledWorkKind::Feedback);
+        assert_eq!(next.destination().field().spacing_voxels(), 32);
     }
 
     #[test]
