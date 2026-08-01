@@ -61,9 +61,9 @@ use crate::builder::{
     SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
 };
 use crate::ddgi::{
-    DdgiDebugView, DdgiRayBatch, DdgiVolume, DdgiVolumeStatus, DDGI_GUTTER_WORKGROUP_SIZE,
-    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
-    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiDebugView, DdgiRayBatch, DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes,
+    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
+    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::EnvironmentLightingCache;
 use crate::environment_probes::{
@@ -534,7 +534,7 @@ pub struct Tracer {
     cloud_history_valid: bool,
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
-    ddgi_volume: DdgiVolume,
+    ddgi_volumes: DdgiVolumes,
     ddgi_initial_terrain_ready_revision: Option<u32>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     environment_probe_environment_revision: u32,
@@ -795,7 +795,7 @@ impl Tracer {
             cloud_history_valid: false,
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
-            ddgi_volume,
+            ddgi_volumes: DdgiVolumes::new(ddgi_volume),
             ddgi_initial_terrain_ready_revision: None,
             ddgi_trace_stats_readback_pending: None,
             environment_probe_environment_revision: 0,
@@ -822,24 +822,57 @@ impl Tracer {
     }
 
     pub fn environment_probe_status(&self) -> DdgiVolumeStatus {
-        self.ddgi_volume.status()
+        self.ddgi_status().active()
+    }
+
+    pub fn ddgi_status(&self) -> DdgiStatus {
+        self.ddgi_volumes.status()
     }
 
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) -> Result<()> {
-        let mut replacement = DdgiVolume::new(
+        self.prepare_ddgi_staging(spacing_voxels, self.ddgi_initial_terrain_ready_revision)
+    }
+
+    /// Prepares a same-density staging volume for terrain that the caller has declared ready.
+    /// Consumers continue sampling the active volume until the staging build completes.
+    #[allow(dead_code)] // Called by the follow-up runtime terrain-ready integration.
+    pub fn prepare_environment_probe_refresh(&mut self, terrain_revision: u32) -> Result<()> {
+        let spacing_voxels = self.ddgi_status().active().grid.spacing_voxels();
+        self.prepare_ddgi_staging(spacing_voxels, Some(terrain_revision))
+    }
+
+    fn prepare_ddgi_staging(
+        &mut self,
+        spacing_voxels: u32,
+        terrain_revision: Option<u32>,
+    ) -> Result<()> {
+        let mut staging = DdgiVolume::new(
             &self.vulkan_ctx,
             self.allocator.clone(),
             self.chunk_bound.dimensions() * self.desc.voxel_dim_per_chunk,
             spacing_voxels,
         )?;
-        if let Some(terrain_revision) = self.ddgi_initial_terrain_ready_revision {
-            replacement.request_initialization(terrain_revision);
+        if let Some(terrain_revision) = terrain_revision {
+            staging.request_initialization(terrain_revision);
         }
         self.vulkan_ctx.device().wait_idle();
-        // Keep the current volume alive until every consumer points at the replacement.
-        self.update_ddgi_descriptors(&replacement);
+        // Builder descriptors move first. Active consumers keep sampling the complete volume until
+        // the replacement reaches Ready and is explicitly promoted on a later frame.
+        self.update_ddgi_builder_descriptors(&staging);
         self.ddgi_trace_stats_readback_pending = None;
-        self.ddgi_volume = replacement;
+        let retired_staging = self.ddgi_volumes.prepare_staging(staging);
+        drop(retired_staging);
+        let status = self.ddgi_status();
+        log::info!(
+            "[DDGI] staging prepared spacing_voxels={} probes={} active_terrain_revision={} target_terrain_revision={}",
+            status.builder().grid.spacing_voxels(),
+            status.builder().grid.probe_count(),
+            status
+                .active()
+                .relocated_terrain_revision
+                .unwrap_or_default(),
+            terrain_revision.unwrap_or_default(),
+        );
         Ok(())
     }
 
@@ -860,8 +893,12 @@ impl Tracer {
     /// Runtime terrain edits intentionally do not call this M2 seam yet.
     pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) {
         self.ddgi_initial_terrain_ready_revision = Some(terrain_revision);
-        if self.ddgi_volume.request_initialization(terrain_revision) {
-            let status = self.ddgi_volume.status();
+        if self
+            .ddgi_volumes
+            .builder_mut()
+            .request_initialization(terrain_revision)
+        {
+            let status = self.ddgi_volumes.status().builder();
             log::info!(
                 "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?}",
                 terrain_revision,
@@ -877,11 +914,11 @@ impl Tracer {
     }
 
     pub fn ddgi_ready(&self) -> bool {
-        self.ddgi_volume.status().is_ready()
+        self.ddgi_volumes.status().active().is_ready()
     }
 
     pub fn ddgi_ready_for_terrain_revision(&self, revision: u32) -> bool {
-        let status = self.ddgi_volume.status();
+        let status = self.ddgi_volumes.status().active();
         status.is_ready() && status.relocated_terrain_revision == Some(revision)
     }
 
@@ -1195,18 +1232,19 @@ impl Tracer {
             &self.graphics_pipelines.water_droplet_ppl,
             &environment_lighting_resources,
         );
-        let ddgi_resources: [&dyn ResourceContainer; 2] = [&self.resources, &self.ddgi_volume];
+        let ddgi_builder = self.ddgi_volumes.builder();
+        let ddgi_resources: [&dyn ResourceContainer; 2] = [&self.resources, ddgi_builder];
         update_compute_fn(
             &self.compute_pipelines.ddgi_global_sky_filter_ppl,
             &ddgi_resources,
         );
         update_compute_fn(
             &self.compute_pipelines.ddgi_octahedral_gutter_ppl,
-            &[&self.ddgi_volume],
+            &[ddgi_builder],
         );
         update_compute_fn(
             &self.compute_pipelines.ddgi_probe_relocate_ppl,
-            &[plain_builder_resources, &self.ddgi_volume],
+            &[plain_builder_resources, ddgi_builder],
         );
         update_compute_fn(
             &self.compute_pipelines.ddgi_probe_trace_ppl,
@@ -1214,7 +1252,7 @@ impl Tracer {
                 &self.resources,
                 contree_builder_resources,
                 scene_accel_resources,
-                &self.ddgi_volume,
+                ddgi_builder,
             ],
         );
         for pipeline in [
@@ -1223,21 +1261,21 @@ impl Tracer {
             &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
             &self.compute_pipelines.ddgi_visibility_gutter_ppl,
         ] {
-            update_compute_fn(pipeline, &[&self.ddgi_volume]);
+            update_compute_fn(pipeline, &[ddgi_builder]);
         }
     }
 
     fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
         [
             &self.resources as &dyn ResourceContainer,
-            &self.ddgi_volume as &dyn ResourceContainer,
+            self.ddgi_volumes.active() as &dyn ResourceContainer,
         ]
     }
 
     fn environment_lighting_descriptor_resources(&self) -> [&dyn ResourceContainer; 2] {
         [
             &self.resources as &dyn ResourceContainer,
-            &self.ddgi_volume as &dyn ResourceContainer,
+            self.ddgi_volumes.active() as &dyn ResourceContainer,
         ]
     }
 
@@ -1252,11 +1290,11 @@ impl Tracer {
             contree_builder_resources as &dyn ResourceContainer,
             scene_accel_resources as &dyn ResourceContainer,
             plain_builder_resources as &dyn ResourceContainer,
-            &self.ddgi_volume as &dyn ResourceContainer,
+            self.ddgi_volumes.active() as &dyn ResourceContainer,
         ]
     }
 
-    fn update_ddgi_descriptors(&self, ddgi_volume: &DdgiVolume) {
+    fn update_ddgi_builder_descriptors(&self, ddgi_volume: &DdgiVolume) {
         // Rewrite only volume-owned bindings. Builder and scene resources stay valid and
         // must not be omitted from a reflected full-pipeline auto update.
         for pipeline in [
@@ -1264,7 +1302,6 @@ impl Tracer {
             &self.compute_pipelines.ddgi_probe_trace_ppl,
             &self.compute_pipelines.ddgi_irradiance_filter_ppl,
             &self.compute_pipelines.ddgi_visibility_filter_ppl,
-            &self.compute_pipelines.tracer_ppl,
         ] {
             pipeline.write_descriptor_set(
                 0,
@@ -1339,7 +1376,16 @@ impl Tracer {
                 ),
             );
         }
+    }
 
+    fn update_ddgi_consumer_descriptors(&self, ddgi_volume: &DdgiVolume) {
+        self.compute_pipelines.tracer_ppl.write_descriptor_set(
+            0,
+            WriteDescriptorSet::new_buffer_write(
+                DDGI_PROBE_METADATA_BINDING,
+                &ddgi_volume.ddgi_probe_metadata,
+            ),
+        );
         for pipeline in [
             &self.graphics_pipelines.flora_ppl,
             &self.graphics_pipelines.flora_lod_ppl,
@@ -1414,6 +1460,33 @@ impl Tracer {
                 );
             }
         }
+    }
+
+    fn promote_ready_ddgi_staging(&mut self) {
+        let status = self.ddgi_volumes.status();
+        if !status.staging_is_ready() {
+            return;
+        }
+
+        // Previous frames may still sample the active volume. Quiesce them, point every consumer
+        // at the complete staging volume, then swap ownership while the previous active resources
+        // remain alive. The frame's shading constants are updated after this method returns.
+        self.vulkan_ctx.device().wait_idle();
+        self.update_ddgi_consumer_descriptors(self.ddgi_volumes.builder());
+        let retired_active = self
+            .ddgi_volumes
+            .promote_staging()
+            .expect("ready DDGI staging volume must be promotable");
+        let active = self.ddgi_volumes.status().active();
+        log::info!(
+            "[DDGI] staging promoted spacing_voxels={} probes={} terrain_revision={} environment_revision={} stage={:?}",
+            active.grid.spacing_voxels(),
+            active.grid.probe_count(),
+            active.relocated_terrain_revision.unwrap_or_default(),
+            active.global_sky_revision,
+            active.stage,
+        );
+        drop(retired_active);
     }
 
     // create a lower resolution texture for rendering, for better performance,
@@ -1539,6 +1612,7 @@ impl Tracer {
         terrain_edit_preview_color: Vec3,
         terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
+        self.promote_ready_ddgi_staging();
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
@@ -1679,7 +1753,7 @@ impl Tracer {
         )?;
 
         let environment_lighting = self.environment_lighting.update(sun_dir);
-        let ddgi_status = self.ddgi_volume.status();
+        let ddgi_status = self.ddgi_volumes.status().active();
         BufferUpdater::update_shading_info(
             &self.resources,
             environment_lighting,
@@ -1841,7 +1915,7 @@ impl Tracer {
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
-            let volume = &self.ddgi_volume;
+            let volume = self.ddgi_volumes.builder();
             let stats = volume.update_trace_stats_from_readback()?;
             anyhow::ensure!(
                 stats.ray_records == batch.probe_count * crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -1939,7 +2013,8 @@ impl Tracer {
         );
 
         let ddgi_global_sky_needs_update = self
-            .ddgi_volume
+            .ddgi_volumes
+            .builder()
             .global_sky_needs_update(self.environment_probe_environment_revision);
         if ddgi_global_sky_needs_update {
             Self::with_gpu_scope(
@@ -1960,7 +2035,7 @@ impl Tracer {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
             let environment_revision = self.environment_probe_environment_revision;
-            let volume = &mut self.ddgi_volume;
+            let volume = self.ddgi_volumes.builder_mut();
             volume.mark_global_sky_ready(environment_revision);
             log::info!(
                 "[DDGI] global sky ready revision={} interior={}x{} stored={}x{} samples_per_texel=2048 stage={:?}",
@@ -1973,7 +2048,10 @@ impl Tracer {
             );
         }
 
-        let ddgi_relocation_revision = self.ddgi_volume.pending_relocation_terrain_revision();
+        let ddgi_relocation_revision = self
+            .ddgi_volumes
+            .builder()
+            .pending_relocation_terrain_revision();
         if let Some(terrain_revision) = ddgi_relocation_revision {
             let terrain_to_relocation_barrier = PipelineBarrier::shader_access(
                 PipelineStage::COMPUTE_SHADER,
@@ -1989,7 +2067,7 @@ impl Tracer {
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-            let volume = &mut self.ddgi_volume;
+            let volume = self.ddgi_volumes.builder_mut();
             volume.mark_relocated(terrain_revision);
             let status = volume.status();
             log::info!(
@@ -2002,10 +2080,10 @@ impl Tracer {
             );
         }
 
-        let ddgi_ray_batch = self.ddgi_volume.next_ray_batch_to_trace();
+        let ddgi_ray_batch = self.ddgi_volumes.builder().next_ray_batch_to_trace();
         if let Some(batch) = ddgi_ray_batch {
             {
-                let volume = &self.ddgi_volume;
+                let volume = self.ddgi_volumes.builder();
                 volume.ddgi_trace_stats.record_fill(
                     cmdbuf,
                     0,
@@ -2023,7 +2101,7 @@ impl Tracer {
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-            self.ddgi_volume.mark_ray_batch_ready(batch);
+            self.ddgi_volumes.builder_mut().mark_ray_batch_ready(batch);
 
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -2050,13 +2128,13 @@ impl Tracer {
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
-            let volume = &self.ddgi_volume;
+            let volume = self.ddgi_volumes.builder();
             compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             volume.record_trace_stats_readback(cmdbuf);
             transfer_to_host_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.ddgi_trace_stats_readback_pending = Some(batch);
 
-            let volume = &mut self.ddgi_volume;
+            let volume = self.ddgi_volumes.builder_mut();
             volume.mark_ray_batch_filtered(batch);
             let mut status = volume.status();
             if status.filtered_probe_count == status.grid.probe_count() {
@@ -3136,7 +3214,7 @@ impl Tracer {
 
         let environment_probe_instance_count = self
             .environment_probe_visualization
-            .submitted_instance_count(self.ddgi_volume.status().grid.probe_count());
+            .submitted_instance_count(self.ddgi_volumes.status().active().grid.probe_count());
         if environment_probe_instance_count > 0 {
             let probe_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
@@ -3567,7 +3645,7 @@ impl Tracer {
     }
 
     fn record_ddgi_probe_relocation_pass(&self, cmdbuf: &CommandBuffer, terrain_revision: u32) {
-        let volume = &self.ddgi_volume;
+        let volume = self.ddgi_volumes.builder();
         let grid = volume.status().grid;
         let push_constants = DdgiProbeRelocationPushConstants {
             grid_dimensions: grid.dimensions().to_array(),
@@ -3600,7 +3678,7 @@ impl Tracer {
     }
 
     fn record_ddgi_irradiance_filter_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = &self.ddgi_volume;
+        let volume = self.ddgi_volumes.builder();
         let push_constants = DdgiAtlasFilterPushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
@@ -3619,7 +3697,7 @@ impl Tracer {
     }
 
     fn record_ddgi_visibility_filter_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = &self.ddgi_volume;
+        let volume = self.ddgi_volumes.builder();
         let grid = volume.status().grid;
         let spacing_world =
             Vec3::splat(grid.spacing_voxels() as f32) / self.desc.voxel_dim_per_chunk.as_vec3();
@@ -3644,7 +3722,7 @@ impl Tracer {
     }
 
     fn record_ddgi_atlas_gutter_passes(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let volume = &self.ddgi_volume;
+        let volume = self.ddgi_volumes.builder();
         let irradiance_push = DdgiAtlasGutterPushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
