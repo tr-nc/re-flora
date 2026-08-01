@@ -43,9 +43,9 @@ pub use voxel_visibility::DdgiVoxelVisibility;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u32)]
 pub enum DdgiTerrainHardOrigin {
-    #[default]
     SurfaceQuarterVoxel = 0,
     CenterFixedWorld = 1,
+    #[default]
     SurfaceFixedWorld = 2,
 }
 

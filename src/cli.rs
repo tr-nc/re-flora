@@ -888,7 +888,7 @@ mod tests {
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
         assert_eq!(
             options.ddgi_terrain_hard_origin,
-            DdgiTerrainHardOrigin::SurfaceQuarterVoxel
+            DdgiTerrainHardOrigin::SurfaceFixedWorld
         );
         assert_eq!(
             options.environment_probe_spacing_voxels,

@@ -263,8 +263,8 @@ eight candidates' hard and moment visibility values.
 
 | Candidate | Which position changes? | Expected diagnostic value | Correctness risk | Recommendation |
 | --- | --- | --- | --- | --- |
-| Reproduce `main`'s extra `0.005` only for exact voxel visibility | Exact segment origin only | High: directly tests whether the black cage is receiver self-occlusion | Can jump through a legitimate one-voxel occluder or narrow branch | **First controlled A/B**, not an automatic final constant |
-| Advance from the canonical anchor until the first empty voxel along the stored normal, with a small epsilon and a strict maximum distance | Exact segment origin only | High after the A/B confirms the hypothesis | A wrong normal could search inward; an unbounded search could tunnel through geometry | **Preferred final direction**: bound near the main offset, record failure, and fail closed if no empty origin is found |
+| Reproduce `main`'s extra `0.005` only for exact voxel visibility | Exact segment origin only | High: directly tests whether the black cage is receiver self-occlusion | Can jump through a legitimate one-voxel occluder or narrow branch | **Selected terrain default after the controlled A/B/C below**; retain all three modes for regression |
+| Advance from the canonical anchor until the first empty voxel along the stored normal, with a small epsilon and a strict maximum distance | Exact segment origin only | High after the A/B confirms the hypothesis | A wrong normal could search inward; an unbounded search could tunnel through geometry | **Deferred**: the project rejected this unproven occupancy search for the current iteration because of its complexity and runtime cost |
 | Increase the bias used by both moment and exact visibility | Paper query point and exact origin together | Medium; may reduce self-shadow | 2021 Fig. 3 demonstrates that excessive moment-query bias leaks through occluders | Do **not** couple these knobs; test exact origin separately |
 | Restore the 2021 camera/view component | Paper visibility point and possibly cage selection | Low for this symptom | Makes a voxel's GI view-dependent and breaks the agreed one-color-per-voxel contract | Do not use for terrain voxels; keep the stored voxel normal |
 | Floor hard visibility or use a sky/nearest-probe fallback when the cage is empty | Final contribution weights | Masks black immediately | Reintroduces known wall/roof leaks by trusting an exactly occluded segment | Reject for the correctness-first path |
@@ -283,13 +283,60 @@ eight candidates' hard and moment visibility values.
 3. If the `0.005` variant turns the whole-black voxels into stable lit voxels,
    require the existing sealed-room, portal, and thin-wall tests to remain
    fail-closed. A visual improvement without those tests is not acceptance.
-4. Replace the magic constant with a bounded empty-space origin resolver. Keep
-   the result camera-independent and derived from the voxel center plus the one
-   stored normal. If the resolver cannot find empty space within the bound,
-   preserve zero rather than tunneling.
+4. Keep the bounded empty-space origin resolver deferred. Revisit it only if a
+   later contact-surface regression proves that the fixed offset is tunneling;
+   do not add its occupancy search speculatively.
 5. Re-run probe classification/relocation separately for any remaining black
    cages. Those survivors are more likely to be genuine bad-probe placement or
    moment-data failures than receiver self-intersection.
+
+## Controlled terrain-origin experiment (2026-08-02)
+
+The stable `blacky` snapshot compared three terrain-only exact-segment origins.
+Every mode kept the canonical surface anchor, normal, cage, trilinear and
+surface-side weights, moment query, probe field, raster consumers, and transport
+source unchanged:
+
+- A, `surface-quarter`: surface plus 0.25 voxel (the pre-experiment default);
+- B, `center-fixed`: voxel center plus `0.005` world units;
+- C, `surface-fixed`: surface plus `0.005` world units (the `main` form).
+
+| Spacing | Mode | Environment-zero pixels | Combined-zero pixels | Exact hard-visibility-zero pixels |
+| --- | --- | ---: | ---: | ---: |
+| 32 | A, surface-quarter | 19,240 | 13,442 | 18,924 |
+| 32 | B, center-fixed | 15,603 | 10,949 | 15,272 |
+| 32 | C, surface-fixed | 10,154 | 7,518 | 9,929 |
+| 16 | A, surface-quarter | 14,198 | 8,981 | 13,827 |
+| 16 | B, center-fixed | 11,099 | 6,904 | 10,871 |
+| 16 | C, surface-fixed | 7,102 | 4,907 | 6,781 |
+
+C removes 47.2% of A's environment-zero pixels at spacing 32 and 50.0% at
+spacing 16. B's smaller improvement shows that reaching the canonical surface
+before applying the fixed offset matters. B and C kept the mixed-zero receiver
+voxel count at zero, so neither restored the earlier within-voxel triangular
+lighting split.
+
+Running C through `scripts/check_ddgi_correctness.sh` passed sealed, portal, and
+one/two/diagonal thin-wall cases at both spacings. The sealed room stayed exactly
+black; the wall final-to-exact luminance-error P99 values were `0.02989` at
+spacing 32 and `0.00626` at spacing 16, below the committed `0.15` and `0.133`
+limits.
+
+An additional cross-mode comparison avoided accepting a self-consistent C
+reference blindly. Sealed exact visibility was bit-identical between A and C,
+and portal mean error was at most `0.000051`. Walls changed more substantially:
+mean exact-visibility deltas were `0.03289` and `0.03581`. Strong positive
+changes localized overwhelmingly to the visible one-voxel, two-voxel, and
+diagonal wall receivers themselves (24,389 of 27,491 pixels at spacing 32 and
+31,211 of 34,089 at spacing 16); only 14 spacing-16 pixels localized to the back
+wall. This supports receiver self-occlusion relief rather than observed
+far-side leakage in the committed scenarios.
+
+The evidence selects C as the terrain default while retaining explicit A/B/C
+CLI modes. It does not erase the theoretical risk: `0.005` world units is 1.28
+terrain voxels. Future regressions at touching surfaces should be tested against
+`surface-quarter` before changing the moment-query bias or weakening the
+fail-closed gate.
 
 ## Evidence limits
 
