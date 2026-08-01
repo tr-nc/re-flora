@@ -25,6 +25,9 @@ pub struct DdgiRayBatch {
     pub first_probe_index: u32,
     pub probe_count: u32,
     pub terrain_revision: u32,
+    pub build_token: Option<DdgiBuildToken>,
+    pub radiance_revision: u32,
+    pub transport_stage: DdgiTransportStage,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -121,10 +124,11 @@ impl DdgiResourceBytes {
     }
 }
 
-/// The last complete transport state represented by a volume's irradiance atlas.
+/// The last complete transport state owned by a volume.
 ///
-/// Probe batches are deliberately absent: a partial full-volume iteration is never a transport
-/// state and must never become consumer-visible.
+/// SeedSky lives in the builder's transport-source atlas while SingleBounce lives in the consumer
+/// atlas. Probe batches are deliberately absent: a partial full-volume iteration is never a
+/// transport state and must never become consumer-visible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum DdgiTransportStage {
@@ -133,6 +137,36 @@ pub enum DdgiTransportStage {
     Feedback { iteration: u32 },
     Converged,
     NonConverged,
+}
+
+impl DdgiTransportStage {
+    pub fn iteration(self) -> u32 {
+        match self {
+            Self::SeedSky => 0,
+            Self::SingleBounce => 1,
+            Self::Feedback { iteration } => iteration,
+            Self::Converged | Self::NonConverged => 0,
+        }
+    }
+
+    pub fn immutable_source(self) -> Option<Self> {
+        match self {
+            Self::SeedSky => None,
+            Self::SingleBounce => Some(Self::SeedSky),
+            Self::Feedback { iteration: 2 } => Some(Self::SingleBounce),
+            Self::Feedback { iteration } if iteration > 2 => Some(Self::Feedback {
+                iteration: iteration - 1,
+            }),
+            Self::Feedback { .. } | Self::Converged | Self::NonConverged => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DdgiVerifiedBatchOutcome {
+    Continue,
+    SeedSkyComplete,
+    SingleBounceReady,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -158,6 +192,7 @@ pub struct DdgiVolumeStatus {
     pub resource_bytes: DdgiResourceBytes,
     pub stage: DdgiVolumeStage,
     pub transport_stage: Option<DdgiTransportStage>,
+    pub building_transport_stage: Option<DdgiTransportStage>,
     pub global_sky_revision: u32,
     pub radiance_revision: Option<u32>,
     pub relocated_terrain_revision: Option<u32>,
@@ -207,6 +242,7 @@ pub struct DdgiVolume {
     resource_bytes: DdgiResourceBytes,
     stage: DdgiVolumeStage,
     transport_stage: Option<DdgiTransportStage>,
+    building_transport_stage: Option<DdgiTransportStage>,
     global_sky_revision: u32,
     radiance_revision: Option<u32>,
     requested_terrain_revision: Option<u32>,
@@ -224,6 +260,7 @@ pub struct DdgiVolume {
     pub ddgi_radiance_sun: Resource<Buffer>,
     pub ddgi_radiance_voxel_palette: Resource<Buffer>,
     pub ddgi_transport_query_info: Resource<Buffer>,
+    transport_query_snapshot: DdgiTransportQueryInfo,
 }
 
 /// Owns the DDGI active/staging lifecycle.
@@ -447,7 +484,7 @@ impl DdgiVolume {
         let radiance_voxel_palette = uniform_buffer(resource_bytes.radiance_voxel_palette);
         radiance_voxel_palette.fill_uniform(&DdgiRadianceVoxelPalette::zeroed())?;
         let transport_query_info = uniform_buffer(resource_bytes.transport_query_info);
-        transport_query_info.fill_uniform(&DdgiTransportQueryInfo {
+        let transport_query_snapshot = DdgiTransportQueryInfo {
             grid_dimensions: grid.dimensions().to_array(),
             visibility_bias_world: 2.0 / voxels_per_world_unit.min_element().max(1) as f32,
             world_to_grid_scale: (voxels_per_world_unit.as_vec3() / spacing_voxels as f32)
@@ -456,7 +493,8 @@ impl DdgiVolume {
             irradiance_tile_columns: irradiance_layout.tile_grid().x,
             visibility_tile_columns: visibility_layout.tile_grid().x,
             padding: [0; 2],
-        })?;
+        };
+        transport_query_info.fill_uniform(&transport_query_snapshot)?;
         let irradiance_atlas = Texture::new(
             device.clone(),
             allocator.clone(),
@@ -511,6 +549,7 @@ impl DdgiVolume {
             resource_bytes,
             stage: DdgiVolumeStage::Allocated,
             transport_stage: None,
+            building_transport_stage: None,
             global_sky_revision: 0,
             radiance_revision: None,
             requested_terrain_revision: None,
@@ -530,6 +569,7 @@ impl DdgiVolume {
             ddgi_radiance_sun: Resource::new(radiance_sun),
             ddgi_radiance_voxel_palette: Resource::new(radiance_voxel_palette),
             ddgi_transport_query_info: Resource::new(transport_query_info),
+            transport_query_snapshot,
         })
     }
 
@@ -542,6 +582,7 @@ impl DdgiVolume {
             resource_bytes: self.resource_bytes,
             stage: self.stage,
             transport_stage: self.transport_stage,
+            building_transport_stage: self.building_transport_stage,
             global_sky_revision: self.global_sky_revision,
             radiance_revision: self.radiance_revision,
             relocated_terrain_revision: self.relocated_terrain_revision,
@@ -598,7 +639,7 @@ impl DdgiVolume {
             .is_some_and(|revision| self.global_sky_revision != revision)
     }
 
-    pub fn mark_global_sky_ready(&mut self, environment_revision: u32) {
+    pub fn mark_global_sky_ready(&mut self, environment_revision: u32) -> Result<()> {
         self.global_sky_revision = environment_revision;
         if matches!(
             self.stage,
@@ -610,8 +651,12 @@ impl DdgiVolume {
         ) {
             self.next_probe_index = 0;
             self.active_ray_batch = None;
+            self.transport_stage = None;
+            self.building_transport_stage = Some(DdgiTransportStage::SeedSky);
+            self.set_transport_source_ready(false)?;
         }
         self.stage = stage_after_global_sky_update(self.stage);
+        Ok(())
     }
 
     pub fn request_initialization(&mut self, terrain_revision: u32) -> bool {
@@ -627,6 +672,8 @@ impl DdgiVolume {
         self.relocated_terrain_revision = None;
         self.active_ray_batch = None;
         self.next_probe_index = 0;
+        self.transport_stage = None;
+        self.building_transport_stage = None;
         self.stage = DdgiVolumeStage::RelocationPending;
         true
     }
@@ -637,11 +684,15 @@ impl DdgiVolume {
             .flatten()
     }
 
-    pub fn mark_relocated(&mut self, terrain_revision: u32) {
+    pub fn mark_relocated(&mut self, terrain_revision: u32) -> Result<()> {
         assert_eq!(self.requested_terrain_revision, Some(terrain_revision));
         self.relocated_terrain_revision = Some(terrain_revision);
         self.next_probe_index = 0;
+        self.transport_stage = None;
+        self.building_transport_stage = Some(DdgiTransportStage::SeedSky);
+        self.set_transport_source_ready(false)?;
         self.stage = DdgiVolumeStage::Relocated;
+        Ok(())
     }
 
     pub fn next_ray_batch_to_trace(&self) -> Option<DdgiRayBatch> {
@@ -658,6 +709,9 @@ impl DdgiVolume {
             probe_count: (self.grid.probe_count() - self.next_probe_index)
                 .min(DDGI_PROBE_BATCH_SIZE),
             terrain_revision: self.relocated_terrain_revision?,
+            build_token: self.build_token,
+            radiance_revision: self.radiance_revision?,
+            transport_stage: self.building_transport_stage?,
         })
     }
 
@@ -671,7 +725,9 @@ impl DdgiVolume {
         assert_eq!(self.stage, DdgiVolumeStage::RayBatchReady);
         assert_eq!(self.active_ray_batch, Some(batch));
         self.next_probe_index = batch.first_probe_index + batch.probe_count;
-        self.active_ray_batch = None;
+        // Keep the exact batch identity live until the later-frame trace-stat readback has been
+        // validated. This prevents the next batch, iteration advance, and publication from
+        // overtaking GPU validation.
         self.stage = if self.next_probe_index == self.grid.probe_count() {
             DdgiVolumeStage::AtlasReady
         } else {
@@ -679,12 +735,57 @@ impl DdgiVolume {
         };
     }
 
-    pub fn mark_ready(&mut self) {
-        assert_eq!(self.stage, DdgiVolumeStage::AtlasReady);
-        assert_eq!(self.next_probe_index, self.grid.probe_count());
-        self.transport_stage
-            .get_or_insert(DdgiTransportStage::SeedSky);
-        self.stage = DdgiVolumeStage::Ready;
+    pub fn pending_trace_stats_batch_is(&self, batch: DdgiRayBatch) -> bool {
+        pending_trace_stats_batch_matches(self.active_ray_batch, self.stage, batch)
+    }
+
+    pub fn mark_trace_stats_verified(
+        &mut self,
+        batch: DdgiRayBatch,
+    ) -> Result<DdgiVerifiedBatchOutcome> {
+        ensure!(
+            self.pending_trace_stats_batch_is(batch),
+            "stale DDGI trace-stat readback identity {batch:?}; current batch={:?} stage={:?}",
+            self.active_ray_batch,
+            self.stage,
+        );
+        let outcome = verified_bootstrap_batch_outcome(
+            self.building_transport_stage,
+            self.next_probe_index,
+            self.grid.probe_count(),
+        )?;
+        self.active_ray_batch = None;
+        if outcome == DdgiVerifiedBatchOutcome::Continue {
+            self.stage = DdgiVolumeStage::Rebuilding;
+            return Ok(outcome);
+        }
+        match outcome {
+            DdgiVerifiedBatchOutcome::SeedSkyComplete => {
+                self.transport_stage = Some(DdgiTransportStage::SeedSky);
+                self.building_transport_stage = Some(DdgiTransportStage::SingleBounce);
+                self.next_probe_index = 0;
+                self.set_transport_source_ready(true)?;
+                self.stage = DdgiVolumeStage::Rebuilding;
+                Ok(DdgiVerifiedBatchOutcome::SeedSkyComplete)
+            }
+            DdgiVerifiedBatchOutcome::SingleBounceReady => {
+                ensure!(
+                    self.transport_stage == Some(DdgiTransportStage::SeedSky),
+                    "DDGI S1 completed without an immutable S0 source"
+                );
+                self.transport_stage = Some(DdgiTransportStage::SingleBounce);
+                self.building_transport_stage = None;
+                self.stage = DdgiVolumeStage::Ready;
+                Ok(DdgiVerifiedBatchOutcome::SingleBounceReady)
+            }
+            DdgiVerifiedBatchOutcome::Continue => unreachable!("handled above"),
+        }
+    }
+
+    fn set_transport_source_ready(&mut self, ready: bool) -> Result<()> {
+        self.transport_query_snapshot.source_ready = u32::from(ready);
+        self.ddgi_transport_query_info
+            .fill_uniform(&self.transport_query_snapshot)
     }
 
     pub fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
@@ -726,6 +827,37 @@ impl DdgiVolume {
             "DDGI trace stats hit partition is inconsistent: {stats:?}",
         );
         Ok(stats)
+    }
+}
+
+fn pending_trace_stats_batch_matches(
+    active_batch: Option<DdgiRayBatch>,
+    stage: DdgiVolumeStage,
+    candidate: DdgiRayBatch,
+) -> bool {
+    active_batch == Some(candidate)
+        && matches!(
+            stage,
+            DdgiVolumeStage::Rebuilding | DdgiVolumeStage::AtlasReady
+        )
+}
+
+fn verified_bootstrap_batch_outcome(
+    building_stage: Option<DdgiTransportStage>,
+    filtered_probe_count: u32,
+    probe_count: u32,
+) -> Result<DdgiVerifiedBatchOutcome> {
+    ensure!(
+        filtered_probe_count <= probe_count,
+        "DDGI iteration filtered {filtered_probe_count}/{probe_count} probes"
+    );
+    if filtered_probe_count < probe_count {
+        return Ok(DdgiVerifiedBatchOutcome::Continue);
+    }
+    match building_stage {
+        Some(DdgiTransportStage::SeedSky) => Ok(DdgiVerifiedBatchOutcome::SeedSkyComplete),
+        Some(DdgiTransportStage::SingleBounce) => Ok(DdgiVerifiedBatchOutcome::SingleBounceReady),
+        stage => anyhow::bail!("unsupported DDGI bootstrap completion stage {stage:?}"),
     }
 }
 
@@ -852,6 +984,7 @@ mod tests {
             ),
             stage: DdgiVolumeStage::Allocated,
             transport_stage: None,
+            building_transport_stage: None,
             global_sky_revision: 0,
             radiance_revision: None,
             relocated_terrain_revision: None,
@@ -876,7 +1009,9 @@ mod tests {
             resource_bytes: DdgiResourceBytes::new(grid, irradiance_layout, visibility_layout),
             stage,
             transport_stage: (stage == DdgiVolumeStage::Ready)
-                .then_some(DdgiTransportStage::SeedSky),
+                .then_some(DdgiTransportStage::SingleBounce),
+            building_transport_stage: (stage == DdgiVolumeStage::Rebuilding)
+                .then_some(DdgiTransportStage::SingleBounce),
             global_sky_revision: 3,
             radiance_revision: Some(3),
             relocated_terrain_revision: Some(terrain_revision),
@@ -966,6 +1101,58 @@ mod tests {
             DdgiVolumeStage::RelocationPending,
             Some(7),
             8,
+        ));
+    }
+
+    #[test]
+    fn strict_bootstrap_only_publishes_after_complete_s1_validation() {
+        assert_eq!(
+            verified_bootstrap_batch_outcome(Some(DdgiTransportStage::SeedSky), 64, 128).unwrap(),
+            DdgiVerifiedBatchOutcome::Continue,
+        );
+        assert_eq!(
+            verified_bootstrap_batch_outcome(Some(DdgiTransportStage::SeedSky), 128, 128).unwrap(),
+            DdgiVerifiedBatchOutcome::SeedSkyComplete,
+        );
+        assert_eq!(
+            verified_bootstrap_batch_outcome(Some(DdgiTransportStage::SingleBounce), 128, 128)
+                .unwrap(),
+            DdgiVerifiedBatchOutcome::SingleBounceReady,
+        );
+    }
+
+    #[test]
+    fn trace_stat_readback_requires_exact_batch_and_iteration_identity() {
+        let batch = DdgiRayBatch {
+            first_probe_index: 64,
+            probe_count: 64,
+            terrain_revision: 7,
+            build_token: None,
+            radiance_revision: 3,
+            transport_stage: DdgiTransportStage::SeedSky,
+        };
+        assert!(pending_trace_stats_batch_matches(
+            Some(batch),
+            DdgiVolumeStage::Rebuilding,
+            batch,
+        ));
+        assert!(!pending_trace_stats_batch_matches(
+            Some(batch),
+            DdgiVolumeStage::RayBatchReady,
+            batch,
+        ));
+        assert!(!pending_trace_stats_batch_matches(
+            Some(batch),
+            DdgiVolumeStage::Rebuilding,
+            DdgiRayBatch {
+                transport_stage: DdgiTransportStage::SingleBounce,
+                ..batch
+            },
+        ));
+        assert!(!pending_trace_stats_batch_matches(
+            None,
+            DdgiVolumeStage::AtlasReady,
+            batch,
         ));
     }
 }

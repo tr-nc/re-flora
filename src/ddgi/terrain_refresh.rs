@@ -92,6 +92,16 @@ pub struct DdgiTerrainRefresh {
 }
 
 impl DdgiTerrainRefresh {
+    /// Allocates the initial active-volume identity from the same monotonic serial sequence used
+    /// by later staging builds. It is not a staging candidate and therefore is never promotable.
+    pub(crate) fn allocate_initial_build_token(
+        &mut self,
+        terrain_revision: u32,
+        spacing_voxels: u32,
+    ) -> DdgiBuildToken {
+        self.allocate_token(terrain_revision, spacing_voxels, DdgiBuildKind::Terrain)
+    }
+
     pub fn request(
         &mut self,
         terrain_revision: u32,
@@ -486,6 +496,19 @@ mod tests {
         assert_eq!(first.kind(), second.kind());
         assert!(!refresh.token_can_promote(first));
         assert!(refresh.token_can_promote(second));
+    }
+
+    #[test]
+    fn initial_and_runtime_tokens_share_one_nonzero_monotonic_sequence() {
+        let mut refresh = DdgiTerrainRefresh::default();
+        let initial = refresh.allocate_initial_build_token(7, 32);
+        assert_eq!(initial.serial(), 1);
+        assert_eq!(initial.terrain_revision(), 7);
+        assert_eq!(initial.spacing_voxels(), 32);
+        assert_eq!(initial.kind(), DdgiBuildKind::Terrain);
+
+        refresh.request_density_rebuild(16);
+        assert_eq!(refresh.claim_next_build(32, 7).unwrap().serial(), 2);
     }
 
     #[test]

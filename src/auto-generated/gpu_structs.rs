@@ -277,6 +277,8 @@ pub struct PushConstantIrradianceFilter {
     pub probe_count: u32,
     pub tile_columns: u32,
     pub terrain_revision: u32,
+    pub destination_is_transport_source: u32,
+    pub _pad0: [u8; 12],
 }
 
 /// Auto-generated from `PushConstantIrradianceGutter` (native Slang source of truth).
@@ -286,7 +288,7 @@ pub struct PushConstantIrradianceGutter {
     pub first_probe_index: u32,
     pub probe_count: u32,
     pub tile_columns: u32,
-    pub padding: u32,
+    pub destination_is_transport_source: u32,
 }
 
 /// Auto-generated from `PushConstantLeafShadowTemporal` (native Slang source of truth).
@@ -328,7 +330,7 @@ pub struct PushConstantProbeTrace {
     pub first_probe_index: u32,
     pub probe_count: u32,
     pub terrain_revision: u32,
-    pub padding: u32,
+    pub transport_iteration: u32,
     pub far_distance_world: f32,
     pub _pad0: [u8; 12],
     pub padding_float: [f32; 3],

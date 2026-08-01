@@ -7,16 +7,34 @@ static const uint DDGI_GUTTER_WORKGROUP_SIZE = 64u;
 [[vk::binding(27, 0)]]
 RWTexture2D<float4> ddgi_irradiance_atlas;
 
+[[vk::binding(29, 0)]]
+RWTexture2D<float4> ddgi_transport_source_irradiance_atlas;
+
 struct DdgiAtlasGutterPushConstants
 {
     uint first_probe_index;
     uint probe_count;
     uint tile_columns;
-    uint padding;
+    uint destination_is_transport_source;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<DdgiAtlasGutterPushConstants> pc;
+
+float4 loadIrradiance(uint2 coordinate)
+{
+    return pc.destination_is_transport_source != 0u
+        ? ddgi_transport_source_irradiance_atlas[coordinate]
+        : ddgi_irradiance_atlas[coordinate];
+}
+
+void storeIrradiance(uint2 coordinate, float4 value)
+{
+    if (pc.destination_is_transport_source != 0u)
+        ddgi_transport_source_irradiance_atlas[coordinate] = value;
+    else
+        ddgi_irradiance_atlas[coordinate] = value;
+}
 
 [shader("compute")]
 [numthreads(DDGI_GUTTER_WORKGROUP_SIZE, 1, 1)]
@@ -39,10 +57,11 @@ void main(uint3 groupId : SV_GroupID,
                         destination.y == 0u || destination.y == last;
         if (isBorder)
         {
-            ddgi_irradiance_atlas[tileOrigin + destination] =
-                ddgi_irradiance_atlas[
+            storeIrradiance(
+                tileOrigin + destination,
+                loadIrradiance(
                     tileOrigin +
-                    ddgiGutterSource(destination, DDGI_INTERIOR_SIDE)];
+                    ddgiGutterSource(destination, DDGI_INTERIOR_SIDE)));
         }
     }
 }

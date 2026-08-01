@@ -17,16 +17,28 @@ readonly GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
 [[vk::binding(27, 0)]]
 RWTexture2D<float4> ddgi_irradiance_atlas;
 
+[[vk::binding(29, 0)]]
+RWTexture2D<float4> ddgi_transport_source_irradiance_atlas;
+
 struct DdgiAtlasFilterPushConstants
 {
     uint first_probe_index;
     uint probe_count;
     uint tile_columns;
     uint terrain_revision;
+    uint destination_is_transport_source;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<DdgiAtlasFilterPushConstants> pc;
+
+void storeIrradiance(uint2 atlasCoordinate, float4 value)
+{
+    if (pc.destination_is_transport_source != 0u)
+        ddgi_transport_source_irradiance_atlas[atlasCoordinate] = value;
+    else
+        ddgi_irradiance_atlas[atlasCoordinate] = value;
+}
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -45,7 +57,7 @@ void main(uint3 groupId : SV_GroupID,
     if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID ||
         metadata.state_and_reserved.y != pc.terrain_revision)
     {
-        ddgi_irradiance_atlas[atlasCoordinate] = float4(0.0);
+        storeIrradiance(atlasCoordinate, float4(0.0));
         return;
     }
 
@@ -71,5 +83,5 @@ void main(uint3 groupId : SV_GroupID,
     // Uniform-sphere Monte Carlo estimate of diffuse irradiance divided by pi:
     // (1 / pi) * (4 * pi / N) * sum(L * max(0, n dot w)).
     irradiance *= DDGI_FOUR / float(DDGI_RAYS_PER_PROBE);
-    ddgi_irradiance_atlas[atlasCoordinate] = float4(irradiance, 1.0);
+    storeIrradiance(atlasCoordinate, float4(irradiance, 1.0));
 }
