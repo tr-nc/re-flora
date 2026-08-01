@@ -1,6 +1,7 @@
 module tracer_material;
 
 import color;
+import ddgi_types;
 import tracer_types;
 import voxel_data;
 import voxel_types;
@@ -22,15 +23,43 @@ float voxelHashVariance(uint voxelType)
     return 0.0;
 }
 
-public float3 voxelColorByTypeAndHash(U_VoxelColors colors, uint voxelType, uint hashId)
+float3 voxelColorByComponentsAndHash(float3 baseColor,
+                                     float hashColorVariance,
+                                     uint voxelType, uint hashId)
 {
-    float3 hsv = rgbToHsv(voxelColorByTypeSrgb(colors, voxelType));
+    float3 hsv = rgbToHsv(baseColor);
     float variant = float(hashId & 0x3u) - 1.5;
-    float amount = colors.hash_color_variance * voxelHashVariance(voxelType);
+    float amount = hashColorVariance * voxelHashVariance(voxelType);
     hsv.x = frac(hsv.x + variant * 0.01 * amount);
     hsv.y = clamp(hsv.y + variant * 0.03 * amount, 0.0, 1.0);
     hsv.z = clamp(hsv.z + variant * 0.025 * amount, 0.0, 1.0);
     return srgbToLinear(hsvToRgb(hsv));
+}
+
+public float3 voxelColorByTypeAndHash(U_VoxelColors colors, uint voxelType, uint hashId)
+{
+    return voxelColorByComponentsAndHash(
+        voxelColorByTypeSrgb(colors, voxelType), colors.hash_color_variance,
+        voxelType, hashId);
+}
+
+float3 ddgiVoxelColorByTypeSrgb(U_DdgiRadianceVoxelPalette colors,
+                                uint voxelType)
+{
+    if (voxelType == VOXEL_TYPE_DIRT) return colors.dirt_color;
+    if (voxelType == VOXEL_TYPE_SAND) return colors.sand_color;
+    if (voxelType == VOXEL_TYPE_CHERRY_WOOD) return colors.cherry_wood_color;
+    if (voxelType == VOXEL_TYPE_OAK_WOOD) return colors.oak_wood_color;
+    if (voxelType == VOXEL_TYPE_ROCK) return colors.rock_color;
+    return float3(0.0);
+}
+
+public float3 ddgiVoxelColorByTypeAndHash(
+    U_DdgiRadianceVoxelPalette colors, uint voxelType, uint hashId)
+{
+    return voxelColorByComponentsAndHash(
+        ddgiVoxelColorByTypeSrgb(colors, voxelType),
+        colors.hash_color_variance, voxelType, hashId);
 }
 
 public float3 applyTerrainMoisture(float3 baseColor, uint voxelType, uint moistureLevel)

@@ -17,8 +17,8 @@ pub use atlas::{
     SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 pub use resources::{
-    DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiTransportStage, DdgiVolume, DdgiVolumeStage,
-    DdgiVolumeStatus, DdgiVolumes,
+    DdgiRayBatch, DdgiResourceBytes, DdgiStatus, DdgiTransportStage, DdgiVerifiedBatchOutcome,
+    DdgiVolume, DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes,
 };
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
 
