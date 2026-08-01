@@ -261,6 +261,26 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         failures = json.loads(result.stdout)["validation_failures"]
         self.assertIn("max_abs_delta: converged value 0.02 exceeds 0.01", failures)
 
+    def test_cli_rejects_nonfinite_convergence_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "nonfinite-delta.rfirr"
+            self.write_capture_v3(
+                capture_path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(1.0, 2.0, 3.0, 1.0)],
+                transport_stage=4,
+                transport_iteration=6,
+                max_abs_delta=float("nan"),
+            )
+
+            result = self.run_analyzer(capture_path)
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(
+            "capture metadata contains nonfinite convergence values",
+            json.loads(result.stdout)["validation_failures"],
+        )
+
     def test_v3_sealed_zero_gate_rejects_any_nonzero_rgb_channel(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "sealed.rfirr"
@@ -309,6 +329,23 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(summary["terrain_hit_count"], 1)
         self.assertEqual(summary["rgb_abs_max"], 0.0)
         self.assertEqual(summary["rgb_nonzero_count"], 0)
+
+    def test_loads_legacy_v1_capture_with_implicit_final_view(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "legacy-v1.rfirr"
+            header = analyzer.HEADER_V1.pack(
+                analyzer.MAGIC, 1, 1, 1, 4, 1, 32
+            )
+            capture_path.write_bytes(
+                header + analyzer.PIXEL.pack(0.1, 0.2, 0.3, 1.0)
+            )
+
+            capture = analyzer.load_capture(capture_path)
+
+        self.assertEqual(capture.version, 1)
+        self.assertEqual(capture.debug_view, 0)
+        self.assertEqual(capture.plane_count, 1)
+        self.assertEqual(capture.world_payload, b"")
 
     def test_require_zero_rgb_rejects_value_that_passes_luminance_gate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

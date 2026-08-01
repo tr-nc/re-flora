@@ -257,6 +257,10 @@ def summarize(
                     exact_sun_visibilities.append(exact_sun_visibility)
     luminances.sort()
     has_world_positions = world_min[0] != math.inf
+    metadata_finite = all(
+        value is None or math.isfinite(value)
+        for value in (capture.max_abs_delta, capture.max_rel_delta)
+    )
     return {
         "path": str(capture.path),
         "version": capture.version,
@@ -268,6 +272,7 @@ def summarize(
         "sample_count": capture.sample_count,
         "terrain_hit_count": terrain_hit_count,
         "finite": finite,
+        "metadata_finite": metadata_finite,
         "rgb_abs_max": rgb_abs_max,
         "rgb_nonzero_count": rgb_nonzero_count,
         "rgb_channel_min": (
@@ -504,6 +509,8 @@ def main() -> int:
     expect("publication_state", args.expect_publication_state)
     if first.nonfinite_count is not None:
         expect("header_nonfinite_count", 0)
+    if not capture_summary["metadata_finite"]:
+        failures.append("capture metadata contains nonfinite convergence values")
     if capture_summary["transport_stage"] == "converged":
         for field, threshold in (
             ("max_abs_delta", args.convergence_max_abs_delta),
