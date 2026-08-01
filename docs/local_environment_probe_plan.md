@@ -901,15 +901,16 @@ architectural context, while the three density rows above are the matched produc
 
 ### Deferred DDGI Terrain-Edit Relocation
 
-The first sky-only DDGI correctness milestone will run GPU probe classification and voxel-native
-relocation exactly once, after the initial terrain has finished building. Its deterministic test
-geometry must therefore reach its final state before the DDGI volume is initialized; runtime
-terrain edits are not part of this milestone's supported behavior.
+Startup classification and voxel-native relocation still run only after initial terrain is ready.
+Runtime terrain edits are now supported by a correctness-first full-volume staging rebuild. The
+edited world domain fails closed until the exact latest terrain revision reaches Ready; promotion
+then switches terrain and raster consumers to one immutable build token and revision. Edits during
+a build obsolete the older candidate, while density changes remain queued behind terrain work.
 
-- [ ] After the static DDGI result is correct, add local GPU reclassification and re-relocation for
-  terrain edits. Expand edited bounds by the relocation search support, invalidate the affected
-  probe atlas tiles, retrace them, and define revision synchronization so consumers never mix stale
-  positions with new visibility data.
+- [x] Reclassify, relocate, retrace, and atomically promote runtime terrain edits at spacing 32 and
+  16, including sequential edits and latest-revision-wins replacement.
+- [ ] After measurement shows a need, add dependency-exact invalidation and partial-volume refresh
+  without weakening full-domain correctness, token identity, or atomic consumer promotion.
 
 ### Known Limitations
 
@@ -918,8 +919,9 @@ terrain edits are not part of this milestone's supported behavior.
 - Animated flora and leaves consume the field but are intentionally not probe occluders. Their
   direct leaf-shadow temporal filter remains separate and can still need responsiveness tuning for
   fast motion.
-- Terrain edits use a conservative full-volume refresh after two small priority regions. This is
-  correct but makes 16- and especially 8-voxel convergence too slow for the default.
+- Terrain edits use conservative full-domain fail-closed invalidation and a full-volume staging
+  rebuild. Dependency-exact/local refresh remains a performance optimization, and spacing 8 is not
+  runtime-edit qualified.
 - Relocation-failed probes remain invalid. Leak-resistant weighting and nearest-valid fallback keep
   them from contributing, but narrow geometry below the 32-voxel sampling scale can still justify a
   temporary 16-voxel quality run.
