@@ -138,21 +138,27 @@ value = false
 id = "legacy_ambient_light"
 kind = "color"
 label = "Legacy Ambient Light"
-enabled_if = { param = "legacy_environment_lighting", equals = true }
 type = "Color"
 
+[section.param.enabled_if]
+param = "legacy_environment_lighting"
+equals = true
+
 [section.param.data]
-value = "#181818"
+value = "#000000"
 
 [[section.param]]
 id = "legacy_terrain_indirect_lighting"
 kind = "bool"
 label = "Legacy Terrain Indirect Lighting (1 Ray)"
-enabled_if = { param = "legacy_environment_lighting", equals = true }
 type = "Bool"
 
+[section.param.enabled_if]
+param = "legacy_environment_lighting"
+equals = true
+
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "world_tick_seconds"
@@ -2543,7 +2549,7 @@ label = "Hash Color Variance"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 0
 min = 0
 max = 2
 
