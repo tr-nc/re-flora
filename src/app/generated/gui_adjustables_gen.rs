@@ -74,6 +74,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "legacy_ambient_light",
+        kind: "color",
+        label: "Legacy Ambient Light",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "legacy_terrain_indirect_lighting",
         kind: "bool",
         label: "Legacy Terrain Indirect Lighting (1 Ray)",
@@ -1428,6 +1434,7 @@ pub struct GuiAdjustables {
     pub flora_draw_distance: crate::gui_adjustables::FloatParam,
     pub grass_render_mode: crate::gui_adjustables::UintParam,
     pub legacy_environment_lighting: crate::gui_adjustables::BoolParam,
+    pub legacy_ambient_light: crate::gui_adjustables::ColorParam,
     pub legacy_terrain_indirect_lighting: crate::gui_adjustables::BoolParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
@@ -1673,6 +1680,7 @@ impl GuiAdjustables {
         let mut flora_draw_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut legacy_environment_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut legacy_ambient_light_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut legacy_terrain_indirect_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -1951,6 +1959,11 @@ impl GuiAdjustables {
                     "legacy_environment_lighting" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             legacy_environment_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "legacy_ambient_light" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            legacy_ambient_light_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
                     "legacy_terrain_indirect_lighting" => {
@@ -3463,6 +3476,7 @@ impl GuiAdjustables {
             flora_draw_distance: flora_draw_distance_field.expect("Missing parameter: flora_draw_distance"),
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
             legacy_environment_lighting: legacy_environment_lighting_field.expect("Missing parameter: legacy_environment_lighting"),
+            legacy_ambient_light: legacy_ambient_light_field.expect("Missing parameter: legacy_ambient_light"),
             legacy_terrain_indirect_lighting: legacy_terrain_indirect_lighting_field.expect("Missing parameter: legacy_terrain_indirect_lighting"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
@@ -3947,6 +3961,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 #[allow(dead_code)]
 pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ColorParam> {
     match id {
+        "legacy_ambient_light" => Some(&adjustables.legacy_ambient_light),
         "sun_color" => Some(&adjustables.sun_color),
         "glass_tint" => Some(&adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&adjustables.grass_bottom_dark_color),
@@ -4226,6 +4241,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 #[allow(dead_code)]
 pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ColorParam> {
     match id {
+        "legacy_ambient_light" => Some(&mut adjustables.legacy_ambient_light),
         "sun_color" => Some(&mut adjustables.sun_color),
         "glass_tint" => Some(&mut adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&mut adjustables.grass_bottom_dark_color),

@@ -374,8 +374,8 @@ void getPixelColor(out float3 color, out float depth,
     if (gui_input.legacy_environment_lighting != 0u &&
         shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL)
     {
-        environmentIrradiance = LEGACY_MAIN_AMBIENT_LIGHT;
-        environmentCaptureIrradiance = LEGACY_MAIN_AMBIENT_LIGHT;
+        environmentIrradiance = gui_input.legacy_ambient_light;
+        environmentCaptureIrradiance = gui_input.legacy_ambient_light;
         color = environmentIrradiance * albedo + directLight;
         if (gui_input.legacy_terrain_indirect_lighting != 0u)
         {

@@ -319,11 +319,9 @@ mod tests {
             .0;
         let config = include_str!("../config/gui.toml");
 
-        assert!(shared
-            .contains("static const float3 LEGACY_MAIN_AMBIENT_LIGHT = float3(24.0 / 255.0);"));
         assert!(shared.contains("if (gui.legacy_environment_lighting != 0u)"));
-        assert!(shared.contains("return LEGACY_MAIN_AMBIENT_LIGHT;"));
-        assert!(legacy_branch.contains("environmentIrradiance = LEGACY_MAIN_AMBIENT_LIGHT;"));
+        assert!(shared.contains("return gui.legacy_ambient_light;"));
+        assert!(legacy_branch.contains("environmentIrradiance = gui_input.legacy_ambient_light;"));
         assert!(legacy_branch.contains("color = environmentIrradiance * albedo + directLight;"));
         assert!(legacy_branch.contains("return;"));
         assert!(!legacy_branch.contains("sampleDdgiDiffuseEnvironment"));
@@ -339,6 +337,18 @@ mod tests {
         }
         assert!(config.contains("id = \"legacy_environment_lighting\""));
         assert!(config.contains("label = \"Legacy Environment Lighting (No DDGI)\""));
+        assert!(config.contains("id = \"legacy_ambient_light\""));
+        assert!(config.contains("label = \"Legacy Ambient Light\""));
+        assert!(config.contains("value = \"#181818\""));
+        let ambient_config = config
+            .split_once("id = \"legacy_ambient_light\"")
+            .expect("legacy ambient GUI parameter must exist")
+            .1
+            .split_once("[[section.param]]")
+            .expect("legacy ambient GUI parameter must be bounded")
+            .0;
+        assert!(ambient_config
+            .contains("enabled_if = { param = \"legacy_environment_lighting\", equals = true }"));
     }
 
     #[test]

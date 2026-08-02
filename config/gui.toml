@@ -135,6 +135,16 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "legacy_ambient_light"
+kind = "color"
+label = "Legacy Ambient Light"
+enabled_if = { param = "legacy_environment_lighting", equals = true }
+type = "Color"
+
+[section.param.data]
+value = "#181818"
+
+[[section.param]]
 id = "legacy_terrain_indirect_lighting"
 kind = "bool"
 label = "Legacy Terrain Indirect Lighting (1 Ray)"
