@@ -56,6 +56,7 @@ impl BufferUpdater {
         ddgi_visibility_tile_columns: u32,
         ddgi_debug_view: u32,
         ddgi_terrain_hard_origin: u32,
+        ddgi_receiver_visibility_bias_world: f32,
         ddgi_invalidation_voxel_bound: Option<crate::geom::UAabb3>,
     ) -> Result<()> {
         let probe_dimensions = environment_probe_grid.dimensions();
@@ -74,8 +75,7 @@ impl BufferUpdater {
             environment_revision: environment.revision,
             environment_probe_grid_dimensions: probe_dimensions.to_array(),
             environment_probe_world_to_grid_scale: probe_world_to_grid_scale.to_array(),
-            environment_probe_visibility_bias_world: 2.0
-                / voxels_per_world_unit.min_element().max(1) as f32,
+            environment_probe_visibility_bias_world: ddgi_receiver_visibility_bias_world,
             ddgi_ready: u32::from(ddgi_ready),
             ddgi_geometry_revision,
             environment_irradiance_capture_enabled: u32::from(

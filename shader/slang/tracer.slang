@@ -98,7 +98,8 @@ float3 terrainDdgiHardVisibilityOrigin(float3 voxelCenter,
         return surfacePosition +
             normalDirection * gui_input.terrain_ray_origin_offset_world;
     }
-    float biasWorld = shading_info.environment_probe_visibility_bias_world * 0.125;
+    float biasWorld = max(
+        0.0, shading_info.environment_probe_visibility_bias_world);
     return surfacePosition + normalDirection * biasWorld;
 }
 

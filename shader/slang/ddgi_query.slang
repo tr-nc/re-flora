@@ -298,10 +298,7 @@ public DdgiProbeContribution getDdgiProbeContribution(
     surfaceSideWeight *= surfaceSideWeight;
     if (surfaceSideWeight <= DDGI_QUERY_WEIGHT_EPSILON) return contribution;
 
-    // Keep this in voxel units. The previous 0.25 / gridScale expression was
-    // 0.25 probe spacing (8 voxels at the default spacing), which crossed
-    // thin walls.
-    float biasWorld = query.visibility_bias_world * 0.125;
+    float biasWorld = max(0.0, query.visibility_bias_world);
     float3 biasedWorldPosition = worldPosition + normal * biasWorld;
     float3 probeToBiasedSurface = biasedWorldPosition - actualPosition;
     float distanceToSurface = length(probeToBiasedSurface);
@@ -345,7 +342,8 @@ public DdgiProbeContribution getDdgiProbeContribution(
     uint3 cageCorner)
 {
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    float biasWorld = lighting.environment_probe_visibility_bias_world * 0.125;
+    float biasWorld = max(
+        0.0, lighting.environment_probe_visibility_bias_world);
     return getDdgiProbeContribution(
         ddgiConsumerQueryInfo(lighting), worldPosition, surfaceNormal,
         worldPosition + normal * biasWorld, cageCorner, ddgi_irradiance_atlas);
@@ -444,7 +442,8 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironment(
     U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
 {
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    float biasWorld = lighting.environment_probe_visibility_bias_world * 0.125;
+    float biasWorld = max(
+        0.0, lighting.environment_probe_visibility_bias_world);
     return sampleDdgiDiffuseEnvironment(
         lighting, worldPosition, surfaceNormal,
         worldPosition + normal * biasWorld);
@@ -466,7 +465,8 @@ public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(
     U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
 {
     float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    float biasWorld = lighting.environment_probe_visibility_bias_world * 0.125;
+    float biasWorld = max(
+        0.0, lighting.environment_probe_visibility_bias_world);
     return sampleDdgiUnpublishedCaptureEnvironment(
         lighting, worldPosition, surfaceNormal,
         worldPosition + normal * biasWorld);
@@ -474,22 +474,23 @@ public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(
 
 public DdgiQueryResult sampleDdgiTransportSource(
     U_DdgiTransportQueryInfo transport, Sampler2D sourceIrradianceAtlas,
-    float3 worldPosition, float3 surfaceNormal)
+    float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
 {
     DdgiQueryInfo query = ddgiTransportQueryInfo(transport);
-    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
-    float biasWorld = transport.visibility_bias_world * 0.125;
     return sampleDdgiDiffuseEnvironmentFromAtlas(
         query, sourceIrradianceAtlas, worldPosition, surfaceNormal,
-        worldPosition + normal * biasWorld);
+        hardVisibilityWorldPosition);
 }
 
 public DdgiQueryResult sampleDdgiTransportAtlas0(
     U_DdgiTransportQueryInfo transport,
-    float3 worldPosition, float3 surfaceNormal)
+    float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
 {
     return sampleDdgiTransportSource(
-        transport, ddgi_irradiance_atlas, worldPosition, surfaceNormal);
+        transport, ddgi_irradiance_atlas, worldPosition, surfaceNormal,
+        hardVisibilityWorldPosition);
 }
 
 public uint ddgiNearestNominalProbeIndex(U_ShadingInfo lighting,

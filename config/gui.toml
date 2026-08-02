@@ -1041,6 +1041,17 @@ min = 0
 max = 0.02
 
 [[section.param]]
+id = "ddgi_receiver_visibility_bias_world"
+kind = "float"
+label = "DDGI Receiver Visibility Bias (world)"
+type = "Float"
+
+[section.param.data]
+value = 0.0009765625
+min = 0
+max = 0.02
+
+[[section.param]]
 id = "vsm_blur_radius"
 kind = "uint"
 label = "VSM Blur Radius (texels)"

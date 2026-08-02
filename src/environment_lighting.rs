@@ -51,6 +51,7 @@ pub(crate) struct DdgiRadianceSnapshot {
     pub sun_color: Vec3,
     pub sun_luminance: f32,
     pub terrain_ray_origin_offset_world: f32,
+    pub ddgi_receiver_visibility_bias_world: f32,
     pub voxel_palette: DdgiVoxelPaletteSnapshot,
 }
 
@@ -66,6 +67,7 @@ impl DdgiRadianceSnapshot {
             sun_color: self.sun_color.to_array().map(f32::to_bits),
             sun_luminance: self.sun_luminance.to_bits(),
             terrain_ray_origin_offset_world: self.terrain_ray_origin_offset_world.to_bits(),
+            ddgi_receiver_visibility_bias_world: self.ddgi_receiver_visibility_bias_world.to_bits(),
             dirt_color: self.voxel_palette.dirt_color.to_array().map(f32::to_bits),
             sand_color: self.voxel_palette.sand_color.to_array().map(f32::to_bits),
             cherry_wood_color: self
@@ -97,6 +99,7 @@ struct DdgiRadianceIdentity {
     sun_color: [u32; 3],
     sun_luminance: u32,
     terrain_ray_origin_offset_world: u32,
+    ddgi_receiver_visibility_bias_world: u32,
     dirt_color: [u32; 3],
     sand_color: [u32; 3],
     cherry_wood_color: [u32; 3],
@@ -160,6 +163,7 @@ mod tests {
             sun_color: Vec3::new(1.0, 0.9, 0.8),
             sun_luminance: 2.0,
             terrain_ray_origin_offset_world: 0.005,
+            ddgi_receiver_visibility_bias_world: 0.001,
             voxel_palette: DdgiVoxelPaletteSnapshot {
                 dirt_color: Vec3::new(0.1, 0.2, 0.3),
                 sand_color: Vec3::new(0.4, 0.5, 0.6),
@@ -196,6 +200,9 @@ mod tests {
         variants.push(value);
         value = snapshot();
         value.terrain_ray_origin_offset_world += 0.001;
+        variants.push(value);
+        value = snapshot();
+        value.ddgi_receiver_visibility_bias_world += 0.001;
         variants.push(value);
         value = snapshot();
         value.voxel_palette.dirt_color.x += 0.1;
@@ -364,14 +371,23 @@ mod tests {
         let ambient = gui_param(&config, "path_tracing_ambient_light");
         let max_bounces = gui_param(&config, "path_tracing_max_bounces");
         let ray_origin_offset = gui_param(&config, "terrain_ray_origin_offset_world");
+        let receiver_visibility_bias = gui_param(&config, "ddgi_receiver_visibility_bias_world");
 
         assert_eq!(reference["kind"].as_str(), Some("bool"));
         assert_eq!(ambient["kind"].as_str(), Some("color"));
         assert_eq!(max_bounces["kind"].as_str(), Some("uint"));
         assert_eq!(ray_origin_offset["kind"].as_str(), Some("float"));
-        assert_eq!(ray_origin_offset["data"]["value"].as_float(), Some(0.005));
         assert_eq!(ray_origin_offset["data"]["min"].as_integer(), Some(0));
         assert_eq!(ray_origin_offset["data"]["max"].as_float(), Some(0.02));
+        assert_eq!(receiver_visibility_bias["kind"].as_str(), Some("float"));
+        assert_eq!(
+            receiver_visibility_bias["data"]["min"].as_integer(),
+            Some(0)
+        );
+        assert_eq!(
+            receiver_visibility_bias["data"]["max"].as_float(),
+            Some(0.02)
+        );
         for dependent in [ambient, max_bounces] {
             assert_eq!(
                 dependent["enabled_if"]["param"].as_str(),
@@ -406,11 +422,12 @@ mod tests {
     }
 
     #[test]
-    fn ddgi_visibility_policy_keeps_bias_in_voxel_units_and_rejects_distant_hits() {
+    fn ddgi_visibility_policy_uses_adjustable_world_bias_and_rejects_distant_hits() {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let filter = include_str!("../shader/slang/ddgi_visibility_filter.slang");
 
-        assert!(query.contains("query.visibility_bias_world * 0.125"));
+        assert!(query.contains("max(0.0, query.visibility_bias_world)"));
+        assert!(!query.contains("visibility_bias_world * 0.125"));
         assert!(!query.contains("0.25 / max(gridScale"));
         assert!(filter.contains("hitDistance > supportDistance"));
         assert!(filter.contains("signedDistance >= pc.far_distance_world * 0.999"));
@@ -496,6 +513,10 @@ mod tests {
         assert!(probe_trace.contains(
             "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, normal)"
         ));
+        assert!(probe_trace.contains(
+            "terrainRayOriginAlongNormal(\n        result.center_position, normal,\n        ddgi_radiance_sun.terrain_ray_origin_offset_world)"
+        ));
+        assert!(probe_trace.contains("ddgiHardVisibilityPosition"));
         assert!(!probe_trace.contains("ddgi_transport_query_info, result.position"));
         assert!(shared.contains("contribution.hard_visibility * contribution.moment_visibility"));
 
@@ -537,6 +558,18 @@ mod tests {
         assert!(exact_sun.contains("terrainRayOriginAlongNormal("));
         assert!(probe_trace.contains("import terrain_ray_origin;"));
         assert!(probe_trace.contains("ddgi_radiance_sun.terrain_ray_origin_offset_world"));
+        assert!(probe_trace.contains("ddgiHardVisibilityPosition"));
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let transport = query
+            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
+            .expect("transport query adapter must exist")
+            .1
+            .split_once("public uint ddgiNearestNominalProbeIndex")
+            .expect("transport query adapter must remain isolated")
+            .0;
+        assert!(transport.contains("float3 hardVisibilityWorldPosition"));
+        assert!(transport.contains("hardVisibilityWorldPosition);"));
+        assert!(!transport.contains("visibility_bias_world *"));
         assert!(moisture.contains("import terrain_ray_origin;"));
         assert!(moisture.contains("manual_gui_input.terrain_ray_origin_offset_world"));
     }

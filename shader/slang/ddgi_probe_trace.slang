@@ -101,18 +101,22 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
         ddgi_radiance_sun.luminance * sunAboveHorizon * cosine * visibility;
     float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, normal);
+    float3 ddgiHardVisibilityPosition = terrainRayOriginAlongNormal(
+        result.center_position, normal,
+        ddgi_radiance_sun.terrain_ray_origin_offset_world);
     DdgiQueryResult source;
     if (pc.source_slot == 0u)
     {
         source = sampleDdgiTransportAtlas0(
-            ddgi_transport_query_info, ddgiReceiverPosition, normal);
+            ddgi_transport_query_info, ddgiReceiverPosition, normal,
+            ddgiHardVisibilityPosition);
     }
     else
     {
         source = sampleDdgiTransportSource(
             ddgi_transport_query_info,
             ddgi_transport_source_irradiance_atlas,
-            ddgiReceiverPosition, normal);
+            ddgiReceiverPosition, normal, ddgiHardVisibilityPosition);
     }
     float3 albedo = ddgiVoxelColorByTypeAndHash(
         ddgi_radiance_voxel_palette, result.voxel_type, result.hash_id);

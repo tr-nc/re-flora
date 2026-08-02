@@ -3371,6 +3371,10 @@ impl App {
                             .value,
                         self.debug_settings
                             .adjustables
+                            .ddgi_receiver_visibility_bias_world
+                            .value,
+                        self.debug_settings
+                            .adjustables
                             .terrain_self_shadow_tolerance_voxels
                             .value,
                         Vec3::new(

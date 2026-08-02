@@ -821,7 +821,7 @@ impl DdgiVolume {
         let transport_query_info = uniform_buffer(resource_bytes.transport_query_info);
         let transport_query_snapshot = DdgiTransportQueryInfo {
             grid_dimensions: grid.dimensions().to_array(),
-            visibility_bias_world: 2.0 / voxels_per_world_unit.min_element().max(1) as f32,
+            visibility_bias_world: 0.0,
             world_to_grid_scale: (voxels_per_world_unit.as_vec3() / spacing_voxels as f32)
                 .to_array(),
             source_ready: 0,
@@ -997,6 +997,10 @@ impl DdgiVolume {
                 hash_color_variance: snapshot.voxel_palette.hash_color_variance,
                 ..DdgiRadianceVoxelPalette::zeroed()
             })?;
+        self.transport_query_snapshot.visibility_bias_world =
+            snapshot.ddgi_receiver_visibility_bias_world;
+        self.ddgi_transport_query_info
+            .fill_uniform(&self.transport_query_snapshot)?;
         self.radiance_revision = Some(revision);
         self.radiance_snapshot = Some(snapshot);
         Ok(())

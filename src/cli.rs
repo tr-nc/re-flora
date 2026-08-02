@@ -777,7 +777,7 @@ Options:
                               or atlas DDGI diagnostics (default: final)
   --ddgi-terrain-hard-origin <mode>
                               Select surface-quarter, center-fixed, or surface-fixed exact visibility origin
-                              for terrain receiver experiments (default: surface-quarter)
+                              for terrain receiver experiments (default: {})
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
   --environment-probe-spacing-voxels <N>
@@ -819,7 +819,8 @@ Examples:
   re-flora --hidden --mute --windowed --hybrid-transparency-test-scene --screenshot player-default target/hybrid-transparency-test.png --screenshot-delay 2 --auto-exit 6
   re-flora --latest-log
   re-flora --tail-latest-log 120
-  re-flora --windowed --tree-bench --tree-bench-samples 10"#
+  re-flora --windowed --tree-bench --tree-bench-samples 10"#,
+        DdgiTerrainHardOrigin::default().label()
     );
 }
 
@@ -1057,6 +1058,16 @@ mod tests {
             let options = parse(&["re-flora", "--ddgi-terrain-hard-origin", value]);
             assert_eq!(options.ddgi_terrain_hard_origin, expected);
         }
+    }
+
+    #[test]
+    fn defaults_ddgi_terrain_hard_origin_to_surface_fixed() {
+        let options = parse(&["re-flora"]);
+        assert_eq!(
+            options.ddgi_terrain_hard_origin,
+            DdgiTerrainHardOrigin::SurfaceFixedWorld
+        );
+        assert_eq!(DdgiTerrainHardOrigin::default().label(), "surface-fixed");
     }
 
     #[test]
