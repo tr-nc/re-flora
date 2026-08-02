@@ -472,7 +472,7 @@ pub struct ContreeBuildInfo {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct DdgiRadianceSun {
     pub direction: [f32; 3],
-    pub padding: f32,
+    pub terrain_ray_origin_offset_world: f32,
     pub color: [f32; 3],
     pub luminance: f32,
 }
@@ -582,19 +582,21 @@ pub struct GuiInput {
     pub path_tracing_reference: u32,
     pub path_tracing_max_bounces: u32,
     pub path_tracing_ambient_light: [f32; 3],
+    pub terrain_ray_origin_offset_world: f32,
     pub terrain_self_shadow_tolerance_voxels: f32,
+    pub _pad0: [u8; 12],
     pub flora_instance_hsv_offset_max: [f32; 3],
-    pub _pad0: [u8; 4],
-    pub flora_voxel_hsv_offset_max: [f32; 3],
     pub _pad1: [u8; 4],
-    pub grass_bottom_dark: [f32; 3],
+    pub flora_voxel_hsv_offset_max: [f32; 3],
     pub _pad2: [u8; 4],
-    pub grass_bottom_light: [f32; 3],
+    pub grass_bottom_dark: [f32; 3],
     pub _pad3: [u8; 4],
-    pub grass_tip_dark: [f32; 3],
+    pub grass_bottom_light: [f32; 3],
     pub _pad4: [u8; 4],
-    pub grass_tip_light: [f32; 3],
+    pub grass_tip_dark: [f32; 3],
     pub _pad5: [u8; 4],
+    pub grass_tip_light: [f32; 3],
+    pub _pad6: [u8; 4],
     pub glass_tint: [f32; 3],
     pub glass_reflection_strength: f32,
     pub glass_ssr_strength: f32,
@@ -672,7 +674,7 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad6: [u8; 4],
+    pub _pad7: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

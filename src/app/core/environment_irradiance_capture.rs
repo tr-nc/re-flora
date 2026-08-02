@@ -200,7 +200,7 @@ fn snapshot_json(snapshot: Option<DdgiRadianceSnapshot>) -> String {
         return "null".to_owned();
     };
     format!(
-        "{{\"sun_direction\":[{},{},{}],\"sun_color\":[{},{},{}],\"sun_luminance\":{}}}",
+        "{{\"sun_direction\":[{},{},{}],\"sun_color\":[{},{},{}],\"sun_luminance\":{},\"terrain_ray_origin_offset_world\":{}}}",
         snapshot.sun_direction.x,
         snapshot.sun_direction.y,
         snapshot.sun_direction.z,
@@ -208,6 +208,7 @@ fn snapshot_json(snapshot: Option<DdgiRadianceSnapshot>) -> String {
         snapshot.sun_color.y,
         snapshot.sun_color.z,
         snapshot.sun_luminance,
+        snapshot.terrain_ray_origin_offset_world,
     )
 }
 
@@ -584,6 +585,7 @@ mod tests {
         let tracer = include_str!("../../../shader/slang/tracer.slang");
         let exact_shadow = include_str!("../../../shader/slang/ddgi_exact_sun_visibility.slang");
         let probe_trace = include_str!("../../../shader/slang/ddgi_probe_trace.slang");
+        let ray_origin = include_str!("../../../shader/slang/terrain_ray_origin.slang");
 
         assert!(tracer.contains("import ddgi_exact_sun_visibility;"));
         assert!(tracer.contains("captureIndex + width * height"));
@@ -599,23 +601,31 @@ mod tests {
         assert!(!capture_visibility.contains("cosine"));
         assert!(!capture_visibility.contains("sunAboveHorizon"));
         assert!(capture_visibility.contains("ddgiExactTerrainSunVisibility("));
-        for contract in [
-            "1.0 / 256.0",
-            "0.25",
-            "0.75",
-            "1.0 / 512.0",
-            "receiver.center_position, receiver.normal, sunDirection",
-            "shadowHit.is_hit ? 0.0 : 1.0",
-        ] {
+        assert!(capture_visibility.contains("gui_input.terrain_ray_origin_offset_world"));
+        for contract in ["import terrain_ray_origin;", "terrainRayOriginAlongNormal("] {
             assert!(
                 exact_shadow.contains(contract),
-                "capture exact-shadow helper lost contract `{contract}`"
+                "capture exact-shadow helper lost shared origin contract `{contract}`"
             );
             assert!(
                 probe_trace.contains(contract),
-                "probe exact-shadow path lost contract `{contract}`"
+                "probe exact-shadow path lost shared origin contract `{contract}`"
             );
         }
+        assert!(exact_shadow.contains("originOffsetWorld"));
+        assert!(probe_trace.contains("ddgi_radiance_sun.terrain_ray_origin_offset_world"));
+        for contract in [
+            "1.0 / 256.0",
+            "terrainVoxelSurfacePositionAlongNormal(",
+            "normalDirection * max(0.0, offsetWorld)",
+        ] {
+            assert!(
+                ray_origin.contains(contract),
+                "shared terrain ray origin lost contract `{contract}`"
+            );
+        }
+        assert!(exact_shadow.contains("shadowHit.is_hit ? 0.0 : 1.0"));
+        assert!(probe_trace.contains("shadowHit.is_hit ? 0.0 : 1.0"));
     }
 
     #[test]

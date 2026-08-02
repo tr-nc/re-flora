@@ -3367,6 +3367,10 @@ impl App {
                             .get_vec3(),
                         self.debug_settings
                             .adjustables
+                            .terrain_ray_origin_offset_world
+                            .value,
+                        self.debug_settings
+                            .adjustables
                             .terrain_self_shadow_tolerance_voxels
                             .value,
                         Vec3::new(

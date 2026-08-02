@@ -1,4 +1,3 @@
-import aabb;
 import contree_node;
 import ddgi_exact_sun_visibility;
 import ddgi_query;
@@ -10,6 +9,7 @@ import ray;
 import scene_marching;
 import skylight;
 import terrain_edit_preview;
+import terrain_ray_origin;
 import tracer_material;
 import tracer_shadowing;
 import tracer_types;
@@ -67,12 +67,6 @@ float3 sampleSunDisk(int3 seed, float sunSize, float3 sunDirection)
     return normalize(sunDirection + mul(float3(randomXy, 0.0), makeTbn(sunDirection)));
 }
 
-static const float TERRAIN_VOXEL_SIZE = 1.0 / 256.0;
-static const float TERRAIN_SHADOW_NORMAL_BIAS_VOXELS = 0.25;
-// A binary voxel surface can sit almost one voxel in front of its smooth
-// tangent plane. Keep that quantization thickness, not a world-sized depth
-// epsilon, while preserving most of a four-voxel apple's contact depth.
-static const float TERRAIN_SHADOW_LIGHT_BIAS_VOXELS = 0.75;
 static const uint DDGI_DEBUG_FINAL = 0u;
 static const uint DDGI_DEBUG_MOMENT_VISIBILITY = 1u;
 static const uint DDGI_DEBUG_EXACT_VISIBILITY = 2u;
@@ -87,16 +81,6 @@ static const uint DDGI_DEBUG_IRRADIANCE_ATLAS = 10u;
 static const uint DDGI_DEBUG_VISIBILITY_ATLAS = 11u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED = 1u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED = 2u;
-static const float DDGI_MAIN_BRANCH_ORIGIN_OFFSET_WORLD = 0.005;
-
-float3 voxelSurfacePositionAlongNormal(float3 voxelCenter, float3 normal)
-{
-    float3 normalDirection = normalize(normal);
-    float2 distance = intersectSlabs(float3(-1.0), float3(1.0),
-                                     float3(0.0), 1.0 / normalDirection);
-    const float halfVoxelSize = 1.0 / 512.0;
-    return voxelCenter + normalDirection * (distance.y * halfVoxelSize);
-}
 
 float3 terrainDdgiHardVisibilityOrigin(float3 voxelCenter,
                                        float3 surfacePosition,
@@ -106,27 +90,22 @@ float3 terrainDdgiHardVisibilityOrigin(float3 voxelCenter,
     uint mode = shading_info.ddgi_terrain_hard_origin;
     if (mode == DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED)
     {
-        return voxelCenter + normalDirection * DDGI_MAIN_BRANCH_ORIGIN_OFFSET_WORLD;
+        return voxelCenter + normalDirection *
+            gui_input.terrain_ray_origin_offset_world;
     }
     if (mode == DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED)
     {
         return surfacePosition +
-            normalDirection * DDGI_MAIN_BRANCH_ORIGIN_OFFSET_WORLD;
+            normalDirection * gui_input.terrain_ray_origin_offset_world;
     }
     float biasWorld = shading_info.environment_probe_visibility_bias_world * 0.125;
     return surfacePosition + normalDirection * biasWorld;
 }
 
-float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal,
-                                     float3 lightDirection)
+float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal)
 {
-    float3 normalDirection = normalize(normal);
-    float3 lightDirectionNormalized = normalize(lightDirection);
-    float3 stableSurfacePosition = voxelSurfacePositionAlongNormal(
-        voxelCenter, normalDirection);
-    return stableSurfacePosition +
-        normalDirection * (TERRAIN_SHADOW_NORMAL_BIAS_VOXELS * TERRAIN_VOXEL_SIZE) +
-        lightDirectionNormalized * (TERRAIN_SHADOW_LIGHT_BIAS_VOXELS * TERRAIN_VOXEL_SIZE);
+    return terrainRayOriginAlongNormal(
+        voxelCenter, normal, gui_input.terrain_ray_origin_offset_world);
 }
 
 float3 shadowRayColor(Ray ray, float3 receiverNormal)
@@ -147,8 +126,8 @@ float3 shadowRayColor(Ray ray, float3 receiverNormal)
 
 float3 nextTracingPosition(float3 voxelCenter, float3 voxelNormal)
 {
-    return voxelSurfacePositionAlongNormal(voxelCenter, voxelNormal) +
-        normalize(voxelNormal) * 0.005;
+    return terrainRayOriginAlongNormal(
+        voxelCenter, voxelNormal, gui_input.terrain_ray_origin_offset_world);
 }
 
 uint terrainAtlasData(float3 centerPosition)
@@ -179,8 +158,7 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter)
     Ray shadowRay;
     shadowRay.direction = normalize(sun_info.sun_dir);
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
-    shadowRay.origin = terrainShadowReceiverPosition(
-        voxelCenter, normal, shadowRay.direction);
+    shadowRay.origin = terrainShadowReceiverPosition(voxelCenter, normal);
     float cosine = dot(shadowRay.direction, normal);
     if (cosine <= 0.0) return float3(0.0);
     return shadowRayColor(shadowRay, normal) * cosine * albedo;
@@ -204,7 +182,7 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
         seed, sun_info.sun_size, normalize(sun_info.sun_dir));
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
     shadowRay.origin = terrainShadowReceiverPosition(
-        receiver.center_position, receiver.normal, shadowRay.direction);
+        receiver.center_position, receiver.normal);
     float cosine = dot(shadowRay.direction, receiver.normal);
     if (cosine <= 0.0) return float3(0.0);
 
@@ -397,7 +375,8 @@ void getPixelColor(out float3 color, out float depth,
         float3 sunDirection = normalize(sun_info.sun_dir);
         exactDirectSunVisibility = ddgiExactTerrainSunVisibility(
             contree_node_data, contree_leaf_data, scene_tex,
-            result, sunDirection, localInvocationIndex);
+            result, sunDirection, gui_input.terrain_ray_origin_offset_world,
+            localInvocationIndex);
     }
     environmentCaptureWorld = float4(
         result.position, exactDirectSunVisibility);
@@ -425,7 +404,7 @@ void getPixelColor(out float3 color, out float depth,
     // DDGI is part of the flat voxel material contract. Every pixel that hits
     // this voxel must query from the same receiver, independent of the camera
     // ray's exact intersection point on the visible face.
-    float3 ddgiReceiverPosition = voxelSurfacePositionAlongNormal(
+    float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, result.normal);
     float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(
         result.center_position, ddgiReceiverPosition, result.normal);

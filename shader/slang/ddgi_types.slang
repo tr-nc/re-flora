@@ -36,7 +36,7 @@ public struct B_DdgiAtlasReduction
 public struct U_DdgiRadianceSun
 {
     public float3 direction;
-    public float padding;
+    public float terrain_ray_origin_offset_world;
     public float3 color;
     public float luminance;
 };

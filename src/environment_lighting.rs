@@ -50,6 +50,7 @@ pub(crate) struct DdgiRadianceSnapshot {
     pub sun_direction: Vec3,
     pub sun_color: Vec3,
     pub sun_luminance: f32,
+    pub terrain_ray_origin_offset_world: f32,
     pub voxel_palette: DdgiVoxelPaletteSnapshot,
 }
 
@@ -64,6 +65,7 @@ impl DdgiRadianceSnapshot {
             sun_direction: self.sun_direction.to_array().map(f32::to_bits),
             sun_color: self.sun_color.to_array().map(f32::to_bits),
             sun_luminance: self.sun_luminance.to_bits(),
+            terrain_ray_origin_offset_world: self.terrain_ray_origin_offset_world.to_bits(),
             dirt_color: self.voxel_palette.dirt_color.to_array().map(f32::to_bits),
             sand_color: self.voxel_palette.sand_color.to_array().map(f32::to_bits),
             cherry_wood_color: self
@@ -94,6 +96,7 @@ struct DdgiRadianceIdentity {
     sun_direction: [u32; 3],
     sun_color: [u32; 3],
     sun_luminance: u32,
+    terrain_ray_origin_offset_world: u32,
     dirt_color: [u32; 3],
     sand_color: [u32; 3],
     cherry_wood_color: [u32; 3],
@@ -156,6 +159,7 @@ mod tests {
             sun_direction: Vec3::Y,
             sun_color: Vec3::new(1.0, 0.9, 0.8),
             sun_luminance: 2.0,
+            terrain_ray_origin_offset_world: 0.005,
             voxel_palette: DdgiVoxelPaletteSnapshot {
                 dirt_color: Vec3::new(0.1, 0.2, 0.3),
                 sand_color: Vec3::new(0.4, 0.5, 0.6),
@@ -189,6 +193,9 @@ mod tests {
         variants.push(value);
         value = snapshot();
         value.sun_luminance += 0.1;
+        variants.push(value);
+        value = snapshot();
+        value.terrain_ray_origin_offset_world += 0.001;
         variants.push(value);
         value = snapshot();
         value.voxel_palette.dirt_color.x += 0.1;
@@ -356,10 +363,15 @@ mod tests {
         let reference = gui_param(&config, "path_tracing_reference");
         let ambient = gui_param(&config, "path_tracing_ambient_light");
         let max_bounces = gui_param(&config, "path_tracing_max_bounces");
+        let ray_origin_offset = gui_param(&config, "terrain_ray_origin_offset_world");
 
         assert_eq!(reference["kind"].as_str(), Some("bool"));
         assert_eq!(ambient["kind"].as_str(), Some("color"));
         assert_eq!(max_bounces["kind"].as_str(), Some("uint"));
+        assert_eq!(ray_origin_offset["kind"].as_str(), Some("float"));
+        assert_eq!(ray_origin_offset["data"]["value"].as_float(), Some(0.005));
+        assert_eq!(ray_origin_offset["data"]["min"].as_integer(), Some(0));
+        assert_eq!(ray_origin_offset["data"]["max"].as_float(), Some(0.02));
         for dependent in [ambient, max_bounces] {
             assert_eq!(
                 dependent["enabled_if"]["param"].as_str(),
@@ -482,7 +494,7 @@ mod tests {
         let probe_trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
         assert!(!probe_trace.contains("surfaceOutward"));
         assert!(probe_trace.contains(
-            "ddgiVoxelSurfacePositionAlongNormal(\n        result.center_position, normal)"
+            "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, normal)"
         ));
         assert!(!probe_trace.contains("ddgi_transport_query_info, result.position"));
         assert!(shared.contains("contribution.hard_visibility * contribution.moment_visibility"));
@@ -490,14 +502,12 @@ mod tests {
         let tracer = include_str!("../shader/slang/tracer.slang");
         assert!(!tracer.contains("result.position, result.normal, -ray.direction"));
         assert!(tracer.contains(
-            "voxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
+            "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));
         assert!(tracer.contains("terrainDdgiHardVisibilityOrigin("));
-        assert!(
-            tracer.contains("voxelCenter + normalDirection * DDGI_MAIN_BRANCH_ORIGIN_OFFSET_WORLD")
-        );
+        assert!(tracer.contains("gui_input.terrain_ray_origin_offset_world"));
         assert!(tracer.contains(
-            "surfacePosition +\n            normalDirection * DDGI_MAIN_BRANCH_ORIGIN_OFFSET_WORLD"
+            "surfacePosition +\n            normalDirection * gui_input.terrain_ray_origin_offset_world"
         ));
         assert!(tracer.contains(
             "shading_info, ddgiReceiverPosition, result.normal,\n        ddgiHardVisibilityOrigin"
@@ -510,5 +520,24 @@ mod tests {
             .expect("exact reference must remain isolated")
             .0;
         assert!(exact_reference.contains("contribution.hard_visibility"));
+    }
+
+    #[test]
+    fn terrain_ray_origin_offset_is_shared_by_every_exact_terrain_ray_stage() {
+        let shared = include_str!("../shader/slang/terrain_ray_origin.slang");
+        let tracer = include_str!("../shader/slang/tracer.slang");
+        let exact_sun = include_str!("../shader/slang/ddgi_exact_sun_visibility.slang");
+        let probe_trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
+        let moisture = include_str!("../shader/slang/terrain_moisture_dry.slang");
+
+        assert!(shared.contains("public float3 terrainRayOriginAlongNormal("));
+        assert!(tracer.contains("import terrain_ray_origin;"));
+        assert!(tracer.contains("gui_input.terrain_ray_origin_offset_world"));
+        assert!(exact_sun.contains("originOffsetWorld"));
+        assert!(exact_sun.contains("terrainRayOriginAlongNormal("));
+        assert!(probe_trace.contains("import terrain_ray_origin;"));
+        assert!(probe_trace.contains("ddgi_radiance_sun.terrain_ray_origin_offset_world"));
+        assert!(moisture.contains("import terrain_ray_origin;"));
+        assert!(moisture.contains("manual_gui_input.terrain_ray_origin_offset_world"));
     }
 }

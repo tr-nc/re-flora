@@ -1,10 +1,10 @@
-import aabb;
 import contree_node;
 import ddgi_query;
 import ddgi_types;
 import marching_result;
 import scene_marching;
 import skylight;
+import terrain_ray_origin;
 import tracer_material;
 
 static const uint DDGI_TRACE_WORKGROUP_SIZE = 64u;
@@ -73,37 +73,13 @@ void recordTraceStat(uint index)
     InterlockedAdd(ddgi_trace_stats.data[index], 1u);
 }
 
-static const float DDGI_TERRAIN_VOXEL_SIZE = 1.0 / 256.0;
-static const float DDGI_SHADOW_NORMAL_BIAS_VOXELS = 0.25;
-static const float DDGI_SHADOW_LIGHT_BIAS_VOXELS = 0.75;
-
-float3 ddgiVoxelSurfacePositionAlongNormal(float3 voxelCenter, float3 normal)
-{
-    float3 normalDirection = normalize(normal);
-    float2 distance = intersectSlabs(float3(-1.0), float3(1.0),
-                                     float3(0.0), 1.0 / normalDirection);
-    const float halfVoxelSize = 1.0 / 512.0;
-    return voxelCenter + normalDirection * (distance.y * halfVoxelSize);
-}
-
-float3 ddgiTerrainShadowReceiverPosition(float3 voxelCenter, float3 normal,
-                                         float3 lightDirection)
-{
-    float3 normalDirection = normalize(normal);
-    float3 lightDirectionNormalized = normalize(lightDirection);
-    return ddgiVoxelSurfacePositionAlongNormal(voxelCenter, normalDirection) +
-        normalDirection *
-            (DDGI_SHADOW_NORMAL_BIAS_VOXELS * DDGI_TERRAIN_VOXEL_SIZE) +
-        lightDirectionNormalized *
-            (DDGI_SHADOW_LIGHT_BIAS_VOXELS * DDGI_TERRAIN_VOXEL_SIZE);
-}
-
 float ddgiExactTerrainSunVisibility(MarchingResult receiver,
                                     float3 sunDirection,
                                     uint localInvocationIndex)
 {
-    float3 origin = ddgiTerrainShadowReceiverPosition(
-        receiver.center_position, receiver.normal, sunDirection);
+    float3 origin = terrainRayOriginAlongNormal(
+        receiver.center_position, receiver.normal,
+        ddgi_radiance_sun.terrain_ray_origin_offset_world);
     MarchingResult shadowHit = marchScene(
         contree_node_data, contree_leaf_data, scene_tex,
         origin, sunDirection, 1.0 / sunDirection, localInvocationIndex);
@@ -123,7 +99,7 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
         : 0.0;
     float3 directIrradiance = ddgi_radiance_sun.color *
         ddgi_radiance_sun.luminance * sunAboveHorizon * cosine * visibility;
-    float3 ddgiReceiverPosition = ddgiVoxelSurfacePositionAlongNormal(
+    float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, normal);
     DdgiQueryResult source;
     if (pc.source_slot == 0u)

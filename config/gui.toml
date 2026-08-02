@@ -1030,6 +1030,17 @@ min = 0
 max = 2
 
 [[section.param]]
+id = "terrain_ray_origin_offset_world"
+kind = "float"
+label = "Terrain Ray Origin Offset (world)"
+type = "Float"
+
+[section.param.data]
+value = 0.005
+min = 0
+max = 0.02
+
+[[section.param]]
 id = "vsm_blur_radius"
 kind = "uint"
 label = "VSM Blur Radius (texels)"

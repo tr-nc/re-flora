@@ -983,7 +983,7 @@ impl DdgiVolume {
         );
         self.ddgi_radiance_sun.fill_uniform(&DdgiRadianceSun {
             direction: snapshot.sun_direction.to_array(),
-            padding: 0.0,
+            terrain_ray_origin_offset_world: snapshot.terrain_ray_origin_offset_world,
             color: snapshot.sun_color.to_array(),
             luminance: snapshot.sun_luminance,
         })?;

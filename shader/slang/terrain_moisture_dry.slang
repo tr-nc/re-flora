@@ -1,5 +1,5 @@
-import aabb;
 import terrain_soil;
+import terrain_ray_origin;
 import tracer_shadowing;
 import tracer_types;
 import voxel_data;
@@ -169,11 +169,9 @@ float3 surfaceShadowSamplePosition(float3 voxelCenterWorld,
                                    float3 normal,
                                    float voxelsPerWorldUnit)
 {
-    float2 intersection = intersectSlabs(
-        float3(-1.0), float3(1.0), float3(0.0), 1.0 / normal);
-    float halfVoxelSize = 0.5 / voxelsPerWorldUnit;
-    return voxelCenterWorld +
-           normal * (intersection.y * halfVoxelSize + 0.005);
+    return terrainRayOriginAlongNormal(
+        voxelCenterWorld, normal, 1.0 / voxelsPerWorldUnit,
+        manual_gui_input.terrain_ray_origin_offset_world);
 }
 
 float surfaceSunExposure(float3 sampleWorldPosition,

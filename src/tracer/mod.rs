@@ -2338,6 +2338,7 @@ impl Tracer {
         path_tracing_reference: bool,
         path_tracing_max_bounces: u32,
         path_tracing_ambient_light: Vec3,
+        terrain_ray_origin_offset_world: f32,
         terrain_self_shadow_tolerance_voxels: f32,
         flora_instance_hsv_offset_max: Vec3,
         flora_voxel_hsv_offset_max: Vec3,
@@ -2423,6 +2424,7 @@ impl Tracer {
         terrain_edit_preview_alpha: f32,
     ) -> Result<()> {
         self.promote_ready_ddgi_staging();
+        let terrain_ray_origin_offset_world = terrain_ray_origin_offset_world.max(0.0);
         let view_mat = self.camera.get_view_mat();
         let proj_mat = self.camera.get_proj_mat();
         self.current_view_proj_mat = proj_mat * view_mat;
@@ -2499,6 +2501,7 @@ impl Tracer {
             path_tracing_reference,
             path_tracing_max_bounces,
             path_tracing_ambient_light,
+            terrain_ray_origin_offset_world,
             terrain_self_shadow_tolerance_voxels,
             flora_instance_hsv_offset_max,
             flora_voxel_hsv_offset_max,
@@ -2569,6 +2572,7 @@ impl Tracer {
             sun_direction: sun_dir,
             sun_color,
             sun_luminance,
+            terrain_ray_origin_offset_world,
             voxel_palette: DdgiVoxelPaletteSnapshot {
                 dirt_color: voxel_dirt_color,
                 sand_color: voxel_sand_color,
