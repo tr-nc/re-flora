@@ -84,6 +84,17 @@ public float3 getSkyColor(float3 viewDirection, float3 sunDirection)
     return lerp(baseSkyColor, haloColor, clamp(haloStrength, 0.0, 1.0));
 }
 
+// All environment-lighting transports consume this shared radiance definition.
+// The pi calibration preserves the authored presentation while DDGI stores
+// diffuse irradiance divided by pi and surface path tracing uses cosine-weighted
+// importance sampling.
+public float3 getAuthoredSkyRadiance(float3 viewDirection,
+                                    float3 sunDirection)
+{
+    return getSkyColor(viewDirection, sunDirection) *
+        3.14159265358979323846;
+}
+
 public float3 getSkyColorWithSun(float3 viewDirection, float3 sunDirection,
                                  float3 sunColor, float sunLuminance, float sunSize)
 {

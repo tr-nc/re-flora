@@ -626,7 +626,7 @@ mod tests {
             .split_once("float3 directLighting(")
             .expect("terrain direct-light function must exist")
             .1
-            .split_once("float depthFromWorldPosition(")
+            .split_once("static const uint PATH_TRACING_MAX_BOUNCES")
             .expect("terrain direct-light function must remain isolated")
             .0;
         assert!(!direct_lighting.contains("Ddgi"));

@@ -330,8 +330,7 @@ mod tests {
 
         assert!(!shared.contains("path_tracing_reference"));
         assert!(shared.contains("return sampleDdgiDiffuseEnvironment("));
-        assert!(path_tracing_branch.contains("path_tracing_ambient_light"));
-        assert!(path_tracing_branch.contains("pathTracingIndirectLighting("));
+        assert!(path_tracing_branch.contains("pathTraceTerrainReference("));
         assert!(path_tracing_branch.contains("return;"));
         assert!(!path_tracing_branch.contains("sampleDdgiDiffuseEnvironment"));
         assert!(raster.contains("applyStylizedVoxelLighting(U_GuiInput gui"));
@@ -347,8 +346,11 @@ mod tests {
     }
 
     #[test]
-    fn path_tracing_controls_are_validated_semantically() {
+    fn path_tracing_controls_and_transport_are_validated_semantically() {
         let terrain = include_str!("../shader/slang/tracer.slang");
+        let skylight = include_str!("../shader/slang/skylight.slang");
+        let ddgi_trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
+        let ddgi_sky = include_str!("../shader/slang/ddgi_global_sky_filter.slang");
         let config: toml::Value = toml::from_str(include_str!("../config/gui.toml"))
             .expect("GUI config must be valid TOML");
         let reference = gui_param(&config, "path_tracing_reference");
@@ -366,11 +368,29 @@ mod tests {
             assert_eq!(dependent["enabled_if"]["equals"].as_bool(), Some(true));
         }
 
-        assert!(terrain.contains("float3 pathTracingIndirectLighting("));
-        assert!(terrain.contains("indirectRay.direction = sampleDiffuseBounce("));
-        assert!(terrain.contains("MarchingResult result = generalSceneMarching(indirectRay"));
-        assert!(terrain.contains("float3 nextPosition = nextTracingPosition("));
-        assert!(terrain.contains("gui_input.path_tracing_max_bounces"));
+        let transport = terrain
+            .split_once("float3 pathTracingDirectIrradiance(")
+            .expect("path tracer must evaluate direct sun independently")
+            .1
+            .split_once("float depthFromWorldPosition(")
+            .expect("path-tracing transport must remain a bounded terrain helper")
+            .0;
+        assert!(terrain.contains("import skylight;"));
+        assert!(transport.contains("getAuthoredSkyRadiance("));
+        assert!(transport.contains("sampleDiffuseBounce("));
+        assert!(transport.contains("sampleSunDisk("));
+        assert!(transport.contains("generalSceneMarching(shadowRay"));
+        assert!(transport.contains("generalSceneMarching(indirectRay"));
+        assert!(transport.contains("gui_input.path_tracing_max_bounces"));
+        assert!(!transport.contains("sampleDdgi"));
+        assert!(!transport.contains("directSunShadowTransmittance"));
+        assert!(!transport.contains("shadow_map"));
+        assert!(!transport.contains("leaf_shadow"));
+        assert!(!transport.contains("cloud_shadow"));
+
+        assert!(skylight.contains("public float3 getAuthoredSkyRadiance("));
+        assert!(ddgi_trace.contains("getAuthoredSkyRadiance("));
+        assert!(ddgi_sky.contains("getAuthoredSkyRadiance("));
     }
 
     #[test]

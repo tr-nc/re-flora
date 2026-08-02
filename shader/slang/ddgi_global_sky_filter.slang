@@ -5,8 +5,6 @@ static const uint DDGI_IRRADIANCE_INTERIOR_SIDE = 8u;
 static const uint DDGI_SKY_FILTER_SAMPLE_COUNT = 2048u;
 static const float DDGI_GOLDEN_ANGLE = 2.39996322972865332;
 static const float DDGI_FOUR = 4.0;
-static const float DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION =
-    3.14159265358979323846;
 
 [[vk::binding(23, 0)]]
 RWTexture2D<float4> ddgi_global_sky_irradiance;
@@ -62,11 +60,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         float3 direction = fibonacciDirection(sampleIndex);
         float cosineWeight = max(0.0, dot(normal, direction));
-        irradiance += getSkyColor(direction, normalize(ddgi_radiance_sun.direction)) *
-                      DDGI_AUTHORED_SKY_RADIANCE_CALIBRATION * cosineWeight;
+        irradiance += getAuthoredSkyRadiance(
+                          direction, normalize(ddgi_radiance_sun.direction)) *
+                      cosineWeight;
     }
-    // Store diffuse irradiance divided by pi. The authored-sky calibration
-    // above keeps this scene-facing result at the established brightness.
+    // Store diffuse irradiance divided by pi. The shared authored-sky
+    // radiance keeps this scene-facing result at the established brightness.
     irradiance *= DDGI_FOUR / float(DDGI_SKY_FILTER_SAMPLE_COUNT);
 
     ddgi_global_sky_irradiance[dispatchThreadId.xy + uint2(1u, 1u)] =

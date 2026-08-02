@@ -8,6 +8,7 @@ import noise_tex;
 import packer;
 import ray;
 import scene_marching;
+import skylight;
 import terrain_edit_preview;
 import tracer_material;
 import tracer_shadowing;
@@ -144,23 +145,6 @@ float3 shadowRayColor(Ray ray, float3 receiverNormal)
     return shadow * sun_info.sun_color * sun_info.sun_luminance * sunAboveHorizon;
 }
 
-float3 pathTracingIndirectShadowRayColor(Ray ray, float3 receiverNormal, int3 seed)
-{
-    float sunAboveHorizon = step(0.0, sun_info.sun_dir.y);
-    DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
-        float4(ray.origin, 1.0), seed, DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_TERRAIN_SHADOW_PCSS,
-        DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
-    receiver = withReceiverPlane(receiver, receiverNormal);
-    float shadow = directSunShadowTransmittance(
-        receiver, gui_input, shadow_camera_info.view_proj_mat,
-        shadow_camera_info.view_proj_mat_inv,
-        shadow_map_tex, leaf_shadow_opacity_blended_tex, leaf_shadow_mask_tex,
-        cloud_shadow_tex, shadow_map_tex_for_vsm_ping, scalar_bn, unit_vec2_bn);
-    return shadow * sun_info.sun_color * sun_info.sun_luminance * sunAboveHorizon;
-}
-
 float3 nextTracingPosition(float3 voxelCenter, float3 voxelNormal)
 {
     return voxelSurfacePositionAlongNormal(voxelCenter, voxelNormal) +
@@ -202,31 +186,90 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter)
     return shadowRayColor(shadowRay, normal) * cosine * albedo;
 }
 
-float3 pathTracingIndirectLighting(float3 albedo, float3 primaryNormal,
-                                   float3 nextPosition, int3 seed,
+static const uint PATH_TRACING_MAX_BOUNCES = 8u;
+
+int3 pathTracingBounceSeed(int3 seed, uint bounceIndex, int2 offset)
+{
+    int bounce = int(bounceIndex) + 1;
+    return int3((seed.xy + offset * bounce) % 128, seed.z);
+}
+
+float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
                                    uint localInvocationIndex)
 {
-    int3 indirectSeed = int3((seed.xy + int2(13, 37)) % 128, seed.z);
-    Ray indirectRay;
-    indirectRay.direction = sampleDiffuseBounce(indirectSeed, primaryNormal);
-    indirectRay.inverse_direction = 1.0 / indirectRay.direction;
-    indirectRay.origin = nextPosition;
-
-    MarchingResult result = generalSceneMarching(indirectRay, localInvocationIndex);
-    if (!result.is_hit) return float3(0.0);
-
-    float3 sampleAlbedo;
-    parseTraceResult(sampleAlbedo, result);
+    if (sun_info.sun_dir.y <= 0.0) return float3(0.0);
 
     Ray shadowRay;
-    shadowRay.direction = sampleSunDisk(indirectSeed, sun_info.sun_size, sun_info.sun_dir);
+    shadowRay.direction = sampleSunDisk(
+        seed, sun_info.sun_size, normalize(sun_info.sun_dir));
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
     shadowRay.origin = terrainShadowReceiverPosition(
-        result.center_position, result.normal, shadowRay.direction);
-    float cosine = dot(shadowRay.direction, result.normal);
+        receiver.center_position, receiver.normal, shadowRay.direction);
+    float cosine = dot(shadowRay.direction, receiver.normal);
     if (cosine <= 0.0) return float3(0.0);
-    return pathTracingIndirectShadowRayColor(shadowRay, result.normal, indirectSeed) *
-           cosine * sampleAlbedo * albedo;
+
+    MarchingResult shadowHit = generalSceneMarching(shadowRay, localInvocationIndex);
+    float visibility = shadowHit.is_hit ? 0.0 : 1.0;
+    return sun_info.sun_color * sun_info.sun_luminance * cosine * visibility;
+}
+
+float3 pathTracingIndirectIrradiance(MarchingResult primary, int3 seed,
+                                     uint localInvocationIndex)
+{
+    float3 irradiance = float3(0.0);
+    float3 throughput = float3(1.0);
+    MarchingResult receiver = primary;
+    uint maxBounces = min(gui_input.path_tracing_max_bounces,
+                          PATH_TRACING_MAX_BOUNCES);
+
+    [Loop]
+    for (uint bounceIndex = 0u; bounceIndex < PATH_TRACING_MAX_BOUNCES;
+         ++bounceIndex)
+    {
+        if (bounceIndex >= maxBounces) break;
+
+        int3 indirectSeed = pathTracingBounceSeed(
+            seed, bounceIndex, int2(13, 37));
+        Ray indirectRay;
+        indirectRay.direction = sampleDiffuseBounce(
+            indirectSeed, normalize(receiver.normal));
+        indirectRay.inverse_direction = 1.0 / indirectRay.direction;
+        indirectRay.origin = nextTracingPosition(
+            receiver.center_position, receiver.normal);
+
+        MarchingResult result = generalSceneMarching(indirectRay,
+                                                     localInvocationIndex);
+        if (!result.is_hit)
+        {
+            irradiance += throughput * getAuthoredSkyRadiance(
+                indirectRay.direction, normalize(sun_info.sun_dir));
+            break;
+        }
+        if (dot(indirectRay.direction, result.normal) > 0.0) break;
+
+        float3 sampleAlbedo;
+        parseTraceResult(sampleAlbedo, result);
+        throughput *= sampleAlbedo;
+        int3 sunSeed = pathTracingBounceSeed(
+            seed, bounceIndex, int2(47, 71));
+        irradiance += throughput * pathTracingDirectIrradiance(
+            result, sunSeed, localInvocationIndex);
+        receiver = result;
+    }
+    return irradiance;
+}
+
+float3 pathTraceTerrainReference(MarchingResult primary, float3 albedo,
+                                 int3 seed, uint localInvocationIndex,
+                                 out float3 environmentIrradiance,
+                                 out float3 directLight)
+{
+    int3 primarySunSeed = pathTracingBounceSeed(seed, 0u, int2(83, 101));
+    directLight = albedo * pathTracingDirectIrradiance(
+        primary, primarySunSeed, localInvocationIndex);
+    environmentIrradiance = gui_input.path_tracing_ambient_light +
+        pathTracingIndirectIrradiance(primary, seed, localInvocationIndex);
+    return directLight + albedo * environmentIrradiance;
 }
 
 float depthFromWorldPosition(float3 worldPosition)
@@ -361,30 +404,23 @@ void getPixelColor(out float3 color, out float depth,
 
     float3 albedo;
     parseTraceResult(albedo, result);
-    if (shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL ||
-        shading_info.environment_irradiance_capture_enabled != 0u)
-    {
-        directLight = directLighting(albedo, result.normal, result.center_position);
-    }
     // The path-tracing reference is terrain-only. Raster consumers continue
     // to sample DDGI, while this branch never queries the probe field.
     if (gui_input.path_tracing_reference != 0u &&
         shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL)
     {
-        environmentIrradiance = gui_input.path_tracing_ambient_light;
-        environmentCaptureIrradiance = gui_input.path_tracing_ambient_light;
-        color = environmentIrradiance * albedo + directLight;
-        if (gui_input.path_tracing_max_bounces != 0u)
-        {
-            float3 nextPosition = nextTracingPosition(
-                result.center_position, result.normal);
-            color += pathTracingIndirectLighting(
-                albedo, result.normal, nextPosition, seed,
-                localInvocationIndex);
-        }
+        color = pathTraceTerrainReference(
+            result, albedo, seed, localInvocationIndex,
+            environmentIrradiance, directLight);
+        environmentCaptureIrradiance = environmentIrradiance;
         color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
                                             result.center_position);
         return;
+    }
+    if (shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL ||
+        shading_info.environment_irradiance_capture_enabled != 0u)
+    {
+        directLight = directLighting(albedo, result.normal, result.center_position);
     }
     // DDGI is part of the flat voxel material contract. Every pixel that hits
     // this voxel must query from the same receiver, independent of the camera
