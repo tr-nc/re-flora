@@ -3358,6 +3358,10 @@ impl App {
                         self.debug_settings.adjustables.flora_growth_override.value,
                         self.debug_settings
                             .adjustables
+                            .legacy_terrain_lighting
+                            .value,
+                        self.debug_settings
+                            .adjustables
                             .terrain_self_shadow_tolerance_voxels
                             .value,
                         Vec3::new(

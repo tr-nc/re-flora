@@ -126,6 +126,15 @@ min = 0
 max = 2
 
 [[section.param]]
+id = "legacy_terrain_lighting"
+kind = "bool"
+label = "Legacy Ambient Terrain Lighting (No DDGI)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "world_tick_seconds"
 kind = "float"
 label = "World Tick Time (s)"

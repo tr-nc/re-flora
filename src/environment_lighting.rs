@@ -306,6 +306,28 @@ mod tests {
     }
 
     #[test]
+    fn legacy_terrain_lighting_bypasses_the_ddgi_consumer() {
+        let terrain = include_str!("../shader/slang/tracer.slang");
+        let legacy_branch = terrain
+            .split_once("if (gui_input.legacy_terrain_lighting != 0u")
+            .expect("terrain shader must expose the legacy GUI switch")
+            .1
+            .split_once("// DDGI is part of the flat voxel material contract")
+            .expect("legacy branch must remain ahead of the DDGI query")
+            .0;
+        let config = include_str!("../config/gui.toml");
+
+        assert!(terrain
+            .contains("static const float3 LEGACY_MAIN_AMBIENT_LIGHT = float3(24.0 / 255.0);"));
+        assert!(legacy_branch.contains("environmentIrradiance = LEGACY_MAIN_AMBIENT_LIGHT;"));
+        assert!(legacy_branch.contains("color = environmentIrradiance * albedo + directLight;"));
+        assert!(legacy_branch.contains("return;"));
+        assert!(!legacy_branch.contains("sampleDdgiDiffuseEnvironment"));
+        assert!(config.contains("id = \"legacy_terrain_lighting\""));
+        assert!(config.contains("label = \"Legacy Ambient Terrain Lighting (No DDGI)\""));
+    }
+
+    #[test]
     fn ddgi_visibility_policy_keeps_bias_in_voxel_units_and_rejects_distant_hits() {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let filter = include_str!("../shader/slang/ddgi_visibility_filter.slang");
