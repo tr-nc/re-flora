@@ -67,7 +67,6 @@ static const uint DDGI_DEBUG_VISIBILITY_ATLAS = 11u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED = 1u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED = 2u;
 static const float DDGI_MAIN_BRANCH_ORIGIN_OFFSET_WORLD = 0.005;
-static const float3 LEGACY_MAIN_AMBIENT_LIGHT = float3(24.0 / 255.0);
 
 float3 voxelSurfacePositionAlongNormal(float3 voxelCenter, float3 normal)
 {
@@ -299,9 +298,10 @@ void getPixelColor(out float3 color, out float depth,
     }
     // The pre-DDGI main branch always added #181818 ambient before direct
     // sunlight. Keep the current direct-light implementation fixed so this
-    // switch isolates terrain's environment-lighting consumer. Probe updates
-    // may continue in the background, but this path does not sample them.
-    if (gui_input.legacy_terrain_lighting != 0u &&
+    // switch isolates the environment-lighting consumer across terrain and
+    // raster objects. Probe updates may continue in the background, but this
+    // path does not sample them.
+    if (gui_input.legacy_environment_lighting != 0u &&
         shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL)
     {
         environmentIrradiance = LEGACY_MAIN_AMBIENT_LIGHT;

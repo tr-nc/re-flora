@@ -3358,7 +3358,7 @@ impl App {
                         self.debug_settings.adjustables.flora_growth_override.value,
                         self.debug_settings
                             .adjustables
-                            .legacy_terrain_lighting
+                            .legacy_environment_lighting
                             .value,
                         self.debug_settings
                             .adjustables

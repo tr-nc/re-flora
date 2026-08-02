@@ -126,9 +126,9 @@ min = 0
 max = 2
 
 [[section.param]]
-id = "legacy_terrain_lighting"
+id = "legacy_environment_lighting"
 kind = "bool"
-label = "Legacy Ambient Terrain Lighting (No DDGI)"
+label = "Legacy Environment Lighting (No DDGI)"
 type = "Bool"
 
 [section.param.data]

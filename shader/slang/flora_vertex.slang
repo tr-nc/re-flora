@@ -476,7 +476,7 @@ public float3 shadeFloraVertex(float3 baseColor, float shadowWeight,
                                float3 voxelPosition, float3 shadingNormal)
 {
     float3 litColor = applyStylizedVoxelLighting(
-        sun_info, shading_info, baseColor, shadowWeight,
+        gui_input, sun_info, shading_info, baseColor, shadowWeight,
         voxelPosition, shadingNormal);
     return applyTerrainEditPreviewTint(
         terrain_edit_preview, litColor, voxelPosition);
@@ -489,7 +489,7 @@ public float3 shadeTreeLeafVertex(float3 baseColor, float shadowWeight,
                                   float3 shadingNormal)
 {
     float3 litColor = applyStylizedVoxelLighting(
-        sun_info, shading_info, baseColor, shadowWeight,
+        gui_input, sun_info, shading_info, baseColor, shadowWeight,
         voxelPosition, shadingNormal);
 
     float3 toCamera = camera_info.pos.xyz - voxelPosition;

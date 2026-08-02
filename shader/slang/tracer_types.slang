@@ -4,7 +4,7 @@ public struct U_GuiInput
 {
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
-    public uint legacy_terrain_lighting;
+    public uint legacy_environment_lighting;
     public float terrain_self_shadow_tolerance_voxels;
     public float3 flora_instance_hsv_offset_max;
     public float3 flora_voxel_hsv_offset_max;

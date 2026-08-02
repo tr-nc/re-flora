@@ -245,7 +245,7 @@ impl BufferUpdater {
         resources: &TracerResources,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
-        legacy_terrain_lighting: bool,
+        legacy_environment_lighting: bool,
         terrain_self_shadow_tolerance_voxels: f32,
         flora_instance_hsv_offset_max: Vec3,
         flora_voxel_hsv_offset_max: Vec3,
@@ -302,7 +302,7 @@ impl BufferUpdater {
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
             flora_growth_override_enabled: flora_growth_override_enabled as u32,
             flora_growth_override: flora_growth_override.clamp(0.0, 1.0),
-            legacy_terrain_lighting: legacy_terrain_lighting as u32,
+            legacy_environment_lighting: legacy_environment_lighting as u32,
             terrain_self_shadow_tolerance_voxels,
             flora_instance_hsv_offset_max: flora_instance_hsv_offset_max.to_array(),
             flora_voxel_hsv_offset_max: flora_voxel_hsv_offset_max.to_array(),
