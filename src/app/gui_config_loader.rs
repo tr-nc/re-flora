@@ -1,5 +1,7 @@
-use crate::app::gui_config_model::{GuiConfigFile, GuiParamKind};
-use std::{collections::HashSet, io::Write, path::Path};
+use crate::app::gui_config_model::{
+    GuiConfigFile, GuiParamConditionValue, GuiParamKind, GuiParamValue,
+};
+use std::{collections::HashMap, collections::HashSet, io::Write, path::Path};
 
 const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 const CONFIG_FILE_NAME: &str = "gui.toml";
@@ -178,6 +180,18 @@ impl GuiConfigLoader {
             }
         }
 
+        let params_by_id = config
+            .section
+            .iter()
+            .flat_map(|section| section.param.iter())
+            .map(|param| (param.id.as_str(), param))
+            .collect::<HashMap<_, _>>();
+        for section in &config.section {
+            for param in &section.param {
+                Self::validate_enabled_if(&mut errors, &section.name, param, &params_by_id);
+            }
+        }
+
         if !errors.is_empty() {
             let mut msg = format!("GUI config validation failed for {}:\n", path.display());
             for error in errors {
@@ -343,6 +357,64 @@ impl GuiConfigLoader {
         }
     }
 
+    fn validate_enabled_if(
+        errors: &mut Vec<String>,
+        section_name: &str,
+        param: &crate::app::gui_config_model::GuiParam,
+        params_by_id: &HashMap<&str, &crate::app::gui_config_model::GuiParam>,
+    ) {
+        let Some(condition) = &param.enabled_if else {
+            return;
+        };
+
+        if condition.param == param.id {
+            errors.push(format!(
+                "Section '{}' param '{}': enabled_if cannot reference itself",
+                section_name, param.id
+            ));
+            return;
+        }
+
+        let Some(controller) = params_by_id.get(condition.param.as_str()) else {
+            errors.push(format!(
+                "Section '{}' param '{}': enabled_if references unknown param '{}'",
+                section_name, param.id, condition.param
+            ));
+            return;
+        };
+
+        let compatible = matches!(
+            (&condition.equals, &controller.value),
+            (GuiParamConditionValue::Bool(_), GuiParamValue::Bool { .. })
+                | (
+                    GuiParamConditionValue::Integer(_),
+                    GuiParamValue::Int { .. }
+                )
+                | (
+                    GuiParamConditionValue::Integer(_),
+                    GuiParamValue::Uint { .. }
+                )
+                | (
+                    GuiParamConditionValue::Integer(_),
+                    GuiParamValue::Choice { .. }
+                )
+                | (
+                    GuiParamConditionValue::String(_),
+                    GuiParamValue::String { .. }
+                )
+                | (
+                    GuiParamConditionValue::String(_),
+                    GuiParamValue::Color { .. }
+                )
+        );
+        if !compatible {
+            errors.push(format!(
+                "Section '{}' param '{}': enabled_if value type does not match controller '{}'",
+                section_name, param.id, condition.param
+            ));
+        }
+    }
+
     fn is_valid_color(s: &str) -> bool {
         if s.len() != 7 && s.len() != 9 {
             return false;
@@ -357,6 +429,25 @@ impl GuiConfigLoader {
 #[cfg(test)]
 mod tests {
     use super::GuiConfigLoader;
+    use crate::app::gui_config_model::GuiConfigFile;
+    use std::path::Path;
+
+    fn validation_error(config: &str) -> String {
+        let config: GuiConfigFile = toml::from_str(config).unwrap();
+        let panic = std::panic::catch_unwind(|| {
+            GuiConfigLoader::validate(&config, Path::new("test-gui.toml"));
+        })
+        .expect_err("config should fail validation");
+        panic
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| {
+                panic
+                    .downcast_ref::<&str>()
+                    .map(|message| (*message).to_owned())
+            })
+            .unwrap()
+    }
 
     #[test]
     fn normalize_float_assignments_rounds_and_trims() {
@@ -389,5 +480,54 @@ mod tests {
             .map(|entry| entry.unwrap().file_name())
             .collect::<Vec<_>>();
         assert_eq!(files, vec![std::ffi::OsString::from("gui.toml")]);
+    }
+
+    #[test]
+    fn enabled_if_rejects_unknown_controller() {
+        let error = validation_error(
+            r#"
+schema_version = 1
+[[section]]
+name = "Debug"
+[[section.param]]
+id = "dependent"
+kind = "bool"
+label = "Dependent"
+enabled_if = { param = "missing", equals = true }
+type = "Bool"
+[section.param.data]
+value = false
+"#,
+        );
+
+        assert!(error.contains("enabled_if references unknown param 'missing'"));
+    }
+
+    #[test]
+    fn enabled_if_rejects_condition_type_that_does_not_match_controller() {
+        let error = validation_error(
+            r#"
+schema_version = 1
+[[section]]
+name = "Debug"
+[[section.param]]
+id = "controller"
+kind = "bool"
+label = "Controller"
+type = "Bool"
+[section.param.data]
+value = false
+[[section.param]]
+id = "dependent"
+kind = "bool"
+label = "Dependent"
+enabled_if = { param = "controller", equals = 1 }
+type = "Bool"
+[section.param.data]
+value = false
+"#,
+        );
+
+        assert!(error.contains("enabled_if value type does not match controller 'controller'"));
     }
 }

@@ -7,7 +7,8 @@ use crate::app::curve_preview::{
 };
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::{
-    GuiConfigFile, GuiParam, GuiParamKind, GuiParamValue, TreeGuiConfig,
+    GuiConfigFile, GuiParam, GuiParamConditionValue, GuiParamEnabledIf, GuiParamKind,
+    GuiParamValue, TreeGuiConfig,
 };
 use crate::tree_gen::TreeDesc;
 use crate::wind::WindSource;
@@ -138,6 +139,27 @@ fn color_to_hex(color: Color32) -> String {
 }
 
 impl GuiAdjustables {
+    fn matches_condition(&self, condition: &GuiParamEnabledIf) -> bool {
+        match &condition.equals {
+            GuiParamConditionValue::Bool(expected) => Self::get_bool_param(self, &condition.param)
+                .is_some_and(|field| field.value == *expected),
+            GuiParamConditionValue::Integer(expected) => {
+                Self::get_int_param(self, &condition.param)
+                    .is_some_and(|field| i64::from(field.value) == *expected)
+                    || Self::get_uint_param(self, &condition.param)
+                        .is_some_and(|field| i64::from(field.value) == *expected)
+                    || Self::get_choice_param(self, &condition.param)
+                        .is_some_and(|field| i64::from(field.value) == *expected)
+            }
+            GuiParamConditionValue::String(expected) => {
+                Self::get_string_param(self, &condition.param)
+                    .is_some_and(|field| field.value == *expected)
+                    || Self::get_color_param(self, &condition.param)
+                        .is_some_and(|field| color_to_hex(field.value) == *expected)
+            }
+        }
+    }
+
     pub fn active_wind_sources(wind_sources: &[WindSourceGuiValues]) -> Vec<WindSource> {
         wind_sources
             .iter()
@@ -404,6 +426,7 @@ fn wind_source_params(
             id: format!("{prefix}_name"),
             kind: GuiParamKind::String,
             label: format!("Wind Source {} Name", index + 1),
+            enabled_if: None,
             value: GuiParamValue::String {
                 value: values.name.clone(),
             },
@@ -412,6 +435,7 @@ fn wind_source_params(
             id: format!("{prefix}_muted"),
             kind: GuiParamKind::Bool,
             label: format!("Wind Source {} Active", index + 1),
+            enabled_if: None,
             value: GuiParamValue::Bool {
                 value: values.muted,
             },
@@ -420,6 +444,7 @@ fn wind_source_params(
             id: format!("{prefix}_direction_deg"),
             kind: GuiParamKind::Float,
             label: format!("Wind Source {} Direction", index + 1),
+            enabled_if: None,
             value: GuiParamValue::Float {
                 value: values.source.direction_degrees,
                 min: Some(0.0),
@@ -430,6 +455,7 @@ fn wind_source_params(
             id: format!("{prefix}_speed"),
             kind: GuiParamKind::Float,
             label: format!("Wind Source {} Speed", index + 1),
+            enabled_if: None,
             value: GuiParamValue::Float {
                 value: values.source.speed,
                 min: Some(0.0),
@@ -440,6 +466,7 @@ fn wind_source_params(
             id: format!("{prefix}_pattern_scale"),
             kind: GuiParamKind::Float,
             label: format!("Wind Source {} Pattern Scale", index + 1),
+            enabled_if: None,
             value: GuiParamValue::Float {
                 value: values.source.pattern_scale,
                 min: Some(0.05),
@@ -450,6 +477,7 @@ fn wind_source_params(
             id: format!("{prefix}_octaves"),
             kind: GuiParamKind::Uint,
             label: format!("Wind Source {} Octaves", index + 1),
+            enabled_if: None,
             value: GuiParamValue::Uint {
                 value: values.source.octaves,
                 min: Some(1),
@@ -460,6 +488,7 @@ fn wind_source_params(
             id: format!("{prefix}_lacunarity"),
             kind: GuiParamKind::Float,
             label: format!("Wind Source {} Lacunarity", index + 1),
+            enabled_if: None,
             value: GuiParamValue::Float {
                 value: values.source.lacunarity,
                 min: Some(1.0),
@@ -470,6 +499,7 @@ fn wind_source_params(
             id: format!("{prefix}_persistence"),
             kind: GuiParamKind::Float,
             label: format!("Wind Source {} Persistence", index + 1),
+            enabled_if: None,
             value: GuiParamValue::Float {
                 value: values.source.persistence,
                 min: Some(0.0),
@@ -480,6 +510,7 @@ fn wind_source_params(
             id: format!("{prefix}_gain"),
             kind: GuiParamKind::Float,
             label: format!("Wind Source {} Gain", index + 1),
+            enabled_if: None,
             value: GuiParamValue::Float {
                 value: values.source.gain,
                 min: Some(0.0),
@@ -968,6 +999,21 @@ fn render_gui_param_from_config(
     section_name: &str,
     adjustables: &mut GuiAdjustables,
 ) {
+    let enabled = param
+        .enabled_if
+        .as_ref()
+        .is_none_or(|condition| adjustables.matches_condition(condition));
+    ui.add_enabled_ui(enabled, |ui| {
+        render_gui_param_control(ui, param, section_name, adjustables);
+    });
+}
+
+fn render_gui_param_control(
+    ui: &mut egui::Ui,
+    param: &GuiParam,
+    section_name: &str,
+    adjustables: &mut GuiAdjustables,
+) {
     match (&param.kind, &param.value) {
         (GuiParamKind::Float, GuiParamValue::Float { min, max, .. }) => {
             let field = GuiAdjustables::get_float_param_mut(adjustables, &param.id).unwrap_or_else(|| {
@@ -1168,6 +1214,21 @@ mod tests {
         assert!(!is_custom_wind_param("future_wind_setting"));
         assert!(is_custom_wind_param("wind_audio_attack_decay"));
         assert!(is_custom_wind_param("wind_source_0_gain"));
+    }
+
+    #[test]
+    fn enabled_if_condition_follows_controller_without_mutating_dependent_value() {
+        let config = GuiConfigLoader::load();
+        let mut adjustables = GuiAdjustables::from_config(&config);
+        let condition = GuiParamEnabledIf {
+            param: "legacy_environment_lighting".to_owned(),
+            equals: GuiParamConditionValue::Bool(true),
+        };
+
+        adjustables.legacy_environment_lighting.value = false;
+        assert!(!adjustables.matches_condition(&condition));
+        adjustables.legacy_environment_lighting.value = true;
+        assert!(adjustables.matches_condition(&condition));
     }
 
     #[test]

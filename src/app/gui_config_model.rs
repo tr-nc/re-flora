@@ -33,8 +33,24 @@ pub struct GuiParam {
     pub kind: GuiParamKind,
     #[allow(dead_code)]
     pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_if: Option<GuiParamEnabledIf>,
     #[serde(flatten)]
     pub value: GuiParamValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct GuiParamEnabledIf {
+    pub param: String,
+    pub equals: GuiParamConditionValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum GuiParamConditionValue {
+    Bool(bool),
+    Integer(i64),
+    String(String),
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -223,5 +239,37 @@ mod tests {
         let parsed: GuiConfigFile = toml::from_str("schema_version = 1\nsection = []\n").unwrap();
 
         assert!(parsed.tree.is_none());
+    }
+
+    #[test]
+    fn gui_param_enabled_if_round_trip_preserves_condition() {
+        let source = r#"
+schema_version = 1
+
+[[section]]
+name = "Debug"
+
+[[section.param]]
+id = "dependent"
+kind = "bool"
+label = "Dependent"
+enabled_if = { param = "controller", equals = true }
+type = "Bool"
+
+[section.param.data]
+value = false
+"#;
+
+        let config: GuiConfigFile = toml::from_str(source).unwrap();
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        let parsed: GuiConfigFile = toml::from_str(&serialized).unwrap();
+
+        assert_eq!(
+            parsed.section[0].param[0].enabled_if,
+            Some(GuiParamEnabledIf {
+                param: "controller".to_owned(),
+                equals: GuiParamConditionValue::Bool(true),
+            })
+        );
     }
 }
