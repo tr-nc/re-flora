@@ -579,9 +579,9 @@ pub struct GodRayInfo {
 pub struct GuiInput {
     pub flora_growth_override_enabled: u32,
     pub flora_growth_override: f32,
-    pub legacy_environment_lighting: u32,
-    pub legacy_terrain_indirect_lighting: u32,
-    pub legacy_ambient_light: [f32; 3],
+    pub path_tracing_reference: u32,
+    pub path_tracing_max_bounces: u32,
+    pub path_tracing_ambient_light: [f32; 3],
     pub terrain_self_shadow_tolerance_voxels: f32,
     pub flora_instance_hsv_offset_max: [f32; 3],
     pub _pad0: [u8; 4],

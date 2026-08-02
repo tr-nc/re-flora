@@ -141,6 +141,16 @@ impl EnvironmentLightingCache {
 mod tests {
     use super::*;
 
+    fn gui_param<'a>(config: &'a toml::Value, id: &str) -> &'a toml::Value {
+        config["section"]
+            .as_array()
+            .expect("GUI config must contain sections")
+            .iter()
+            .flat_map(|section| section["param"].as_array().into_iter().flatten())
+            .find(|param| param["id"].as_str() == Some(id))
+            .unwrap_or_else(|| panic!("missing GUI parameter {id}"))
+    }
+
     fn snapshot() -> DdgiRadianceSnapshot {
         DdgiRadianceSnapshot {
             sun_direction: Vec3::Y,
@@ -306,25 +316,24 @@ mod tests {
     }
 
     #[test]
-    fn legacy_environment_lighting_bypasses_ddgi_for_terrain_and_raster() {
+    fn path_tracing_reference_is_terrain_only_and_bypasses_ddgi() {
         let shared = include_str!("../shader/slang/environment_lighting.slang");
         let terrain = include_str!("../shader/slang/tracer.slang");
         let raster = include_str!("../shader/slang/flora_shadow.slang");
-        let legacy_branch = terrain
-            .split_once("if (gui_input.legacy_environment_lighting != 0u")
-            .expect("terrain shader must expose the legacy GUI switch")
+        let path_tracing_branch = terrain
+            .split_once("if (gui_input.path_tracing_reference != 0u")
+            .expect("terrain shader must expose the path-tracing GUI switch")
             .1
             .split_once("// DDGI is part of the flat voxel material contract")
-            .expect("legacy branch must remain ahead of the DDGI query")
+            .expect("path-tracing branch must remain ahead of the DDGI query")
             .0;
-        let config = include_str!("../config/gui.toml");
 
-        assert!(shared.contains("if (gui.legacy_environment_lighting != 0u)"));
-        assert!(shared.contains("return gui.legacy_ambient_light;"));
-        assert!(legacy_branch.contains("environmentIrradiance = gui_input.legacy_ambient_light;"));
-        assert!(legacy_branch.contains("color = environmentIrradiance * albedo + directLight;"));
-        assert!(legacy_branch.contains("return;"));
-        assert!(!legacy_branch.contains("sampleDdgiDiffuseEnvironment"));
+        assert!(!shared.contains("path_tracing_reference"));
+        assert!(shared.contains("return sampleDdgiDiffuseEnvironment("));
+        assert!(path_tracing_branch.contains("path_tracing_ambient_light"));
+        assert!(path_tracing_branch.contains("pathTracingIndirectLighting("));
+        assert!(path_tracing_branch.contains("return;"));
+        assert!(!path_tracing_branch.contains("sampleDdgiDiffuseEnvironment"));
         assert!(raster.contains("applyStylizedVoxelLighting(U_GuiInput gui"));
         assert!(raster.contains("sampleDiffuseEnvironment(\n        gui, shading"));
         for consumer in [
@@ -335,36 +344,33 @@ mod tests {
         ] {
             assert!(consumer.contains("gui_input, sun_info, shading_info"));
         }
-        assert!(config.contains("id = \"legacy_environment_lighting\""));
-        assert!(config.contains("label = \"Legacy Environment Lighting (No DDGI)\""));
-        assert!(config.contains("id = \"legacy_ambient_light\""));
-        assert!(config.contains("label = \"Legacy Ambient Light\""));
-        assert!(config.contains("value = \"#181818\""));
-        let ambient_config = config
-            .split_once("id = \"legacy_ambient_light\"")
-            .expect("legacy ambient GUI parameter must exist")
-            .1
-            .split_once("[[section.param]]")
-            .expect("legacy ambient GUI parameter must be bounded")
-            .0;
-        assert!(ambient_config
-            .contains("enabled_if = { param = \"legacy_environment_lighting\", equals = true }"));
     }
 
     #[test]
-    fn legacy_terrain_indirect_lighting_restores_the_main_branch_single_ray_path() {
+    fn path_tracing_controls_are_validated_semantically() {
         let terrain = include_str!("../shader/slang/tracer.slang");
-        let config = include_str!("../config/gui.toml");
+        let config: toml::Value = toml::from_str(include_str!("../config/gui.toml"))
+            .expect("GUI config must be valid TOML");
+        let reference = gui_param(&config, "path_tracing_reference");
+        let ambient = gui_param(&config, "path_tracing_ambient_light");
+        let max_bounces = gui_param(&config, "path_tracing_max_bounces");
 
-        assert!(config.contains("id = \"legacy_terrain_indirect_lighting\""));
-        assert!(config
-            .contains("enabled_if = { param = \"legacy_environment_lighting\", equals = true }"));
-        assert!(terrain.contains("float3 legacyIndirectLighting("));
+        assert_eq!(reference["kind"].as_str(), Some("bool"));
+        assert_eq!(ambient["kind"].as_str(), Some("color"));
+        assert_eq!(max_bounces["kind"].as_str(), Some("uint"));
+        for dependent in [ambient, max_bounces] {
+            assert_eq!(
+                dependent["enabled_if"]["param"].as_str(),
+                Some("path_tracing_reference")
+            );
+            assert_eq!(dependent["enabled_if"]["equals"].as_bool(), Some(true));
+        }
+
+        assert!(terrain.contains("float3 pathTracingIndirectLighting("));
         assert!(terrain.contains("indirectRay.direction = sampleDiffuseBounce("));
         assert!(terrain.contains("MarchingResult result = generalSceneMarching(indirectRay"));
-        assert!(terrain.contains("DIRECT_TERRAIN_SHADOW_PCSS"));
         assert!(terrain.contains("float3 nextPosition = nextTracingPosition("));
-        assert!(terrain.contains("if (gui_input.legacy_terrain_indirect_lighting != 0u)"));
+        assert!(terrain.contains("gui_input.path_tracing_max_bounces"));
     }
 
     #[test]

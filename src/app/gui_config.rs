@@ -1221,13 +1221,13 @@ mod tests {
         let config = GuiConfigLoader::load();
         let mut adjustables = GuiAdjustables::from_config(&config);
         let condition = GuiParamEnabledIf {
-            param: "legacy_environment_lighting".to_owned(),
+            param: "path_tracing_reference".to_owned(),
             equals: GuiParamConditionValue::Bool(true),
         };
 
-        adjustables.legacy_environment_lighting.value = false;
+        adjustables.path_tracing_reference.value = false;
         assert!(!adjustables.matches_condition(&condition));
-        adjustables.legacy_environment_lighting.value = true;
+        adjustables.path_tracing_reference.value = true;
         assert!(adjustables.matches_condition(&condition));
     }
 

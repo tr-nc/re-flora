@@ -8,8 +8,6 @@ public float3 sampleDiffuseEnvironment(U_GuiInput gui,
                                        float3 worldPosition,
     float3 surfaceNormal)
 {
-    if (gui.legacy_environment_lighting != 0u)
-        return gui.legacy_ambient_light;
     return sampleDdgiDiffuseEnvironment(
         lighting, worldPosition, surfaceNormal).irradiance;
 }

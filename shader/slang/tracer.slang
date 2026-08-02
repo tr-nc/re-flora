@@ -144,7 +144,7 @@ float3 shadowRayColor(Ray ray, float3 receiverNormal)
     return shadow * sun_info.sun_color * sun_info.sun_luminance * sunAboveHorizon;
 }
 
-float3 legacyIndirectShadowRayColor(Ray ray, float3 receiverNormal, int3 seed)
+float3 pathTracingIndirectShadowRayColor(Ray ray, float3 receiverNormal, int3 seed)
 {
     float sunAboveHorizon = step(0.0, sun_info.sun_dir.y);
     DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
@@ -202,9 +202,9 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter)
     return shadowRayColor(shadowRay, normal) * cosine * albedo;
 }
 
-float3 legacyIndirectLighting(float3 albedo, float3 primaryNormal,
-                              float3 nextPosition, int3 seed,
-                              uint localInvocationIndex)
+float3 pathTracingIndirectLighting(float3 albedo, float3 primaryNormal,
+                                   float3 nextPosition, int3 seed,
+                                   uint localInvocationIndex)
 {
     int3 indirectSeed = int3((seed.xy + int2(13, 37)) % 128, seed.z);
     Ray indirectRay;
@@ -225,7 +225,7 @@ float3 legacyIndirectLighting(float3 albedo, float3 primaryNormal,
         result.center_position, result.normal, shadowRay.direction);
     float cosine = dot(shadowRay.direction, result.normal);
     if (cosine <= 0.0) return float3(0.0);
-    return legacyIndirectShadowRayColor(shadowRay, result.normal, indirectSeed) *
+    return pathTracingIndirectShadowRayColor(shadowRay, result.normal, indirectSeed) *
            cosine * sampleAlbedo * albedo;
 }
 
@@ -366,22 +366,19 @@ void getPixelColor(out float3 color, out float depth,
     {
         directLight = directLighting(albedo, result.normal, result.center_position);
     }
-    // The pre-DDGI main branch always added #181818 ambient before direct
-    // sunlight. Keep the current direct-light implementation fixed so this
-    // switch isolates the environment-lighting consumer across terrain and
-    // raster objects. Probe updates may continue in the background, but this
-    // path does not sample them.
-    if (gui_input.legacy_environment_lighting != 0u &&
+    // The path-tracing reference is terrain-only. Raster consumers continue
+    // to sample DDGI, while this branch never queries the probe field.
+    if (gui_input.path_tracing_reference != 0u &&
         shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL)
     {
-        environmentIrradiance = gui_input.legacy_ambient_light;
-        environmentCaptureIrradiance = gui_input.legacy_ambient_light;
+        environmentIrradiance = gui_input.path_tracing_ambient_light;
+        environmentCaptureIrradiance = gui_input.path_tracing_ambient_light;
         color = environmentIrradiance * albedo + directLight;
-        if (gui_input.legacy_terrain_indirect_lighting != 0u)
+        if (gui_input.path_tracing_max_bounces != 0u)
         {
             float3 nextPosition = nextTracingPosition(
                 result.center_position, result.normal);
-            color += legacyIndirectLighting(
+            color += pathTracingIndirectLighting(
                 albedo, result.normal, nextPosition, seed,
                 localInvocationIndex);
         }

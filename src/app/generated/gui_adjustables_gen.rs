@@ -68,21 +68,21 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "legacy_environment_lighting",
+        id: "path_tracing_reference",
         kind: "bool",
-        label: "Legacy Environment Lighting (No DDGI)",
+        label: "Path Tracing Reference (Terrain)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "legacy_ambient_light",
+        id: "path_tracing_ambient_light",
         kind: "color",
-        label: "Legacy Ambient Light",
+        label: "Path Tracing Ambient Override",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "legacy_terrain_indirect_lighting",
-        kind: "bool",
-        label: "Legacy Terrain Indirect Lighting (1 Ray)",
+        id: "path_tracing_max_bounces",
+        kind: "uint",
+        label: "Path Tracing Max Bounces",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1433,9 +1433,9 @@ pub struct GuiAdjustables {
     pub lod_distance: crate::gui_adjustables::FloatParam,
     pub flora_draw_distance: crate::gui_adjustables::FloatParam,
     pub grass_render_mode: crate::gui_adjustables::UintParam,
-    pub legacy_environment_lighting: crate::gui_adjustables::BoolParam,
-    pub legacy_ambient_light: crate::gui_adjustables::ColorParam,
-    pub legacy_terrain_indirect_lighting: crate::gui_adjustables::BoolParam,
+    pub path_tracing_reference: crate::gui_adjustables::BoolParam,
+    pub path_tracing_ambient_light: crate::gui_adjustables::ColorParam,
+    pub path_tracing_max_bounces: crate::gui_adjustables::UintParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_directional_bias_fraction: crate::gui_adjustables::FloatParam,
@@ -1679,9 +1679,9 @@ impl GuiAdjustables {
         let mut lod_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_draw_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut legacy_environment_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut legacy_ambient_light_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut legacy_terrain_indirect_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut path_tracing_reference_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut path_tracing_ambient_light_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut path_tracing_max_bounces_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_directional_bias_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1956,19 +1956,21 @@ impl GuiAdjustables {
                             grass_render_mode_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
-                    "legacy_environment_lighting" => {
+                    "path_tracing_reference" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            legacy_environment_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                            path_tracing_reference_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
-                    "legacy_ambient_light" => {
+                    "path_tracing_ambient_light" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            legacy_ambient_light_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                            path_tracing_ambient_light_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "legacy_terrain_indirect_lighting" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            legacy_terrain_indirect_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                    "path_tracing_max_bounces" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            path_tracing_max_bounces_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "world_tick_seconds" => {
@@ -3475,9 +3477,9 @@ impl GuiAdjustables {
             lod_distance: lod_distance_field.expect("Missing parameter: lod_distance"),
             flora_draw_distance: flora_draw_distance_field.expect("Missing parameter: flora_draw_distance"),
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
-            legacy_environment_lighting: legacy_environment_lighting_field.expect("Missing parameter: legacy_environment_lighting"),
-            legacy_ambient_light: legacy_ambient_light_field.expect("Missing parameter: legacy_ambient_light"),
-            legacy_terrain_indirect_lighting: legacy_terrain_indirect_lighting_field.expect("Missing parameter: legacy_terrain_indirect_lighting"),
+            path_tracing_reference: path_tracing_reference_field.expect("Missing parameter: path_tracing_reference"),
+            path_tracing_ambient_light: path_tracing_ambient_light_field.expect("Missing parameter: path_tracing_ambient_light"),
+            path_tracing_max_bounces: path_tracing_max_bounces_field.expect("Missing parameter: path_tracing_max_bounces"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_directional_bias_fraction: wind_directional_bias_fraction_field.expect("Missing parameter: wind_directional_bias_fraction"),
@@ -3901,6 +3903,7 @@ pub fn get_int_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) 
 pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::UintParam> {
     match id {
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
+        "path_tracing_max_bounces" => Some(&adjustables.path_tracing_max_bounces),
         "wind_source_count" => Some(&adjustables.wind_source_count),
         "wind_source_0_octaves" => Some(&adjustables.wind_source_0_octaves),
         "wind_source_1_octaves" => Some(&adjustables.wind_source_1_octaves),
@@ -3940,8 +3943,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
-        "legacy_environment_lighting" => Some(&adjustables.legacy_environment_lighting),
-        "legacy_terrain_indirect_lighting" => Some(&adjustables.legacy_terrain_indirect_lighting),
+        "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
         "wind_source_0_muted" => Some(&adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&adjustables.wind_source_2_muted),
@@ -3961,7 +3963,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 #[allow(dead_code)]
 pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ColorParam> {
     match id {
-        "legacy_ambient_light" => Some(&adjustables.legacy_ambient_light),
+        "path_tracing_ambient_light" => Some(&adjustables.path_tracing_ambient_light),
         "sun_color" => Some(&adjustables.sun_color),
         "glass_tint" => Some(&adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&adjustables.grass_bottom_dark_color),
@@ -4181,6 +4183,7 @@ pub fn get_int_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id
 pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::UintParam> {
     match id {
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
+        "path_tracing_max_bounces" => Some(&mut adjustables.path_tracing_max_bounces),
         "wind_source_count" => Some(&mut adjustables.wind_source_count),
         "wind_source_0_octaves" => Some(&mut adjustables.wind_source_0_octaves),
         "wind_source_1_octaves" => Some(&mut adjustables.wind_source_1_octaves),
@@ -4220,8 +4223,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
-        "legacy_environment_lighting" => Some(&mut adjustables.legacy_environment_lighting),
-        "legacy_terrain_indirect_lighting" => Some(&mut adjustables.legacy_terrain_indirect_lighting),
+        "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),
         "wind_source_0_muted" => Some(&mut adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&mut adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&mut adjustables.wind_source_2_muted),
@@ -4241,7 +4243,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 #[allow(dead_code)]
 pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ColorParam> {
     match id {
-        "legacy_ambient_light" => Some(&mut adjustables.legacy_ambient_light),
+        "path_tracing_ambient_light" => Some(&mut adjustables.path_tracing_ambient_light),
         "sun_color" => Some(&mut adjustables.sun_color),
         "glass_tint" => Some(&mut adjustables.glass_tint),
         "grass_bottom_dark_color" => Some(&mut adjustables.grass_bottom_dark_color),

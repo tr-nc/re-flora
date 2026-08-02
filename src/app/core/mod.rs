@@ -3356,17 +3356,14 @@ impl App {
                             .flora_growth_override_enabled
                             .value,
                         self.debug_settings.adjustables.flora_growth_override.value,
+                        self.debug_settings.adjustables.path_tracing_reference.value,
                         self.debug_settings
                             .adjustables
-                            .legacy_environment_lighting
+                            .path_tracing_max_bounces
                             .value,
                         self.debug_settings
                             .adjustables
-                            .legacy_terrain_indirect_lighting
-                            .value,
-                        self.debug_settings
-                            .adjustables
-                            .legacy_ambient_light
+                            .path_tracing_ambient_light
                             .get_vec3(),
                         self.debug_settings
                             .adjustables

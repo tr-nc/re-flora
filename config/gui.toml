@@ -126,39 +126,41 @@ min = 0
 max = 2
 
 [[section.param]]
-id = "legacy_environment_lighting"
+id = "path_tracing_reference"
 kind = "bool"
-label = "Legacy Environment Lighting (No DDGI)"
+label = "Path Tracing Reference (Terrain)"
 type = "Bool"
 
 [section.param.data]
 value = false
 
 [[section.param]]
-id = "legacy_ambient_light"
+id = "path_tracing_ambient_light"
 kind = "color"
-label = "Legacy Ambient Light"
+label = "Path Tracing Ambient Override"
 type = "Color"
 
 [section.param.enabled_if]
-param = "legacy_environment_lighting"
+param = "path_tracing_reference"
 equals = true
 
 [section.param.data]
 value = "#000000"
 
 [[section.param]]
-id = "legacy_terrain_indirect_lighting"
-kind = "bool"
-label = "Legacy Terrain Indirect Lighting (1 Ray)"
-type = "Bool"
+id = "path_tracing_max_bounces"
+kind = "uint"
+label = "Path Tracing Max Bounces"
+type = "Uint"
 
 [section.param.enabled_if]
-param = "legacy_environment_lighting"
+param = "path_tracing_reference"
 equals = true
 
 [section.param.data]
-value = true
+value = 3
+min = 0
+max = 8
 
 [[section.param]]
 id = "world_tick_seconds"
