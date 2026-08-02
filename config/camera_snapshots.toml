@@ -1,0 +1,12 @@
+[[snapshots]]
+name = "blacky"
+description = ""
+position = [
+    1.8832682,
+    0.5647657,
+    0.73621637,
+]
+yaw_deg = -56.5507
+pitch_deg = 44.52768
+fov_deg = 60.0
+fly_mode = false
