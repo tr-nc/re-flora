@@ -158,7 +158,7 @@ param = "path_tracing_reference"
 equals = true
 
 [section.param.data]
-value = 3
+value = 2
 min = 0
 max = 8
 
@@ -1036,7 +1036,7 @@ label = "Terrain Ray Origin Offset (world)"
 type = "Float"
 
 [section.param.data]
-value = 0.005
+value = 0.0065
 min = 0
 max = 0.02
 
