@@ -74,6 +74,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "legacy_terrain_indirect_lighting",
+        kind: "bool",
+        label: "Legacy Terrain Indirect Lighting (1 Ray)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "world_tick_seconds",
         kind: "float",
         label: "World Tick Time (s)",
@@ -1422,6 +1428,7 @@ pub struct GuiAdjustables {
     pub flora_draw_distance: crate::gui_adjustables::FloatParam,
     pub grass_render_mode: crate::gui_adjustables::UintParam,
     pub legacy_environment_lighting: crate::gui_adjustables::BoolParam,
+    pub legacy_terrain_indirect_lighting: crate::gui_adjustables::BoolParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_directional_bias_fraction: crate::gui_adjustables::FloatParam,
@@ -1666,6 +1673,7 @@ impl GuiAdjustables {
         let mut flora_draw_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut legacy_environment_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut legacy_terrain_indirect_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_directional_bias_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1943,6 +1951,11 @@ impl GuiAdjustables {
                     "legacy_environment_lighting" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             legacy_environment_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "legacy_terrain_indirect_lighting" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            legacy_terrain_indirect_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "world_tick_seconds" => {
@@ -3450,6 +3463,7 @@ impl GuiAdjustables {
             flora_draw_distance: flora_draw_distance_field.expect("Missing parameter: flora_draw_distance"),
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
             legacy_environment_lighting: legacy_environment_lighting_field.expect("Missing parameter: legacy_environment_lighting"),
+            legacy_terrain_indirect_lighting: legacy_terrain_indirect_lighting_field.expect("Missing parameter: legacy_terrain_indirect_lighting"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_directional_bias_fraction: wind_directional_bias_fraction_field.expect("Missing parameter: wind_directional_bias_fraction"),
@@ -3913,6 +3927,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "legacy_environment_lighting" => Some(&adjustables.legacy_environment_lighting),
+        "legacy_terrain_indirect_lighting" => Some(&adjustables.legacy_terrain_indirect_lighting),
         "wind_source_0_muted" => Some(&adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&adjustables.wind_source_2_muted),
@@ -4191,6 +4206,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "legacy_environment_lighting" => Some(&mut adjustables.legacy_environment_lighting),
+        "legacy_terrain_indirect_lighting" => Some(&mut adjustables.legacy_terrain_indirect_lighting),
         "wind_source_0_muted" => Some(&mut adjustables.wind_source_0_muted),
         "wind_source_1_muted" => Some(&mut adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&mut adjustables.wind_source_2_muted),

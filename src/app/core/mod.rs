@@ -3362,6 +3362,10 @@ impl App {
                             .value,
                         self.debug_settings
                             .adjustables
+                            .legacy_terrain_indirect_lighting
+                            .value,
+                        self.debug_settings
+                            .adjustables
                             .terrain_self_shadow_tolerance_voxels
                             .value,
                         Vec3::new(

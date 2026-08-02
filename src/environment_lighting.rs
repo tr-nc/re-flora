@@ -342,6 +342,22 @@ mod tests {
     }
 
     #[test]
+    fn legacy_terrain_indirect_lighting_restores_the_main_branch_single_ray_path() {
+        let terrain = include_str!("../shader/slang/tracer.slang");
+        let config = include_str!("../config/gui.toml");
+
+        assert!(config.contains("id = \"legacy_terrain_indirect_lighting\""));
+        assert!(config
+            .contains("enabled_if = { param = \"legacy_environment_lighting\", equals = true }"));
+        assert!(terrain.contains("float3 legacyIndirectLighting("));
+        assert!(terrain.contains("indirectRay.direction = sampleDiffuseBounce("));
+        assert!(terrain.contains("MarchingResult result = generalSceneMarching(indirectRay"));
+        assert!(terrain.contains("DIRECT_TERRAIN_SHADOW_PCSS"));
+        assert!(terrain.contains("float3 nextPosition = nextTracingPosition("));
+        assert!(terrain.contains("if (gui_input.legacy_terrain_indirect_lighting != 0u)"));
+    }
+
+    #[test]
     fn ddgi_visibility_policy_keeps_bias_in_voxel_units_and_rejects_distant_hits() {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let filter = include_str!("../shader/slang/ddgi_visibility_filter.slang");

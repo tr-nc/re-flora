@@ -135,6 +135,16 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "legacy_terrain_indirect_lighting"
+kind = "bool"
+label = "Legacy Terrain Indirect Lighting (1 Ray)"
+enabled_if = { param = "legacy_environment_lighting", equals = true }
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "world_tick_seconds"
 kind = "float"
 label = "World Tick Time (s)"

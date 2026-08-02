@@ -4,6 +4,7 @@ import ddgi_exact_sun_visibility;
 import ddgi_query;
 import environment_lighting;
 import marching_result;
+import noise_tex;
 import packer;
 import ray;
 import scene_marching;
@@ -11,6 +12,7 @@ import terrain_edit_preview;
 import tracer_material;
 import tracer_shadowing;
 import tracer_types;
+import transform;
 import voxel_data;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
@@ -18,10 +20,12 @@ import voxel_data;
 [[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
 [[vk::binding(3, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(5, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
+[[vk::binding(6, 0)]] ConstantBuffer<U_EnvInfo> env_info;
 [[vk::binding(7, 0)]] StructuredBuffer<ContreeNode> contree_node_data;
 [[vk::binding(8, 0)]] StructuredBuffer<uint> contree_leaf_data;
 [[vk::binding(9, 0)]] [[vk::image_format("rg32ui")]]
 readonly RWTexture3D<uint2> scene_tex;
+[[vk::binding(10, 0)]] Sampler2D shadow_map_tex;
 [[vk::binding(11, 0)]] ConstantBuffer<U_VoxelColors> voxel_colors;
 [[vk::binding(12, 0)]] Sampler2D leaf_shadow_opacity_blended_tex;
 [[vk::binding(13, 0)]] Sampler2D leaf_shadow_mask_tex;
@@ -39,11 +43,27 @@ RWTexture2D<float> compute_depth_tex;
 [[vk::binding(2, 1)]]
 RWStructuredBuffer<float4> environment_irradiance_capture;
 
+[[vk::binding(0, 2)]] Sampler2DArray scalar_bn;
+[[vk::binding(1, 2)]] Sampler2DArray unit_vec2_bn;
+[[vk::binding(5, 2)]] Sampler2DArray fast_weighted_cosine_bn;
+
 MarchingResult generalSceneMarching(Ray ray, uint localInvocationIndex)
 {
     return marchScene(contree_node_data, contree_leaf_data, scene_tex,
                       ray.origin, ray.direction, ray.inverse_direction,
                       localInvocationIndex);
+}
+
+float3 sampleDiffuseBounce(int3 seed, float3 normal)
+{
+    float3 localDirection = randomWeightedCosine(fast_weighted_cosine_bn, seed);
+    return mul(localDirection, makeTbn(normal));
+}
+
+float3 sampleSunDisk(int3 seed, float sunSize, float3 sunDirection)
+{
+    float2 randomXy = randomWeightedCosine(fast_weighted_cosine_bn, seed).xy * sunSize;
+    return normalize(sunDirection + mul(float3(randomXy, 0.0), makeTbn(sunDirection)));
 }
 
 static const float TERRAIN_VOXEL_SIZE = 1.0 / 256.0;
@@ -124,6 +144,29 @@ float3 shadowRayColor(Ray ray, float3 receiverNormal)
     return shadow * sun_info.sun_color * sun_info.sun_luminance * sunAboveHorizon;
 }
 
+float3 legacyIndirectShadowRayColor(Ray ray, float3 receiverNormal, int3 seed)
+{
+    float sunAboveHorizon = step(0.0, sun_info.sun_dir.y);
+    DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
+        float4(ray.origin, 1.0), seed, DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_TERRAIN_SHADOW_PCSS,
+        DIRECT_SUN_SHADOW_SOURCE_ALL,
+        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
+    receiver = withReceiverPlane(receiver, receiverNormal);
+    float shadow = directSunShadowTransmittance(
+        receiver, gui_input, shadow_camera_info.view_proj_mat,
+        shadow_camera_info.view_proj_mat_inv,
+        shadow_map_tex, leaf_shadow_opacity_blended_tex, leaf_shadow_mask_tex,
+        cloud_shadow_tex, shadow_map_tex_for_vsm_ping, scalar_bn, unit_vec2_bn);
+    return shadow * sun_info.sun_color * sun_info.sun_luminance * sunAboveHorizon;
+}
+
+float3 nextTracingPosition(float3 voxelCenter, float3 voxelNormal)
+{
+    return voxelSurfacePositionAlongNormal(voxelCenter, voxelNormal) +
+        normalize(voxelNormal) * 0.005;
+}
+
 uint terrainAtlasData(float3 centerPosition)
 {
     int3 coordinate = int3(floor(centerPosition * 256.0));
@@ -157,6 +200,33 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter)
     float cosine = dot(shadowRay.direction, normal);
     if (cosine <= 0.0) return float3(0.0);
     return shadowRayColor(shadowRay, normal) * cosine * albedo;
+}
+
+float3 legacyIndirectLighting(float3 albedo, float3 primaryNormal,
+                              float3 nextPosition, int3 seed,
+                              uint localInvocationIndex)
+{
+    int3 indirectSeed = int3((seed.xy + int2(13, 37)) % 128, seed.z);
+    Ray indirectRay;
+    indirectRay.direction = sampleDiffuseBounce(indirectSeed, primaryNormal);
+    indirectRay.inverse_direction = 1.0 / indirectRay.direction;
+    indirectRay.origin = nextPosition;
+
+    MarchingResult result = generalSceneMarching(indirectRay, localInvocationIndex);
+    if (!result.is_hit) return float3(0.0);
+
+    float3 sampleAlbedo;
+    parseTraceResult(sampleAlbedo, result);
+
+    Ray shadowRay;
+    shadowRay.direction = sampleSunDisk(indirectSeed, sun_info.sun_size, sun_info.sun_dir);
+    shadowRay.inverse_direction = 1.0 / shadowRay.direction;
+    shadowRay.origin = terrainShadowReceiverPosition(
+        result.center_position, result.normal, shadowRay.direction);
+    float cosine = dot(shadowRay.direction, result.normal);
+    if (cosine <= 0.0) return float3(0.0);
+    return legacyIndirectShadowRayColor(shadowRay, result.normal, indirectSeed) *
+           cosine * sampleAlbedo * albedo;
 }
 
 float depthFromWorldPosition(float3 worldPosition)
@@ -243,7 +313,7 @@ void getPixelColor(out float3 color, out float depth,
                    out float3 directLight,
                    out float terrainHit,
                    out float4 environmentCaptureWorld, Ray ray,
-                   float2 screenUv, uint localInvocationIndex)
+                   float2 screenUv, int3 seed, uint localInvocationIndex)
 {
     terrainHit = 0.0;
     environmentCaptureIrradiance = float3(0.0);
@@ -307,6 +377,14 @@ void getPixelColor(out float3 color, out float depth,
         environmentIrradiance = LEGACY_MAIN_AMBIENT_LIGHT;
         environmentCaptureIrradiance = LEGACY_MAIN_AMBIENT_LIGHT;
         color = environmentIrradiance * albedo + directLight;
+        if (gui_input.legacy_terrain_indirect_lighting != 0u)
+        {
+            float3 nextPosition = nextTracingPosition(
+                result.center_position, result.normal);
+            color += legacyIndirectLighting(
+                albedo, result.normal, nextPosition, seed,
+                localInvocationIndex);
+        }
         color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
                                             result.center_position);
         return;
@@ -360,6 +438,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     compute_output_tex.GetDimensions(width, height);
     if (any(dispatchThreadId.xy >= uint2(width, height))) return;
 
+    int3 seed = getBlueNoiseSeed(dispatchThreadId.xy, env_info.frame_serial_idx);
     float2 screenUv = (float2(dispatchThreadId.xy) + 0.5) / float2(width, height);
     Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
 
@@ -372,7 +451,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     float depth;
     getPixelColor(color, depth, environmentIrradiance,
                   environmentCaptureIrradiance, directLight, terrainHit,
-                  environmentCaptureWorld, ray, screenUv, localInvocationIndex);
+                  environmentCaptureWorld, ray, screenUv, seed,
+                  localInvocationIndex);
 
     if (shading_info.environment_irradiance_capture_enabled != 0u)
     {
