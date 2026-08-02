@@ -41,7 +41,7 @@ pub(super) struct PlayerToolState {
 impl Default for PlayerToolState {
     fn default() -> Self {
         Self {
-            selected_item_panel_slot: Some(super::ui_style::STAFF_SLOT_INDEX),
+            selected_item_panel_slot: Some(super::ui_style::SHOVEL_SLOT_INDEX),
             selected_placeable_panel_slot: super::ui_style::TREE_PLACEABLE_SLOT_INDEX,
             left_mouse_held: false,
             right_mouse_held: false,
@@ -75,5 +75,19 @@ impl Default for PlayerToolState {
             terrain_edit_loop_sound_muted: true,
             backpack_summary_panel_screen_pos: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PlayerToolState;
+    use crate::app::core::ui_style::SHOVEL_SLOT_INDEX;
+
+    #[test]
+    fn terrain_edit_shovel_is_the_default_player_tool() {
+        assert_eq!(
+            PlayerToolState::default().selected_item_panel_slot,
+            Some(SHOVEL_SLOT_INDEX)
+        );
     }
 }
