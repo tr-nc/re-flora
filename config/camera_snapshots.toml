@@ -10,3 +10,16 @@ yaw_deg = -56.5507
 pitch_deg = 44.52768
 fov_deg = 60.0
 fly_mode = false
+
+[[snapshots]]
+name = "lagacy"
+description = ""
+position = [
+    1.4768332,
+    0.7870611,
+    1.1945567,
+]
+yaw_deg = -166.67726
+pitch_deg = -55.05971
+fov_deg = 60.0
+fly_mode = true
