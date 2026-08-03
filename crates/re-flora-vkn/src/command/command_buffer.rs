@@ -67,7 +67,7 @@ impl CommandBuffer {
         };
     }
 
-    /// Starts an opt-in Image-state transaction for a cached recording path.
+    /// Starts an opt-in Image-and-Buffer state transaction for a cached recording path.
     ///
     /// Normal recordings retain their established immediate state behavior until they migrate to
     /// this seam. A transaction is committed by the successful queue submission that accepts the
@@ -75,6 +75,15 @@ impl CommandBuffer {
     pub fn begin_resource_state_transaction(&self) {
         *self.0.resource_state_transaction.lock().unwrap() =
             Some(ResourceStateTransaction::new());
+    }
+
+    /// Starts a Buffer-only state transaction for a normal frame recording.
+    ///
+    /// Image helpers retain their established immediate state behavior until the image seam is
+    /// migrated; declared Buffer uses still commit atomically with the successful queue submit.
+    pub fn begin_buffer_state_transaction(&self) {
+        *self.0.resource_state_transaction.lock().unwrap() =
+            Some(ResourceStateTransaction::buffers_only());
     }
 
     /// Declares the next semantic use of a Buffer in this recording.
@@ -102,13 +111,15 @@ impl CommandBuffer {
         let Some(transaction) = transaction.as_mut() else {
             return false;
         };
-        transaction.transition_image(
+        if !transaction.transition_image(
             self,
             image,
             base_array_layer,
             layer_count,
             target_state,
-        );
+        ) {
+            return false;
+        }
         true
     }
 

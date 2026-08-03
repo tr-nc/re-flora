@@ -4,12 +4,13 @@ use crate::{
 };
 use ash::vk;
 
-/// Image states tentatively produced while one command buffer is being recorded.
+/// Resource states tentatively produced while one command buffer is being recorded.
 ///
 /// The Vulkan barriers are recorded immediately, but the host-side state is not committed until
 /// the command buffer is accepted by `queue_submit`. This keeps abandoned and failed recordings
 /// from poisoning the next recording's source layout.
 pub(crate) struct ResourceStateTransaction {
+    track_images: bool,
     images: Vec<TrackedImageState>,
     buffers: Vec<TrackedBufferState>,
 }
@@ -28,7 +29,16 @@ struct TrackedBufferState {
 
 impl ResourceStateTransaction {
     pub(crate) fn new() -> Self {
+        Self::with_image_tracking(true)
+    }
+
+    pub(crate) fn buffers_only() -> Self {
+        Self::with_image_tracking(false)
+    }
+
+    fn with_image_tracking(track_images: bool) -> Self {
         Self {
+            track_images,
             images: Vec::new(),
             buffers: Vec::new(),
         }
@@ -41,7 +51,10 @@ impl ResourceStateTransaction {
         base_array_layer: u32,
         layer_count: u32,
         target_state: ResourceState,
-    ) {
+    ) -> bool {
+        if !self.track_images {
+            return false;
+        }
         let image_index = self
             .images
             .iter()
@@ -63,6 +76,7 @@ impl ResourceStateTransaction {
             target_state,
             &mut tracked.current,
         );
+        true
     }
 
     pub(crate) fn state(&self, image: &Image, array_layer: u32) -> Option<ResourceState> {

@@ -3261,6 +3261,7 @@ impl App {
                 let image_idx = frame.image_index();
 
                 cmdbuf.begin(false);
+                cmdbuf.begin_buffer_state_transaction();
                 if let Some(profiler) = self.gpu_profiler.as_mut() {
                     profiler.begin_frame(frame_slot, cmdbuf);
                 }
