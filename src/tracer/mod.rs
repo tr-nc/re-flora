@@ -2960,14 +2960,6 @@ impl Tracer {
                 MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
             )],
         );
-        let transfer_to_host_barrier = PipelineBarrier::new(
-            PipelineStage::TRANSFER,
-            PipelineStage::HOST,
-            [MemoryBarrier::new(
-                MemoryAccess::TRANSFER_WRITE,
-                MemoryAccess::HOST_READ,
-            )],
-        );
         let depth_to_compute_barrier = PipelineBarrier::new(
             PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
             PipelineStage::COMPUTE_SHADER,
@@ -3103,7 +3095,6 @@ impl Tracer {
                 }
                 cmdbuf.use_buffer(&volume.ddgi_trace_stats, BufferUse::ComputeWrite);
             }
-            transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3168,12 +3159,10 @@ impl Tracer {
             }
 
             let volume = self.ddgi_volumes.builder();
-            compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             volume.record_trace_stats_readback(cmdbuf);
             if iteration_will_complete {
                 volume.record_atlas_reduction_readback(cmdbuf);
             }
-            transfer_to_host_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.ddgi_trace_stats_readback_pending = Some(batch);
 
             let volume = self.ddgi_volumes.builder_mut();
