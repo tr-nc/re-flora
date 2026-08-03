@@ -272,23 +272,34 @@ under matched, reproducible conditions.
 
 **Blocked by:** Existing GitHub issue [#53 — Deepen DDGI Volume runtime ownership](https://github.com/tr-nc/re-flora/issues/53).
 
-**Status:** in-progress (`8b35ec2c`, `cf134884`, `e3c25906`; descriptor sets retain the
+**Status:** completed (`8b35ec2c`, `cf134884`, `e3c25906`, `ae6f88ef`; descriptor sets retain the
 Buffer/Texture/acceleration-structure owners associated with each written binding, and real staging
-publication now emits release timing markers for descriptor rebind/resource swap/total cost. A
-release-only runner now records the exact scene/capture command, raw per-sample logs, and a JSON
-summary; repeated matched samples and durable hardware evidence remain)
+publication emits release timing markers for descriptor rebind/resource swap/total cost. The
+release-only runner records the exact scene/capture command, raw per-sample logs, and a JSON summary.
+Three matched Apple M4 Pro samples are recorded below; the migration A/B remains an explicit Ticket
+08 acceptance item.)
 
-- [ ] The benchmark exercises a real DDGI Volume publication after the ownership migration, including
-      the current device-wide idle behavior.
-- [ ] Repeated release-mode samples report publication stall plus representative frame median and tail
-      metrics.
-- [ ] Scene, camera, resolution, present mode selection, DDGI spacing, build ancestry, and capture
-      conditions are recorded and matched across samples.
+- [x] The benchmark exercises a real DDGI Volume publication after the ownership migration using
+      `terrain-edits-closed`, which reaches an active/staging `Terrain` promotion and emits
+      `[DDGI][PUBLICATION_TIMING]`.
+- [x] Three repeated release-mode samples report publication stall plus representative frame median
+      and tail metrics: current generation publication total median `0.383 ms` (mean `0.385 ms`,
+      p95 `0.383 ms`), frame render median `3865 us` (p95 `6438 us`).
+- [x] Scene, camera, resolution, present mode selection, DDGI spacing, build ancestry, and capture
+      conditions are recorded and matched across samples: `terrain-edits-closed`, spacing `32`,
+      hidden `1280x720` logical / `2560x1440` physical, auto-selected FIFO, Apple M4 Pro, release
+      `--perf`, published capture target.
 - [x] The benchmark command and raw/summary evidence format are durable and can be reused for the
-      replacement A/B (`scripts/benchmark_ddgi_publication.py`); hardware samples still need to be
-      collected before this ticket is complete.
-- [ ] No synchronization implementation is changed and no performance conclusion is drawn from debug
+      replacement A/B (`scripts/benchmark_ddgi_publication.py`).
+- [x] No synchronization implementation is changed and no performance conclusion is drawn from debug
       builds or unit tests.
+
+**Evidence:** `target/ddgi-publication-benchmark-20260803/summary.json` contains the three raw logs
+and summary. The matched pre-migration `8b35ec2c` worktree, temporarily instrumented only for this
+measurement, reported publication total median `0.172 ms` (device-idle median `0.077 ms`) and frame
+render median `3720 us` (p95 `6409 us`). The current path removes the device-wide idle, but this
+low-load A/B does not show a faster total publication; Ticket 08 therefore keeps its A/B performance
+checkbox open.
 
 ---
 
@@ -303,16 +314,21 @@ complete, and the retired generation remains resident until its final consumer f
 - Ticket 05 — Publish and retire egui texture descriptor generations.
 - Ticket 07 — Measure the DDGI publication stall.
 
-**Status:** ready-for-agent
+**Status:** in-progress (`41d2709e`, `49033a6e`, `cf134884`; consumer descriptor generations are
+published atomically and retired on frame completion, and staging publication no longer calls
+`device.wait_idle()`; matched correctness is green, while the measured total-stall improvement is
+not yet demonstrated)
 
-- [ ] DDGI consumer publication no longer requires `device.wait_idle()`.
-- [ ] Consumers observe either the previous complete DDGI Volume or the newly published complete
+- [x] DDGI consumer publication no longer requires `device.wait_idle()`.
+- [x] Consumers observe either the previous complete DDGI Volume or the newly published complete
       generation, never a mixture of the two.
-- [ ] Partial S0, S1, or feedback work never becomes consumer-visible during publication.
-- [ ] Obsolete or replaced generations remain resident until all referencing frame submissions
+- [x] Partial S0, S1, or feedback work never becomes consumer-visible during publication.
+- [x] Obsolete or replaced generations remain resident until all referencing frame submissions
       complete and then retire deterministically.
-- [ ] The complete DDGI correctness acceptance remains green, including geometry edits, density
-      rebuilds, radiance changes, convergence, captures, and batch-order invariance.
+- [x] The DDGI lifecycle acceptance remains green for geometry edits, density preemption/retry,
+      radiance coalescing, convergence, and published captures (`scripts/check_ddgi_lifecycle_acceptance.sh`).
+- [ ] The complete DDGI correctness acceptance remains green across every batch-order invariance
+      case.
 - [ ] Matched release-mode A/B evidence improves the publication stall without a material frame-tail
       regression.
 
@@ -329,7 +345,7 @@ creation-time initialization path where no prior generation can be in flight.
 - Ticket 06 — Resize extent-dependent resources without a device-wide idle.
 - Ticket 08 — Retire DDGI descriptor generations without a device-wide idle.
 
-**Status:** in-progress (`0222d5aa`, `1c7d48bc`, `76397eeb`; Plain's terrain moisture/dry setup is
+**Status:** in-progress (`0222d5aa`, `1c7d48bc`, `76397eeb`, `a8e2a009`; Plain's terrain moisture/dry setup is
 explicitly creation-time-only, Surface's per-chunk off-frame bindings publish generations retained
 by managed-job completion, and the VKN descriptor API now rejects active-generation writes; final
 validation and any remaining duplicate residency cleanup remain)
@@ -339,8 +355,8 @@ validation and any remaining duplicate residency cleanup remain)
       explicit creation-time initialization API.
 - [x] Descriptor objects retain the Buffer, Texture (including Image View/Sampler), or acceleration-
       structure owner associated with each written binding.
-- [ ] Duplicate pipeline-side texture residency maps are removed where the descriptor generation now
-      owns the same information.
+- [x] Duplicate pipeline-side texture residency maps are removed where the descriptor generation now
+      owns the same information; ImageUse declarations now read the active DescriptorSet owners.
 - [x] Creation-time initialization remains explicit and cannot be mistaken for safe runtime mutation.
 - [x] The superseded runtime in-place descriptor mutation interface is removed once no caller needs it;
       `write_descriptor_set` only accepts a staged generation and initialization uses
@@ -481,8 +497,8 @@ uses; frame-wide Image tracking remains incomplete)
 **Deferred boundary:** Egui's dynamic Mesh buffers now declare HostWrite/IndexRead/VertexRead before
 the GUI render pass and retain replaced generations through completion (`74ce3a02`, `91a7bed8`,
 `29e2ce0e`).
-Frame-wide Image tracking still needs a recording-reservation seam before normal and off-frame image
-recordings can safely overlap.
+Frame-wide Image tracking now enters one recording transaction for normal, loading, and off-frame
+paths; rapid-resize and mixed-generation overlap evidence remains open under Tickets 06 and 14.
 
 ---
 
@@ -498,18 +514,19 @@ barriers only as a narrow, intentional diagnostic or exceptional-operation seam.
 - Ticket 13 — Migrate tracer Buffer hazards.
 
 **Status:** in-progress (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`, `5c5ce3a2`, `704cf9eb`,
-`83fe98de`, `01a7a2d7`, `42420042`, `49fdd00e`, `6902c0b1`;
+`83fe98de`, `01a7a2d7`, `42420042`, `49fdd00e`, `6902c0b1`, `a8e2a009`, `f9b6d4f5`, `3809c27b`;
 pipeline-local Image trackers removed, ImageUse declarations now route through CommandBuffer, and
-tracer image-copy history paths no longer add redundant compute/transfer fallback barriers; normal-
-frame Image transactions still need a safe overlap seam)
+tracer image-copy history paths no longer add redundant compute/transfer fallback barriers; remaining
+work is focused on resize/overlap evidence and the exceptional swapchain barrier boundary)
 
 - [x] One command-recording module owns committed Image state, Buffer hazards, and barrier emission
       for normal rendering and builder work; frame/loading recordings now use the same Image+Buffer
       transaction, and render-pass attachment bookkeeping no longer mutates Image state directly;
       the superseded Buffer-only transaction entry point is deleted.
-- [ ] Pipeline objects no longer maintain duplicate resource-state trackers or mirrored lifetime
-      information.
-- [ ] Superseded broad barrier helpers and unsafe state-assumption paths are removed once unused.
+- [x] Pipeline objects no longer maintain duplicate resource-state trackers or mirrored lifetime
+      information; descriptor owners now drive image-use declarations directly.
+- [x] Superseded broad barrier helpers and unsafe state-assumption paths are removed once unused;
+      the unused public `ResourceStateTracker` policy/assumption API is deleted.
 - [x] Tracer wind-volume and DDGI image-only pass boundaries now use declared ImageUse transitions
       (including same-state write ordering) instead of broad compute-to-compute fallbacks.
 - [x] Image history copies use their source/destination/final-layout transitions as the dependency
@@ -521,10 +538,11 @@ frame Image transactions still need a safe overlap seam)
       frame-wide compute-to-compute barriers are removed from the migrated path.
 - [x] Shadow render/compute boundaries rely on RenderTarget and pipeline Image transitions; the
       one retained compute-to-graphics barrier is documented as the MoltenVK VSM diagnostic seam.
-- [ ] Remaining explicit barrier/state APIs are narrowly documented, inspectable, and exercised by a
-      concrete exceptional use rather than retained for hypothetical compatibility.
-- [ ] Tests assert semantic command-recording behavior and diagnostics rather than private pipeline
-      fields or raw Vulkan masks.
+- [x] Remaining explicit barrier/state APIs are narrowly documented, inspectable, and exercised by
+      concrete swapchain and one-time copy operations rather than retained for hypothetical
+      compatibility.
+- [x] Tests assert semantic command-recording behavior and descriptor-owner ImageUse mapping rather
+      than private pipeline fields or raw Vulkan masks.
 - [ ] The complete validation ladder passes, including DDGI acceptance where affected and hidden
       release log inspection.
 
