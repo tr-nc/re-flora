@@ -1460,6 +1460,10 @@ impl SurfaceBuilder {
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
+        cmdbuf.begin_resource_state_transaction();
+
+        cmdbuf.use_buffer(&self.resources.clear_occupancy_info, BufferUse::HostWrite);
+        cmdbuf.use_buffer(&self.resources.clear_occupancy_info, BufferUse::ComputeRead);
 
         let pass_timing = self.pass_timing.as_ref();
         if let Some(timing) = pass_timing {
@@ -1493,6 +1497,14 @@ impl SurfaceBuilder {
         });
 
         if max_len > 0 {
+            cmdbuf.use_buffer(
+                &chunk_resources.resource.instances_buf,
+                BufferUse::HostWrite,
+            );
+            cmdbuf.use_buffer(
+                &chunk_resources.resource.instances_buf,
+                BufferUse::ComputeRead,
+            );
             record_compute_barrier(device, &cmdbuf);
             record_timed_flora_edit_pass!({
                 self.instances_to_occupancy_ppl
@@ -1501,6 +1513,9 @@ impl SurfaceBuilder {
         }
 
         record_compute_barrier(device, &cmdbuf);
+
+        cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::HostWrite);
+        cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::ComputeRead);
 
         record_timed_flora_edit_pass!({
             self.edit_occupancy_ppl.record(
@@ -1516,6 +1531,31 @@ impl SurfaceBuilder {
 
         record_compute_barrier(device, &cmdbuf);
 
+        cmdbuf.use_buffer(
+            &self.resources.occupancy_to_instances_info,
+            BufferUse::HostWrite,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.occupancy_to_instances_info,
+            BufferUse::ComputeRead,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.occupancy_to_instances_result,
+            BufferUse::HostWrite,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.occupancy_to_instances_result,
+            BufferUse::ComputeReadWrite,
+        );
+        cmdbuf.use_buffer(
+            &chunk_resources.resource.instances_buf,
+            BufferUse::ComputeWrite,
+        );
+        cmdbuf.use_buffer(
+            &chunk_resources.grass_growth_potential_levels,
+            BufferUse::ComputeRead,
+        );
+
         record_timed_flora_edit_pass!({
             self.occupancy_to_instances_ppl.record(
                 &cmdbuf,
@@ -1527,6 +1567,10 @@ impl SurfaceBuilder {
                 None,
             );
         });
+        cmdbuf.use_buffer(
+            &self.resources.occupancy_to_instances_result,
+            BufferUse::HostRead,
+        );
 
         if pass_timing.is_some() {
             assert_eq!(timing_pass_index, flora_edit_timing_passes.len());
@@ -1619,6 +1663,39 @@ impl SurfaceBuilder {
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
+        cmdbuf.begin_resource_state_transaction();
+        cmdbuf.use_buffer(
+            &self.resources.instances_to_occupancy_info,
+            BufferUse::HostWrite,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.instances_to_occupancy_info,
+            BufferUse::ComputeRead,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.occupancy_to_instances_result,
+            BufferUse::HostWrite,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.occupancy_to_instances_result,
+            BufferUse::ComputeReadWrite,
+        );
+        cmdbuf.use_buffer(
+            &chunk_resources.resource.instances_buf,
+            BufferUse::HostWrite,
+        );
+        cmdbuf.use_buffer(
+            &chunk_resources.resource.instances_buf,
+            BufferUse::ComputeReadWrite,
+        );
+        cmdbuf.use_buffer(
+            &chunk_resources.grass_growth_potential_levels,
+            BufferUse::HostWrite,
+        );
+        cmdbuf.use_buffer(
+            &chunk_resources.grass_growth_potential_levels,
+            BufferUse::ComputeRead,
+        );
 
         let pass_timing = self.pass_timing.as_ref();
         if let Some(timing) = pass_timing {
@@ -1630,6 +1707,10 @@ impl SurfaceBuilder {
         if let Some(timing) = pass_timing {
             timing.record_end(&cmdbuf, 0);
         }
+        cmdbuf.use_buffer(
+            &self.resources.occupancy_to_instances_result,
+            BufferUse::HostRead,
+        );
 
         cmdbuf.end();
         let _completed_gpu_job = cmdbuf
