@@ -314,7 +314,7 @@ complete, and the retired generation remains resident until its final consumer f
 - Ticket 05 — Publish and retire egui texture descriptor generations.
 - Ticket 07 — Measure the DDGI publication stall.
 
-**Status:** in-progress (`41d2709e`, `49033a6e`, `cf134884`; consumer descriptor generations are
+**Status:** in-progress (`41d2709e`, `49033a6e`, `cf134884`, `902d7436`; consumer descriptor generations are
 published atomically and retired on frame completion, and staging publication no longer calls
 `device.wait_idle()`; matched correctness is green, while the measured total-stall improvement is
 not yet demonstrated)
@@ -327,8 +327,13 @@ not yet demonstrated)
       complete and then retire deterministically.
 - [x] The DDGI lifecycle acceptance remains green for geometry edits, density preemption/retry,
       radiance coalescing, convergence, and published captures (`scripts/check_ddgi_lifecycle_acceptance.sh`).
-- [ ] The complete DDGI correctness acceptance remains green across every batch-order invariance
-      case.
+- [x] The complete DDGI correctness acceptance remains green across every batch-order invariance
+      case. The release transport matrix covered both `forward` and `reverse` donor batches at
+      spacings 32 and 16, all sealed/donor/dogleg/portal convergence stages, exact-reference
+      correctness, and the terrain-edit runtime matrix. The initial composite run reported one
+      failure only because `check_ddgi_runtime_terrain_edits.sh` expected
+      `staging_stage=Some(Rebuilding)` while the runtime log contract is `staging_stage=Rebuilding`;
+      after `902d7436` corrected that test-only literal, the 29-run runtime matrix exited 0.
 - [ ] Matched release-mode A/B evidence improves the publication stall without a material frame-tail
       regression.
 
