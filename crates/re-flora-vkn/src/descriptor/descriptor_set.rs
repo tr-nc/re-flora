@@ -1,11 +1,23 @@
 use crate::{AccelStruct, Buffer, Device, Texture, TextureLayout};
 use anyhow::Result;
 use ash::vk;
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+#[allow(dead_code)]
+#[derive(Clone)]
+enum DescriptorResourceOwner {
+    Buffer(Buffer),
+    Texture(Texture),
+    AccelStruct(AccelStruct),
+}
 
 struct DescriptorSetInner {
     device: Device,
     descriptor_set: vk::DescriptorSet,
+    owners: Mutex<HashMap<(u32, u32), DescriptorResourceOwner>>,
 }
 
 #[derive(Clone)]
@@ -16,6 +28,7 @@ impl DescriptorSet {
         Self(Arc::new(DescriptorSetInner {
             device,
             descriptor_set,
+            owners: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -29,6 +42,12 @@ impl DescriptorSet {
         }
         let raw_writes: Vec<_> = writes.iter_mut().map(|w| w.make_raw(self)).collect();
         unsafe { self.0.device.update_descriptor_sets(&raw_writes, &[]) }
+        let mut owners = self.0.owners.lock().unwrap();
+        for write in writes {
+            if let Some(owner) = write.owner() {
+                owners.insert((write.binding(), write.array_element()), owner);
+            }
+        }
     }
 }
 
@@ -39,8 +58,10 @@ pub struct WriteDescriptorSet<'a> {
 
     image_infos: Option<Vec<vk::DescriptorImageInfo>>,
     texture: Option<Texture>,
+    buffer: Option<Buffer>,
     buffer_infos: Option<Vec<vk::DescriptorBufferInfo>>,
     accel_struct_infos: Option<Vec<vk::WriteDescriptorSetAccelerationStructureKHR<'a>>>,
+    accel_struct: Option<AccelStruct>,
 
     _accel_handles: Option<Vec<vk::AccelerationStructureKHR>>,
 }
@@ -63,8 +84,10 @@ impl<'a> WriteDescriptorSet<'a> {
             array_element: 0,
             image_infos: Some(vec![image_info]),
             texture: Some(texture.clone()),
+            buffer: None,
             buffer_infos: None,
             accel_struct_infos: None,
+            accel_struct: None,
             _accel_handles: None,
         }
     }
@@ -84,8 +107,10 @@ impl<'a> WriteDescriptorSet<'a> {
             array_element: 0,
             image_infos: None,
             texture: None,
+            buffer: Some(buffer.clone()),
             buffer_infos: Some(vec![buffer_info]),
             accel_struct_infos: None,
+            accel_struct: None,
             _accel_handles: None,
         }
     }
@@ -105,8 +130,10 @@ impl<'a> WriteDescriptorSet<'a> {
             array_element: 0,
             image_infos: None,
             texture: None,
+            buffer: None,
             buffer_infos: None,
             accel_struct_infos: Some(vec![as_info]),
+            accel_struct: Some(tlas.clone()),
             _accel_handles: Some(handles),
         }
     }
@@ -143,6 +170,18 @@ impl<'a> WriteDescriptorSet<'a> {
 
     pub(crate) fn texture(&self) -> Option<&Texture> {
         self.texture.as_ref()
+    }
+
+    fn owner(&self) -> Option<DescriptorResourceOwner> {
+        self.texture
+            .as_ref()
+            .map(|texture| DescriptorResourceOwner::Texture(texture.clone()))
+            .or_else(|| {
+                self.buffer
+                    .as_ref()
+                    .map(|buffer| DescriptorResourceOwner::Buffer(buffer.clone()))
+            })
+            .or_else(|| self.accel_struct.clone().map(DescriptorResourceOwner::AccelStruct))
     }
 
     pub fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet<'_> {
