@@ -269,9 +269,10 @@ under matched, reproducible conditions.
 
 **Blocked by:** Existing GitHub issue [#53 — Deepen DDGI Volume runtime ownership](https://github.com/tr-nc/re-flora/issues/53).
 
-**Status:** in-progress (`8b35ec2c`; descriptor sets now retain the Buffer/Texture/acceleration-
-structure owners associated with each written binding; runtime generation publication and removal of
-in-place mutation remain)
+**Status:** in-progress (`8b35ec2c`, `cf134884`; descriptor sets retain the Buffer/Texture/
+acceleration-structure owners associated with each written binding, and real staging publication
+now emits release timing markers for descriptor rebind/resource swap/total cost; repeated matched
+samples and durable summary evidence remain)
 
 - [ ] The benchmark exercises a real DDGI Volume publication after the ownership migration, including
       the current device-wide idle behavior.
