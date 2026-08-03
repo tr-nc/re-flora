@@ -27,8 +27,9 @@ validation, descriptor rebinding, captures, or promotion ordering themselves.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** in-progress (terrain/radiance event ownership integrated in `5e7f6847`; concrete
-GPU resource/pass ownership remains active)
+**Status:** in-progress (terrain/radiance event ownership integrated in `5e7f6847`, capture
+checkpoint configuration and residency now belong to `DdgiRuntime` in `b680f403`; concrete GPU
+resource/pass ownership remains active)
 
 ### Required outcomes
 
