@@ -175,7 +175,7 @@ check_inflight_fail_closed_markers() {
         "invalidation=full-domain-fail-closed"
         "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision=Some(1) target_terrain_revision=3"
         "staging_token_serial=Some("
-        "staging_stage=Some(Rebuilding)"
+        "staging_stage=Rebuilding"
         "[ENV_IRRADIANCE_CAPTURE] saved"
         "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run"
     )
