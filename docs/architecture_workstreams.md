@@ -244,8 +244,9 @@ the normal resize path's device-wide idle.
 
 **Blocked by:** Ticket 05 — Publish and retire egui texture descriptor generations.
 
-**Status:** in-progress (`768b8c00`; resize now waits and observes all frame submissions in queue order,
-then retires the old extent-dependent resource/framebuffer bundle through the completion clock)
+**Status:** in-progress (`768b8c00`, `400e44d6`; resize waits and observes all frame submissions in
+queue order, retires the old extent-dependent resource/framebuffer bundle through the completion
+clock, and propagates acquire-side suboptimal signals alongside present-side signals)
 
 - [x] Normal window resize no longer calls `device.wait_idle()` before replacing extent-dependent GPU
       resources.
