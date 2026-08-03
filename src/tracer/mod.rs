@@ -2919,6 +2919,8 @@ impl Tracer {
                 PipelineStage::COMPUTE_SHADER,
             );
             terrain_to_relocation_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            let volume = self.ddgi_volumes.builder();
+            cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeWrite);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -2947,6 +2949,8 @@ impl Tracer {
                 self.ddgi_volumes.builder().iteration_will_complete(batch);
             {
                 let volume = self.ddgi_volumes.builder();
+                cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&volume.ddgi_transient_ray_data, BufferUse::ComputeWrite);
                 volume.ddgi_trace_stats.record_fill(
                     cmdbuf,
                     0,
@@ -2980,7 +2984,12 @@ impl Tracer {
                 gpu_profiler_frame_slot,
                 cmdbuf,
                 "ddgi.irradiance_filter",
-                || self.record_ddgi_irradiance_filter_pass(cmdbuf, batch),
+                || {
+                    let volume = self.ddgi_volumes.builder();
+                    cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
+                    cmdbuf.use_buffer(&volume.ddgi_transient_ray_data, BufferUse::ComputeRead);
+                    self.record_ddgi_irradiance_filter_pass(cmdbuf, batch)
+                },
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             // Visibility is geometry-owned and is written only by bootstrap S0. Radiance-only
@@ -2991,7 +3000,12 @@ impl Tracer {
                     gpu_profiler_frame_slot,
                     cmdbuf,
                     "ddgi.visibility_filter",
-                    || self.record_ddgi_visibility_filter_pass(cmdbuf, batch),
+                    || {
+                        let volume = self.ddgi_volumes.builder();
+                        cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
+                        cmdbuf.use_buffer(&volume.ddgi_transient_ray_data, BufferUse::ComputeRead);
+                        self.record_ddgi_visibility_filter_pass(cmdbuf, batch)
+                    },
                 );
                 compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             }
@@ -3005,6 +3019,7 @@ impl Tracer {
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             if iteration_will_complete {
                 let volume = self.ddgi_volumes.builder();
+                cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
                 cmdbuf.use_buffer(&volume.ddgi_atlas_reduction, BufferUse::ComputeWrite);
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
@@ -3053,6 +3068,11 @@ impl Tracer {
                 );
             }
         }
+
+        cmdbuf.use_buffer(
+            &self.ddgi_volumes.active().ddgi_probe_metadata,
+            BufferUse::ShaderRead,
+        );
 
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
