@@ -123,7 +123,6 @@ pub struct PresentWaitDiagnostics {
     pub wait_name: &'static str,
 }
 
-#[cfg(feature = "sync_diagnostics")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GpuJobSubmitDiagnostics {
     pub name: &'static str,
@@ -146,19 +145,63 @@ impl GpuJobSubmitDiagnostics {
     }
 }
 
-#[cfg(feature = "sync_diagnostics")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GpuJobProbeKind {
     Poll,
     Wait,
 }
 
-#[cfg(feature = "sync_diagnostics")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GpuJobProbeDiagnostics {
     pub name: &'static str,
     pub queue: QueueLane,
     pub kind: GpuJobProbeKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GpuJobCompletionDiagnostics {
+    pub name: &'static str,
+    pub queue: QueueLane,
+    pub resident_command_buffer_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GpuJobInvalidAbandonmentDiagnostics {
+    pub name: &'static str,
+    pub queue: QueueLane,
+    pub resident_command_buffer_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GpuJobDiagnostics {
+    Submitted(GpuJobSubmitDiagnostics),
+    Probed(GpuJobProbeDiagnostics),
+    Completed(GpuJobCompletionDiagnostics),
+    InvalidAbandonment(GpuJobInvalidAbandonmentDiagnostics),
+}
+
+pub type GpuJobDiagnosticsSink = fn(GpuJobDiagnostics);
+
+#[cfg(feature = "sync_diagnostics")]
+static GPU_JOB_DIAGNOSTICS_SINK: std::sync::OnceLock<GpuJobDiagnosticsSink> =
+    std::sync::OnceLock::new();
+
+#[cfg(feature = "sync_diagnostics")]
+pub fn set_gpu_job_diagnostics_sink(sink: GpuJobDiagnosticsSink) -> bool {
+    GPU_JOB_DIAGNOSTICS_SINK.set(sink).is_ok()
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+pub fn set_gpu_job_diagnostics_sink(_sink: GpuJobDiagnosticsSink) -> bool {
+    false
+}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+fn emit_gpu_job_diagnostics(event: GpuJobDiagnostics) {
+    if let Some(sink) = GPU_JOB_DIAGNOSTICS_SINK.get() {
+        sink(event);
+    }
 }
 
 #[cfg(feature = "sync_diagnostics")]
@@ -203,7 +246,9 @@ pub(crate) fn record_present(_desc: &PresentDesc<'_>) {}
 #[cfg(feature = "sync_diagnostics")]
 #[inline(always)]
 pub(crate) fn record_gpu_job_submit(desc: &GpuJobDesc<'_>) {
-    let _job = GpuJobSubmitDiagnostics::from_desc(desc);
+    emit_gpu_job_diagnostics(GpuJobDiagnostics::Submitted(
+        GpuJobSubmitDiagnostics::from_desc(desc),
+    ));
 }
 
 #[cfg(not(feature = "sync_diagnostics"))]
@@ -213,11 +258,11 @@ pub(crate) fn record_gpu_job_submit(_desc: &GpuJobDesc<'_>) {}
 #[cfg(feature = "sync_diagnostics")]
 #[inline(always)]
 pub(crate) fn record_gpu_job_poll(name: &'static str, queue: QueueLane) {
-    let _poll = GpuJobProbeDiagnostics {
+    emit_gpu_job_diagnostics(GpuJobDiagnostics::Probed(GpuJobProbeDiagnostics {
         name,
         queue,
         kind: GpuJobProbeKind::Poll,
-    };
+    }));
 }
 
 #[cfg(not(feature = "sync_diagnostics"))]
@@ -227,16 +272,64 @@ pub(crate) fn record_gpu_job_poll(_name: &'static str, _queue: QueueLane) {}
 #[cfg(feature = "sync_diagnostics")]
 #[inline(always)]
 pub(crate) fn record_gpu_job_wait(name: &'static str, queue: QueueLane) {
-    let _wait = GpuJobProbeDiagnostics {
+    emit_gpu_job_diagnostics(GpuJobDiagnostics::Probed(GpuJobProbeDiagnostics {
         name,
         queue,
         kind: GpuJobProbeKind::Wait,
-    };
+    }));
 }
 
 #[cfg(not(feature = "sync_diagnostics"))]
 #[inline(always)]
 pub(crate) fn record_gpu_job_wait(_name: &'static str, _queue: QueueLane) {}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+pub(crate) fn record_gpu_job_completion(
+    name: &'static str,
+    queue: QueueLane,
+    resident_command_buffer_count: usize,
+) {
+    emit_gpu_job_diagnostics(GpuJobDiagnostics::Completed(GpuJobCompletionDiagnostics {
+        name,
+        queue,
+        resident_command_buffer_count,
+    }));
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_gpu_job_completion(
+    _name: &'static str,
+    _queue: QueueLane,
+    _resident_command_buffer_count: usize,
+) {
+}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+pub(crate) fn record_gpu_job_invalid_abandonment(
+    name: &'static str,
+    queue: QueueLane,
+    resident_command_buffer_count: usize,
+) {
+    emit_gpu_job_diagnostics(GpuJobDiagnostics::InvalidAbandonment(
+        GpuJobInvalidAbandonmentDiagnostics {
+            name,
+            queue,
+            resident_command_buffer_count,
+        },
+    ));
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_gpu_job_invalid_abandonment(
+    _name: &'static str,
+    _queue: QueueLane,
+    _resident_command_buffer_count: usize,
+) {
+}
 
 #[cfg(feature = "sync_diagnostics")]
 #[inline(always)]
@@ -281,4 +374,42 @@ pub(crate) fn record_texture_transition(
     _base_array_layer: u32,
     _layer_count: u32,
 ) {
+}
+
+#[cfg(all(test, feature = "sync_diagnostics"))]
+mod tests {
+    use super::{
+        record_gpu_job_completion, record_gpu_job_invalid_abandonment,
+        set_gpu_job_diagnostics_sink, GpuJobDiagnostics,
+    };
+    use crate::QueueLane;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COMPLETED_RESIDENT_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
+    static ABANDONED_RESIDENT_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+    fn capture_gpu_job_event(event: GpuJobDiagnostics) {
+        match event {
+            GpuJobDiagnostics::Completed(event) => {
+                COMPLETED_RESIDENT_COUNT
+                    .store(event.resident_command_buffer_count, Ordering::Relaxed);
+            }
+            GpuJobDiagnostics::InvalidAbandonment(event) => {
+                ABANDONED_RESIDENT_COUNT
+                    .store(event.resident_command_buffer_count, Ordering::Relaxed);
+            }
+            GpuJobDiagnostics::Submitted(_) | GpuJobDiagnostics::Probed(_) => {}
+        }
+    }
+
+    #[test]
+    fn lifecycle_sink_observes_completion_and_invalid_abandonment() {
+        assert!(set_gpu_job_diagnostics_sink(capture_gpu_job_event));
+
+        record_gpu_job_completion("test.complete", QueueLane::General, 2);
+        record_gpu_job_invalid_abandonment("test.abandon", QueueLane::General, 3);
+
+        assert_eq!(COMPLETED_RESIDENT_COUNT.load(Ordering::Relaxed), 2);
+        assert_eq!(ABANDONED_RESIDENT_COUNT.load(Ordering::Relaxed), 3);
+    }
 }
