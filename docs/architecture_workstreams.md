@@ -196,15 +196,15 @@ previous generation remains resident until every frame that could reference it h
 - Ticket 02 — Migrate remaining off-frame GPU jobs.
 - Ticket 03 — Encode the owned Vulkan resource graph.
 
-**Status:** in-progress
+**Status:** completed (`c807393a`)
 
-- [ ] Dynamic-fruit capacity growth no longer calls `device.wait_idle()`.
-- [ ] The previous instance Buffer stays resident until all frame submissions that may reference it
+- [x] Dynamic-fruit capacity growth no longer calls `device.wait_idle()`.
+- [x] The previous instance Buffer stays resident until all frame submissions that may reference it
       have completed.
-- [ ] Repeated growth across adjacent frames cannot reuse or destroy an in-flight allocation.
-- [ ] Retirement diagnostics identify the resource generation and the completion event that released
+- [x] Repeated growth across adjacent frames cannot reuse or destroy an in-flight allocation.
+- [x] Retirement diagnostics identify the resource generation and the completion event that released
       it without exposing raw Vulkan handles as the public identity.
-- [ ] Fruit rendering, instance counts, and shadow-change behavior remain unchanged in hidden release
+- [x] Fruit rendering, instance counts, and shadow-change behavior remain unchanged in hidden release
       validation.
 
 ---
@@ -217,7 +217,7 @@ and retires only after their completion.
 
 **Blocked by:** Ticket 04 — Retire runtime Buffer generations at frame completion.
 
-**Status:** ready-for-agent
+**Status:** ready-for-agent (active frontier)
 
 - [ ] Registering a texture publishes one descriptor generation containing the resources required to
       render it.
