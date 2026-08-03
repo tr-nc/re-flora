@@ -3374,6 +3374,7 @@ impl Tracer {
             &*self.resources.wind.wind_volume_info,
             &*self.resources.flora_voxel_lookup.flora_voxel_table_descs,
             &*self.resources.flora_voxel_lookup.flora_voxel_infos,
+            &*self.ddgi_voxel_visibility.ddgi_voxel_visibility_info,
         ] {
             cmdbuf.use_buffer(buffer, BufferUse::ShaderRead);
         }
