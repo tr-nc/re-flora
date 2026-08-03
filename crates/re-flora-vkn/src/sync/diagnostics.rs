@@ -5,7 +5,7 @@
 //! compiled only with the `sync_diagnostics` feature and are intended as the seam
 //! for a future profiler/sink.
 
-use crate::{GpuJobDesc, PresentDesc, QueueLane, SubmitDesc, TextureTransition};
+use crate::{PresentDesc, QueueLane, SubmitDesc, TextureTransition};
 use ash::vk;
 #[cfg(feature = "sync_diagnostics")]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -132,19 +132,6 @@ pub struct GpuJobSubmitDiagnostics {
     pub signal_count: usize,
 }
 
-#[cfg(feature = "sync_diagnostics")]
-impl GpuJobSubmitDiagnostics {
-    fn from_desc(desc: &GpuJobDesc<'_>) -> Self {
-        Self {
-            name: desc.name,
-            queue: desc.queue,
-            command_buffer_count: desc.command_buffers.len(),
-            wait_count: desc.waits.len(),
-            signal_count: desc.signals.len(),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GpuJobProbeKind {
     Poll,
@@ -245,15 +232,22 @@ pub(crate) fn record_present(_desc: &PresentDesc<'_>) {}
 
 #[cfg(feature = "sync_diagnostics")]
 #[inline(always)]
-pub(crate) fn record_gpu_job_submit(desc: &GpuJobDesc<'_>) {
-    emit_gpu_job_diagnostics(GpuJobDiagnostics::Submitted(
-        GpuJobSubmitDiagnostics::from_desc(desc),
-    ));
+pub(crate) fn record_gpu_job_submit(
+    name: &'static str,
+    queue: QueueLane,
+) {
+    emit_gpu_job_diagnostics(GpuJobDiagnostics::Submitted(GpuJobSubmitDiagnostics {
+        name,
+        queue,
+        command_buffer_count: 1,
+        wait_count: 0,
+        signal_count: 0,
+    }));
 }
 
 #[cfg(not(feature = "sync_diagnostics"))]
 #[inline(always)]
-pub(crate) fn record_gpu_job_submit(_desc: &GpuJobDesc<'_>) {}
+pub(crate) fn record_gpu_job_submit(_name: &'static str, _queue: QueueLane) {}
 
 #[cfg(feature = "sync_diagnostics")]
 #[inline(always)]
@@ -379,7 +373,7 @@ pub(crate) fn record_texture_transition(
 #[cfg(all(test, feature = "sync_diagnostics"))]
 mod tests {
     use super::{
-        record_gpu_job_completion, record_gpu_job_invalid_abandonment,
+        record_gpu_job_completion, record_gpu_job_invalid_abandonment, record_gpu_job_submit,
         set_gpu_job_diagnostics_sink, GpuJobDiagnostics,
     };
     use crate::QueueLane;
@@ -387,6 +381,7 @@ mod tests {
 
     static COMPLETED_RESIDENT_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
     static ABANDONED_RESIDENT_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
+    static SUBMITTED_COMMAND_BUFFER_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
 
     fn capture_gpu_job_event(event: GpuJobDiagnostics) {
         match event {
@@ -398,7 +393,10 @@ mod tests {
                 ABANDONED_RESIDENT_COUNT
                     .store(event.resident_command_buffer_count, Ordering::Relaxed);
             }
-            GpuJobDiagnostics::Submitted(_) | GpuJobDiagnostics::Probed(_) => {}
+            GpuJobDiagnostics::Submitted(event) => {
+                SUBMITTED_COMMAND_BUFFER_COUNT.store(event.command_buffer_count, Ordering::Relaxed);
+            }
+            GpuJobDiagnostics::Probed(_) => {}
         }
     }
 
@@ -406,9 +404,11 @@ mod tests {
     fn lifecycle_sink_observes_completion_and_invalid_abandonment() {
         assert!(set_gpu_job_diagnostics_sink(capture_gpu_job_event));
 
+        record_gpu_job_submit("test.submit", QueueLane::General);
         record_gpu_job_completion("test.complete", QueueLane::General, 2);
         record_gpu_job_invalid_abandonment("test.abandon", QueueLane::General, 3);
 
+        assert_eq!(SUBMITTED_COMMAND_BUFFER_COUNT.load(Ordering::Relaxed), 1);
         assert_eq!(COMPLETED_RESIDENT_COUNT.load(Ordering::Relaxed), 2);
         assert_eq!(ABANDONED_RESIDENT_COUNT.load(Ordering::Relaxed), 3);
     }

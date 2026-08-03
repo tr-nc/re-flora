@@ -30,7 +30,6 @@ pub struct SceneTexUpdateJob {
     submitted_at: Instant,
     uniform_elapsed: std::time::Duration,
     submit_elapsed: std::time::Duration,
-    _command_buffer: CommandBuffer,
     gpu_job: GpuJobToken,
 }
 
@@ -180,7 +179,6 @@ impl SceneAccelBuilder {
             submitted_at,
             uniform_elapsed,
             submit_elapsed,
-            _command_buffer: cmdbuf,
             gpu_job,
         })
     }

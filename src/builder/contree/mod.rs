@@ -373,7 +373,6 @@ pub struct ContreeBuildJob {
     submitted_at: Instant,
     prealloc_elapsed: Duration,
     submit_elapsed: Duration,
-    _command_buffer: CommandBuffer,
     gpu_job: GpuJobToken,
 }
 
@@ -675,7 +674,6 @@ struct CpuChunkReadbackBuffers {
 }
 
 struct CpuChunkCacheGpuJob {
-    _command_buffer: CommandBuffer,
     gpu_job: GpuJobToken,
     chunk_idx: UVec3,
     revision: u64,
@@ -1522,7 +1520,6 @@ impl ContreeBuilder {
             submitted_at,
             prealloc_elapsed,
             submit_elapsed,
-            _command_buffer: cmdbuf,
             gpu_job,
         })
     }
@@ -1769,7 +1766,6 @@ impl ContreeBuilder {
             .record("contree_cpu_cache_copy_to_readback", gpu_copy_elapsed);
 
         self.active_cpu_chunk_cache_job = Some(CpuChunkCacheGpuJob {
-            _command_buffer: command_buffer,
             gpu_job,
             chunk_idx,
             revision,

@@ -1,10 +1,7 @@
 use ash::prelude::VkResult;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{
-    sync::submit::MAX_SUBMIT_COMMAND_BUFFERS, CommandBuffer, Device, Fence, Queue, SubmitDesc,
-    SubmitSignal, SubmitWait,
-};
+use crate::{CommandBuffer, Device, Fence, Queue, SubmitDesc};
 
 /// Semantic queue lane for vkn-managed GPU jobs.
 ///
@@ -15,50 +12,9 @@ pub enum QueueLane {
     General,
 }
 
-/// Completion mechanism for a submitted GPU job.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum JobCompletion {
-    Fence,
-}
-
-/// Named description for non-swapchain GPU work.
-///
-/// This covers compute/build/copy/readback jobs that are not part of the main
-/// swapchain frame lifecycle. The descriptor is translated to `SubmitDesc` at
-/// the vkn boundary so callers do not own raw fence submission behavior.
-#[derive(Clone, Copy)]
-pub struct GpuJobDesc<'a> {
-    pub name: &'static str,
-    pub queue: QueueLane,
-    pub command_buffers: &'a [&'a CommandBuffer],
-    pub waits: &'a [SubmitWait<'a>],
-    pub signals: &'a [SubmitSignal<'a>],
-    pub completion: JobCompletion,
-}
-
-impl<'a> GpuJobDesc<'a> {
-    pub fn new(
-        name: &'static str,
-        queue: QueueLane,
-        command_buffers: &'a [&'a CommandBuffer],
-        waits: &'a [SubmitWait<'a>],
-        signals: &'a [SubmitSignal<'a>],
-        completion: JobCompletion,
-    ) -> Self {
-        Self {
-            name,
-            queue,
-            command_buffers,
-            waits,
-            signals,
-            completion,
-        }
-    }
-}
-
 /// Completion token for a submitted vkn-managed GPU job.
 ///
-/// The token retains the backing fence and submitted command buffers, and only
+/// The token retains the backing fence and submitted command buffer, and only
 /// exposes semantic polling/waiting. Prefer consuming a token with
 /// `wait_complete` once the caller is done tracking a job; borrowed waits remain
 /// available for flush paths that need to keep owning the submitted job record.
@@ -68,8 +24,7 @@ pub struct GpuJobToken {
     name: &'static str,
     queue: QueueLane,
     fence: Option<Fence>,
-    resident_command_buffers: [Option<CommandBuffer>; MAX_SUBMIT_COMMAND_BUFFERS],
-    resident_command_buffer_count: usize,
+    resident_command_buffer: Option<CommandBuffer>,
     completion_observed: AtomicBool,
 }
 
@@ -158,7 +113,7 @@ impl GpuJobToken {
         crate::sync::diagnostics::record_gpu_job_completion(
             self.name,
             self.queue,
-            self.resident_command_buffer_count,
+            usize::from(self.resident_command_buffer.is_some()),
         );
     }
 
@@ -180,9 +135,7 @@ impl GpuJobToken {
 
     fn leak_pending_owners(&mut self) {
         leak_owner(&mut self.fence);
-        for command_buffer in &mut self.resident_command_buffers {
-            leak_owner(command_buffer);
-        }
+        leak_owner(&mut self.resident_command_buffer);
     }
 }
 
@@ -196,20 +149,18 @@ impl Drop for GpuJobToken {
             self.name,
             self.queue,
             &mut self.fence,
-            &mut self.resident_command_buffers,
-            self.resident_command_buffer_count,
+            &mut self.resident_command_buffer,
         );
     }
 }
 
 #[cold]
 #[inline(never)]
-fn fail_fast_invalid_abandonment<F, C, const N: usize>(
+fn fail_fast_invalid_abandonment<F, C>(
     name: &'static str,
     queue: QueueLane,
     fence: &mut Option<F>,
-    resident_command_buffers: &mut [Option<C>; N],
-    resident_command_buffer_count: usize,
+    resident_command_buffer: &mut Option<C>,
 ) -> ! {
     // Vulkan requires a submitted fence to remain alive until its submission
     // completes (VUID-vkDestroyFence-fence-01120), and a pending command
@@ -217,17 +168,11 @@ fn fail_fast_invalid_abandonment<F, C, const N: usize>(
     // Leak both owners before panicking so unwinding cannot violate either
     // lifetime rule. Invalid abandonment is fatal; this is not recovery.
     leak_owner(fence);
-    for command_buffer in resident_command_buffers {
-        leak_owner(command_buffer);
-    }
-    crate::sync::diagnostics::record_gpu_job_invalid_abandonment(
-        name,
-        queue,
-        resident_command_buffer_count,
-    );
+    leak_owner(resident_command_buffer);
+    crate::sync::diagnostics::record_gpu_job_invalid_abandonment(name, queue, 1);
     panic!(
-        "vkn managed GPU job '{}' was dropped before completion was observed; leaked its fence and {} resident command buffer(s) to preserve Vulkan pending-object lifetime rules",
-        name, resident_command_buffer_count,
+        "vkn managed GPU job '{}' was dropped before completion was observed; leaked its fence and resident command buffer to preserve Vulkan pending-object lifetime rules",
+        name,
     );
 }
 
@@ -245,41 +190,32 @@ fn mark_completion_observed(completion_observed: &AtomicBool) -> bool {
 ///
 /// A future implementation can replace this with pooled job slots without
 /// changing builder/app call sites that hold `GpuJobToken`s.
-pub struct GpuJobManager;
+pub(crate) struct GpuJobManager;
 
 impl GpuJobManager {
-    pub fn submit(device: &Device, queue: &Queue, desc: GpuJobDesc<'_>) -> VkResult<GpuJobToken> {
-        assert!(
-            desc.command_buffers.len() <= MAX_SUBMIT_COMMAND_BUFFERS,
-            "managed GPU job '{}' has {} command buffers; max supported without allocation is {}",
-            desc.name,
-            desc.command_buffers.len(),
-            MAX_SUBMIT_COMMAND_BUFFERS,
-        );
-        crate::sync::diagnostics::record_gpu_job_submit(&desc);
-        let mut resident_command_buffers = std::array::from_fn(|_| None);
-        for (resident, command_buffer) in resident_command_buffers
-            .iter_mut()
-            .zip(desc.command_buffers.iter())
-        {
-            *resident = Some((*command_buffer).clone());
-        }
-        let resident_command_buffer_count = desc.command_buffers.len();
+    pub(crate) fn submit(
+        device: &Device,
+        queue: &Queue,
+        name: &'static str,
+        queue_lane: QueueLane,
+        command_buffer: CommandBuffer,
+    ) -> VkResult<GpuJobToken> {
+        crate::sync::diagnostics::record_gpu_job_submit(name, queue_lane);
         let fence = Fence::new_pooled_gpu_job(device)?;
+        let command_buffers = [&command_buffer];
         let submit_desc = SubmitDesc::new(
-            desc.name,
-            desc.command_buffers,
-            desc.waits,
-            desc.signals,
+            name,
+            &command_buffers,
+            &[],
+            &[],
             Some(&fence),
         );
         device.submit_to_queue(queue, submit_desc)?;
         Ok(GpuJobToken {
-            name: desc.name,
-            queue: desc.queue,
+            name,
+            queue: queue_lane,
             fence: Some(fence),
-            resident_command_buffers,
-            resident_command_buffer_count,
+            resident_command_buffer: Some(command_buffer),
             completion_observed: AtomicBool::new(false),
         })
     }
@@ -306,24 +242,20 @@ mod tests {
     fn invalid_abandonment_panics_after_leaking_every_pending_owner() {
         let drop_count = Arc::new(AtomicUsize::new(0));
         let mut fence = Some(DropProbe(drop_count.clone()));
-        let mut command_buffers = [
-            Some(DropProbe(drop_count.clone())),
-            Some(DropProbe(drop_count.clone())),
-        ];
+        let mut command_buffer = Some(DropProbe(drop_count.clone()));
 
         let panic = catch_unwind(AssertUnwindSafe(|| {
             fail_fast_invalid_abandonment(
                 "test.pending",
                 QueueLane::General,
                 &mut fence,
-                &mut command_buffers,
-                2,
+                &mut command_buffer,
             )
         }));
 
         assert!(panic.is_err());
         assert!(fence.is_none());
-        assert!(command_buffers.iter().all(Option::is_none));
+        assert!(command_buffer.is_none());
         assert_eq!(drop_count.load(Ordering::Relaxed), 0);
     }
 

@@ -1,7 +1,7 @@
 use super::CommandPool;
 use crate::{
-    Buffer, DescriptorSet, Device, Extent2D, GpuJobDesc, GpuJobManager, GraphicsPipeline,
-    JobCompletion, Queue, QueueLane, SubmitDesc, Viewport,
+    Buffer, DescriptorSet, Device, Extent2D, GpuJobManager, GraphicsPipeline, Queue, QueueLane,
+    SubmitDesc, Viewport,
 };
 use ash::vk;
 use std::sync::Arc;
@@ -177,21 +177,16 @@ impl CommandBuffer {
         );
     }
 
+    /// Submit this off-frame command buffer and transfer its residency to the
+    /// returned managed job. Clone a deliberately reusable prerecorded command
+    /// buffer before calling this method.
     pub fn submit_gpu_job(
-        &self,
+        self,
         queue: &Queue,
         name: &'static str,
     ) -> ash::prelude::VkResult<crate::GpuJobToken> {
-        let command_buffers = [self];
-        let desc = GpuJobDesc::new(
-            name,
-            QueueLane::General,
-            &command_buffers,
-            &[],
-            &[],
-            JobCompletion::Fence,
-        );
-        GpuJobManager::submit(&self.0.device, queue, desc)
+        let device = self.0.device.clone();
+        GpuJobManager::submit(&device, queue, name, QueueLane::General, self)
     }
 }
 
@@ -242,16 +237,9 @@ pub fn execute_one_time_gpu_job<R, F: FnOnce(&CommandBuffer) -> R>(
     let result = executor(&command_buffer);
     command_buffer.end();
 
-    let command_buffers = [&command_buffer];
-    let desc = GpuJobDesc::new(
-        "execute_one_time_gpu_job",
-        QueueLane::General,
-        &command_buffers,
-        &[],
-        &[],
-        JobCompletion::Fence,
-    );
-    let job = GpuJobManager::submit(device, queue, desc).unwrap();
+    let job = command_buffer
+        .submit_gpu_job(queue, "execute_one_time_gpu_job")
+        .unwrap();
     let _completed_job = job.wait_complete().unwrap();
     result
 }
