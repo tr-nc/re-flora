@@ -413,7 +413,7 @@ order and rendergraph-lite architecture.
 terrain-query one-time paths, CPU-updated tracer/DDGI uniform buffers, CPU-filled tracer graphics
 instance buffers, tracer static mesh inputs, flora/wind shader lookup buffers, irradiance-capture
 storage writes, and DDGI metadata/transient-ray transitions now declare Buffer uses; frame-wide
-Image tracking and render-pass graphics declarations remain incomplete)
+Image tracking and Egui/non-tracer graphics declarations remain incomplete)
 
 - [ ] Tracer Buffer producers and consumers declare their use through the shared recording seam.
 - [x] DDGI voxel-visibility and terrain-query one-time paths declare HostWrite/ComputeRead,
