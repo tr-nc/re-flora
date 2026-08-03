@@ -17,6 +17,7 @@ use re_flora_vkn::vk;
 use re_flora_vkn::Allocator;
 use re_flora_vkn::Buffer;
 use re_flora_vkn::BufferUsage;
+use re_flora_vkn::BufferUse;
 use re_flora_vkn::ClearValue;
 use re_flora_vkn::ColorClearValue;
 use re_flora_vkn::CommandBuffer;
@@ -1341,24 +1342,29 @@ impl PlainBuilder {
                 options: [0, 0, 0, 0],
             })?;
 
-        let transfer_to_compute_barrier = PipelineBarrier::transfer_to_compute_shader_access();
-        let host_read_barrier = PipelineBarrier::compute_to_host_read();
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         command_buffer.begin(true);
+        command_buffer.begin_resource_state_transaction();
         self.resources.voxel_property_sample_result.record_fill(
             &command_buffer,
             0,
             self.resources.voxel_property_sample_result.get_size_bytes(),
             0,
         );
-        transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.use_buffer(
+            &self.resources.voxel_property_sample_result,
+            BufferUse::ComputeWrite,
+        );
         self.voxel_property_sample_ppl.record(
             &command_buffer,
             Extent3D::new(dim.x, dim.y, dim.z),
             None,
         );
-        host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.use_buffer(
+            &self.resources.voxel_property_sample_result,
+            BufferUse::HostRead,
+        );
         command_buffer.end();
         command_buffer
             .submit_gpu_job(
@@ -1482,17 +1488,18 @@ impl PlainBuilder {
             .unwrap()
             .record("chunk_solid_sample_prepare", prepare_elapsed);
 
-        let host_read_barrier = PipelineBarrier::compute_to_host_read();
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         let submit_start = Instant::now();
         command_buffer.begin(true);
+        command_buffer.begin_resource_state_transaction();
+        command_buffer.use_buffer(&self.resources.chunk_solid_samples, BufferUse::ComputeWrite);
         self.chunk_solid_sample_ppl.record(
             &command_buffer,
             Extent3D::new(sample_dim.x, sample_dim.y, sample_dim.z),
             None,
         );
-        host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.use_buffer(&self.resources.chunk_solid_samples, BufferUse::HostRead);
         command_buffer.end();
         let gpu_job = command_buffer.submit_gpu_job(
             &self.vulkan_ctx.get_general_queue(),
@@ -1714,14 +1721,11 @@ impl PlainBuilder {
         self.resources.terrain_smooth_mbo_info.fill_uniform(&info)?;
         let prepare_ms = prepare_start.elapsed().as_secs_f64() * 1000.0;
 
-        let transfer_to_compute_barrier = PipelineBarrier::transfer_to_compute_shader_access();
-        let shader_access_barrier = PipelineBarrier::compute_shader_access();
-        let host_read_barrier = PipelineBarrier::compute_to_host_read();
-
         let score_gpu_start = Instant::now();
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         command_buffer.begin(true);
+        command_buffer.begin_resource_state_transaction();
         self.resources.terrain_smooth_mbo_histogram.record_fill(
             &command_buffer,
             0,
@@ -1734,33 +1738,76 @@ impl PlainBuilder {
             self.resources.terrain_smooth_mbo_result.get_size_bytes(),
             0,
         );
-        transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_density_a,
+            BufferUse::ComputeWrite,
+        );
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_density_b,
+            BufferUse::ComputeWrite,
+        );
         self.terrain_smooth_mbo_init_ppl.record(
             &command_buffer,
             Extent3D::new(dim.x, dim.y, dim.z),
             None,
         );
-        shader_access_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
         for _ in 0..(iteration_count / 2) {
+            command_buffer.use_buffer(
+                &self.resources.terrain_smooth_mbo_density_a,
+                BufferUse::ComputeRead,
+            );
+            command_buffer.use_buffer(
+                &self.resources.terrain_smooth_mbo_density_b,
+                BufferUse::ComputeWrite,
+            );
             self.terrain_smooth_mbo_diffuse_ab_ppl.record(
                 &command_buffer,
                 Extent3D::new(dim.x, dim.y, dim.z),
                 None,
             );
-            shader_access_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+            command_buffer.use_buffer(
+                &self.resources.terrain_smooth_mbo_density_b,
+                BufferUse::ComputeRead,
+            );
+            command_buffer.use_buffer(
+                &self.resources.terrain_smooth_mbo_density_a,
+                BufferUse::ComputeWrite,
+            );
             self.terrain_smooth_mbo_diffuse_ba_ppl.record(
                 &command_buffer,
                 Extent3D::new(dim.x, dim.y, dim.z),
                 None,
             );
-            shader_access_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
         }
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_density_a,
+            BufferUse::ComputeRead,
+        );
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_scores,
+            BufferUse::ComputeWrite,
+        );
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_histogram,
+            BufferUse::ComputeReadWrite,
+        );
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_result,
+            BufferUse::ComputeReadWrite,
+        );
         self.terrain_smooth_mbo_score_ppl.record(
             &command_buffer,
             Extent3D::new(dim.x, dim.y, dim.z),
             None,
         );
-        host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_histogram,
+            BufferUse::HostRead,
+        );
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_result,
+            BufferUse::HostRead,
+        );
         command_buffer.end();
         command_buffer
             .submit_gpu_job(
@@ -1807,6 +1854,7 @@ impl PlainBuilder {
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         command_buffer.begin(true);
+        command_buffer.begin_resource_state_transaction();
         self.resources.terrain_smooth_mbo_result.record_fill(
             &command_buffer,
             0,
@@ -1820,13 +1868,27 @@ impl PlainBuilder {
             std::mem::size_of::<[u32; 4]>() as u64,
             u32::MAX,
         );
-        transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_scores,
+            BufferUse::ComputeRead,
+        );
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_result,
+            BufferUse::ComputeReadWrite,
+        );
+        command_buffer.use_buffer(
+            &self.resources.solid_workgroup_flags,
+            BufferUse::ComputeReadWrite,
+        );
         self.terrain_smooth_mbo_apply_ppl.record(
             &command_buffer,
             Extent3D::new(dim.x, dim.y, dim.z),
             None,
         );
-        host_read_barrier.record_insert(self.vulkan_ctx.device(), &command_buffer);
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_result,
+            BufferUse::HostRead,
+        );
         command_buffer.end();
         command_buffer
             .submit_gpu_job(
