@@ -32,6 +32,8 @@ impl MemoryAccess {
     pub const SHADER_READ: Self = Self(vk::AccessFlags::SHADER_READ);
     pub const SHADER_WRITE: Self = Self(vk::AccessFlags::SHADER_WRITE);
     pub const INDIRECT_COMMAND_READ: Self = Self(vk::AccessFlags::INDIRECT_COMMAND_READ);
+    pub const INDEX_READ: Self = Self(vk::AccessFlags::INDEX_READ);
+    pub const VERTEX_ATTRIBUTE_READ: Self = Self(vk::AccessFlags::VERTEX_ATTRIBUTE_READ);
     pub const COLOR_ATTACHMENT_READ: Self = Self(vk::AccessFlags::COLOR_ATTACHMENT_READ);
     pub const COLOR_ATTACHMENT_WRITE: Self = Self(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
     pub const DEPTH_STENCIL_ATTACHMENT_WRITE: Self =
@@ -121,6 +123,7 @@ impl PipelineStage {
     pub const TOP_OF_PIPE: Self = Self(vk::PipelineStageFlags::TOP_OF_PIPE);
     pub const BOTTOM_OF_PIPE: Self = Self(vk::PipelineStageFlags::BOTTOM_OF_PIPE);
     pub const COMPUTE_SHADER: Self = Self(vk::PipelineStageFlags::COMPUTE_SHADER);
+    pub const VERTEX_INPUT: Self = Self(vk::PipelineStageFlags::VERTEX_INPUT);
     pub const VERTEX_SHADER: Self = Self(vk::PipelineStageFlags::VERTEX_SHADER);
     pub const FRAGMENT_SHADER: Self = Self(vk::PipelineStageFlags::FRAGMENT_SHADER);
     pub const DRAW_INDIRECT: Self = Self(vk::PipelineStageFlags::DRAW_INDIRECT);
@@ -278,6 +281,8 @@ pub enum BufferUse {
     ComputeWrite,
     ComputeReadWrite,
     IndirectRead,
+    IndexRead,
+    VertexRead,
     TransferRead,
     TransferWrite,
     HostWrite,
@@ -302,6 +307,13 @@ impl BufferUse {
             Self::IndirectRead => BufferState::new(
                 PipelineStage::DRAW_INDIRECT,
                 MemoryAccess::INDIRECT_COMMAND_READ,
+            ),
+            Self::IndexRead => {
+                BufferState::new(PipelineStage::VERTEX_INPUT, MemoryAccess::INDEX_READ)
+            }
+            Self::VertexRead => BufferState::new(
+                PipelineStage::VERTEX_INPUT,
+                MemoryAccess::VERTEX_ATTRIBUTE_READ,
             ),
             Self::TransferRead => {
                 BufferState::new(PipelineStage::TRANSFER, MemoryAccess::TRANSFER_READ)
@@ -601,6 +613,10 @@ mod tests {
         assert_ne!(
             BufferUse::ComputeWrite.state(),
             BufferUse::IndirectRead.state()
+        );
+        assert_ne!(
+            BufferUse::IndexRead.state(),
+            BufferUse::VertexRead.state()
         );
         assert_ne!(
             BufferUse::HostWrite.state(),
