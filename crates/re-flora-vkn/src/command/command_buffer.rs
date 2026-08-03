@@ -151,6 +151,24 @@ impl CommandBuffer {
         true
     }
 
+    pub(crate) fn assume_image_state(
+        &self,
+        image: &Image,
+        base_array_layer: u32,
+        layer_count: u32,
+        state: ResourceState,
+    ) {
+        let mut transaction = self.0.resource_state_transaction.lock().unwrap();
+        if let Some(transaction) = transaction.as_mut() {
+            if transaction.assume_image_state(image, base_array_layer, layer_count, state) {
+                return;
+            }
+        }
+        for layer in base_array_layer..base_array_layer + layer_count {
+            image.set_state(layer, state);
+        }
+    }
+
     pub(crate) fn record_buffer_use(&self, buffer: &Buffer, usage: BufferUse) -> bool {
         let mut transaction = self.0.resource_state_transaction.lock().unwrap();
         let Some(transaction) = transaction.as_mut() else {

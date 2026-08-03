@@ -91,6 +91,43 @@ impl ResourceStateTransaction {
             })
     }
 
+    pub(crate) fn assume_image_state(
+        &mut self,
+        image: &Image,
+        base_array_layer: u32,
+        layer_count: u32,
+        state: ResourceState,
+    ) -> bool {
+        if !self.track_images {
+            return false;
+        }
+        let image_index = self
+            .images
+            .iter()
+            .position(|tracked| tracked.image.state_transaction_key() == image.state_transaction_key())
+            .unwrap_or_else(|| {
+                let initial = image.snapshot_states();
+                self.images.push(TrackedImageState {
+                    image: image.clone(),
+                    current: initial.clone(),
+                    initial,
+                });
+                self.images.len() - 1
+            });
+        let tracked = &mut self.images[image_index];
+        let start = base_array_layer as usize;
+        let end = start + layer_count as usize;
+        assert!(
+            end <= tracked.current.len(),
+            "image state assumption layer range {}..{} exceeds array length {}",
+            base_array_layer,
+            base_array_layer + layer_count,
+            tracked.current.len()
+        );
+        tracked.current[start..end].fill(state);
+        true
+    }
+
     pub(crate) fn use_buffer(
         &mut self,
         cmdbuf: &CommandBuffer,

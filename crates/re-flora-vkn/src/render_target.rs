@@ -1,4 +1,4 @@
-use crate::{CommandBuffer, Framebuffer, RenderPass, RenderPassDesc};
+use crate::{CommandBuffer, Framebuffer, RenderPass, RenderPassDesc, ResourceState};
 use ash::vk;
 
 #[derive(Clone, Copy, Debug)]
@@ -46,7 +46,7 @@ impl RenderTarget {
             framebuffer_index,
             self.framebuffers.len() - 1
         );
-        self.track_attachment_initial_layouts(framebuffer_index);
+        self.track_attachment_initial_layouts(cmdbuf, framebuffer_index);
         self.render_pass
             .record_begin(cmdbuf, &self.framebuffers[framebuffer_index], clear_values);
         *self.active_framebuffer.lock().unwrap() = Some(ActiveFramebuffer {
@@ -64,7 +64,7 @@ impl RenderTarget {
     pub fn record_end(&self, cmdbuf: &CommandBuffer) {
         self.render_pass.record_end(cmdbuf);
         if let Some(active_framebuffer) = self.active_framebuffer.lock().unwrap().take() {
-            self.track_attachment_final_layouts(active_framebuffer.index);
+            self.track_attachment_final_layouts(cmdbuf, active_framebuffer.index);
         }
     }
 
@@ -78,21 +78,56 @@ impl RenderTarget {
         &self.render_pass
     }
 
-    fn track_attachment_initial_layouts(&self, framebuffer_index: usize) {
+    fn track_attachment_initial_layouts(&self, cmdbuf: &CommandBuffer, framebuffer_index: usize) {
         let framebuffer = &self.framebuffers[framebuffer_index];
         for (attachment_index, texture) in framebuffer.get_attachments().iter().enumerate() {
             if let Some(desc) = self.render_pass.get_desc().attachments.get(attachment_index) {
-                texture.get_image().set_layout(0, desc.initial_layout);
+                if desc.initial_layout == crate::TextureLayout::UNDEFINED {
+                    cmdbuf.assume_image_state(
+                        texture.get_image(),
+                        0,
+                        1,
+                        ResourceState::undefined(),
+                    );
+                } else {
+                    cmdbuf.use_image_layers(
+                        texture.get_image(),
+                        0,
+                        1,
+                        image_use_for_layout(desc.initial_layout),
+                    );
+                }
             }
         }
     }
 
-    fn track_attachment_final_layouts(&self, framebuffer_index: usize) {
+    fn track_attachment_final_layouts(&self, cmdbuf: &CommandBuffer, framebuffer_index: usize) {
         let framebuffer = &self.framebuffers[framebuffer_index];
         for (attachment_index, texture) in framebuffer.get_attachments().iter().enumerate() {
             if let Some(desc) = self.render_pass.get_desc().attachments.get(attachment_index) {
-                texture.get_image().set_layout(0, desc.final_layout);
+                cmdbuf.assume_image_state(
+                    texture.get_image(),
+                    0,
+                    1,
+                    ResourceState::from_layout(desc.final_layout),
+                );
             }
         }
+    }
+}
+
+fn image_use_for_layout(layout: crate::TextureLayout) -> crate::ImageUse {
+    match layout {
+        crate::TextureLayout::GENERAL => crate::ImageUse::ComputeReadWrite,
+        crate::TextureLayout::TRANSFER_SRC => crate::ImageUse::TransferRead,
+        crate::TextureLayout::TRANSFER_DST => crate::ImageUse::TransferWrite,
+        crate::TextureLayout::SHADER_READ_ONLY => crate::ImageUse::ShaderRead,
+        crate::TextureLayout::COLOR_ATTACHMENT => crate::ImageUse::ColorAttachment,
+        crate::TextureLayout::DEPTH_STENCIL_ATTACHMENT => crate::ImageUse::DepthStencilAttachment,
+        crate::TextureLayout::PRESENT_SRC => crate::ImageUse::Present,
+        crate::TextureLayout::UNDEFINED | crate::TextureLayout::PREINITIALIZED => {
+            panic!("render target initial layout {:?} requires explicit undefined handling", layout)
+        }
+        _ => panic!("unsupported render target attachment layout {:?}", layout),
     }
 }
