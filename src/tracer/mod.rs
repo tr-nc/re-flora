@@ -3224,6 +3224,13 @@ impl Tracer {
             cmdbuf.use_buffer(buffer, BufferUse::VertexRead);
         };
 
+        for buffer in [
+            &*self.resources.wind.wind_volume_info,
+            &*self.resources.flora_voxel_lookup.flora_voxel_table_descs,
+            &*self.resources.flora_voxel_lookup.flora_voxel_infos,
+        ] {
+            cmdbuf.use_buffer(buffer, BufferUse::ShaderRead);
+        }
         record_vertex(&self.resources.meshes.terrain_depth_prefill_vertices);
         for mesh in &self.resources.meshes.flora_meshes {
             record_mesh(&mesh.indices, &mesh.vertices, mesh.indices_len);
