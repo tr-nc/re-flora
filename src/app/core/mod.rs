@@ -218,7 +218,23 @@ impl ResizeLifecycleTest {
         if self.complete || frame < self.next_request_frame {
             return;
         }
-        let Some(size) = Self::SIZES.get(self.requested).copied() else {
+        let burst = usize::from(self.requested == 0) * 2 + 1;
+        for _ in 0..burst {
+            let Some(size) = Self::SIZES.get(self.requested).copied() else {
+                break;
+            };
+            self.requested += 1;
+            let accepted = window.request_inner_size(size);
+            log::info!(
+                "[RESIZE_LIFECYCLE] phase=request index={} requested={}x{} accepted={:?} burst={}",
+                self.requested - 1,
+                size.width,
+                size.height,
+                accepted,
+                burst > 1,
+            );
+        }
+        if self.requested >= Self::SIZES.len() {
             self.complete = true;
             log::info!(
                 "[RESIZE_LIFECYCLE] phase=requests_complete count={} observed={}",
@@ -226,17 +242,8 @@ impl ResizeLifecycleTest {
                 self.observed.len(),
             );
             return;
-        };
-        self.requested += 1;
+        }
         self.next_request_frame = frame + 2;
-        let accepted = window.request_inner_size(size);
-        log::info!(
-            "[RESIZE_LIFECYCLE] phase=request index={} requested={}x{} accepted={:?}",
-            self.requested - 1,
-            size.width,
-            size.height,
-            accepted,
-        );
     }
 
     fn observe(&mut self, size: re_flora_vkn::Extent2D, generation: u64) {
@@ -248,6 +255,14 @@ impl ResizeLifecycleTest {
             size.height,
             generation,
         );
+    }
+
+    fn converged_on_latest_extent(&self) -> bool {
+        self.complete
+            && self.observed.last().is_some_and(|extent| {
+                extent.width == Self::SIZES.last().unwrap().width
+                    && extent.height == Self::SIZES.last().unwrap().height
+            })
     }
 }
 
@@ -4557,6 +4572,15 @@ impl App {
                                     panic!(
                                         "[EGUI_TEXTURE_LIFECYCLE] timed out before full/partial/replacement/free sequence completed step={}",
                                         test.step,
+                                    );
+                                }
+                            }
+                            if let Some(test) = self.resize_lifecycle_test.as_ref() {
+                                if !test.converged_on_latest_extent() {
+                                    panic!(
+                                        "[RESIZE_LIFECYCLE] timed out before latest extent was observed requested={} observed={:?}",
+                                        test.requested,
+                                        test.observed,
                                     );
                                 }
                             }

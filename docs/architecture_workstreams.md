@@ -221,10 +221,10 @@ and retires only after their completion.
 
 **Blocked by:** Ticket 04 — Retire runtime Buffer generations at frame completion.
 
-**Status:** in-progress (`74ce3a02`, `29e2ce0e`, `faa3a0cd`; egui Mesh growth and texture
+**Status:** completed (`74ce3a02`, `29e2ce0e`, `faa3a0cd`, `25854081`; egui Mesh growth and texture
 replacement/removal now publish completion-retired generations, partial updates copy into a new
 complete Image generation before patching, and each live texture is an explicit
-texture/descriptor/generation bundle; dedicated lifecycle validation remains)
+texture/descriptor/generation bundle; dedicated hidden lifecycle validation is green)
 
 - [x] Replacing or removing a texture keeps the old texture/descriptor pair resident until frame
       completion instead of dropping either map entry immediately.
@@ -233,9 +233,11 @@ texture/descriptor/generation bundle; dedicated lifecycle validation remains)
       idle or an unbounded live-resource list.
 - [x] Registering a texture publishes one explicit descriptor generation whose owner set is the
       complete renderable resource bundle.
-- [ ] Partial texture updates, identity/descriptor pairing, and the full texture lifecycle pass
-      dedicated hidden release validation. The implementation now uses the same complete-generation
-      path for partial updates (`faa3a0cd`); the dedicated lifecycle exercise is still required.
+- [x] Partial texture updates, identity/descriptor pairing, and the full texture lifecycle pass
+      dedicated hidden release validation. `--egui-texture-lifecycle-test` exercised initial full,
+      two partial patches, full replacement, and free with completion-retired generations in
+      `target/re-flora-logs/re-flora-20260803-233720.308-42860.log`; the strict actual-error scan
+      was clean.
 
 ---
 
@@ -247,21 +249,31 @@ the normal resize path's device-wide idle.
 
 **Blocked by:** Ticket 05 — Publish and retire egui texture descriptor generations.
 
-**Status:** in-progress (`768b8c00`, `400e44d6`; resize waits and observes all frame submissions in
+**Status:** completed (`768b8c00`, `400e44d6`, `25854081`; resize waits and observes all frame submissions in
 queue order, retires the old extent-dependent resource/framebuffer bundle through the completion
-clock, and propagates acquire-side suboptimal signals alongside present-side signals)
+clock, waits only the presentation queue before destroying swapchain-owned semaphores/images, and
+propagates acquire-side suboptimal signals alongside present-side signals)
 
 - [x] Normal window resize no longer calls `device.wait_idle()` before replacing extent-dependent GPU
       resources.
 - [x] Prior extent-dependent Images and Framebuffers are retained as one generation until frame
       submissions complete.
-- [ ] A frame observes one internally consistent extent generation across descriptors and all passes.
-- [ ] Rapid consecutive resizes and swapchain out-of-date/suboptimal events remain safe and converge
-      on the latest window extent.
-- [ ] Composition, post-processing, shadows, clouds, egui, swapchain presentation, and screenshot
-      paths remain valid after resize.
-- [ ] Hidden release logs contain no descriptor, framebuffer, Image lifetime, or synchronization
-      validation errors.
+- [x] A frame observes one internally consistent extent generation across descriptors and all passes.
+      Each frame in the resize acceptance asserts tracer screen-output extent equals the current
+      swapchain/window extent and logs matching tracer/application generations.
+- [x] Rapid consecutive resizes and swapchain out-of-date/suboptimal events remain safe and converge
+      on the latest window extent. The deterministic hidden run issued three same-turn requests
+      (`burst=true`), then two more, published the coalesced sequence, and converged on 1280x720;
+      acquire/present handling remains coalesced through the pending flag.
+- [x] Composition, post-processing, shadows, clouds, egui, swapchain presentation, and screenshot
+      paths remain valid after resize. The screenshot-enabled companion run saved
+      `target/resize-lifecycle-20260803.png` and logged `[SCREENSHOT] Saved 1280x720` in
+      `target/re-flora-logs/re-flora-20260803-233553.694-42561.log`.
+- [x] Hidden release logs contain no descriptor, framebuffer, Image lifetime, or synchronization
+      validation errors. The corrected queue-quiescence run
+      (`target/re-flora-logs/re-flora-20260803-233720.308-42860.log`)'s strict actual-error scan is clean;
+      the earlier run exposed semaphore destruction validation and is retained as the motivating
+      regression evidence.
 
 ---
 
@@ -315,10 +327,9 @@ complete, and the retired generation remains resident until its final consumer f
 - Ticket 05 — Publish and retire egui texture descriptor generations.
 - Ticket 07 — Measure the DDGI publication stall.
 
-**Status:** in-progress (`41d2709e`, `49033a6e`, `cf134884`, `902d7436`; consumer descriptor generations are
+**Status:** completed (`41d2709e`, `49033a6e`, `cf134884`, `902d7436`, `942eac11`; consumer descriptor generations are
 published atomically and retired on frame completion, and staging publication no longer calls
-`device.wait_idle()`; matched correctness is green, while the measured total-stall improvement is
-not yet demonstrated)
+`device.wait_idle()`; matched correctness and release A/B performance are green)
 
 - [x] DDGI consumer publication no longer requires `device.wait_idle()`.
 - [x] Consumers observe either the previous complete DDGI Volume or the newly published complete
@@ -335,8 +346,11 @@ not yet demonstrated)
       failure only because `check_ddgi_runtime_terrain_edits.sh` expected
       `staging_stage=Some(Rebuilding)` while the runtime log contract is `staging_stage=Rebuilding`;
       after `902d7436` corrected that test-only literal, the 29-run runtime matrix exited 0.
-- [ ] Matched release-mode A/B evidence improves the publication stall without a material frame-tail
-      regression.
+- [x] Matched release-mode A/B evidence improves the publication stall without a material frame-tail
+      regression. `target/ddgi-publication-benchmark-20260803-prepared-3/summary.json` records three
+      Apple M4 Pro release samples with publication total median `0.014 ms` (mean `0.0147 ms`, p95
+      `0.014 ms`) versus the matched pre-migration median `0.172 ms`; frame-render median is `3732 us`
+      with p95 `6229 us` versus the baseline median `3720 us` / p95 `6409 us`.
 
 ---
 
