@@ -218,15 +218,19 @@ and retires only after their completion.
 
 **Blocked by:** Ticket 04 — Retire runtime Buffer generations at frame completion.
 
-**Status:** ready-for-agent (active frontier)
+**Status:** in-progress (`74ce3a02`; egui Mesh growth and texture replacement/removal now publish
+completion-retired generations; descriptor-generation validation and partial texture update ordering
+remain)
 
-- [ ] Registering a texture publishes one descriptor generation containing the resources required to
-      render it.
-- [ ] Replacing or removing a texture cannot invalidate a descriptor still referenced by an in-flight
-      frame.
-- [ ] Texture identity and descriptor identity cannot drift across separate parallel maps.
-- [ ] Completed generations are reclaimed without a device-wide idle or an unbounded retention list.
-- [ ] The normal egui render path, texture updates, and texture removal pass hidden release validation.
+- [x] Replacing or removing a texture keeps the old texture/descriptor pair resident until frame
+      completion instead of dropping either map entry immediately.
+- [x] Mesh buffer growth keeps the old vertex/index pair resident until frame completion.
+- [x] Completed egui generations use the bounded frame-retirement queue rather than a device-wide
+      idle or an unbounded live-resource list.
+- [ ] Registering a texture publishes one explicit descriptor generation whose owner set is the
+      complete renderable resource bundle.
+- [ ] Partial texture updates, identity/descriptor pairing, and the full texture lifecycle pass
+      dedicated hidden release validation.
 
 ---
 
@@ -238,13 +242,14 @@ the normal resize path's device-wide idle.
 
 **Blocked by:** Ticket 05 — Publish and retire egui texture descriptor generations.
 
-**Status:** ready-for-agent
+**Status:** in-progress (`768b8c00`; resize now waits and observes all frame submissions in queue order,
+then retires the old extent-dependent resource/framebuffer bundle through the completion clock)
 
-- [ ] Normal window resize no longer calls `device.wait_idle()` before replacing extent-dependent GPU
+- [x] Normal window resize no longer calls `device.wait_idle()` before replacing extent-dependent GPU
       resources.
-- [ ] A frame observes one internally consistent extent generation; it cannot mix old Images with new
-      Framebuffers or descriptors.
-- [ ] Prior extent generations retire only after the frame submissions that reference them complete.
+- [x] Prior extent-dependent Images and Framebuffers are retained as one generation until frame
+      submissions complete.
+- [ ] A frame observes one internally consistent extent generation across descriptors and all passes.
 - [ ] Rapid consecutive resizes and swapchain out-of-date/suboptimal events remain safe and converge
       on the latest window extent.
 - [ ] Composition, post-processing, shadows, clouds, egui, swapchain presentation, and screenshot
@@ -384,7 +389,7 @@ barriers to declared Buffer use through the command-recording resource-state mod
 
 **Blocked by:** Ticket 11 — Track Buffer hazards through one Contree build.
 
-**Status:** in-progress (`00feaad0`; Plain sampling, smoothing, cached build, model voxelization,
+**Status:** in-progress (`00feaad0`, `7744b4af`; Plain sampling, smoothing, cached build, model voxelization,
 and terrain-edit paths plus Surface build/flora paths migrated; HostWrite is now a first-class
 Buffer use)
 
@@ -442,12 +447,10 @@ Image tracking and Egui/non-tracer graphics declarations remain incomplete)
       equivalent under matched conditions.
 - [ ] Hidden release logs remain free of synchronization, descriptor, and resource-state errors.
 
-**Deferred boundary:** Egui's dynamic Mesh buffers are outside the tracer migration. A validation
-experiment that moved Mesh updates before the swapchain render pass exposed an independent
-retirement bug: buffer growth can destroy an old vertex/index buffer while an earlier command buffer
-still uses it (`vkDestroyBuffer ... currently in use`). Egui needs a GPU-safe retirement or
-per-frame-buffer seam before its HostWrite/IndexRead/VertexRead declarations can move outside the
-render pass.
+**Deferred boundary:** Egui's dynamic Mesh buffers are outside the tracer migration. The independent
+retirement bug is now covered by the Egui completion-retirement seam (`74ce3a02`), but Egui's
+HostWrite/IndexRead/VertexRead declarations still need a per-frame buffer or recording seam before
+they can move outside the render pass.
 
 ---
 
