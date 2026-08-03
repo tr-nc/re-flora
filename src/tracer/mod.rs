@@ -2982,22 +2982,6 @@ impl Tracer {
                 MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
             )],
         );
-        let compute_to_transfer_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::TRANSFER,
-            [MemoryBarrier::new(
-                MemoryAccess::SHADER_WRITE,
-                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
-            )],
-        );
-        let transfer_to_compute_barrier = PipelineBarrier::new(
-            PipelineStage::TRANSFER,
-            PipelineStage::COMPUTE_SHADER,
-            [MemoryBarrier::new(
-                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
-                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
-            )],
-        );
         let depth_to_compute_barrier = PipelineBarrier::new(
             PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
             PipelineStage::COMPUTE_SHADER,
@@ -3299,9 +3283,7 @@ impl Tracer {
                 "leaf_shadow_mask.pass",
                 || self.record_leaf_shadow_mask_pass(cmdbuf),
             );
-            compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_store_leaf_shadow_history(cmdbuf);
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
         if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {
             let frag_to_compute_barrier = PipelineBarrier::shader_access(
@@ -3362,9 +3344,7 @@ impl Tracer {
                     "cloud_shadow.pass",
                     || self.record_cloud_shadow_pass(cmdbuf),
                 );
-                compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
                 self.record_store_cloud_shadow_history(cmdbuf);
-                transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             } else {
                 self.cloud_shadow_history_valid = false;
             }
@@ -3557,22 +3537,6 @@ impl Tracer {
                 MemoryAccess::SHADER_READ,
             )],
         );
-        let compute_to_transfer_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::TRANSFER,
-            [MemoryBarrier::new(
-                MemoryAccess::SHADER_WRITE,
-                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
-            )],
-        );
-        let transfer_to_compute_barrier = PipelineBarrier::new(
-            PipelineStage::TRANSFER,
-            PipelineStage::COMPUTE_SHADER,
-            [MemoryBarrier::new(
-                MemoryAccess::TRANSFER_READ | MemoryAccess::TRANSFER_WRITE,
-                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
-            )],
-        );
 
         // Terrarium glass is composited analytically in composition.comp so it can refract the
         // already-combined scene and depth-test against ray-traced terrain. Keep it out of the
@@ -3703,9 +3667,7 @@ impl Tracer {
                 "cloud.pass",
                 || self.record_cloud_pass(cmdbuf),
             );
-            compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             self.record_store_cloud_history(cmdbuf);
-            transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         } else {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
