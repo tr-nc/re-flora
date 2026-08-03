@@ -218,16 +218,17 @@ and retires only after their completion.
 
 **Blocked by:** Ticket 04 — Retire runtime Buffer generations at frame completion.
 
-**Status:** in-progress (`74ce3a02`; egui Mesh growth and texture replacement/removal now publish
-completion-retired generations; descriptor-generation validation and partial texture update ordering
-remain)
+**Status:** in-progress (`74ce3a02`, `29e2ce0e`; egui Mesh growth and texture
+replacement/removal now publish completion-retired generations, and each live texture is an
+explicit texture/descriptor/generation bundle; dedicated lifecycle validation and partial-update
+ordering remain)
 
 - [x] Replacing or removing a texture keeps the old texture/descriptor pair resident until frame
       completion instead of dropping either map entry immediately.
 - [x] Mesh buffer growth keeps the old vertex/index pair resident until frame completion.
 - [x] Completed egui generations use the bounded frame-retirement queue rather than a device-wide
       idle or an unbounded live-resource list.
-- [ ] Registering a texture publishes one explicit descriptor generation whose owner set is the
+- [x] Registering a texture publishes one explicit descriptor generation whose owner set is the
       complete renderable resource bundle.
 - [ ] Partial texture updates, identity/descriptor pairing, and the full texture lifecycle pass
       dedicated hidden release validation.
