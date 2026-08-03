@@ -1117,12 +1117,12 @@ impl PlainBuilder {
         surface_leaf_chunk_info: &Buffer,
     ) {
         self.terrain_moisture_dry_ppl
-            .write_descriptor_set(0, WriteDescriptorSet::new_buffer_write(0, gui_input));
-        self.terrain_moisture_dry_ppl.write_descriptor_set(
+            .initialize_descriptor_set(0, WriteDescriptorSet::new_buffer_write(0, gui_input));
+        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
             0,
             WriteDescriptorSet::new_buffer_write(2, shadow_camera_info),
         );
-        self.terrain_moisture_dry_ppl.write_descriptor_set(
+        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
             0,
             WriteDescriptorSet::new_texture_write(
                 3,
@@ -1131,19 +1131,19 @@ impl PlainBuilder {
                 TextureLayout::SHADER_READ_ONLY,
             ),
         );
-        self.terrain_moisture_dry_ppl.write_descriptor_set(
+        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
             0,
             WriteDescriptorSet::new_buffer_write(4, contree_leaf_data),
         );
-        self.terrain_moisture_dry_ppl.write_descriptor_set(
+        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
             0,
             WriteDescriptorSet::new_buffer_write(5, surface_leaf_coords),
         );
-        self.terrain_moisture_dry_ppl.write_descriptor_set(
+        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
             0,
             WriteDescriptorSet::new_buffer_write(6, surface_leaf_chunk_info),
         );
-        self.terrain_moisture_dry_ppl.write_descriptor_set(
+        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
             0,
             WriteDescriptorSet::new_texture_write(
                 7,
@@ -1152,7 +1152,7 @@ impl PlainBuilder {
                 TextureLayout::SHADER_READ_ONLY,
             ),
         );
-        self.terrain_moisture_dry_ppl.write_descriptor_set(
+        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
             0,
             WriteDescriptorSet::new_texture_write(
                 8,
@@ -1161,7 +1161,7 @@ impl PlainBuilder {
                 TextureLayout::SHADER_READ_ONLY,
             ),
         );
-        self.terrain_moisture_dry_ppl.write_descriptor_set(
+        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
             0,
             WriteDescriptorSet::new_texture_write(
                 9,

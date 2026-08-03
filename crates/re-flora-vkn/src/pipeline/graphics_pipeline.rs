@@ -639,15 +639,31 @@ impl GraphicsPipeline {
         );
     }
 
+    /// Initialize a descriptor set before any command can reference it.
+    ///
+    /// Runtime updates must use `begin_descriptor_generation` and
+    /// `write_descriptor_set`; direct mutation of the active generation is
+    /// intentionally unavailable.
+    pub fn initialize_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
+        assert!(
+            self.0.pending_descriptor_sets.lock().unwrap().is_none(),
+            "descriptor initialization cannot run while a generation is staged"
+        );
+        let mut write = write;
+        self.update_texture_binding_from_write(set_no, &write);
+        let guard = self.0.descriptor_sets.lock().unwrap();
+        guard[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
+    }
+
+    /// Write a descriptor into the staged generation only.
     pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
         let mut write = write;
         self.update_texture_binding_from_write(set_no, &write);
-        if let Some(descriptor_sets) = self.0.pending_descriptor_sets.lock().unwrap().as_ref() {
-            descriptor_sets[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
-        } else {
-            let guard = self.0.descriptor_sets.lock().unwrap();
-            guard[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
-        }
+        let pending = self.0.pending_descriptor_sets.lock().unwrap();
+        let descriptor_sets = pending
+            .as_ref()
+            .expect("runtime descriptor writes require begin_descriptor_generation");
+        descriptor_sets[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
     }
 
     fn update_texture_binding_from_write(&self, set_no: u32, write: &WriteDescriptorSet<'_>) {
