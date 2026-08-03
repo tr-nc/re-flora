@@ -520,6 +520,9 @@ impl App {
         for retirement in self.tracer.take_frame_retirements() {
             self.frame_manager.retire_after_last_submission(retirement);
         }
+        for retirement in self.egui_renderer.take_frame_retirements() {
+            self.frame_manager.retire_after_last_submission(retirement);
+        }
     }
 
     fn log_gpu_profiler_frame(&self, frame_count: u64) {

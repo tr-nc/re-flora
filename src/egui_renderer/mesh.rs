@@ -11,6 +11,11 @@ pub struct Mesh {
     index_count: usize,
 }
 
+pub struct RetiredMeshBuffers {
+    pub vertices: Buffer,
+    pub indices: Buffer,
+}
+
 impl Mesh {
     pub fn new(
         device: &Device,
@@ -57,38 +62,46 @@ impl Mesh {
         device: &Device,
         allocator: &mut Allocator,
         primitives: &[ClippedPrimitive],
-    ) {
+    ) -> Option<RetiredMeshBuffers> {
         let vertices = create_vertices(primitives);
-        if vertices.len() > self.vertex_count {
+        let indices = create_indices(primitives);
+        let grows = vertices.len() > self.vertex_count || indices.len() > self.index_count;
+        let retired = grows.then(|| {
+            let retired = RetiredMeshBuffers {
+                vertices: std::mem::replace(
+                    &mut self.vertices_buffer,
+                    Buffer::new_sized(
+                        device.clone(),
+                        allocator.clone(),
+                        BufferUsage::vertex_buffer(),
+                        MemoryLocation::CpuToGpu,
+                        (vertices.len() * size_of::<Vertex>()) as _,
+                    ),
+                ),
+                indices: std::mem::replace(
+                    &mut self.indices_buffer,
+                    Buffer::new_sized(
+                        device.clone(),
+                        allocator.clone(),
+                        BufferUsage::index_buffer(),
+                        MemoryLocation::CpuToGpu,
+                        (indices.len() * size_of::<u32>()) as _,
+                    ),
+                ),
+            };
             self.vertex_count = vertices.len();
-            let size = self.vertex_count * size_of::<Vertex>();
-            self.vertices_buffer = Buffer::new_sized(
-                device.clone(),
-                allocator.clone(),
-                BufferUsage::vertex_buffer(),
-                MemoryLocation::CpuToGpu,
-                size as _,
-            );
-        }
+            self.index_count = indices.len();
+            retired
+        });
+
         self.vertices_buffer
             .fill(&vertices)
             .expect("Failed to fill vertex buffer");
-
-        let indices = create_indices(primitives);
-        if indices.len() > self.index_count {
-            self.index_count = indices.len();
-            let size = self.index_count * size_of::<u32>();
-            self.indices_buffer = Buffer::new_sized(
-                device.clone(),
-                allocator.clone(),
-                BufferUsage::index_buffer(),
-                MemoryLocation::CpuToGpu,
-                size as _,
-            );
-        }
         self.indices_buffer
             .fill(&indices)
             .expect("Failed to fill index buffer");
+
+        retired
     }
 }
 

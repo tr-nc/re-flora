@@ -1,4 +1,4 @@
-use super::mesh::Mesh;
+use super::mesh::{Mesh, RetiredMeshBuffers};
 use egui::ViewportId;
 use egui::{
     epaint::{ImageDelta, Primitive},
@@ -16,8 +16,8 @@ use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
 use re_flora_vkn::WriteDescriptorSet;
 use re_flora_vkn::{
-    Allocator, DescriptorPool, DescriptorSet, Device, Extent2D, Extent3D, GraphicsPipeline,
-    GraphicsPipelineDesc, ShaderModule, Texture,
+    Allocator, DescriptorPool, DescriptorSet, Device, Extent2D, Extent3D, FrameRetirement,
+    GraphicsPipeline, GraphicsPipelineDesc, ShaderModule, Texture,
 };
 use std::collections::HashMap;
 use winit::event::WindowEvent;
@@ -35,6 +35,9 @@ pub struct EguiRenderer {
     managed_textures: HashMap<TextureId, Texture>,
     managed_texture_descriptor_sets: HashMap<TextureId, DescriptorSet>,
     frames: Option<Mesh>,
+    pending_frame_retirements: Vec<FrameRetirement>,
+    texture_generation: u64,
+    mesh_generation: u64,
 
     egui_context: egui::Context,
     egui_winit_state: egui_winit::State,
@@ -96,6 +99,9 @@ impl EguiRenderer {
             managed_textures: HashMap::new(),
             managed_texture_descriptor_sets: HashMap::new(),
             frames: None,
+            pending_frame_retirements: Vec::new(),
+            texture_generation: 1,
+            mesh_generation: 1,
 
             egui_context,
             egui_winit_state,
@@ -203,16 +209,6 @@ impl EguiRenderer {
                     )
                     .unwrap();
 
-                self.gui_ppl.write_descriptor_set(
-                    0,
-                    WriteDescriptorSet::new_texture_write(
-                        0,
-                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                        &texture,
-                        TextureLayout::SHADER_READ_ONLY,
-                    ),
-                );
-
                 let descriptor_layout = self
                     .gui_ppl
                     .get_layout()
@@ -230,17 +226,42 @@ impl EguiRenderer {
                     TextureLayout::SHADER_READ_ONLY,
                 )]);
 
-                self.managed_textures.insert(*id, texture);
-                self.managed_texture_descriptor_sets
+                let old_texture = self.managed_textures.insert(*id, texture);
+                let old_descriptor_set = self
+                    .managed_texture_descriptor_sets
                     .insert(*id, descriptor_set);
+                if old_texture.is_some() || old_descriptor_set.is_some() {
+                    let generation = self.texture_generation;
+                    self.texture_generation = self
+                        .texture_generation
+                        .checked_add(1)
+                        .expect("egui texture generation overflow");
+                    self.pending_frame_retirements.push(FrameRetirement::new(
+                        "egui.texture",
+                        generation,
+                        (old_texture, old_descriptor_set),
+                    ));
+                }
             }
         }
     }
 
     fn free_textures(&mut self, texture_ids: &[TextureId]) {
         for texture_id in texture_ids {
-            self.managed_textures.remove(texture_id);
-            self.managed_texture_descriptor_sets.remove(texture_id);
+            let old_texture = self.managed_textures.remove(texture_id);
+            let old_descriptor_set = self.managed_texture_descriptor_sets.remove(texture_id);
+            if old_texture.is_some() || old_descriptor_set.is_some() {
+                let generation = self.texture_generation;
+                self.texture_generation = self
+                    .texture_generation
+                    .checked_add(1)
+                    .expect("egui texture generation overflow");
+                self.pending_frame_retirements.push(FrameRetirement::new(
+                    "egui.texture",
+                    generation,
+                    (old_texture, old_descriptor_set),
+                ));
+            }
         }
     }
 
@@ -256,6 +277,8 @@ impl EguiRenderer {
         extent: Extent2D,
         pixels_per_point: f32,
         primitives: &[ClippedPrimitive],
+        pending_frame_retirements: &mut Vec<FrameRetirement>,
+        mesh_generation: &mut u64,
     ) {
         if primitives.is_empty() {
             return;
@@ -265,10 +288,21 @@ impl EguiRenderer {
             frames.replace(Mesh::new(device, allocator, primitives));
         }
 
-        frames
+        if let Some(RetiredMeshBuffers { vertices, indices }) = frames
             .as_mut()
             .unwrap()
-            .update(device, allocator, primitives);
+            .update(device, allocator, primitives)
+        {
+            let generation = *mesh_generation;
+            *mesh_generation = (*mesh_generation)
+                .checked_add(1)
+                .expect("egui mesh generation overflow");
+            pending_frame_retirements.push(FrameRetirement::new(
+                "egui.mesh",
+                generation,
+                (vertices, indices),
+            ));
+        }
 
         cmdbuf.bind_graphics_pipeline(pipeline);
 
@@ -391,6 +425,12 @@ impl EguiRenderer {
             render_area,
             self.pixels_per_point.unwrap() * output_scale,
             self.clipped_primitives.as_ref().unwrap(),
+            &mut self.pending_frame_retirements,
+            &mut self.mesh_generation,
         );
+    }
+
+    pub fn take_frame_retirements(&mut self) -> Vec<FrameRetirement> {
+        std::mem::take(&mut self.pending_frame_retirements)
     }
 }
