@@ -1,4 +1,6 @@
-use crate::{Allocator, BufferLayout, CommandBuffer, Device, MemoryLocation};
+use crate::{
+    Allocator, BufferLayout, BufferState, BufferUse, CommandBuffer, Device, MemoryLocation,
+};
 
 use super::BufferUsage;
 use anyhow::Result;
@@ -7,7 +9,7 @@ use core::slice;
 use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme};
 use std::fmt;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 impl fmt::Debug for BufferDesc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -35,6 +37,7 @@ struct BufferInner {
     buffer: vk::Buffer,
     allocated_mem: Allocation,
     desc: BufferDesc,
+    current_state: Mutex<BufferState>,
 }
 
 /// Owned Vulkan buffer allocation.
@@ -182,6 +185,7 @@ impl Buffer {
             buffer,
             allocated_mem,
             desc,
+            current_state: Mutex::new(BufferState::unknown()),
         }))
     }
 
@@ -231,6 +235,7 @@ impl Buffer {
             buffer,
             allocated_mem,
             desc,
+            current_state: Mutex::new(BufferState::unknown()),
         }))
     }
 
@@ -423,6 +428,7 @@ impl Buffer {
 
     #[allow(dead_code)]
     pub fn record_fill(&self, cmdbuf: &CommandBuffer, offset: u64, size: u64, value: u32) {
+        cmdbuf.record_buffer_use(self, BufferUse::TransferWrite);
         unsafe {
             self.0
                 .device
@@ -438,6 +444,8 @@ impl Buffer {
         src_offset: u64,
         dst_offset: u64,
     ) {
+        cmdbuf.record_buffer_use(self, BufferUse::TransferRead);
+        cmdbuf.record_buffer_use(dst_buffer, BufferUse::TransferWrite);
         let copy_region = vk::BufferCopy::default()
             .src_offset(src_offset)
             .dst_offset(dst_offset)
@@ -456,6 +464,56 @@ impl Buffer {
     /// Returns the raw Vulkan buffer handle.
     pub fn as_raw(&self) -> vk::Buffer {
         self.0.buffer
+    }
+
+    pub(crate) fn state_transaction_key(&self) -> vk::Buffer {
+        self.0.buffer
+    }
+
+    pub(crate) fn snapshot_state(&self) -> BufferState {
+        *self.0.current_state.lock().unwrap()
+    }
+
+    pub(crate) fn record_state_transition_from_states(
+        &self,
+        cmdbuf: &CommandBuffer,
+        target: BufferState,
+        current: &mut BufferState,
+    ) {
+        if current.needs_ordering(target) {
+            let barrier = vk::BufferMemoryBarrier::default()
+                .src_access_mask(current.access().as_raw())
+                .dst_access_mask(target.access().as_raw())
+                .buffer(self.as_raw())
+                .offset(0)
+                .size(vk::WHOLE_SIZE);
+            unsafe {
+                self.0.device.cmd_pipeline_barrier(
+                    cmdbuf.as_raw(),
+                    current.stage().as_raw(),
+                    target.stage().as_raw(),
+                    vk::DependencyFlags::empty(),
+                    &[],
+                    &[barrier],
+                    &[],
+                );
+            }
+            crate::sync::diagnostics::record_buffer_transition(
+                self.as_raw(),
+                *current,
+                target,
+            );
+        }
+        *current = target;
+    }
+
+    pub(crate) fn commit_state_snapshot(&self, initial: BufferState, current: BufferState) {
+        let mut state = self.0.current_state.lock().unwrap();
+        assert_eq!(
+            *state, initial,
+            "buffer state changed while a command-recording transaction was in flight"
+        );
+        *state = current;
     }
 }
 

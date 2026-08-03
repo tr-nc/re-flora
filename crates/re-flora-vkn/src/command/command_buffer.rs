@@ -1,7 +1,7 @@
 use super::CommandPool;
 use crate::{
-    Buffer, DescriptorSet, Device, Extent2D, GpuJobManager, GraphicsPipeline, Image, Queue,
-    QueueLane, ResourceState, ResourceStateTransaction, SubmitDesc, Viewport,
+    Buffer, BufferUse, DescriptorSet, Device, Extent2D, GpuJobManager, GraphicsPipeline, Image,
+    Queue, QueueLane, ResourceState, ResourceStateTransaction, SubmitDesc, Viewport,
 };
 use ash::vk;
 use std::sync::{Arc, Mutex};
@@ -77,6 +77,11 @@ impl CommandBuffer {
             Some(ResourceStateTransaction::new());
     }
 
+    /// Declares the next semantic use of a Buffer in this recording.
+    pub fn use_buffer(&self, buffer: &Buffer, usage: BufferUse) {
+        self.record_buffer_use(buffer, usage);
+    }
+
     pub fn end(&self) {
         unsafe {
             self.0
@@ -104,6 +109,15 @@ impl CommandBuffer {
             layer_count,
             target_state,
         );
+        true
+    }
+
+    pub(crate) fn record_buffer_use(&self, buffer: &Buffer, usage: BufferUse) -> bool {
+        let mut transaction = self.0.resource_state_transaction.lock().unwrap();
+        let Some(transaction) = transaction.as_mut() else {
+            return false;
+        };
+        transaction.use_buffer(self, buffer, usage);
         true
     }
 

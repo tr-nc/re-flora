@@ -1,4 +1,7 @@
-use crate::{CommandBuffer, Image, ResourceState, TextureLayout, TextureTransition};
+use crate::{
+    Buffer, BufferState, BufferUse, CommandBuffer, Image, ResourceState, TextureLayout,
+    TextureTransition,
+};
 use ash::vk;
 
 /// Image states tentatively produced while one command buffer is being recorded.
@@ -8,6 +11,7 @@ use ash::vk;
 /// from poisoning the next recording's source layout.
 pub(crate) struct ResourceStateTransaction {
     images: Vec<TrackedImageState>,
+    buffers: Vec<TrackedBufferState>,
 }
 
 struct TrackedImageState {
@@ -16,9 +20,18 @@ struct TrackedImageState {
     current: Vec<ResourceState>,
 }
 
+struct TrackedBufferState {
+    buffer: Buffer,
+    initial: BufferState,
+    current: BufferState,
+}
+
 impl ResourceStateTransaction {
     pub(crate) fn new() -> Self {
-        Self { images: Vec::new() }
+        Self {
+            images: Vec::new(),
+            buffers: Vec::new(),
+        }
     }
 
     pub(crate) fn transition_image(
@@ -64,11 +77,45 @@ impl ResourceStateTransaction {
             })
     }
 
+    pub(crate) fn use_buffer(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        buffer: &Buffer,
+        usage: BufferUse,
+    ) {
+        let buffer_index = self
+            .buffers
+            .iter()
+            .position(|tracked| {
+                tracked.buffer.state_transaction_key() == buffer.state_transaction_key()
+            })
+            .unwrap_or_else(|| {
+                let initial = buffer.snapshot_state();
+                self.buffers.push(TrackedBufferState {
+                    buffer: buffer.clone(),
+                    initial,
+                    current: initial,
+                });
+                self.buffers.len() - 1
+            });
+        let tracked = &mut self.buffers[buffer_index];
+        tracked.buffer.record_state_transition_from_states(
+            cmdbuf,
+            usage.state(),
+            &mut tracked.current,
+        );
+    }
+
     pub(crate) fn commit(self) {
         for tracked in self.images {
             tracked
                 .image
                 .commit_state_snapshot(&tracked.initial, tracked.current);
+        }
+        for tracked in self.buffers {
+            tracked
+                .buffer
+                .commit_state_snapshot(tracked.initial, tracked.current);
         }
     }
 }

@@ -15,6 +15,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub type TextureTransitionDiagnosticsSink = fn(TextureTransitionDiagnostics);
 
+pub type BufferTransitionDiagnosticsSink = fn(BufferTransitionDiagnostics);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TextureTransitionDiagnostics {
     pub image: vk::Image,
@@ -25,8 +27,19 @@ pub struct TextureTransitionDiagnostics {
     pub layer_count: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BufferTransitionDiagnostics {
+    pub buffer: vk::Buffer,
+    pub old_state: crate::BufferState,
+    pub new_state: crate::BufferState,
+}
+
 #[cfg(feature = "sync_diagnostics")]
 static TEXTURE_TRANSITION_SINK: std::sync::OnceLock<TextureTransitionDiagnosticsSink> =
+    std::sync::OnceLock::new();
+
+#[cfg(feature = "sync_diagnostics")]
+static BUFFER_TRANSITION_SINK: std::sync::OnceLock<BufferTransitionDiagnosticsSink> =
     std::sync::OnceLock::new();
 
 #[cfg(feature = "sync_diagnostics")]
@@ -39,6 +52,16 @@ pub fn set_texture_transition_diagnostics_sink(sink: TextureTransitionDiagnostic
 
 #[cfg(not(feature = "sync_diagnostics"))]
 pub fn set_texture_transition_diagnostics_sink(_sink: TextureTransitionDiagnosticsSink) -> bool {
+    false
+}
+
+#[cfg(feature = "sync_diagnostics")]
+pub fn set_buffer_transition_diagnostics_sink(sink: BufferTransitionDiagnosticsSink) -> bool {
+    BUFFER_TRANSITION_SINK.set(sink).is_ok()
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+pub fn set_buffer_transition_diagnostics_sink(_sink: BufferTransitionDiagnosticsSink) -> bool {
     false
 }
 
@@ -442,6 +465,31 @@ pub(crate) fn record_texture_transition(
     if let Some(sink) = TEXTURE_TRANSITION_SINK.get() {
         sink(transition);
     }
+}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+pub(crate) fn record_buffer_transition(
+    buffer: vk::Buffer,
+    old_state: crate::BufferState,
+    new_state: crate::BufferState,
+) {
+    if let Some(sink) = BUFFER_TRANSITION_SINK.get() {
+        sink(BufferTransitionDiagnostics {
+            buffer,
+            old_state,
+            new_state,
+        });
+    }
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_buffer_transition(
+    _buffer: vk::Buffer,
+    _old_state: crate::BufferState,
+    _new_state: crate::BufferState,
+) {
 }
 
 #[cfg(not(feature = "sync_diagnostics"))]

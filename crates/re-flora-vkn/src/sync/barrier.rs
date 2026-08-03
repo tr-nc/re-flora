@@ -37,6 +37,8 @@ impl MemoryAccess {
     pub const DEPTH_STENCIL_ATTACHMENT_WRITE: Self =
         Self(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE);
     pub const HOST_READ: Self = Self(vk::AccessFlags::HOST_READ);
+    pub const MEMORY_READ: Self = Self(vk::AccessFlags::MEMORY_READ);
+    pub const MEMORY_WRITE: Self = Self(vk::AccessFlags::MEMORY_WRITE);
 
     pub const fn empty() -> Self {
         Self(vk::AccessFlags::empty())
@@ -44,6 +46,17 @@ impl MemoryAccess {
 
     pub(crate) fn as_raw(self) -> vk::AccessFlags {
         self.0
+    }
+
+    pub(crate) fn contains_write(self) -> bool {
+        self.0.intersects(
+            vk::AccessFlags::SHADER_WRITE
+                | vk::AccessFlags::TRANSFER_WRITE
+                | vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE
+                | vk::AccessFlags::HOST_WRITE
+                | vk::AccessFlags::MEMORY_WRITE,
+        )
     }
 }
 
@@ -251,6 +264,83 @@ impl ResourceState {
 
     pub fn access(self) -> MemoryAccess {
         self.access
+    }
+}
+
+/// Semantic use of a Buffer during command recording.
+///
+/// Callers name the operation they are about to record; the resource-state module owns the
+/// Vulkan stage/access masks and emits a dependency only when a prior write makes one necessary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BufferUse {
+    ComputeRead,
+    ComputeWrite,
+    ComputeReadWrite,
+    IndirectRead,
+    TransferRead,
+    TransferWrite,
+    HostRead,
+}
+
+impl BufferUse {
+    pub(crate) fn state(self) -> BufferState {
+        match self {
+            Self::ComputeRead => BufferState::new(
+                PipelineStage::COMPUTE_SHADER,
+                MemoryAccess::SHADER_READ,
+            ),
+            Self::ComputeWrite => BufferState::new(
+                PipelineStage::COMPUTE_SHADER,
+                MemoryAccess::SHADER_WRITE,
+            ),
+            Self::ComputeReadWrite => BufferState::new(
+                PipelineStage::COMPUTE_SHADER,
+                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            ),
+            Self::IndirectRead => BufferState::new(
+                PipelineStage::DRAW_INDIRECT,
+                MemoryAccess::INDIRECT_COMMAND_READ,
+            ),
+            Self::TransferRead => {
+                BufferState::new(PipelineStage::TRANSFER, MemoryAccess::TRANSFER_READ)
+            }
+            Self::TransferWrite => {
+                BufferState::new(PipelineStage::TRANSFER, MemoryAccess::TRANSFER_WRITE)
+            }
+            Self::HostRead => BufferState::new(PipelineStage::HOST, MemoryAccess::HOST_READ),
+        }
+    }
+}
+
+/// Committed stage/access state for one Buffer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BufferState {
+    stage: PipelineStage,
+    access: MemoryAccess,
+}
+
+impl BufferState {
+    pub(crate) fn new(stage: PipelineStage, access: MemoryAccess) -> Self {
+        Self { stage, access }
+    }
+
+    pub(crate) fn unknown() -> Self {
+        Self::new(
+            PipelineStage::ALL_COMMANDS,
+            MemoryAccess::MEMORY_READ | MemoryAccess::MEMORY_WRITE,
+        )
+    }
+
+    pub(crate) fn stage(self) -> PipelineStage {
+        self.stage
+    }
+
+    pub(crate) fn access(self) -> MemoryAccess {
+        self.access
+    }
+
+    pub(crate) fn needs_ordering(self, next: Self) -> bool {
+        self.access.contains_write() || next.access.contains_write()
     }
 }
 
@@ -492,5 +582,33 @@ impl<const MEMORY_BARRIER_COUNT: usize> PipelineBarrier<MEMORY_BARRIER_COUNT> {
                 &[],
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BufferState, BufferUse};
+
+    #[test]
+    fn buffer_use_mapping_keeps_semantic_accesses_distinct() {
+        assert_ne!(
+            BufferUse::ComputeRead.state(),
+            BufferUse::ComputeWrite.state()
+        );
+        assert_ne!(
+            BufferUse::ComputeWrite.state(),
+            BufferUse::IndirectRead.state()
+        );
+    }
+
+    #[test]
+    fn buffer_ordering_only_requires_barrier_when_a_write_is_involved() {
+        let read = BufferUse::ComputeRead.state();
+        let write = BufferUse::ComputeWrite.state();
+        assert!(!read.needs_ordering(read));
+        assert!(read.needs_ordering(write));
+        assert!(write.needs_ordering(read));
+        assert!(write.needs_ordering(write));
+        assert!(BufferState::unknown().needs_ordering(read));
     }
 }
