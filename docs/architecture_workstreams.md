@@ -150,7 +150,7 @@ path and duplicated job sidecars.
 
 **Blocked by:** Ticket 01 — Make `surface.build` GPU work self-resident and fail fast.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] Every migrated job supports its existing submit, poll, wait, complete, discard, and result
       behavior through the managed submission lifecycle.
@@ -170,7 +170,7 @@ ordering no longer depends on raw handles or incidental field layout.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] Owned Image Views cannot outlive the Image allocation on which they depend.
 - [ ] Owned Framebuffers and acceleration structures retain their attachment or backing-resource
