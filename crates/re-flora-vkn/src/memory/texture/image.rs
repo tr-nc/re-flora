@@ -1,8 +1,8 @@
 use super::{ImageDesc, TextureRegion};
 use crate::{
     execute_one_time_command, record_image_transition_barrier, Allocator, Buffer, BufferUsage,
-    CommandBuffer, CommandPool, Device, MemoryLocation, Queue, ResourceState, TextureLayout,
-    TextureTransition,
+    BufferUse, CommandBuffer, CommandPool, Device, MemoryLocation, Queue, ResourceState,
+    TextureLayout, TextureTransition,
 };
 use anyhow::Result;
 use ash::vk;
@@ -135,7 +135,9 @@ impl Image {
         region: TextureRegion,
     ) {
         execute_one_time_command(&self.0.device, command_pool, queue, |cmdbuf| {
+            cmdbuf.begin_resource_state_transaction();
             self.record_transition_barrier(cmdbuf, array_layer, TextureLayout::TRANSFER_SRC);
+            cmdbuf.use_buffer(buffer, BufferUse::TransferWrite);
             let region = vk::BufferImageCopy::default()
                 .buffer_offset(0)
                 .buffer_row_length(0)
@@ -166,6 +168,7 @@ impl Image {
                 )
             }
             self.record_transition_barrier(cmdbuf, array_layer, dst_image_layout);
+            cmdbuf.use_buffer(buffer, BufferUse::HostRead);
         });
     }
 
