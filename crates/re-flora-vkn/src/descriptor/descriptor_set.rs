@@ -1,5 +1,6 @@
 use crate::{
-    AccelStruct, Buffer, DescriptorPool, DescriptorSetLayout, Device, Texture, TextureLayout,
+    AccelStruct, Buffer, CommandBuffer, DescriptorPool, DescriptorSetLayout, Device, ImageUse,
+    Texture, TextureLayout,
 };
 use anyhow::Result;
 use ash::vk;
@@ -104,6 +105,45 @@ impl DescriptorSet {
             .collect::<Vec<_>>();
         fork.perform_writes(&mut writes);
         Ok(fork)
+    }
+
+    /// Declare image uses for the textures owned by this descriptor generation.
+    ///
+    /// The descriptor set is the source of truth for both the Vulkan binding and its resource
+    /// owner. Keeping the transition declaration here avoids a second pipeline-local texture
+    /// residency/state map that could describe a different generation than the bound set.
+    pub(crate) fn record_image_uses(&self, cmdbuf: &CommandBuffer) {
+        let owners = self.0.owners.lock().unwrap().clone();
+        for owner in owners.values() {
+            let DescriptorResourceOwner::Texture(texture) = &owner.owner else {
+                continue;
+            };
+            let Some(usage) = descriptor_image_use(owner.descriptor_type) else {
+                continue;
+            };
+            let image = texture.get_image();
+            cmdbuf.use_image_layers(image, 0, image.get_desc().array_len, usage);
+        }
+    }
+
+    pub(crate) fn image_owner_count(&self) -> usize {
+        self.0
+            .owners
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|owner| matches!(&owner.owner, DescriptorResourceOwner::Texture(_)))
+            .count()
+    }
+}
+
+fn descriptor_image_use(descriptor_type: vk::DescriptorType) -> Option<ImageUse> {
+    match descriptor_type {
+        vk::DescriptorType::STORAGE_IMAGE => Some(ImageUse::ComputeReadWrite),
+        vk::DescriptorType::COMBINED_IMAGE_SAMPLER | vk::DescriptorType::SAMPLED_IMAGE => {
+            Some(ImageUse::ShaderRead)
+        }
+        _ => None,
     }
 }
 
@@ -232,16 +272,8 @@ impl<'a> WriteDescriptorSet<'a> {
         self.binding
     }
 
-    pub(crate) fn descriptor_type(&self) -> vk::DescriptorType {
-        self.descriptor_type
-    }
-
     pub(crate) fn array_element(&self) -> u32 {
         self.array_element
-    }
-
-    pub(crate) fn texture(&self) -> Option<&Texture> {
-        self.texture.as_ref()
     }
 
     fn owner(&self) -> Option<DescriptorBindingOwner> {

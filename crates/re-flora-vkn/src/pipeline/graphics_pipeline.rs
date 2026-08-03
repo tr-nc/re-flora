@@ -2,7 +2,7 @@ use super::descriptor_set_utils;
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, Device, FormatOverride, MergeWithEq, PipelineLayout, RenderPass,
-    FrameRetirement, ImageUse, RenderPassDesc, ResourceContainer, ShaderModule, Texture,
+    FrameRetirement, RenderPassDesc, ResourceContainer, ShaderModule,
     Viewport, WriteDescriptorSet,
 };
 use anyhow::{Context, Result};
@@ -22,10 +22,7 @@ struct GraphicsPipelineInner {
     pending_descriptor_sets: Mutex<Option<Vec<DescriptorSet>>>,
     manual_buffer_descriptor_sets: Mutex<ManualBufferDescriptorSets>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
-    texture_bindings: Mutex<HashMap<String, GraphicsTextureBinding>>,
 }
-
-const MANUAL_TEXTURE_BINDING_PREFIX: &str = "manual:";
 
 #[derive(Default)]
 struct ManualBufferDescriptorSets {
@@ -93,12 +90,6 @@ impl ManualBufferDescriptorSets {
 
         Ok(descriptor_set)
     }
-}
-
-#[derive(Clone)]
-struct GraphicsTextureBinding {
-    texture: Texture,
-    usage: ImageUse,
 }
 
 impl Drop for GraphicsPipelineInner {
@@ -272,7 +263,6 @@ impl GraphicsPipeline {
             pending_descriptor_sets: Mutex::new(None),
             manual_buffer_descriptor_sets: Mutex::new(ManualBufferDescriptorSets::default()),
             descriptor_sets_bindings,
-            texture_bindings: Mutex::new(HashMap::new()),
         }));
 
         // auto-create descriptor sets
@@ -284,8 +274,6 @@ impl GraphicsPipeline {
             &pipeline_instance.0.descriptor_sets,
         )
         .unwrap();
-        pipeline_instance.update_texture_bindings(resource_containers);
-
         return pipeline_instance;
 
         fn merge_descriptor_sets_bindings(
@@ -340,45 +328,26 @@ impl GraphicsPipeline {
             .begin_frame(frame_slot);
     }
 
-    pub fn tracked_texture_binding_count(&self) -> usize {
-        self.0.texture_bindings.lock().unwrap().len()
-    }
-
     /// Declare image uses for tracked texture descriptors used by this graphics pipeline.
     ///
     /// Call this before beginning the render pass that will draw with the pipeline;
     /// Vulkan image barriers cannot be recorded from arbitrary draw helpers once a
     /// render pass is active.
     pub fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
-        let bindings = self.0.texture_bindings.lock().unwrap().clone();
-        for binding in bindings.values() {
-            let image = binding.texture.get_image();
-            cmdbuf.use_image_layers(
-                image,
-                0,
-                image.get_desc().array_len,
-                binding.usage,
-            );
+        let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
+        for descriptor_set in descriptor_sets.iter() {
+            descriptor_set.record_image_uses(cmdbuf);
         }
     }
 
-    fn update_texture_bindings(&self, resource_containers: &[&dyn ResourceContainer]) {
-        let mut bindings = HashMap::new();
-        for set_bindings in self.0.descriptor_sets_bindings.values() {
-            for binding in set_bindings.values() {
-                if let Some(usage) = graphics_texture_binding_usage(binding.descriptor_type) {
-                    if let Some(texture) = find_unique_texture(resource_containers, &binding.name) {
-                        bindings.insert(
-                            binding.name.clone(),
-                            GraphicsTextureBinding { texture, usage },
-                        );
-                    }
-                }
-            }
-        }
-        let mut tracked_bindings = self.0.texture_bindings.lock().unwrap();
-        tracked_bindings.retain(|name, _| name.starts_with(MANUAL_TEXTURE_BINDING_PREFIX));
-        tracked_bindings.extend(bindings);
+    pub fn tracked_texture_binding_count(&self) -> usize {
+        self.0
+            .descriptor_sets
+            .lock()
+            .unwrap()
+            .iter()
+            .map(DescriptorSet::image_owner_count)
+            .sum()
     }
 
     fn record_bind_descriptor_sets(
@@ -650,7 +619,6 @@ impl GraphicsPipeline {
             "descriptor initialization cannot run while a generation is staged"
         );
         let mut write = write;
-        self.update_texture_binding_from_write(set_no, &write);
         let guard = self.0.descriptor_sets.lock().unwrap();
         guard[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
     }
@@ -658,31 +626,11 @@ impl GraphicsPipeline {
     /// Write a descriptor into the staged generation only.
     pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
         let mut write = write;
-        self.update_texture_binding_from_write(set_no, &write);
         let pending = self.0.pending_descriptor_sets.lock().unwrap();
         let descriptor_sets = pending
             .as_ref()
             .expect("runtime descriptor writes require begin_descriptor_generation");
         descriptor_sets[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
-    }
-
-    fn update_texture_binding_from_write(&self, set_no: u32, write: &WriteDescriptorSet<'_>) {
-        let key = manual_texture_binding_key(set_no, write.binding(), write.array_element());
-        let mut bindings = self.0.texture_bindings.lock().unwrap();
-        if let (Some(texture), Some(usage)) = (
-            write.texture(),
-            graphics_texture_binding_usage(write.descriptor_type()),
-        ) {
-            bindings.insert(
-                key,
-                GraphicsTextureBinding {
-                    texture: texture.clone(),
-                    usage,
-                },
-            );
-        } else {
-            bindings.remove(&key);
-        }
     }
 
     /// Updates existing descriptor sets with new resources.
@@ -704,7 +652,6 @@ impl GraphicsPipeline {
                 &self.0.descriptor_sets,
             )?;
         }
-        self.update_texture_bindings(resource_containers);
         Ok(())
     }
 
@@ -761,37 +708,6 @@ fn first_subpass_color_attachment_count(desc: &RenderPassDesc) -> usize {
         .map_or(0, |subpass| subpass.color_attachments.len())
 }
 
-fn graphics_texture_binding_usage(descriptor_type: vk::DescriptorType) -> Option<ImageUse> {
-    match descriptor_type {
-        vk::DescriptorType::STORAGE_IMAGE => Some(ImageUse::ComputeReadWrite),
-        vk::DescriptorType::COMBINED_IMAGE_SAMPLER | vk::DescriptorType::SAMPLED_IMAGE => {
-            Some(ImageUse::ShaderRead)
-        }
-        _ => None,
-    }
-}
-
-fn manual_texture_binding_key(set_no: u32, binding: u32, array_element: u32) -> String {
-    format!("{MANUAL_TEXTURE_BINDING_PREFIX}{set_no}:{binding}:{array_element}")
-}
-
-fn find_unique_texture(
-    resource_containers: &[&dyn ResourceContainer],
-    name: &str,
-) -> Option<Texture> {
-    let mut found = None;
-    for container in resource_containers {
-        if let Some(texture) = container.get_texture(name) {
-            assert!(
-                found.is_none(),
-                "Resource '{}' found in multiple texture containers",
-                name
-            );
-            found = Some(texture.clone());
-        }
-    }
-    found
-}
 
 #[cfg(test)]
 mod tests {
