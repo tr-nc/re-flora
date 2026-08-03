@@ -1293,7 +1293,8 @@ impl Tracer {
 
     pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
         self.ddgi_runtime
-            .capture_checkpoint(self.ddgi_volumes.status())
+            .status(self.ddgi_volumes.status())
+            .capture_checkpoint()
     }
 
     pub fn ddgi_capture_target(&self) -> DdgiCaptureTarget {

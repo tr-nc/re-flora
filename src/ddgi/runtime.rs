@@ -288,7 +288,8 @@ impl DdgiRuntime {
     }
 
     pub(crate) fn status(&self, volumes: DdgiStatus) -> DdgiRuntimeStatus {
-        DdgiRuntimeStatus::from_parts(volumes, self.terrain_refresh)
+        let capture_checkpoint = self.capture_checkpoint(volumes);
+        DdgiRuntimeStatus::from_parts(volumes, self.terrain_refresh, capture_checkpoint)
     }
 
     pub(crate) fn capture_checkpoint(&self, volumes: DdgiStatus) -> Option<DdgiCaptureCheckpoint> {
@@ -438,6 +439,7 @@ impl From<DdgiVolumeStatus> for DdgiRuntimeVolumeStatus {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DdgiRuntimeStatus {
     state: DdgiRuntimeState,
+    capture_checkpoint: Option<DdgiCaptureCheckpoint>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -456,7 +458,11 @@ enum DdgiRuntimeState {
 }
 
 impl DdgiRuntimeStatus {
-    fn from_parts(volumes: DdgiStatus, refresh: DdgiTerrainRefresh) -> Self {
+    fn from_parts(
+        volumes: DdgiStatus,
+        refresh: DdgiTerrainRefresh,
+        capture_checkpoint: Option<DdgiCaptureCheckpoint>,
+    ) -> Self {
         let active = volumes.active().into();
         let coordinator = refresh.state();
         let deferred_density_spacing_voxels = refresh.queued_density_spacing_voxels();
@@ -473,6 +479,7 @@ impl DdgiRuntimeStatus {
                         coordinator,
                         deferred_density_spacing_voxels,
                     },
+                    capture_checkpoint,
                 }
             }
             None => Self {
@@ -481,8 +488,13 @@ impl DdgiRuntimeStatus {
                     coordinator,
                     deferred_density_spacing_voxels,
                 },
+                capture_checkpoint,
             },
         }
+    }
+
+    pub fn capture_checkpoint(self) -> Option<DdgiCaptureCheckpoint> {
+        self.capture_checkpoint
     }
 
     pub fn active(self) -> DdgiRuntimeVolumeStatus {
@@ -787,7 +799,8 @@ mod tests {
 
         let active = volume_status(Some(token), 7, 3, DdgiVolumeStage::Ready);
         let checkpoint = runtime
-            .capture_checkpoint(DdgiStatus::new(active, None))
+            .status(DdgiStatus::new(active, None))
+            .capture_checkpoint()
             .expect("resident published field should expose the checkpoint");
         assert_eq!(checkpoint.field, captured_field);
         assert_eq!(checkpoint.batch_order, DdgiBatchOrder::Reverse);
@@ -795,7 +808,8 @@ mod tests {
         let wrong_token = DdgiBuildToken::for_test(2, 7, 16, DdgiBuildKind::Terrain);
         let mismatched_active = volume_status(Some(wrong_token), 7, 3, DdgiVolumeStage::Ready);
         assert!(runtime
-            .capture_checkpoint(DdgiStatus::new(mismatched_active, None))
+            .status(DdgiStatus::new(mismatched_active, None))
+            .capture_checkpoint()
             .is_none());
     }
 
