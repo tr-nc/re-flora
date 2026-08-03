@@ -1,7 +1,7 @@
 use super::CommandPool;
 use crate::{
     Buffer, BufferUse, DescriptorSet, Device, Extent2D, GpuJobManager, GraphicsPipeline, Image,
-    Queue, QueueLane, ResourceState, ResourceStateTransaction, SubmitDesc, Viewport,
+    ImageUse, Queue, QueueLane, ResourceState, ResourceStateTransaction, SubmitDesc, Viewport,
 };
 use ash::vk;
 use std::sync::{Arc, Mutex};
@@ -89,6 +89,34 @@ impl CommandBuffer {
     /// Declares the next semantic use of a Buffer in this recording.
     pub fn use_buffer(&self, buffer: &Buffer, usage: BufferUse) {
         self.record_buffer_use(buffer, usage);
+    }
+
+    /// Declares the next semantic use of an Image in this recording.
+    pub fn use_image(&self, image: &Image, usage: ImageUse) {
+        self.use_image_layers(image, 0, image.get_desc().array_len, usage);
+    }
+
+    /// Declares the next semantic use of a range of Image array layers.
+    pub fn use_image_layers(
+        &self,
+        image: &Image,
+        base_array_layer: u32,
+        layer_count: u32,
+        usage: ImageUse,
+    ) {
+        if !self.record_state_transition(
+            image,
+            base_array_layer,
+            layer_count,
+            usage.state(),
+        ) {
+            image.record_state_transition(
+                self,
+                base_array_layer,
+                layer_count,
+                usage.state(),
+            );
+        }
     }
 
     pub fn end(&self) {

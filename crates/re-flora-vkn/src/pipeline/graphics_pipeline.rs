@@ -2,8 +2,8 @@ use super::descriptor_set_utils;
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, Device, FormatOverride, MergeWithEq, PipelineLayout, RenderPass,
-    FrameRetirement, RenderPassDesc, ResourceContainer, ResourceState, ResourceStatePolicy,
-    ResourceStateTracker, ShaderModule, Texture, Viewport, WriteDescriptorSet,
+    FrameRetirement, ImageUse, RenderPassDesc, ResourceContainer, ShaderModule, Texture,
+    Viewport, WriteDescriptorSet,
 };
 use anyhow::{Context, Result};
 use ash::vk;
@@ -23,8 +23,6 @@ struct GraphicsPipelineInner {
     manual_buffer_descriptor_sets: Mutex<ManualBufferDescriptorSets>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     texture_bindings: Mutex<HashMap<String, GraphicsTextureBinding>>,
-    resource_state_tracker: Mutex<ResourceStateTracker>,
-    auto_texture_transitions_enabled: Mutex<bool>,
 }
 
 const MANUAL_TEXTURE_BINDING_PREFIX: &str = "manual:";
@@ -100,7 +98,7 @@ impl ManualBufferDescriptorSets {
 #[derive(Clone)]
 struct GraphicsTextureBinding {
     texture: Texture,
-    state: ResourceState,
+    usage: ImageUse,
 }
 
 impl Drop for GraphicsPipelineInner {
@@ -275,8 +273,6 @@ impl GraphicsPipeline {
             manual_buffer_descriptor_sets: Mutex::new(ManualBufferDescriptorSets::default()),
             descriptor_sets_bindings,
             texture_bindings: Mutex::new(HashMap::new()),
-            resource_state_tracker: Mutex::new(ResourceStateTracker::automatic()),
-            auto_texture_transitions_enabled: Mutex::new(true),
         }));
 
         // auto-create descriptor sets
@@ -344,53 +340,24 @@ impl GraphicsPipeline {
             .begin_frame(frame_slot);
     }
 
-    pub fn set_resource_state_tracker(&self, tracker: ResourceStateTracker) {
-        *self.0.resource_state_tracker.lock().unwrap() = tracker;
-    }
-
-    pub fn set_resource_state_policy(&self, policy: ResourceStatePolicy) {
-        self.0
-            .resource_state_tracker
-            .lock()
-            .unwrap()
-            .set_policy(policy);
-    }
-
-    pub fn resource_state_policy(&self) -> ResourceStatePolicy {
-        self.0.resource_state_tracker.lock().unwrap().policy()
-    }
-
-    pub fn set_auto_texture_transitions_enabled(&self, enabled: bool) {
-        *self.0.auto_texture_transitions_enabled.lock().unwrap() = enabled;
-    }
-
-    pub fn auto_texture_transitions_enabled(&self) -> bool {
-        *self.0.auto_texture_transitions_enabled.lock().unwrap()
-    }
-
     pub fn tracked_texture_binding_count(&self) -> usize {
         self.0.texture_bindings.lock().unwrap().len()
     }
 
-    /// Record barriers for tracked texture descriptors used by this graphics pipeline.
+    /// Declare image uses for tracked texture descriptors used by this graphics pipeline.
     ///
     /// Call this before beginning the render pass that will draw with the pipeline;
     /// Vulkan image barriers cannot be recorded from arbitrary draw helpers once a
     /// render pass is active.
     pub fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
-        if !*self.0.auto_texture_transitions_enabled.lock().unwrap() {
-            return;
-        }
-        let tracker = self.0.resource_state_tracker.lock().unwrap().clone();
         let bindings = self.0.texture_bindings.lock().unwrap().clone();
         for binding in bindings.values() {
             let image = binding.texture.get_image();
-            tracker.transition_image_layers(
-                cmdbuf,
+            cmdbuf.use_image_layers(
                 image,
                 0,
                 image.get_desc().array_len,
-                binding.state,
+                binding.usage,
             );
         }
     }
@@ -399,11 +366,11 @@ impl GraphicsPipeline {
         let mut bindings = HashMap::new();
         for set_bindings in self.0.descriptor_sets_bindings.values() {
             for binding in set_bindings.values() {
-                if let Some(state) = graphics_texture_binding_state(binding.descriptor_type) {
+                if let Some(usage) = graphics_texture_binding_usage(binding.descriptor_type) {
                     if let Some(texture) = find_unique_texture(resource_containers, &binding.name) {
                         bindings.insert(
                             binding.name.clone(),
-                            GraphicsTextureBinding { texture, state },
+                            GraphicsTextureBinding { texture, usage },
                         );
                     }
                 }
@@ -686,15 +653,15 @@ impl GraphicsPipeline {
     fn update_texture_binding_from_write(&self, set_no: u32, write: &WriteDescriptorSet<'_>) {
         let key = manual_texture_binding_key(set_no, write.binding(), write.array_element());
         let mut bindings = self.0.texture_bindings.lock().unwrap();
-        if let (Some(texture), Some(state)) = (
+        if let (Some(texture), Some(usage)) = (
             write.texture(),
-            graphics_texture_binding_state(write.descriptor_type()),
+            graphics_texture_binding_usage(write.descriptor_type()),
         ) {
             bindings.insert(
                 key,
                 GraphicsTextureBinding {
                     texture: texture.clone(),
-                    state,
+                    usage,
                 },
             );
         } else {
@@ -778,11 +745,11 @@ fn first_subpass_color_attachment_count(desc: &RenderPassDesc) -> usize {
         .map_or(0, |subpass| subpass.color_attachments.len())
 }
 
-fn graphics_texture_binding_state(descriptor_type: vk::DescriptorType) -> Option<ResourceState> {
+fn graphics_texture_binding_usage(descriptor_type: vk::DescriptorType) -> Option<ImageUse> {
     match descriptor_type {
-        vk::DescriptorType::STORAGE_IMAGE => Some(ResourceState::storage_image_read_write()),
+        vk::DescriptorType::STORAGE_IMAGE => Some(ImageUse::ComputeReadWrite),
         vk::DescriptorType::COMBINED_IMAGE_SAMPLER | vk::DescriptorType::SAMPLED_IMAGE => {
-            Some(ResourceState::shader_read_only())
+            Some(ImageUse::ShaderRead)
         }
         _ => None,
     }

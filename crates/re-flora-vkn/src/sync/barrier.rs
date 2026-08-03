@@ -290,6 +290,35 @@ pub enum BufferUse {
     HostRead,
 }
 
+/// Semantic use of an Image during command recording.
+///
+/// Image layout, stage, and access masks belong to the command-buffer resource-state
+/// transaction; callers only describe the operation they are about to record.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImageUse {
+    ShaderRead,
+    ComputeReadWrite,
+    ColorAttachment,
+    DepthStencilAttachment,
+    TransferRead,
+    TransferWrite,
+    Present,
+}
+
+impl ImageUse {
+    pub(crate) fn state(self) -> ResourceState {
+        match self {
+            Self::ShaderRead => ResourceState::shader_read_only(),
+            Self::ComputeReadWrite => ResourceState::general_shader_read_write(),
+            Self::ColorAttachment => ResourceState::color_attachment(),
+            Self::DepthStencilAttachment => ResourceState::depth_stencil_attachment(),
+            Self::TransferRead => ResourceState::transfer_src(),
+            Self::TransferWrite => ResourceState::transfer_dst(),
+            Self::Present => ResourceState::present_src(),
+        }
+    }
+}
+
 impl BufferUse {
     pub(crate) fn state(self) -> BufferState {
         match self {

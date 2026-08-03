@@ -1,8 +1,8 @@
 use super::descriptor_set_utils;
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
-    Extent3D, FrameRetirement, PipelineLayout, ResourceContainer, ResourceState,
-    ResourceStatePolicy, ResourceStateTracker, ShaderModule, Texture, WriteDescriptorSet,
+    Extent3D, FrameRetirement, ImageUse, PipelineLayout, ResourceContainer, ShaderModule, Texture,
+    WriteDescriptorSet,
 };
 use anyhow::Result;
 use ash::vk;
@@ -22,8 +22,6 @@ struct ComputePipelineInner {
     pending_descriptor_sets: Mutex<Option<Vec<DescriptorSet>>>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     texture_bindings: Mutex<HashMap<String, ComputeTextureBinding>>,
-    resource_state_tracker: Mutex<ResourceStateTracker>,
-    auto_texture_transitions_enabled: Mutex<bool>,
 }
 
 const MANUAL_TEXTURE_BINDING_PREFIX: &str = "manual:";
@@ -31,7 +29,7 @@ const MANUAL_TEXTURE_BINDING_PREFIX: &str = "manual:";
 #[derive(Clone)]
 struct ComputeTextureBinding {
     texture: Texture,
-    state: ResourceState,
+    usage: ImageUse,
 }
 
 impl Drop for ComputePipelineInner {
@@ -91,8 +89,6 @@ impl ComputePipeline {
             pending_descriptor_sets: Mutex::new(None),
             descriptor_sets_bindings,
             texture_bindings: Mutex::new(HashMap::new()),
-            resource_state_tracker: Mutex::new(ResourceStateTracker::automatic()),
-            auto_texture_transitions_enabled: Mutex::new(true),
         }));
 
         // auto-create descriptor sets
@@ -188,30 +184,6 @@ impl ComputePipeline {
         }
     }
 
-    pub fn set_resource_state_tracker(&self, tracker: ResourceStateTracker) {
-        *self.0.resource_state_tracker.lock().unwrap() = tracker;
-    }
-
-    pub fn set_resource_state_policy(&self, policy: ResourceStatePolicy) {
-        self.0
-            .resource_state_tracker
-            .lock()
-            .unwrap()
-            .set_policy(policy);
-    }
-
-    pub fn resource_state_policy(&self) -> ResourceStatePolicy {
-        self.0.resource_state_tracker.lock().unwrap().policy()
-    }
-
-    pub fn set_auto_texture_transitions_enabled(&self, enabled: bool) {
-        *self.0.auto_texture_transitions_enabled.lock().unwrap() = enabled;
-    }
-
-    pub fn auto_texture_transitions_enabled(&self) -> bool {
-        *self.0.auto_texture_transitions_enabled.lock().unwrap()
-    }
-
     pub fn tracked_texture_binding_count(&self) -> usize {
         self.0.texture_bindings.lock().unwrap().len()
     }
@@ -220,11 +192,11 @@ impl ComputePipeline {
         let mut bindings = HashMap::new();
         for set_bindings in self.0.descriptor_sets_bindings.values() {
             for binding in set_bindings.values() {
-                if let Some(state) = compute_texture_binding_state(binding.descriptor_type) {
+                if let Some(usage) = compute_texture_binding_usage(binding.descriptor_type) {
                     if let Some(texture) = find_unique_texture(resource_containers, &binding.name) {
                         bindings.insert(
                             binding.name.clone(),
-                            ComputeTextureBinding { texture, state },
+                            ComputeTextureBinding { texture, usage },
                         );
                     }
                 }
@@ -238,15 +210,15 @@ impl ComputePipeline {
     fn update_texture_binding_from_write(&self, set_no: u32, write: &WriteDescriptorSet<'_>) {
         let key = manual_texture_binding_key(set_no, write.binding(), write.array_element());
         let mut bindings = self.0.texture_bindings.lock().unwrap();
-        if let (Some(texture), Some(state)) = (
+        if let (Some(texture), Some(usage)) = (
             write.texture(),
-            compute_texture_binding_state(write.descriptor_type()),
+            compute_texture_binding_usage(write.descriptor_type()),
         ) {
             bindings.insert(
                 key,
                 ComputeTextureBinding {
                     texture: texture.clone(),
-                    state,
+                    usage,
                 },
             );
         } else {
@@ -255,19 +227,14 @@ impl ComputePipeline {
     }
 
     fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
-        if !*self.0.auto_texture_transitions_enabled.lock().unwrap() {
-            return;
-        }
-        let tracker = self.0.resource_state_tracker.lock().unwrap().clone();
         let bindings = self.0.texture_bindings.lock().unwrap().clone();
         for binding in bindings.values() {
             let image = binding.texture.get_image();
-            tracker.transition_image_layers(
-                cmdbuf,
+            cmdbuf.use_image_layers(
                 image,
                 0,
                 image.get_desc().array_len,
-                binding.state,
+                binding.usage,
             );
         }
     }
@@ -368,11 +335,11 @@ impl ComputePipeline {
     }
 }
 
-fn compute_texture_binding_state(descriptor_type: vk::DescriptorType) -> Option<ResourceState> {
+fn compute_texture_binding_usage(descriptor_type: vk::DescriptorType) -> Option<ImageUse> {
     match descriptor_type {
-        vk::DescriptorType::STORAGE_IMAGE => Some(ResourceState::storage_image_read_write()),
+        vk::DescriptorType::STORAGE_IMAGE => Some(ImageUse::ComputeReadWrite),
         vk::DescriptorType::COMBINED_IMAGE_SAMPLER | vk::DescriptorType::SAMPLED_IMAGE => {
-            Some(ResourceState::shader_read_only())
+            Some(ImageUse::ShaderRead)
         }
         _ => None,
     }
