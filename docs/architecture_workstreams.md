@@ -408,13 +408,16 @@ order and rendergraph-lite architecture.
 
 **Blocked by:** Ticket 11 — Track Buffer hazards through one Contree build.
 
-**Status:** in-progress (`5fb17dbf`, `f04ef4ca`; DDGI voxel-visibility and terrain-query one-time
-paths now declare Buffer uses; frame-wide transaction is deferred until concurrent Image writers
-are migrated)
+**Status:** in-progress (`5fb17dbf`, `f04ef4ca`, `8d09317f`, `48d27b1b`; DDGI voxel-visibility and
+terrain-query one-time paths plus CPU-updated tracer uniform/wind buffers now declare Buffer uses;
+explicit vertex/index input semantics are available, while frame-wide Image tracking and
+render-pass graphics declarations remain deferred until concurrent Image writers are migrated)
 
 - [ ] Tracer Buffer producers and consumers declare their use through the shared recording seam.
 - [x] DDGI voxel-visibility and terrain-query one-time paths declare HostWrite/ComputeRead,
       ComputeWrite, and HostRead uses.
+- [x] CPU-updated tracer uniform and wind buffers declare HostWrite followed by ShaderRead before
+      the first frame pass; the declaration covers compute, vertex, and fragment shader consumers.
 - [ ] Compute-to-compute, compute-to-indirect, transfer-to-compute, compute-to-graphics, and
       GPU-to-host dependencies remain correct for the resources that require them.
 - [ ] The migration does not introduce pass scheduling, reorder commands, or turn the work into a
