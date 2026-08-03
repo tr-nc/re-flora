@@ -409,10 +409,11 @@ order and rendergraph-lite architecture.
 **Blocked by:** Ticket 11 — Track Buffer hazards through one Contree build.
 
 **Status:** in-progress (`5fb17dbf`, `f04ef4ca`, `8d09317f`, `48d27b1b`, `b9108858`, `b4ef4d29`,
-`4f1d8592`, `14d3b0ef`, `419fff8d`; DDGI voxel-visibility and terrain-query one-time paths,
-CPU-updated tracer/DDGI uniform buffers, CPU-filled tracer graphics instance buffers, tracer static
-mesh inputs, and flora/wind shader lookup buffers now declare Buffer uses; frame-wide Image tracking
-and render-pass graphics declarations remain incomplete)
+`4f1d8592`, `14d3b0ef`, `419fff8d`, `1d0b34d5`; DDGI voxel-visibility and terrain-query one-time
+paths, CPU-updated tracer/DDGI uniform buffers, CPU-filled tracer graphics instance buffers, tracer
+static mesh inputs, flora/wind shader lookup buffers, and irradiance-capture storage writes now
+declare Buffer uses; frame-wide Image tracking and render-pass graphics declarations remain
+incomplete)
 
 - [ ] Tracer Buffer producers and consumers declare their use through the shared recording seam.
 - [x] DDGI voxel-visibility and terrain-query one-time paths declare HostWrite/ComputeRead,
@@ -427,6 +428,8 @@ and render-pass graphics declarations remain incomplete)
       passes; no input declaration is inserted inside a render pass.
 - [x] Static flora lookup and wind-volume shader buffers declare ShaderRead before graphics
       passes that consume them.
+- [x] Irradiance-capture storage writes declare ComputeWrite before the tracer pass and transition
+      to TransferRead through the existing readback helper.
 - [ ] Compute-to-compute, compute-to-indirect, transfer-to-compute, compute-to-graphics, and
       GPU-to-host dependencies remain correct for the resources that require them.
 - [ ] The migration does not introduce pass scheduling, reorder commands, or turn the work into a
