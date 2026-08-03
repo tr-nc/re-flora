@@ -261,6 +261,7 @@ impl App {
                     });
             });
 
+        self.schedule_tracer_frame_retirements();
         let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
             Ok(frame) => frame,
             Err(SwapchainFrameError::OutOfDate) => {

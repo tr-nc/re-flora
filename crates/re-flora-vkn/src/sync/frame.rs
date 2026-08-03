@@ -1,5 +1,6 @@
 use crate::{
-    CommandBuffer, CommandPool, Device, Fence, Semaphore, Swapchain, SwapchainFrameError,
+    CommandBuffer, CommandPool, Device, Fence, FrameCompletion, FrameRetirement,
+    FrameRetirementClock, FrameSubmissionId, Semaphore, Swapchain, SwapchainFrameError,
     VulkanContext,
 };
 
@@ -13,6 +14,7 @@ pub struct FrameSync {
     image_available: Semaphore,
     fence: Fence,
     command_buffer: CommandBuffer,
+    submission: Option<FrameSubmissionId>,
 }
 
 impl FrameSync {
@@ -21,6 +23,7 @@ impl FrameSync {
             image_available: Semaphore::new(device),
             fence: Fence::new(device, true),
             command_buffer: CommandBuffer::new(device, command_pool),
+            submission: None,
         }
     }
 
@@ -81,6 +84,7 @@ pub struct SwapchainFrameManager {
     current_frame: usize,
     image_render_finished_semaphores: Vec<Semaphore>,
     images_in_flight: Vec<Option<Fence>>,
+    retirement_clock: FrameRetirementClock,
 }
 
 impl SwapchainFrameManager {
@@ -98,6 +102,7 @@ impl SwapchainFrameManager {
                 swapchain_image_count,
             ),
             images_in_flight: vec![None; swapchain_image_count],
+            retirement_clock: FrameRetirementClock::new(),
         }
     }
 
@@ -112,10 +117,17 @@ impl SwapchainFrameManager {
         swapchain: &mut Swapchain,
     ) -> Result<AcquiredFrame, SwapchainFrameError> {
         let frame_slot = self.current_frame;
+        let completed_submission = {
+            let sync = &mut self.frames[frame_slot];
+            sync.fence().wait().unwrap();
+            sync.submission.take()
+        };
+        if let Some(submission) = completed_submission {
+            self.retirement_clock
+                .observe_completion(FrameCompletion::new(submission, frame_slot));
+        }
+
         let sync = &self.frames[frame_slot];
-
-        sync.fence().wait().unwrap();
-
         let image_index = swapchain.acquire_next_image(sync.image_available())?;
         let image_slot = image_index as usize;
         if let Some(image_in_flight_fence) = &self.images_in_flight[image_slot] {
@@ -150,6 +162,12 @@ impl SwapchainFrameManager {
             )
             .map_err(SwapchainFrameError::from)?;
 
+        let submission = self.retirement_clock.record_submission();
+        let replaced = self.frames[frame.frame_slot].submission.replace(submission);
+        assert!(
+            replaced.is_none(),
+            "frame slot submitted again before its previous completion was observed"
+        );
         let present_result = swapchain.present_after(&frame.render_finished, frame.image_index);
         self.advance_frame();
         present_result
@@ -161,6 +179,17 @@ impl SwapchainFrameManager {
 
     pub fn frame_count(&self) -> usize {
         self.frames.len()
+    }
+
+    /// Keep a replaced resource generation resident until every frame submitted
+    /// before this call has completed.
+    ///
+    /// Call this at the frame-update/recording seam, after publishing the new
+    /// generation and before recording the next frame. No recorded-but-unsubmitted
+    /// command buffer may still reference the retired generation.
+    pub fn retire_after_last_submission(&mut self, retirement: FrameRetirement) {
+        self.retirement_clock
+            .retire_after_last_submission(retirement);
     }
 
     fn create_present_semaphores(device: &Device, image_count: usize) -> Vec<Semaphore> {

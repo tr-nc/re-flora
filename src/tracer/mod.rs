@@ -90,9 +90,9 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, ClearValue,
     ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue, DescriptorPool,
-    Extent2D, Extent3D, Framebuffer, GpuProfiler, GraphicsPipeline, MemoryAccess, MemoryBarrier,
-    PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget, Texture,
-    TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
+    Extent2D, Extent3D, FrameRetirement, Framebuffer, GpuProfiler, GraphicsPipeline, MemoryAccess,
+    MemoryBarrier, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget,
+    Texture, TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
 };
 use std::collections::HashMap;
 
@@ -5305,6 +5305,10 @@ impl Tracer {
         instances: &[DynamicFruitRenderInstance],
     ) -> Result<()> {
         self.dynamic_fruit_resources.show(instances)
+    }
+
+    pub fn take_frame_retirements(&mut self) -> Vec<FrameRetirement> {
+        self.dynamic_fruit_resources.take_frame_retirements()
     }
 
     pub fn clear_collision_probe_geometry(&mut self) {

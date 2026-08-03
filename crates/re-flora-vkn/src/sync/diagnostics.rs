@@ -5,7 +5,10 @@
 //! compiled only with the `sync_diagnostics` feature and are intended as the seam
 //! for a future profiler/sink.
 
-use crate::{PresentDesc, QueueLane, SubmitDesc, TextureTransition};
+use crate::{
+    FrameCompletion, FrameResourceGeneration, FrameSubmissionId, PresentDesc, QueueLane,
+    SubmitDesc, TextureTransition,
+};
 use ash::vk;
 #[cfg(feature = "sync_diagnostics")]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -169,8 +172,32 @@ pub enum GpuJobDiagnostics {
 
 pub type GpuJobDiagnosticsSink = fn(GpuJobDiagnostics);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameRetirementCompletion {
+    NoSubmission,
+    Frame(FrameCompletion),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameRetirementDiagnostics {
+    Scheduled {
+        resource: FrameResourceGeneration,
+        retire_after: Option<FrameSubmissionId>,
+    },
+    Released {
+        resource: FrameResourceGeneration,
+        completion: FrameRetirementCompletion,
+    },
+}
+
+pub type FrameRetirementDiagnosticsSink = fn(FrameRetirementDiagnostics);
+
 #[cfg(feature = "sync_diagnostics")]
 static GPU_JOB_DIAGNOSTICS_SINK: std::sync::OnceLock<GpuJobDiagnosticsSink> =
+    std::sync::OnceLock::new();
+
+#[cfg(feature = "sync_diagnostics")]
+static FRAME_RETIREMENT_DIAGNOSTICS_SINK: std::sync::OnceLock<FrameRetirementDiagnosticsSink> =
     std::sync::OnceLock::new();
 
 #[cfg(feature = "sync_diagnostics")]
@@ -184,11 +211,69 @@ pub fn set_gpu_job_diagnostics_sink(_sink: GpuJobDiagnosticsSink) -> bool {
 }
 
 #[cfg(feature = "sync_diagnostics")]
+pub fn set_frame_retirement_diagnostics_sink(sink: FrameRetirementDiagnosticsSink) -> bool {
+    FRAME_RETIREMENT_DIAGNOSTICS_SINK.set(sink).is_ok()
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+pub fn set_frame_retirement_diagnostics_sink(_sink: FrameRetirementDiagnosticsSink) -> bool {
+    false
+}
+
+#[cfg(feature = "sync_diagnostics")]
 #[inline(always)]
 fn emit_gpu_job_diagnostics(event: GpuJobDiagnostics) {
     if let Some(sink) = GPU_JOB_DIAGNOSTICS_SINK.get() {
         sink(event);
     }
+}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+fn emit_frame_retirement_diagnostics(event: FrameRetirementDiagnostics) {
+    if let Some(sink) = FRAME_RETIREMENT_DIAGNOSTICS_SINK.get() {
+        sink(event);
+    }
+}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+pub(crate) fn record_frame_retirement_scheduled(
+    resource: FrameResourceGeneration,
+    retire_after: Option<FrameSubmissionId>,
+) {
+    emit_frame_retirement_diagnostics(FrameRetirementDiagnostics::Scheduled {
+        resource,
+        retire_after,
+    });
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_frame_retirement_scheduled(
+    _resource: FrameResourceGeneration,
+    _retire_after: Option<FrameSubmissionId>,
+) {
+}
+
+#[cfg(feature = "sync_diagnostics")]
+#[inline(always)]
+pub(crate) fn record_frame_retirement_released(
+    resource: FrameResourceGeneration,
+    completion: FrameRetirementCompletion,
+) {
+    emit_frame_retirement_diagnostics(FrameRetirementDiagnostics::Released {
+        resource,
+        completion,
+    });
+}
+
+#[cfg(not(feature = "sync_diagnostics"))]
+#[inline(always)]
+pub(crate) fn record_frame_retirement_released(
+    _resource: FrameResourceGeneration,
+    _completion: FrameRetirementCompletion,
+) {
 }
 
 #[cfg(feature = "sync_diagnostics")]
@@ -374,14 +459,22 @@ pub(crate) fn record_texture_transition(
 mod tests {
     use super::{
         record_gpu_job_completion, record_gpu_job_invalid_abandonment, record_gpu_job_submit,
-        set_gpu_job_diagnostics_sink, GpuJobDiagnostics,
+        record_frame_retirement_released, record_frame_retirement_scheduled,
+        set_frame_retirement_diagnostics_sink, set_gpu_job_diagnostics_sink,
+        FrameRetirementCompletion, FrameRetirementDiagnostics, GpuJobDiagnostics,
     };
-    use crate::QueueLane;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use crate::{FrameCompletion, FrameResourceGeneration, FrameSubmissionId, QueueLane};
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
     static COMPLETED_RESIDENT_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
     static ABANDONED_RESIDENT_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
     static SUBMITTED_COMMAND_BUFFER_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
+    static RETIREMENT_SCHEDULED_GENERATION: AtomicU64 = AtomicU64::new(u64::MAX);
+    static RETIREMENT_SCHEDULED_AFTER: AtomicU64 = AtomicU64::new(u64::MAX);
+    static RETIREMENT_RELEASED_GENERATION: AtomicU64 = AtomicU64::new(u64::MAX);
+    static RETIREMENT_RELEASED_SUBMISSION: AtomicU64 = AtomicU64::new(u64::MAX);
+    static RETIREMENT_RELEASED_FRAME_SLOT: AtomicUsize = AtomicUsize::new(usize::MAX);
+    static RETIREMENT_NAME_MATCHED: AtomicBool = AtomicBool::new(false);
 
     fn capture_gpu_job_event(event: GpuJobDiagnostics) {
         match event {
@@ -400,6 +493,37 @@ mod tests {
         }
     }
 
+    fn capture_frame_retirement_event(event: FrameRetirementDiagnostics) {
+        match event {
+            FrameRetirementDiagnostics::Scheduled {
+                resource,
+                retire_after,
+            } => {
+                RETIREMENT_SCHEDULED_GENERATION
+                    .store(resource.generation(), Ordering::Relaxed);
+                RETIREMENT_SCHEDULED_AFTER.store(
+                    retire_after.map_or(u64::MAX, FrameSubmissionId::serial),
+                    Ordering::Relaxed,
+                );
+                RETIREMENT_NAME_MATCHED.store(resource.name() == "test.buffer", Ordering::Relaxed);
+            }
+            FrameRetirementDiagnostics::Released {
+                resource,
+                completion: FrameRetirementCompletion::Frame(completion),
+            } => {
+                RETIREMENT_RELEASED_GENERATION.store(resource.generation(), Ordering::Relaxed);
+                RETIREMENT_RELEASED_SUBMISSION
+                    .store(completion.submission().serial(), Ordering::Relaxed);
+                RETIREMENT_RELEASED_FRAME_SLOT
+                    .store(completion.frame_slot(), Ordering::Relaxed);
+            }
+            FrameRetirementDiagnostics::Released {
+                completion: FrameRetirementCompletion::NoSubmission,
+                ..
+            } => {}
+        }
+    }
+
     #[test]
     fn lifecycle_sink_observes_completion_and_invalid_abandonment() {
         assert!(set_gpu_job_diagnostics_sink(capture_gpu_job_event));
@@ -411,5 +535,31 @@ mod tests {
         assert_eq!(SUBMITTED_COMMAND_BUFFER_COUNT.load(Ordering::Relaxed), 1);
         assert_eq!(COMPLETED_RESIDENT_COUNT.load(Ordering::Relaxed), 2);
         assert_eq!(ABANDONED_RESIDENT_COUNT.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn frame_retirement_sink_uses_semantic_generation_and_completion_identity() {
+        assert!(set_frame_retirement_diagnostics_sink(
+            capture_frame_retirement_event
+        ));
+
+        let resource = FrameResourceGeneration::new("test.buffer", 7);
+        let submission = FrameSubmissionId::new(11);
+        let completion = FrameCompletion::new(submission, 1);
+        record_frame_retirement_scheduled(resource, Some(submission));
+        record_frame_retirement_released(
+            resource,
+            FrameRetirementCompletion::Frame(completion),
+        );
+
+        assert_eq!(RETIREMENT_SCHEDULED_GENERATION.load(Ordering::Relaxed), 7);
+        assert_eq!(RETIREMENT_SCHEDULED_AFTER.load(Ordering::Relaxed), 11);
+        assert_eq!(RETIREMENT_RELEASED_GENERATION.load(Ordering::Relaxed), 7);
+        assert_eq!(
+            RETIREMENT_RELEASED_SUBMISSION.load(Ordering::Relaxed),
+            11
+        );
+        assert_eq!(RETIREMENT_RELEASED_FRAME_SLOT.load(Ordering::Relaxed), 1);
+        assert!(RETIREMENT_NAME_MATCHED.load(Ordering::Relaxed));
     }
 }
