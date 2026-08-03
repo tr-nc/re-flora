@@ -233,10 +233,14 @@ pub fn append_indexed_cube_data_with_info(
         CUBE_INDICES.to_vec()
     };
 
+    let voxel_index = voxel_infos.len() as u32;
     for voxel_vert in voxel_verts {
         let encoded_offset = encode_voxel_offset(voxel_vert)?;
         let packed_data = make_value_from_parts(encoded_pos, encoded_offset);
-        vertices.push(Vertex { packed_data });
+        vertices.push(Vertex {
+            packed_data,
+            voxel_index,
+        });
     }
     for index in base_indices {
         indices.push(vertex_offset + index);
@@ -265,5 +269,37 @@ mod tests {
 
         assert_eq!(info.material_id(), 1);
         assert_eq!(info.animation_group(), 17);
+    }
+
+    #[test]
+    fn generated_vertices_identify_their_source_voxel_for_both_lods() {
+        for is_lod_used in [false, true] {
+            let mut vertices = Vec::new();
+            let mut indices = Vec::new();
+            let mut voxel_infos = Vec::new();
+            let vertices_per_voxel = if is_lod_used { 4 } else { 8 };
+
+            for voxel_index in 0..2 {
+                append_indexed_cube_data_with_info(
+                    &mut vertices,
+                    &mut indices,
+                    &mut voxel_infos,
+                    IVec3::new(voxel_index, 0, 0),
+                    (voxel_index as usize * vertices_per_voxel) as u32,
+                    FloraVoxelInfo::fallback(),
+                    is_lod_used,
+                )
+                .unwrap();
+            }
+
+            assert_eq!(voxel_infos.len(), 2);
+            assert_eq!(vertices.len(), 2 * vertices_per_voxel);
+            assert!(vertices[..vertices_per_voxel]
+                .iter()
+                .all(|vertex| vertex.voxel_index == 0));
+            assert!(vertices[vertices_per_voxel..]
+                .iter()
+                .all(|vertex| vertex.voxel_index == 1));
+        }
     }
 }

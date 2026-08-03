@@ -1,6 +1,7 @@
 module flora_vertex;
 
 import color;
+import environment_lighting;
 import flora_motion;
 import flora_noise;
 import flora_shadow;
@@ -44,6 +45,11 @@ readonly GLSLShaderStorageBuffer<B_FloraVoxelInfos, Std430DataLayout>
 
 [[vk::push_constant]]
 ConstantBuffer<PushConstantFlora> pc;
+
+public PushConstantFlora floraPushConstants()
+{
+    return pc;
+}
 
 public static const float FLORA_SCALING_FACTOR = 1.0 / 256.0;
 static const uint TALL_GRASS_HEIGHT_VOXELS = 8u;
@@ -437,7 +443,7 @@ public float4 applyFloraDepthOffset(float3 worldPosition, uint3 instancePosition
 
 public uint floraInstanceType()
 {
-    return pc.instance_ty;
+    return pc.instance_ty & FLORA_INSTANCE_TYPE_MASK;
 }
 
 public uint3 floraChunkWorldOffset()
@@ -478,6 +484,22 @@ public float3 shadeFloraVertex(float3 baseColor, float shadowWeight,
     float3 litColor = applyStylizedVoxelLighting(
         gui_input, sun_info, shading_info, baseColor, shadowWeight,
         voxelPosition, shadingNormal);
+    return applyTerrainEditPreviewTint(
+        terrain_edit_preview, litColor, voxelPosition);
+}
+
+public float3 sampleFloraEnvironment(float3 voxelPosition, float3 shadingNormal)
+{
+    return sampleDiffuseEnvironment(
+        gui_input, shading_info, voxelPosition, shadingNormal);
+}
+
+public float3 shadeFloraVertexWithEnvironment(
+    float3 baseColor, float shadowWeight, float3 environmentLight,
+    float3 voxelPosition)
+{
+    float3 litColor = applyStylizedVoxelLightingWithEnvironment(
+        sun_info, baseColor, shadowWeight, environmentLight);
     return applyTerrainEditPreviewTint(
         terrain_edit_preview, litColor, voxelPosition);
 }

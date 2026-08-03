@@ -21,6 +21,9 @@ pub use geometry_preview_resources::*;
 mod dynamic_fruit_resources;
 pub use dynamic_fruit_resources::*;
 
+mod flora_lighting_cache;
+use flora_lighting_cache::FloraLightingCache;
+
 pub mod tree_preview_mesh;
 
 mod extent_dependent_resources;
@@ -53,6 +56,12 @@ const APPLE_BOTTOM_COLOR: Vec3 = Vec3::new(0.48, 0.025, 0.018);
 const APPLE_TIP_COLOR: Vec3 = Vec3::new(0.95, 0.06, 0.035);
 pub const FLORA_HEIGHT_COLOR_TABLE_LEN: usize = 12;
 pub type FloraHeightColorTables = [[u32; FLORA_HEIGHT_COLOR_TABLE_LEN]; 2];
+const FLORA_LIGHTING_CACHE_OFFSET_BITS: u32 = 22;
+const FLORA_LIGHTING_CACHE_OFFSET_MASK: u32 = (1 << FLORA_LIGHTING_CACHE_OFFSET_BITS) - 1;
+const FLORA_LIGHTING_CACHE_VOXEL_COUNT_MAX: u32 = 0x1ff;
+const FLORA_LIGHTING_CACHE_LOD_BIT: u32 = 1 << 31;
+const FLORA_INSTANCE_TYPE_MASK: u32 = 0xff;
+const FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT: u32 = 8;
 
 use crate::audio::SpatialSoundManager;
 
@@ -795,6 +804,74 @@ fn flora_push_constant(
     }
 }
 
+fn flora_lighting_cache_location(cache_offset: u32, voxel_count: u32, is_lod: bool) -> u32 {
+    assert!(
+        cache_offset <= FLORA_LIGHTING_CACHE_OFFSET_MASK,
+        "flora lighting cache offset {cache_offset} exceeds {} entries",
+        FLORA_LIGHTING_CACHE_OFFSET_MASK + 1,
+    );
+    assert!(
+        (1..=FLORA_LIGHTING_CACHE_VOXEL_COUNT_MAX).contains(&voxel_count),
+        "flora mesh voxel count {voxel_count} is outside the cache encoding range",
+    );
+    cache_offset
+        | (voxel_count << FLORA_LIGHTING_CACHE_OFFSET_BITS)
+        | if is_lod {
+            FLORA_LIGHTING_CACHE_LOD_BIT
+        } else {
+            0
+        }
+}
+
+fn flora_lighting_cache_instance_ty(instance_ty: u32, instance_count: u32) -> u32 {
+    assert!(
+        instance_ty <= FLORA_INSTANCE_TYPE_MASK,
+        "flora instance type {instance_ty} exceeds the packed cache encoding",
+    );
+    assert!(
+        instance_count <= u32::MAX >> FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT,
+        "flora instance count {instance_count} exceeds the packed cache encoding",
+    );
+    instance_ty | (instance_count << FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT)
+}
+
+#[cfg(test)]
+mod flora_lighting_cache_location_tests {
+    use super::*;
+
+    #[test]
+    fn cache_location_packs_offset_voxel_count_and_lod_without_overlap() {
+        let packed = flora_lighting_cache_location(123_456, 237, true);
+        assert_eq!(packed & FLORA_LIGHTING_CACHE_OFFSET_MASK, 123_456);
+        assert_eq!(
+            (packed >> FLORA_LIGHTING_CACHE_OFFSET_BITS) & FLORA_LIGHTING_CACHE_VOXEL_COUNT_MAX,
+            237
+        );
+        assert_ne!(packed & FLORA_LIGHTING_CACHE_LOD_BIT, 0);
+    }
+
+    #[test]
+    fn compute_instance_type_packs_the_dispatch_bound_without_changing_species() {
+        let packed = flora_lighting_cache_instance_ty(3, 40_000);
+        assert_eq!(packed & FLORA_INSTANCE_TYPE_MASK, 3);
+        assert_eq!(packed >> FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT, 40_000);
+    }
+
+    #[test]
+    fn every_surface_flora_mesh_fits_the_cache_voxel_count_encoding() {
+        for desc in crate::flora::species::species() {
+            for is_lod in [false, true] {
+                let voxel_count = (desc.mesh_generator)(is_lod).unwrap().voxel_infos.len() as u32;
+                assert!(
+                    voxel_count <= FLORA_LIGHTING_CACHE_VOXEL_COUNT_MAX,
+                    "{} has {voxel_count} voxels",
+                    desc.key,
+                );
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct TreeRenderInstanceData {
     world_pos: UVec3,
@@ -894,6 +971,7 @@ pub struct Tracer {
     cloud_history_valid: bool,
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
+    flora_lighting_cache: FloraLightingCache,
     ddgi_volumes: DdgiVolumes,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_transport_scheduler: DdgiTransportScheduler,
@@ -1181,6 +1259,7 @@ impl Tracer {
             cloud_history_valid: false,
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
+            flora_lighting_cache: FloraLightingCache::default(),
             ddgi_volumes: DdgiVolumes::new(ddgi_volume),
             ddgi_voxel_visibility,
             ddgi_transport_scheduler: DdgiTransportScheduler::new(),
@@ -1821,6 +1900,10 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
+        update_compute_fn(
+            &self.compute_pipelines.flora_lighting_cache_ppl,
+            &all_resources,
+        );
 
         let tracer_resources = self.tracer_descriptor_resources();
         let environment_lighting_resources = self.environment_lighting_descriptor_resources();
@@ -2175,6 +2258,15 @@ impl Tracer {
                 &ddgi_volume.ddgi_probe_metadata,
             ),
         );
+        self.compute_pipelines
+            .flora_lighting_cache_ppl
+            .write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    DDGI_PROBE_METADATA_BINDING,
+                    &ddgi_volume.ddgi_probe_metadata,
+                ),
+            );
         self.compute_pipelines.tracer_ppl.write_descriptor_set(
             0,
             WriteDescriptorSet::new_texture_write(
@@ -2228,6 +2320,17 @@ impl Tracer {
                     TextureLayout::SHADER_READ_ONLY,
                 ),
             );
+            self.compute_pipelines
+                .flora_lighting_cache_ppl
+                .write_descriptor_set(
+                    0,
+                    WriteDescriptorSet::new_texture_write(
+                        binding,
+                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                        texture,
+                        TextureLayout::SHADER_READ_ONLY,
+                    ),
+                );
             for pipeline in [
                 &self.graphics_pipelines.flora_ppl,
                 &self.graphics_pipelines.flora_lod_ppl,
@@ -3992,6 +4095,137 @@ impl Tracer {
             },
         ];
 
+        let chunks_by_lod = enable_flora.then(|| {
+            self.chunks_needs_to_draw_this_frame(
+                surface_resources,
+                lod_distance,
+                flora_draw_distance,
+            )
+        });
+        let required_flora_cache_entries = chunks_by_lod
+            .as_ref()
+            .map(|chunks_by_lod| {
+                flora_color_tables
+                    .iter()
+                    .enumerate()
+                    .filter(|(species_index, _)| {
+                        should_render_grass_species(*species_index, grass_render_mode)
+                    })
+                    .map(|(species_index, _)| {
+                        [LodState::Lod0, LodState::Lod1]
+                            .into_iter()
+                            .map(|lod_state| {
+                                let mesh = match lod_state {
+                                    LodState::Lod0 => {
+                                        &self.resources.meshes.flora_meshes[species_index]
+                                    }
+                                    LodState::Lod1 => {
+                                        &self.resources.meshes.flora_meshes_lod[species_index]
+                                    }
+                                };
+                                chunks_by_lod[&lod_state]
+                                    .iter()
+                                    .map(|instances| {
+                                        instances.species_len(species_index) * mesh.voxel_count
+                                    })
+                                    .sum::<u32>()
+                            })
+                            .sum::<u32>()
+                    })
+                    .sum::<u32>()
+            })
+            .unwrap_or(0);
+        assert!(
+            required_flora_cache_entries <= FLORA_LIGHTING_CACHE_OFFSET_MASK + 1,
+            "visible flora need {required_flora_cache_entries} lighting cache entries, max is {}",
+            FLORA_LIGHTING_CACHE_OFFSET_MASK + 1,
+        );
+
+        let flora_cache_buffer = if required_flora_cache_entries > 0 {
+            self.flora_lighting_cache.ensure_capacity(
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+                gpu_profiler_frame_slot,
+                required_flora_cache_entries,
+            );
+            let cache_buffer = self.flora_lighting_cache.buffer(gpu_profiler_frame_slot);
+            self.compute_pipelines
+                .flora_lighting_cache_ppl
+                .begin_manual_buffer_frame(gpu_profiler_frame_slot);
+
+            let cache_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.flora_lighting_cache",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            let mut cache_offset = 0u32;
+            for (species_index, height_color_tables) in flora_color_tables.iter().enumerate() {
+                if !should_render_grass_species(species_index, grass_render_mode) {
+                    continue;
+                }
+                for &lod_state in &[LodState::Lod0, LodState::Lod1] {
+                    let mesh = match lod_state {
+                        LodState::Lod0 => &self.resources.meshes.flora_meshes[species_index],
+                        LodState::Lod1 => &self.resources.meshes.flora_meshes_lod[species_index],
+                    };
+                    for instances in chunks_by_lod.as_ref().unwrap()[&lod_state].iter() {
+                        let instance_count = instances.species_len(species_index);
+                        if instance_count == 0 {
+                            continue;
+                        }
+                        let mut push_constant = flora_push_constant(
+                            time,
+                            species_index as u32,
+                            instances.chunk_world_offset,
+                            *height_color_tables,
+                        );
+                        push_constant.lighting_cache_location = flora_lighting_cache_location(
+                            cache_offset,
+                            mesh.voxel_count,
+                            lod_state == LodState::Lod1,
+                        );
+                        push_constant.instance_ty =
+                            flora_lighting_cache_instance_ty(species_index as u32, instance_count);
+                        self.compute_pipelines
+                            .flora_lighting_cache_ppl
+                            .record_with_manual_buffers(
+                                cmdbuf,
+                                1,
+                                &[
+                                    (0, &instances.resource.instances_buf),
+                                    (1, &instances.grass_growth_potential_levels),
+                                    (2, &cache_buffer),
+                                    (3, &mesh.vertices),
+                                ],
+                                Extent3D::new(mesh.voxel_count, instance_count, 1),
+                                Some(bytemuck::bytes_of(&push_constant)),
+                            );
+                        cache_offset += instance_count * mesh.voxel_count;
+                    }
+                }
+            }
+            debug_assert_eq!(cache_offset, required_flora_cache_entries);
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), cache_scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+            PipelineBarrier::shader_access(
+                PipelineStage::COMPUTE_SHADER,
+                PipelineStage::VERTEX_SHADER,
+            )
+            .record_insert(self.vulkan_ctx.device(), cmdbuf);
+            Some(cache_buffer)
+        } else {
+            None
+        };
+
         self.graphics_pipelines
             .terrain_depth_prefill_ppl
             .record_texture_transitions(cmdbuf);
@@ -4073,6 +4307,8 @@ impl Tracer {
         // Draw all flora species, both LOD levels
         if enable_flora {
             let mut recorded_flora_instance_count = 0u64;
+            let mut flora_cache_offset = 0u32;
+            let flora_cache_buffer = flora_cache_buffer.as_ref();
             let flora_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
                     gpu_profiler_frame_slot,
@@ -4081,11 +4317,6 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 )
             });
-            let chunks_by_lod = self.chunks_needs_to_draw_this_frame(
-                surface_resources,
-                lod_distance,
-                flora_draw_distance,
-            );
             for (species_index, height_color_tables) in flora_color_tables.iter().enumerate() {
                 if !should_render_grass_species(species_index, grass_render_mode) {
                     continue;
@@ -4109,18 +4340,23 @@ impl Tracer {
 
                     cmdbuf.bind_index_buffer_u32(&mesh.indices);
 
-                    let flora_instances = &chunks_by_lod[&lod_state];
+                    let flora_instances = &chunks_by_lod.as_ref().unwrap()[&lod_state];
                     for instances in flora_instances.iter() {
                         let instance_count = instances.species_len(species_index);
                         if instance_count == 0 {
                             continue;
                         }
                         let instance_offset = FloraInstanceResources::species_offset(species_index);
-                        let push_constant = flora_push_constant(
+                        let mut push_constant = flora_push_constant(
                             time,
                             species_index as u32,
                             instances.chunk_world_offset,
                             *height_color_tables,
+                        );
+                        push_constant.lighting_cache_location = flora_lighting_cache_location(
+                            flora_cache_offset,
+                            mesh.voxel_count,
+                            lod_state == LodState::Lod1,
                         );
 
                         cmdbuf.bind_vertex_buffers(0, &[&mesh.vertices]);
@@ -4130,6 +4366,12 @@ impl Tracer {
                             &[
                                 (0, &instances.resource.instances_buf),
                                 (1, &instances.grass_growth_potential_levels),
+                                (
+                                    2,
+                                    flora_cache_buffer.expect(
+                                        "nonempty visible flora must have a lighting cache buffer",
+                                    ),
+                                ),
                             ],
                             mesh.indices_len,
                             instance_count,
@@ -4142,9 +4384,11 @@ impl Tracer {
                             }),
                         );
                         recorded_flora_instance_count += u64::from(instance_count);
+                        flora_cache_offset += instance_count * mesh.voxel_count;
                     }
                 }
             }
+            debug_assert_eq!(flora_cache_offset, required_flora_cache_entries);
             if recorded_flora_instance_count > 0 {
                 let active = self.ddgi_volumes.status().active();
                 if let Some(token) = active.build_token.filter(|token| {
@@ -4152,11 +4396,12 @@ impl Tracer {
                 }) {
                     self.ddgi_flora_consumer_logged_token_serial = Some(token.serial());
                     log::info!(
-                        "[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial={} terrain_revision={} spacing_voxels={} instance_count={} sampler=sampleDiffuseEnvironment shading_info=shared",
+                        "[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial={} terrain_revision={} spacing_voxels={} instance_count={} cache_entries={} sampler=flora_lighting_cache shading_info=shared",
                         token.serial(),
                         active.relocated_terrain_revision.unwrap_or_default(),
                         active.grid.spacing_voxels(),
                         recorded_flora_instance_count,
+                        required_flora_cache_entries,
                     );
                 }
             }

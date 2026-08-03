@@ -16,10 +16,11 @@ static const uint SPRITE_FLIP_BIT = 0x80000000u;
 struct VertexInput
 {
     [[vk::location(0)]] uint packed_data : TEXCOORD0;
-    [[vk::location(1)]] float3 instance_position : POSITION0;
-    [[vk::location(2)]] float instance_size : TEXCOORD1;
-    [[vk::location(3)]] float4 instance_color : COLOR0;
-    [[vk::location(4)]] uint instance_texture_index : TEXCOORD2;
+    [[vk::location(1)]] uint voxel_index : TEXCOORD1;
+    [[vk::location(2)]] float3 instance_position : POSITION0;
+    [[vk::location(3)]] float instance_size : TEXCOORD2;
+    [[vk::location(4)]] float4 instance_color : COLOR0;
+    [[vk::location(5)]] uint instance_texture_index : TEXCOORD3;
 };
 
 struct VertexOutput

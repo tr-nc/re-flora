@@ -135,9 +135,17 @@ public float3 applyStylizedVoxelLighting(U_GuiInput gui, U_SunInfo sun,
                                          float3 voxelCenter,
                                          float3 shadingNormal)
 {
-    float sunLuminance = sunLuminanceFromDirection(sun.sun_dir, sun.sun_luminance);
-    float3 sunLight = sun.sun_color * sunLuminance;
     float3 environmentLight = sampleDiffuseEnvironment(
         gui, shading, voxelCenter, shadingNormal);
+    return applyStylizedVoxelLightingWithEnvironment(
+        sun, baseColor, shadowWeight, environmentLight);
+}
+
+public float3 applyStylizedVoxelLightingWithEnvironment(
+    U_SunInfo sun, float3 baseColor, float shadowWeight,
+    float3 environmentLight)
+{
+    float sunLuminance = sunLuminanceFromDirection(sun.sun_dir, sun.sun_luminance);
+    float3 sunLight = sun.sun_color * sunLuminance;
     return baseColor * (sunLight * shadowWeight + environmentLight);
 }

@@ -1,4 +1,5 @@
 import flora_types;
+import flora_lighting_cache;
 import flora_vertex;
 import surface_flora_vertex;
 
@@ -11,9 +12,19 @@ struct B_ManualFloraInstances
 readonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
     manual_flora_instances;
 
+struct B_ManualFloraLightingCache
+{
+    float4 irradiance[];
+};
+
+[[vk::binding(2, 1)]]
+readonly GLSLShaderStorageBuffer<B_ManualFloraLightingCache, Std430DataLayout>
+    manual_flora_lighting_cache;
+
 struct VertexInput
 {
     [[vk::location(0)]] uint packed_data : TEXCOORD0;
+    [[vk::location(1)]] uint voxel_index : TEXCOORD1;
     uint instance_index : SV_VulkanInstanceID;
 };
 
@@ -68,8 +79,14 @@ VertexOutput main(VertexInput input)
     baseColor = applyGrassGrowthStressTint(
         baseColor, prepared.is_grass,
         effectiveGrowthPotential(true, competitionFactor, environmentFactor));
-    output.color = shadeFloraVertex(
-        baseColor, prepared.shadow_weight, prepared.voxel_position,
-        prepared.shading_normal);
+    uint localInstanceIndex = input.instance_index -
+                              instanceType * MAX_FLORA_INSTANCES_PER_SPECIES;
+    PushConstantFlora floraPc = floraPushConstants();
+    float3 environmentLight = manual_flora_lighting_cache.irradiance[
+        floraLightingCacheIndex(
+            floraPc, localInstanceIndex, input.voxel_index)].xyz;
+    output.color = shadeFloraVertexWithEnvironment(
+        baseColor, prepared.shadow_weight, environmentLight,
+        prepared.voxel_position);
     return output;
 }
