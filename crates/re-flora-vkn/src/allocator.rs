@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[derive(Clone)]
 pub struct Allocator {
     device: Device,
-    pub allocator: Arc<Mutex<GpuAllocator>>,
+    allocator: Arc<Mutex<GpuAllocator>>,
 }
 
 impl Allocator {

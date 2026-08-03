@@ -5,8 +5,9 @@ use ash::{
 };
 
 use crate::{
-    AttachmentDesc, AttachmentReference, Extent2D, Framebuffer, RenderPass, RenderPassDesc,
-    RenderTarget, SubpassDesc, TextureLayout, TextureTransition,
+    AttachmentDesc, AttachmentReference, Extent2D, ExternalImage, Framebuffer, ImageView,
+    ImageViewDesc, RenderPass, RenderPassDesc, RenderTarget, SubpassDesc, TextureLayout,
+    TextureTransition,
 };
 
 use super::{
@@ -119,8 +120,8 @@ pub struct Swapchain {
 
     swapchain_device: swapchain::Device,
 
-    render_target: RenderTarget,
-    image_views: Vec<vk::ImageView>,
+    render_target: Option<RenderTarget>,
+    image_views: Vec<ImageView>,
     swapchain_khr: vk::SwapchainKHR,
 
     desc: SwapchainDesc,
@@ -139,7 +140,7 @@ impl Swapchain {
 
         Self {
             vulkan_context: context,
-            render_target,
+            render_target: Some(render_target),
             image_views,
             swapchain_khr,
             swapchain_device,
@@ -155,16 +156,12 @@ impl Swapchain {
 
         self.swapchain_device = swapchain_device;
         self.swapchain_khr = swapchain_khr;
-        self.render_target = render_target;
+        self.render_target = Some(render_target);
         self.image_views = image_views;
     }
 
     pub fn get_image(&self, index: u32) -> vk::Image {
-        unsafe {
-            self.swapchain_device
-                .get_swapchain_images(self.swapchain_khr)
-                .unwrap()[index as usize]
-        }
+        self.image_views[index as usize].source_image_raw()
     }
 
     pub fn image_count(&self) -> usize {
@@ -172,25 +169,30 @@ impl Swapchain {
     }
 
     pub fn color_readback_format(&self) -> Option<ColorReadbackFormat> {
-        ColorReadbackFormat::from_raw(self.render_target.get_desc().attachments[0].format)
+        ColorReadbackFormat::from_raw(self.render_target().get_desc().attachments[0].format)
     }
 
     fn clean_up(&mut self) {
-        let device = &self.vulkan_context.device();
-        unsafe {
-            // framebuffers are now managed by RenderTarget and will be automatically cleaned up
+        // Framebuffers retain their image views, so destroy the RenderTarget
+        // before releasing our view leases and the swapchain-owned images.
+        drop(self.render_target.take());
+        self.image_views.clear();
 
-            // image views
-            self.image_views
-                .iter()
-                .for_each(|v| device.destroy_image_view(*v, None));
-            self.image_views.clear();
-
-            // images are owned by the swapchain, and are destroyed when the swapchain is destroyed
-
-            self.swapchain_device
-                .destroy_swapchain(self.swapchain_khr, None);
+        if self.swapchain_khr != vk::SwapchainKHR::null() {
+            unsafe {
+                // Images are externally owned by the swapchain. No Image Drop
+                // path is involved; destroying the swapchain releases them.
+                self.swapchain_device
+                    .destroy_swapchain(self.swapchain_khr, None);
+            }
+            self.swapchain_khr = vk::SwapchainKHR::null();
         }
+    }
+
+    fn render_target(&self) -> &RenderTarget {
+        self.render_target
+            .as_ref()
+            .expect("swapchain render target is unavailable during cleanup")
     }
 
     #[allow(dead_code)]
@@ -468,7 +470,7 @@ impl Swapchain {
     }
 
     pub fn get_render_pass(&self) -> &RenderPass {
-        self.render_target.get_render_pass()
+        self.render_target().get_render_pass()
     }
 
     pub fn record_begin_render_pass_cmdbuf(
@@ -483,7 +485,7 @@ impl Swapchain {
             },
         }];
 
-        self.render_target
+        self.render_target()
             .record_begin_with_index(cmdbuf, image_index as usize, &clear_values);
     }
 
@@ -668,7 +670,7 @@ fn create_vulkan_swapchain(
 ) -> (
     swapchain::Device,
     vk::SwapchainKHR,
-    Vec<vk::ImageView>,
+    Vec<ImageView>,
     RenderTarget,
 ) {
     let format = choose_surface_format(
@@ -733,27 +735,19 @@ fn create_vulkan_swapchain(
     let image_views = images
         .iter()
         .map(|image| {
-            let create_info = vk::ImageViewCreateInfo::default()
-                .image(*image)
-                .view_type(vk::ImageViewType::TYPE_2D)
-                .format(format.format)
-                .subresource_range(vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
+            ImageView::new_external(
+                vulkan_context.device().clone(),
+                ExternalImage::from_swapchain(*image),
+                ImageViewDesc {
+                    format: format.format,
+                    image_view_type: vk::ImageViewType::TYPE_2D,
+                    aspect: vk::ImageAspectFlags::COLOR,
                     base_array_layer: 0,
                     layer_count: 1,
-                });
-
-            unsafe {
-                vulkan_context
-                    .device()
-                    .as_raw()
-                    .create_image_view(&create_info, None)
-            }
+                },
+            )
         })
-        .collect::<VkResult<Vec<vk::ImageView>>>()
-        .unwrap();
+        .collect::<Vec<_>>();
 
     let render_pass = create_vulkan_render_pass(vulkan_context.device().clone(), format.format);
 
@@ -811,14 +805,19 @@ fn create_vulkan_render_pass(device: Device, format: vk::Format) -> RenderPass {
 fn create_vulkan_framebuffers(
     vulkan_context: VulkanContext,
     render_pass: &RenderPass,
-    image_views: &[vk::ImageView],
+    image_views: &[ImageView],
     window_extent: Extent2D,
 ) -> Vec<Framebuffer> {
     image_views
         .iter()
         .map(|view| {
-            Framebuffer::new(vulkan_context.clone(), render_pass, &[*view], window_extent)
-                .expect("Failed to create framebuffer")
+            Framebuffer::from_external_image_views(
+                vulkan_context.clone(),
+                render_pass,
+                std::slice::from_ref(view),
+                window_extent,
+            )
+            .expect("Failed to create framebuffer")
         })
         .collect()
 }

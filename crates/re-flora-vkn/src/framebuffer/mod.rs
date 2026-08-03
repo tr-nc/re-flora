@@ -1,19 +1,26 @@
-use crate::{context::VulkanContext, Extent2D, RenderPass, Texture};
+use crate::{context::VulkanContext, Extent2D, ImageView, RenderPass, Texture};
 use anyhow::Result;
 use ash::vk;
+
+enum FramebufferAttachments {
+    Textures(Vec<Texture>),
+    ExternalImageViews { _image_views: Vec<ImageView> },
+}
 
 pub struct Framebuffer {
     vulkan_ctx: VulkanContext,
     framebuffer: vk::Framebuffer,
     extent: Extent2D,
-    attachments: Vec<Texture>,
+    _render_pass: RenderPass,
+    attachments: FramebufferAttachments,
 }
 
 impl Framebuffer {
-    pub fn new(
+    fn new(
         vulkan_ctx: VulkanContext,
         render_pass: &RenderPass,
         attachments: &[vk::ImageView],
+        retained_attachments: FramebufferAttachments,
         extent: Extent2D,
     ) -> Result<Self> {
         let framebuffer_info = vk::FramebufferCreateInfo::default()
@@ -33,7 +40,8 @@ impl Framebuffer {
                 vulkan_ctx,
                 framebuffer,
                 extent,
-                attachments: Vec::new(),
+                _render_pass: render_pass.clone(),
+                attachments: retained_attachments,
             })
         }
     }
@@ -48,9 +56,35 @@ impl Framebuffer {
             .iter()
             .map(|texture| texture.get_image_view().as_raw())
             .collect::<Vec<_>>();
-        let mut framebuffer = Self::new(vulkan_ctx, render_pass, &attachments, extent)?;
-        framebuffer.attachments = textures.iter().map(|texture| (*texture).clone()).collect();
-        Ok(framebuffer)
+        let retained_textures = textures.iter().map(|texture| (*texture).clone()).collect();
+        Self::new(
+            vulkan_ctx,
+            render_pass,
+            &attachments,
+            FramebufferAttachments::Textures(retained_textures),
+            extent,
+        )
+    }
+
+    pub(crate) fn from_external_image_views(
+        vulkan_ctx: VulkanContext,
+        render_pass: &RenderPass,
+        image_views: &[ImageView],
+        extent: Extent2D,
+    ) -> Result<Self> {
+        let attachments = image_views
+            .iter()
+            .map(ImageView::as_raw)
+            .collect::<Vec<_>>();
+        Self::new(
+            vulkan_ctx,
+            render_pass,
+            &attachments,
+            FramebufferAttachments::ExternalImageViews {
+                _image_views: image_views.to_vec(),
+            },
+            extent,
+        )
     }
 
     pub fn as_raw(&self) -> vk::Framebuffer {
@@ -62,7 +96,10 @@ impl Framebuffer {
     }
 
     pub fn get_attachments(&self) -> &[Texture] {
-        &self.attachments
+        match &self.attachments {
+            FramebufferAttachments::Textures(textures) => textures,
+            FramebufferAttachments::ExternalImageViews { .. } => &[],
+        }
     }
 }
 

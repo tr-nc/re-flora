@@ -7,6 +7,7 @@ use core::slice;
 use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme};
 use std::fmt;
 use std::ops::Deref;
+use std::sync::Arc;
 
 impl fmt::Debug for BufferDesc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -28,7 +29,7 @@ struct BufferDesc {
     pub _location: MemoryLocation,
 }
 
-pub struct Buffer {
+struct BufferInner {
     device: Device,
     allocator: Allocator,
     buffer: vk::Buffer,
@@ -36,18 +37,25 @@ pub struct Buffer {
     desc: BufferDesc,
 }
 
+/// Owned Vulkan buffer allocation.
+///
+/// Clones are residency leases for the same buffer and allocation. The Vulkan
+/// buffer and its allocation are released only after the final lease drops.
+#[derive(Clone)]
+pub struct Buffer(Arc<BufferInner>);
+
 impl fmt::Debug for Buffer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Buffer")
-            .field("buffer", &self.buffer)
+            .field("buffer", &self.0.buffer)
             .field("size_bytes", &self.get_size_bytes())
             .field("element_size_bytes", &self.get_element_size_bytes())
-            .field("desc", &self.desc)
+            .field("desc", &self.0.desc)
             .finish()
     }
 }
 
-impl Drop for Buffer {
+impl Drop for BufferInner {
     fn drop(&mut self) {
         let allocated_mem = std::mem::take(&mut self.allocated_mem);
         self.allocator.destroy_buffer(self.buffer, allocated_mem);
@@ -57,7 +65,7 @@ impl Drop for Buffer {
 impl Deref for Buffer {
     type Target = vk::Buffer;
     fn deref(&self) -> &Self::Target {
-        &self.buffer
+        &self.0.buffer
     }
 }
 
@@ -115,9 +123,10 @@ impl Buffer {
         let res;
         unsafe {
             res = self
+                .0
                 .device
                 .get_buffer_device_address(&vk::BufferDeviceAddressInfo {
-                    buffer: self.buffer,
+                    buffer: self.0.buffer,
                     ..Default::default()
                 });
         }
@@ -167,13 +176,13 @@ impl Buffer {
             size: None,
         };
 
-        Self {
+        Self(Arc::new(BufferInner {
             device,
             allocator,
             buffer,
             allocated_mem,
             desc,
-        }
+        }))
     }
 
     // TODO: deprecate this one?
@@ -216,21 +225,21 @@ impl Buffer {
             element_length: 1, // TODO: or?
         };
 
-        Self {
+        Self(Arc::new(BufferInner {
             device,
             allocator,
             buffer,
             allocated_mem,
             desc,
-        }
+        }))
     }
 
     pub fn get_element_size_bytes(&self) -> u64 {
-        if let Some(size) = self.desc.size {
+        if let Some(size) = self.0.desc.size {
             return size;
         }
 
-        if let Some(layout) = self.desc.layout.as_ref() {
+        if let Some(layout) = self.0.desc.layout.as_ref() {
             return layout.get_size_bytes();
         }
 
@@ -240,27 +249,27 @@ impl Buffer {
     pub fn get_size_bytes(&self) -> u64 {
         // allocated_mem.size() would give the wrong result because the allocated size
         // is implementation related, so it may overallocate
-        self.get_element_size_bytes() * self.desc.element_length
+        self.get_element_size_bytes() * self.0.desc.element_length
     }
 
     /// Returns the buffer usage flags.
     pub fn get_usage(&self) -> BufferUsage {
-        self.desc.usage
+        self.0.desc.usage
     }
 
     pub fn get_layout(&self) -> Option<&BufferLayout> {
-        self.desc.layout.as_ref()
+        self.0.desc.layout.as_ref()
     }
 
     /// Returns the memory location of the buffer.
     #[allow(dead_code)]
     pub fn get_location(&self) -> MemoryLocation {
-        self.desc._location
+        self.0.desc._location
     }
 
     fn map_buffer_mem_and_write(&self, data: &[u8], byte_offset: u64) -> Result<()> {
         // try to get the raw mapped pointer
-        if let Some(ptr) = self.allocated_mem.mapped_ptr() {
+        if let Some(ptr) = self.0.allocated_mem.mapped_ptr() {
             unsafe {
                 let base_ptr = ptr.as_ptr();
                 let target_ptr = base_ptr.add(byte_offset as usize);
@@ -287,11 +296,11 @@ impl Buffer {
             ));
         }
 
-        if element_idx >= self.desc.element_length {
+        if element_idx >= self.0.desc.element_length {
             return Err(anyhow::anyhow!(
                 "Element index {} out of bounds for element length {}",
                 element_idx,
-                self.desc.element_length
+                self.0.desc.element_length
             ));
         }
 
@@ -345,7 +354,7 @@ impl Buffer {
     /// * `Ok(())` if the operation was successful
     /// * `Err` with a description if memory mapping failed
     pub fn fill<T: Copy>(&self, data: &[T]) -> Result<()> {
-        if let Some(ptr) = self.allocated_mem.mapped_ptr() {
+        if let Some(ptr) = self.0.allocated_mem.mapped_ptr() {
             let size_of_slice = std::mem::size_of_val(data) as vk::DeviceSize;
             unsafe {
                 let mut align = ash::util::Align::new(
@@ -397,7 +406,7 @@ impl Buffer {
             ));
         }
 
-        if let Some(ptr) = self.allocated_mem.mapped_ptr() {
+        if let Some(ptr) = self.0.allocated_mem.mapped_ptr() {
             let byte_offset = byte_offset as usize;
             let byte_count = byte_count as usize;
             let mut data: Vec<u8> = vec![0; byte_count];
@@ -415,7 +424,8 @@ impl Buffer {
     #[allow(dead_code)]
     pub fn record_fill(&self, cmdbuf: &CommandBuffer, offset: u64, size: u64, value: u32) {
         unsafe {
-            self.device
+            self.0
+                .device
                 .cmd_fill_buffer(cmdbuf.as_raw(), self.as_raw(), offset, size, value);
         }
     }
@@ -434,7 +444,7 @@ impl Buffer {
             .size(size);
 
         unsafe {
-            self.device.cmd_copy_buffer(
+            self.0.device.cmd_copy_buffer(
                 cmdbuf.as_raw(),
                 self.as_raw(),
                 dst_buffer.as_raw(),
@@ -445,6 +455,20 @@ impl Buffer {
 
     /// Returns the raw Vulkan buffer handle.
     pub fn as_raw(&self) -> vk::Buffer {
-        self.buffer
+        self.0.buffer
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Buffer;
+    use crate::Image;
+
+    fn assert_clone<T: Clone>() {}
+
+    #[test]
+    fn owned_buffer_and_image_handles_are_leaseable() {
+        assert_clone::<Buffer>();
+        assert_clone::<Image>();
     }
 }

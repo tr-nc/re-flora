@@ -6,9 +6,8 @@ struct AccelStructInner {
     acc_device: khr::acceleration_structure::Device,
     blas: vk::AccelerationStructureKHR,
 
-    // must be kept alive until AS is destroyed
-    #[allow(dead_code)]
-    buffer: Buffer,
+    // Retained through vkDestroyAccelerationStructureKHR in Drop.
+    _backing_buffer: Buffer,
 }
 
 impl Drop for AccelStructInner {
@@ -35,12 +34,12 @@ impl AccelStruct {
     pub fn new(
         acc_device: khr::acceleration_structure::Device,
         blas: vk::AccelerationStructureKHR,
-        buffer: Buffer,
+        backing_buffer: Buffer,
     ) -> Self {
         AccelStruct(Arc::new(AccelStructInner {
             acc_device,
             blas,
-            buffer,
+            _backing_buffer: backing_buffer,
         }))
     }
 
@@ -60,5 +59,26 @@ impl AccelStruct {
                 },
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AccelStruct, AccelStructInner};
+    use crate::Buffer;
+
+    fn assert_clone<T: Clone>() {}
+
+    fn retained_backing_buffer(inner: &AccelStructInner) -> &Buffer {
+        &inner._backing_buffer
+    }
+
+    #[test]
+    fn acceleration_structure_and_backing_buffer_are_leaseable() {
+        assert_clone::<AccelStruct>();
+        assert_clone::<Buffer>();
+
+        let accessor: for<'a> fn(&'a AccelStructInner) -> &'a Buffer = retained_backing_buffer;
+        let _ = accessor;
     }
 }

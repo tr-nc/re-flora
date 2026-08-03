@@ -24,7 +24,6 @@ impl Texture {
         let image = Image::new(device.clone(), allocator, img_desc).unwrap();
 
         let image_view_desc = ImageViewDesc {
-            image: image.as_raw(),
             format: img_desc.format,
             image_view_type: image_type_to_image_view_type(
                 img_desc.get_image_type(),
@@ -35,7 +34,7 @@ impl Texture {
             base_array_layer: 0,
             layer_count: img_desc.array_len,
         };
-        let image_view = ImageView::new(device.clone(), image_view_desc);
+        let image_view = ImageView::new_owned(device.clone(), &image, image_view_desc);
         let sampler = Sampler::new(device.clone(), sampler_desc);
 
         Self {
