@@ -3032,7 +3032,6 @@ impl Tracer {
                 "ddgi.global_sky_filter",
                 || self.record_ddgi_global_sky_filter_pass(cmdbuf),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3040,8 +3039,6 @@ impl Tracer {
                 "ddgi.global_sky_gutter",
                 || self.record_ddgi_global_sky_gutter_pass(cmdbuf),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
             let environment_revision = self
                 .ddgi_volumes
                 .status()
@@ -3066,11 +3063,6 @@ impl Tracer {
             .builder()
             .pending_relocation_terrain_revision();
         if let Some(terrain_revision) = ddgi_relocation_revision {
-            let terrain_to_relocation_barrier = PipelineBarrier::shader_access(
-                PipelineStage::COMPUTE_SHADER,
-                PipelineStage::COMPUTE_SHADER,
-            );
-            terrain_to_relocation_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             let volume = self.ddgi_volumes.builder();
             cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeWrite);
             Self::with_gpu_scope(
@@ -3080,8 +3072,6 @@ impl Tracer {
                 "ddgi.probe_relocate",
                 || self.record_ddgi_probe_relocation_pass(cmdbuf, terrain_revision),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
             let volume = self.ddgi_volumes.builder_mut();
             volume.mark_relocated(terrain_revision)?;
             let status = volume.status();
@@ -3126,8 +3116,6 @@ impl Tracer {
                 "ddgi.probe_trace",
                 || self.record_ddgi_probe_trace_pass(cmdbuf, batch),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-
             self.ddgi_volumes.builder_mut().mark_ray_batch_ready(batch);
 
             Self::with_gpu_scope(
@@ -3142,7 +3130,6 @@ impl Tracer {
                     self.record_ddgi_irradiance_filter_pass(cmdbuf, batch)
                 },
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             // Visibility is geometry-owned and is written only by bootstrap S0. Radiance-only
             // feedback retains the complete visibility atlas.
             if batch.writes_visibility() {
@@ -3158,7 +3145,6 @@ impl Tracer {
                         self.record_ddgi_visibility_filter_pass(cmdbuf, batch)
                     },
                 );
-                compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             }
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -3167,7 +3153,6 @@ impl Tracer {
                 "ddgi.atlas_gutters",
                 || self.record_ddgi_atlas_gutter_passes(cmdbuf, batch),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             if iteration_will_complete {
                 let volume = self.ddgi_volumes.builder();
                 cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
@@ -3179,7 +3164,6 @@ impl Tracer {
                     "ddgi.atlas_reduce",
                     || self.record_ddgi_atlas_reduction_pass(cmdbuf, batch),
                 );
-                compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             }
 
             let volume = self.ddgi_volumes.builder();
