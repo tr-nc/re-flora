@@ -1149,10 +1149,6 @@ impl Tracer {
         let started = std::time::Instant::now();
         self.ddgi_voxel_visibility.begin_pack(geometry_revision)?;
         let dispatch = self.ddgi_voxel_visibility.word_dimensions();
-        let pack_to_queries = PipelineBarrier::shader_access(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
-        );
         execute_one_time_gpu_job(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
@@ -1174,7 +1170,6 @@ impl Tracer {
                         Extent3D::new(dispatch.x, dispatch.y, dispatch.z),
                         None,
                     );
-                pack_to_queries.record_insert(self.vulkan_ctx.device(), cmdbuf);
             },
         );
         self.ddgi_voxel_visibility.publish_pack(geometry_revision)?;
