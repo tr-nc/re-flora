@@ -279,6 +279,7 @@ pub struct App {
         Option<environment_lighting_test_scene::EnvironmentLightingTestScene>,
     hybrid_transparency_test_scene:
         Option<hybrid_transparency_test_scene::HybridTransparencyTestScene>,
+    visible_terrain_revision: u32,
     deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
     terrain_chunk_rebuild_inflight: Option<TerrainChunkRebuildInFlight>,
 
@@ -1376,6 +1377,7 @@ impl App {
             hybrid_transparency_test_scene: options
                 .hybrid_transparency_test_scene
                 .then(hybrid_transparency_test_scene::HybridTransparencyTestScene::new),
+            visible_terrain_revision: 0,
             deferred_chunk_rebuilds: LatestChunkQueue::default(),
             terrain_chunk_rebuild_inflight: None,
 
@@ -1841,8 +1843,7 @@ impl App {
         };
         self.terrain_physics
             .mark_terrain_voxel_bound_dirty(refresh_bound);
-        self.tracer
-            .request_published_environment_probe_refresh_near_voxel_bound(refresh_bound)?;
+        self.observe_published_terrain_edit_for_ddgi(refresh_bound)?;
         Ok(())
     }
 
@@ -1855,10 +1856,29 @@ impl App {
             self.request_vsm_history_reset();
         }
         if let Some(edit_bound) = environment_probe_edit_bound {
-            self.tracer
-                .request_published_environment_probe_refresh_near_voxel_bound(edit_bound)?;
+            self.observe_published_terrain_edit_for_ddgi(edit_bound)?;
         }
         Ok(())
+    }
+
+    fn observe_initial_published_terrain_for_ddgi(&mut self) -> Result<u32> {
+        let revision = self.visible_terrain_revision;
+        self.tracer.observe_published_environment_probe_terrain(
+            revision,
+            UAabb3::new(UVec3::ZERO, CHUNK_DIM * VOXEL_DIM_PER_CHUNK),
+        )?;
+        Ok(revision)
+    }
+
+    fn observe_published_terrain_edit_for_ddgi(
+        &mut self,
+        edited_voxel_bound: UAabb3,
+    ) -> Result<u32> {
+        let revision = self.visible_terrain_revision.wrapping_add(1).max(1);
+        self.tracer
+            .observe_published_environment_probe_terrain(revision, edited_voxel_bound)?;
+        self.visible_terrain_revision = revision;
+        Ok(revision)
     }
 
     fn environment_probe_edit_bound(

@@ -1,9 +1,299 @@
+use crate::environment_lighting::EnvironmentLightingState;
+use crate::geom::UAabb3;
+
 use super::resources::{DdgiStatus, DdgiVolumeStatus};
 use super::{
-    DdgiAtlasValidationStats, DdgiBuildToken, DdgiFieldIdentity, DdgiRefreshState,
-    DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind, DdgiTerrainRefresh,
-    DdgiVolumeGrid, DdgiVolumeStage,
+    DdgiAtlasValidationStats, DdgiBuildKind, DdgiBuildToken, DdgiFieldIdentity, DdgiRefreshState,
+    DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError,
+    DdgiTerrainRefresh, DdgiTransportScheduler, DdgiVolumeGrid, DdgiVolumeStage,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DdgiRuntimeVolumeTarget {
+    Active,
+    Staging,
+}
+
+/// One runtime-authorized physical Volume allocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DdgiRuntimeVolumeBuild {
+    target: DdgiRuntimeVolumeTarget,
+    token: DdgiBuildToken,
+}
+
+impl DdgiRuntimeVolumeBuild {
+    pub(crate) fn target(self) -> DdgiRuntimeVolumeTarget {
+        self.target
+    }
+
+    pub(crate) fn token(self) -> DdgiBuildToken {
+        self.token
+    }
+}
+
+/// One immutable transport decision paired with the authored lighting that produced its revision.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DdgiRuntimeWork {
+    scheduled: DdgiScheduledWork,
+    authored_lighting: EnvironmentLightingState,
+}
+
+impl DdgiRuntimeWork {
+    pub(crate) fn scheduled(self) -> DdgiScheduledWork {
+        self.scheduled
+    }
+
+    pub(crate) fn authored_lighting(self) -> EnvironmentLightingState {
+        self.authored_lighting
+    }
+}
+
+/// Owns DDGI terrain and radiance event handling independently from physical Vulkan execution.
+///
+/// Terrain reports only an already-published geometry revision and its edited bound. Authored
+/// Environment Lighting remains the source of normalized live snapshots and stable revisions;
+/// this runtime retains the exact snapshot chosen for in-flight work so later observations cannot
+/// mutate it underneath the GPU.
+#[derive(Debug)]
+pub(crate) struct DdgiRuntime {
+    active_grid: DdgiVolumeGrid,
+    active_build_token: Option<DdgiBuildToken>,
+    active_ready: bool,
+    latest_visible_terrain_revision: Option<u32>,
+    terrain_refresh: DdgiTerrainRefresh,
+    transport_scheduler: DdgiTransportScheduler,
+    live_authored_lighting: Option<EnvironmentLightingState>,
+    in_flight_authored_lighting: Option<EnvironmentLightingState>,
+}
+
+impl DdgiRuntime {
+    pub(crate) fn new(active_grid: DdgiVolumeGrid) -> Self {
+        Self {
+            active_grid,
+            active_build_token: None,
+            active_ready: false,
+            latest_visible_terrain_revision: None,
+            terrain_refresh: DdgiTerrainRefresh::default(),
+            transport_scheduler: DdgiTransportScheduler::new(),
+            live_authored_lighting: None,
+            in_flight_authored_lighting: None,
+        }
+    }
+
+    /// Observes one authoritative terrain publication. Repeating the same publication is
+    /// idempotent; a later observation supersedes all older terrain work.
+    pub(crate) fn observe_visible_terrain(
+        &mut self,
+        geometry_revision: u32,
+        edited_voxel_bound: UAabb3,
+    ) -> bool {
+        if self.latest_visible_terrain_revision == Some(geometry_revision) {
+            return false;
+        }
+        self.latest_visible_terrain_revision = Some(geometry_revision);
+        self.terrain_refresh
+            .request(geometry_revision, edited_voxel_bound, self.active_grid);
+        self.terrain_refresh
+            .mark_terrain_published(geometry_revision);
+        true
+    }
+
+    pub(crate) fn observe_authored_lighting(&mut self, lighting: EnvironmentLightingState) {
+        assert_ne!(
+            lighting.revision, 0,
+            "Authored Environment Lighting revisions must be nonzero"
+        );
+        if let Some(current) = self.live_authored_lighting {
+            if current.revision == lighting.revision {
+                assert_eq!(
+                    current.snapshot, lighting.snapshot,
+                    "Authored Environment Lighting reused revision {} for a different snapshot",
+                    lighting.revision,
+                );
+                return;
+            }
+        }
+        self.live_authored_lighting = Some(lighting);
+        self.transport_scheduler.observe_radiance(lighting.revision);
+    }
+
+    pub(crate) fn request_density_rebuild(&mut self, spacing_voxels: u32) {
+        self.terrain_refresh.request_density_rebuild(spacing_voxels);
+    }
+
+    /// Chooses the next physical Volume allocation and atomically installs its logical transport
+    /// request. Preparation failure is fatal, so no rollback transition is exposed.
+    pub(crate) fn claim_volume_build(&mut self) -> Option<DdgiRuntimeVolumeBuild> {
+        if self.active_build_token.is_none() {
+            let terrain_revision = self.latest_visible_terrain_revision?;
+            let token = self
+                .terrain_refresh
+                .allocate_initial_build_token(terrain_revision, self.active_grid.spacing_voxels());
+            self.terrain_refresh
+                .consume_initial_revision(terrain_revision);
+            self.active_build_token = Some(token);
+            self.request_geometry_transport(token);
+            return Some(DdgiRuntimeVolumeBuild {
+                target: DdgiRuntimeVolumeTarget::Active,
+                token,
+            });
+        }
+        if !self.active_ready {
+            return None;
+        }
+
+        let active_token = self
+            .active_build_token
+            .expect("initialized DDGI runtime must retain its active build token");
+        let token = self.terrain_refresh.claim_next_build(
+            self.active_grid.spacing_voxels(),
+            active_token.terrain_revision(),
+        )?;
+        match token.kind() {
+            DdgiBuildKind::Terrain => self.request_geometry_transport(token),
+            DdgiBuildKind::Density => self.request_density_transport(token),
+        }
+        Some(DdgiRuntimeVolumeBuild {
+            target: DdgiRuntimeVolumeTarget::Staging,
+            token,
+        })
+    }
+
+    fn request_geometry_transport(&mut self, token: DdgiBuildToken) {
+        let preempted = self
+            .transport_scheduler
+            .request_geometry(token.terrain_revision(), token.spacing_voxels());
+        self.clear_preempted_snapshot(preempted);
+    }
+
+    fn request_density_transport(&mut self, token: DdgiBuildToken) {
+        let preempted = self
+            .transport_scheduler
+            .request_density(token.spacing_voxels());
+        self.clear_preempted_snapshot(preempted);
+    }
+
+    fn clear_preempted_snapshot(&mut self, preempted: Option<DdgiScheduledWork>) {
+        if let Some(preempted) = preempted {
+            let lighting = self
+                .in_flight_authored_lighting
+                .take()
+                .expect("preempted DDGI work must retain its immutable authored lighting");
+            assert_eq!(
+                lighting.revision,
+                preempted.destination().field().radiance_revision(),
+                "preempted DDGI work and authored lighting revision diverged",
+            );
+        }
+    }
+
+    pub(crate) fn claim_transport_work(&mut self) -> Option<DdgiRuntimeWork> {
+        let scheduled = self
+            .transport_scheduler
+            .claim_next()
+            .unwrap_or_else(|error| panic!("DDGI transport claim failed: {error:?}"))?;
+        assert!(
+            self.in_flight_authored_lighting.is_none(),
+            "DDGI runtime cannot replace an in-flight authored-lighting snapshot"
+        );
+        let authored_lighting = self
+            .live_authored_lighting
+            .expect("DDGI transport work requires an Authored Environment Lighting observation");
+        assert_eq!(
+            authored_lighting.revision,
+            scheduled.destination().field().radiance_revision(),
+            "DDGI transport work revision does not match live Authored Environment Lighting",
+        );
+        self.in_flight_authored_lighting = Some(authored_lighting);
+        Some(DdgiRuntimeWork {
+            scheduled,
+            authored_lighting,
+        })
+    }
+
+    pub(crate) fn validate_transport_completion(
+        &self,
+        work: DdgiScheduledWork,
+        published: DdgiFieldIdentity,
+    ) -> Result<(), DdgiSchedulerError> {
+        self.transport_scheduler
+            .validate_in_flight_completion(work, published)
+    }
+
+    pub(crate) fn complete_transport_work(
+        &mut self,
+        work: DdgiScheduledWork,
+        published: DdgiFieldIdentity,
+        build_token: DdgiBuildToken,
+    ) -> Result<DdgiFieldIdentity, DdgiSchedulerError> {
+        // Validate before taking the snapshot: a stale completion may arrive after newer work has
+        // been claimed and must not consume that newer work's immutable authored lighting.
+        self.transport_scheduler
+            .validate_in_flight_completion(work, published)?;
+        let lighting = self
+            .in_flight_authored_lighting
+            .take()
+            .expect("completed DDGI work must retain its immutable authored lighting");
+        assert_eq!(
+            lighting.revision,
+            work.destination().field().radiance_revision(),
+            "completed DDGI work and authored lighting revision diverged",
+        );
+        let published = self
+            .transport_scheduler
+            .complete_in_flight(work, published)?;
+        if self.active_build_token == Some(build_token) {
+            self.active_ready = true;
+        }
+        Ok(published)
+    }
+
+    pub(crate) fn token_can_promote(&self, token: DdgiBuildToken) -> bool {
+        self.terrain_refresh.token_can_promote(token)
+    }
+
+    pub(crate) fn mark_promoted(&mut self, token: DdgiBuildToken) -> bool {
+        if !self.terrain_refresh.mark_promoted(token) {
+            return false;
+        }
+        self.active_grid = DdgiVolumeGrid::new(
+            self.active_grid.world_extent_voxels(),
+            token.spacing_voxels(),
+        )
+        .expect("promoted DDGI token must retain a supported Volume grid");
+        self.active_build_token = Some(token);
+        self.active_ready = true;
+        true
+    }
+
+    pub(crate) fn status(&self, volumes: DdgiStatus) -> DdgiRuntimeStatus {
+        DdgiRuntimeStatus::from_parts(volumes, self.terrain_refresh)
+    }
+
+    pub(crate) fn edited_voxel_bound(&self) -> Option<UAabb3> {
+        self.terrain_refresh.edited_voxel_bound()
+    }
+
+    pub(crate) fn invalidation_voxel_bound(&self) -> Option<UAabb3> {
+        self.terrain_refresh.invalidation_voxel_bound()
+    }
+
+    pub(crate) fn refresh_state(&self) -> DdgiRefreshState {
+        self.terrain_refresh.state()
+    }
+
+    pub(crate) fn latest_radiance_revision(&self) -> Option<u32> {
+        self.transport_scheduler.latest_radiance_revision()
+    }
+
+    pub(crate) fn live_authored_lighting(&self) -> Option<EnvironmentLightingState> {
+        self.live_authored_lighting
+    }
+
+    pub(crate) fn in_flight_authored_lighting(&self) -> Option<EnvironmentLightingState> {
+        self.in_flight_authored_lighting
+    }
+}
 
 /// Semantic work identity exposed by the runtime without exposing scheduler operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,7 +396,7 @@ enum DdgiRuntimeState {
 }
 
 impl DdgiRuntimeStatus {
-    pub(crate) fn new(volumes: DdgiStatus, refresh: DdgiTerrainRefresh) -> Self {
+    fn from_parts(volumes: DdgiStatus, refresh: DdgiTerrainRefresh) -> Self {
         let active = volumes.active().into();
         let coordinator = refresh.state();
         let deferred_density_spacing_voxels = refresh.queued_density_spacing_voxels();
@@ -286,17 +576,77 @@ fn format_ddgi_field(value: Option<DdgiFieldIdentity>) -> String {
 mod tests {
     use super::*;
     use crate::ddgi::{
-        DdgiAtlasLayout, DdgiBuildKind, DdgiResourceBytes, DdgiTransportScheduler, DdgiVolumeGrid,
-        DdgiVolumeStage,
+        DdgiAtlasLayout, DdgiBuildKind, DdgiFieldKey, DdgiFieldStage, DdgiResourceBytes,
+        DdgiVolumeGrid, DdgiVolumeStage,
     };
+    use crate::environment_lighting::{DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot};
     use crate::geom::UAabb3;
-    use glam::UVec3;
+    use glam::{UVec3, Vec3};
 
     fn field(geometry_revision: u32, radiance_revision: u32) -> super::DdgiFieldIdentity {
-        let mut scheduler = DdgiTransportScheduler::new();
-        scheduler.observe_radiance(radiance_revision);
-        scheduler.request_geometry(geometry_revision, 16);
-        scheduler.claim_next().unwrap().unwrap().destination()
+        let seed = DdgiFieldKey::new(
+            1,
+            geometry_revision,
+            radiance_revision,
+            16,
+            DdgiFieldStage::SeedSky,
+            0,
+        )
+        .unwrap();
+        DdgiFieldIdentity::new(
+            DdgiFieldKey::new(
+                2,
+                geometry_revision,
+                radiance_revision,
+                16,
+                DdgiFieldStage::SingleBounce,
+                1,
+            )
+            .unwrap(),
+            Some(seed),
+        )
+        .unwrap()
+    }
+
+    fn lighting(revision: u32, sun_luminance: f32) -> EnvironmentLightingState {
+        EnvironmentLightingState {
+            revision,
+            snapshot: DdgiRadianceSnapshot {
+                sun_direction: Vec3::Y,
+                sun_color: Vec3::new(1.0, 0.9, 0.8),
+                sun_luminance,
+                terrain_ray_origin_offset_world: 0.005,
+                ddgi_receiver_visibility_bias_world: 0.001,
+                voxel_palette: DdgiVoxelPaletteSnapshot {
+                    dirt_color: Vec3::new(0.1, 0.2, 0.3),
+                    sand_color: Vec3::new(0.4, 0.5, 0.6),
+                    cherry_wood_color: Vec3::new(0.7, 0.2, 0.1),
+                    oak_wood_color: Vec3::new(0.2, 0.3, 0.1),
+                    rock_color: Vec3::splat(0.4),
+                    hash_color_variance: 0.5,
+                },
+            },
+        }
+    }
+
+    fn edit_bound(min: u32, max: u32) -> UAabb3 {
+        UAabb3::new(UVec3::splat(min), UVec3::splat(max))
+    }
+
+    fn initialized_runtime() -> (DdgiRuntime, DdgiBuildToken, DdgiFieldIdentity) {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
+        let mut runtime = DdgiRuntime::new(grid);
+        runtime.observe_authored_lighting(lighting(1, 1.0));
+        assert!(runtime.observe_visible_terrain(7, edit_bound(100, 120)));
+        let build = runtime.claim_volume_build().unwrap();
+        assert_eq!(build.target(), DdgiRuntimeVolumeTarget::Active);
+        let token = build.token();
+        let work = runtime.claim_transport_work().unwrap().scheduled();
+        let published = work.destination();
+        runtime
+            .complete_transport_work(work, published, token)
+            .unwrap();
+        (runtime, token, published)
     }
 
     fn volume_status(
@@ -330,16 +680,14 @@ mod tests {
 
     #[test]
     fn staging_evidence_exists_only_in_the_staging_variant() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 16).unwrap();
-        let active_token = DdgiBuildToken::for_test(7, 7, 16, DdgiBuildKind::Terrain);
+        let (mut runtime, active_token, _) = initialized_runtime();
         let active = volume_status(Some(active_token), 7, 3, DdgiVolumeStage::Ready);
-        let active_only =
-            DdgiRuntimeStatus::new(DdgiStatus::new(active, None), DdgiTerrainRefresh::default());
+        let active_only = runtime.status(DdgiStatus::new(active, None));
         assert!(matches!(active_only.state, DdgiRuntimeState::Active { .. }));
         assert!(active_only.staging().is_none());
         assert_eq!(
             active_only.active_line(),
-            "Active token 7 · terrain 7 · radiance 3 · 16 vox · Ready · published #2/S1 SingleBounce <- Some(1)"
+            "Active token 1 · terrain 7 · radiance 3 · 16 vox · Ready · published #2/S1 SingleBounce <- Some(1)"
         );
         assert_eq!(active_only.builder_line(), "Builder none");
         assert_eq!(
@@ -347,18 +695,16 @@ mod tests {
             "Invalidation: none · fail-closed OFF"
         );
 
-        let mut refresh = DdgiTerrainRefresh::default();
-        refresh.request_density_rebuild(32);
-        refresh.request(8, UAabb3::new(UVec3::splat(100), UVec3::splat(120)), grid);
-        refresh.mark_terrain_published(8);
-        let token = refresh.claim_next_build(16, 7).unwrap();
+        runtime.request_density_rebuild(32);
+        assert!(runtime.observe_visible_terrain(8, edit_bound(200, 220)));
+        let token = runtime.claim_volume_build().unwrap().token();
         let staging = volume_status(Some(token), 8, 4, DdgiVolumeStage::Rebuilding);
-        let building = DdgiRuntimeStatus::new(DdgiStatus::new(active, Some(staging)), refresh);
+        let building = runtime.status(DdgiStatus::new(active, Some(staging)));
         assert!(matches!(building.state, DdgiRuntimeState::Staging { .. }));
         assert_eq!(building.staging_token(), Some(token));
         assert!(building
             .builder_line()
-            .starts_with("Builder token 1 · Terrain"));
+            .starts_with("Builder token 2 · Terrain"));
         assert!(building.coordinator_line().contains("Target terrain 8"));
         assert!(building.coordinator_line().contains("density queued 32"));
         assert_eq!(
@@ -370,11 +716,126 @@ mod tests {
     #[test]
     #[should_panic(expected = "DDGI staging status must have an immutable build token")]
     fn staging_without_a_build_token_fails_fast() {
+        let (runtime, _, _) = initialized_runtime();
         let active = volume_status(None, 7, 3, DdgiVolumeStage::Ready);
         let staging = volume_status(None, 8, 4, DdgiVolumeStage::Rebuilding);
-        DdgiRuntimeStatus::new(
-            DdgiStatus::new(active, Some(staging)),
-            DdgiTerrainRefresh::default(),
+        runtime.status(DdgiStatus::new(active, Some(staging)));
+    }
+
+    #[test]
+    fn terrain_observation_drives_initialization_and_full_domain_invalidation() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
+        let mut runtime = DdgiRuntime::new(grid);
+        runtime.observe_authored_lighting(lighting(1, 1.0));
+
+        assert!(runtime.observe_visible_terrain(7, edit_bound(100, 120)));
+        assert!(!runtime.observe_visible_terrain(7, edit_bound(200, 220)));
+        assert_eq!(
+            runtime.refresh_state(),
+            DdgiRefreshState::AwaitingTerrain {
+                latest_terrain_revision: 7,
+            }
+        );
+        assert_eq!(
+            runtime.invalidation_voxel_bound(),
+            Some(UAabb3::new(UVec3::ZERO, UVec3::splat(512)))
+        );
+
+        let build = runtime.claim_volume_build().unwrap();
+        assert_eq!(build.target(), DdgiRuntimeVolumeTarget::Active);
+        assert_eq!(build.token().terrain_revision(), 7);
+        assert_eq!(build.token().spacing_voxels(), 32);
+        assert_eq!(runtime.refresh_state(), DdgiRefreshState::Idle);
+        assert_eq!(runtime.invalidation_voxel_bound(), None);
+    }
+
+    #[test]
+    fn latest_terrain_revision_preempts_older_in_flight_work() {
+        let (mut runtime, _, _) = initialized_runtime();
+        assert!(runtime.observe_visible_terrain(8, edit_bound(100, 120)));
+        let first = runtime.claim_volume_build().unwrap().token();
+        let first_work = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            first_work
+                .scheduled()
+                .destination()
+                .field()
+                .geometry_revision(),
+            8
+        );
+
+        assert!(runtime.observe_visible_terrain(9, edit_bound(200, 220)));
+        let latest = runtime.claim_volume_build().unwrap().token();
+        assert!(!runtime.token_can_promote(first));
+        assert!(runtime.token_can_promote(latest));
+        assert_eq!(latest.terrain_revision(), 9);
+        assert_eq!(runtime.in_flight_authored_lighting(), None);
+        let latest_work = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            latest_work
+                .scheduled()
+                .destination()
+                .field()
+                .geometry_revision(),
+            9
+        );
+    }
+
+    #[test]
+    fn density_request_uses_the_active_geometry_and_requested_spacing() {
+        let (mut runtime, active_token, _) = initialized_runtime();
+        runtime.request_density_rebuild(32);
+        let build = runtime.claim_volume_build().unwrap();
+        assert_eq!(build.target(), DdgiRuntimeVolumeTarget::Staging);
+        assert_eq!(build.token().kind(), DdgiBuildKind::Density);
+        assert_eq!(
+            build.token().terrain_revision(),
+            active_token.terrain_revision()
+        );
+        assert_eq!(build.token().spacing_voxels(), 32);
+        let work = runtime.claim_transport_work().unwrap().scheduled();
+        assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityBootstrap);
+        assert_eq!(work.destination().field().spacing_voxels(), 32);
+    }
+
+    #[test]
+    fn radiance_observations_coalesce_without_mutating_the_in_flight_snapshot() {
+        let (mut runtime, active_token, _) = initialized_runtime();
+        let r2 = lighting(2, 2.0);
+        runtime.observe_authored_lighting(r2);
+        let r2_work = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            r2_work
+                .scheduled()
+                .destination()
+                .field()
+                .radiance_revision(),
+            2
+        );
+        assert_eq!(r2_work.authored_lighting().snapshot, r2.snapshot);
+
+        runtime.observe_authored_lighting(lighting(3, 3.0));
+        let r4 = lighting(4, 4.0);
+        runtime.observe_authored_lighting(r4);
+        assert_eq!(runtime.latest_radiance_revision(), Some(4));
+        assert_eq!(
+            runtime.in_flight_authored_lighting().unwrap().snapshot,
+            r2.snapshot,
+        );
+
+        let r2_scheduled = r2_work.scheduled();
+        runtime
+            .complete_transport_work(r2_scheduled, r2_scheduled.destination(), active_token)
+            .unwrap();
+        let latest = runtime.claim_transport_work().unwrap();
+        assert_eq!(
+            latest.scheduled().destination().field().radiance_revision(),
+            4
+        );
+        assert_eq!(latest.authored_lighting().snapshot, r4.snapshot);
+        assert_eq!(
+            latest.scheduled().destination().source(),
+            Some(r2_scheduled.destination().field())
         );
     }
 }
