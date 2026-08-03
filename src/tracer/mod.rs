@@ -3429,6 +3429,15 @@ impl Tracer {
         // discard the individual depths of layers behind it.
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_tracer {
+            if self.desc.environment_irradiance_capture_enabled {
+                cmdbuf.use_buffer(
+                    &self
+                        .resources
+                        .extent_dependent_resources
+                        .environment_irradiance_capture,
+                    BufferUse::ComputeWrite,
+                );
+            }
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
