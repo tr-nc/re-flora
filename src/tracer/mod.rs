@@ -3100,12 +3100,7 @@ impl Tracer {
             }
         }
 
-        let ddgi_global_sky_needs_update = self
-            .ddgi_runtime
-            .volumes()
-            .builder()
-            .global_sky_needs_update();
-        if ddgi_global_sky_needs_update {
+        if self.ddgi_runtime.frame_plan().global_sky_needs_update {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3127,8 +3122,9 @@ impl Tracer {
                 .builder()
                 .radiance_revision
                 .expect("a DDGI global-sky pass requires a latched radiance snapshot");
-            let volume = self.ddgi_runtime.volumes_mut().builder_mut();
-            volume.mark_global_sky_ready(environment_revision)?;
+            self.ddgi_runtime
+                .mark_global_sky_ready(environment_revision)?;
+            let status = self.ddgi_runtime.volumes().status().builder();
             log::info!(
                 "[DDGI] global sky ready revision={} interior={}x{} stored={}x{} samples_per_texel=2048 stage={:?}",
                 environment_revision,
@@ -3136,15 +3132,11 @@ impl Tracer {
                 DDGI_IRRADIANCE_INTERIOR_SIDE,
                 DDGI_IRRADIANCE_STORED_SIDE,
                 DDGI_IRRADIANCE_STORED_SIDE,
-                volume.status().stage,
+                status.stage,
             );
         }
 
-        let ddgi_relocation_revision = self
-            .ddgi_runtime
-            .volumes()
-            .builder()
-            .pending_relocation_terrain_revision();
+        let ddgi_relocation_revision = self.ddgi_runtime.frame_plan().relocation_terrain_revision;
         if let Some(terrain_revision) = ddgi_relocation_revision {
             let volume = self.ddgi_runtime.volumes().builder();
             cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeWrite);
@@ -3155,9 +3147,8 @@ impl Tracer {
                 "ddgi.probe_relocate",
                 || self.record_ddgi_probe_relocation_pass(cmdbuf, terrain_revision),
             );
-            let volume = self.ddgi_runtime.volumes_mut().builder_mut();
-            volume.mark_relocated(terrain_revision)?;
-            let status = volume.status();
+            self.ddgi_runtime.mark_relocated(terrain_revision)?;
+            let status = self.ddgi_runtime.volumes().status().builder();
             log::info!(
                 "[DDGI] relocation complete terrain_revision={} probes={} spacing_voxels={} max_displacement_voxels={} min_clearance_voxels=1 stage={:?}",
                 terrain_revision,
@@ -3168,17 +3159,10 @@ impl Tracer {
             );
         }
 
-        let ddgi_ray_batch = self
-            .ddgi_runtime
-            .volumes()
-            .builder()
-            .next_ray_batch_to_trace();
+        let ddgi_frame_plan = self.ddgi_runtime.frame_plan();
+        let ddgi_ray_batch = ddgi_frame_plan.ray_batch;
         if let Some(batch) = ddgi_ray_batch {
-            let iteration_will_complete = self
-                .ddgi_runtime
-                .volumes()
-                .builder()
-                .iteration_will_complete(batch);
+            let iteration_will_complete = ddgi_frame_plan.iteration_will_complete;
             {
                 let volume = self.ddgi_runtime.volumes().builder();
                 cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
@@ -3206,10 +3190,7 @@ impl Tracer {
                 "ddgi.probe_trace",
                 || self.record_ddgi_probe_trace_pass(cmdbuf, batch),
             );
-            self.ddgi_runtime
-                .volumes_mut()
-                .builder_mut()
-                .mark_ray_batch_ready(batch);
+            self.ddgi_runtime.mark_ray_batch_ready(batch);
 
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -3266,9 +3247,8 @@ impl Tracer {
             }
             self.ddgi_trace_stats_readback_pending = Some(batch);
 
-            let volume = self.ddgi_runtime.volumes_mut().builder_mut();
-            volume.mark_ray_batch_filtered(batch);
-            let status = volume.status();
+            self.ddgi_runtime.mark_ray_batch_filtered(batch);
+            let status = self.ddgi_runtime.volumes().status().builder();
             if status.filtered_probe_count == batch.probe_count
                 || status.filtered_probe_count == status.grid.probe_count()
                 || status.filtered_probe_count % 1_024 == 0

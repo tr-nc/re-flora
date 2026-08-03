@@ -5,7 +5,7 @@ use anyhow::Result;
 use super::resources::{DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes};
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
-    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiRefreshState,
+    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiRayBatch, DdgiRefreshState,
     DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError,
     DdgiTerrainRefresh, DdgiTransportScheduler, DdgiVolumeGrid, DdgiVolumeStage,
 };
@@ -38,6 +38,16 @@ impl DdgiRuntimeVolumeBuild {
 pub(crate) struct DdgiRuntimeWork {
     scheduled: DdgiScheduledWork,
     authored_lighting: EnvironmentLightingState,
+}
+
+/// Logical DDGI work selected for one frame. The runtime owns sequencing decisions; the tracer
+/// only records the Vulkan passes described by this plan and reports completion back here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DdgiFramePlan {
+    pub global_sky_needs_update: bool,
+    pub relocation_terrain_revision: Option<u32>,
+    pub ray_batch: Option<DdgiRayBatch>,
+    pub iteration_will_complete: bool,
 }
 
 impl DdgiRuntimeWork {
@@ -390,6 +400,42 @@ impl DdgiRuntime {
 
     pub(crate) fn in_flight_authored_lighting(&self) -> Option<EnvironmentLightingState> {
         self.in_flight_authored_lighting
+    }
+
+    /// Selects all DDGI logical work for the current frame without exposing physical atlas
+    /// ownership to the caller that records Vulkan commands.
+    pub(crate) fn frame_plan(&self) -> DdgiFramePlan {
+        let builder = self.volumes().builder();
+        let ray_batch = builder.next_ray_batch_to_trace();
+        DdgiFramePlan {
+            global_sky_needs_update: builder.global_sky_needs_update(),
+            relocation_terrain_revision: builder.pending_relocation_terrain_revision(),
+            iteration_will_complete: ray_batch
+                .is_some_and(|batch| builder.iteration_will_complete(batch)),
+            ray_batch,
+        }
+    }
+
+    pub(crate) fn mark_global_sky_ready(&mut self, environment_revision: u32) -> Result<()> {
+        self.volumes_mut()
+            .builder_mut()
+            .mark_global_sky_ready(environment_revision)
+    }
+
+    pub(crate) fn mark_relocated(&mut self, terrain_revision: u32) -> Result<()> {
+        self.volumes_mut()
+            .builder_mut()
+            .mark_relocated(terrain_revision)
+    }
+
+    pub(crate) fn mark_ray_batch_ready(&mut self, batch: DdgiRayBatch) {
+        self.volumes_mut().builder_mut().mark_ray_batch_ready(batch);
+    }
+
+    pub(crate) fn mark_ray_batch_filtered(&mut self, batch: DdgiRayBatch) {
+        self.volumes_mut()
+            .builder_mut()
+            .mark_ray_batch_filtered(batch);
     }
 }
 
