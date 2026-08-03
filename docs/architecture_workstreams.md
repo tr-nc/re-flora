@@ -442,6 +442,13 @@ Image tracking and render-pass graphics declarations remain incomplete)
       equivalent under matched conditions.
 - [ ] Hidden release logs remain free of synchronization, descriptor, and resource-state errors.
 
+**Deferred boundary:** Egui's dynamic Mesh buffers are outside the tracer migration. A validation
+experiment that moved Mesh updates before the swapchain render pass exposed an independent
+retirement bug: buffer growth can destroy an old vertex/index buffer while an earlier command buffer
+still uses it (`vkDestroyBuffer ... currently in use`). Egui needs a GPU-safe retirement or
+per-frame-buffer seam before its HostWrite/IndexRead/VertexRead declarations can move outside the
+render pass.
+
 ---
 
 ## Ticket 14 — Contract the shallow resource-state and barrier paths
