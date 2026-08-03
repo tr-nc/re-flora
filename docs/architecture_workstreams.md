@@ -417,7 +417,7 @@ order and rendergraph-lite architecture.
 
 **Status:** in-progress (`5fb17dbf`, `f04ef4ca`, `8d09317f`, `48d27b1b`, `b9108858`, `b4ef4d29`,
 `4f1d8592`, `14d3b0ef`, `419fff8d`, `1d0b34d5`, `dd0fc745`, `91a7bed8`, `69343901`, `5cdf796d`,
-`96acf10d`, `3f90f1b2`, `ebfe4879`, `73fa3aad`, `1248b5b0`, `098cb031`; DDGI voxel-visibility and
+`96acf10d`, `3f90f1b2`, `ebfe4879`, `73fa3aad`, `1248b5b0`, `098cb031`, `0de8c4de`; DDGI voxel-visibility and
 terrain-query one-time paths, CPU-updated tracer/DDGI uniform buffers, CPU-filled tracer graphics
 instance buffers, tracer static mesh inputs, flora/wind shader lookup buffers, irradiance-capture
 storage writes, DDGI metadata/transient-ray transitions, and Egui mesh buffers now declare Buffer
@@ -452,6 +452,8 @@ uses; frame-wide Image tracking remains incomplete)
       and terrain-query descriptor consumers.
 - [x] The terminal DDGI voxel-visibility pack no longer records an unscoped barrier after its last
       command; queue completion and the next declared ShaderRead own the publication boundary.
+- [x] DDGI global-sky, relocation, trace, filtering, gutter, and reduction passes rely on declared
+      image/buffer transitions rather than intervening unscoped compute-to-compute barriers.
 - [ ] Compute-to-compute, compute-to-indirect, transfer-to-compute, compute-to-graphics, and
       GPU-to-host dependencies remain correct for the resources that require them.
 - [ ] The migration does not introduce pass scheduling, reorder commands, or turn the work into a
