@@ -5602,10 +5602,35 @@ impl Tracer {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
+                cmdbuf.begin_resource_state_transaction();
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_count,
+                    BufferUse::HostWrite,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_count,
+                    BufferUse::ComputeRead,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_info,
+                    BufferUse::HostWrite,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_info,
+                    BufferUse::ComputeRead,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_result,
+                    BufferUse::ComputeWrite,
+                );
                 self.compute_pipelines.terrain_query_ppl.record(
                     cmdbuf,
                     Extent3D::new(query_count, 1, 1),
                     None,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.terrain_query.terrain_query_result,
+                    BufferUse::HostRead,
                 );
             },
         );
