@@ -37,6 +37,7 @@ impl MemoryAccess {
     pub const DEPTH_STENCIL_ATTACHMENT_WRITE: Self =
         Self(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE);
     pub const HOST_READ: Self = Self(vk::AccessFlags::HOST_READ);
+    pub const HOST_WRITE: Self = Self(vk::AccessFlags::HOST_WRITE);
     pub const MEMORY_READ: Self = Self(vk::AccessFlags::MEMORY_READ);
     pub const MEMORY_WRITE: Self = Self(vk::AccessFlags::MEMORY_WRITE);
 
@@ -279,6 +280,7 @@ pub enum BufferUse {
     IndirectRead,
     TransferRead,
     TransferWrite,
+    HostWrite,
     HostRead,
 }
 
@@ -307,6 +309,7 @@ impl BufferUse {
             Self::TransferWrite => {
                 BufferState::new(PipelineStage::TRANSFER, MemoryAccess::TRANSFER_WRITE)
             }
+            Self::HostWrite => BufferState::new(PipelineStage::HOST, MemoryAccess::HOST_WRITE),
             Self::HostRead => BufferState::new(PipelineStage::HOST, MemoryAccess::HOST_READ),
         }
     }
@@ -598,6 +601,10 @@ mod tests {
         assert_ne!(
             BufferUse::ComputeWrite.state(),
             BufferUse::IndirectRead.state()
+        );
+        assert_ne!(
+            BufferUse::HostWrite.state(),
+            BufferUse::HostRead.state()
         );
     }
 
