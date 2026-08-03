@@ -497,7 +497,9 @@ impl App {
                 for scope in results.scopes.iter().filter(|scope| {
                     matches!(
                         scope.name,
-                        "environment_probes.rederive" | "environment_probes.trace_priority"
+                        "environment_probes.rederive"
+                            | "environment_probes.trace_priority"
+                            | "ddgi.probe_relocate"
                     )
                 }) {
                     log::info!(
