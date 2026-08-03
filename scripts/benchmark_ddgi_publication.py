@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Measure release-mode DDGI staging publication and matched frame scopes.
 
-The runner intentionally uses the radiance-changes acceptance scene. It does not change
-synchronization; it records the current publication seam so Ticket 08 can compare a replacement
-against the same workload and scene ancestry.
+The runner intentionally uses the terrain-edits-closed acceptance scene by default because it
+performs a real active/staging DDGI Volume publication. It does not change synchronization; it
+records the current publication seam so Ticket 08 can compare a replacement against the same
+workload and scene ancestry.
 """
 
 from __future__ import annotations
@@ -63,7 +64,7 @@ def command(args: argparse.Namespace, capture_path: Path) -> list[str]:
         "--no-clouds",
         "--perf",
         "--environment-lighting-test-scene",
-        "radiance-changes",
+        args.scene,
         "--environment-probe-spacing-voxels",
         str(args.spacing_voxels),
         "--auto-exit",
@@ -140,7 +141,7 @@ def run(args: argparse.Namespace) -> int:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "host": socket.gethostname(),
         "platform": platform.platform(),
-        "scene": "radiance-changes",
+        "scene": args.scene,
         "spacing_voxels": args.spacing_voxels,
         "auto_exit_seconds": args.auto_exit,
         "samples_requested": args.samples,
@@ -166,6 +167,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--auto-exit", type=float, default=90.0)
+    parser.add_argument(
+        "--scene",
+        choices=("terrain-edits-closed", "radiance-changes", "density-changes"),
+        default="terrain-edits-closed",
+        help="acceptance scene; terrain-edits-closed performs a real staging publication",
+    )
     parser.add_argument("--spacing-voxels", type=int, default=32)
     parser.add_argument(
         "--output",

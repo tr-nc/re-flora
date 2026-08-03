@@ -35,11 +35,11 @@ class BenchmarkDdgiPublicationTests(unittest.TestCase):
             benchmark_ddgi_publication.parse_log("[INFO] Selected physical device: Fixture GPU\n")
 
     def test_command_records_reproducible_capture_target(self) -> None:
-        args = argparse.Namespace(spacing_voxels=32, auto_exit=90.0)
+        args = argparse.Namespace(spacing_voxels=32, auto_exit=90.0, scene="terrain-edits-closed")
         command = benchmark_ddgi_publication.command(args, Path("sample.rfirr"))
 
         self.assertEqual(command[:4], ["cargo", "run", "--quiet", "--release"])
-        self.assertIn("radiance-changes", command)
+        self.assertIn("terrain-edits-closed", command)
         self.assertEqual(command[-2:], ["--environment-irradiance-capture-target", "published"])
 
 
