@@ -3,7 +3,8 @@ use crate::geom::UAabb3;
 
 use super::resources::{DdgiStatus, DdgiVolumeStatus};
 use super::{
-    DdgiAtlasValidationStats, DdgiBuildKind, DdgiBuildToken, DdgiFieldIdentity, DdgiRefreshState,
+    DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
+    DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiRefreshState,
     DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind, DdgiSchedulerError,
     DdgiTerrainRefresh, DdgiTransportScheduler, DdgiVolumeGrid, DdgiVolumeStage,
 };
@@ -64,6 +65,10 @@ pub(crate) struct DdgiRuntime {
     transport_scheduler: DdgiTransportScheduler,
     live_authored_lighting: Option<EnvironmentLightingState>,
     in_flight_authored_lighting: Option<EnvironmentLightingState>,
+    capture_enabled: bool,
+    capture_target: DdgiCaptureTarget,
+    capture_batch_order: DdgiBatchOrder,
+    capture_checkpoint: Option<DdgiCaptureCheckpoint>,
 }
 
 impl DdgiRuntime {
@@ -77,7 +82,23 @@ impl DdgiRuntime {
             transport_scheduler: DdgiTransportScheduler::new(),
             live_authored_lighting: None,
             in_flight_authored_lighting: None,
+            capture_enabled: false,
+            capture_target: DdgiCaptureTarget::default(),
+            capture_batch_order: DdgiBatchOrder::default(),
+            capture_checkpoint: None,
         }
+    }
+
+    pub(crate) fn configure_capture(
+        &mut self,
+        enabled: bool,
+        target: DdgiCaptureTarget,
+        batch_order: DdgiBatchOrder,
+    ) {
+        self.capture_enabled = enabled;
+        self.capture_target = target;
+        self.capture_batch_order = batch_order;
+        self.capture_checkpoint = None;
     }
 
     /// Observes one authoritative terrain publication. Repeating the same publication is
@@ -268,6 +289,45 @@ impl DdgiRuntime {
 
     pub(crate) fn status(&self, volumes: DdgiStatus) -> DdgiRuntimeStatus {
         DdgiRuntimeStatus::from_parts(volumes, self.terrain_refresh)
+    }
+
+    pub(crate) fn capture_checkpoint(&self, volumes: DdgiStatus) -> Option<DdgiCaptureCheckpoint> {
+        let checkpoint = self.capture_checkpoint?;
+        let active = volumes.active();
+        if active.build_token != Some(checkpoint.build_token) {
+            return None;
+        }
+        let resident = match checkpoint.publication {
+            DdgiCapturePublication::Published => active.published_field == Some(checkpoint.field),
+            DdgiCapturePublication::Unpublished => {
+                active.published_field.is_none() && active.complete_field == Some(checkpoint.field)
+            }
+        };
+        resident.then_some(checkpoint)
+    }
+
+    pub(crate) fn capture_target(&self) -> DdgiCaptureTarget {
+        self.capture_target
+    }
+
+    pub(crate) fn observe_capture_checkpoint(
+        &mut self,
+        build_token: DdgiBuildToken,
+        field: DdgiFieldIdentity,
+        validation: DdgiAtlasValidationStats,
+        publication: DdgiCapturePublication,
+    ) -> bool {
+        if !self.capture_enabled || !self.capture_target.matches_checkpoint(field, publication) {
+            return false;
+        }
+        self.capture_checkpoint = Some(DdgiCaptureCheckpoint {
+            build_token,
+            field,
+            validation,
+            publication,
+            batch_order: self.capture_batch_order,
+        });
+        true
     }
 
     pub(crate) fn edited_voxel_bound(&self) -> Option<UAabb3> {
@@ -711,6 +771,32 @@ mod tests {
             building.invalidation_line(),
             "Invalidation: full domain · fail-closed ON"
         );
+    }
+
+    #[test]
+    fn capture_checkpoint_is_runtime_owned_and_requires_resident_active_field() {
+        let (mut runtime, token, _) = initialized_runtime();
+        let captured_field = field(7, 3);
+        runtime.configure_capture(true, DdgiCaptureTarget::Published, DdgiBatchOrder::Reverse);
+        runtime.observe_capture_checkpoint(
+            token,
+            captured_field,
+            DdgiAtlasValidationStats::default(),
+            DdgiCapturePublication::Published,
+        );
+
+        let active = volume_status(Some(token), 7, 3, DdgiVolumeStage::Ready);
+        let checkpoint = runtime
+            .capture_checkpoint(DdgiStatus::new(active, None))
+            .expect("resident published field should expose the checkpoint");
+        assert_eq!(checkpoint.field, captured_field);
+        assert_eq!(checkpoint.batch_order, DdgiBatchOrder::Reverse);
+
+        let wrong_token = DdgiBuildToken::for_test(2, 7, 16, DdgiBuildKind::Terrain);
+        let mismatched_active = volume_status(Some(wrong_token), 7, 3, DdgiVolumeStage::Ready);
+        assert!(runtime
+            .capture_checkpoint(DdgiStatus::new(mismatched_active, None))
+            .is_none());
     }
 
     #[test]

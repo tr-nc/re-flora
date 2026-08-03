@@ -683,7 +683,6 @@ pub struct Tracer {
     ddgi_volumes: DdgiVolumes,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
-    ddgi_capture_checkpoint: Option<DdgiCaptureCheckpoint>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
@@ -878,6 +877,12 @@ impl Tracer {
             desc.ddgi_batch_order,
         )?;
         let ddgi_runtime = DdgiRuntime::new(ddgi_volume.status().grid);
+        let mut ddgi_runtime = ddgi_runtime;
+        ddgi_runtime.configure_capture(
+            desc.environment_irradiance_capture_enabled,
+            desc.environment_irradiance_capture_target,
+            desc.ddgi_batch_order,
+        );
         log::info!(
             "[DDGI][HARD_ORIGIN] terrain_mode={}",
             desc.ddgi_terrain_hard_origin.label()
@@ -1004,7 +1009,6 @@ impl Tracer {
             ddgi_volumes: DdgiVolumes::new(ddgi_volume),
             ddgi_voxel_visibility,
             ddgi_runtime,
-            ddgi_capture_checkpoint: None,
             ddgi_trace_stats_readback_pending: None,
             ddgi_flora_consumer_logged_token_serial: None,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
@@ -1287,22 +1291,12 @@ impl Tracer {
     }
 
     pub fn ddgi_capture_checkpoint(&self) -> Option<DdgiCaptureCheckpoint> {
-        let checkpoint = self.ddgi_capture_checkpoint?;
-        let active = self.ddgi_volumes.status().active();
-        if active.build_token != Some(checkpoint.build_token) {
-            return None;
-        }
-        let resident = match checkpoint.publication {
-            DdgiCapturePublication::Published => active.published_field == Some(checkpoint.field),
-            DdgiCapturePublication::Unpublished => {
-                active.published_field.is_none() && active.complete_field == Some(checkpoint.field)
-            }
-        };
-        resident.then_some(checkpoint)
+        self.ddgi_runtime
+            .capture_checkpoint(self.ddgi_volumes.status())
     }
 
     pub fn ddgi_capture_target(&self) -> DdgiCaptureTarget {
-        self.desc.environment_irradiance_capture_target
+        self.ddgi_runtime.capture_target()
     }
 
     fn observe_ddgi_capture_checkpoint(
@@ -1312,25 +1306,17 @@ impl Tracer {
         validation: crate::ddgi::DdgiAtlasValidationStats,
         publication: DdgiCapturePublication,
     ) {
-        if !self.desc.environment_irradiance_capture_enabled
-            || !self
-                .desc
-                .environment_irradiance_capture_target
-                .matches_checkpoint(field, publication)
-        {
-            return;
-        }
-        let checkpoint = DdgiCaptureCheckpoint {
+        if !self.ddgi_runtime.observe_capture_checkpoint(
             build_token,
             field,
             validation,
             publication,
-            batch_order: self.desc.ddgi_batch_order,
-        };
-        self.ddgi_capture_checkpoint = Some(checkpoint);
+        ) {
+            return;
+        }
         log::info!(
             "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} field_serial={} stage={:?} iteration={} publication={:?}",
-            self.desc.environment_irradiance_capture_target.label(),
+            self.ddgi_runtime.capture_target().label(),
             build_token.serial(),
             field.field().serial(),
             field.field().stage(),
