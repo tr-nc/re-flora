@@ -482,14 +482,17 @@ barriers only as a narrow, intentional diagnostic or exceptional-operation seam.
 - Ticket 12 — Migrate remaining builder Buffer hazards.
 - Ticket 13 — Migrate tracer Buffer hazards.
 
-**Status:** in-progress (`7ef223bb`; pipeline-local Image trackers removed and ImageUse declarations
-now route through CommandBuffer; normal-frame Image transactions still need a safe overlap seam)
+**Status:** in-progress (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`; pipeline-local Image
+trackers removed, ImageUse declarations now route through CommandBuffer, and several tracer image
+fallback barriers are deleted; normal-frame Image transactions still need a safe overlap seam)
 
 - [ ] One command-recording module owns committed Image state, Buffer hazards, and barrier emission
       for normal rendering and builder work.
 - [ ] Pipeline objects no longer maintain duplicate resource-state trackers or mirrored lifetime
       information.
 - [ ] Superseded broad barrier helpers and unsafe state-assumption paths are removed once unused.
+- [x] Tracer wind-volume and DDGI image-only pass boundaries now use declared ImageUse transitions
+      (including same-state write ordering) instead of broad compute-to-compute fallbacks.
 - [ ] Remaining explicit barrier/state APIs are narrowly documented, inspectable, and exercised by a
       concrete exceptional use rather than retained for hypothetical compatibility.
 - [ ] Tests assert semantic command-recording behavior and diagnostics rather than private pipeline
