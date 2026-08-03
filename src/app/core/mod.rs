@@ -116,6 +116,7 @@ use ui_style::{
     WATER_TOOL_ACCENT,
 };
 use winit::{
+    dpi::PhysicalSize,
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, ModifiersState, PhysicalKey},
@@ -127,6 +128,128 @@ const TERRAIN_EDIT_PREVIEW_ALPHA: f32 = 0.2;
 // Muted runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
 const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
+
+struct EguiTextureLifecycleTest {
+    handle: Option<TextureHandle>,
+    step: u32,
+    completed: bool,
+}
+
+impl EguiTextureLifecycleTest {
+    fn new(context: &egui::Context) -> Self {
+        let image = ColorImage::new([8, 8], vec![Color32::from_rgb(40, 120, 200); 64]);
+        let handle = context.load_texture(
+            "architecture-egui-texture-lifecycle",
+            image,
+            egui::TextureOptions::NEAREST,
+        );
+        Self {
+            handle: Some(handle),
+            step: 0,
+            completed: false,
+        }
+    }
+
+    fn advance(&mut self) {
+        let Some(handle) = self.handle.as_mut() else {
+            return;
+        };
+        match self.step {
+            0 => {
+                log::info!("[EGUI_TEXTURE_LIFECYCLE] phase=initial_full queued size=8x8");
+                self.step = 1;
+            }
+            1 | 2 => {
+                let color = if self.step == 1 {
+                    Color32::from_rgb(220, 80, 80)
+                } else {
+                    Color32::from_rgb(80, 220, 120)
+                };
+                handle.set_partial(
+                    [self.step as usize, self.step as usize],
+                    ColorImage::new([2, 2], vec![color; 4]),
+                    egui::TextureOptions::NEAREST,
+                );
+                log::info!(
+                    "[EGUI_TEXTURE_LIFECYCLE] phase=partial_update step={} pos={}x{} size=2x2",
+                    self.step,
+                    self.step,
+                    self.step,
+                );
+                self.step += 1;
+            }
+            3 => {
+                handle.set(
+                    ColorImage::new([8, 8], vec![Color32::from_rgb(210, 180, 60); 64]),
+                    egui::TextureOptions::NEAREST,
+                );
+                log::info!("[EGUI_TEXTURE_LIFECYCLE] phase=full_replacement queued size=8x8");
+                self.step = 4;
+            }
+            4 => {
+                let id = handle.id();
+                self.handle.take();
+                self.completed = true;
+                log::info!("[EGUI_TEXTURE_LIFECYCLE] phase=free queued texture_id={id:?}");
+                self.step = 5;
+            }
+            _ => {}
+        }
+    }
+}
+
+struct ResizeLifecycleTest {
+    requested: usize,
+    next_request_frame: u64,
+    observed: Vec<re_flora_vkn::Extent2D>,
+    complete: bool,
+}
+
+impl ResizeLifecycleTest {
+    const SIZES: [PhysicalSize<u32>; 5] = [
+        PhysicalSize::new(1152, 648),
+        PhysicalSize::new(960, 600),
+        PhysicalSize::new(1408, 792),
+        PhysicalSize::new(1024, 768),
+        PhysicalSize::new(1280, 720),
+    ];
+
+    fn request_next(&mut self, window: &winit::window::Window, frame: u64) {
+        if self.complete || frame < self.next_request_frame {
+            return;
+        }
+        let Some(size) = Self::SIZES.get(self.requested).copied() else {
+            self.complete = true;
+            log::info!(
+                "[RESIZE_LIFECYCLE] phase=requests_complete count={} observed={}",
+                self.requested,
+                self.observed.len(),
+            );
+            return;
+        };
+        self.requested += 1;
+        self.next_request_frame = frame + 2;
+        let accepted = window.request_inner_size(size);
+        log::info!(
+            "[RESIZE_LIFECYCLE] phase=request index={} requested={}x{} accepted={:?}",
+            self.requested - 1,
+            size.width,
+            size.height,
+            accepted,
+        );
+    }
+
+    fn observe(&mut self, size: re_flora_vkn::Extent2D, generation: u64) {
+        self.observed.push(size);
+        log::info!(
+            "[RESIZE_LIFECYCLE] phase=published index={} extent={}x{} generation={}",
+            self.observed.len() - 1,
+            size.width,
+            size.height,
+            generation,
+        );
+    }
+}
 
 fn advance_time_of_day(
     current_time_of_day: f32,
@@ -145,6 +268,9 @@ pub struct App {
     egui_renderer: EguiRenderer,
     loading_state: Option<LoadingState>,
     is_resize_pending: bool,
+    resize_generation: u64,
+    resize_lifecycle_test: Option<ResizeLifecycleTest>,
+    egui_texture_lifecycle_test: Option<EguiTextureLifecycleTest>,
     swapchain: Swapchain,
     window_state: WindowState,
     frame_manager: SwapchainFrameManager,
@@ -992,6 +1118,9 @@ impl App {
             allocator.clone(),
             swapchain.get_render_pass(),
         );
+        let egui_texture_lifecycle_test = options
+            .egui_texture_lifecycle_test
+            .then(|| EguiTextureLifecycleTest::new(renderer.context()));
 
         let plain_builder = PlainBuilder::new(
             vulkan_ctx.clone(),
@@ -1282,6 +1411,14 @@ impl App {
             terrain_physics,
 
             is_resize_pending: false,
+            resize_generation: 1,
+            resize_lifecycle_test: options.resize_lifecycle_test.then(|| ResizeLifecycleTest {
+                requested: 0,
+                next_request_frame: 2,
+                observed: Vec::new(),
+                complete: false,
+            }),
+            egui_texture_lifecycle_test,
             time_info: TimeInfo::default(),
             current_time_of_day,
             render_flags,
@@ -2441,6 +2578,16 @@ impl App {
                     (self.environment_lighting_test_scene.is_some()
                         || self.hybrid_transparency_test_scene.is_some())
                         && (self.screenshot_path.is_some() || self.denoiser_bench.is_some());
+                if self.loading_state.is_none() {
+                    if let Some(test) = self.egui_texture_lifecycle_test.as_mut() {
+                        test.advance();
+                    }
+                }
+                let lifecycle_texture = self
+                    .egui_texture_lifecycle_test
+                    .as_ref()
+                    .and_then(|test| test.handle.as_ref())
+                    .map(|handle| (handle.id(), handle.size_vec2()));
                 let egui_start = Instant::now();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
@@ -2450,6 +2597,15 @@ impl App {
 
                         if hide_ui_for_environment_test_capture {
                             return;
+                        }
+
+                        if let Some((texture_id, texture_size)) = lifecycle_texture {
+                            egui::Window::new("Texture lifecycle acceptance")
+                                .default_pos(egui::pos2(8.0, 8.0))
+                                .default_size(egui::vec2(180.0, 180.0))
+                                .show(ctx, |ui| {
+                                    ui.image((texture_id, texture_size));
+                                });
                         }
 
                         let mut config_panel_open = self.config_panel_visible;
@@ -4131,6 +4287,20 @@ impl App {
                 }
 
                 let render_area = self.window_state.window_extent();
+                let tracer_screen_extent = self.tracer.extent_resource_screen_extent();
+                assert_eq!(
+                    tracer_screen_extent, render_area,
+                    "extent-dependent tracer resources and the swapchain frame extent diverged"
+                );
+                if self.resize_lifecycle_test.is_some() {
+                    log::info!(
+                        "[RESIZE_LIFECYCLE] phase=frame generation={} tracer_extent_generation={} extent={}x{}",
+                        self.resize_generation,
+                        self.tracer.extent_resource_generation(),
+                        render_area.width,
+                        render_area.height,
+                    );
+                }
                 let mut screenshot_readback = if self.screenshot_to_clipboard_requested {
                     self.screenshot_to_clipboard_requested = false;
                     match self.prepare_clipboard_screenshot_readback(render_area) {
@@ -4382,6 +4552,14 @@ impl App {
 
                     if let Some(auto_exit_delay) = self.auto_exit_delay {
                         if elapsed >= auto_exit_delay {
+                            if let Some(test) = self.egui_texture_lifecycle_test.as_ref() {
+                                if !test.completed {
+                                    panic!(
+                                        "[EGUI_TEXTURE_LIFECYCLE] timed out before full/partial/replacement/free sequence completed step={}",
+                                        test.step,
+                                    );
+                                }
+                            }
                             if let Some(scene) = self
                                 .environment_lighting_test_scene
                                 .as_ref()

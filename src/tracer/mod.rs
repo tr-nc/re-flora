@@ -1380,6 +1380,23 @@ impl Tracer {
             .expect("terrain output must be two-dimensional")
     }
 
+    /// Identifies the complete extent-dependent resource/framebuffer/descriptor generation that
+    /// all passes in the next frame must consume after a resize publication.
+    pub fn extent_resource_generation(&self) -> u64 {
+        self.extent_resource_generation
+    }
+
+    pub fn extent_resource_screen_extent(&self) -> Extent2D {
+        self.resources
+            .extent_dependent_resources
+            .screen_output_tex
+            .get_image()
+            .get_desc()
+            .extent
+            .as_extent_2d()
+            .expect("screen output must be two-dimensional")
+    }
+
     pub fn record_environment_irradiance_capture_readback(
         &self,
         cmdbuf: &CommandBuffer,

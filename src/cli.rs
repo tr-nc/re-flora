@@ -172,6 +172,12 @@ pub struct AppOptions {
     pub list_camera_snapshots: bool,
     /// Auto-exit N seconds after rendering starts. None = don't auto-exit.
     pub auto_exit_delay: Option<f32>,
+    /// Exercise egui full, partial, replacement, and free texture generations, then exit via
+    /// the normal hidden-render path. Intended for lifecycle acceptance only.
+    pub egui_texture_lifecycle_test: bool,
+    /// Exercise coalesced programmatic window resizes through the normal swapchain/render path.
+    /// Intended for hidden resize acceptance only.
+    pub resize_lifecycle_test: bool,
     /// Enable per-frame performance timing output to console.
     pub perf: bool,
     /// Select a named water MLS-MPM configuration profile.
@@ -468,6 +474,8 @@ impl AppOptions {
             denoiser_bench: denoiser_bench.map(|(_, options)| options),
             list_camera_snapshots: args.iter().any(|a| a == "--list-camera-snapshots"),
             auto_exit_delay: parse_f32_after("--auto-exit"),
+            egui_texture_lifecycle_test: args.iter().any(|a| a == "--egui-texture-lifecycle-test"),
+            resize_lifecycle_test: args.iter().any(|a| a == "--resize-lifecycle-test"),
             perf: args.iter().any(|a| a == "--perf"),
             water_profile,
             water_particles: parse_u32_after("--water-particles").map(|v| v as usize),
@@ -747,6 +755,9 @@ Options:
   --camera-snapshot <name>    Apply a saved camera snapshot at startup (do not combine with --screenshot)
   --list-camera-snapshots     Print available camera snapshot names and exit
   --auto-exit <sec>           Exit automatically after rendering starts
+  --egui-texture-lifecycle-test
+                              Exercise egui texture generations through full/partial/free updates
+  --resize-lifecycle-test     Exercise coalesced programmatic resizes through the render path
   --perf                      Enable per-frame performance logging
   --water-profile <profile>   Select water profile: default, performance
   --water-particles <N>       Seed N initial water MLS-MPM particles in the startup pool (0 = none)
@@ -879,6 +890,8 @@ mod tests {
         assert!(options.screenshot_delay.is_none());
         assert!(options.camera_snapshot.is_none());
         assert!(!options.list_camera_snapshots);
+        assert!(!options.egui_texture_lifecycle_test);
+        assert!(!options.resize_lifecycle_test);
         assert!(options.environment_lighting_test_scene.is_none());
         assert!(options.environment_irradiance_capture_path.is_none());
         assert_eq!(
@@ -914,6 +927,18 @@ mod tests {
 
         assert!(options.authored_flora_bench);
         assert_eq!(options.authored_flora_bench_samples, 7);
+    }
+
+    #[test]
+    fn parses_lifecycle_acceptance_options() {
+        let options = parse(&[
+            "re-flora",
+            "--egui-texture-lifecycle-test",
+            "--resize-lifecycle-test",
+        ]);
+
+        assert!(options.egui_texture_lifecycle_test);
+        assert!(options.resize_lifecycle_test);
     }
 
     #[test]
