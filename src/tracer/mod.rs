@@ -3480,8 +3480,6 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
-        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
-
         // Terrarium glass is composited analytically in composition.comp so it can refract the
         // already-combined scene and depth-test against ray-traced terrain. Keep it out of the
         // raster graphics pass to avoid transparent-layer accumulation and coplanar edge shimmer.
@@ -3504,11 +3502,6 @@ impl Tracer {
             );
         }
 
-        // Terrain depth must exist before the raster pass. The raster pass seeds
-        // its hardware depth attachment from this output so every raster
-        // fragment is tested against terrain before transparent blending can
-        // discard the individual depths of layers behind it.
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_tracer {
             if self.desc.environment_irradiance_capture_enabled {
                 cmdbuf.use_buffer(
