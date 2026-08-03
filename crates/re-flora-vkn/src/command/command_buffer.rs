@@ -77,15 +77,6 @@ impl CommandBuffer {
             Some(ResourceStateTransaction::new());
     }
 
-    /// Starts a Buffer-only state transaction for a normal frame recording.
-    ///
-    /// Image helpers retain their established immediate state behavior until the image seam is
-    /// migrated; declared Buffer uses still commit atomically with the successful queue submit.
-    pub fn begin_buffer_state_transaction(&self) {
-        *self.0.resource_state_transaction.lock().unwrap() =
-            Some(ResourceStateTransaction::buffers_only());
-    }
-
     /// Declares the next semantic use of a Buffer in this recording.
     pub fn use_buffer(&self, buffer: &Buffer, usage: BufferUse) {
         self.record_buffer_use(buffer, usage);
@@ -160,9 +151,8 @@ impl CommandBuffer {
     ) {
         let mut transaction = self.0.resource_state_transaction.lock().unwrap();
         if let Some(transaction) = transaction.as_mut() {
-            if transaction.assume_image_state(image, base_array_layer, layer_count, state) {
-                return;
-            }
+            transaction.assume_image_state(image, base_array_layer, layer_count, state);
+            return;
         }
         for layer in base_array_layer..base_array_layer + layer_count {
             image.set_state(layer, state);

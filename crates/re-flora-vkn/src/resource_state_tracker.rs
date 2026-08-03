@@ -10,7 +10,6 @@ use ash::vk;
 /// the command buffer is accepted by `queue_submit`. This keeps abandoned and failed recordings
 /// from poisoning the next recording's source layout.
 pub(crate) struct ResourceStateTransaction {
-    track_images: bool,
     images: Vec<TrackedImageState>,
     buffers: Vec<TrackedBufferState>,
 }
@@ -29,16 +28,7 @@ struct TrackedBufferState {
 
 impl ResourceStateTransaction {
     pub(crate) fn new() -> Self {
-        Self::with_image_tracking(true)
-    }
-
-    pub(crate) fn buffers_only() -> Self {
-        Self::with_image_tracking(false)
-    }
-
-    fn with_image_tracking(track_images: bool) -> Self {
         Self {
-            track_images,
             images: Vec::new(),
             buffers: Vec::new(),
         }
@@ -52,9 +42,6 @@ impl ResourceStateTransaction {
         layer_count: u32,
         target_state: ResourceState,
     ) -> bool {
-        if !self.track_images {
-            return false;
-        }
         let image_index = self
             .images
             .iter()
@@ -97,10 +84,7 @@ impl ResourceStateTransaction {
         base_array_layer: u32,
         layer_count: u32,
         state: ResourceState,
-    ) -> bool {
-        if !self.track_images {
-            return false;
-        }
+    ) {
         let image_index = self
             .images
             .iter()
@@ -125,7 +109,6 @@ impl ResourceStateTransaction {
             tracked.current.len()
         );
         tracked.current[start..end].fill(state);
-        true
     }
 
     pub(crate) fn use_buffer(
