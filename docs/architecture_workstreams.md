@@ -170,18 +170,18 @@ ordering no longer depends on raw handles or incidental field layout.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** in-progress
+**Status:** completed (`7cd1a7b2`)
 
-- [ ] Owned Image Views cannot outlive the Image allocation on which they depend.
-- [ ] Owned Framebuffers and acceleration structures retain their attachment or backing-resource
+- [x] Owned Image Views cannot outlive the Image allocation on which they depend.
+- [x] Owned Framebuffers and acceleration structures retain their attachment or backing-resource
       dependencies until the dependent Vulkan object is destroyed.
-- [ ] Externally owned swapchain Images remain an explicit ownership mode and are never destroyed by
+- [x] Externally owned swapchain Images remain an explicit ownership mode and are never destroyed by
       the owned-resource path.
-- [ ] Buffer and Image ownership can be leased by later submission-retirement work without exposing
+- [x] Buffer and Image ownership can be leased by later submission-retirement work without exposing
       allocator internals or raw lifetime responsibilities to callers.
-- [ ] Repeated creation, cloning, replacement, and destruction pass Vulkan validation in a hidden
+- [x] Repeated creation, cloning, replacement, and destruction pass Vulkan validation in a hidden
       release run.
-- [ ] No generic GPU backend trait or hypothetical adapter is introduced.
+- [x] No generic GPU backend trait or hypothetical adapter is introduced.
 
 ---
 
