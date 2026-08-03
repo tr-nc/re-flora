@@ -1346,6 +1346,7 @@ impl Tracer {
         )
         .record_insert(self.vulkan_ctx.device(), cmdbuf);
         source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
+        cmdbuf.use_buffer(readback, BufferUse::HostRead);
         PipelineBarrier::new(
             PipelineStage::TRANSFER,
             PipelineStage::HOST,

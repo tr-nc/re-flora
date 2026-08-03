@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::{
-    context::VulkanContext, record_image_transition_barrier, Buffer, CommandBuffer, Device, Image,
-    PresentDesc, PresentWait, Semaphore,
+    context::VulkanContext, record_image_transition_barrier, Buffer, BufferUse, CommandBuffer,
+    Device, Image, PresentDesc, PresentWait, Semaphore,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -448,6 +448,7 @@ impl Swapchain {
                 depth: 1,
             });
 
+        cmdbuf.use_buffer(readback_buffer, BufferUse::TransferWrite);
         unsafe {
             device.as_raw().cmd_copy_image_to_buffer(
                 cmdbuf.as_raw(),
@@ -457,6 +458,7 @@ impl Swapchain {
                 &[region],
             );
         }
+        cmdbuf.use_buffer(readback_buffer, BufferUse::HostRead);
 
         record_image_transition_barrier(
             device.as_raw(),
