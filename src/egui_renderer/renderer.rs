@@ -16,8 +16,8 @@ use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
 use re_flora_vkn::WriteDescriptorSet;
 use re_flora_vkn::{
-    Allocator, DescriptorPool, DescriptorSet, Device, Extent2D, Extent3D, FrameRetirement,
-    GraphicsPipeline, GraphicsPipelineDesc, ShaderModule, Texture,
+    execute_one_time_command, Allocator, DescriptorPool, DescriptorSet, Device, Extent2D, Extent3D,
+    FrameRetirement, GraphicsPipeline, GraphicsPipelineDesc, ShaderModule, Texture,
 };
 use std::collections::HashMap;
 use winit::event::WindowEvent;
@@ -150,6 +150,55 @@ impl EguiRenderer {
     ///
     /// You should pass the list of textures detla contained in the [`egui::TexturesDelta::set`].
     /// This method should be called _before_ the frame starts rendering.
+    fn allocate_texture_descriptor(&self, texture: &Texture) -> DescriptorSet {
+        let descriptor_layout = self
+            .gui_ppl
+            .get_layout()
+            .get_descriptor_set_layouts()
+            .get(&0)
+            .expect("Egui pipeline is expected to expose descriptor set 0");
+        let descriptor_set = self
+            .pool
+            .allocate_set(descriptor_layout)
+            .expect("Failed to allocate egui texture descriptor set");
+        descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
+            0,
+            vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            texture,
+            TextureLayout::SHADER_READ_ONLY,
+        )]);
+        descriptor_set
+    }
+
+    fn publish_texture_generation(
+        &mut self,
+        id: TextureId,
+        texture: Texture,
+        descriptor_set: DescriptorSet,
+    ) {
+        let generation = self.texture_generation;
+        self.texture_generation = self
+            .texture_generation
+            .checked_add(1)
+            .expect("egui texture generation overflow");
+        let old_texture = self.managed_textures.insert(
+            id,
+            ManagedTexture {
+                texture,
+                descriptor_set,
+                generation,
+            },
+        );
+        if let Some(old_texture) = old_texture {
+            let retired_generation = old_texture.generation;
+            self.pending_frame_retirements.push(FrameRetirement::new(
+                "egui.texture",
+                retired_generation,
+                old_texture,
+            ));
+        }
+    }
+
     fn set_textures(&mut self, textures_delta: &[(TextureId, ImageDelta)]) {
         for (id, delta) in textures_delta {
             let (width, height, data) = match &delta.image {
@@ -169,17 +218,50 @@ impl EguiRenderer {
             let device = self.vulkan_context.device();
             let extent = Extent3D::new(width, height, 1);
             if let Some([offset_x, offset_y]) = delta.pos {
-                let managed = self.managed_textures.get_mut(id).unwrap_or_else(|| {
-                    panic!("egui partial texture update references unknown {id:?}")
-                });
+                let old_texture = self
+                    .managed_textures
+                    .get(id)
+                    .map(|managed| {
+                        (
+                            managed.texture.clone(),
+                            *managed.texture.get_image().get_desc(),
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        panic!("egui partial texture update references unknown {id:?}")
+                    });
+
+                // A partial update still publishes a complete texture generation. Mutating the
+                // currently bound Image in place would let an in-flight frame observe a mixed
+                // generation. The one-time copy/upload commands wait for prior queue work before
+                // the new descriptor becomes visible, while the old bundle is retired with the
+                // same completion-scoped path as a full replacement.
+                let texture = Texture::new(
+                    device.clone(),
+                    self.allocator.clone(),
+                    &old_texture.1,
+                    &Default::default(),
+                );
+                execute_one_time_command(
+                    device,
+                    self.vulkan_context.command_pool(),
+                    &self.vulkan_context.get_general_queue(),
+                    |cmdbuf| {
+                        old_texture.0.get_image().record_copy_to(
+                            cmdbuf,
+                            texture.get_image(),
+                            TextureLayout::SHADER_READ_ONLY,
+                            TextureLayout::SHADER_READ_ONLY,
+                        )
+                    },
+                );
 
                 let region = TextureRegion {
                     offset: [offset_x as _, offset_y as _, 0],
                     extent,
                 };
 
-                managed
-                    .texture
+                texture
                     .get_image()
                     .fill_with_raw_u8(
                         &self.vulkan_context.get_general_queue(),
@@ -190,11 +272,15 @@ impl EguiRenderer {
                         Some(TextureLayout::SHADER_READ_ONLY),
                     )
                     .unwrap();
+                let descriptor_set = self.allocate_texture_descriptor(&texture);
+                self.publish_texture_generation(*id, texture, descriptor_set);
             } else {
                 let tex_desc = ImageDesc {
                     extent,
                     format: vk::Format::R8G8B8A8_SRGB,
-                    usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+                    usage: vk::ImageUsageFlags::SAMPLED
+                        | vk::ImageUsageFlags::TRANSFER_DST
+                        | vk::ImageUsageFlags::TRANSFER_SRC,
                     initial_layout: TextureLayout::UNDEFINED,
                     aspect: vk::ImageAspectFlags::COLOR,
                     ..Default::default()
@@ -216,44 +302,8 @@ impl EguiRenderer {
                     )
                     .unwrap();
 
-                let descriptor_layout = self
-                    .gui_ppl
-                    .get_layout()
-                    .get_descriptor_set_layouts()
-                    .get(&0)
-                    .expect("Egui pipeline is expected to expose descriptor set 0");
-                let descriptor_set = self
-                    .pool
-                    .allocate_set(descriptor_layout)
-                    .expect("Failed to allocate egui texture descriptor set");
-                descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
-                    0,
-                    vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    &texture,
-                    TextureLayout::SHADER_READ_ONLY,
-                )]);
-
-                let generation = self.texture_generation;
-                self.texture_generation = self
-                    .texture_generation
-                    .checked_add(1)
-                    .expect("egui texture generation overflow");
-                let old_texture = self.managed_textures.insert(
-                    *id,
-                    ManagedTexture {
-                        texture,
-                        descriptor_set,
-                        generation,
-                    },
-                );
-                if let Some(old_texture) = old_texture {
-                    let retired_generation = old_texture.generation;
-                    self.pending_frame_retirements.push(FrameRetirement::new(
-                        "egui.texture",
-                        retired_generation,
-                        old_texture,
-                    ));
-                }
+                let descriptor_set = self.allocate_texture_descriptor(&texture);
+                self.publish_texture_generation(*id, texture, descriptor_set);
             }
         }
     }
