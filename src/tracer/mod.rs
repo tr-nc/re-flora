@@ -1387,26 +1387,8 @@ impl Tracer {
             .extent_dependent_resources
             .environment_irradiance_capture;
         assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
-        PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::TRANSFER,
-            [MemoryBarrier::new(
-                MemoryAccess::SHADER_WRITE,
-                MemoryAccess::TRANSFER_READ,
-            )],
-        )
-        .record_insert(self.vulkan_ctx.device(), cmdbuf);
         source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
         cmdbuf.use_buffer(readback, BufferUse::HostRead);
-        PipelineBarrier::new(
-            PipelineStage::TRANSFER,
-            PipelineStage::HOST,
-            [MemoryBarrier::new(
-                MemoryAccess::TRANSFER_WRITE,
-                MemoryAccess::HOST_READ,
-            )],
-        )
-        .record_insert(self.vulkan_ctx.device(), cmdbuf);
     }
 
     pub fn environment_probe_terrain_revision_ready(&self, revision: u32) -> bool {
