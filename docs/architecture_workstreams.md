@@ -327,7 +327,8 @@ creation-time initialization path where no prior generation can be in flight.
 - Ticket 06 — Resize extent-dependent resources without a device-wide idle.
 - Ticket 08 — Retire DDGI descriptor generations without a device-wide idle.
 
-**Status:** ready-for-agent
+**Status:** in-progress (`0222d5aa`; Plain's terrain moisture/dry descriptor setup is now explicitly
+creation-time-only; remaining runtime descriptor publishers still need migration)
 
 - [ ] Every descriptor update that can race an in-flight frame uses generation publication and
       completion-scoped retirement.
@@ -335,7 +336,7 @@ creation-time initialization path where no prior generation can be in flight.
       structure owner associated with each written binding.
 - [ ] Duplicate pipeline-side texture residency maps are removed where the descriptor generation now
       owns the same information.
-- [ ] Creation-time initialization remains explicit and cannot be mistaken for safe runtime mutation.
+- [x] Creation-time initialization remains explicit and cannot be mistaken for safe runtime mutation.
 - [ ] The superseded runtime in-place descriptor mutation interface is removed once no caller needs it.
 - [ ] Descriptor initialization, runtime publication, resize, egui, and DDGI validation all pass.
 
