@@ -339,17 +339,17 @@ failed recordings leave committed Image state unchanged.
 - Ticket 01 — Make `surface.build` GPU work self-resident and fail fast.
 - Ticket 03 — Encode the owned Vulkan resource graph.
 
-**Status:** in-progress
+**Status:** completed (`c7fdbda5`)
 
-- [ ] Recording a transition does not immediately overwrite globally committed Image state.
-- [ ] Successfully submitted work commits its resulting Image state exactly once in queue order.
-- [ ] Abandoned, failed, or reset recordings do not leave a false committed layout, stage, or access
+- [x] Recording a transition does not immediately overwrite globally committed Image state.
+- [x] Successfully submitted work commits its resulting Image state exactly once in queue order.
+- [x] Abandoned, failed, or reset recordings do not leave a false committed layout, stage, or access
       state.
-- [ ] The cached Contree path no longer disables automatic texture transitions to compensate for
+- [x] The cached Contree path no longer disables automatic texture transitions to compensate for
       record-time state mutation.
-- [ ] Automatic, manual, and assert-only policies remain observable and fail with useful semantic
+- [x] Automatic, manual, and assert-only policies remain observable and fail with useful semantic
       diagnostics.
-- [ ] Transition diagnostics and hidden release validation confirm the same final resource states as
+- [x] Transition diagnostics and hidden release validation confirm the same final resource states as
       the preserved behavior.
 
 ---
@@ -362,17 +362,17 @@ intent and receive the required barriers without broad caller-authored synchroni
 
 **Blocked by:** Ticket 10 — Commit Image state with the command-recording lifecycle.
 
-**Status:** ready-for-agent
+**Status:** completed (`583d5fac`)
 
-- [ ] The selected Contree build declares every relevant Buffer use at the recording seam.
-- [ ] The recording module emits the required Buffer dependencies for compute, indirect, transfer,
+- [x] The selected Contree build declares every relevant Buffer use at the recording seam.
+- [x] The recording module emits the required Buffer dependencies for compute, indirect, transfer,
       and readback transitions in command order.
-- [ ] Broad manual barriers covered by the declared uses are removed from the migrated path.
-- [ ] Diagnostics expose semantic Buffer-use transitions without making raw stage/access masks the
+- [x] Broad manual barriers covered by the declared uses are removed from the migrated path.
+- [x] Diagnostics expose semantic Buffer-use transitions without making raw stage/access masks the
       caller's test surface.
-- [ ] Contree allocation, build output, stale-work discard, CPU-cache readback, and profiling behavior
+- [x] Contree allocation, build output, stale-work discard, CPU-cache readback, and profiling behavior
       remain unchanged.
-- [ ] Tests and hidden release validation detect missing dependencies and remain free of Vulkan
+- [x] Tests and hidden release validation detect missing dependencies and remain free of Vulkan
       synchronization errors.
 
 ---
