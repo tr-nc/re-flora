@@ -610,6 +610,7 @@ impl PlainBuilder {
                 vulkan_context.command_pool(),
                 &vulkan_context.get_general_queue(),
                 |cmdbuf| {
+                    cmdbuf.begin_resource_state_transaction();
                     resources.chunk_atlas.get_image().record_clear(
                         cmdbuf,
                         Some(TextureLayout::GENERAL),
@@ -772,6 +773,7 @@ impl PlainBuilder {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
+                cmdbuf.begin_resource_state_transaction();
                 self.resources.solid_workgroup_flags.record_fill(
                     cmdbuf,
                     0,
@@ -1356,6 +1358,14 @@ impl PlainBuilder {
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         command_buffer.begin(true);
         command_buffer.begin_resource_state_transaction();
+        command_buffer.use_buffer(
+            &self.resources.voxel_property_sample_info,
+            BufferUse::HostWrite,
+        );
+        command_buffer.use_buffer(
+            &self.resources.voxel_property_sample_info,
+            BufferUse::ComputeRead,
+        );
         self.resources.voxel_property_sample_result.record_fill(
             &command_buffer,
             0,
@@ -1503,6 +1513,14 @@ impl PlainBuilder {
         let submit_start = Instant::now();
         command_buffer.begin(true);
         command_buffer.begin_resource_state_transaction();
+        command_buffer.use_buffer(
+            &self.resources.chunk_solid_sample_info,
+            BufferUse::HostWrite,
+        );
+        command_buffer.use_buffer(
+            &self.resources.chunk_solid_sample_info,
+            BufferUse::ComputeRead,
+        );
         command_buffer.use_buffer(&self.resources.chunk_solid_samples, BufferUse::ComputeWrite);
         self.chunk_solid_sample_ppl.record(
             &command_buffer,
@@ -1739,6 +1757,14 @@ impl PlainBuilder {
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         command_buffer.begin(true);
         command_buffer.begin_resource_state_transaction();
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_info,
+            BufferUse::HostWrite,
+        );
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_info,
+            BufferUse::ComputeRead,
+        );
         self.resources.terrain_smooth_mbo_histogram.record_fill(
             &command_buffer,
             0,
@@ -1868,6 +1894,14 @@ impl PlainBuilder {
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         command_buffer.begin(true);
         command_buffer.begin_resource_state_transaction();
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_info,
+            BufferUse::HostWrite,
+        );
+        command_buffer.use_buffer(
+            &self.resources.terrain_smooth_mbo_info,
+            BufferUse::ComputeRead,
+        );
         self.resources.terrain_smooth_mbo_result.record_fill(
             &command_buffer,
             0,
@@ -2335,14 +2369,37 @@ impl PlainBuilder {
             _pad0: [0; 12],
         };
         self.next_edit_sample_seed = self.next_edit_sample_seed.wrapping_add(1);
-        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
-
         let gpu_start = Instant::now();
         execute_one_time_gpu_job(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
+                cmdbuf.begin_resource_state_transaction();
+                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.round_cones, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.round_cones, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.cuboids, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.cuboids, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.spheres, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.spheres, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::ComputeReadWrite);
+                cmdbuf.use_buffer(
+                    &self.resources.edit_removal_candidates,
+                    BufferUse::HostWrite,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.edit_removal_candidates,
+                    BufferUse::ComputeReadWrite,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.solid_workgroup_flags,
+                    BufferUse::ComputeReadWrite,
+                );
                 self.chunk_modify_ppl.record(
                     cmdbuf,
                     Extent3D {
@@ -2352,12 +2409,19 @@ impl PlainBuilder {
                     },
                     None,
                 );
-                shader_access_pipeline_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(
+                    &self.resources.edit_removal_candidates,
+                    BufferUse::ComputeRead,
+                );
+                cmdbuf.use_buffer(&self.resources.edit_removal_sample, BufferUse::ComputeWrite);
                 self.chunk_modify_sample_ppl.record(
                     cmdbuf,
                     Extent3D::new(EDIT_REMOVAL_SAMPLE_COUNT as u32, 1, 1),
                     Some(bytemuck::bytes_of(&sample_push)),
                 );
+                cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::HostRead);
+                cmdbuf.use_buffer(&self.resources.edit_removal_sample, BufferUse::HostRead);
             },
         );
         crate::util::BENCH
@@ -2441,17 +2505,23 @@ impl PlainBuilder {
             })?;
         let upload_elapsed = upload_start.elapsed();
 
-        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
-
         let gpu_start = Instant::now();
         execute_one_time_command(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
+                cmdbuf.begin_resource_state_transaction();
+                cmdbuf.use_buffer(&self.resources.model_voxelize_info, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.model_voxelize_info, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.model_triangles, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.model_triangles, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(
+                    &self.resources.solid_workgroup_flags,
+                    BufferUse::ComputeReadWrite,
+                );
                 self.model_voxelize_ppl
                     .record(cmdbuf, Extent3D::new(dim.x, dim.y, dim.z), None);
-                shader_access_pipeline_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             },
         );
         let gpu_elapsed = gpu_start.elapsed();
@@ -2506,6 +2576,22 @@ impl PlainBuilder {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
+                cmdbuf.begin_resource_state_transaction();
+                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.round_cones, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.round_cones, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::ComputeReadWrite);
+                cmdbuf.use_buffer(
+                    &self.resources.edit_removal_candidates,
+                    BufferUse::ComputeReadWrite,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.solid_workgroup_flags,
+                    BufferUse::ComputeReadWrite,
+                );
                 self.chunk_modify_ppl.record(
                     cmdbuf,
                     Extent3D {
@@ -2549,6 +2635,22 @@ impl PlainBuilder {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
+                cmdbuf.begin_resource_state_transaction();
+                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.cuboids, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.cuboids, BufferUse::ComputeRead);
+                cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::ComputeReadWrite);
+                cmdbuf.use_buffer(
+                    &self.resources.edit_removal_candidates,
+                    BufferUse::ComputeReadWrite,
+                );
+                cmdbuf.use_buffer(
+                    &self.resources.solid_workgroup_flags,
+                    BufferUse::ComputeReadWrite,
+                );
                 self.chunk_modify_ppl.record(
                     cmdbuf,
                     Extent3D {
