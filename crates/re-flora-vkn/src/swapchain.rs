@@ -216,9 +216,8 @@ impl Swapchain {
     pub(crate) fn acquire_next_image(
         &mut self,
         image_available_semaphore: &Semaphore,
-    ) -> Result<u32, SwapchainFrameError> {
+    ) -> Result<(u32, bool), SwapchainFrameError> {
         self.acquire_next(image_available_semaphore)
-            .map(|(image_index, _)| image_index)
             .map_err(SwapchainFrameError::from)
     }
 

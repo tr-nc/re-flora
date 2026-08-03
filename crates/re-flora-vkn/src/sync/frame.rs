@@ -58,6 +58,7 @@ pub struct AcquiredFrame {
     image_available: Semaphore,
     render_finished: Semaphore,
     fence: Fence,
+    acquire_suboptimal: bool,
 }
 
 impl AcquiredFrame {
@@ -75,6 +76,10 @@ impl AcquiredFrame {
 
     pub fn wait_until_complete(&self) -> ash::prelude::VkResult<()> {
         self.fence.wait()
+    }
+
+    pub fn acquire_suboptimal(&self) -> bool {
+        self.acquire_suboptimal
     }
 }
 
@@ -146,7 +151,8 @@ impl SwapchainFrameManager {
         }
 
         let sync = &self.frames[frame_slot];
-        let image_index = swapchain.acquire_next_image(sync.image_available())?;
+        let (image_index, acquire_suboptimal) =
+            swapchain.acquire_next_image(sync.image_available())?;
         let image_slot = image_index as usize;
         if let Some(image_in_flight_fence) = &self.images_in_flight[image_slot] {
             image_in_flight_fence.wait().unwrap();
@@ -162,6 +168,7 @@ impl SwapchainFrameManager {
             image_available: sync.image_available().clone(),
             render_finished: self.image_render_finished_semaphores[image_slot].clone(),
             fence: sync.fence().clone(),
+            acquire_suboptimal,
         })
     }
 
@@ -188,7 +195,7 @@ impl SwapchainFrameManager {
         );
         let present_result = swapchain.present_after(&frame.render_finished, frame.image_index);
         self.advance_frame();
-        present_result
+        present_result.map(|present_suboptimal| frame.acquire_suboptimal() || present_suboptimal)
     }
 
     pub fn advance_frame(&mut self) {
