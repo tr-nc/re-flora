@@ -27,7 +27,8 @@ validation, descriptor rebinding, captures, or promotion ordering themselves.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** in-progress
+**Status:** in-progress (terrain/radiance event ownership integrated in `5e7f6847`; concrete
+GPU resource/pass ownership remains active)
 
 ### Required outcomes
 
