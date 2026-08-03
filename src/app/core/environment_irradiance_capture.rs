@@ -300,7 +300,7 @@ impl App {
                         mutation_frame,
                     );
                 }
-                let status = self.tracer.ddgi_status();
+                let status = self.tracer.ddgi_runtime_status();
                 let active = status.active();
                 let active_field = active
                     .published_field

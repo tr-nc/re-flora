@@ -279,10 +279,6 @@ impl DdgiTerrainRefresh {
         self.request.map(|request| request.invalidation_voxel_bound)
     }
 
-    pub fn latest_terrain_revision(self) -> Option<u32> {
-        self.request.map(|request| request.terrain_revision)
-    }
-
     pub fn queued_density_spacing_voxels(self) -> Option<u32> {
         self.queued_density_spacing_voxels
     }
@@ -344,10 +340,13 @@ mod tests {
     }
 
     #[test]
-    fn operator_accessors_map_latest_revision_density_queue_and_invalidation() {
+    fn coordinator_state_maps_latest_revision_density_queue_and_invalidation() {
         let mut refresh = DdgiTerrainRefresh::default();
         refresh.request_density_rebuild(16);
-        assert_eq!(refresh.latest_terrain_revision(), None);
+        assert_eq!(
+            refresh.state(),
+            DdgiRefreshState::DensityQueued { spacing_voxels: 16 }
+        );
         assert_eq!(refresh.queued_density_spacing_voxels(), Some(16));
         assert_eq!(refresh.invalidation_voxel_bound(), None);
 
@@ -356,7 +355,12 @@ mod tests {
             UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
             grid(32),
         );
-        assert_eq!(refresh.latest_terrain_revision(), Some(7));
+        assert_eq!(
+            refresh.state(),
+            DdgiRefreshState::AwaitingTerrain {
+                latest_terrain_revision: 7,
+            }
+        );
         assert_eq!(refresh.queued_density_spacing_voxels(), Some(16));
         assert_eq!(
             refresh.invalidation_voxel_bound(),

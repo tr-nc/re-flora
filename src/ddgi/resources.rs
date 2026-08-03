@@ -505,25 +505,29 @@ impl DdgiVolumeStatus {
 /// Callers can inspect revisions and readiness without learning which atlas or ray batch the
 /// builder currently owns. Consumers must use `active`; builder passes must use `builder`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DdgiStatus {
+pub(crate) struct DdgiStatus {
     active: DdgiVolumeStatus,
     staging: Option<DdgiVolumeStatus>,
 }
 
 impl DdgiStatus {
-    pub fn active(self) -> DdgiVolumeStatus {
+    pub(crate) fn new(active: DdgiVolumeStatus, staging: Option<DdgiVolumeStatus>) -> Self {
+        Self { active, staging }
+    }
+
+    pub(crate) fn active(self) -> DdgiVolumeStatus {
         self.active
     }
 
-    pub fn staging(self) -> Option<DdgiVolumeStatus> {
+    pub(crate) fn staging(self) -> Option<DdgiVolumeStatus> {
         self.staging
     }
 
-    pub fn builder(self) -> DdgiVolumeStatus {
+    pub(crate) fn builder(self) -> DdgiVolumeStatus {
         self.staging.unwrap_or(self.active)
     }
 
-    pub fn staging_is_ready(self) -> bool {
+    pub(crate) fn staging_is_ready(self) -> bool {
         self.staging().is_some_and(DdgiVolumeStatus::is_ready)
     }
 }
@@ -584,11 +588,11 @@ impl DdgiVolumes {
         }
     }
 
-    pub fn status(&self) -> DdgiStatus {
-        DdgiStatus {
-            active: self.active.status(),
-            staging: self.staging.as_ref().map(DdgiVolume::status),
-        }
+    pub(crate) fn status(&self) -> DdgiStatus {
+        DdgiStatus::new(
+            self.active.status(),
+            self.staging.as_ref().map(DdgiVolume::status),
+        )
     }
 
     pub fn active(&self) -> &DdgiVolume {

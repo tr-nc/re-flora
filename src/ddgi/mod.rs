@@ -8,6 +8,7 @@ mod capture;
 #[cfg_attr(not(test), allow(dead_code))]
 mod octahedral;
 mod resources;
+mod runtime;
 // This host-only seam is intentionally landed before its tracer/volume integration.
 #[allow(dead_code)]
 mod scheduler;
@@ -27,9 +28,10 @@ pub use capture::{DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiCaptureTarg
 #[allow(unused_imports)]
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiRayBatch,
-    DdgiResourceBytes, DdgiStatus, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
-    DdgiVolume, DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiResourceBytes, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume,
+    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
+pub use runtime::DdgiRuntimeStatus;
 #[allow(unused_imports)]
 pub use scheduler::{
     DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage, DdgiScheduledWork,

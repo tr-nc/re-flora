@@ -63,11 +63,11 @@ use crate::builder::{
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
     DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch,
-    DdgiRefreshState, DdgiStatus, DdgiTerrainRefresh, DdgiTransportScheduler,
-    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid,
-    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY,
-    DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiRuntimeStatus, DdgiTerrainRefresh, DdgiTransportScheduler, DdgiValidatedIterationOutcome,
+    DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid, DdgiVolumes, DdgiVoxelVisibility,
+    DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
+    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
+    DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot, EnvironmentLightingCache,
@@ -150,138 +150,6 @@ fn validate_unpublished_capture_volume(builder_is_active: bool) -> Result<()> {
         "unpublished S0 capture requires the initial active bootstrap; staging S0 cannot use active capture query resources",
     );
     Ok(())
-}
-
-/// Operator-facing DDGI lifecycle state. This deliberately exposes logical identity and progress,
-/// not atlas ownership or descriptor update ordering.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DdgiRuntimeStatus {
-    pub active_token_serial: Option<u64>,
-    pub active_terrain_revision: Option<u32>,
-    pub active_spacing_voxels: u32,
-    pub active_stage: DdgiVolumeStage,
-    pub active_published_field: Option<DdgiFieldIdentity>,
-    pub active_radiance_revision: Option<u32>,
-    pub target_terrain_revision: Option<u32>,
-    pub staging_token_serial: Option<u64>,
-    pub staging_kind: Option<DdgiBuildKind>,
-    pub staging_stage: Option<DdgiVolumeStage>,
-    pub staging_complete_field: Option<DdgiFieldIdentity>,
-    pub staging_building_field: Option<DdgiFieldIdentity>,
-    pub staging_radiance_revision: Option<u32>,
-    pub staging_terrain_revision: Option<u32>,
-    pub staging_spacing_voxels: Option<u32>,
-    pub staging_published_field: Option<DdgiFieldIdentity>,
-    pub staging_filtered_probe_count: u32,
-    pub staging_probe_count: u32,
-    pub coordinator_state: DdgiRefreshState,
-    pub queued_density_spacing_voxels: Option<u32>,
-    pub full_domain_invalidation_fail_closed: bool,
-}
-
-impl DdgiRuntimeStatus {
-    fn new(volumes: DdgiStatus, refresh: DdgiTerrainRefresh) -> Self {
-        let active = volumes.active();
-        let staging = volumes.staging();
-        let staging_token = staging.and_then(|status| status.build_token);
-        Self {
-            active_token_serial: active.build_token.map(DdgiBuildToken::serial),
-            active_terrain_revision: active.relocated_terrain_revision,
-            active_spacing_voxels: active.grid.spacing_voxels(),
-            active_stage: active.stage,
-            active_published_field: active.published_field,
-            active_radiance_revision: active.radiance_revision,
-            target_terrain_revision: refresh.latest_terrain_revision(),
-            staging_token_serial: staging_token.map(DdgiBuildToken::serial),
-            staging_kind: staging_token.map(DdgiBuildToken::kind),
-            staging_stage: staging.map(|status| status.stage),
-            staging_complete_field: staging.and_then(|status| status.complete_field),
-            staging_building_field: staging.and_then(|status| status.building_field),
-            staging_radiance_revision: staging.and_then(|status| status.radiance_revision),
-            staging_terrain_revision: staging.and_then(|status| status.relocated_terrain_revision),
-            staging_spacing_voxels: staging.map(|status| status.grid.spacing_voxels()),
-            staging_published_field: staging.and_then(|status| status.published_field),
-            staging_filtered_probe_count: staging
-                .map(|status| status.filtered_probe_count)
-                .unwrap_or_default(),
-            staging_probe_count: staging
-                .map(|status| status.grid.probe_count())
-                .unwrap_or_default(),
-            coordinator_state: refresh.state(),
-            queued_density_spacing_voxels: refresh.queued_density_spacing_voxels(),
-            full_domain_invalidation_fail_closed: refresh.invalidation_voxel_bound().is_some(),
-        }
-    }
-
-    pub fn active_line(self) -> String {
-        format!(
-            "Active token {} · terrain {} · radiance {} · {} vox · {:?} · published {}",
-            format_optional(self.active_token_serial),
-            format_optional(self.active_terrain_revision),
-            format_optional(self.active_radiance_revision),
-            self.active_spacing_voxels,
-            self.active_stage,
-            format_ddgi_field(self.active_published_field),
-        )
-    }
-
-    pub fn builder_line(self) -> String {
-        match self.staging_stage {
-            Some(stage) => format!(
-                "Builder token {} · {} · terrain {} · radiance {} · {} vox · {}/{} filtered · {:?} · complete {} · building {} · published {}",
-                format_optional(self.staging_token_serial),
-                self.staging_kind
-                    .map_or_else(|| "none".to_owned(), |kind| format!("{kind:?}")),
-                format_optional(self.staging_terrain_revision),
-                format_optional(self.staging_radiance_revision),
-                format_optional(self.staging_spacing_voxels),
-                self.staging_filtered_probe_count,
-                self.staging_probe_count,
-                stage,
-                format_ddgi_field(self.staging_complete_field),
-                format_ddgi_field(self.staging_building_field),
-                format_ddgi_field(self.staging_published_field),
-            ),
-            None => "Builder none".to_owned(),
-        }
-    }
-
-    pub fn coordinator_line(self) -> String {
-        format!(
-            "Target terrain {} · coordinator {:?} · density queued {}",
-            format_optional(self.target_terrain_revision),
-            self.coordinator_state,
-            format_optional(self.queued_density_spacing_voxels),
-        )
-    }
-
-    pub fn invalidation_line(self) -> &'static str {
-        if self.full_domain_invalidation_fail_closed {
-            "Invalidation: full domain · fail-closed ON"
-        } else {
-            "Invalidation: none · fail-closed OFF"
-        }
-    }
-}
-
-fn format_optional<T: std::fmt::Display>(value: Option<T>) -> String {
-    value.map_or_else(|| "none".to_owned(), |value| value.to_string())
-}
-
-fn format_ddgi_field(value: Option<DdgiFieldIdentity>) -> String {
-    value.map_or_else(
-        || "none".to_owned(),
-        |identity| {
-            let field = identity.field();
-            format!(
-                "#{}/S{} {:?} <- {:?}",
-                field.serial(),
-                field.iteration(),
-                field.stage(),
-                identity.source().map(|source| source.serial()),
-            )
-        },
-    )
 }
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
@@ -632,12 +500,9 @@ mod ddgi_density_rebuild_tests {
     use super::{
         ddgi_density_rebuild_terrain_revision, ddgi_shading_geometry_revision,
         ddgi_unpublished_capture_geometry_revision, request_ddgi_terrain_edit_revision,
-        validate_unpublished_capture_volume, DdgiRuntimeStatus,
+        validate_unpublished_capture_volume,
     };
-    use crate::ddgi::{
-        DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh,
-        DdgiTransportScheduler, DdgiVolumeGrid, DdgiVolumeStage,
-    };
+    use crate::ddgi::{DdgiBuildKind, DdgiTerrainRefresh, DdgiTransportScheduler, DdgiVolumeGrid};
     use crate::geom::UAabb3;
     use glam::UVec3;
 
@@ -709,60 +574,6 @@ mod ddgi_density_rebuild_tests {
         let error = validate_unpublished_capture_volume(false)
             .expect_err("staging S0 must not mix its atlas with active query resources");
         assert!(error.to_string().contains("staging S0"));
-    }
-
-    #[test]
-    fn runtime_status_formats_operator_identity_progress_and_invalidation() {
-        let candidate = DdgiBuildToken::for_test(9, 8, 16, DdgiBuildKind::Terrain);
-        let field = |geometry_revision, radiance_revision| {
-            let mut scheduler = DdgiTransportScheduler::new();
-            scheduler.observe_radiance(radiance_revision);
-            scheduler.request_geometry(geometry_revision, 16);
-            scheduler.claim_next().unwrap().unwrap()
-        };
-        let active_work = field(7, 3);
-        let staging_work = field(8, 4);
-        let status = DdgiRuntimeStatus {
-            active_token_serial: Some(7),
-            active_terrain_revision: Some(7),
-            active_spacing_voxels: 16,
-            active_stage: DdgiVolumeStage::Ready,
-            active_published_field: Some(active_work.destination()),
-            active_radiance_revision: Some(3),
-            target_terrain_revision: Some(8),
-            staging_token_serial: Some(9),
-            staging_kind: Some(DdgiBuildKind::Terrain),
-            staging_stage: Some(DdgiVolumeStage::Rebuilding),
-            staging_complete_field: staging_work.seed(),
-            staging_building_field: Some(staging_work.destination()),
-            staging_radiance_revision: Some(4),
-            staging_terrain_revision: Some(8),
-            staging_spacing_voxels: Some(16),
-            staging_published_field: Some(staging_work.destination()),
-            staging_filtered_probe_count: 2048,
-            staging_probe_count: 35937,
-            coordinator_state: DdgiRefreshState::BuildingTerrain {
-                candidate,
-                latest_terrain_revision: 8,
-            },
-            queued_density_spacing_voxels: Some(32),
-            full_domain_invalidation_fail_closed: true,
-        };
-
-        assert_eq!(
-            status.active_line(),
-            "Active token 7 · terrain 7 · radiance 3 · 16 vox · Ready · published #2/S1 SingleBounce <- Some(1)"
-        );
-        assert_eq!(
-            status.builder_line(),
-            "Builder token 9 · Terrain · terrain 8 · radiance 4 · 16 vox · 2048/35937 filtered · Rebuilding · complete #1/S0 SeedSky <- None · building #2/S1 SingleBounce <- Some(1) · published #2/S1 SingleBounce <- Some(1)"
-        );
-        assert!(status.coordinator_line().contains("Target terrain 8"));
-        assert!(status.coordinator_line().contains("density queued 32"));
-        assert_eq!(
-            status.invalidation_line(),
-            "Invalidation: full domain · fail-closed ON"
-        );
     }
 }
 
@@ -1206,14 +1017,6 @@ impl Tracer {
         })
     }
 
-    pub fn environment_probe_status(&self) -> DdgiVolumeStatus {
-        self.ddgi_status().active()
-    }
-
-    pub fn ddgi_status(&self) -> DdgiStatus {
-        self.ddgi_volumes.status()
-    }
-
     pub fn ddgi_runtime_status(&self) -> DdgiRuntimeStatus {
         DdgiRuntimeStatus::new(self.ddgi_volumes.status(), self.ddgi_terrain_refresh)
     }
@@ -1248,7 +1051,8 @@ impl Tracer {
         staging.request_initialization(build_token.terrain_revision());
         self.vulkan_ctx.device().wait_idle();
         if let Some(retired_token) = self
-            .ddgi_status()
+            .ddgi_volumes
+            .status()
             .staging()
             .and_then(|staging| staging.build_token)
             .filter(|retired_token| *retired_token != build_token)
@@ -1268,7 +1072,7 @@ impl Tracer {
         self.ddgi_trace_stats_readback_pending = None;
         let retired_staging = self.ddgi_volumes.prepare_staging(staging);
         drop(retired_staging);
-        let status = self.ddgi_status();
+        let status = self.ddgi_volumes.status();
         log::info!(
             "[DDGI] staging prepared token_serial={} kind={:?} spacing_voxels={} probes={} active_terrain_revision={} target_terrain_revision={}",
             build_token.serial(),
@@ -1361,7 +1165,7 @@ impl Tracer {
         &mut self,
         edit_bound: UAabb3,
     ) -> Result<()> {
-        let grid = self.ddgi_status().active().grid;
+        let grid = self.ddgi_volumes.status().active().grid;
         self.environment_probe_terrain_revision = request_ddgi_terrain_edit_revision(
             &mut self.ddgi_terrain_refresh,
             self.environment_probe_terrain_revision,
@@ -1395,7 +1199,7 @@ impl Tracer {
         if !self.ddgi_ready() {
             return Ok(false);
         }
-        let active = self.ddgi_status().active();
+        let active = self.ddgi_volumes.status().active();
         let Some(active_terrain_revision) = ddgi_density_rebuild_terrain_revision(
             active.relocated_terrain_revision,
             self.ddgi_initial_terrain_ready_revision,

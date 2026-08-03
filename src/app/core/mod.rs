@@ -54,7 +54,7 @@ use crate::builder::{
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
 use crate::ddgi::{
-    DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid, DdgiVolumeStage,
+    DdgiBuildToken, DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid, DdgiVolumeStage,
     SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 use crate::environment_probes::{
@@ -2313,8 +2313,8 @@ impl App {
                 let collision_probe_status = self.terrain_physics.collision_probe_status();
                 let mut drop_collision_probe_requested = false;
                 let mut clear_collision_probe_requested = false;
-                let environment_probe_status = self.tracer.environment_probe_status();
                 let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
+                let environment_probe_status = ddgi_runtime_status.active();
                 let environment_probe_draft_grid = DdgiVolumeGrid::new(
                     CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
                     self.environment_probe_spacing_draft,
@@ -4053,19 +4053,19 @@ impl App {
                             inflight_target_revision.is_none_or(|target_revision| {
                                 let runtime = self.tracer.ddgi_runtime_status();
                                 matches!(
-                                    runtime.coordinator_state,
+                                    runtime.coordinator(),
                                     DdgiRefreshState::BuildingTerrain {
                                         candidate,
                                         latest_terrain_revision,
                                     } if candidate.terrain_revision() == target_revision
                                         && latest_terrain_revision == target_revision
-                                ) && runtime.target_terrain_revision == Some(target_revision)
-                                    && runtime.active_terrain_revision == Some(1)
-                                    && runtime.staging_token_serial.is_some()
-                                    && runtime
-                                        .staging_stage
-                                        .is_some_and(|stage| stage != DdgiVolumeStage::Ready)
-                                    && runtime.full_domain_invalidation_fail_closed
+                                ) && runtime.target_terrain_revision() == Some(target_revision)
+                                    && runtime.active().relocated_terrain_revision == Some(1)
+                                    && runtime.staging().is_some_and(|staging| {
+                                        staging.build_token.is_some()
+                                            && staging.stage != DdgiVolumeStage::Ready
+                                    })
+                                    && runtime.full_domain_invalidation_is_fail_closed()
                             });
                         if target_scene_ready
                             && inflight_checkpoint_ready
@@ -4073,15 +4073,18 @@ impl App {
                         {
                             if let Some(target_revision) = inflight_target_revision {
                                 let runtime = self.tracer.ddgi_runtime_status();
+                                let staging = runtime
+                                    .staging()
+                                    .expect("ready in-flight checkpoint must retain staging work");
                                 log::info!(target: "re_flora::app::core::environment_irradiance_capture",
                                     "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision={:?} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=full-domain-fail-closed",
-                                    runtime.active_terrain_revision,
+                                    runtime.active().relocated_terrain_revision,
                                     target_revision,
-                                    runtime.staging_token_serial,
-                                    runtime.staging_stage,
-                                    runtime.staging_filtered_probe_count,
-                                    runtime.staging_probe_count,
-                                    runtime.coordinator_state,
+                                    runtime.staging_token().map(DdgiBuildToken::serial),
+                                    staging.stage,
+                                    staging.filtered_probe_count,
+                                    staging.grid.probe_count(),
+                                    runtime.coordinator(),
                                 );
                             }
                             match self.prepare_environment_irradiance_capture_readback(path.clone())
@@ -4363,7 +4366,7 @@ impl App {
                                 .as_ref()
                                 .filter(|scene| scene.edit_cycle_target_revision().is_some())
                             {
-                                let status = self.tracer.environment_probe_status();
+                                let status = self.tracer.ddgi_runtime_status().active();
                                 panic!(
                                     "[ENV_LIGHT_EDIT_CYCLE] timed out before completion phase={} target_revision={} ddgi_stage={:?} ddgi_relocated_terrain_revision={:?}",
                                     scene.phase_label(),
