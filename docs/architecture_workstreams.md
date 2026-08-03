@@ -391,18 +391,18 @@ barriers to declared Buffer use through the command-recording resource-state mod
 
 **Blocked by:** Ticket 11 — Track Buffer hazards through one Contree build.
 
-**Status:** in-progress (`00feaad0`, `7744b4af`; Plain sampling, smoothing, cached build, model voxelization,
-and terrain-edit paths plus Surface build/flora paths migrated; HostWrite is now a first-class
-Buffer use)
+**Status:** completed (`a477f3d1`; Plain, Surface, and Contree builder Buffer paths now use the
+recording seam, including same-state Image write ordering where the former Plain image barriers
+were redundant)
 
-- [ ] Builder compute, indirect, transfer, fill, copy, and host-read operations declare their Buffer
+- [x] Builder compute, indirect, transfer, fill, copy, and host-read operations declare their Buffer
       uses through the shared recording seam.
-- [ ] Manual barriers are removed only where the resource-state module owns an equivalent or more
+- [x] Manual barriers are removed only where the resource-state module owns an equivalent or more
       precise dependency.
-- [ ] Cached and one-time command paths preserve their existing recording and completion semantics.
-- [ ] Terrain construction, edits, smoothing, flora growth, sampling, readbacks, and allocator
+- [x] Cached and one-time command paths preserve their existing recording and completion semantics.
+- [x] Terrain construction, edits, smoothing, flora growth, sampling, readbacks, and allocator
       behavior remain unchanged.
-- [ ] Builder tests, release hidden validation, and synchronization diagnostics pass without broad
+- [x] Builder tests, release hidden validation, and synchronization diagnostics pass without broad
       fallback barriers masking missing declarations.
 
 ---
@@ -416,7 +416,8 @@ order and rendergraph-lite architecture.
 **Blocked by:** Ticket 11 — Track Buffer hazards through one Contree build.
 
 **Status:** in-progress (`5fb17dbf`, `f04ef4ca`, `8d09317f`, `48d27b1b`, `b9108858`, `b4ef4d29`,
-`4f1d8592`, `14d3b0ef`, `419fff8d`, `1d0b34d5`, `dd0fc745`, `91a7bed8`; DDGI voxel-visibility and
+`4f1d8592`, `14d3b0ef`, `419fff8d`, `1d0b34d5`, `dd0fc745`, `91a7bed8`, `69343901`, `5cdf796d`,
+`96acf10d`; DDGI voxel-visibility and
 terrain-query one-time paths, CPU-updated tracer/DDGI uniform buffers, CPU-filled tracer graphics
 instance buffers, tracer static mesh inputs, flora/wind shader lookup buffers, irradiance-capture
 storage writes, DDGI metadata/transient-ray transitions, and Egui mesh buffers now declare Buffer
@@ -437,6 +438,8 @@ uses; frame-wide Image tracking remains incomplete)
       passes that consume them.
 - [x] Irradiance-capture storage writes declare ComputeWrite before the tracer pass and transition
       to TransferRead through the existing readback helper.
+- [x] Irradiance-capture, DDGI trace-stat, and atlas-reduction readbacks declare TransferRead/
+      TransferWrite and HostRead through the shared Buffer recording seam.
 - [x] DDGI probe metadata and transient ray data declare ComputeWrite/ComputeRead at relocation,
       trace, and filter boundaries, then expose active metadata as ShaderRead before graphics.
 - [ ] Compute-to-compute, compute-to-indirect, transfer-to-compute, compute-to-graphics, and
