@@ -13,8 +13,8 @@ use bytemuck::Zeroable;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::{
     Buffer, BufferUse, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
-    Extent3D, GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineBarrier, PipelineStage,
-    QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
+    Extent3D, GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineStage, QueueLane,
+    ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
 };
 pub use resources::*;
 use std::{
@@ -688,7 +688,6 @@ impl SurfaceBuilder {
             );
         });
 
-        record_compute_to_indirect_and_shader_barrier(device, &cmdbuf);
         cmdbuf.use_buffer(
             &self.resources.surface_solid_workgroup_dispatch_indirect,
             BufferUse::IndirectRead,
@@ -714,7 +713,6 @@ impl SurfaceBuilder {
         });
 
         if place_flora {
-            record_compute_barrier(device, &cmdbuf);
             cmdbuf.use_buffer(&self.resources.make_surface_result, BufferUse::ComputeRead);
             cmdbuf.use_buffer(
                 &self.resources.active_surface_flora_dispatch_indirect,
@@ -727,7 +725,6 @@ impl SurfaceBuilder {
                     None,
                 );
             });
-            record_compute_to_indirect_and_shader_barrier(device, &cmdbuf);
             cmdbuf.use_buffer(
                 &self.resources.active_surface_flora_dispatch_indirect,
                 BufferUse::IndirectRead,
@@ -1505,14 +1502,11 @@ impl SurfaceBuilder {
                 &chunk_resources.resource.instances_buf,
                 BufferUse::ComputeRead,
             );
-            record_compute_barrier(device, &cmdbuf);
             record_timed_flora_edit_pass!({
                 self.instances_to_occupancy_ppl
                     .record(&cmdbuf, Extent3D::new(max_len, 1, 1), None);
             });
         }
-
-        record_compute_barrier(device, &cmdbuf);
 
         cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::HostWrite);
         cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::ComputeRead);
@@ -1528,8 +1522,6 @@ impl SurfaceBuilder {
                 None,
             );
         });
-
-        record_compute_barrier(device, &cmdbuf);
 
         cmdbuf.use_buffer(
             &self.resources.occupancy_to_instances_info,
@@ -1854,17 +1846,6 @@ fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
     let t = ((point - start).dot(segment) / segment_len_sq).clamp(0.0, 1.0);
     let closest = start + segment * t;
     point.distance_squared(closest)
-}
-
-fn record_compute_barrier(device: &re_flora_vkn::Device, cmdbuf: &CommandBuffer) {
-    PipelineBarrier::compute_shader_access().record_insert(device, cmdbuf);
-}
-
-fn record_compute_to_indirect_and_shader_barrier(
-    device: &re_flora_vkn::Device,
-    cmdbuf: &CommandBuffer,
-) {
-    PipelineBarrier::compute_to_indirect_and_shader_access().record_insert(device, cmdbuf);
 }
 
 fn record_clear_buffer_for_compute(cmdbuf: &CommandBuffer, buffer: &Buffer) {
