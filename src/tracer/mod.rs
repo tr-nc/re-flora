@@ -2534,7 +2534,7 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
-        self.record_graphics_instance_buffer_uses(cmdbuf, surface_resources);
+        self.record_graphics_buffer_uses(cmdbuf, surface_resources);
 
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
             let volume = self.ddgi_volumes.builder();
@@ -3202,19 +3202,98 @@ impl Tracer {
         Ok(())
     }
 
-    /// Declares CPU-filled instance buffers before any shadow or main render pass binds them.
+    /// Declares graphics buffers before any shadow or main render pass binds them.
     ///
-    /// The same instance generation can be consumed by both passes, so this seam deliberately
-    /// sits before the shadow prepass rather than inside either render pass.
-    fn record_graphics_instance_buffer_uses(
+    /// The same meshes and instance generations can be consumed by both passes, so this seam
+    /// deliberately sits before the shadow prepass rather than inside either render pass.
+    fn record_graphics_buffer_uses(
         &self,
         cmdbuf: &CommandBuffer,
         surface_resources: &SurfaceResources,
     ) {
+        let record_index = |buffer: &Buffer| cmdbuf.use_buffer(buffer, BufferUse::IndexRead);
+        let record_vertex = |buffer: &Buffer| cmdbuf.use_buffer(buffer, BufferUse::VertexRead);
+        let record_mesh = |indices: &Buffer, vertices: &Buffer, indices_len: u32| {
+            if indices_len > 0 {
+                record_index(indices);
+                record_vertex(vertices);
+            }
+        };
         let record_instance = |buffer: &Buffer| {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
             cmdbuf.use_buffer(buffer, BufferUse::VertexRead);
         };
+
+        record_vertex(&self.resources.meshes.terrain_depth_prefill_vertices);
+        for mesh in &self.resources.meshes.flora_meshes {
+            record_mesh(&mesh.indices, &mesh.vertices, mesh.indices_len);
+        }
+        for mesh in &self.resources.meshes.flora_meshes_lod {
+            record_mesh(&mesh.indices, &mesh.vertices, mesh.indices_len);
+        }
+        record_mesh(
+            &self.resources.meshes.leaves_resources.indices,
+            &self.resources.meshes.leaves_resources.vertices,
+            self.resources.meshes.leaves_resources.indices_len,
+        );
+        record_mesh(
+            &self.resources.meshes.leaves_resources_lod.indices,
+            &self.resources.meshes.leaves_resources_lod.vertices,
+            self.resources.meshes.leaves_resources_lod.indices_len,
+        );
+        record_mesh(
+            &self.resources.meshes.apple_resources.indices,
+            &self.resources.meshes.apple_resources.vertices,
+            self.resources.meshes.apple_resources.indices_len,
+        );
+        record_mesh(
+            &self.resources.meshes.apple_resources_lod.indices,
+            &self.resources.meshes.apple_resources_lod.vertices,
+            self.resources.meshes.apple_resources_lod.indices_len,
+        );
+        record_mesh(
+            &self.sprinkler_resources.indices,
+            &self.sprinkler_resources.vertices,
+            self.sprinkler_resources.indices_len,
+        );
+        record_mesh(
+            &self.irrigation_pipe_resources.indices,
+            &self.irrigation_pipe_resources.vertices,
+            self.irrigation_pipe_resources.indices_len,
+        );
+        record_mesh(
+            &self.geometry_preview_resources.pipe.indices,
+            &self.geometry_preview_resources.pipe.vertices,
+            self.geometry_preview_resources.pipe.indices_len,
+        );
+        record_mesh(
+            &self.geometry_preview_resources.tree.indices,
+            &self.geometry_preview_resources.tree.vertices,
+            self.geometry_preview_resources.tree.indices_len,
+        );
+        if self.environment_probe_visualization.enabled {
+            record_mesh(
+                &self
+                    .environment_probe_visualization_resources
+                    .marker_indices,
+                &self
+                    .environment_probe_visualization_resources
+                    .marker_vertices,
+                self.environment_probe_visualization_resources.index_count(),
+            );
+        }
+        record_mesh(
+            &self.dynamic_fruit_resources.indices,
+            &self.dynamic_fruit_resources.vertices,
+            self.dynamic_fruit_resources.indices_len,
+        );
+        record_mesh(
+            &self.particle_resources.indices,
+            &self.particle_resources.vertices,
+            self.particle_resources.indices_len,
+        );
+        let glass = &self.resources.meshes.glass;
+        record_mesh(&glass.indices, &glass.vertices, glass.indices_len);
 
         if self.dynamic_fruit_resources.instance_count > 0 {
             record_instance(&self.dynamic_fruit_resources.instances);
