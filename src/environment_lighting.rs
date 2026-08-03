@@ -300,11 +300,11 @@ mod tests {
         assert!(!pipeline_builder.contains("environment_probes"));
 
         let consumer_update = tracer_host
-            .split_once("fn update_ddgi_consumer_descriptors")
+            .split_once("fn stage_ddgi_consumer_descriptors")
             .expect("DDGI consumer promotion seam must exist")
             .1
-            .split_once("fn promote_ready_ddgi_staging")
-            .expect("consumer update must remain adjacent to promotion")
+            .split_once("fn publish_ddgi_consumer_descriptors")
+            .expect("staged consumer descriptors must have an explicit publication seam")
             .0;
         assert!(consumer_update.contains("compute_pipelines.tracer_ppl"));
         assert!(consumer_update.contains("graphics_pipelines.flora_ppl"));
@@ -317,7 +317,7 @@ mod tests {
             .expect("DDGI promotion must exist")
             .1;
         let descriptor_rebind = promotion
-            .find("update_ddgi_consumer_descriptors")
+            .find("publish_ddgi_consumer_descriptors")
             .expect("promotion must rebind every shared consumer");
         let ownership_swap = promotion
             .find("promote_staging(build_token)")

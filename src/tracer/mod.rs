@@ -90,7 +90,7 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
     ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue,
-    DescriptorPool, Extent2D, Extent3D, FrameRetirement, Framebuffer, GpuProfiler,
+    DescriptorPool, DescriptorSet, Extent2D, Extent3D, FrameRetirement, Framebuffer, GpuProfiler,
     GraphicsPipeline, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget,
     Texture, TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
 };
@@ -653,6 +653,14 @@ pub struct DirectSunShadowResources<'a> {
     pub cloud_shadow_tex: &'a Texture,
 }
 
+/// Descriptor sets prepared for a private DDGI staging volume. The sets retain the staging
+/// volume's resource owners but are not visible to any frame until promotion publishes them.
+struct PreparedDdgiConsumerDescriptors {
+    token_serial: u64,
+    tracer: Vec<DescriptorSet>,
+    graphics: Vec<Vec<DescriptorSet>>,
+}
+
 pub struct Tracer {
     vulkan_ctx: VulkanContext,
 
@@ -682,6 +690,7 @@ pub struct Tracer {
     contree_leaf_data: Buffer,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
+    prepared_ddgi_consumer_descriptors: Option<PreparedDdgiConsumerDescriptors>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
@@ -1008,6 +1017,7 @@ impl Tracer {
             contree_leaf_data: (*contree_builder_resources.contree_leaf_data).clone(),
             ddgi_voxel_visibility,
             ddgi_runtime,
+            prepared_ddgi_consumer_descriptors: None,
             ddgi_trace_stats_readback_pending: None,
             ddgi_flora_consumer_logged_token_serial: None,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
@@ -1091,6 +1101,11 @@ impl Tracer {
             self.update_ddgi_builder_descriptors(&staging, descriptor_generation);
         self.pending_frame_retirements
             .extend(descriptor_retirements);
+        // Prepare the consumer generation while this volume is still private. The descriptor
+        // writes and owner copies are paid during staging setup; promotion only swaps the already
+        // complete sets into the active pipelines and schedules the old generation for retirement.
+        self.prepared_ddgi_consumer_descriptors =
+            Some(self.stage_ddgi_consumer_descriptors(&staging));
         self.ddgi_trace_stats_readback_pending = None;
         let retired_staging = self.ddgi_runtime.volumes_mut().prepare_staging(staging);
         drop(retired_staging);
@@ -2017,11 +2032,10 @@ impl Tracer {
             .collect()
     }
 
-    fn update_ddgi_consumer_descriptors(
+    fn stage_ddgi_consumer_descriptors(
         &self,
         ddgi_volume: &DdgiVolume,
-        generation: u64,
-    ) -> Vec<FrameRetirement> {
+    ) -> PreparedDdgiConsumerDescriptors {
         let compute_pipelines = [&self.compute_pipelines.tracer_ppl];
         let graphics_pipelines = [
             &self.graphics_pipelines.flora_ppl,
@@ -2110,15 +2124,72 @@ impl Tracer {
             }
         }
 
-        compute_pipelines
-            .into_iter()
-            .filter_map(|pipeline| {
-                pipeline.publish_descriptor_generation("ddgi.consumer.descriptors", generation)
-            })
-            .chain(graphics_pipelines.into_iter().filter_map(|pipeline| {
-                pipeline.publish_descriptor_generation("ddgi.consumer.descriptors", generation)
-            }))
-            .collect()
+        PreparedDdgiConsumerDescriptors {
+            token_serial: ddgi_volume
+                .status()
+                .build_token
+                .expect("staged DDGI consumer descriptors require a build token")
+                .serial(),
+            tracer: self
+                .compute_pipelines
+                .tracer_ppl
+                .take_staged_descriptor_sets(),
+            graphics: graphics_pipelines
+                .into_iter()
+                .map(|pipeline| pipeline.take_staged_descriptor_sets())
+                .collect(),
+        }
+    }
+
+    fn publish_ddgi_consumer_descriptors(
+        &self,
+        prepared: PreparedDdgiConsumerDescriptors,
+        generation: u64,
+    ) -> Vec<FrameRetirement> {
+        let graphics_pipelines = [
+            &self.graphics_pipelines.flora_ppl,
+            &self.graphics_pipelines.flora_lod_ppl,
+            &self.graphics_pipelines.leaves_ppl,
+            &self.graphics_pipelines.leaves_lod_ppl,
+            &self.graphics_pipelines.sprinkler_ppl,
+            &self.graphics_pipelines.dynamic_fruit_ppl,
+            &self.graphics_pipelines.particle_ppl,
+            &self.graphics_pipelines.water_droplet_ppl,
+            &self
+                .graphics_pipelines
+                .environment_probe_visualization_depth_ppl,
+            &self
+                .graphics_pipelines
+                .environment_probe_visualization_overlay_ppl,
+        ];
+        assert_eq!(
+            prepared.graphics.len(),
+            graphics_pipelines.len(),
+            "DDGI consumer descriptor preparation pipeline order changed"
+        );
+        let mut retirements = Vec::with_capacity(1 + graphics_pipelines.len());
+        retirements.push(self.compute_pipelines.tracer_ppl.publish_descriptor_sets(
+            "ddgi.consumer.descriptors",
+            generation,
+            prepared.tracer,
+        ));
+        for (pipeline, descriptor_sets) in graphics_pipelines.into_iter().zip(prepared.graphics) {
+            retirements.push(pipeline.publish_descriptor_sets(
+                "ddgi.consumer.descriptors",
+                generation,
+                descriptor_sets,
+            ));
+        }
+        retirements
+    }
+
+    fn update_ddgi_consumer_descriptors(
+        &self,
+        ddgi_volume: &DdgiVolume,
+        generation: u64,
+    ) -> Vec<FrameRetirement> {
+        let prepared = self.stage_ddgi_consumer_descriptors(ddgi_volume);
+        self.publish_ddgi_consumer_descriptors(prepared, generation)
     }
 
     fn promote_ready_ddgi_staging(&mut self) {
@@ -2147,7 +2218,13 @@ impl Tracer {
         // while the frame's shading constants move to the complete staging volume.
         let publication_started = Instant::now();
         let descriptor_generation = self.next_descriptor_generation();
-        let descriptor_retirements = {
+        let prepared = self
+            .prepared_ddgi_consumer_descriptors
+            .take()
+            .filter(|prepared| prepared.token_serial == build_token.serial());
+        let descriptor_retirements = if let Some(prepared) = prepared {
+            self.publish_ddgi_consumer_descriptors(prepared, descriptor_generation)
+        } else {
             let builder = self.ddgi_runtime.volumes().builder();
             self.update_ddgi_consumer_descriptors(builder, descriptor_generation)
         };

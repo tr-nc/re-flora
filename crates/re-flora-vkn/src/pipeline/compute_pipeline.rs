@@ -149,15 +149,32 @@ impl ComputePipeline {
         name: &'static str,
         generation: u64,
     ) -> Option<FrameRetirement> {
-        let pending = self
-            .0
+        let pending = self.take_staged_descriptor_sets();
+        Some(self.publish_descriptor_sets(name, generation, pending))
+    }
+
+    /// Takes a fully written staged generation without making it active. Callers may prepare a
+    /// generation while its resources are still private, then publish the owned set at the exact
+    /// visibility boundary later.
+    pub fn take_staged_descriptor_sets(&self) -> Vec<DescriptorSet> {
+        self.0
             .pending_descriptor_sets
             .lock()
             .unwrap()
             .take()
-            .expect("descriptor generation publish requires begin_descriptor_generation");
+            .expect("taking a descriptor generation requires begin_descriptor_generation")
+    }
+
+    /// Publishes a previously staged generation and returns the old generation for completion-
+    /// scoped retirement.
+    pub fn publish_descriptor_sets(
+        &self,
+        name: &'static str,
+        generation: u64,
+        pending: Vec<DescriptorSet>,
+    ) -> FrameRetirement {
         let old = std::mem::replace(&mut *self.0.descriptor_sets.lock().unwrap(), pending);
-        Some(FrameRetirement::new(name, generation, old))
+        FrameRetirement::new(name, generation, old)
     }
 
     /// Initialize a descriptor set before any command can reference it.
