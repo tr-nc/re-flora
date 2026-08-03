@@ -88,11 +88,12 @@ use crate::wind::WindSource;
 use anyhow::{Context, Result};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, ClearValue,
-    ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue, DescriptorPool,
-    Extent2D, Extent3D, FrameRetirement, Framebuffer, GpuProfiler, GraphicsPipeline, MemoryAccess,
-    MemoryBarrier, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget,
-    Texture, TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
+    execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
+    ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue,
+    DescriptorPool, Extent2D, Extent3D, FrameRetirement, Framebuffer, GpuProfiler,
+    GraphicsPipeline, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage,
+    PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    WriteDescriptorSet,
 };
 use std::collections::HashMap;
 
@@ -1099,6 +1100,15 @@ impl Tracer {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
+                cmdbuf.begin_resource_state_transaction();
+                cmdbuf.use_buffer(
+                    &self.ddgi_voxel_visibility.ddgi_voxel_visibility_info,
+                    BufferUse::HostWrite,
+                );
+                cmdbuf.use_buffer(
+                    &self.ddgi_voxel_visibility.ddgi_voxel_visibility_info,
+                    BufferUse::ComputeRead,
+                );
                 self.compute_pipelines
                     .ddgi_voxel_visibility_pack_ppl
                     .record(
