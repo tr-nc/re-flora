@@ -678,6 +678,8 @@ pub struct Tracer {
     cloud_history_valid: bool,
     cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
+    contree_node_data: Buffer,
+    contree_leaf_data: Buffer,
     ddgi_volumes: DdgiVolumes,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
@@ -741,6 +743,15 @@ impl Tracer {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
             cmdbuf.use_buffer(buffer, BufferUse::ShaderRead);
         }
+    }
+
+    /// Declares builder-owned read-only buffers before tracer compute and graphics consumers.
+    ///
+    /// Contree jobs may leave these buffers in a compute-write state. Keeping the leases here
+    /// avoids relying on a frame-wide fallback barrier when the tracer binds their descriptors.
+    fn record_contree_buffer_uses(&self, cmdbuf: &CommandBuffer) {
+        cmdbuf.use_buffer(&self.contree_node_data, BufferUse::ShaderRead);
+        cmdbuf.use_buffer(&self.contree_leaf_data, BufferUse::ShaderRead);
     }
 
     pub fn direct_sun_shadow_resources(&self) -> DirectSunShadowResources<'_> {
@@ -988,6 +999,8 @@ impl Tracer {
             cloud_history_valid: false,
             cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
+            contree_node_data: (*contree_builder_resources.contree_node_data).clone(),
+            contree_leaf_data: (*contree_builder_resources.contree_leaf_data).clone(),
             ddgi_volumes: DdgiVolumes::new(ddgi_volume),
             ddgi_voxel_visibility,
             ddgi_runtime,
@@ -2672,6 +2685,7 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
+        self.record_contree_buffer_uses(cmdbuf);
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
 
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
@@ -5959,6 +5973,7 @@ impl Tracer {
                     &self.resources.terrain_query.terrain_query_result,
                     BufferUse::ComputeWrite,
                 );
+                self.record_contree_buffer_uses(cmdbuf);
                 self.compute_pipelines.terrain_query_ppl.record(
                     cmdbuf,
                     Extent3D::new(query_count, 1, 1),
