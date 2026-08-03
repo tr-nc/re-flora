@@ -3632,10 +3632,8 @@ impl Tracer {
                 "god_ray.pass",
                 || self.record_god_ray_pass(cmdbuf),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_clouds {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -3654,7 +3652,6 @@ impl Tracer {
                 || self.clear_cloud_output(cmdbuf),
             );
         }
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_lens_flare {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -3663,7 +3660,6 @@ impl Tracer {
                 "lens_flare_sun_visible.pass",
                 || self.record_lens_flare_sun_visible_pass(cmdbuf),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3671,7 +3667,6 @@ impl Tracer {
                 "lens_flare.pass",
                 || self.record_lens_flare_pass(cmdbuf),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3679,7 +3674,6 @@ impl Tracer {
                 "lens_flare_downsample.pass",
                 || self.record_lens_flare_downsample_pass(cmdbuf),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
@@ -3688,7 +3682,6 @@ impl Tracer {
             "composition.pass",
             || self.record_composition_pass(cmdbuf),
         );
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if let Some(profiler) = gpu_profiler {
             let postprocessing_scope = profiler.begin_scope(
                 gpu_profiler_frame_slot,
@@ -3708,7 +3701,6 @@ impl Tracer {
         } else {
             self.record_post_processing_pass(cmdbuf);
         }
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         Ok(())
     }
 
