@@ -150,15 +150,15 @@ path and duplicated job sidecars.
 
 **Blocked by:** Ticket 01 — Make `surface.build` GPU work self-resident and fail fast.
 
-**Status:** in-progress
+**Status:** completed (`beab1295`)
 
-- [ ] Every migrated job supports its existing submit, poll, wait, complete, discard, and result
+- [x] Every migrated job supports its existing submit, poll, wait, complete, discard, and result
       behavior through the managed submission lifecycle.
-- [ ] Builder job records no longer retain command buffers solely to keep pending submissions alive.
-- [ ] Stale or discarded build work still completes safely before its logical allocations are
+- [x] Builder job records no longer retain command buffers solely to keep pending submissions alive.
+- [x] Stale or discarded build work still completes safely before its logical allocations are
       reclaimed.
-- [ ] The old borrowed command-buffer submission form is removed once no caller needs it.
-- [ ] Existing builder tests, readback checks, profiling output, and hidden release validation pass.
+- [x] The old borrowed command-buffer submission form is removed once no caller needs it.
+- [x] Existing builder tests, readback checks, profiling output, and hidden release validation pass.
 
 ---
 
@@ -196,7 +196,7 @@ previous generation remains resident until every frame that could reference it h
 - Ticket 02 — Migrate remaining off-frame GPU jobs.
 - Ticket 03 — Encode the owned Vulkan resource graph.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] Dynamic-fruit capacity growth no longer calls `device.wait_idle()`.
 - [ ] The previous instance Buffer stays resident until all frame submissions that may reference it
