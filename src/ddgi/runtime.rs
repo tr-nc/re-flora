@@ -1,7 +1,8 @@
 use crate::environment_lighting::EnvironmentLightingState;
 use crate::geom::UAabb3;
+use anyhow::Result;
 
-use super::resources::{DdgiStatus, DdgiVolumeStatus, DdgiVolumes};
+use super::resources::{DdgiStatus, DdgiVolume, DdgiVolumeStatus, DdgiVolumes};
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
     DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiRefreshState,
@@ -107,6 +108,22 @@ impl DdgiRuntime {
             self.volumes.replace(volumes).is_none(),
             "DDGI physical volumes may only be installed once"
         );
+    }
+
+    /// Atomically promotes the validated physical staging Volume and its logical token.
+    ///
+    /// Descriptor publication remains the caller's frame-retirement concern, but the physical
+    /// active/staging swap and runtime coordinator promotion cannot be performed independently.
+    pub(crate) fn promote_ready_volume(
+        &mut self,
+        build_token: DdgiBuildToken,
+    ) -> Result<DdgiVolume> {
+        let retired_active = self.volumes_mut().promote_staging(build_token)?;
+        assert!(
+            self.mark_promoted(build_token),
+            "promoted DDGI token must still be coordinator-authoritative"
+        );
+        Ok(retired_active)
     }
 
     pub(crate) fn configure_capture(

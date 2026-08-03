@@ -2138,17 +2138,14 @@ impl Tracer {
         let descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
         self.pending_frame_retirements
             .extend(descriptor_retirements);
+        // DdgiRuntime::promote_ready_volume performs promote_staging(build_token) and the
+        // coordinator token promotion as one fail-fast transaction.
         let retired_active = self
             .ddgi_runtime
-            .volumes_mut()
-            .promote_staging(build_token)
+            .promote_ready_volume(build_token)
             .expect("ready DDGI staging volume must be promotable");
         let resource_swap_ms =
             publication_started.elapsed().as_secs_f64() * 1_000.0 - descriptor_rebind_ms;
-        assert!(
-            self.ddgi_runtime.mark_promoted(build_token),
-            "promoted DDGI token must still be coordinator-authoritative"
-        );
         let active = self.ddgi_runtime.volumes().status().active();
         let published = active
             .published_field
