@@ -23,6 +23,12 @@ use std::collections::HashMap;
 use winit::event::WindowEvent;
 use winit::window::Window;
 
+struct ManagedTexture {
+    texture: Texture,
+    descriptor_set: DescriptorSet,
+    generation: u64,
+}
+
 /// Winit-Egui Renderer implemented for Ash Vulkan.
 pub struct EguiRenderer {
     vulkan_context: VulkanContext,
@@ -32,8 +38,7 @@ pub struct EguiRenderer {
     egui_frag_sm: ShaderModule,
 
     pool: DescriptorPool,
-    managed_textures: HashMap<TextureId, Texture>,
-    managed_texture_descriptor_sets: HashMap<TextureId, DescriptorSet>,
+    managed_textures: HashMap<TextureId, ManagedTexture>,
     frames: Option<Mesh>,
     pending_frame_retirements: Vec<FrameRetirement>,
     texture_generation: u64,
@@ -97,7 +102,6 @@ impl EguiRenderer {
             egui_frag_sm,
             pool,
             managed_textures: HashMap::new(),
-            managed_texture_descriptor_sets: HashMap::new(),
             frames: None,
             pending_frame_retirements: Vec::new(),
             texture_generation: 1,
@@ -165,14 +169,17 @@ impl EguiRenderer {
             let device = self.vulkan_context.device();
             let extent = Extent3D::new(width, height, 1);
             if let Some([offset_x, offset_y]) = delta.pos {
-                let texture = self.managed_textures.get_mut(id).unwrap();
+                let managed = self.managed_textures.get_mut(id).unwrap_or_else(|| {
+                    panic!("egui partial texture update references unknown {id:?}")
+                });
 
                 let region = TextureRegion {
                     offset: [offset_x as _, offset_y as _, 0],
                     extent,
                 };
 
-                texture
+                managed
+                    .texture
                     .get_image()
                     .fill_with_raw_u8(
                         &self.vulkan_context.get_general_queue(),
@@ -226,20 +233,25 @@ impl EguiRenderer {
                     TextureLayout::SHADER_READ_ONLY,
                 )]);
 
-                let old_texture = self.managed_textures.insert(*id, texture);
-                let old_descriptor_set = self
-                    .managed_texture_descriptor_sets
-                    .insert(*id, descriptor_set);
-                if old_texture.is_some() || old_descriptor_set.is_some() {
-                    let generation = self.texture_generation;
-                    self.texture_generation = self
-                        .texture_generation
-                        .checked_add(1)
-                        .expect("egui texture generation overflow");
+                let generation = self.texture_generation;
+                self.texture_generation = self
+                    .texture_generation
+                    .checked_add(1)
+                    .expect("egui texture generation overflow");
+                let old_texture = self.managed_textures.insert(
+                    *id,
+                    ManagedTexture {
+                        texture,
+                        descriptor_set,
+                        generation,
+                    },
+                );
+                if let Some(old_texture) = old_texture {
+                    let retired_generation = old_texture.generation;
                     self.pending_frame_retirements.push(FrameRetirement::new(
                         "egui.texture",
-                        generation,
-                        (old_texture, old_descriptor_set),
+                        retired_generation,
+                        old_texture,
                     ));
                 }
             }
@@ -248,18 +260,16 @@ impl EguiRenderer {
 
     fn free_textures(&mut self, texture_ids: &[TextureId]) {
         for texture_id in texture_ids {
-            let old_texture = self.managed_textures.remove(texture_id);
-            let old_descriptor_set = self.managed_texture_descriptor_sets.remove(texture_id);
-            if old_texture.is_some() || old_descriptor_set.is_some() {
-                let generation = self.texture_generation;
+            if let Some(old_texture) = self.managed_textures.remove(texture_id) {
+                let retired_generation = old_texture.generation;
                 self.texture_generation = self
                     .texture_generation
                     .checked_add(1)
                     .expect("egui texture generation overflow");
                 self.pending_frame_retirements.push(FrameRetirement::new(
                     "egui.texture",
-                    generation,
-                    (old_texture, old_descriptor_set),
+                    retired_generation,
+                    old_texture,
                 ));
             }
         }
@@ -270,7 +280,7 @@ impl EguiRenderer {
     fn cmd_draw(
         frames: &mut Option<Mesh>,
         pipeline: &GraphicsPipeline,
-        managed_texture_descriptor_sets: &HashMap<TextureId, DescriptorSet>,
+        managed_textures: &HashMap<TextureId, ManagedTexture>,
         cmdbuf: &CommandBuffer,
         extent: Extent2D,
         pixels_per_point: f32,
@@ -328,9 +338,8 @@ impl EguiRenderer {
                     );
 
                     if Some(m.texture_id) != current_texture_id {
-                        let descriptor_set =
-                            managed_texture_descriptor_sets.get(&m.texture_id).unwrap();
-                        cmdbuf.bind_graphics_descriptor_set(pipeline, 0, descriptor_set);
+                        let managed = managed_textures.get(&m.texture_id).unwrap();
+                        cmdbuf.bind_graphics_descriptor_set(pipeline, 0, &managed.descriptor_set);
                         current_texture_id = Some(m.texture_id);
                     }
 
@@ -436,7 +445,7 @@ impl EguiRenderer {
         Self::cmd_draw(
             &mut self.frames,
             &self.gui_ppl,
-            &self.managed_texture_descriptor_sets,
+            &self.managed_textures,
             cmdbuf,
             render_area,
             self.pixels_per_point.unwrap() * output_scale,
