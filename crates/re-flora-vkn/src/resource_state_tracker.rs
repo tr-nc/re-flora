@@ -1,6 +1,5 @@
 use crate::{
-    Buffer, BufferState, BufferUse, CommandBuffer, Image, ResourceState, TextureLayout,
-    TextureTransition,
+    Buffer, BufferState, BufferUse, CommandBuffer, Image, ResourceState, TextureTransition,
 };
 use ash::vk;
 
@@ -64,18 +63,6 @@ impl ResourceStateTransaction {
             &mut tracked.current,
         );
         true
-    }
-
-    pub(crate) fn state(&self, image: &Image, array_layer: u32) -> Option<ResourceState> {
-        self.images
-            .iter()
-            .find(|tracked| tracked.image.state_transaction_key() == image.state_transaction_key())
-            .map(|tracked| {
-                *tracked
-                    .current
-                    .get(array_layer as usize)
-                    .expect("image state transaction layer out of bounds")
-            })
     }
 
     pub(crate) fn assume_image_state(
@@ -154,176 +141,8 @@ impl ResourceStateTransaction {
     }
 }
 
-/// Policy for automatic image state transitions recorded by vkn helpers.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ResourceStatePolicy {
-    /// Record needed barriers automatically.
-    Automatic,
-    /// Do not record barriers automatically. Callers can still use explicit transitions.
-    Manual,
-    /// Require resources to already be in the requested state.
-    Assert,
-}
-
-/// Linear image resource-state tracker used by vkn command helpers.
-///
-/// This is intentionally smaller than a full render graph: callers still record commands in order,
-/// but vkn owns the transition/barrier operation for declared image use.
-#[derive(Clone, Debug)]
-pub struct ResourceStateTracker {
-    policy: ResourceStatePolicy,
-}
-
-impl Default for ResourceStateTracker {
-    fn default() -> Self {
-        Self::automatic()
-    }
-}
-
-impl ResourceStateTracker {
-    pub fn automatic() -> Self {
-        Self {
-            policy: ResourceStatePolicy::Automatic,
-        }
-    }
-
-    pub fn manual() -> Self {
-        Self {
-            policy: ResourceStatePolicy::Manual,
-        }
-    }
-
-    pub fn assert_only() -> Self {
-        Self {
-            policy: ResourceStatePolicy::Assert,
-        }
-    }
-
-    pub fn policy(&self) -> ResourceStatePolicy {
-        self.policy
-    }
-
-    pub fn with_policy(mut self, policy: ResourceStatePolicy) -> Self {
-        self.policy = policy;
-        self
-    }
-
-    pub fn set_policy(&mut self, policy: ResourceStatePolicy) {
-        self.policy = policy;
-    }
-
-    pub fn transition_image_layout(
-        &self,
-        cmdbuf: &CommandBuffer,
-        image: &Image,
-        array_layer: u32,
-        target_layout: TextureLayout,
-    ) {
-        self.transition_image(cmdbuf, image, array_layer, ResourceState::from_layout(target_layout));
-    }
-
-    pub fn transition_image(
-        &self,
-        cmdbuf: &CommandBuffer,
-        image: &Image,
-        array_layer: u32,
-        target_state: ResourceState,
-    ) {
-        self.transition_image_layers(cmdbuf, image, array_layer, 1, target_state);
-    }
-
-    pub fn transition_image_layers(
-        &self,
-        cmdbuf: &CommandBuffer,
-        image: &Image,
-        base_array_layer: u32,
-        layer_count: u32,
-        target_state: ResourceState,
-    ) {
-        match self.policy {
-            ResourceStatePolicy::Automatic => {
-                image.record_state_transition(cmdbuf, base_array_layer, layer_count, target_state);
-            }
-            ResourceStatePolicy::Manual => {}
-            ResourceStatePolicy::Assert => {
-                self.assert_image_state_for_recording(
-                    cmdbuf,
-                    image,
-                    base_array_layer,
-                    layer_count,
-                    target_state,
-                );
-            }
-        }
-    }
-
-    fn assert_image_state_for_recording(
-        &self,
-        cmdbuf: &CommandBuffer,
-        image: &Image,
-        base_array_layer: u32,
-        layer_count: u32,
-        expected_state: ResourceState,
-    ) {
-        for layer in base_array_layer..base_array_layer + layer_count {
-            let actual_state = cmdbuf
-                .recorded_image_state(image, layer)
-                .unwrap_or_else(|| image.get_state(layer));
-            assert_eq!(
-                actual_state.layout(),
-                expected_state.layout(),
-                "image layer {} is in {:?}, expected {:?}",
-                layer,
-                actual_state.layout(),
-                expected_state.layout()
-            );
-        }
-    }
-
-    pub fn assert_image_layout(
-        &self,
-        image: &Image,
-        array_layer: u32,
-        expected_layout: TextureLayout,
-    ) {
-        self.assert_image_state(
-            image,
-            array_layer,
-            1,
-            ResourceState::from_layout(expected_layout),
-        );
-    }
-
-    pub fn assert_image_state(
-        &self,
-        image: &Image,
-        base_array_layer: u32,
-        layer_count: u32,
-        expected_state: ResourceState,
-    ) {
-        for layer in base_array_layer..base_array_layer + layer_count {
-            let actual_state = image.get_state(layer);
-            assert_eq!(
-                actual_state.layout(),
-                expected_state.layout(),
-                "image layer {} is in {:?}, expected {:?}",
-                layer,
-                actual_state.layout(),
-                expected_state.layout()
-            );
-        }
-    }
-
-    pub fn assume_image_layout(&self, image: &Image, array_layer: u32, layout: TextureLayout) {
-        image.set_layout(array_layer, layout);
-    }
-
-    pub fn assume_image_state(&self, image: &Image, array_layer: u32, state: ResourceState) {
-        image.set_state(array_layer, state);
-    }
-}
-
-/// Record a transition barrier for one subresource-range of an image.
+/// Record the narrow explicit transition used by external swapchain images and one-time copy
+/// operations that are outside the normal command-recording resource transaction.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn record_image_transition_barrier(
     device: &ash::Device,

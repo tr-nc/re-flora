@@ -19,7 +19,7 @@ mod sync;
 pub use sync::*;
 
 mod resource_state_tracker;
-pub use resource_state_tracker::*;
+pub(crate) use resource_state_tracker::{record_image_transition_barrier, ResourceStateTransaction};
 
 mod context;
 pub use context::*;

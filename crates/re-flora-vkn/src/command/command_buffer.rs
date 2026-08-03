@@ -168,19 +168,6 @@ impl CommandBuffer {
         true
     }
 
-    pub(crate) fn recorded_image_state(
-        &self,
-        image: &Image,
-        array_layer: u32,
-    ) -> Option<ResourceState> {
-        self.0
-            .resource_state_transaction
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|transaction| transaction.state(image, array_layer))
-    }
-
     pub(crate) fn commit_state_transaction(&self) {
         let transaction = self
             .0
