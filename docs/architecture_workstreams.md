@@ -384,7 +384,9 @@ barriers to declared Buffer use through the command-recording resource-state mod
 
 **Blocked by:** Ticket 11 — Track Buffer hazards through one Contree build.
 
-**Status:** in-progress (`07ec1a7b`; Plain sampling and terrain-smoothing readback paths migrated)
+**Status:** in-progress (`00feaad0`; Plain sampling, smoothing, cached build, model voxelization,
+and terrain-edit paths plus Surface build/flora paths migrated; HostWrite is now a first-class
+Buffer use)
 
 - [ ] Builder compute, indirect, transfer, fill, copy, and host-read operations declare their Buffer
       uses through the shared recording seam.
