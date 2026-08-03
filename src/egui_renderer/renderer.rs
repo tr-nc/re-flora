@@ -268,40 +268,16 @@ impl EguiRenderer {
     /// Record commands to render the [`egui::Ui`].
     #[allow(clippy::too_many_arguments)]
     fn cmd_draw(
-        device: &Device,
         frames: &mut Option<Mesh>,
         pipeline: &GraphicsPipeline,
         managed_texture_descriptor_sets: &HashMap<TextureId, DescriptorSet>,
-        allocator: &mut Allocator,
         cmdbuf: &CommandBuffer,
         extent: Extent2D,
         pixels_per_point: f32,
         primitives: &[ClippedPrimitive],
-        pending_frame_retirements: &mut Vec<FrameRetirement>,
-        mesh_generation: &mut u64,
     ) {
         if primitives.is_empty() {
             return;
-        }
-
-        if frames.is_none() {
-            frames.replace(Mesh::new(device, allocator, primitives));
-        }
-
-        if let Some(RetiredMeshBuffers { vertices, indices }) = frames
-            .as_mut()
-            .unwrap()
-            .update(device, allocator, primitives)
-        {
-            let generation = *mesh_generation;
-            *mesh_generation = (*mesh_generation)
-                .checked_add(1)
-                .expect("egui mesh generation overflow");
-            pending_frame_retirements.push(FrameRetirement::new(
-                "egui.mesh",
-                generation,
-                (vertices, indices),
-            ));
         }
 
         cmdbuf.bind_graphics_pipeline(pipeline);
@@ -324,7 +300,9 @@ impl EguiRenderer {
         let push = bytemuck::bytes_of(&projection);
         cmdbuf.push_vertex_constants(pipeline, push);
 
-        let frame = frames.as_ref().unwrap();
+        let frame = frames
+            .as_ref()
+            .expect("egui mesh must be prepared before entering its render pass");
         cmdbuf.bind_index_buffer_u32(&frame.indices_buffer);
         cmdbuf.bind_vertex_buffers(0, &[&frame.vertices_buffer]);
 
@@ -408,25 +386,61 @@ impl EguiRenderer {
         self.record_command_buffer_scaled(device, cmdbuf, render_area, 1.0);
     }
 
+    /// Prepare CPU-written mesh buffers and declare their frame uses before the GUI render pass.
+    pub fn prepare_command_buffer(&mut self, device: &Device, cmdbuf: &CommandBuffer) {
+        let Some(primitives) = self.clipped_primitives.as_ref() else {
+            return;
+        };
+        if primitives.is_empty() {
+            return;
+        }
+
+        if self.frames.is_none() {
+            self.frames
+                .replace(Mesh::new(device, &mut self.allocator, primitives));
+        } else if let Some(RetiredMeshBuffers { vertices, indices }) = self
+            .frames
+            .as_mut()
+            .expect("egui mesh disappeared during preparation")
+            .update(device, &mut self.allocator, primitives)
+        {
+            let generation = self.mesh_generation;
+            self.mesh_generation = self
+                .mesh_generation
+                .checked_add(1)
+                .expect("egui mesh generation overflow");
+            self.pending_frame_retirements.push(FrameRetirement::new(
+                "egui.mesh",
+                generation,
+                (vertices, indices),
+            ));
+        }
+
+        let frame = self
+            .frames
+            .as_ref()
+            .expect("egui mesh must exist after preparation");
+        cmdbuf.use_buffer(&frame.vertices_buffer, re_flora_vkn::BufferUse::HostWrite);
+        cmdbuf.use_buffer(&frame.vertices_buffer, re_flora_vkn::BufferUse::VertexRead);
+        cmdbuf.use_buffer(&frame.indices_buffer, re_flora_vkn::BufferUse::HostWrite);
+        cmdbuf.use_buffer(&frame.indices_buffer, re_flora_vkn::BufferUse::IndexRead);
+    }
+
     pub fn record_command_buffer_scaled(
         &mut self,
-        device: &Device,
+        _device: &Device,
         cmdbuf: &CommandBuffer,
         render_area: Extent2D,
         output_scale: f32,
     ) {
         Self::cmd_draw(
-            device,
             &mut self.frames,
             &self.gui_ppl,
             &self.managed_texture_descriptor_sets,
-            &mut self.allocator,
             cmdbuf,
             render_area,
             self.pixels_per_point.unwrap() * output_scale,
             self.clipped_primitives.as_ref().unwrap(),
-            &mut self.pending_frame_retirements,
-            &mut self.mesh_generation,
         );
     }
 

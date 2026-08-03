@@ -4193,6 +4193,8 @@ impl App {
                     image_idx,
                     render_area,
                 );
+                let device = self.vulkan_ctx.device();
+                self.egui_renderer.prepare_command_buffer(device, cmdbuf);
                 self.swapchain
                     .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
 
@@ -4204,7 +4206,6 @@ impl App {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
-                let device = self.vulkan_ctx.device();
                 self.egui_renderer
                     .record_command_buffer(device, cmdbuf, render_area);
                 if let Some(scope) = egui_gpu_scope {

@@ -295,6 +295,7 @@ impl App {
         self.swapchain
             .record_prepare_image_for_render_pass(cmdbuf, image_idx);
 
+        self.egui_renderer.prepare_command_buffer(device, cmdbuf);
         self.swapchain
             .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
 
