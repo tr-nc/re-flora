@@ -112,6 +112,24 @@ impl SwapchainFrameManager {
         self.images_in_flight = vec![None; swapchain_image_count];
     }
 
+    /// Wait for every frame submission currently owned by this manager and observe completions in
+    /// queue order. This is the resize/shutdown quiescence seam; it deliberately avoids a
+    /// device-wide idle wait so unrelated one-time work remains outside the frame lifecycle.
+    pub fn wait_for_all_submissions(&mut self) {
+        let mut completed = Vec::with_capacity(self.frames.len());
+        for (frame_slot, sync) in self.frames.iter_mut().enumerate() {
+            sync.fence().wait().unwrap();
+            if let Some(submission) = sync.submission.take() {
+                completed.push((submission, frame_slot));
+            }
+        }
+        completed.sort_by_key(|(submission, _)| *submission);
+        for (submission, frame_slot) in completed {
+            self.retirement_clock
+                .observe_completion(FrameCompletion::new(submission, frame_slot));
+        }
+    }
+
     pub fn begin_frame(
         &mut self,
         swapchain: &mut Swapchain,

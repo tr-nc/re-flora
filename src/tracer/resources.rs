@@ -1372,19 +1372,17 @@ impl TracerResources {
         }
     }
 
-    pub fn on_resize(
+    pub fn replace_extent_dependent_resources(
         &mut self,
         device: Device,
         allocator: Allocator,
         rendering_extent: Extent2D,
         screen_extent: Extent2D,
-    ) {
-        self.extent_dependent_resources.on_resize(
-            device,
-            allocator,
-            rendering_extent,
-            screen_extent,
-        );
+    ) -> ExtentDependentResources {
+        std::mem::replace(
+            &mut self.extent_dependent_resources,
+            ExtentDependentResources::new(device, allocator, rendering_extent, screen_extent),
+        )
     }
 
     fn create_bn(

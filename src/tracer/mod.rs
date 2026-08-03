@@ -693,6 +693,8 @@ pub struct Tracer {
     render_target_depth_only: RenderTarget,
     render_target_leaf_shadow_opacity: RenderTarget,
     render_target_gui: RenderTarget,
+    pending_frame_retirements: Vec<FrameRetirement>,
+    extent_resource_generation: u64,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -1000,6 +1002,8 @@ impl Tracer {
             render_target_depth_only,
             render_target_leaf_shadow_opacity,
             render_target_gui,
+            pending_frame_retirements: Vec::new(),
+            extent_resource_generation: 1,
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
             last_wind_volume_step: None,
@@ -1474,8 +1478,9 @@ impl Tracer {
 
         self.camera.on_resize(render_extent);
 
-        // this must be done first
-        self.resources.on_resize(
+        // Publish the replacement extent bundle before rebuilding framebuffers. The returned
+        // bundle remains owned until the frame-completion retirement clock releases it.
+        let retired_extent_resources = self.resources.replace_extent_dependent_resources(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             render_extent,
@@ -1507,24 +1512,56 @@ impl Tracer {
                 .screenshot_output_tex,
         );
 
-        self.render_target_color_and_depth = RenderTarget::new(
+        let new_render_target_color_and_depth = RenderTarget::new(
             self.render_target_color_and_depth.get_render_pass().clone(),
             vec![framebuffer_color_and_depth],
         );
-        self.render_target_depth_only = RenderTarget::new(
+        let new_render_target_depth_only = RenderTarget::new(
             self.render_target_depth_only.get_render_pass().clone(),
             vec![framebuffer_depth_only],
         );
-        self.render_target_leaf_shadow_opacity = RenderTarget::new(
+        let new_render_target_leaf_shadow_opacity = RenderTarget::new(
             self.render_target_leaf_shadow_opacity
                 .get_render_pass()
                 .clone(),
             vec![framebuffer_leaf_shadow_opacity],
         );
-        self.render_target_gui = RenderTarget::new(
+        let new_render_target_gui = RenderTarget::new(
             self.render_target_gui.get_render_pass().clone(),
             vec![framebuffer_gui],
         );
+
+        let retired_render_target_color_and_depth = std::mem::replace(
+            &mut self.render_target_color_and_depth,
+            new_render_target_color_and_depth,
+        );
+        let retired_render_target_depth_only = std::mem::replace(
+            &mut self.render_target_depth_only,
+            new_render_target_depth_only,
+        );
+        let retired_render_target_leaf_shadow_opacity = std::mem::replace(
+            &mut self.render_target_leaf_shadow_opacity,
+            new_render_target_leaf_shadow_opacity,
+        );
+        let retired_render_target_gui =
+            std::mem::replace(&mut self.render_target_gui, new_render_target_gui);
+
+        let generation = self.extent_resource_generation;
+        self.extent_resource_generation = self
+            .extent_resource_generation
+            .checked_add(1)
+            .expect("tracer extent resource generation overflow");
+        self.pending_frame_retirements.push(FrameRetirement::new(
+            "tracer.extent_dependent",
+            generation,
+            (
+                retired_extent_resources,
+                retired_render_target_color_and_depth,
+                retired_render_target_depth_only,
+                retired_render_target_leaf_shadow_opacity,
+                retired_render_target_gui,
+            ),
+        ));
 
         self.cloud_history_valid = false;
         self.cloud_shadow_history_valid = false;
@@ -5423,7 +5460,9 @@ impl Tracer {
     }
 
     pub fn take_frame_retirements(&mut self) -> Vec<FrameRetirement> {
-        self.dynamic_fruit_resources.take_frame_retirements()
+        let mut retirements = self.dynamic_fruit_resources.take_frame_retirements();
+        retirements.append(&mut self.pending_frame_retirements);
+        retirements
     }
 
     pub fn clear_collision_probe_geometry(&mut self) {

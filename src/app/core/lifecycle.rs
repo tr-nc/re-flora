@@ -15,7 +15,7 @@ impl App {
     }
 
     pub(super) fn on_resize(&mut self) {
-        self.vulkan_ctx.device().wait_idle();
+        self.frame_manager.wait_for_all_submissions();
 
         let window_extent = self.window_state.window_extent();
 

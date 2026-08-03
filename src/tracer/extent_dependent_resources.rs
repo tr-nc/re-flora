@@ -91,16 +91,6 @@ impl ExtentDependentResources {
         }
     }
 
-    pub fn on_resize(
-        &mut self,
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-        screen_extent: Extent2D,
-    ) {
-        *self = Self::new(device, allocator, rendering_extent, screen_extent);
-    }
-
     fn create_gfx_depth_tex(
         device: Device,
         allocator: Allocator,
