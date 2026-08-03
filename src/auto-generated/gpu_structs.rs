@@ -62,6 +62,13 @@ pub struct DdgiRayData {
     pub data: [u32; 0],
 }
 
+/// Auto-generated from `B_DdgiRelocationStats` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiRelocationStats {
+    pub data: [u32; 0],
+}
+
 /// Auto-generated from `B_DdgiTraceStats` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

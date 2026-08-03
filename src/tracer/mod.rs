@@ -300,6 +300,7 @@ const DDGI_RADIANCE_VOXEL_PALETTE_BINDING: u32 = 31;
 const DDGI_TRANSPORT_QUERY_INFO_BINDING: u32 = 32;
 const DDGI_ATLAS_REDUCTION_BINDING: u32 = 33;
 const DDGI_CAPTURE_IRRADIANCE_ATLAS_BINDING: u32 = 34;
+const DDGI_RELOCATION_STATS_BINDING: u32 = 37;
 const DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE: u32 = 64;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
@@ -898,6 +899,7 @@ pub struct Tracer {
     ddgi_capture_checkpoint: Option<DdgiCaptureCheckpoint>,
     ddgi_initial_terrain_ready_revision: Option<u32>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
+    ddgi_relocation_stats_readback_pending: bool,
     environment_probe_environment_revision: u32,
     environment_probe_radiance_snapshot: Option<DdgiRadianceSnapshot>,
     environment_probe_terrain_revision: u32,
@@ -1180,6 +1182,7 @@ impl Tracer {
             ddgi_capture_checkpoint: None,
             ddgi_initial_terrain_ready_revision: None,
             ddgi_trace_stats_readback_pending: None,
+            ddgi_relocation_stats_readback_pending: false,
             environment_probe_environment_revision: 0,
             environment_probe_radiance_snapshot: None,
             environment_probe_terrain_revision: 0,
@@ -1266,6 +1269,7 @@ impl Tracer {
         // the replacement reaches Ready and is explicitly promoted on a later frame.
         self.update_ddgi_builder_descriptors(&staging);
         self.ddgi_trace_stats_readback_pending = None;
+        self.ddgi_relocation_stats_readback_pending = false;
         let retired_staging = self.ddgi_volumes.prepare_staging(staging);
         drop(retired_staging);
         let status = self.ddgi_status();
@@ -1977,6 +1981,15 @@ impl Tracer {
                 ),
             );
         }
+        self.compute_pipelines
+            .ddgi_probe_relocate_ppl
+            .write_descriptor_set(
+                0,
+                WriteDescriptorSet::new_buffer_write(
+                    DDGI_RELOCATION_STATS_BINDING,
+                    &ddgi_volume.ddgi_relocation_stats,
+                ),
+            );
         for pipeline in [
             &self.compute_pipelines.ddgi_probe_trace_ppl,
             &self.compute_pipelines.ddgi_irradiance_filter_ppl,
@@ -2774,6 +2787,42 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
+        if std::mem::take(&mut self.ddgi_relocation_stats_readback_pending) {
+            let stats = self
+                .ddgi_volumes
+                .builder()
+                .update_relocation_stats_from_readback()?;
+            anyhow::ensure!(
+                stats.probes == stats.valid.saturating_add(stats.failed),
+                "DDGI relocation stats probe partition is inconsistent: {stats:?}",
+            );
+            anyhow::ensure!(
+                stats.valid
+                    == stats
+                        .fast_target
+                        .saturating_add(stats.local)
+                        .saturating_add(stats.full_search),
+                "DDGI relocation stats path partition is inconsistent: {stats:?}",
+            );
+            log::info!(
+                "[DDGI] relocation stats probes={} valid={} failed={} fast_target={} local={} local_target={} local_best_effort={} full_search={} moved={} clearance_1={} clearance_2={} clearance_3_plus={} clearance_sum={} distance_squared_twice_sum={}",
+                stats.probes,
+                stats.valid,
+                stats.failed,
+                stats.fast_target,
+                stats.local,
+                stats.local_target,
+                stats.local_best_effort,
+                stats.full_search,
+                stats.moved,
+                stats.clearance_1,
+                stats.clearance_2,
+                stats.clearance_3_plus,
+                stats.clearance_sum,
+                stats.distance_squared_twice_sum,
+            );
+        }
+
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
             let volume = self.ddgi_volumes.builder();
             if !volume.pending_trace_stats_batch_is(batch) {
@@ -3153,6 +3202,16 @@ impl Tracer {
                 PipelineStage::COMPUTE_SHADER,
             );
             terrain_to_relocation_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            {
+                let volume = self.ddgi_volumes.builder();
+                volume.ddgi_relocation_stats.record_fill(
+                    cmdbuf,
+                    0,
+                    volume.status().resource_bytes.relocation_stats,
+                    0,
+                );
+            }
+            transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3161,12 +3220,18 @@ impl Tracer {
                 || self.record_ddgi_probe_relocation_pass(cmdbuf, terrain_revision),
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            compute_to_transfer_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            self.ddgi_volumes
+                .builder()
+                .record_relocation_stats_readback(cmdbuf);
+            transfer_to_host_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            self.ddgi_relocation_stats_readback_pending = true;
 
             let volume = self.ddgi_volumes.builder_mut();
             volume.mark_relocated(terrain_revision)?;
             let status = volume.status();
             log::info!(
-                "[DDGI] relocation complete terrain_revision={} probes={} spacing_voxels={} max_displacement_voxels={} min_clearance_voxels=1 stage={:?}",
+                "[DDGI] relocation complete terrain_revision={} probes={} spacing_voxels={} max_displacement_voxels={} min_clearance_voxels=1 preferred_clearance_voxels=3 local_search_radius_voxels=4 stage={:?}",
                 terrain_revision,
                 status.grid.probe_count(),
                 status.grid.spacing_voxels(),

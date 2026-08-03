@@ -4,7 +4,12 @@ import voxel_types;
 
 static const uint DDGI_RELOCATION_WORKGROUP_SIZE = 64u;
 static const uint DDGI_CLEARANCE_SCAN_VOXELS = 4u;
+static const uint DDGI_PREFERRED_CLEARANCE_VOXELS = 3u;
+static const uint DDGI_LOCAL_SEARCH_RADIUS_VOXELS = 4u;
 static const uint DDGI_INVALID_DISTANCE = 0xffffffffu;
+static const uint DDGI_RELOCATION_PATH_FAST = 0u;
+static const uint DDGI_RELOCATION_PATH_LOCAL = 1u;
+static const uint DDGI_RELOCATION_PATH_FULL = 2u;
 
 [[vk::binding(16, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
@@ -12,6 +17,10 @@ readonly RWTexture3D<uint> chunk_atlas;
 [[vk::binding(24, 0)]]
 GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
     ddgi_probe_metadata;
+
+[[vk::binding(37, 0)]]
+GLSLShaderStorageBuffer<B_DdgiRelocationStats, Std430DataLayout>
+    ddgi_relocation_stats;
 
 struct DdgiProbeRelocationPushConstants
 {
@@ -94,9 +103,31 @@ bool candidateIsBetter(uint distance, uint clearance, uint coordinate,
                        uint bestDistance, uint bestClearance,
                        uint bestCoordinate)
 {
-    return distance < bestDistance ||
-           (distance == bestDistance && clearance > bestClearance) ||
-           (distance == bestDistance && clearance == bestClearance &&
+    if (distance == DDGI_INVALID_DISTANCE) return false;
+    if (bestDistance == DDGI_INVALID_DISTANCE) return true;
+
+    bool reachesPreferredClearance =
+        clearance >= DDGI_PREFERRED_CLEARANCE_VOXELS;
+    bool bestReachesPreferredClearance =
+        bestClearance >= DDGI_PREFERRED_CLEARANCE_VOXELS;
+    if (reachesPreferredClearance != bestReachesPreferredClearance)
+    {
+        return reachesPreferredClearance;
+    }
+
+    // Once the quality target is reached, extra clearance has no value: keep
+    // the grid as regular as possible. Below the target, make the best effort
+    // to improve clearance before minimizing displacement.
+    if (reachesPreferredClearance)
+    {
+        return distance < bestDistance ||
+               (distance == bestDistance && clearance > bestClearance) ||
+               (distance == bestDistance && clearance == bestClearance &&
+                coordinate < bestCoordinate);
+    }
+    return clearance > bestClearance ||
+           (clearance == bestClearance && distance < bestDistance) ||
+           (clearance == bestClearance && distance == bestDistance &&
             coordinate < bestCoordinate);
 }
 
@@ -162,7 +193,8 @@ int3 unflattenVoxel(uint coordinate, int3 dimensions)
 }
 
 void writeResult(uint probeIndex, int3 nominalVoxel, int3 voxelDimensions,
-                 uint bestDistance, uint bestClearance, uint bestCoordinate)
+                 uint bestDistance, uint bestClearance, uint bestCoordinate,
+                 uint searchPath)
 {
     float minimumVoxelsPerWorldUnit =
         min(pc.voxels_per_world_unit.x,
@@ -188,6 +220,49 @@ void writeResult(uint probeIndex, int3 nominalVoxel, int3 voxelDimensions,
                   bestCoordinate);
     }
     ddgi_probe_metadata.data[probeIndex] = metadata;
+
+    InterlockedAdd(ddgi_relocation_stats.data[0], 1u);
+    if (bestDistance == DDGI_INVALID_DISTANCE)
+    {
+        InterlockedAdd(ddgi_relocation_stats.data[2], 1u);
+        return;
+    }
+
+    InterlockedAdd(ddgi_relocation_stats.data[1], 1u);
+    InterlockedAdd(ddgi_relocation_stats.data[8], bestClearance);
+    InterlockedAdd(ddgi_relocation_stats.data[9], bestDistance);
+    if (bestDistance > 3u)
+    {
+        InterlockedAdd(ddgi_relocation_stats.data[10], 1u);
+    }
+    if (bestClearance == 1u)
+    {
+        InterlockedAdd(ddgi_relocation_stats.data[11], 1u);
+    }
+    else if (bestClearance == 2u)
+    {
+        InterlockedAdd(ddgi_relocation_stats.data[12], 1u);
+    }
+    else
+    {
+        InterlockedAdd(ddgi_relocation_stats.data[13], 1u);
+    }
+
+    if (searchPath == DDGI_RELOCATION_PATH_FAST)
+    {
+        InterlockedAdd(ddgi_relocation_stats.data[3], 1u);
+    }
+    else if (searchPath == DDGI_RELOCATION_PATH_LOCAL)
+    {
+        InterlockedAdd(ddgi_relocation_stats.data[4], 1u);
+        uint resultIndex =
+            bestClearance >= DDGI_PREFERRED_CLEARANCE_VOXELS ? 5u : 6u;
+        InterlockedAdd(ddgi_relocation_stats.data[resultIndex], 1u);
+    }
+    else
+    {
+        InterlockedAdd(ddgi_relocation_stats.data[7], 1u);
+    }
 }
 
 [shader("compute")]
@@ -220,7 +295,8 @@ void main(uint3 groupId : SV_GroupID,
     uint bestCoordinate = 0xffffffffu;
 
     // The eight voxel centres around a nominal grid intersection are the only
-    // minimum-displacement candidates. Most probes finish on this fast path.
+    // minimum-displacement candidates. Probes that already reach the preferred
+    // clearance finish on this fast path.
     if (localIndex < 8u)
     {
         int3 candidate = nominalVoxel - int3(1) +
@@ -236,13 +312,58 @@ void main(uint3 groupId : SV_GroupID,
     shared_coordinate[localIndex] = bestCoordinate;
     reduceCandidates(localIndex);
 
+    if (shared_clearance[0] >= DDGI_PREFERRED_CLEARANCE_VOXELS)
+    {
+        if (localIndex == 0u)
+        {
+            writeResult(probeIndex, nominalVoxel, voxelDimensions,
+                        shared_distance[0], shared_clearance[0],
+                        shared_coordinate[0], DDGI_RELOCATION_PATH_FAST);
+        }
+        return;
+    }
+
+    // Valid probes that are merely close to geometry get a bounded quality
+    // search instead of immediately accepting the nominal cage position. The
+    // radius is independent of probe spacing, so this path stays bounded for
+    // the supported densities.
+    uint localRadius =
+        min(DDGI_LOCAL_SEARCH_RADIUS_VOXELS, pc.spacing_voxels / 2u);
+    uint localCubeSide = localRadius * 2u;
+    uint localCandidateCount =
+        localCubeSide * localCubeSide * localCubeSide;
+    bestDistance = DDGI_INVALID_DISTANCE;
+    bestClearance = 0u;
+    bestCoordinate = 0xffffffffu;
+    for (uint candidateIndex = localIndex;
+         candidateIndex < localCandidateCount;
+         candidateIndex += DDGI_RELOCATION_WORKGROUP_SIZE)
+    {
+        uint z = candidateIndex / (localCubeSide * localCubeSide);
+        uint remainder = candidateIndex % (localCubeSide * localCubeSide);
+        uint y = remainder / localCubeSide;
+        uint x = remainder % localCubeSide;
+        int3 candidate = nominalVoxel + int3(int(x), int(y), int(z)) -
+                         int3(int(localRadius));
+        considerCandidate(candidate, nominalVoxel, voxelDimensions,
+                          maximumDistanceSquared, bestDistance, bestClearance,
+                          bestCoordinate);
+    }
+    shared_distance[localIndex] = bestDistance;
+    shared_clearance[localIndex] = bestClearance;
+    shared_coordinate[localIndex] = bestCoordinate;
+    reduceCandidates(localIndex);
+
+    // A hard-safe local result is final even when the preferred clearance is
+    // impossible (for example in a narrow corridor). Only truly trapped probes
+    // pay for the full half-cell escape search below.
     if (shared_distance[0] != DDGI_INVALID_DISTANCE)
     {
         if (localIndex == 0u)
         {
             writeResult(probeIndex, nominalVoxel, voxelDimensions,
                         shared_distance[0], shared_clearance[0],
-                        shared_coordinate[0]);
+                        shared_coordinate[0], DDGI_RELOCATION_PATH_LOCAL);
         }
         return;
     }
@@ -275,6 +396,6 @@ void main(uint3 groupId : SV_GroupID,
     {
         writeResult(probeIndex, nominalVoxel, voxelDimensions,
                     shared_distance[0], shared_clearance[0],
-                    shared_coordinate[0]);
+                    shared_coordinate[0], DDGI_RELOCATION_PATH_FULL);
     }
 }

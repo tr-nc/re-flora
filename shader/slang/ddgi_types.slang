@@ -26,6 +26,11 @@ public struct B_DdgiTraceStats
     public uint data[];
 };
 
+public struct B_DdgiRelocationStats
+{
+    public uint data[];
+};
+
 public struct B_DdgiAtlasReduction
 {
     public uint data[];
