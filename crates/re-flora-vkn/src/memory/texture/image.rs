@@ -488,6 +488,17 @@ impl Image {
         for layer in base_array_layer..base_array_layer + layer_count {
             let old_state = states[layer as usize];
             if old_state == target_state {
+                if old_state.access().contains_write() || target_state.access().contains_write() {
+                    record_image_transition_barrier(
+                        device.as_raw(),
+                        cmdbuf.as_raw(),
+                        TextureTransition::new(old_state, target_state),
+                        self.0.image,
+                        self.0.desc.get_aspect_mask(),
+                        layer,
+                        1,
+                    );
+                }
                 if let Some(old_state) = run_old_state.take() {
                     record_image_transition_barrier(
                         device.as_raw(),

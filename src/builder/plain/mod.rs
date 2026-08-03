@@ -26,7 +26,6 @@ use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::Extent3D;
 use re_flora_vkn::GpuJobToken;
 use re_flora_vkn::MemoryLocation;
-use re_flora_vkn::PipelineBarrier;
 use re_flora_vkn::ShaderModule;
 use re_flora_vkn::Texture;
 use re_flora_vkn::TextureLayout;
@@ -851,7 +850,6 @@ impl PlainBuilder {
             Extent3D::new(dim.x, dim.y, dim.z),
             Some(bytemuck::bytes_of(push_constants)),
         );
-        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
     }
 
     #[allow(dead_code)]
@@ -974,7 +972,6 @@ impl PlainBuilder {
             Extent3D::new(dim.x, dim.y, dim.z),
             Some(bytemuck::bytes_of(push_constants)),
         );
-        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
     }
 
     #[allow(dead_code)]
@@ -1072,8 +1069,6 @@ impl PlainBuilder {
                     Extent3D::new(dim.x, dim.y, dim.z),
                     Some(bytemuck::bytes_of(&phase_push_constants)),
                 );
-                PipelineBarrier::compute_shader_access()
-                    .record_insert(self.vulkan_ctx.device(), cmdbuf);
             }
         }
     }
@@ -1256,7 +1251,6 @@ impl PlainBuilder {
             Extent3D::new(surface_leaf_count, 1, 1),
             Some(bytemuck::bytes_of(&push_constants)),
         );
-        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         true
     }
@@ -1321,7 +1315,6 @@ impl PlainBuilder {
             Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
             Some(bytemuck::bytes_of(&push_constants)),
         );
-        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         true
     }
