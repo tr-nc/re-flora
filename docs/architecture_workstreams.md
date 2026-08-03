@@ -423,7 +423,7 @@ order and rendergraph-lite architecture.
 
 **Status:** in-progress (`5fb17dbf`, `f04ef4ca`, `8d09317f`, `48d27b1b`, `b9108858`, `b4ef4d29`,
 `4f1d8592`, `14d3b0ef`, `419fff8d`, `1d0b34d5`, `dd0fc745`, `91a7bed8`, `69343901`, `5cdf796d`,
-`96acf10d`, `3f90f1b2`, `ebfe4879`, `73fa3aad`, `1248b5b0`, `098cb031`, `0de8c4de`; DDGI voxel-visibility and
+`96acf10d`, `3f90f1b2`, `ebfe4879`, `73fa3aad`, `1248b5b0`, `098cb031`, `0de8c4de`, `29e2ce0e`; DDGI voxel-visibility and
 terrain-query one-time paths, CPU-updated tracer/DDGI uniform buffers, CPU-filled tracer graphics
 instance buffers, tracer static mesh inputs, flora/wind shader lookup buffers, irradiance-capture
 storage writes, DDGI metadata/transient-ray transitions, and Egui mesh buffers now declare Buffer
@@ -471,7 +471,8 @@ uses; frame-wide Image tracking remains incomplete)
 - [ ] Hidden release logs remain free of synchronization, descriptor, and resource-state errors.
 
 **Deferred boundary:** Egui's dynamic Mesh buffers now declare HostWrite/IndexRead/VertexRead before
-the GUI render pass and retain replaced generations through completion (`74ce3a02`, `91a7bed8`).
+the GUI render pass and retain replaced generations through completion (`74ce3a02`, `91a7bed8`,
+`29e2ce0e`).
 Frame-wide Image tracking still needs a recording-reservation seam before normal and off-frame image
 recordings can safely overlap.
 
