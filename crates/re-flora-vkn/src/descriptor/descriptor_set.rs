@@ -328,3 +328,30 @@ impl<'a> WriteDescriptorSet<'a> {
         write
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::descriptor_image_use;
+    use ash::vk;
+    use crate::ImageUse;
+
+    #[test]
+    fn descriptor_image_use_mapping_is_semantic() {
+        assert_eq!(
+            descriptor_image_use(vk::DescriptorType::STORAGE_IMAGE),
+            Some(ImageUse::ComputeReadWrite)
+        );
+        assert_eq!(
+            descriptor_image_use(vk::DescriptorType::COMBINED_IMAGE_SAMPLER),
+            Some(ImageUse::ShaderRead)
+        );
+        assert_eq!(
+            descriptor_image_use(vk::DescriptorType::SAMPLED_IMAGE),
+            Some(ImageUse::ShaderRead)
+        );
+        assert_eq!(
+            descriptor_image_use(vk::DescriptorType::STORAGE_BUFFER),
+            None
+        );
+    }
+}
