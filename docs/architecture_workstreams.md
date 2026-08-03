@@ -329,17 +329,22 @@ creation-time initialization path where no prior generation can be in flight.
 - Ticket 06 — Resize extent-dependent resources without a device-wide idle.
 - Ticket 08 — Retire DDGI descriptor generations without a device-wide idle.
 
-**Status:** in-progress (`0222d5aa`; Plain's terrain moisture/dry descriptor setup is now explicitly
-creation-time-only; remaining runtime descriptor publishers still need migration)
+**Status:** in-progress (`0222d5aa`, `1c7d48bc`, `76397eeb`; Plain's terrain moisture/dry setup is
+explicitly creation-time-only, Surface's per-chunk off-frame bindings publish generations retained
+by managed-job completion, and the VKN descriptor API now rejects active-generation writes; final
+validation and any remaining duplicate residency cleanup remain)
 
-- [ ] Every descriptor update that can race an in-flight frame uses generation publication and
-      completion-scoped retirement.
+- [x] Every descriptor update currently used by runtime code that can race an in-flight frame uses
+      generation publication and completion-scoped retirement; direct writes now require the
+      explicit creation-time initialization API.
 - [x] Descriptor objects retain the Buffer, Texture (including Image View/Sampler), or acceleration-
       structure owner associated with each written binding.
 - [ ] Duplicate pipeline-side texture residency maps are removed where the descriptor generation now
       owns the same information.
 - [x] Creation-time initialization remains explicit and cannot be mistaken for safe runtime mutation.
-- [ ] The superseded runtime in-place descriptor mutation interface is removed once no caller needs it.
+- [x] The superseded runtime in-place descriptor mutation interface is removed once no caller needs it;
+      `write_descriptor_set` only accepts a staged generation and initialization uses
+      `initialize_descriptor_set`.
 - [ ] Descriptor initialization, runtime publication, resize, egui, and DDGI validation all pass.
 
 ---
@@ -492,9 +497,10 @@ barriers only as a narrow, intentional diagnostic or exceptional-operation seam.
 - Ticket 12 — Migrate remaining builder Buffer hazards.
 - Ticket 13 — Migrate tracer Buffer hazards.
 
-**Status:** in-progress (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`, `5c5ce3a2`; pipeline-local Image
-trackers removed, ImageUse declarations now route through CommandBuffer, and several tracer image
-fallback barriers are deleted; normal-frame Image transactions still need a safe overlap seam)
+**Status:** in-progress (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`, `5c5ce3a2`, `704cf9eb`;
+pipeline-local Image trackers removed, ImageUse declarations now route through CommandBuffer, and
+tracer image-copy history paths no longer add redundant compute/transfer fallback barriers; normal-
+frame Image transactions still need a safe overlap seam)
 
 - [ ] One command-recording module owns committed Image state, Buffer hazards, and barrier emission
       for normal rendering and builder work.
@@ -503,6 +509,8 @@ fallback barriers are deleted; normal-frame Image transactions still need a safe
 - [ ] Superseded broad barrier helpers and unsafe state-assumption paths are removed once unused.
 - [x] Tracer wind-volume and DDGI image-only pass boundaries now use declared ImageUse transitions
       (including same-state write ordering) instead of broad compute-to-compute fallbacks.
+- [x] Image history copies use their source/destination/final-layout transitions as the dependency
+      seam; the surrounding broad compute/transfer fallback barriers are removed.
 - [ ] Remaining explicit barrier/state APIs are narrowly documented, inspectable, and exercised by a
       concrete exceptional use rather than retained for hypothetical compatibility.
 - [ ] Tests assert semantic command-recording behavior and diagnostics rather than private pipeline
