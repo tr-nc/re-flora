@@ -498,14 +498,15 @@ barriers only as a narrow, intentional diagnostic or exceptional-operation seam.
 - Ticket 13 — Migrate tracer Buffer hazards.
 
 **Status:** in-progress (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`, `5c5ce3a2`, `704cf9eb`,
-`83fe98de`;
+`83fe98de`, `01a7a2d7`;
 pipeline-local Image trackers removed, ImageUse declarations now route through CommandBuffer, and
 tracer image-copy history paths no longer add redundant compute/transfer fallback barriers; normal-
 frame Image transactions still need a safe overlap seam)
 
 - [x] One command-recording module owns committed Image state, Buffer hazards, and barrier emission
       for normal rendering and builder work; frame/loading recordings now use the same Image+Buffer
-      transaction, and render-pass attachment bookkeeping no longer mutates Image state directly.
+      transaction, and render-pass attachment bookkeeping no longer mutates Image state directly;
+      the superseded Buffer-only transaction entry point is deleted.
 - [ ] Pipeline objects no longer maintain duplicate resource-state trackers or mirrored lifetime
       information.
 - [ ] Superseded broad barrier helpers and unsafe state-assumption paths are removed once unused.
