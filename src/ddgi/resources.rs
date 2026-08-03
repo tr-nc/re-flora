@@ -13,8 +13,8 @@ use bytemuck::Zeroable;
 use glam::UVec3;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, Extent3D, ImageDesc, MemoryLocation, SamplerDesc, Texture,
-    TextureLayout, VulkanContext,
+    Allocator, Buffer, BufferUsage, BufferUse, Extent3D, ImageDesc, MemoryLocation, SamplerDesc,
+    Texture, TextureLayout, VulkanContext,
 };
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
@@ -1499,6 +1499,7 @@ impl DdgiVolume {
             0,
             0,
         );
+        cmdbuf.use_buffer(&self.ddgi_trace_stats_readback, BufferUse::HostRead);
     }
 
     pub fn record_atlas_reduction_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
@@ -1509,6 +1510,7 @@ impl DdgiVolume {
             0,
             0,
         );
+        cmdbuf.use_buffer(&self.ddgi_atlas_reduction_readback, BufferUse::HostRead);
     }
 
     pub fn update_atlas_validation_from_readback(&self) -> Result<DdgiAtlasValidationStats> {

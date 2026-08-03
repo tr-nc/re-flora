@@ -2926,6 +2926,7 @@ impl Tracer {
                         0,
                     );
                 }
+                cmdbuf.use_buffer(&volume.ddgi_trace_stats, BufferUse::ComputeWrite);
             }
             transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
@@ -2968,6 +2969,8 @@ impl Tracer {
             );
             compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             if iteration_will_complete {
+                let volume = self.ddgi_volumes.builder();
+                cmdbuf.use_buffer(&volume.ddgi_atlas_reduction, BufferUse::ComputeWrite);
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
