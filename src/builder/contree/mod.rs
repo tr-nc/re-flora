@@ -83,7 +83,7 @@ pub struct ContreeBuilder {
     chunk_offset_allocation_table: HashMap<UVec3, (u64, u64)>,
 
     pass_timing: Option<ContreePassTiming>,
-    contree_cmdbuf: CommandBuffer,
+    contree_cmdbuf: Option<CommandBuffer>,
 
     leaf_allocator: FirstFitAllocator,
     node_allocator: FirstFitAllocator,
@@ -942,9 +942,6 @@ impl ContreeBuilder {
             &fixed_pool,
             &[&resources, surfacer_resources],
         );
-        // This command buffer is cached before per-chunk surface builds initialize
-        // the surface image. Surface builds leave the image in GENERAL for contree reads.
-        contree_leaf_write_ppl.set_auto_texture_transitions_enabled(false);
         let contree_tree_write_ppl =
             ComputePipeline::new(device, &contree_tree_write_sm, &fixed_pool, &[&resources]);
         let contree_buffer_update_ppl = ComputePipeline::new(
@@ -990,21 +987,11 @@ impl ContreeBuilder {
         // contree_last_buffer_update_ppl.set_descriptor_sets(vec![contree_last_buffer_update_ds]);
         // contree_concat_ppl.set_descriptor_sets(vec![contree_concat_ds]);
 
-        // --- Command Buffer Recording ---
+        // The Contree command buffer is recorded lazily after the first surface publication. Its
+        // Image-state transaction then observes the same GENERAL source state that the cached
+        // command will consume on every later submission.
         let total_levels = get_level(voxel_dim_per_chunk);
         let pass_timing = ContreePassTiming::maybe_new(&vulkan_ctx, total_levels);
-        let contree_cmdbuf = Self::record_cmdbuf(
-            &vulkan_ctx,
-            &resources,
-            total_levels,
-            &contree_buffer_setup_ppl,
-            &contree_leaf_write_ppl,
-            &contree_tree_write_ppl,
-            &contree_buffer_update_ppl,
-            &contree_last_buffer_update_ppl,
-            &contree_concat_ppl,
-            pass_timing.as_ref(),
-        );
 
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
@@ -1039,7 +1026,7 @@ impl ContreeBuilder {
             fixed_pool,
             chunk_offset_allocation_table: HashMap::new(),
             pass_timing,
-            contree_cmdbuf,
+            contree_cmdbuf: None,
             node_allocator,
             leaf_allocator,
             max_node_buffer_size_in_bytes,
@@ -1083,6 +1070,7 @@ impl ContreeBuilder {
         let device = vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
         cmdbuf.begin(false);
+        cmdbuf.begin_resource_state_transaction();
 
         let dispatch_1x1x1 = Extent3D {
             width: 1,
@@ -1347,6 +1335,29 @@ impl ContreeBuilder {
         )
     }
 
+    fn ensure_contree_cmdbuf(&mut self) -> CommandBuffer {
+        if self.contree_cmdbuf.is_none() {
+            let total_levels = get_level(self.voxel_dim_per_chunk);
+            let cmdbuf = Self::record_cmdbuf(
+                &self.vulkan_ctx,
+                &self.resources,
+                total_levels,
+                &self.contree_buffer_setup_ppl,
+                &self.contree_leaf_write_ppl,
+                &self.contree_tree_write_ppl,
+                &self.contree_buffer_update_ppl,
+                &self.contree_last_buffer_update_ppl,
+                &self.contree_concat_ppl,
+                self.pass_timing.as_ref(),
+            );
+            self.contree_cmdbuf = Some(cmdbuf);
+        }
+        self.contree_cmdbuf
+            .as_ref()
+            .expect("Contree command buffer must be initialized after recording")
+            .clone()
+    }
+
     #[allow(dead_code)]
     pub fn query_terrain_occupancy_cpu(&self, point: Vec3) -> bool {
         query_terrain_occupancy_against_state(
@@ -1382,7 +1393,7 @@ impl ContreeBuilder {
             leaf_write_offset as u32,
         )?;
 
-        let cmdbuf = self.contree_cmdbuf.clone();
+        let cmdbuf = self.ensure_contree_cmdbuf();
         let submit_start = Instant::now();
         let gpu_job = cmdbuf.submit_gpu_job(
             &self.vulkan_ctx.get_general_queue(),
@@ -1488,7 +1499,7 @@ impl ContreeBuilder {
             leaf_alloc_offset as u32,
         )?;
 
-        let cmdbuf = self.contree_cmdbuf.clone();
+        let cmdbuf = self.ensure_contree_cmdbuf();
         let submit_start = Instant::now();
         let gpu_job = cmdbuf.submit_gpu_job(
             &self.vulkan_ctx.get_general_queue(),

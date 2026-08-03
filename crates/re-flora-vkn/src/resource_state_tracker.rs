@@ -1,6 +1,78 @@
 use crate::{CommandBuffer, Image, ResourceState, TextureLayout, TextureTransition};
 use ash::vk;
 
+/// Image states tentatively produced while one command buffer is being recorded.
+///
+/// The Vulkan barriers are recorded immediately, but the host-side state is not committed until
+/// the command buffer is accepted by `queue_submit`. This keeps abandoned and failed recordings
+/// from poisoning the next recording's source layout.
+pub(crate) struct ResourceStateTransaction {
+    images: Vec<TrackedImageState>,
+}
+
+struct TrackedImageState {
+    image: Image,
+    initial: Vec<ResourceState>,
+    current: Vec<ResourceState>,
+}
+
+impl ResourceStateTransaction {
+    pub(crate) fn new() -> Self {
+        Self { images: Vec::new() }
+    }
+
+    pub(crate) fn transition_image(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        image: &Image,
+        base_array_layer: u32,
+        layer_count: u32,
+        target_state: ResourceState,
+    ) {
+        let image_index = self
+            .images
+            .iter()
+            .position(|tracked| tracked.image.state_transaction_key() == image.state_transaction_key())
+            .unwrap_or_else(|| {
+                let initial = image.snapshot_states();
+                self.images.push(TrackedImageState {
+                    image: image.clone(),
+                    current: initial.clone(),
+                    initial,
+                });
+                self.images.len() - 1
+            });
+        let tracked = &mut self.images[image_index];
+        tracked.image.record_state_transition_from_states(
+            cmdbuf,
+            base_array_layer,
+            layer_count,
+            target_state,
+            &mut tracked.current,
+        );
+    }
+
+    pub(crate) fn state(&self, image: &Image, array_layer: u32) -> Option<ResourceState> {
+        self.images
+            .iter()
+            .find(|tracked| tracked.image.state_transaction_key() == image.state_transaction_key())
+            .map(|tracked| {
+                *tracked
+                    .current
+                    .get(array_layer as usize)
+                    .expect("image state transaction layer out of bounds")
+            })
+    }
+
+    pub(crate) fn commit(self) {
+        for tracked in self.images {
+            tracked
+                .image
+                .commit_state_snapshot(&tracked.initial, tracked.current);
+        }
+    }
+}
+
 /// Policy for automatic image state transitions recorded by vkn helpers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResourceStatePolicy {
@@ -93,8 +165,37 @@ impl ResourceStateTracker {
             }
             ResourceStatePolicy::Manual => {}
             ResourceStatePolicy::Assert => {
-                self.assert_image_state(image, base_array_layer, layer_count, target_state);
+                self.assert_image_state_for_recording(
+                    cmdbuf,
+                    image,
+                    base_array_layer,
+                    layer_count,
+                    target_state,
+                );
             }
+        }
+    }
+
+    fn assert_image_state_for_recording(
+        &self,
+        cmdbuf: &CommandBuffer,
+        image: &Image,
+        base_array_layer: u32,
+        layer_count: u32,
+        expected_state: ResourceState,
+    ) {
+        for layer in base_array_layer..base_array_layer + layer_count {
+            let actual_state = cmdbuf
+                .recorded_image_state(image, layer)
+                .unwrap_or_else(|| image.get_state(layer));
+            assert_eq!(
+                actual_state.layout(),
+                expected_state.layout(),
+                "image layer {} is in {:?}, expected {:?}",
+                layer,
+                actual_state.layout(),
+                expected_state.layout()
+            );
         }
     }
 

@@ -300,7 +300,13 @@ impl Device {
             .signal_semaphores(signal_semaphores)];
         let fence = desc.fence.map_or(vk::Fence::null(), |fence| fence.as_raw());
 
-        unsafe { self.as_raw().queue_submit(queue.as_raw(), &submit_info, fence) }
+        let result = unsafe { self.as_raw().queue_submit(queue.as_raw(), &submit_info, fence) };
+        if result.is_ok() {
+            for command_buffer in desc.command_buffers {
+                command_buffer.commit_state_transaction();
+            }
+        }
+        result
     }
 
     #[allow(unused)]

@@ -440,8 +440,34 @@ impl Image {
         layer_count: u32,
         target_state: ResourceState,
     ) {
-        let device = &self.0.device;
+        if cmdbuf.record_state_transition(
+            self,
+            base_array_layer,
+            layer_count,
+            target_state,
+        ) {
+            return;
+        }
+
         let mut states = self.0.current_state.lock().unwrap();
+        self.record_state_transition_from_states(
+            cmdbuf,
+            base_array_layer,
+            layer_count,
+            target_state,
+            &mut states,
+        );
+    }
+
+    pub(crate) fn record_state_transition_from_states(
+        &self,
+        cmdbuf: &CommandBuffer,
+        base_array_layer: u32,
+        layer_count: u32,
+        target_state: ResourceState,
+        states: &mut [ResourceState],
+    ) {
+        let device = &self.0.device;
         let start = base_array_layer as usize;
         let end = start + layer_count as usize;
         assert!(
@@ -509,6 +535,28 @@ impl Image {
         for state in &mut states[start..end] {
             *state = target_state;
         }
+    }
+
+    pub(crate) fn snapshot_states(&self) -> Vec<ResourceState> {
+        self.0.current_state.lock().unwrap().clone()
+    }
+
+    pub(crate) fn commit_state_snapshot(
+        &self,
+        initial: &[ResourceState],
+        current: Vec<ResourceState>,
+    ) {
+        let mut states = self.0.current_state.lock().unwrap();
+        assert_eq!(
+            states.as_slice(),
+            initial,
+            "image state changed while a command-recording transaction was in flight"
+        );
+        *states = current;
+    }
+
+    pub(crate) fn state_transaction_key(&self) -> vk::Image {
+        self.0.image
     }
 
     /// Force set the layout for the given array layer.
