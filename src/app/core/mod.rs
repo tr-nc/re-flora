@@ -3046,12 +3046,8 @@ impl App {
                     }
                 }
                 if environment_probe_rebuild_requested {
-                    if let Err(err) = self
-                        .tracer
-                        .rebuild_environment_probes(self.environment_probe_spacing_draft)
-                    {
-                        log::error!("Failed to rebuild environment probes: {err:#}");
-                    }
+                    self.tracer
+                        .rebuild_environment_probes(self.environment_probe_spacing_draft);
                 }
                 self.tracer
                     .set_environment_probe_visualization_settings(environment_probe_visualization);
@@ -3153,11 +3149,7 @@ impl App {
                 self.process_environment_lighting_test_scene();
                 self.process_hybrid_transparency_test_scene();
                 if self.deferred_chunk_rebuilds_idle() {
-                    if let Err(err) = self.tracer.drive_pending_ddgi_rebuild() {
-                        log::error!(
-                            "Failed to start DDGI refresh after terrain publication: {err:#}"
-                        );
-                    }
+                    self.tracer.drive_pending_ddgi_rebuild();
                 }
 
                 if self.render_start_time.is_some() {
@@ -3167,14 +3159,10 @@ impl App {
                         log::info!(
                             "[DDGI][RUNTIME_REBUILD] requested spacing_voxels={spacing_voxels}"
                         );
-                        match self.tracer.rebuild_environment_probes(spacing_voxels) {
-                            Ok(()) => log::info!(
-                                "[DDGI][RUNTIME_REBUILD] complete spacing_voxels={spacing_voxels}"
-                            ),
-                            Err(err) => log::error!(
-                                "[DDGI][RUNTIME_REBUILD] failed spacing_voxels={spacing_voxels}: {err:#}"
-                            ),
-                        }
+                        self.tracer.rebuild_environment_probes(spacing_voxels);
+                        log::info!(
+                            "[DDGI][RUNTIME_REBUILD] complete spacing_voxels={spacing_voxels}"
+                        );
                     }
                 }
 
