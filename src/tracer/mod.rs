@@ -711,6 +711,34 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
+    /// Declares the CPU-updated tracer buffers before the first frame pass consumes them.
+    ///
+    /// The declaration is intentionally made outside render passes: a HostWrite-to-shader
+    /// dependency must be recorded before a subpass begins, while the same buffers can be read by
+    /// compute, vertex, or fragment stages depending on the enabled path.
+    pub fn record_updated_buffer_uses(&self, cmdbuf: &CommandBuffer) {
+        let updated_buffers = [
+            &*self.resources.uniforms.gui_input,
+            &*self.resources.uniforms.sun_info,
+            &*self.resources.uniforms.shading_info,
+            &*self.resources.uniforms.camera_info,
+            &*self.resources.uniforms.camera_info_prev_frame,
+            &*self.resources.uniforms.env_info,
+            &*self.resources.uniforms.starlight_info,
+            &*self.resources.uniforms.voxel_colors,
+            &*self.resources.uniforms.terrain_edit_preview,
+            &*self.resources.uniforms.flora_growth_info,
+            &*self.resources.uniforms.god_ray_info,
+            &*self.resources.uniforms.post_processing_info,
+            &*self.resources.shadow.shadow_camera_info,
+            &*self.resources.wind.wind_sources,
+        ];
+        for buffer in updated_buffers {
+            cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
+            cmdbuf.use_buffer(buffer, BufferUse::ShaderRead);
+        }
+    }
+
     pub fn direct_sun_shadow_resources(&self) -> DirectSunShadowResources<'_> {
         DirectSunShadowResources {
             gui_input: &self.resources.uniforms.gui_input,

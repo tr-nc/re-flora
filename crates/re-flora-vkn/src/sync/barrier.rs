@@ -278,6 +278,7 @@ impl ResourceState {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BufferUse {
     ComputeRead,
+    ShaderRead,
     ComputeWrite,
     ComputeReadWrite,
     IndirectRead,
@@ -294,6 +295,12 @@ impl BufferUse {
         match self {
             Self::ComputeRead => BufferState::new(
                 PipelineStage::COMPUTE_SHADER,
+                MemoryAccess::SHADER_READ,
+            ),
+            Self::ShaderRead => BufferState::new(
+                PipelineStage::COMPUTE_SHADER
+                    | PipelineStage::VERTEX_SHADER
+                    | PipelineStage::FRAGMENT_SHADER,
                 MemoryAccess::SHADER_READ,
             ),
             Self::ComputeWrite => BufferState::new(
@@ -609,6 +616,10 @@ mod tests {
         assert_ne!(
             BufferUse::ComputeRead.state(),
             BufferUse::ComputeWrite.state()
+        );
+        assert_ne!(
+            BufferUse::ComputeRead.state(),
+            BufferUse::ShaderRead.state()
         );
         assert_ne!(
             BufferUse::ComputeWrite.state(),
