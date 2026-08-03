@@ -27,11 +27,12 @@ validation, descriptor rebinding, captures, or promotion ordering themselves.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** in-progress (terrain/radiance event ownership integrated in `5e7f6847`, capture
+**Status:** completed (terrain/radiance event ownership integrated in `5e7f6847`, capture
 checkpoint configuration/residency and its canonical typed-status observation now belong to
 `DdgiRuntime` in `b680f403`/`5bf4b325`, active/staging `DdgiVolumes` ownership moved under the
 runtime in `c55c7366`, and the fail-fast physical/logical promotion transaction is centralized in
-`49033a6e`; pass recording ownership remains active)
+`49033a6e`; `b5ebc661` adds the runtime-owned `DdgiFramePlan` so logical pass selection and state
+completion stay in the runtime while Tracer remains the concrete Vulkan command encoder)
 
 ### Required outcomes
 
@@ -44,6 +45,9 @@ runtime in `c55c7366`, and the fail-fast physical/logical promotion transaction 
   revisions; DDGI owns immutable in-flight snapshots and revision coalescing.
 - Direct sun remains immediate and outside the DDGI consumer seam.
 - Partial or invalid Irradiance Maps and Visibility Maps never become consumer-visible.
+- `DdgiRuntime::frame_plan` is the sole logical pass-selection seam for global-sky, relocation,
+  ray-batch, and iteration-completion work; Tracer records only the concrete Vulkan operations and
+  reports completion through runtime methods.
 - Preparation, execution, validation, and publication errors fail fast. No recovery state, retry,
   degraded mode, or compatibility layer is introduced.
 - Capture v5, accepted logs, external runners, shader behavior, and the complete DDGI correctness
@@ -365,10 +369,10 @@ creation-time initialization path where no prior generation can be in flight.
 - Ticket 06 — Resize extent-dependent resources without a device-wide idle.
 - Ticket 08 — Retire DDGI descriptor generations without a device-wide idle.
 
-**Status:** in-progress (`0222d5aa`, `1c7d48bc`, `76397eeb`, `a8e2a009`, `faa3a0cd`; Plain's terrain moisture/dry setup is
-explicitly creation-time-only, Surface's per-chunk off-frame bindings publish generations retained
-by managed-job completion, and the VKN descriptor API now rejects active-generation writes; final
-validation and any remaining duplicate residency cleanup remain)
+**Status:** completed (`0222d5aa`, `1c7d48bc`, `76397eeb`, `a8e2a009`, `faa3a0cd`, `25854081`,
+`942eac11`; Plain's terrain moisture/dry setup is explicitly creation-time-only, Surface's per-chunk
+off-frame bindings publish generations retained by managed-job completion, and the VKN descriptor API
+now rejects active-generation writes)
 
 - [x] Every descriptor update currently used by runtime code that can race an in-flight frame uses
       generation publication and completion-scoped retirement; direct writes now require the
@@ -381,7 +385,12 @@ validation and any remaining duplicate residency cleanup remain)
 - [x] The superseded runtime in-place descriptor mutation interface is removed once no caller needs it;
       `write_descriptor_set` only accepts a staged generation and initialization uses
       `initialize_descriptor_set`.
-- [ ] Descriptor initialization, runtime publication, resize, egui, and DDGI validation all pass.
+- [x] Descriptor initialization, runtime publication, resize, egui, and DDGI validation all pass.
+      `cargo fmt --check`, normal and `sync_diagnostics` `cargo check`, 379 passing tests, the
+      dedicated egui/rapid-resize lifecycle run, and the four-case DDGI lifecycle matrix all pass;
+      the final hidden release logs are `target/re-flora-logs/re-flora-20260803-234546.732-46399.log`
+      and `target/re-flora-logs/re-flora-20260803-234615.930-46472.log`, each with a clean strict
+      actual-error scan.
 
 ---
 
@@ -465,15 +474,18 @@ order and rendergraph-lite architecture.
 
 **Blocked by:** Ticket 11 — Track Buffer hazards through one Contree build.
 
-**Status:** in-progress (`5fb17dbf`, `f04ef4ca`, `8d09317f`, `48d27b1b`, `b9108858`, `b4ef4d29`,
+**Status:** completed (`5fb17dbf`, `f04ef4ca`, `8d09317f`, `48d27b1b`, `b9108858`, `b4ef4d29`,
 `4f1d8592`, `14d3b0ef`, `419fff8d`, `1d0b34d5`, `dd0fc745`, `91a7bed8`, `69343901`, `5cdf796d`,
 `96acf10d`, `3f90f1b2`, `ebfe4879`, `73fa3aad`, `1248b5b0`, `098cb031`, `0de8c4de`, `29e2ce0e`, `1ec6204f`; DDGI voxel-visibility and
 terrain-query one-time paths, CPU-updated tracer/DDGI uniform buffers, CPU-filled tracer graphics
 instance buffers, tracer static mesh inputs, flora/wind shader lookup buffers, irradiance-capture
 storage writes, DDGI metadata/transient-ray transitions, and Egui mesh buffers now declare Buffer
-uses; frame-wide Image tracking remains incomplete)
+uses; the remaining Buffer migration and final diagnostic/output evidence are complete; frame-wide
+Image tracking remains an explicit deferred boundary)
 
-- [ ] Tracer Buffer producers and consumers declare their use through the shared recording seam.
+- [x] Tracer Buffer producers and consumers declare their use through the shared recording seam.
+      `python3 scripts/check_tracer_buffer_declarations.py` passes and checks CPU HostWrite,
+      compute read/write, index/vertex reads, capture/readback HostRead, and the Contree lease seam.
 - [x] DDGI voxel-visibility and terrain-query one-time paths declare HostWrite/ComputeRead,
       ComputeWrite, and HostRead uses.
 - [x] CPU-updated tracer uniform and wind buffers declare HostWrite followed by ShaderRead before
@@ -504,14 +516,19 @@ uses; frame-wide Image tracking remains incomplete)
       command; queue completion and the next declared ShaderRead own the publication boundary.
 - [x] DDGI global-sky, relocation, trace, filtering, gutter, and reduction passes rely on declared
       image/buffer transitions rather than intervening unscoped compute-to-compute barriers.
-- [ ] Compute-to-compute, compute-to-indirect, transfer-to-compute, compute-to-graphics, and
-      GPU-to-host dependencies remain correct for the resources that require them.
-- [ ] The migration does not introduce pass scheduling, reorder commands, or turn the work into a
-      full render graph.
-- [ ] Broad manual barriers are removed only after diagnostics demonstrate equivalent declared
-      dependencies.
-- [ ] Rendered output, screenshots/captures, GPU profiling, and release frame behavior remain
-      equivalent under matched conditions.
+- [x] Compute-to-compute, compute-to-indirect, transfer-to-compute, compute-to-graphics, and
+      GPU-to-host dependencies remain correct for the resources that require them. The declared
+      source contract, DDGI lifecycle matrix, and clean `sync_diagnostics` release run cover the
+      migrated producer/consumer boundaries.
+- [x] The migration does not introduce pass scheduling, reorder commands, or turn the work into a
+      full render graph. `record_shadow_prepass` remains the linear recording path; DDGI's
+      `DdgiRuntime::frame_plan` centralizes logical selection without changing physical pass order.
+- [x] Broad manual barriers are removed only after diagnostics demonstrate equivalent declared
+      dependencies. The remaining VSM compute-to-graphics barrier is documented as an intentional
+      platform exception; the post-removal normal and `sync_diagnostics` release logs are clean.
+- [x] Rendered output, screenshots/captures, GPU profiling, and release frame behavior remain
+      equivalent under matched conditions. The resize screenshot/capture, DDGI published captures,
+      and matched release publication A/B provide output and frame-tail evidence.
 - [x] Hidden release logs remain free of synchronization, descriptor, and resource-state errors;
       the post-barrier-removal release run and the `sync_diagnostics` release run both exit cleanly
       with the strict actual-error scan clean (`target/re-flora-logs/re-flora-20260803-224405.505-25540.log`,
