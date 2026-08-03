@@ -2800,24 +2800,26 @@ impl Tracer {
                 stats.valid
                     == stats
                         .fast_target
-                        .saturating_add(stats.local)
-                        .saturating_add(stats.full_search),
+                        .saturating_add(stats.local_target)
+                        .saturating_add(stats.outer_target)
+                        .saturating_add(stats.outer_best_effort)
+                        .saturating_add(stats.full_escape),
                 "DDGI relocation stats path partition is inconsistent: {stats:?}",
             );
             log::info!(
-                "[DDGI] relocation stats probes={} valid={} failed={} fast_target={} local={} local_target={} local_best_effort={} full_search={} moved={} clearance_1={} clearance_2={} clearance_3_plus={} clearance_sum={} distance_squared_twice_sum={}",
+                "[DDGI] relocation stats probes={} valid={} failed={} fast_target={} local_target={} outer_target={} outer_best_effort={} full_escape={} moved={} clearance_below_half_target={} clearance_half_to_target={} clearance_target={} clearance_sum={} distance_squared_twice_sum={}",
                 stats.probes,
                 stats.valid,
                 stats.failed,
                 stats.fast_target,
-                stats.local,
                 stats.local_target,
-                stats.local_best_effort,
-                stats.full_search,
+                stats.outer_target,
+                stats.outer_best_effort,
+                stats.full_escape,
                 stats.moved,
-                stats.clearance_1,
-                stats.clearance_2,
-                stats.clearance_3_plus,
+                stats.clearance_below_half_target,
+                stats.clearance_half_to_target,
+                stats.clearance_target,
                 stats.clearance_sum,
                 stats.distance_squared_twice_sum,
             );
@@ -3231,11 +3233,13 @@ impl Tracer {
             volume.mark_relocated(terrain_revision)?;
             let status = volume.status();
             log::info!(
-                "[DDGI] relocation complete terrain_revision={} probes={} spacing_voxels={} max_displacement_voxels={} min_clearance_voxels=1 preferred_clearance_voxels=3 local_search_radius_voxels=4 stage={:?}",
+                "[DDGI] relocation complete terrain_revision={} probes={} spacing_voxels={} max_displacement_voxels={} min_clearance_voxels=1 preferred_clearance_voxels={} local_search_radius_voxels={} stage={:?}",
                 terrain_revision,
                 status.grid.probe_count(),
                 status.grid.spacing_voxels(),
                 status.grid.spacing_voxels() / 2,
+                (status.grid.spacing_voxels() / 4).max(1),
+                (status.grid.spacing_voxels() / 4).max(1),
                 status.stage,
             );
         }
