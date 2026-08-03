@@ -145,8 +145,8 @@ impl DdgiTerrainRefresh {
         self.queued_density_spacing_voxels = Some(spacing_voxels);
     }
 
-    /// Claims the next builder target. The caller must either install this token in a volume or
-    /// report preparation failure through [`Self::mark_build_preparation_failed`].
+    /// Claims the next builder target. Once claimed, preparation must succeed or the process fails
+    /// fast; there is no recovery transition that makes the token claimable again.
     pub fn claim_next_build(
         &mut self,
         active_spacing_voxels: u32,
@@ -251,22 +251,6 @@ impl DdgiTerrainRefresh {
         self.candidate = None;
         if token.kind == DdgiBuildKind::Terrain {
             self.request = None;
-        }
-        true
-    }
-
-    /// Restores queued work when allocating or binding the claimed target failed.
-    pub fn mark_build_preparation_failed(&mut self, token: DdgiBuildToken) -> bool {
-        if self.candidate != Some(token) {
-            return false;
-        }
-        self.candidate = None;
-        match token.kind {
-            DdgiBuildKind::Terrain => {}
-            DdgiBuildKind::Density => {
-                self.queued_density_spacing_voxels
-                    .get_or_insert(token.spacing_voxels);
-            }
         }
         true
     }
@@ -583,19 +567,6 @@ mod tests {
     }
 
     #[test]
-    fn failed_obsolete_density_preparation_does_not_overwrite_newer_queue() {
-        let mut refresh = DdgiTerrainRefresh::default();
-        refresh.request_density_rebuild(32);
-        let first = refresh.claim_next_build(32, 7).unwrap();
-        refresh.request_density_rebuild(16);
-        assert!(refresh.mark_build_preparation_failed(first));
-        assert_eq!(
-            refresh.state(),
-            DdgiRefreshState::DensityQueued { spacing_voxels: 16 }
-        );
-    }
-
-    #[test]
     fn exact_publication_ack_handles_wrapped_terrain_revision() {
         let mut refresh = DdgiTerrainRefresh::default();
         assert!(refresh.request(1, UAabb3::new(UVec3::splat(10), UVec3::splat(20)), grid(32),));
@@ -612,28 +583,33 @@ mod tests {
     }
 
     #[test]
-    fn preparation_failure_preserves_terrain_and_density_work() {
+    fn claimed_build_remains_authoritative_until_promotion() {
         let mut refresh = DdgiTerrainRefresh::default();
         assert!(refresh.request(7, UAabb3::new(UVec3::splat(10), UVec3::splat(20)), grid(32),));
         refresh.mark_terrain_published(7);
         let terrain = refresh.claim_next_build(32, 6).unwrap();
-        assert!(refresh.mark_build_preparation_failed(terrain));
         assert!(matches!(
             refresh.state(),
-            DdgiRefreshState::AwaitingTerrain {
-                latest_terrain_revision: 7
-            }
+            DdgiRefreshState::BuildingTerrain {
+                candidate,
+                latest_terrain_revision: 7,
+            } if candidate == terrain
         ));
+        assert_eq!(refresh.claim_next_build(32, 6), None);
         assert!(refresh.invalidation_voxel_bound().is_some());
+        assert!(refresh.mark_promoted(terrain));
 
-        let terrain_retry = refresh.claim_next_build(32, 6).unwrap();
-        assert!(refresh.mark_promoted(terrain_retry));
         refresh.request_density_rebuild(16);
         let density = refresh.claim_next_build(32, 7).unwrap();
-        assert!(refresh.mark_build_preparation_failed(density));
         assert_eq!(
             refresh.state(),
-            DdgiRefreshState::DensityQueued { spacing_voxels: 16 }
+            DdgiRefreshState::BuildingDensity {
+                candidate: density,
+                queued_spacing_voxels: None,
+            }
         );
+        assert_eq!(refresh.claim_next_build(32, 7), None);
+        assert!(refresh.mark_promoted(density));
+        assert_eq!(refresh.state(), DdgiRefreshState::Idle);
     }
 }

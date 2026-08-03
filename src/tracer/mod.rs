@@ -152,6 +152,18 @@ fn validate_unpublished_capture_volume(builder_is_active: bool) -> Result<()> {
     Ok(())
 }
 
+fn require_ddgi_staging_preparation(build_token: DdgiBuildToken, result: Result<()>) {
+    result.unwrap_or_else(|err| {
+        panic!(
+            "DDGI staging preparation failed token_serial={} kind={:?} terrain_revision={} spacing_voxels={}: {err:#}",
+            build_token.serial(),
+            build_token.kind(),
+            build_token.terrain_revision(),
+            build_token.spacing_voxels(),
+        )
+    });
+}
+
 const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
 const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
@@ -500,9 +512,11 @@ mod ddgi_density_rebuild_tests {
     use super::{
         ddgi_density_rebuild_terrain_revision, ddgi_shading_geometry_revision,
         ddgi_unpublished_capture_geometry_revision, request_ddgi_terrain_edit_revision,
-        validate_unpublished_capture_volume,
+        require_ddgi_staging_preparation, validate_unpublished_capture_volume,
     };
-    use crate::ddgi::{DdgiBuildKind, DdgiTerrainRefresh, DdgiTransportScheduler, DdgiVolumeGrid};
+    use crate::ddgi::{
+        DdgiBuildKind, DdgiBuildToken, DdgiTerrainRefresh, DdgiTransportScheduler, DdgiVolumeGrid,
+    };
     use crate::geom::UAabb3;
     use glam::UVec3;
 
@@ -574,6 +588,18 @@ mod ddgi_density_rebuild_tests {
         let error = validate_unpublished_capture_volume(false)
             .expect_err("staging S0 must not mix its atlas with active query resources");
         assert!(error.to_string().contains("staging S0"));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "DDGI staging preparation failed token_serial=9 kind=Terrain terrain_revision=8 spacing_voxels=16: injected allocation failure"
+    )]
+    fn staging_preparation_error_fails_fast_with_claimed_identity() {
+        let token = DdgiBuildToken::for_test(9, 8, 16, DdgiBuildKind::Terrain);
+        require_ddgi_staging_preparation(
+            token,
+            Err(anyhow::anyhow!("injected allocation failure")),
+        );
     }
 }
 
@@ -1027,7 +1053,7 @@ impl Tracer {
         self.ddgi_transport_scheduler.latest_radiance_revision()
     }
 
-    pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) -> Result<()> {
+    pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) {
         self.ddgi_terrain_refresh
             .request_density_rebuild(spacing_voxels);
         log::info!(
@@ -1035,7 +1061,7 @@ impl Tracer {
             spacing_voxels,
             self.ddgi_terrain_refresh.state(),
         );
-        self.drive_pending_ddgi_rebuild().map(|_| ())
+        self.drive_pending_ddgi_rebuild();
     }
 
     fn prepare_ddgi_staging(&mut self, build_token: DdgiBuildToken) -> Result<()> {
@@ -1195,31 +1221,25 @@ impl Tracer {
     }
 
     /// Claims and installs the latest authoritative DDGI build at a GPU-safe replacement point.
-    pub fn drive_pending_ddgi_rebuild(&mut self) -> Result<bool> {
+    pub fn drive_pending_ddgi_rebuild(&mut self) {
         if !self.ddgi_ready() {
-            return Ok(false);
+            return;
         }
         let active = self.ddgi_volumes.status().active();
         let Some(active_terrain_revision) = ddgi_density_rebuild_terrain_revision(
             active.relocated_terrain_revision,
             self.ddgi_initial_terrain_ready_revision,
         ) else {
-            return Ok(false);
+            return;
         };
         let Some(build_token) = self
             .ddgi_terrain_refresh
             .claim_next_build(active.grid.spacing_voxels(), active_terrain_revision)
         else {
-            return Ok(false);
+            return;
         };
-        if let Err(err) = self.prepare_ddgi_staging(build_token) {
-            assert!(
-                self.ddgi_terrain_refresh
-                    .mark_build_preparation_failed(build_token),
-                "claimed DDGI build token must remain current until preparation returns"
-            );
-            return Err(err);
-        }
+        let preparation = self.prepare_ddgi_staging(build_token);
+        require_ddgi_staging_preparation(build_token, preparation);
         match build_token.kind() {
             DdgiBuildKind::Terrain => {
                 self.ddgi_transport_scheduler
@@ -1243,7 +1263,6 @@ impl Tracer {
                 .invalidation_voxel_bound()
                 .map(|bound| (bound.min(), bound.max())),
         );
-        Ok(true)
     }
 
     /// Starts the static DDGI build after the caller has finished all initial terrain work.

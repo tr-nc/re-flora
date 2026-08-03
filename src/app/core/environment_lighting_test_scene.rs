@@ -1684,23 +1684,14 @@ impl App {
                             .active()
                             .grid
                             .spacing_voxels();
-                        match self.tracer.rebuild_environment_probes(spacing_voxels) {
-                            Ok(()) => {
-                                log::info!(
-                                    "[ENV_LIGHT_EDIT_CYCLE] requested density rebuild terrain_revision={} spacing_voxels={}",
-                                    target_revision,
-                                    spacing_voxels,
-                                );
-                                TestScenePhase::WaitingForDensityRebuild {
-                                    terrain_revision: target_revision,
-                                }
-                            }
-                            Err(err) => {
-                                log::error!(
-                                    "[ENV_LIGHT_EDIT_CYCLE] post-edit density rebuild failed: {err:#}"
-                                );
-                                TestScenePhase::Failed
-                            }
+                        self.tracer.rebuild_environment_probes(spacing_voxels);
+                        log::info!(
+                            "[ENV_LIGHT_EDIT_CYCLE] requested density rebuild terrain_revision={} spacing_voxels={}",
+                            target_revision,
+                            spacing_voxels,
+                        );
+                        TestScenePhase::WaitingForDensityRebuild {
+                            terrain_revision: target_revision,
                         }
                     }
                 }
