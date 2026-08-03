@@ -108,3 +108,17 @@ Prefer `--hidden --mute` for background validation; `--hidden` keeps the normal 
 ## Flora Instance Perf Note
 
 The 4-byte flora instance vertex stride was slower than the 8-byte stride on the tested GPU/driver. Keep the aligned 8-byte instance vertex layout unless a replacement path, such as storage-buffer instance fetch, benchmarks better.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Engineering skills use the five canonical triage labels documented in `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository with its glossary in `CONTEXT.md` and architectural decisions under `docs/adr/` when present. See `docs/agents/domain.md`.
