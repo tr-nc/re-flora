@@ -1,7 +1,84 @@
-use super::resources::DdgiStatus;
+use super::resources::{DdgiStatus, DdgiVolumeStatus};
 use super::{
-    DdgiBuildToken, DdgiFieldIdentity, DdgiRefreshState, DdgiTerrainRefresh, DdgiVolumeStatus,
+    DdgiAtlasValidationStats, DdgiBuildToken, DdgiFieldIdentity, DdgiRefreshState,
+    DdgiResourceBytes, DdgiScheduledWork, DdgiScheduledWorkKind, DdgiTerrainRefresh,
+    DdgiVolumeGrid, DdgiVolumeStage,
 };
+
+/// Semantic work identity exposed by the runtime without exposing scheduler operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DdgiRuntimeTargetWork {
+    kind: DdgiScheduledWorkKind,
+    destination: DdgiFieldIdentity,
+}
+
+impl DdgiRuntimeTargetWork {
+    pub fn kind(self) -> DdgiScheduledWorkKind {
+        self.kind
+    }
+
+    pub fn destination(self) -> DdgiFieldIdentity {
+        self.destination
+    }
+}
+
+impl From<DdgiScheduledWork> for DdgiRuntimeTargetWork {
+    fn from(work: DdgiScheduledWork) -> Self {
+        Self {
+            kind: work.kind(),
+            destination: work.destination(),
+        }
+    }
+}
+
+/// Semantic evidence for one resident DDGI Volume.
+///
+/// Physical atlas layouts, ping-pong slots, ray-batch traversal, descriptors, and pipeline state
+/// remain private to the DDGI implementation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DdgiRuntimeVolumeStatus {
+    pub build_token: Option<DdgiBuildToken>,
+    pub grid: DdgiVolumeGrid,
+    pub resource_bytes: DdgiResourceBytes,
+    pub stage: DdgiVolumeStage,
+    pub target_work: Option<DdgiRuntimeTargetWork>,
+    pub complete_field: Option<DdgiFieldIdentity>,
+    pub published_field: Option<DdgiFieldIdentity>,
+    pub building_field: Option<DdgiFieldIdentity>,
+    pub consecutive_below_threshold: u32,
+    pub last_atlas_validation: Option<DdgiAtlasValidationStats>,
+    pub global_sky_revision: u32,
+    pub radiance_revision: Option<u32>,
+    pub relocated_terrain_revision: Option<u32>,
+    pub filtered_probe_count: u32,
+}
+
+impl DdgiRuntimeVolumeStatus {
+    pub fn is_ready(self) -> bool {
+        self.published_field.is_some()
+    }
+}
+
+impl From<DdgiVolumeStatus> for DdgiRuntimeVolumeStatus {
+    fn from(status: DdgiVolumeStatus) -> Self {
+        Self {
+            build_token: status.build_token,
+            grid: status.grid,
+            resource_bytes: status.resource_bytes,
+            stage: status.stage,
+            target_work: status.scheduled_work.map(Into::into),
+            complete_field: status.complete_field,
+            published_field: status.published_field,
+            building_field: status.building_field,
+            consecutive_below_threshold: status.consecutive_below_threshold,
+            last_atlas_validation: status.last_atlas_validation,
+            global_sky_revision: status.global_sky_revision,
+            radiance_revision: status.radiance_revision,
+            relocated_terrain_revision: status.relocated_terrain_revision,
+            filtered_probe_count: status.filtered_probe_count,
+        }
+    }
+}
 
 /// Canonical observation of the DDGI Volume runtime lifecycle.
 ///
@@ -16,13 +93,13 @@ pub struct DdgiRuntimeStatus {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum DdgiRuntimeState {
     Active {
-        active: DdgiVolumeStatus,
+        active: DdgiRuntimeVolumeStatus,
         coordinator: DdgiRefreshState,
         deferred_density_spacing_voxels: Option<u32>,
     },
     Staging {
-        active: DdgiVolumeStatus,
-        staging: DdgiVolumeStatus,
+        active: DdgiRuntimeVolumeStatus,
+        staging: DdgiRuntimeVolumeStatus,
         coordinator: DdgiRefreshState,
         deferred_density_spacing_voxels: Option<u32>,
     },
@@ -30,7 +107,7 @@ enum DdgiRuntimeState {
 
 impl DdgiRuntimeStatus {
     pub(crate) fn new(volumes: DdgiStatus, refresh: DdgiTerrainRefresh) -> Self {
-        let active = volumes.active();
+        let active = volumes.active().into();
         let coordinator = refresh.state();
         let deferred_density_spacing_voxels = refresh.queued_density_spacing_voxels();
         match volumes.staging() {
@@ -42,7 +119,7 @@ impl DdgiRuntimeStatus {
                 Self {
                     state: DdgiRuntimeState::Staging {
                         active,
-                        staging,
+                        staging: staging.into(),
                         coordinator,
                         deferred_density_spacing_voxels,
                     },
@@ -58,7 +135,7 @@ impl DdgiRuntimeStatus {
         }
     }
 
-    pub fn active(self) -> DdgiVolumeStatus {
+    pub fn active(self) -> DdgiRuntimeVolumeStatus {
         match self.state {
             DdgiRuntimeState::Active { active, .. } | DdgiRuntimeState::Staging { active, .. } => {
                 active
@@ -66,14 +143,14 @@ impl DdgiRuntimeStatus {
         }
     }
 
-    pub fn staging(self) -> Option<DdgiVolumeStatus> {
+    pub fn staging(self) -> Option<DdgiRuntimeVolumeStatus> {
         match self.state {
             DdgiRuntimeState::Active { .. } => None,
             DdgiRuntimeState::Staging { staging, .. } => Some(staging),
         }
     }
 
-    pub fn builder(self) -> DdgiVolumeStatus {
+    pub fn builder(self) -> DdgiRuntimeVolumeStatus {
         self.staging().unwrap_or_else(|| self.active())
     }
 

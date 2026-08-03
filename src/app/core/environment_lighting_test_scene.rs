@@ -1104,7 +1104,7 @@ impl App {
                 assert_radiance_s2(r2, r1, r2_revision);
                 assert_eq!(r2.field().serial(), r1.field().serial() + 1);
                 let work = active
-                    .scheduled_work
+                    .target_work
                     .expect("r2 building field must retain scheduled work");
                 assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceFeedback);
                 assert_eq!(work.destination(), r2);
@@ -1194,7 +1194,7 @@ impl App {
                     "r3 must not claim work or allocate a field serial"
                 );
                 let work = active
-                    .scheduled_work
+                    .target_work
                     .expect("r4 building field must retain scheduled work");
                 assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceFeedback);
                 assert_eq!(work.destination(), r4);
@@ -1265,7 +1265,7 @@ impl App {
                         queued_spacing_voxels: None,
                     } if candidate == token
                 ));
-                let Some(work) = staging.scheduled_work else {
+                let Some(work) = staging.target_work else {
                     return;
                 };
                 assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityBootstrap);
@@ -1466,7 +1466,7 @@ impl App {
                         queued_spacing_voxels: None,
                     } if candidate == token
                 ));
-                let Some(work) = staging.scheduled_work else {
+                let Some(work) = staging.target_work else {
                     return;
                 };
                 assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityBootstrap);

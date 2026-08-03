@@ -474,28 +474,28 @@ pub enum DdgiVolumeStage {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DdgiVolumeStatus {
-    pub build_token: Option<DdgiBuildToken>,
-    pub grid: DdgiVolumeGrid,
-    pub irradiance_layout: DdgiAtlasLayout,
-    pub visibility_layout: DdgiAtlasLayout,
-    pub resource_bytes: DdgiResourceBytes,
-    pub stage: DdgiVolumeStage,
-    pub scheduled_work: Option<DdgiScheduledWork>,
-    pub complete_field: Option<DdgiFieldIdentity>,
-    pub published_field: Option<DdgiFieldIdentity>,
-    pub building_field: Option<DdgiFieldIdentity>,
-    pub consecutive_below_threshold: u32,
-    pub last_atlas_validation: Option<DdgiAtlasValidationStats>,
-    pub global_sky_revision: u32,
-    pub radiance_revision: Option<u32>,
-    pub relocated_terrain_revision: Option<u32>,
-    pub active_ray_batch: Option<DdgiRayBatch>,
-    pub filtered_probe_count: u32,
+pub(crate) struct DdgiVolumeStatus {
+    pub(crate) build_token: Option<DdgiBuildToken>,
+    pub(crate) grid: DdgiVolumeGrid,
+    pub(crate) irradiance_layout: DdgiAtlasLayout,
+    pub(crate) visibility_layout: DdgiAtlasLayout,
+    pub(crate) resource_bytes: DdgiResourceBytes,
+    pub(crate) stage: DdgiVolumeStage,
+    pub(crate) scheduled_work: Option<DdgiScheduledWork>,
+    pub(crate) complete_field: Option<DdgiFieldIdentity>,
+    pub(crate) published_field: Option<DdgiFieldIdentity>,
+    pub(crate) building_field: Option<DdgiFieldIdentity>,
+    pub(crate) consecutive_below_threshold: u32,
+    pub(crate) last_atlas_validation: Option<DdgiAtlasValidationStats>,
+    pub(crate) global_sky_revision: u32,
+    pub(crate) radiance_revision: Option<u32>,
+    pub(crate) relocated_terrain_revision: Option<u32>,
+    pub(crate) active_ray_batch: Option<DdgiRayBatch>,
+    pub(crate) filtered_probe_count: u32,
 }
 
 impl DdgiVolumeStatus {
-    pub fn is_ready(self) -> bool {
+    pub(crate) fn is_ready(self) -> bool {
         self.published_field.is_some()
     }
 }
@@ -930,7 +930,7 @@ impl DdgiVolume {
         })
     }
 
-    pub fn status(&self) -> DdgiVolumeStatus {
+    pub(crate) fn status(&self) -> DdgiVolumeStatus {
         DdgiVolumeStatus {
             build_token: self.build_token,
             grid: self.grid,

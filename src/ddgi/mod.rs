@@ -29,9 +29,10 @@ pub use capture::{DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiCaptureTarg
 pub use resources::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiRayBatch,
     DdgiResourceBytes, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume,
-    DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiVolumeStage, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
-pub use runtime::DdgiRuntimeStatus;
+#[allow(unused_imports)]
+pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
 #[allow(unused_imports)]
 pub use scheduler::{
     DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage, DdgiScheduledWork,
