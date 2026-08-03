@@ -3511,32 +3511,6 @@ impl Tracer {
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
         let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
-        let tracer_to_raster_barrier = PipelineBarrier::new(
-            PipelineStage::COMPUTE_SHADER,
-            PipelineStage::FRAGMENT_SHADER | PipelineStage::COMPUTE_SHADER,
-            [MemoryBarrier::new(
-                MemoryAccess::SHADER_WRITE,
-                MemoryAccess::SHADER_READ,
-            )],
-        );
-        let tracer_clear_to_raster_barrier = PipelineBarrier::new(
-            PipelineStage::TRANSFER,
-            PipelineStage::FRAGMENT_SHADER | PipelineStage::COMPUTE_SHADER,
-            [MemoryBarrier::new(
-                MemoryAccess::TRANSFER_WRITE,
-                MemoryAccess::SHADER_READ,
-            )],
-        );
-        let raster_to_compute_barrier = PipelineBarrier::new(
-            PipelineStage::COLOR_ATTACHMENT_OUTPUT
-                | PipelineStage::EARLY_FRAGMENT_TESTS
-                | PipelineStage::LATE_FRAGMENT_TESTS,
-            PipelineStage::COMPUTE_SHADER,
-            [MemoryBarrier::new(
-                MemoryAccess::COLOR_ATTACHMENT_WRITE | MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
-                MemoryAccess::SHADER_READ,
-            )],
-        );
 
         // Terrarium glass is composited analytically in composition.comp so it can refract the
         // already-combined scene and depth-test against ray-traced terrain. Keep it out of the
@@ -3582,7 +3556,8 @@ impl Tracer {
                 "tracer.pass",
                 || self.record_tracer_pass(cmdbuf),
             );
-            tracer_to_raster_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            // Graphics pipelines declare their sampled Image uses before the render pass; those
+            // transitions replace the former global compute-to-raster barrier.
         } else {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -3591,7 +3566,8 @@ impl Tracer {
                 "tracer_clear.pass",
                 || self.clear_tracer_outputs(cmdbuf),
             );
-            tracer_clear_to_raster_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            // Clear transitions and the later composition pipeline own the transfer-to-shader
+            // dependency; no global fallback barrier is needed here.
         }
 
         if has_graphics_pass {
@@ -3644,7 +3620,8 @@ impl Tracer {
                     gpu_profiler_frame_slot,
                 );
             }
-            raster_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+            // RenderTarget attachment state is committed by the recording transaction, and the
+            // composition pipeline declares its shader reads after the render pass.
         }
 
         if render_flags.enable_god_rays {
