@@ -2,7 +2,7 @@ use re_flora_vkn::PresentMode;
 
 use crate::ddgi::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiBatchOrder, DdgiCaptureTarget,
-    DdgiDebugView, DdgiTerrainHardOrigin, DEFAULT_DDGI_SPACING_VOXELS,
+    DdgiConsumerVisibility, DdgiDebugView, DdgiTerrainHardOrigin, DEFAULT_DDGI_SPACING_VOXELS,
 };
 
 pub const CAMERA_SNAPSHOT_LIST_HINT: &str =
@@ -208,6 +208,8 @@ pub struct AppOptions {
     pub ddgi_batch_order: DdgiBatchOrder,
     /// Select a permanent DDGI diagnostic view; exact modes are correctness-only and expensive.
     pub ddgi_debug_view: DdgiDebugView,
+    /// Select visibility terms for steady-state DDGI consumer performance experiments.
+    pub ddgi_consumer_visibility: DdgiConsumerVisibility,
     /// Select the terrain-only exact-visibility origin used for receiver diagnostics.
     pub ddgi_terrain_hard_origin: DdgiTerrainHardOrigin,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
@@ -390,6 +392,17 @@ impl AppOptions {
             })?,
             None => DdgiDebugView::Final,
         };
+        let ddgi_consumer_visibility = match parse_required_string_after(
+            "--ddgi-consumer-visibility",
+            "one of: full, moment-only, exact-only, none",
+        )? {
+            Some(value) => DdgiConsumerVisibility::from_cli_value(&value).ok_or_else(|| {
+                format!(
+                    "Invalid --ddgi-consumer-visibility '{value}'. Expected one of: full, moment-only, exact-only, none."
+                )
+            })?,
+            None => DdgiConsumerVisibility::Full,
+        };
         let ddgi_terrain_hard_origin = match parse_required_string_after(
             "--ddgi-terrain-hard-origin",
             "one of: surface-quarter, center-fixed, surface-fixed",
@@ -489,6 +502,7 @@ impl AppOptions {
             environment_irradiance_capture_target,
             ddgi_batch_order,
             ddgi_debug_view,
+            ddgi_consumer_visibility,
             ddgi_terrain_hard_origin,
             hybrid_transparency_test_scene: args
                 .iter()
@@ -775,6 +789,9 @@ Options:
   --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
                               or atlas DDGI diagnostics (default: final)
+  --ddgi-consumer-visibility <mode>
+                              Select full, moment-only, exact-only, or none for consumer perf A/B
+                              (default: full; probe transport remains full)
   --ddgi-terrain-hard-origin <mode>
                               Select surface-quarter, center-fixed, or surface-fixed exact visibility origin
                               for terrain receiver experiments (default: {})
@@ -887,6 +904,10 @@ mod tests {
         );
         assert_eq!(options.ddgi_batch_order, DdgiBatchOrder::Forward);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
+        assert_eq!(
+            options.ddgi_consumer_visibility,
+            DdgiConsumerVisibility::Full
+        );
         assert_eq!(
             options.ddgi_terrain_hard_origin,
             DdgiTerrainHardOrigin::SurfaceFixedWorld
@@ -1043,6 +1064,19 @@ mod tests {
     fn parses_ddgi_debug_view() {
         let options = parse(&["re-flora", "--ddgi-debug-view", "exact-visibility"]);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::ExactVisibility);
+    }
+
+    #[test]
+    fn parses_ddgi_consumer_visibility() {
+        for (value, expected) in [
+            ("full", DdgiConsumerVisibility::Full),
+            ("moment-only", DdgiConsumerVisibility::MomentOnly),
+            ("exact-only", DdgiConsumerVisibility::ExactOnly),
+            ("none", DdgiConsumerVisibility::None),
+        ] {
+            let options = parse(&["re-flora", "--ddgi-consumer-visibility", value]);
+            assert_eq!(options.ddgi_consumer_visibility, expected);
+        }
     }
 
     #[test]

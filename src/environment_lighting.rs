@@ -544,6 +544,20 @@ mod tests {
     }
 
     #[test]
+    fn consumer_visibility_ab_keeps_transport_and_exact_debug_on_full_visibility() {
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let tracer = include_str!("../shader/slang/tracer.slang");
+
+        assert!(query.contains("query.consumer_visibility = lighting.ddgi_consumer_visibility;"));
+        assert!(query.contains("query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_FULL;"));
+        assert!(query.contains("bool useMomentVisibility ="));
+        assert!(query.contains("bool useExactVisibility ="));
+        assert!(query.contains("if (useMomentVisibility)"));
+        assert!(query.contains("if (useExactVisibility)"));
+        assert!(tracer.contains("getDdgiFullVisibilityProbeContribution("));
+    }
+
+    #[test]
     fn terrain_ray_origin_offset_is_shared_by_every_exact_terrain_ray_stage() {
         let shared = include_str!("../shader/slang/terrain_ray_origin.slang");
         let tracer = include_str!("../shader/slang/tracer.slang");

@@ -62,8 +62,8 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
-    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch,
-    DdgiRefreshState, DdgiStatus, DdgiTerrainRefresh, DdgiTransportScheduler,
+    DdgiCaptureTarget, DdgiConsumerVisibility, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage,
+    DdgiRayBatch, DdgiRefreshState, DdgiStatus, DdgiTerrainRefresh, DdgiTransportScheduler,
     DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid,
     DdgiVolumeStage, DdgiVolumeStatus, DdgiVolumes, DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY,
     DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
@@ -812,6 +812,7 @@ pub struct TracerDesc {
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_batch_order: DdgiBatchOrder,
     pub ddgi_debug_view: DdgiDebugView,
+    pub ddgi_consumer_visibility: DdgiConsumerVisibility,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
 }
 
@@ -1058,6 +1059,10 @@ impl Tracer {
         log::info!(
             "[DDGI][HARD_ORIGIN] terrain_mode={}",
             desc.ddgi_terrain_hard_origin.label()
+        );
+        log::info!(
+            "[DDGI][CONSUMER_VISIBILITY] mode={} experimental=true transport_mode=full",
+            desc.ddgi_consumer_visibility.label()
         );
         let ddgi_voxel_visibility = DdgiVoxelVisibility::new(
             &vulkan_ctx,
@@ -2631,6 +2636,7 @@ impl Tracer {
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
+            self.desc.ddgi_consumer_visibility.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
             ddgi_receiver_visibility_bias_world,
             self.ddgi_terrain_refresh.invalidation_voxel_bound(),

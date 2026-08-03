@@ -270,7 +270,6 @@ DdgiQueryResult sampleDdgiExactTerrainReference(
         result.mean_visibility = 1.0;
         return result;
     }
-
     [unroll]
     for (uint z = 0u; z < 2u; ++z)
     {
@@ -281,7 +280,7 @@ DdgiQueryResult sampleDdgiExactTerrainReference(
             for (uint x = 0u; x < 2u; ++x)
             {
                 DdgiProbeContribution contribution =
-                    getDdgiProbeContribution(
+                    getDdgiFullVisibilityProbeContribution(
                         shading_info, worldPosition, normal,
                         hardVisibilityWorldPosition, uint3(x, y, z));
                 float visibility = contribution.trustworthy

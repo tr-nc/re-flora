@@ -38,6 +38,45 @@ pub use scheduler::{
 pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
 pub use voxel_visibility::DdgiVoxelVisibility;
 
+/// Experimental visibility terms used by runtime DDGI consumers.
+///
+/// Probe transport always uses the full visibility model. These modes only exist to isolate the
+/// steady-state terrain/raster query cost before choosing an optimization.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum DdgiConsumerVisibility {
+    #[default]
+    Full = 0,
+    MomentOnly = 1,
+    ExactOnly = 2,
+    None = 3,
+}
+
+impl DdgiConsumerVisibility {
+    pub fn from_cli_value(value: &str) -> Option<Self> {
+        match value {
+            "full" => Some(Self::Full),
+            "moment-only" => Some(Self::MomentOnly),
+            "exact-only" => Some(Self::ExactOnly),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+
+    pub const fn as_u32(self) -> u32 {
+        self as u32
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::MomentOnly => "moment-only",
+            Self::ExactOnly => "exact-only",
+            Self::None => "none",
+        }
+    }
+}
+
 /// Terrain-only hard-visibility origin variants used to isolate voxel receiver self-occlusion.
 /// The DDGI surface anchor and filtered moment query remain unchanged for every variant.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
