@@ -696,6 +696,7 @@ pub struct Tracer {
     pending_frame_retirements: Vec<FrameRetirement>,
     extent_resource_generation: u64,
     descriptor_generation: u64,
+    tree_instance_generation: u64,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -1006,6 +1007,7 @@ impl Tracer {
             pending_frame_retirements: Vec::new(),
             extent_resource_generation: 1,
             descriptor_generation: 1,
+            tree_instance_generation: 1,
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
             last_wind_volume_step: None,
@@ -1756,6 +1758,19 @@ impl Tracer {
             .checked_add(1)
             .expect("tracer descriptor generation overflow");
         generation
+    }
+
+    fn retire_tree_instance<T: 'static>(&mut self, resident: T) {
+        let generation = self.tree_instance_generation;
+        self.tree_instance_generation = self
+            .tree_instance_generation
+            .checked_add(1)
+            .expect("tracer tree instance generation overflow");
+        self.pending_frame_retirements.push(FrameRetirement::new(
+            "tracer.tree_instances",
+            generation,
+            resident,
+        ));
     }
 
     fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
@@ -5798,10 +5813,13 @@ impl Tracer {
             .collect::<Vec<_>>();
         let tree_leaves_instance =
             self.build_tree_render_instances(tree_id, &leaf_voxel_instances, 0.2, "tree leaf")?;
-        surface_resources
+        let retired = surface_resources
             .instances
             .leaves_instances
             .insert(tree_id, tree_leaves_instance);
+        if let Some(retired) = retired {
+            self.retire_tree_instance(retired);
+        }
 
         Ok(())
     }
@@ -5812,10 +5830,6 @@ impl Tracer {
         tree_id: u32,
         apples: &[(UVec3, u32)],
     ) -> Result<()> {
-        // This path is also used when a pending fruit atomically transitions to the dynamic
-        // renderer. Wait before replacing the per-tree instance buffer still referenced by an
-        // earlier frame.
-        self.vulkan_ctx.device().wait_idle();
         let apple_instances = apples
             .iter()
             .map(|&(world_pos, radius_voxels)| TreeRenderInstanceData {
@@ -5831,10 +5845,13 @@ impl Tracer {
             .collect::<Vec<_>>();
         let tree_apple_instance =
             self.build_tree_render_instances(tree_id, &apple_instances, 0.08, "tree apple")?;
-        surface_resources
+        let retired = surface_resources
             .instances
             .apple_instances
             .insert(tree_id, tree_apple_instance);
+        if let Some(retired) = retired {
+            self.retire_tree_instance(retired);
+        }
 
         Ok(())
     }
@@ -5844,7 +5861,6 @@ impl Tracer {
         surface_resources: &mut SurfaceResources,
         tree_id: u32,
     ) -> Result<()> {
-        self.vulkan_ctx.device().wait_idle();
         let removed_leaves = surface_resources
             .instances
             .leaves_instances
@@ -5852,22 +5868,31 @@ impl Tracer {
         let removed_apples = surface_resources.instances.apple_instances.remove(&tree_id);
 
         match (removed_leaves, removed_apples) {
-            (Some(leaves), Some(apples)) => log::info!(
-                "Removed tree {} with {} leaves and {} apples",
-                tree_id,
-                leaves.resources.instances_len,
-                apples.resources.instances_len
-            ),
-            (Some(leaves), None) => log::info!(
-                "Removed tree {} with {} leaves",
-                tree_id,
-                leaves.resources.instances_len
-            ),
-            (None, Some(apples)) => log::info!(
-                "Removed tree {} with {} apples",
-                tree_id,
-                apples.resources.instances_len
-            ),
+            (Some(leaves), Some(apples)) => {
+                log::info!(
+                    "Removed tree {} with {} leaves and {} apples",
+                    tree_id,
+                    leaves.resources.instances_len,
+                    apples.resources.instances_len
+                );
+                self.retire_tree_instance((leaves, apples));
+            }
+            (Some(leaves), None) => {
+                log::info!(
+                    "Removed tree {} with {} leaves",
+                    tree_id,
+                    leaves.resources.instances_len
+                );
+                self.retire_tree_instance(leaves);
+            }
+            (None, Some(apples)) => {
+                log::info!(
+                    "Removed tree {} with {} apples",
+                    tree_id,
+                    apples.resources.instances_len
+                );
+                self.retire_tree_instance(apples);
+            }
             (None, None) => log::warn!("Attempted to remove non-existent tree {}", tree_id),
         }
         Ok(())
