@@ -561,7 +561,10 @@ impl PlainBuilder {
 
         let build_cmdbuf = Self::record_build_cmdbuf(
             &vulkan_ctx,
+            &resources.region_info,
+            &resources.heightmap,
             &resources.region_indirect,
+            &resources.solid_workgroup_flags,
             &heightmap_ppl,
             &buffer_setup_ppl,
             &chunk_init_ppl,
@@ -632,17 +635,22 @@ impl PlainBuilder {
 
     fn record_build_cmdbuf(
         vulkan_ctx: &VulkanContext,
+        region_info: &Buffer,
+        heightmap: &Buffer,
         region_indirect: &Buffer,
+        solid_workgroup_flags: &Buffer,
         heightmap_ppl: &ComputePipeline,
         buffer_setup_ppl: &ComputePipeline,
         chunk_init_ppl: &ComputePipeline,
         dispatch_dim: UVec3,
     ) -> CommandBuffer {
-        let shader_access_pipeline_barrier = PipelineBarrier::compute_shader_access();
-        let indirect_access_pipeline_barrier = PipelineBarrier::compute_to_indirect_access();
-
         let cmdbuf = CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool());
         cmdbuf.begin(false);
+        cmdbuf.begin_resource_state_transaction();
+
+        cmdbuf.use_buffer(region_info, BufferUse::HostWrite);
+        cmdbuf.use_buffer(region_info, BufferUse::ComputeRead);
+        cmdbuf.use_buffer(heightmap, BufferUse::ComputeWrite);
 
         heightmap_ppl.record(
             &cmdbuf,
@@ -654,7 +662,8 @@ impl PlainBuilder {
             None,
         );
 
-        shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+        cmdbuf.use_buffer(heightmap, BufferUse::ComputeRead);
+        cmdbuf.use_buffer(region_indirect, BufferUse::ComputeWrite);
 
         buffer_setup_ppl.record(
             &cmdbuf,
@@ -666,8 +675,9 @@ impl PlainBuilder {
             None,
         );
 
-        shader_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
-        indirect_access_pipeline_barrier.record_insert(vulkan_ctx.device(), &cmdbuf);
+        cmdbuf.use_buffer(region_indirect, BufferUse::IndirectRead);
+        cmdbuf.use_buffer(heightmap, BufferUse::ComputeRead);
+        cmdbuf.use_buffer(solid_workgroup_flags, BufferUse::ComputeReadWrite);
 
         chunk_init_ppl.record_indirect(&cmdbuf, region_indirect, None);
 
@@ -1590,7 +1600,10 @@ impl PlainBuilder {
         // re-record the command buffer with updated descriptor sets
         self.build_cmdbuf = Self::record_build_cmdbuf(
             &self.vulkan_ctx,
+            &self.resources.region_info,
+            &self.resources.heightmap,
             &self.resources.region_indirect,
+            &self.resources.solid_workgroup_flags,
             &self.heightmap_ppl,
             &self.buffer_setup_ppl,
             &self.chunk_init_ppl,
