@@ -338,7 +338,7 @@ failed recordings leave committed Image state unchanged.
 - Ticket 01 — Make `surface.build` GPU work self-resident and fail fast.
 - Ticket 03 — Encode the owned Vulkan resource graph.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] Recording a transition does not immediately overwrite globally committed Image state.
 - [ ] Successfully submitted work commits its resulting Image state exactly once in queue order.
