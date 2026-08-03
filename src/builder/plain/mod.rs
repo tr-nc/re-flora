@@ -1100,7 +1100,11 @@ impl PlainBuilder {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn bind_terrain_moisture_dry_resources(
+    /// Initializes the terrain moisture/dry descriptor set during app construction.
+    ///
+    /// This is intentionally a creation-time operation; runtime frame code must not rewrite this
+    /// pipeline's descriptor generation in place.
+    pub fn initialize_terrain_moisture_dry_resources(
         &self,
         gui_input: &Buffer,
         shadow_camera_info: &Buffer,

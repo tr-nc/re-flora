@@ -1082,7 +1082,7 @@ impl App {
         {
             let shadow = tracer.direct_sun_shadow_resources();
             let contree_resources = contree_builder.get_resources();
-            plain_builder.bind_terrain_moisture_dry_resources(
+            plain_builder.initialize_terrain_moisture_dry_resources(
                 shadow.gui_input,
                 shadow.shadow_camera_info,
                 shadow.shadow_map_tex_for_vsm_ping,
