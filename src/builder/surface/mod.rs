@@ -59,7 +59,6 @@ pub struct SurfaceBuildJob {
     setup_elapsed: Duration,
     record_elapsed: Duration,
     submit_elapsed: Duration,
-    _command_buffer: CommandBuffer,
     gpu_job: GpuJobToken,
     gpu_scope: Option<GpuJobScopeToken>,
 }
@@ -733,7 +732,6 @@ impl SurfaceBuilder {
             setup_elapsed,
             record_elapsed,
             submit_elapsed,
-            _command_buffer: cmdbuf,
             gpu_job,
             gpu_scope,
         })
