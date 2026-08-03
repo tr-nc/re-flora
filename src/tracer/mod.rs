@@ -62,9 +62,9 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
-    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch,
-    DdgiRuntimeStatus, DdgiTerrainRefresh, DdgiTransportScheduler, DdgiValidatedIterationOutcome,
-    DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumeGrid, DdgiVolumes, DdgiVoxelVisibility,
+    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch, DdgiRuntime,
+    DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiValidatedIterationOutcome,
+    DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes, DdgiVoxelVisibility,
     DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
     DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
     DDGI_VISIBILITY_INTERIOR_SIDE,
@@ -96,13 +96,6 @@ use re_flora_vkn::{
 };
 use std::collections::HashMap;
 
-fn ddgi_density_rebuild_terrain_revision(
-    active_terrain_revision: Option<u32>,
-    initial_terrain_revision: Option<u32>,
-) -> Option<u32> {
-    active_terrain_revision.or(initial_terrain_revision)
-}
-
 fn ddgi_shading_geometry_revision(
     active_published_revision: Option<u32>,
     capture_checkpoint_revision: Option<u32>,
@@ -131,17 +124,6 @@ fn ddgi_unpublished_capture_geometry_revision(
                 .find(|field| target.matches(*field))
                 .map(|field| field.field().geometry_revision())
         })
-}
-
-fn request_ddgi_terrain_edit_revision(
-    refresh: &mut DdgiTerrainRefresh,
-    current_terrain_revision: u32,
-    edit_bound: UAabb3,
-    grid: DdgiVolumeGrid,
-) -> u32 {
-    let requested_terrain_revision = current_terrain_revision.wrapping_add(1).max(1);
-    refresh.request(requested_terrain_revision, edit_bound, grid);
-    requested_terrain_revision
 }
 
 fn validate_unpublished_capture_volume(builder_is_active: bool) -> Result<()> {
@@ -510,28 +492,12 @@ mod default_camera_tests {
 #[cfg(test)]
 mod ddgi_density_rebuild_tests {
     use super::{
-        ddgi_density_rebuild_terrain_revision, ddgi_shading_geometry_revision,
-        ddgi_unpublished_capture_geometry_revision, request_ddgi_terrain_edit_revision,
+        ddgi_shading_geometry_revision, ddgi_unpublished_capture_geometry_revision,
         require_ddgi_staging_preparation, validate_unpublished_capture_volume,
     };
     use crate::ddgi::{
-        DdgiBuildKind, DdgiBuildToken, DdgiTerrainRefresh, DdgiTransportScheduler, DdgiVolumeGrid,
+        DdgiBuildKind, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldKey, DdgiFieldStage,
     };
-    use crate::geom::UAabb3;
-    use glam::UVec3;
-
-    #[test]
-    fn completed_runtime_revision_wins_over_the_initial_revision() {
-        assert_eq!(
-            ddgi_density_rebuild_terrain_revision(Some(3), Some(1)),
-            Some(3)
-        );
-        assert_eq!(
-            ddgi_density_rebuild_terrain_revision(None, Some(1)),
-            Some(1)
-        );
-        assert_eq!(ddgi_density_rebuild_terrain_revision(None, None), None);
-    }
 
     #[test]
     fn unpublished_s0_query_uses_its_exact_capture_checkpoint_revision() {
@@ -542,12 +508,13 @@ mod ddgi_density_rebuild_tests {
 
     #[test]
     fn unpublished_s0_revision_survives_the_private_s0_to_s1_residency_transition() {
-        let mut scheduler = DdgiTransportScheduler::new();
-        scheduler.observe_radiance(4);
-        scheduler.request_geometry(7, 32);
-        let work = scheduler.claim_next().unwrap().unwrap();
-        let s1 = work.destination();
-        let s0 = crate::ddgi::DdgiFieldIdentity::new(s1.source().unwrap(), None).unwrap();
+        let s0_key = DdgiFieldKey::new(1, 7, 4, 32, DdgiFieldStage::SeedSky, 0).unwrap();
+        let s0 = DdgiFieldIdentity::new(s0_key, None).unwrap();
+        let s1 = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(2, 7, 4, 32, DdgiFieldStage::SingleBounce, 1).unwrap(),
+            Some(s0_key),
+        )
+        .unwrap();
         let target = crate::ddgi::DdgiCaptureTarget::Iteration(0);
 
         assert_eq!(
@@ -560,25 +527,6 @@ mod ddgi_density_rebuild_tests {
             Some(7),
             "post-validation query must prefer the private complete S0 over building S1",
         );
-    }
-
-    #[test]
-    fn requested_edit_cannot_be_claimed_until_exact_visibility_is_published() {
-        let grid = DdgiVolumeGrid::new(UVec3::splat(512), 32).unwrap();
-        let mut refresh = DdgiTerrainRefresh::default();
-        let requested_revision = request_ddgi_terrain_edit_revision(
-            &mut refresh,
-            7,
-            UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
-            grid,
-        );
-
-        assert_eq!(requested_revision, 8);
-        assert_eq!(refresh.claim_next_build(32, 7), None);
-        refresh.mark_terrain_published(requested_revision);
-        let token = refresh.claim_next_build(32, 7).unwrap();
-        assert_eq!(token.terrain_revision(), requested_revision);
-        assert_eq!(token.kind(), DdgiBuildKind::Terrain);
     }
 
     #[test]
@@ -731,14 +679,9 @@ pub struct Tracer {
     environment_lighting: EnvironmentLightingCache,
     ddgi_volumes: DdgiVolumes,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
-    ddgi_transport_scheduler: DdgiTransportScheduler,
+    ddgi_runtime: DdgiRuntime,
     ddgi_capture_checkpoint: Option<DdgiCaptureCheckpoint>,
-    ddgi_initial_terrain_ready_revision: Option<u32>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
-    environment_probe_environment_revision: u32,
-    environment_probe_radiance_snapshot: Option<DdgiRadianceSnapshot>,
-    environment_probe_terrain_revision: u32,
-    ddgi_terrain_refresh: DdgiTerrainRefresh,
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
@@ -890,6 +833,7 @@ impl Tracer {
             desc.voxel_dim_per_chunk,
             desc.ddgi_batch_order,
         )?;
+        let ddgi_runtime = DdgiRuntime::new(ddgi_volume.status().grid);
         log::info!(
             "[DDGI][HARD_ORIGIN] terrain_mode={}",
             desc.ddgi_terrain_hard_origin.label()
@@ -1013,14 +957,9 @@ impl Tracer {
             environment_lighting: EnvironmentLightingCache::default(),
             ddgi_volumes: DdgiVolumes::new(ddgi_volume),
             ddgi_voxel_visibility,
-            ddgi_transport_scheduler: DdgiTransportScheduler::new(),
+            ddgi_runtime,
             ddgi_capture_checkpoint: None,
-            ddgi_initial_terrain_ready_revision: None,
             ddgi_trace_stats_readback_pending: None,
-            environment_probe_environment_revision: 0,
-            environment_probe_radiance_snapshot: None,
-            environment_probe_terrain_revision: 0,
-            ddgi_terrain_refresh: DdgiTerrainRefresh::default(),
             ddgi_flora_consumer_logged_token_serial: None,
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
@@ -1044,22 +983,21 @@ impl Tracer {
     }
 
     pub fn ddgi_runtime_status(&self) -> DdgiRuntimeStatus {
-        DdgiRuntimeStatus::new(self.ddgi_volumes.status(), self.ddgi_terrain_refresh)
+        self.ddgi_runtime.status(self.ddgi_volumes.status())
     }
 
     /// Latest radiance identity observed by the transport scheduler. Test scenes use this logical
     /// lifecycle value to sequence deterministic changes without inspecting GPU resource slots.
     pub fn ddgi_latest_radiance_revision(&self) -> Option<u32> {
-        self.ddgi_transport_scheduler.latest_radiance_revision()
+        self.ddgi_runtime.latest_radiance_revision()
     }
 
     pub fn rebuild_environment_probes(&mut self, spacing_voxels: u32) {
-        self.ddgi_terrain_refresh
-            .request_density_rebuild(spacing_voxels);
+        self.ddgi_runtime.request_density_rebuild(spacing_voxels);
         log::info!(
             "[DDGI] density rebuild queued spacing_voxels={} coordinator={:?}",
             spacing_voxels,
-            self.ddgi_terrain_refresh.state(),
+            self.ddgi_runtime.refresh_state(),
         );
         self.drive_pending_ddgi_rebuild();
     }
@@ -1115,14 +1053,16 @@ impl Tracer {
     }
 
     fn start_next_ddgi_scheduled_work(&mut self) -> Result<bool> {
-        let Some(work) = self
-            .ddgi_transport_scheduler
-            .claim_next()
-            .map_err(|error| anyhow::anyhow!("DDGI scheduler claim failed: {error:?}"))?
-        else {
+        let Some(runtime_work) = self.ddgi_runtime.claim_transport_work() else {
             return Ok(false);
         };
+        let work = runtime_work.scheduled();
         let destination = work.destination().field();
+        assert_eq!(
+            runtime_work.authored_lighting().revision,
+            destination.radiance_revision(),
+            "DDGI transport work must retain the authored lighting revision it was scheduled with",
+        );
         let status = self.ddgi_volumes.builder().status();
         anyhow::ensure!(
             status.grid.spacing_voxels() == destination.spacing_voxels(),
@@ -1185,122 +1125,82 @@ impl Tracer {
         Ok(())
     }
 
-    /// Records a refresh after the visible terrain GPU rebuild, then synchronously publishes the
-    /// matching exact occupancy before allowing any DDGI scheduler work for that revision.
-    pub fn request_published_environment_probe_refresh_near_voxel_bound(
+    /// Observes one authoritative visible-terrain publication. Exact occupancy is synchronously
+    /// published first, so the runtime cannot claim work for this revision before the matching
+    /// Visibility Map exists.
+    pub fn observe_published_environment_probe_terrain(
         &mut self,
-        edit_bound: UAabb3,
+        geometry_revision: u32,
+        edited_voxel_bound: UAabb3,
     ) -> Result<()> {
-        let grid = self.ddgi_volumes.status().active().grid;
-        self.environment_probe_terrain_revision = request_ddgi_terrain_edit_revision(
-            &mut self.ddgi_terrain_refresh,
-            self.environment_probe_terrain_revision,
-            edit_bound,
-            grid,
-        );
-        let edited_bound = self.ddgi_terrain_refresh.edited_voxel_bound();
-        let invalidation_bound = self.ddgi_terrain_refresh.invalidation_voxel_bound();
+        self.rebuild_ddgi_voxel_visibility(geometry_revision)?;
+        let newly_observed = self
+            .ddgi_runtime
+            .observe_visible_terrain(geometry_revision, edited_voxel_bound);
+        let combined_edit_bound = self.ddgi_runtime.edited_voxel_bound();
+        let invalidation_bound = self.ddgi_runtime.invalidation_voxel_bound();
         log::info!(
-            "[DDGI] runtime terrain invalidation deferred revision={} edit_voxel_bound={:?}..{:?} combined_edit_voxel_bound={:?} invalidation_voxel_bound={:?} coordinator={:?}",
-            self.environment_probe_terrain_revision,
-            edit_bound.min(),
-            edit_bound.max(),
-            edited_bound.map(|bound| (bound.min(), bound.max())),
+            "[DDGI] runtime observed visible terrain revision={} newly_observed={} edit_voxel_bound={:?}..{:?} combined_edit_voxel_bound={:?} invalidation_voxel_bound={:?} coordinator={:?}",
+            geometry_revision,
+            newly_observed,
+            edited_voxel_bound.min(),
+            edited_voxel_bound.max(),
+            combined_edit_bound.map(|bound| (bound.min(), bound.max())),
             invalidation_bound.map(|bound| (bound.min(), bound.max())),
-            self.ddgi_terrain_refresh.state(),
-        );
-        self.rebuild_ddgi_voxel_visibility(self.environment_probe_terrain_revision)?;
-        self.ddgi_terrain_refresh
-            .mark_terrain_published(self.environment_probe_terrain_revision);
-        log::info!(
-            "[DDGI] runtime terrain and exact visibility published revision={} coordinator={:?}",
-            self.environment_probe_terrain_revision,
-            self.ddgi_terrain_refresh.state(),
+            self.ddgi_runtime.refresh_state(),
         );
         Ok(())
     }
 
     /// Claims and installs the latest authoritative DDGI build at a GPU-safe replacement point.
     pub fn drive_pending_ddgi_rebuild(&mut self) {
-        if !self.ddgi_ready() {
-            return;
-        }
-        let active = self.ddgi_volumes.status().active();
-        let Some(active_terrain_revision) = ddgi_density_rebuild_terrain_revision(
-            active.relocated_terrain_revision,
-            self.ddgi_initial_terrain_ready_revision,
-        ) else {
+        let Some(build) = self.ddgi_runtime.claim_volume_build() else {
             return;
         };
-        let Some(build_token) = self
-            .ddgi_terrain_refresh
-            .claim_next_build(active.grid.spacing_voxels(), active_terrain_revision)
-        else {
-            return;
-        };
-        let preparation = self.prepare_ddgi_staging(build_token);
-        require_ddgi_staging_preparation(build_token, preparation);
-        match build_token.kind() {
-            DdgiBuildKind::Terrain => {
-                self.ddgi_transport_scheduler
-                    .request_geometry(build_token.terrain_revision(), build_token.spacing_voxels());
+        let build_token = build.token();
+        match build.target() {
+            DdgiRuntimeVolumeTarget::Active => {
+                let builder_status = self.ddgi_volumes.builder().status();
+                assert!(
+                    builder_status.build_token.is_none(),
+                    "initial DDGI Volume must not already have a build token"
+                );
+                self.ddgi_volumes
+                    .builder_mut()
+                    .assign_build_token(build_token);
+                assert!(
+                    self.ddgi_volumes
+                        .builder_mut()
+                        .request_initialization(build_token.terrain_revision()),
+                    "initial DDGI Volume must accept its authoritative terrain revision"
+                );
+                let status = self.ddgi_volumes.status().builder();
+                log::info!(
+                    "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?}",
+                    build_token.terrain_revision(),
+                    status.grid.spacing_voxels(),
+                    status.grid.probe_count(),
+                    status.stage,
+                );
             }
-            DdgiBuildKind::Density => {
-                self.ddgi_transport_scheduler
-                    .request_density(build_token.spacing_voxels());
+            DdgiRuntimeVolumeTarget::Staging => {
+                let preparation = self.prepare_ddgi_staging(build_token);
+                require_ddgi_staging_preparation(build_token, preparation);
+                log::info!(
+                    "[DDGI] rebuild started token_serial={} kind={:?} terrain_revision={} spacing_voxels={} edited_voxel_bound={:?} invalidation_voxel_bound={:?}",
+                    build_token.serial(),
+                    build_token.kind(),
+                    build_token.terrain_revision(),
+                    build_token.spacing_voxels(),
+                    self.ddgi_runtime
+                        .edited_voxel_bound()
+                        .map(|bound| (bound.min(), bound.max())),
+                    self.ddgi_runtime
+                        .invalidation_voxel_bound()
+                        .map(|bound| (bound.min(), bound.max())),
+                );
             }
         }
-        log::info!(
-            "[DDGI] rebuild started token_serial={} kind={:?} terrain_revision={} spacing_voxels={} edited_voxel_bound={:?} invalidation_voxel_bound={:?}",
-            build_token.serial(),
-            build_token.kind(),
-            build_token.terrain_revision(),
-            build_token.spacing_voxels(),
-            self.ddgi_terrain_refresh
-                .edited_voxel_bound()
-                .map(|bound| (bound.min(), bound.max())),
-            self.ddgi_terrain_refresh
-                .invalidation_voxel_bound()
-                .map(|bound| (bound.min(), bound.max())),
-        );
-    }
-
-    /// Starts the static DDGI build after the caller has finished all initial terrain work.
-    /// A matching pre-initialization edit request is consumed by this initial build.
-    pub fn notify_ddgi_initial_terrain_ready(&mut self, terrain_revision: u32) -> Result<()> {
-        self.rebuild_ddgi_voxel_visibility(terrain_revision)?;
-        self.ddgi_initial_terrain_ready_revision = Some(terrain_revision);
-        self.ddgi_terrain_refresh
-            .mark_terrain_published(terrain_revision);
-        self.ddgi_terrain_refresh
-            .consume_initial_revision(terrain_revision);
-        let builder_status = self.ddgi_volumes.builder().status();
-        if builder_status.build_token.is_none() {
-            let build_token = self.ddgi_terrain_refresh.allocate_initial_build_token(
-                terrain_revision,
-                builder_status.grid.spacing_voxels(),
-            );
-            self.ddgi_volumes
-                .builder_mut()
-                .assign_build_token(build_token);
-        }
-        if self
-            .ddgi_volumes
-            .builder_mut()
-            .request_initialization(terrain_revision)
-        {
-            self.ddgi_transport_scheduler
-                .request_geometry(terrain_revision, builder_status.grid.spacing_voxels());
-            let status = self.ddgi_volumes.status().builder();
-            log::info!(
-                "[DDGI] initialization requested terrain_revision={} spacing_voxels={} probes={} stage={:?}",
-                terrain_revision,
-                status.grid.spacing_voxels(),
-                status.grid.probe_count(),
-                status.stage,
-            );
-        }
-        Ok(())
     }
 
     pub fn ddgi_debug_view(&self) -> DdgiDebugView {
@@ -1308,11 +1208,15 @@ impl Tracer {
     }
 
     pub(crate) fn ddgi_live_radiance_revision(&self) -> u32 {
-        self.environment_probe_environment_revision
+        self.ddgi_runtime
+            .live_authored_lighting()
+            .map_or(0, |lighting| lighting.revision)
     }
 
     pub(crate) fn ddgi_live_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
-        self.environment_probe_radiance_snapshot
+        self.ddgi_runtime
+            .live_authored_lighting()
+            .map(|lighting| lighting.snapshot)
     }
 
     pub(crate) fn ddgi_builder_radiance_snapshot(&self) -> Option<DdgiRadianceSnapshot> {
@@ -1441,10 +1345,6 @@ impl Tracer {
             )],
         )
         .record_insert(self.vulkan_ctx.device(), cmdbuf);
-    }
-
-    pub fn environment_probe_terrain_revision(&self) -> u32 {
-        self.environment_probe_terrain_revision
     }
 
     pub fn environment_probe_terrain_revision_ready(&self, revision: u32) -> bool {
@@ -2051,14 +1951,14 @@ impl Tracer {
             .staging()
             .and_then(|staging| staging.build_token)
             .expect("every DDGI staging volume must carry its build token");
-        if !self.ddgi_terrain_refresh.token_can_promote(build_token) {
+        if !self.ddgi_runtime.token_can_promote(build_token) {
             log::info!(
                 "[DDGI] obsolete staging promotion skipped token_serial={} kind={:?} terrain_revision={} spacing_voxels={} coordinator={:?}",
                 build_token.serial(),
                 build_token.kind(),
                 build_token.terrain_revision(),
                 build_token.spacing_voxels(),
-                self.ddgi_terrain_refresh.state(),
+                self.ddgi_runtime.refresh_state(),
             );
             return;
         }
@@ -2073,7 +1973,7 @@ impl Tracer {
             .promote_staging(build_token)
             .expect("ready DDGI staging volume must be promotable");
         assert!(
-            self.ddgi_terrain_refresh.mark_promoted(build_token),
+            self.ddgi_runtime.mark_promoted(build_token),
             "promoted DDGI token must still be coordinator-authoritative"
         );
         let active = self.ddgi_volumes.status().active();
@@ -2443,12 +2343,10 @@ impl Tracer {
             self.desc.ddgi_debug_view.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
             ddgi_receiver_visibility_bias_world,
-            self.ddgi_terrain_refresh.invalidation_voxel_bound(),
+            self.ddgi_runtime.invalidation_voxel_bound(),
         )?;
-        self.environment_probe_environment_revision = environment_lighting.revision;
-        self.environment_probe_radiance_snapshot = Some(environment_lighting.snapshot);
-        self.ddgi_transport_scheduler
-            .observe_radiance(environment_lighting.revision);
+        self.ddgi_runtime
+            .observe_authored_lighting(environment_lighting);
 
         BufferUpdater::update_starlight_info(
             &self.resources,
@@ -2670,8 +2568,8 @@ impl Tracer {
                                 self.ddgi_volumes.builder().status().scheduled_work.expect(
                                     "validated non-S0 iteration must retain scheduled work",
                                 );
-                            self.ddgi_transport_scheduler
-                                .validate_in_flight_completion(work, classified_field)
+                            self.ddgi_runtime
+                                .validate_transport_completion(work, classified_field)
                                 .map_err(|error| {
                                     anyhow::anyhow!(
                                         "DDGI scheduler rejected completion before publication: {error:?}"
@@ -2797,8 +2695,10 @@ impl Tracer {
                         }
 
                         if let Some((work, field)) = completed {
-                            self.ddgi_transport_scheduler
-                                .complete_in_flight(work, field)
+                            let completed_build_token = build_token
+                                .context("validated DDGI field has no volume build token")?;
+                            self.ddgi_runtime
+                                .complete_transport_work(work, field, completed_build_token)
                                 .map_err(|error| {
                                     anyhow::anyhow!(
                                         "DDGI scheduler rejected validated completion: {error:?}"
@@ -2833,10 +2733,8 @@ impl Tracer {
                                     slot,
                                 );
                             }
-                            let build_token = build_token
-                                .context("validated DDGI field has no volume build token")?;
                             self.observe_ddgi_capture_checkpoint(
-                                build_token,
+                                completed_build_token,
                                 field,
                                 atlas_stats,
                                 DdgiCapturePublication::Published,
@@ -2910,8 +2808,8 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
-        if let Some(snapshot) = self.environment_probe_radiance_snapshot {
-            let revision = self.environment_probe_environment_revision;
+        if let Some(lighting) = self.ddgi_runtime.in_flight_authored_lighting() {
+            let revision = lighting.revision;
             if self
                 .ddgi_volumes
                 .builder()
@@ -2919,7 +2817,7 @@ impl Tracer {
             {
                 self.ddgi_volumes
                     .builder_mut()
-                    .latch_radiance_snapshot(revision, snapshot)?;
+                    .latch_radiance_snapshot(revision, lighting.snapshot)?;
                 log::info!(
                     "[DDGI] radiance snapshot latched revision={} stage={:?}",
                     revision,

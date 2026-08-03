@@ -31,14 +31,16 @@ pub use resources::{
     DdgiResourceBytes, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume,
     DdgiVolumeStage, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
+pub(crate) use runtime::{DdgiRuntime, DdgiRuntimeVolumeTarget};
 #[allow(unused_imports)]
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
 #[allow(unused_imports)]
 pub use scheduler::{
-    DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage, DdgiScheduledWork,
-    DdgiScheduledWorkKind, DdgiSchedulerError, DdgiTransportScheduler,
+    DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage, DdgiScheduledWorkKind,
 };
-pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState, DdgiTerrainRefresh};
+pub(crate) use scheduler::{DdgiScheduledWork, DdgiSchedulerError, DdgiTransportScheduler};
+pub(crate) use terrain_refresh::DdgiTerrainRefresh;
+pub use terrain_refresh::{DdgiBuildKind, DdgiBuildToken, DdgiRefreshState};
 pub use voxel_visibility::DdgiVoxelVisibility;
 
 /// Terrain-only hard-visibility origin variants used to isolate voxel receiver self-occlusion.

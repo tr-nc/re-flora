@@ -956,27 +956,20 @@ impl App {
                 if !self.deferred_chunk_rebuilds_idle() {
                     return;
                 }
-                let terrain_revision = self.tracer.environment_probe_terrain_revision();
-                match self
-                    .tracer
-                    .notify_ddgi_initial_terrain_ready(terrain_revision)
-                {
-                    Ok(()) => {
-                        log::info!(
-                            "[ENV_LIGHT_TEST] static terrain ready case={} terrain_revision={} settling_frames={}",
-                            case.label(),
-                            terrain_revision,
-                            SETTLE_FRAMES,
-                        );
-                        TestScenePhase::Settling {
-                            frames: SETTLE_FRAMES,
-                            terrain_revision,
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("[ENV_LIGHT_TEST] DDGI visibility publication failed: {err:#}");
-                        TestScenePhase::Failed
-                    }
+                let terrain_revision = self
+                    .observe_initial_published_terrain_for_ddgi()
+                    .unwrap_or_else(|err| {
+                        panic!("[ENV_LIGHT_TEST] DDGI visibility publication failed: {err:#}")
+                    });
+                log::info!(
+                    "[ENV_LIGHT_TEST] static terrain ready case={} terrain_revision={} settling_frames={}",
+                    case.label(),
+                    terrain_revision,
+                    SETTLE_FRAMES,
+                );
+                TestScenePhase::Settling {
+                    frames: SETTLE_FRAMES,
+                    terrain_revision,
                 }
             }
             TestScenePhase::Settling {
@@ -1734,7 +1727,7 @@ impl App {
         self.execute_edit_plan(
             skylight_edit_plan(edit).with_context(|| format!("compile {} edit", edit.label()))?,
         )?;
-        let target_revision = self.tracer.environment_probe_terrain_revision();
+        let target_revision = self.visible_terrain_revision;
         anyhow::ensure!(
             target_revision != source_revision,
             "{} did not advance terrain revision from {}",
