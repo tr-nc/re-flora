@@ -272,10 +272,11 @@ under matched, reproducible conditions.
 
 **Blocked by:** Existing GitHub issue [#53 — Deepen DDGI Volume runtime ownership](https://github.com/tr-nc/re-flora/issues/53).
 
-**Status:** in-progress (`8b35ec2c`, `cf134884`; descriptor sets retain the Buffer/Texture/
-acceleration-structure owners associated with each written binding, and real staging publication
-now emits release timing markers for descriptor rebind/resource swap/total cost; repeated matched
-samples and durable summary evidence remain)
+**Status:** in-progress (`8b35ec2c`, `cf134884`, `e3c25906`; descriptor sets retain the
+Buffer/Texture/acceleration-structure owners associated with each written binding, and real staging
+publication now emits release timing markers for descriptor rebind/resource swap/total cost. A
+release-only runner now records the exact scene/capture command, raw per-sample logs, and a JSON
+summary; repeated matched samples and durable hardware evidence remain)
 
 - [ ] The benchmark exercises a real DDGI Volume publication after the ownership migration, including
       the current device-wide idle behavior.
@@ -283,8 +284,9 @@ samples and durable summary evidence remain)
       metrics.
 - [ ] Scene, camera, resolution, present mode selection, DDGI spacing, build ancestry, and capture
       conditions are recorded and matched across samples.
-- [ ] The benchmark command and raw/summary evidence are durable and can be reused for the replacement
-      A/B.
+- [x] The benchmark command and raw/summary evidence format are durable and can be reused for the
+      replacement A/B (`scripts/benchmark_ddgi_publication.py`); hardware samples still need to be
+      collected before this ticket is complete.
 - [ ] No synchronization implementation is changed and no performance conclusion is drawn from debug
       builds or unit tests.
 
