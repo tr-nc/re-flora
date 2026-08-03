@@ -3230,12 +3230,6 @@ impl Tracer {
                 "wind_volume.pass",
                 || self.record_wind_volume_pass(cmdbuf, time),
             );
-
-            let b1 = PipelineBarrier::shader_access(
-                PipelineStage::COMPUTE_SHADER,
-                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
-            );
-            b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         if render_flags.enable_flora
@@ -3349,14 +3343,6 @@ impl Tracer {
                 self.cloud_shadow_history_valid = false;
             }
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        }
-
-        if has_graphics_pass && !render_flags.enable_flora {
-            let b1 = PipelineBarrier::shader_access(
-                PipelineStage::COMPUTE_SHADER,
-                PipelineStage::VERTEX_SHADER | PipelineStage::COMPUTE_SHADER,
-            );
-            b1.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
         Ok(())
