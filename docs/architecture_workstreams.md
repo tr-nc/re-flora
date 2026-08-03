@@ -27,7 +27,7 @@ validation, descriptor rebinding, captures, or promotion ordering themselves.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 ### Required outcomes
 
@@ -129,16 +129,16 @@ of destroying a fence or command buffer that Vulkan may still be using.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** completed (`5ab1e777`)
 
-- [ ] A submitted Surface build remains valid through polling, waiting, completion, and result
+- [x] A submitted Surface build remains valid through polling, waiting, completion, and result
       collection without a builder-owned command-buffer sidecar.
-- [ ] Dropping or otherwise abandoning incomplete work produces a deterministic fail-fast outcome
+- [x] Dropping or otherwise abandoning incomplete work produces a deterministic fail-fast outcome
       and never destroys a fence or frees a command buffer still referenced by pending work.
-- [ ] Successful completion still returns the same Surface build result and GPU profiling evidence.
-- [ ] Managed-job diagnostics make submission, completion, and invalid abandonment observable without
+- [x] Successful completion still returns the same Surface build result and GPU profiling evidence.
+- [x] Managed-job diagnostics make submission, completion, and invalid abandonment observable without
       adding waits or allocations to normal diagnostics-disabled runs.
-- [ ] The shared validation ladder passes, including hidden release execution and log inspection.
+- [x] The shared validation ladder passes, including hidden release execution and log inspection.
 
 ---
 
