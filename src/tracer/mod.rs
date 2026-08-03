@@ -5128,8 +5128,6 @@ impl Tracer {
         vsm_temporal_alpha: f32,
         reset_vsm_history: bool,
     ) {
-        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
-
         let extent = self
             .resources
             .shadow
@@ -5140,8 +5138,6 @@ impl Tracer {
         self.compute_pipelines
             .vsm_creation_ppl
             .record(cmdbuf, extent, None);
-
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         let reset_history = reset_vsm_history || !self.shadow_map_history_valid;
         let push_constants = VsmFilterPushConstants {
@@ -5154,8 +5150,6 @@ impl Tracer {
         self.compute_pipelines
             .vsm_blur_h_ppl
             .record(cmdbuf, extent, Some(push_constants_bytes));
-
-        compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         self.compute_pipelines
             .vsm_blur_v_ppl
@@ -5227,8 +5221,6 @@ impl Tracer {
             .cloud_shadow_ppl
             .record(cmdbuf, extent, None);
 
-        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
-
         let push_constants = CloudShadowTemporalPushConstants {
             reset_history: u32::from(!self.cloud_shadow_history_valid),
         };
@@ -5252,8 +5244,6 @@ impl Tracer {
         self.compute_pipelines
             .cloud_ppl
             .record(cmdbuf, extent, None);
-
-        PipelineBarrier::compute_shader_access().record_insert(self.vulkan_ctx.device(), cmdbuf);
 
         let push_constants = CloudTemporalPushConstants {
             reset_history: u32::from(!self.cloud_history_valid),
