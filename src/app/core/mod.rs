@@ -3852,6 +3852,7 @@ impl App {
                         TERRAIN_EDIT_PREVIEW_ALPHA,
                     )
                     .unwrap();
+                self.tracer.record_updated_buffer_uses(cmdbuf);
 
                 let color_to_vec3 = |color: Color32| -> Vec3 {
                     Vec3::new(
@@ -3978,7 +3979,6 @@ impl App {
                         frame_slot,
                     )
                     .unwrap();
-                self.tracer.record_updated_buffer_uses(cmdbuf);
                 if let Some(scope) = shadow_prepass_gpu_scope {
                     if let Some(profiler) = gpu_profiler_for_shadow.as_mut() {
                         profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);
