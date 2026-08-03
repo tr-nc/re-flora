@@ -221,10 +221,10 @@ and retires only after their completion.
 
 **Blocked by:** Ticket 04 — Retire runtime Buffer generations at frame completion.
 
-**Status:** in-progress (`74ce3a02`, `29e2ce0e`; egui Mesh growth and texture
-replacement/removal now publish completion-retired generations, and each live texture is an
-explicit texture/descriptor/generation bundle; dedicated lifecycle validation and partial-update
-ordering remain)
+**Status:** in-progress (`74ce3a02`, `29e2ce0e`, `faa3a0cd`; egui Mesh growth and texture
+replacement/removal now publish completion-retired generations, partial updates copy into a new
+complete Image generation before patching, and each live texture is an explicit
+texture/descriptor/generation bundle; dedicated lifecycle validation remains)
 
 - [x] Replacing or removing a texture keeps the old texture/descriptor pair resident until frame
       completion instead of dropping either map entry immediately.
@@ -234,7 +234,8 @@ ordering remain)
 - [x] Registering a texture publishes one explicit descriptor generation whose owner set is the
       complete renderable resource bundle.
 - [ ] Partial texture updates, identity/descriptor pairing, and the full texture lifecycle pass
-      dedicated hidden release validation.
+      dedicated hidden release validation. The implementation now uses the same complete-generation
+      path for partial updates (`faa3a0cd`); the dedicated lifecycle exercise is still required.
 
 ---
 
@@ -350,7 +351,7 @@ creation-time initialization path where no prior generation can be in flight.
 - Ticket 06 — Resize extent-dependent resources without a device-wide idle.
 - Ticket 08 — Retire DDGI descriptor generations without a device-wide idle.
 
-**Status:** in-progress (`0222d5aa`, `1c7d48bc`, `76397eeb`, `a8e2a009`; Plain's terrain moisture/dry setup is
+**Status:** in-progress (`0222d5aa`, `1c7d48bc`, `76397eeb`, `a8e2a009`, `faa3a0cd`; Plain's terrain moisture/dry setup is
 explicitly creation-time-only, Surface's per-chunk off-frame bindings publish generations retained
 by managed-job completion, and the VKN descriptor API now rejects active-generation writes; final
 validation and any remaining duplicate residency cleanup remain)
