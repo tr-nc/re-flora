@@ -1,7 +1,7 @@
 use crate::environment_lighting::EnvironmentLightingState;
 use crate::geom::UAabb3;
 
-use super::resources::{DdgiStatus, DdgiVolumeStatus};
+use super::resources::{DdgiStatus, DdgiVolumeStatus, DdgiVolumes};
 use super::{
     DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint,
     DdgiCapturePublication, DdgiCaptureTarget, DdgiFieldIdentity, DdgiRefreshState,
@@ -55,8 +55,8 @@ impl DdgiRuntimeWork {
 /// Environment Lighting remains the source of normalized live snapshots and stable revisions;
 /// this runtime retains the exact snapshot chosen for in-flight work so later observations cannot
 /// mutate it underneath the GPU.
-#[derive(Debug)]
 pub(crate) struct DdgiRuntime {
+    volumes: Option<DdgiVolumes>,
     active_grid: DdgiVolumeGrid,
     active_build_token: Option<DdgiBuildToken>,
     active_ready: bool,
@@ -74,6 +74,7 @@ pub(crate) struct DdgiRuntime {
 impl DdgiRuntime {
     pub(crate) fn new(active_grid: DdgiVolumeGrid) -> Self {
         Self {
+            volumes: None,
             active_grid,
             active_build_token: None,
             active_ready: false,
@@ -87,6 +88,25 @@ impl DdgiRuntime {
             capture_batch_order: DdgiBatchOrder::default(),
             capture_checkpoint: None,
         }
+    }
+
+    pub(crate) fn volumes(&self) -> &DdgiVolumes {
+        self.volumes
+            .as_ref()
+            .expect("DDGI physical volumes must be installed before use")
+    }
+
+    pub(crate) fn volumes_mut(&mut self) -> &mut DdgiVolumes {
+        self.volumes
+            .as_mut()
+            .expect("DDGI physical volumes must be installed before use")
+    }
+
+    pub(crate) fn install_volumes(&mut self, volumes: DdgiVolumes) {
+        assert!(
+            self.volumes.replace(volumes).is_none(),
+            "DDGI physical volumes may only be installed once"
+        );
     }
 
     pub(crate) fn configure_capture(
