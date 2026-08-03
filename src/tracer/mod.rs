@@ -1329,6 +1329,11 @@ impl Tracer {
         let started = std::time::Instant::now();
         self.ddgi_voxel_visibility.begin_pack(geometry_revision)?;
         let dispatch = self.ddgi_voxel_visibility.word_dimensions();
+        let block_dispatch = self.ddgi_voxel_visibility.block_dimensions();
+        let pack_to_blocks = PipelineBarrier::shader_access(
+            PipelineStage::COMPUTE_SHADER,
+            PipelineStage::COMPUTE_SHADER,
+        );
         let pack_to_queries = PipelineBarrier::shader_access(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::COMPUTE_SHADER | PipelineStage::VERTEX_SHADER,
@@ -1345,6 +1350,14 @@ impl Tracer {
                         Extent3D::new(dispatch.x, dispatch.y, dispatch.z),
                         None,
                     );
+                pack_to_blocks.record_insert(self.vulkan_ctx.device(), cmdbuf);
+                self.compute_pipelines
+                    .ddgi_voxel_visibility_blocks_ppl
+                    .record(
+                        cmdbuf,
+                        Extent3D::new(block_dispatch.x, block_dispatch.y, block_dispatch.z),
+                        None,
+                    );
                 pack_to_queries.record_insert(self.vulkan_ctx.device(), cmdbuf);
             },
         );
@@ -1354,11 +1367,14 @@ impl Tracer {
             Some(geometry_revision)
         );
         log::info!(
-            "[DDGI][VOXEL_VISIBILITY] published geometry_revision={} packed={}x{}x{} elapsed_ms={:.3}",
+            "[DDGI][VOXEL_VISIBILITY] published geometry_revision={} packed={}x{}x{} blocks={}x{}x{} elapsed_ms={:.3}",
             geometry_revision,
             dispatch.x,
             dispatch.y,
             dispatch.z,
+            block_dispatch.x,
+            block_dispatch.y,
+            block_dispatch.z,
             started.elapsed().as_secs_f64() * 1000.0,
         );
         Ok(())
@@ -1924,6 +1940,10 @@ impl Tracer {
         update_compute_fn(
             &self.compute_pipelines.ddgi_voxel_visibility_pack_ppl,
             &[plain_builder_resources, &self.ddgi_voxel_visibility],
+        );
+        update_compute_fn(
+            &self.compute_pipelines.ddgi_voxel_visibility_blocks_ppl,
+            &[&self.ddgi_voxel_visibility],
         );
         for pipeline in [
             &self.compute_pipelines.ddgi_irradiance_filter_ppl,

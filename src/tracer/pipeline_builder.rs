@@ -79,6 +79,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let ddgi_voxel_visibility_blocks_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/voxel_visibility_blocks.comp",
+            "main",
+        )
+        .unwrap();
 
         let tracer_shadow_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -366,6 +372,7 @@ impl PipelineBuilder {
             ddgi_visibility_gutter_sm,
             ddgi_atlas_reduce_sm,
             ddgi_voxel_visibility_pack_sm,
+            ddgi_voxel_visibility_blocks_sm,
             tracer_shadow_sm,
             shadow_depth_copy_sm,
             leaf_shadow_temporal_sm,
@@ -489,6 +496,12 @@ impl PipelineBuilder {
             pool,
             &[plain_builder_resources, ddgi_voxel_visibility],
         );
+        let ddgi_voxel_visibility_blocks_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.ddgi_voxel_visibility_blocks_sm,
+            pool,
+            &[ddgi_voxel_visibility],
+        );
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,
@@ -606,6 +619,7 @@ impl PipelineBuilder {
             ddgi_visibility_gutter_ppl,
             ddgi_atlas_reduce_ppl,
             ddgi_voxel_visibility_pack_ppl,
+            ddgi_voxel_visibility_blocks_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
@@ -1017,6 +1031,7 @@ pub struct ShaderModules {
     pub ddgi_visibility_gutter_sm: ShaderModule,
     pub ddgi_atlas_reduce_sm: ShaderModule,
     pub ddgi_voxel_visibility_pack_sm: ShaderModule,
+    pub ddgi_voxel_visibility_blocks_sm: ShaderModule,
     pub tracer_shadow_sm: ShaderModule,
     pub shadow_depth_copy_sm: ShaderModule,
     pub leaf_shadow_temporal_sm: ShaderModule,
@@ -1071,6 +1086,7 @@ pub struct ComputePipelines {
     pub ddgi_visibility_gutter_ppl: ComputePipeline,
     pub ddgi_atlas_reduce_ppl: ComputePipeline,
     pub ddgi_voxel_visibility_pack_ppl: ComputePipeline,
+    pub ddgi_voxel_visibility_blocks_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,

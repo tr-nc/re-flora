@@ -424,6 +424,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/ddgi/voxel_visibility_blocks.comp",
+        source_path: "shader/slang/ddgi_voxel_visibility_blocks.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/builder/surface/active_surface_to_flora_instances.comp",
         source_path: "shader/slang/active_surface_to_flora_instances.slang",
         module_path: "shader/slang",
