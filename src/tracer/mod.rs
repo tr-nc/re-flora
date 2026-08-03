@@ -24,6 +24,9 @@ pub use dynamic_fruit_resources::*;
 mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
 
+mod terrain_lighting_cache;
+use terrain_lighting_cache::{TerrainLightingCache, TerrainLightingCacheIdentity};
+
 pub mod tree_preview_mesh;
 
 mod extent_dependent_resources;
@@ -2386,6 +2389,9 @@ impl Tracer {
         // remain alive. The frame's shading constants are updated after this method returns.
         self.vulkan_ctx.device().wait_idle();
         self.update_ddgi_consumer_descriptors(self.ddgi_volumes.builder());
+        self.resources
+            .terrain_lighting_cache
+            .force_clear_before_next_trace();
         let retired_active = self
             .ddgi_volumes
             .promote_staging(build_token)
@@ -2747,6 +2753,19 @@ impl Tracer {
             unpublished_capture_geometry_revision,
             unpublished_capture,
         );
+        let ddgi_invalidation_voxel_bound = self.ddgi_terrain_refresh.invalidation_voxel_bound();
+        let terrain_cache_identity = TerrainLightingCacheIdentity {
+            published_field: ddgi_status.published_field,
+            environment_revision: environment_lighting.revision,
+            global_sky_revision: ddgi_status.global_sky_revision,
+            consumer_visibility: self.desc.ddgi_consumer_visibility.as_u32(),
+            hard_origin: self.desc.ddgi_terrain_hard_origin.as_u32(),
+            invalidation_voxel_bound: ddgi_invalidation_voxel_bound,
+        };
+        let terrain_cache_revision = self
+            .resources
+            .terrain_lighting_cache
+            .observe(terrain_cache_identity);
         BufferUpdater::update_shading_info(
             &self.resources,
             environment_lighting,
@@ -2761,8 +2780,9 @@ impl Tracer {
             self.desc.ddgi_debug_view.as_u32(),
             self.desc.ddgi_consumer_visibility.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
+            terrain_cache_revision,
             ddgi_receiver_visibility_bias_world,
-            self.ddgi_terrain_refresh.invalidation_voxel_bound(),
+            ddgi_invalidation_voxel_bound,
         )?;
         self.environment_probe_environment_revision = environment_lighting.revision;
         self.environment_probe_radiance_snapshot = Some(environment_lighting.snapshot);
@@ -3164,6 +3184,9 @@ impl Tracer {
                             if self.ddgi_volumes.builder_is_active() {
                                 self.vulkan_ctx.device().wait_idle();
                                 self.update_ddgi_consumer_descriptors(self.ddgi_volumes.builder());
+                                self.resources
+                                    .terrain_lighting_cache
+                                    .force_clear_before_next_trace();
                                 let slot = self
                                     .ddgi_volumes
                                     .builder()
@@ -3716,6 +3739,13 @@ impl Tracer {
         // its hardware depth attachment from this output so every raster
         // fragment is tested against terrain before transparent blending can
         // discard the individual depths of layers behind it.
+        if self
+            .resources
+            .terrain_lighting_cache
+            .record_clear_if_needed(cmdbuf)
+        {
+            transfer_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
+        }
         compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         if render_flags.enable_tracer {
             Self::with_gpu_scope(

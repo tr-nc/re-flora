@@ -36,6 +36,19 @@ readonly RWTexture3D<uint2> scene_tex;
 readonly RWTexture3D<uint> chunk_atlas;
 [[vk::binding(17, 0)]] Sampler2D shadow_map_tex_for_vsm_ping;
 
+struct TerrainDdgiCacheMetadata
+{
+    uint key;
+    uint revision;
+    uint ready_frame;
+    uint reserved;
+};
+
+[[vk::binding(39, 0)]]
+RWStructuredBuffer<TerrainDdgiCacheMetadata> terrain_ddgi_cache_metadata;
+[[vk::binding(40, 0)]]
+RWStructuredBuffer<float4> terrain_ddgi_cache_irradiance;
+
 [[vk::binding(0, 1)]] [[vk::image_format("r32ui")]]
 RWTexture2D<uint> compute_output_tex;
 [[vk::binding(1, 1)]] [[vk::image_format("r32f")]]
@@ -81,6 +94,10 @@ static const uint DDGI_DEBUG_IRRADIANCE_ATLAS = 10u;
 static const uint DDGI_DEBUG_VISIBILITY_ATLAS = 11u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED = 1u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED = 2u;
+static const uint TERRAIN_DDGI_CACHE_CAPACITY = 1u << 20u;
+static const uint TERRAIN_DDGI_CACHE_MASK = TERRAIN_DDGI_CACHE_CAPACITY - 1u;
+static const uint TERRAIN_DDGI_CACHE_MAX_PROBES = 8u;
+static const uint TERRAIN_DDGI_CACHE_COMPUTING_BIT = 0x80000000u;
 
 float3 terrainDdgiHardVisibilityOrigin(float3 voxelCenter,
                                        float3 surfacePosition,
@@ -107,6 +124,92 @@ float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal)
 {
     return terrainRayOriginAlongNormal(
         voxelCenter, normal, gui_input.terrain_ray_origin_offset_world);
+}
+
+uint terrainDdgiCacheKey(float3 voxelCenter)
+{
+    uint3 voxelCoordinate = uint3(floor(voxelCenter * 256.0));
+    // Terrain stores one canonical smooth normal per voxel, so the voxel
+    // coordinate fully identifies every input to the DDGI receiver query.
+    uint packedKey = voxelCoordinate.x | (voxelCoordinate.y << 9u) |
+                     (voxelCoordinate.z << 18u);
+    return packedKey + 1u;
+}
+
+uint terrainDdgiCacheHash(uint key)
+{
+    uint hash = key;
+    hash ^= hash >> 16u;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15u;
+    hash *= 0x846ca68bu;
+    hash ^= hash >> 16u;
+    return hash;
+}
+
+bool terrainDdgiCacheSlot(uint key, out uint slot)
+{
+    uint firstSlot = terrainDdgiCacheHash(key) & TERRAIN_DDGI_CACHE_MASK;
+    [unroll]
+    for (uint probe = 0u; probe < TERRAIN_DDGI_CACHE_MAX_PROBES; ++probe)
+    {
+        slot = (firstSlot + probe) & TERRAIN_DDGI_CACHE_MASK;
+        uint observedKey = terrain_ddgi_cache_metadata[slot].key;
+        if (observedKey == key) return true;
+        if (observedKey != 0u) continue;
+        InterlockedCompareExchange(
+            terrain_ddgi_cache_metadata[slot].key, 0u, key, observedKey);
+        if (observedKey == 0u || observedKey == key) return true;
+    }
+    slot = 0u;
+    return false;
+}
+
+float3 sampleTerrainDdgiEnvironmentCached(
+    float3 voxelCenter, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
+{
+    uint slot;
+    uint key = terrainDdgiCacheKey(voxelCenter);
+    if (!terrainDdgiCacheSlot(key, slot))
+    {
+        return sampleDdgiDiffuseEnvironment(
+            shading_info, worldPosition, surfaceNormal,
+            hardVisibilityWorldPosition).irradiance;
+    }
+
+    uint targetRevision = shading_info.ddgi_query_revision;
+    TerrainDdgiCacheMetadata metadata = terrain_ddgi_cache_metadata[slot];
+    if (metadata.revision == targetRevision &&
+        metadata.ready_frame != env_info.frame_serial_idx)
+    {
+        return terrain_ddgi_cache_irradiance[slot].xyz;
+    }
+
+    uint observedRevision = metadata.revision;
+    bool canPublish = (observedRevision & TERRAIN_DDGI_CACHE_COMPUTING_BIT) == 0u;
+    if (canPublish)
+    {
+        InterlockedCompareExchange(
+            terrain_ddgi_cache_metadata[slot].revision,
+            observedRevision,
+            targetRevision | TERRAIN_DDGI_CACHE_COMPUTING_BIT,
+            observedRevision);
+        canPublish = observedRevision == metadata.revision;
+    }
+
+    float3 irradiance = sampleDdgiDiffuseEnvironment(
+        shading_info, worldPosition, surfaceNormal,
+        hardVisibilityWorldPosition).irradiance;
+    if (canPublish)
+    {
+        terrain_ddgi_cache_irradiance[slot] = float4(irradiance, 1.0);
+        terrain_ddgi_cache_metadata[slot].ready_frame = env_info.frame_serial_idx;
+        DeviceMemoryBarrier();
+        InterlockedExchange(
+            terrain_ddgi_cache_metadata[slot].revision, targetRevision);
+    }
+    return irradiance;
 }
 
 float3 shadowRayColor(Ray ray, float3 receiverNormal)
@@ -408,9 +511,23 @@ void getPixelColor(out float3 color, out float depth,
         result.center_position, result.normal);
     float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(
         result.center_position, ddgiReceiverPosition, result.normal);
-    DdgiQueryResult consumerResult = sampleDdgiDiffuseEnvironment(
-        shading_info, ddgiReceiverPosition, result.normal,
-        ddgiHardVisibilityOrigin);
+    DdgiQueryResult consumerResult = makeEmptyDdgiQueryResult();
+    bool canUseTerrainCache =
+        shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL &&
+        shading_info.environment_irradiance_capture_enabled == 0u &&
+        shading_info.environment_irradiance_capture_unpublished == 0u;
+    if (canUseTerrainCache)
+    {
+        consumerResult.irradiance = sampleTerrainDdgiEnvironmentCached(
+            result.center_position, ddgiReceiverPosition, result.normal,
+            ddgiHardVisibilityOrigin);
+    }
+    else
+    {
+        consumerResult = sampleDdgiDiffuseEnvironment(
+            shading_info, ddgiReceiverPosition, result.normal,
+            ddgiHardVisibilityOrigin);
+    }
     DdgiQueryResult captureResult = consumerResult;
     if (shading_info.environment_irradiance_capture_unpublished != 0u)
     {

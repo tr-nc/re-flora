@@ -531,7 +531,17 @@ mod tests {
             "surfacePosition +\n            normalDirection * gui_input.terrain_ray_origin_offset_world"
         ));
         assert!(tracer.contains(
-            "shading_info, ddgiReceiverPosition, result.normal,\n        ddgiHardVisibilityOrigin"
+            "sampleTerrainDdgiEnvironmentCached(\n            result.center_position, ddgiReceiverPosition, result.normal,\n            ddgiHardVisibilityOrigin)"
+        ));
+        let terrain_cache = tracer
+            .split_once("float3 sampleTerrainDdgiEnvironmentCached(")
+            .expect("terrain DDGI cache seam must exist")
+            .1
+            .split_once("float3 shadowRayColor(")
+            .expect("terrain cache must remain ahead of direct lighting")
+            .0;
+        assert!(terrain_cache.contains(
+            "shading_info, worldPosition, surfaceNormal,\n            hardVisibilityWorldPosition"
         ));
         let exact_reference = tracer
             .split_once("DdgiQueryResult sampleDdgiExactTerrainReference(")

@@ -120,6 +120,7 @@ public struct U_ShadingInfo
     public uint ddgi_debug_view;
     public uint ddgi_consumer_visibility;
     public uint ddgi_terrain_hard_origin;
+    public uint ddgi_query_revision;
     public uint ddgi_invalidation_enabled;
     public float3 ddgi_invalidation_world_min;
     public float3 ddgi_invalidation_world_max;
