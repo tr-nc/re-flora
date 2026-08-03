@@ -498,7 +498,7 @@ barriers only as a narrow, intentional diagnostic or exceptional-operation seam.
 - Ticket 13 — Migrate tracer Buffer hazards.
 
 **Status:** in-progress (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`, `5c5ce3a2`, `704cf9eb`,
-`83fe98de`, `01a7a2d7`, `42420042`, `49fdd00e`;
+`83fe98de`, `01a7a2d7`, `42420042`, `49fdd00e`, `6902c0b1`;
 pipeline-local Image trackers removed, ImageUse declarations now route through CommandBuffer, and
 tracer image-copy history paths no longer add redundant compute/transfer fallback barriers; normal-
 frame Image transactions still need a safe overlap seam)
@@ -519,6 +519,8 @@ frame Image transactions still need a safe overlap seam)
       removed.
 - [x] The remaining tracer compute-only pass boundaries use declared Image/Buffer uses; redundant
       frame-wide compute-to-compute barriers are removed from the migrated path.
+- [x] Shadow render/compute boundaries rely on RenderTarget and pipeline Image transitions; the
+      one retained compute-to-graphics barrier is documented as the MoltenVK VSM diagnostic seam.
 - [ ] Remaining explicit barrier/state APIs are narrowly documented, inspectable, and exercised by a
       concrete exceptional use rather than retained for hypothetical compatibility.
 - [ ] Tests assert semantic command-recording behavior and diagnostics rather than private pipeline
