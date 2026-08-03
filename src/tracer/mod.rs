@@ -96,6 +96,7 @@ use re_flora_vkn::{
     WriteDescriptorSet,
 };
 use std::collections::HashMap;
+use std::time::Instant;
 
 fn ddgi_shading_geometry_revision(
     active_published_revision: Option<u32>,
@@ -2121,17 +2122,21 @@ impl Tracer {
         // Previous frames may still sample the active volume. Publish a new descriptor generation
         // and keep the old generation/resource owners on the frame-completion retirement clock
         // while the frame's shading constants move to the complete staging volume.
+        let publication_started = Instant::now();
         let descriptor_generation = self.next_descriptor_generation();
         let descriptor_retirements = {
             let builder = self.ddgi_volumes.builder();
             self.update_ddgi_consumer_descriptors(builder, descriptor_generation)
         };
+        let descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
         self.pending_frame_retirements
             .extend(descriptor_retirements);
         let retired_active = self
             .ddgi_volumes
             .promote_staging(build_token)
             .expect("ready DDGI staging volume must be promotable");
+        let resource_swap_ms =
+            publication_started.elapsed().as_secs_f64() * 1_000.0 - descriptor_rebind_ms;
         assert!(
             self.ddgi_runtime.mark_promoted(build_token),
             "promoted DDGI token must still be coordinator-authoritative"
@@ -2164,6 +2169,14 @@ impl Tracer {
             active.building_field,
             cleared_terrain_invalidation,
             active.stage,
+        );
+        log::info!(
+            "[DDGI][PUBLICATION_TIMING] token_serial={} descriptor_rebind_ms={:.3} resource_swap_ms={:.3} total_publication_ms={:.3} descriptor_generation={}",
+            build_token.serial(),
+            descriptor_rebind_ms,
+            resource_swap_ms.max(0.0),
+            publication_started.elapsed().as_secs_f64() * 1_000.0,
+            descriptor_generation,
         );
         log::info!(
             "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} published_slot={} transport={:?} iteration={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=update_ddgi_consumer_descriptors",
