@@ -447,7 +447,7 @@ order and rendergraph-lite architecture.
 
 **Status:** in-progress (`5fb17dbf`, `f04ef4ca`, `8d09317f`, `48d27b1b`, `b9108858`, `b4ef4d29`,
 `4f1d8592`, `14d3b0ef`, `419fff8d`, `1d0b34d5`, `dd0fc745`, `91a7bed8`, `69343901`, `5cdf796d`,
-`96acf10d`, `3f90f1b2`, `ebfe4879`, `73fa3aad`, `1248b5b0`, `098cb031`, `0de8c4de`, `29e2ce0e`; DDGI voxel-visibility and
+`96acf10d`, `3f90f1b2`, `ebfe4879`, `73fa3aad`, `1248b5b0`, `098cb031`, `0de8c4de`, `29e2ce0e`, `1ec6204f`; DDGI voxel-visibility and
 terrain-query one-time paths, CPU-updated tracer/DDGI uniform buffers, CPU-filled tracer graphics
 instance buffers, tracer static mesh inputs, flora/wind shader lookup buffers, irradiance-capture
 storage writes, DDGI metadata/transient-ray transitions, and Egui mesh buffers now declare Buffer
@@ -492,7 +492,10 @@ uses; frame-wide Image tracking remains incomplete)
       dependencies.
 - [ ] Rendered output, screenshots/captures, GPU profiling, and release frame behavior remain
       equivalent under matched conditions.
-- [ ] Hidden release logs remain free of synchronization, descriptor, and resource-state errors.
+- [x] Hidden release logs remain free of synchronization, descriptor, and resource-state errors;
+      the post-barrier-removal release run and the `sync_diagnostics` release run both exit cleanly
+      with the strict actual-error scan clean (`target/re-flora-logs/re-flora-20260803-224405.505-25540.log`,
+      `target/re-flora-logs/re-flora-20260803-224451.054-26210.log`).
 
 **Deferred boundary:** Egui's dynamic Mesh buffers now declare HostWrite/IndexRead/VertexRead before
 the GUI render pass and retain replaced generations through completion (`74ce3a02`, `91a7bed8`,
@@ -513,11 +516,12 @@ barriers only as a narrow, intentional diagnostic or exceptional-operation seam.
 - Ticket 12 — Migrate remaining builder Buffer hazards.
 - Ticket 13 — Migrate tracer Buffer hazards.
 
-**Status:** in-progress (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`, `5c5ce3a2`, `704cf9eb`,
-`83fe98de`, `01a7a2d7`, `42420042`, `49fdd00e`, `6902c0b1`, `a8e2a009`, `f9b6d4f5`, `3809c27b`;
+**Status:** completed (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`, `5c5ce3a2`, `704cf9eb`,
+`83fe98de`, `01a7a2d7`, `42420042`, `49fdd00e`, `6902c0b1`, `a8e2a009`, `f9b6d4f5`, `3809c27b`, `1ec6204f`;
 pipeline-local Image trackers removed, ImageUse declarations now route through CommandBuffer, and
 tracer image-copy history paths no longer add redundant compute/transfer fallback barriers; remaining
-work is focused on resize/overlap evidence and the exceptional swapchain barrier boundary)
+work in the broader synchronization workstream is focused on resize/overlap evidence and the
+exceptional swapchain barrier boundary)
 
 - [x] One command-recording module owns committed Image state, Buffer hazards, and barrier emission
       for normal rendering and builder work; frame/loading recordings now use the same Image+Buffer
@@ -543,8 +547,10 @@ work is focused on resize/overlap evidence and the exceptional swapchain barrier
       compatibility.
 - [x] Tests assert semantic command-recording behavior and descriptor-owner ImageUse mapping rather
       than private pipeline fields or raw Vulkan masks.
-- [ ] The complete validation ladder passes, including DDGI acceptance where affected and hidden
-      release log inspection.
+- [x] The complete validation ladder passes, including DDGI acceptance where affected and hidden
+      release log inspection. The final checks covered `cargo fmt --check`, `cargo check`,
+      `cargo check --features sync_diagnostics`, `cargo test`, DDGI lifecycle acceptance, and both
+      normal and `sync_diagnostics` hidden release runs with clean strict actual-error scans.
 
 ## Completion condition
 
