@@ -12,9 +12,9 @@ use anyhow::Result;
 use bytemuck::Zeroable;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::{
-    Buffer, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool, Extent3D,
-    GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineBarrier, PipelineStage, QueueLane,
-    ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
+    Buffer, BufferUse, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
+    Extent3D, GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineBarrier, PipelineStage,
+    QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
 };
 pub use resources::*;
 use std::{
@@ -609,6 +609,7 @@ impl SurfaceBuilder {
         let record_start = Instant::now();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
+        cmdbuf.begin_resource_state_transaction();
 
         let gpu_scope = self.gpu_job_profiler.as_mut().and_then(|profiler| {
             profiler.begin_scope(
@@ -648,11 +649,7 @@ impl SurfaceBuilder {
             );
         });
         record_timed_surface_pass!({
-            record_clear_buffer_for_compute(
-                device,
-                &cmdbuf,
-                &self.resources.surface_active_brick_flags,
-            );
+            record_clear_buffer_for_compute(&cmdbuf, &self.resources.surface_active_brick_flags);
         });
 
         let solid_workgroup_dim = (self.voxel_dim_per_chunk + UVec3::splat(7)) / 8;
@@ -663,11 +660,26 @@ impl SurfaceBuilder {
             // build that still reads the previous chunk's make_surface_result while
             // the CPU starts recording the next surface build. A host-side clear here
             // can zero active_brick_len before that queued contree pass consumes it.
-            record_clear_buffer_for_compute(device, &cmdbuf, &self.resources.make_surface_result);
+            record_clear_buffer_for_compute(&cmdbuf, &self.resources.make_surface_result);
             record_clear_buffer_for_compute(
-                device,
                 &cmdbuf,
                 &self.resources.surface_solid_workgroup_dispatch_indirect,
+            );
+            cmdbuf.use_buffer(
+                &self.resources.make_surface_result,
+                BufferUse::ComputeReadWrite,
+            );
+            cmdbuf.use_buffer(
+                &self.resources.surface_active_brick_flags,
+                BufferUse::ComputeRead,
+            );
+            cmdbuf.use_buffer(
+                &self.resources.surface_solid_workgroup_indices,
+                BufferUse::ComputeWrite,
+            );
+            cmdbuf.use_buffer(
+                &self.resources.surface_solid_workgroup_dispatch_indirect,
+                BufferUse::ComputeReadWrite,
             );
             self.prepare_sparse_surface_dispatch_ppl.record(
                 &cmdbuf,
@@ -677,6 +689,22 @@ impl SurfaceBuilder {
         });
 
         record_compute_to_indirect_and_shader_barrier(device, &cmdbuf);
+        cmdbuf.use_buffer(
+            &self.resources.surface_solid_workgroup_dispatch_indirect,
+            BufferUse::IndirectRead,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.make_surface_result,
+            BufferUse::ComputeReadWrite,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.surface_active_brick_flags,
+            BufferUse::ComputeReadWrite,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.surface_active_brick_indices,
+            BufferUse::ComputeWrite,
+        );
         record_timed_surface_pass!({
             self.make_surface_ppl.record_indirect(
                 &cmdbuf,
@@ -687,6 +715,11 @@ impl SurfaceBuilder {
 
         if place_flora {
             record_compute_barrier(device, &cmdbuf);
+            cmdbuf.use_buffer(&self.resources.make_surface_result, BufferUse::ComputeRead);
+            cmdbuf.use_buffer(
+                &self.resources.active_surface_flora_dispatch_indirect,
+                BufferUse::ComputeWrite,
+            );
             record_timed_surface_pass!({
                 self.prepare_active_surface_flora_dispatch_ppl.record(
                     &cmdbuf,
@@ -695,6 +728,31 @@ impl SurfaceBuilder {
                 );
             });
             record_compute_to_indirect_and_shader_barrier(device, &cmdbuf);
+            cmdbuf.use_buffer(
+                &self.resources.active_surface_flora_dispatch_indirect,
+                BufferUse::IndirectRead,
+            );
+            cmdbuf.use_buffer(
+                &self.resources.occupancy_to_instances_result,
+                BufferUse::ComputeReadWrite,
+            );
+            cmdbuf.use_buffer(
+                &self.resources.surface_active_brick_indices,
+                BufferUse::ComputeRead,
+            );
+            cmdbuf.use_buffer(&self.resources.make_surface_result, BufferUse::ComputeRead);
+            let chunk_resources = flora_chunk_idx
+                .map(|chunk_idx| &self.resources.instances.chunk_flora_instances[chunk_idx].1);
+            if let Some(chunk_resources) = chunk_resources {
+                cmdbuf.use_buffer(
+                    &chunk_resources.resource.instances_buf,
+                    BufferUse::ComputeWrite,
+                );
+                cmdbuf.use_buffer(
+                    &chunk_resources.grass_growth_potential_levels,
+                    BufferUse::ComputeRead,
+                );
+            }
             record_timed_surface_pass!({
                 self.active_surface_to_flora_ppl.record_indirect(
                     &cmdbuf,
@@ -1728,14 +1786,8 @@ fn record_compute_to_indirect_and_shader_barrier(
     PipelineBarrier::compute_to_indirect_and_shader_access().record_insert(device, cmdbuf);
 }
 
-fn record_clear_buffer_for_compute(
-    device: &re_flora_vkn::Device,
-    cmdbuf: &CommandBuffer,
-    buffer: &Buffer,
-) {
+fn record_clear_buffer_for_compute(cmdbuf: &CommandBuffer, buffer: &Buffer) {
     buffer.record_fill(cmdbuf, 0, buffer.get_size_bytes(), 0);
-
-    PipelineBarrier::transfer_to_compute_shader_access().record_insert(device, cmdbuf);
 }
 
 fn update_make_surface_info(
