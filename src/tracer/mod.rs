@@ -91,9 +91,8 @@ use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
     ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue,
     DescriptorPool, Extent2D, Extent3D, FrameRetirement, Framebuffer, GpuProfiler,
-    GraphicsPipeline, MemoryAccess, MemoryBarrier, PipelineBarrier, PipelineStage,
-    PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
-    WriteDescriptorSet,
+    GraphicsPipeline, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget,
+    Texture, TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -2965,7 +2964,6 @@ impl Tracer {
         self.graphics_pipelines
             .begin_manual_buffer_frame(gpu_profiler_frame_slot);
 
-        let compute_to_compute_barrier = PipelineBarrier::compute_shader_access();
         // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
         // flora vertex shader samples it in the same command buffer. MoltenVK/Metal
         // needs the write made visible to graphics explicitly; a compute->compute
@@ -2973,22 +2971,6 @@ impl Tracer {
         let compute_to_graphics_barrier = PipelineBarrier::shader_access(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::VERTEX_SHADER,
-        );
-        let color_to_compute_barrier = PipelineBarrier::new(
-            PipelineStage::COLOR_ATTACHMENT_OUTPUT,
-            PipelineStage::COMPUTE_SHADER,
-            [MemoryBarrier::new(
-                MemoryAccess::COLOR_ATTACHMENT_WRITE,
-                MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
-            )],
-        );
-        let depth_to_compute_barrier = PipelineBarrier::new(
-            PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
-            PipelineStage::COMPUTE_SHADER,
-            [MemoryBarrier::new(
-                MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
-                MemoryAccess::SHADER_READ,
-            )],
         );
 
         Self::with_gpu_scope(
@@ -3261,7 +3243,6 @@ impl Tracer {
                     )
                 },
             );
-            color_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3275,7 +3256,6 @@ impl Tracer {
                     )
                 },
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3285,13 +3265,7 @@ impl Tracer {
             );
             self.record_store_leaf_shadow_history(cmdbuf);
         }
-        if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {
-            let frag_to_compute_barrier = PipelineBarrier::shader_access(
-                PipelineStage::FRAGMENT_SHADER,
-                PipelineStage::COMPUTE_SHADER,
-            );
-            frag_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
-        }
+        if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {}
 
         if render_flags.enable_shadows && update_shadow_map {
             let dynamic_fruit_shadow_changed = self.dynamic_fruit_resources.take_shadow_changed();
@@ -3303,7 +3277,6 @@ impl Tracer {
                     "dynamic_fruit_shadow.pass",
                     || self.record_dynamic_fruit_shadow_pass(cmdbuf),
                 );
-                depth_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             }
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -3312,7 +3285,6 @@ impl Tracer {
                 "shadow_depth_copy.pass",
                 || self.record_shadow_depth_copy_pass(cmdbuf),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3320,7 +3292,6 @@ impl Tracer {
                 "tracer_shadow.pass",
                 || self.record_tracer_shadow_pass(cmdbuf),
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3335,7 +3306,6 @@ impl Tracer {
                     )
                 },
             );
-            compute_to_compute_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
             if render_flags.enable_clouds {
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
