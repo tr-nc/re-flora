@@ -1491,6 +1491,18 @@ impl DdgiVolume {
             .fill_uniform(&self.transport_query_snapshot)
     }
 
+    /// Declares the CPU-updated DDGI uniform buffers before the frame's first DDGI shader pass.
+    pub fn record_cpu_updated_buffer_uses(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        for buffer in [
+            &*self.ddgi_radiance_sun,
+            &*self.ddgi_radiance_voxel_palette,
+            &*self.ddgi_transport_query_info,
+        ] {
+            cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
+            cmdbuf.use_buffer(buffer, BufferUse::ShaderRead);
+        }
+    }
+
     pub fn record_trace_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         self.ddgi_trace_stats.record_copy_to_buffer(
             cmdbuf,

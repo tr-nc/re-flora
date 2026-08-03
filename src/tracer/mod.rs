@@ -2847,6 +2847,10 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
+        self.ddgi_volumes
+            .builder()
+            .record_cpu_updated_buffer_uses(cmdbuf);
+
         if let Some(lighting) = self.ddgi_runtime.in_flight_authored_lighting() {
             let revision = lighting.revision;
             if self
