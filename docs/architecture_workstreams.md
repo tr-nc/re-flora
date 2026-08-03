@@ -482,7 +482,7 @@ barriers only as a narrow, intentional diagnostic or exceptional-operation seam.
 - Ticket 12 — Migrate remaining builder Buffer hazards.
 - Ticket 13 — Migrate tracer Buffer hazards.
 
-**Status:** in-progress (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`; pipeline-local Image
+**Status:** in-progress (`7ef223bb`, `a477f3d1`, `ebfe4879`, `0de8c4de`, `5c5ce3a2`; pipeline-local Image
 trackers removed, ImageUse declarations now route through CommandBuffer, and several tracer image
 fallback barriers are deleted; normal-frame Image transactions still need a safe overlap seam)
 
