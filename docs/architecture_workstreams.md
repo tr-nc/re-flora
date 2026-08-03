@@ -29,8 +29,9 @@ validation, descriptor rebinding, captures, or promotion ordering themselves.
 
 **Status:** in-progress (terrain/radiance event ownership integrated in `5e7f6847`, capture
 checkpoint configuration/residency and its canonical typed-status observation now belong to
-`DdgiRuntime` in `b680f403`/`5bf4b325`, and active/staging `DdgiVolumes` ownership moved under the
-runtime in `c55c7366`; pass ownership and atomic publication completion remain active)
+`DdgiRuntime` in `b680f403`/`5bf4b325`, active/staging `DdgiVolumes` ownership moved under the
+runtime in `c55c7366`, and the fail-fast physical/logical promotion transaction is centralized in
+`49033a6e`; pass recording ownership remains active)
 
 ### Required outcomes
 
