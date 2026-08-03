@@ -515,6 +515,12 @@ impl App {
         }
     }
 
+    fn schedule_tracer_frame_retirements(&mut self) {
+        for retirement in self.tracer.take_frame_retirements() {
+            self.frame_manager.retire_after_last_submission(retirement);
+        }
+    }
+
     fn log_gpu_profiler_frame(&self, frame_count: u64) {
         let Some(results) = self.gpu_profiler_latest_results.as_ref() else {
             return;
@@ -3220,6 +3226,7 @@ impl App {
                 self.apply_denoiser_benchmark_camera_motion();
 
                 let gpu_record_start = Instant::now();
+                self.schedule_tracer_frame_retirements();
                 let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
                     Ok(frame) => frame,
                     Err(SwapchainFrameError::OutOfDate) => {

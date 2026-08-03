@@ -2,7 +2,7 @@ use anyhow::{anyhow, ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{Quat, Vec3, Vec4};
 use re_flora_vkn::vk;
-use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, MemoryLocation};
+use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, FrameRetirement, MemoryLocation};
 
 use crate::{
     resource::Resource,
@@ -72,6 +72,8 @@ pub struct DynamicFruitRendererResources {
     device: Device,
     allocator: Allocator,
     instance_capacity: usize,
+    instance_generation: u64,
+    pending_frame_retirements: Vec<FrameRetirement>,
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
     pub indices_len: u32,
@@ -114,6 +116,8 @@ impl DynamicFruitRendererResources {
             device,
             allocator,
             instance_capacity: 1,
+            instance_generation: 1,
+            pending_frame_retirements: Vec::new(),
             vertices: Resource::new(vertices),
             indices: Resource::new(indices),
             indices_len: indices_data.len() as u32,
@@ -178,24 +182,37 @@ impl DynamicFruitRendererResources {
         std::mem::take(&mut self.shadow_changed)
     }
 
+    pub fn take_frame_retirements(&mut self) -> Vec<FrameRetirement> {
+        std::mem::take(&mut self.pending_frame_retirements)
+    }
+
     fn ensure_instance_capacity(&mut self, required: usize) -> Result<()> {
         let required = required.max(1);
         if required <= self.instance_capacity {
             return Ok(());
         }
-        self.instance_capacity = required
+        let new_capacity = required
             .checked_next_power_of_two()
             .ok_or_else(|| anyhow!("dynamic fruit instance capacity overflow"))?;
-        // The current instance buffer may still be referenced by a submitted command buffer.
-        // Capacity growth is rare, so synchronize before replacing and destroying it.
-        self.device.wait_idle();
-        *self.instances = Buffer::new_sized(
+        let new_buffer = Buffer::new_sized(
             self.device.clone(),
             self.allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
             MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<DynamicFruitInstanceGpu>() * self.instance_capacity) as u64,
+            (std::mem::size_of::<DynamicFruitInstanceGpu>() * new_capacity) as u64,
         );
+        let retired_generation = self.instance_generation;
+        self.instance_generation = self
+            .instance_generation
+            .checked_add(1)
+            .expect("dynamic fruit instance generation overflow");
+        self.instance_capacity = new_capacity;
+        let retired_buffer = std::mem::replace(&mut *self.instances, new_buffer);
+        self.pending_frame_retirements.push(FrameRetirement::new(
+            "dynamic_fruit.instances",
+            retired_generation,
+            retired_buffer,
+        ));
         Ok(())
     }
 }
