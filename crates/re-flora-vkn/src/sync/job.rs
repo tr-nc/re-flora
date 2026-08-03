@@ -1,7 +1,7 @@
 use ash::prelude::VkResult;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{CommandBuffer, Device, Fence, Queue, SubmitDesc};
+use crate::{CommandBuffer, Device, Fence, FrameRetirement, Queue, SubmitDesc};
 
 /// Semantic queue lane for vkn-managed GPU jobs.
 ///
@@ -25,6 +25,7 @@ pub struct GpuJobToken {
     queue: QueueLane,
     fence: Option<Fence>,
     resident_command_buffer: Option<CommandBuffer>,
+    resident_resources: Vec<Box<dyn std::any::Any>>,
     completion_observed: AtomicBool,
 }
 
@@ -47,6 +48,7 @@ impl CompletedGpuJob {
     pub fn queue(&self) -> QueueLane {
         self.queue
     }
+
 }
 
 impl GpuJobToken {
@@ -56,6 +58,14 @@ impl GpuJobToken {
 
     pub fn queue(&self) -> QueueLane {
         self.queue
+    }
+
+    /// Retain a published resource generation until this managed job completes.
+    ///
+    /// Off-frame recordings do not use the frame retirement clock, so resources
+    /// whose descriptors are bound by the job travel with its completion token.
+    pub fn retain_frame_retirement(&mut self, retirement: FrameRetirement) {
+        self.resident_resources.push(retirement.into_resident());
     }
 
     pub fn is_complete(&self) -> VkResult<bool> {
@@ -136,6 +146,9 @@ impl GpuJobToken {
     fn leak_pending_owners(&mut self) {
         leak_owner(&mut self.fence);
         leak_owner(&mut self.resident_command_buffer);
+        for resource in self.resident_resources.drain(..) {
+            std::mem::forget(resource);
+        }
     }
 }
 
@@ -145,6 +158,9 @@ impl Drop for GpuJobToken {
             return;
         }
 
+        for resource in self.resident_resources.drain(..) {
+            std::mem::forget(resource);
+        }
         fail_fast_invalid_abandonment(
             self.name,
             self.queue,
@@ -216,6 +232,7 @@ impl GpuJobManager {
             queue: queue_lane,
             fence: Some(fence),
             resident_command_buffer: Some(command_buffer),
+            resident_resources: Vec::new(),
             completion_observed: AtomicBool::new(false),
         })
     }

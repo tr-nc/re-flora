@@ -13,11 +13,12 @@ use bytemuck::Zeroable;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::{
     Buffer, BufferUse, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
-    Extent3D, GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineStage, QueueLane,
-    ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
+    Extent3D, FrameRetirement, GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineStage,
+    QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
 };
 pub use resources::*;
 use std::{
+    cell::Cell,
     collections::HashMap,
     time::{Duration, Instant},
 };
@@ -364,6 +365,7 @@ pub struct SurfaceBuilder {
     gpu_job_profiler: Option<GpuJobProfiler>,
     authored_flora: AuthoredFloraStore,
     external_grass_growth_influences: HashMap<u64, GrassGrowthInfluence>,
+    next_descriptor_generation: Cell<u64>,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -536,6 +538,7 @@ impl SurfaceBuilder {
             gpu_job_profiler: None,
             authored_flora: AuthoredFloraStore::default(),
             external_grass_growth_influences: HashMap::new(),
+            next_descriptor_generation: Cell::new(1),
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
@@ -584,7 +587,7 @@ impl SurfaceBuilder {
             atlas_read_dim,
             true,
         )?;
-        let flora_chunk_idx = if place_flora {
+        let (flora_chunk_idx, descriptor_retirement) = if place_flora {
             let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
             update_occupancy_to_instances_info(
                 &self.resources.occupancy_to_instances_info,
@@ -595,14 +598,11 @@ impl SurfaceBuilder {
             )?;
             cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
             let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
-            self.bind_manual_instance_buffer(&self.active_surface_to_flora_ppl, chunk_resources);
-            self.bind_grass_growth_potential_buffer(
-                &self.active_surface_to_flora_ppl,
-                chunk_resources,
-            );
-            Some(chunk_idx)
+            let descriptor_retirement =
+                self.bind_instance_descriptors(&self.active_surface_to_flora_ppl, chunk_resources);
+            (Some(chunk_idx), Some(descriptor_retirement))
         } else {
-            None
+            (None, None)
         };
         let setup_elapsed = setup_start.elapsed();
 
@@ -773,8 +773,11 @@ impl SurfaceBuilder {
         let record_elapsed = record_start.elapsed();
 
         let submit_start = Instant::now();
-        let gpu_job =
+        let mut gpu_job =
             cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.build")?;
+        if let Some(descriptor_retirement) = descriptor_retirement {
+            gpu_job.retain_frame_retirement(descriptor_retirement);
+        }
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
 
@@ -1443,10 +1446,11 @@ impl SurfaceBuilder {
         cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
 
         let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
-        self.bind_manual_instance_buffer(&self.instances_to_occupancy_ppl, chunk_resources);
-        self.bind_grass_growth_potential_buffer(&self.edit_occupancy_ppl, chunk_resources);
-        self.bind_manual_instance_buffer(&self.occupancy_to_instances_ppl, chunk_resources);
-        self.bind_grass_growth_potential_buffer(&self.occupancy_to_instances_ppl, chunk_resources);
+        let descriptor_retirements = vec![
+            self.bind_instance_descriptors(&self.instances_to_occupancy_ppl, chunk_resources),
+            self.bind_instance_descriptors(&self.edit_occupancy_ppl, chunk_resources),
+            self.bind_instance_descriptors(&self.occupancy_to_instances_ppl, chunk_resources),
+        ];
 
         let flora_edit_timing_passes: &[SurfacePassTimingPass] = if max_len > 0 {
             &FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES
@@ -1569,9 +1573,12 @@ impl SurfaceBuilder {
         }
 
         cmdbuf.end();
-        let _completed_gpu_job = cmdbuf
-            .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_edit")?
-            .wait_complete()?;
+        let mut gpu_job =
+            cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_edit")?;
+        for retirement in descriptor_retirements {
+            gpu_job.retain_frame_retirement(retirement);
+        }
+        let _completed_gpu_job = gpu_job.wait_complete()?;
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(
@@ -1649,8 +1656,8 @@ impl SurfaceBuilder {
         cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
 
         let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
-        self.bind_manual_instance_buffer(&self.update_flora_growth_ppl, chunk_resources);
-        self.bind_grass_growth_potential_buffer(&self.update_flora_growth_ppl, chunk_resources);
+        let descriptor_retirement =
+            self.bind_instance_descriptors(&self.update_flora_growth_ppl, chunk_resources);
 
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
@@ -1705,9 +1712,10 @@ impl SurfaceBuilder {
         );
 
         cmdbuf.end();
-        let _completed_gpu_job = cmdbuf
-            .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_growth")?
-            .wait_complete()?;
+        let mut gpu_job =
+            cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_growth")?;
+        gpu_job.retain_frame_retirement(descriptor_retirement);
+        let _completed_gpu_job = gpu_job.wait_complete()?;
 
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(
@@ -1734,26 +1742,31 @@ impl SurfaceBuilder {
             .ok_or_else(|| anyhow::anyhow!("Chunk {:?} has no flora instance resources", chunk_id))
     }
 
-    fn bind_manual_instance_buffer(
+    fn bind_instance_descriptors(
         &self,
         pipeline: &ComputePipeline,
         resources: &FloraInstanceResources,
-    ) {
+    ) -> FrameRetirement {
+        let generation = self.next_descriptor_generation.get();
+        self.next_descriptor_generation.set(
+            generation
+                .checked_add(1)
+                .expect("surface descriptor generation overflow"),
+        );
+        pipeline
+            .begin_descriptor_generation()
+            .expect("surface descriptor generation fork failed");
         pipeline.write_descriptor_set(
             1,
             WriteDescriptorSet::new_buffer_write(0, &resources.resource.instances_buf),
         );
-    }
-
-    fn bind_grass_growth_potential_buffer(
-        &self,
-        pipeline: &ComputePipeline,
-        resources: &FloraInstanceResources,
-    ) {
         pipeline.write_descriptor_set(
             1,
             WriteDescriptorSet::new_buffer_write(1, &resources.grass_growth_potential_levels),
         );
+        pipeline
+            .publish_descriptor_generation("surface.instance.descriptors", generation)
+            .expect("surface descriptor publication must return its prior generation")
     }
 
     pub fn get_resources(&self) -> &SurfaceResources {

@@ -85,6 +85,10 @@ impl FrameRetirement {
     pub fn identity(&self) -> FrameResourceGeneration {
         self.identity
     }
+
+    pub(crate) fn into_resident(self) -> Box<dyn Any> {
+        self.resident
+    }
 }
 
 struct PendingFrameRetirement {
