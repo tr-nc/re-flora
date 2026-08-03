@@ -2,8 +2,8 @@ use super::descriptor_set_utils;
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, Device, FormatOverride, MergeWithEq, PipelineLayout, RenderPass,
-    RenderPassDesc, ResourceContainer, ResourceState, ResourceStatePolicy, ResourceStateTracker,
-    ShaderModule, Texture, Viewport, WriteDescriptorSet,
+    FrameRetirement, RenderPassDesc, ResourceContainer, ResourceState, ResourceStatePolicy,
+    ResourceStateTracker, ShaderModule, Texture, Viewport, WriteDescriptorSet,
 };
 use anyhow::{Context, Result};
 use ash::vk;
@@ -19,6 +19,7 @@ struct GraphicsPipelineInner {
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
     descriptor_sets: Mutex<Vec<DescriptorSet>>,
+    pending_descriptor_sets: Mutex<Option<Vec<DescriptorSet>>>,
     manual_buffer_descriptor_sets: Mutex<ManualBufferDescriptorSets>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     texture_bindings: Mutex<HashMap<String, GraphicsTextureBinding>>,
@@ -270,6 +271,7 @@ impl GraphicsPipeline {
             pipeline,
             pipeline_layout,
             descriptor_sets: Mutex::new(Vec::new()),
+            pending_descriptor_sets: Mutex::new(None),
             manual_buffer_descriptor_sets: Mutex::new(ManualBufferDescriptorSets::default()),
             descriptor_sets_bindings,
             texture_bindings: Mutex::new(HashMap::new()),
@@ -673,8 +675,12 @@ impl GraphicsPipeline {
     pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
         let mut write = write;
         self.update_texture_binding_from_write(set_no, &write);
-        let guard = self.0.descriptor_sets.lock().unwrap();
-        guard[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
+        if let Some(descriptor_sets) = self.0.pending_descriptor_sets.lock().unwrap().as_ref() {
+            descriptor_sets[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
+        } else {
+            let guard = self.0.descriptor_sets.lock().unwrap();
+            guard[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
+        }
     }
 
     fn update_texture_binding_from_write(&self, set_no: u32, write: &WriteDescriptorSet<'_>) {
@@ -702,13 +708,67 @@ impl GraphicsPipeline {
         &self,
         resource_containers: &[&dyn ResourceContainer],
     ) -> Result<()> {
-        descriptor_set_utils::auto_update_descriptor_sets(
-            resource_containers,
-            &self.0.descriptor_sets_bindings,
-            &self.0.descriptor_sets,
-        )?;
+        if let Some(descriptor_sets) = self.0.pending_descriptor_sets.lock().unwrap().as_ref() {
+            descriptor_set_utils::auto_update_descriptor_sets_on_sets(
+                resource_containers,
+                &self.0.descriptor_sets_bindings,
+                descriptor_sets,
+            )?;
+        } else {
+            descriptor_set_utils::auto_update_descriptor_sets(
+                resource_containers,
+                &self.0.descriptor_sets_bindings,
+                &self.0.descriptor_sets,
+            )?;
+        }
         self.update_texture_bindings(resource_containers);
         Ok(())
+    }
+
+    /// Fork the current descriptor generation so runtime writes cannot mutate an in-flight set.
+    pub fn begin_descriptor_generation(&self) -> Result<()> {
+        let active = self.0.descriptor_sets.lock().unwrap();
+        let mut set_nos = self.0.descriptor_sets_bindings.keys().copied().collect::<Vec<_>>();
+        set_nos.sort_unstable();
+        let pending = active
+            .iter()
+            .zip(set_nos)
+            .map(|(set, set_no)| {
+                let layout = self
+                    .0
+                    .pipeline_layout
+                    .get_descriptor_set_layouts()
+                    .get(&set_no)
+                    .expect("descriptor set layout disappeared during generation fork");
+                set.fork(&self.0.descriptor_pool, layout)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let replaced = self
+            .0
+            .pending_descriptor_sets
+            .lock()
+            .unwrap()
+            .replace(pending);
+        assert!(replaced.is_none(), "descriptor generation already in progress");
+        Ok(())
+    }
+
+    /// Publish the staged descriptor generation and return the previous one for completion-scoped
+    /// retirement. Callers must schedule the returned retirement on the frame clock.
+    pub fn publish_descriptor_generation(
+        &self,
+        name: &'static str,
+        generation: u64,
+    ) -> Option<FrameRetirement> {
+        let pending = self
+            .0
+            .pending_descriptor_sets
+            .lock()
+            .unwrap()
+            .take()
+            .expect("descriptor generation publish requires begin_descriptor_generation");
+        let old = std::mem::replace(&mut *self.0.descriptor_sets.lock().unwrap(), pending);
+        Some(FrameRetirement::new(name, generation, old))
     }
 }
 

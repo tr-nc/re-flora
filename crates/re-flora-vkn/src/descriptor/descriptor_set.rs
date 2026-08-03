@@ -1,4 +1,6 @@
-use crate::{AccelStruct, Buffer, Device, Texture, TextureLayout};
+use crate::{
+    AccelStruct, Buffer, DescriptorPool, DescriptorSetLayout, Device, Texture, TextureLayout,
+};
 use anyhow::Result;
 use ash::vk;
 use std::{
@@ -14,10 +16,18 @@ enum DescriptorResourceOwner {
     AccelStruct(AccelStruct),
 }
 
+#[derive(Clone)]
+struct DescriptorBindingOwner {
+    descriptor_type: vk::DescriptorType,
+    owner: DescriptorResourceOwner,
+    texture_layout: Option<TextureLayout>,
+}
+
 struct DescriptorSetInner {
     device: Device,
     descriptor_set: vk::DescriptorSet,
-    owners: Mutex<HashMap<(u32, u32), DescriptorResourceOwner>>,
+    pool: Option<DescriptorPool>,
+    owners: Mutex<HashMap<(u32, u32), DescriptorBindingOwner>>,
 }
 
 #[derive(Clone)]
@@ -28,6 +38,20 @@ impl DescriptorSet {
         Self(Arc::new(DescriptorSetInner {
             device,
             descriptor_set,
+            pool: None,
+            owners: Mutex::new(HashMap::new()),
+        }))
+    }
+
+    pub(crate) fn from_pool(
+        device: Device,
+        pool: DescriptorPool,
+        descriptor_set: vk::DescriptorSet,
+    ) -> Self {
+        Self(Arc::new(DescriptorSetInner {
+            device,
+            descriptor_set,
+            pool: Some(pool),
             owners: Mutex::new(HashMap::new()),
         }))
     }
@@ -49,6 +73,50 @@ impl DescriptorSet {
             }
         }
     }
+
+    /// Allocate a new descriptor set containing the same written resources as this set.
+    pub fn fork(&self, pool: &DescriptorPool, layout: &DescriptorSetLayout) -> Result<Self> {
+        let fork = pool.allocate_set(layout)?;
+        let mut writes = self
+            .0
+            .owners
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(&(binding, array_element), owner)| {
+                let mut write = match &owner.owner {
+                    DescriptorResourceOwner::Buffer(buffer) => {
+                        WriteDescriptorSet::new_buffer_write(binding, buffer)
+                    }
+                    DescriptorResourceOwner::Texture(texture) => WriteDescriptorSet::new_texture_write(
+                        binding,
+                        owner.descriptor_type,
+                        texture,
+                        owner.texture_layout.unwrap_or(TextureLayout::SHADER_READ_ONLY),
+                    ),
+                    DescriptorResourceOwner::AccelStruct(accel_struct) => {
+                        WriteDescriptorSet::new_acceleration_structure_write(binding, accel_struct)
+                    }
+                };
+                write.array_element = array_element;
+                write
+            })
+            .collect::<Vec<_>>();
+        fork.perform_writes(&mut writes);
+        Ok(fork)
+    }
+}
+
+impl Drop for DescriptorSetInner {
+    fn drop(&mut self) {
+        if let Some(pool) = &self.pool {
+            unsafe {
+                self.device
+                    .free_descriptor_sets(**pool, std::slice::from_ref(&self.descriptor_set))
+                    .expect("failed to free descriptor set");
+            }
+        }
+    }
 }
 
 pub struct WriteDescriptorSet<'a> {
@@ -58,6 +126,7 @@ pub struct WriteDescriptorSet<'a> {
 
     image_infos: Option<Vec<vk::DescriptorImageInfo>>,
     texture: Option<Texture>,
+    texture_layout: Option<TextureLayout>,
     buffer: Option<Buffer>,
     buffer_infos: Option<Vec<vk::DescriptorBufferInfo>>,
     accel_struct_infos: Option<Vec<vk::WriteDescriptorSetAccelerationStructureKHR<'a>>>,
@@ -84,6 +153,7 @@ impl<'a> WriteDescriptorSet<'a> {
             array_element: 0,
             image_infos: Some(vec![image_info]),
             texture: Some(texture.clone()),
+            texture_layout: Some(image_layout),
             buffer: None,
             buffer_infos: None,
             accel_struct_infos: None,
@@ -107,6 +177,7 @@ impl<'a> WriteDescriptorSet<'a> {
             array_element: 0,
             image_infos: None,
             texture: None,
+            texture_layout: None,
             buffer: Some(buffer.clone()),
             buffer_infos: Some(vec![buffer_info]),
             accel_struct_infos: None,
@@ -130,6 +201,7 @@ impl<'a> WriteDescriptorSet<'a> {
             array_element: 0,
             image_infos: None,
             texture: None,
+            texture_layout: None,
             buffer: None,
             buffer_infos: None,
             accel_struct_infos: Some(vec![as_info]),
@@ -172,8 +244,8 @@ impl<'a> WriteDescriptorSet<'a> {
         self.texture.as_ref()
     }
 
-    fn owner(&self) -> Option<DescriptorResourceOwner> {
-        self.texture
+    fn owner(&self) -> Option<DescriptorBindingOwner> {
+        let owner = self.texture
             .as_ref()
             .map(|texture| DescriptorResourceOwner::Texture(texture.clone()))
             .or_else(|| {
@@ -181,7 +253,12 @@ impl<'a> WriteDescriptorSet<'a> {
                     .as_ref()
                     .map(|buffer| DescriptorResourceOwner::Buffer(buffer.clone()))
             })
-            .or_else(|| self.accel_struct.clone().map(DescriptorResourceOwner::AccelStruct))
+            .or_else(|| self.accel_struct.clone().map(DescriptorResourceOwner::AccelStruct))?;
+        Some(DescriptorBindingOwner {
+            descriptor_type: self.descriptor_type,
+            owner,
+            texture_layout: self.texture_layout,
+        })
     }
 
     pub fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet<'_> {

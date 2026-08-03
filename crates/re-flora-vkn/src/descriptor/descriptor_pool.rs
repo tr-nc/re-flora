@@ -61,7 +61,8 @@ impl DescriptorPool {
 
         let create_info = vk::DescriptorPoolCreateInfo::default()
             .pool_sizes(&pool_sizes)
-            .max_sets(MAX_SETS);
+            .max_sets(MAX_SETS)
+            .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
 
         Self::from_create_info(device, create_info)
     }
@@ -85,7 +86,8 @@ impl DescriptorPool {
 
         let create_info = vk::DescriptorPoolCreateInfo::default()
             .pool_sizes(&pool_sizes)
-            .max_sets(descriptor_set_layouts.len() as u32);
+            .max_sets(descriptor_set_layouts.len() as u32)
+            .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
 
         Self::from_create_info(device, create_info)
     }
@@ -107,7 +109,11 @@ impl DescriptorPool {
         // record handle for future introspection / debug if needed
         self.0.sets.lock().unwrap().push(set);
 
-        Ok(DescriptorSet::new(self.0.device.clone(), set))
+        Ok(DescriptorSet::from_pool(
+            self.0.device.clone(),
+            self.clone(),
+            set,
+        ))
     }
 
     /// Allows manual pool reset.

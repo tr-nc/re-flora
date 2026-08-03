@@ -695,6 +695,7 @@ pub struct Tracer {
     render_target_gui: RenderTarget,
     pending_frame_retirements: Vec<FrameRetirement>,
     extent_resource_generation: u64,
+    descriptor_generation: u64,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -1004,6 +1005,7 @@ impl Tracer {
             render_target_gui,
             pending_frame_retirements: Vec::new(),
             extent_resource_generation: 1,
+            descriptor_generation: 1,
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
             last_wind_volume_step: None,
@@ -1046,7 +1048,6 @@ impl Tracer {
         )?;
         staging.assign_build_token(build_token);
         staging.request_initialization(build_token.terrain_revision());
-        self.vulkan_ctx.device().wait_idle();
         if let Some(retired_token) = self
             .ddgi_volumes
             .status()
@@ -1065,7 +1066,11 @@ impl Tracer {
         }
         // Builder descriptors move first. Active consumers keep sampling the complete volume until
         // the replacement reaches Ready and is explicitly promoted on a later frame.
-        self.update_ddgi_builder_descriptors(&staging);
+        let descriptor_generation = self.next_descriptor_generation();
+        let descriptor_retirements =
+            self.update_ddgi_builder_descriptors(&staging, descriptor_generation);
+        self.pending_frame_retirements
+            .extend(descriptor_retirements);
         self.ddgi_trace_stats_readback_pending = None;
         let retired_staging = self.ddgi_volumes.prepare_staging(staging);
         drop(retired_staging);
@@ -1104,7 +1109,13 @@ impl Tracer {
             status.grid.spacing_voxels(),
         );
         self.ddgi_volumes.builder_mut().begin_scheduled_work(work)?;
-        self.update_ddgi_builder_descriptors(self.ddgi_volumes.builder());
+        let descriptor_generation = self.next_descriptor_generation();
+        let descriptor_retirements = {
+            let builder = self.ddgi_volumes.builder();
+            self.update_ddgi_builder_descriptors(builder, descriptor_generation)
+        };
+        self.pending_frame_retirements
+            .extend(descriptor_retirements);
         log::info!(
             "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} stage={:?} iteration={} source={:?}",
             work.kind(),
@@ -1322,10 +1333,14 @@ impl Tracer {
         &self,
         volume: &DdgiVolume,
         field: DdgiFieldIdentity,
-    ) -> Result<()> {
+        generation: u64,
+    ) -> Result<FrameRetirement> {
         let irradiance_atlas = volume
             .capture_irradiance_atlas(field)
             .context("DDGI capture field has no resident irradiance atlas")?;
+        self.compute_pipelines
+            .tracer_ppl
+            .begin_descriptor_generation()?;
         self.compute_pipelines.tracer_ppl.write_descriptor_set(
             0,
             WriteDescriptorSet::new_texture_write(
@@ -1335,7 +1350,11 @@ impl Tracer {
                 TextureLayout::SHADER_READ_ONLY,
             ),
         );
-        Ok(())
+        Ok(self
+            .compute_pipelines
+            .tracer_ppl
+            .publish_descriptor_generation("ddgi.capture.descriptors", generation)
+            .expect("descriptor generation publication must return its prior set"))
     }
 
     pub fn ddgi_ready(&self) -> bool {
@@ -1578,12 +1597,32 @@ impl Tracer {
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
     ) {
+        let descriptor_generation = self.next_descriptor_generation();
+        let descriptor_retirements = std::cell::RefCell::new(Vec::new());
         let update_compute_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
-            ppl.auto_update_descriptor_sets(resources).unwrap()
+            ppl.begin_descriptor_generation()
+                .expect("compute descriptor generation fork failed during update_sets");
+            ppl.auto_update_descriptor_sets(resources)
+                .expect("compute descriptor update failed during update_sets");
+            if let Some(retirement) = ppl.publish_descriptor_generation(
+                "tracer.resize.compute.descriptors",
+                descriptor_generation,
+            ) {
+                descriptor_retirements.borrow_mut().push(retirement);
+            }
         };
 
         let update_graphics_fn = |ppl: &GraphicsPipeline, resources: &[&dyn ResourceContainer]| {
-            ppl.auto_update_descriptor_sets(resources).unwrap()
+            ppl.begin_descriptor_generation()
+                .expect("graphics descriptor generation fork failed during update_sets");
+            ppl.auto_update_descriptor_sets(resources)
+                .expect("graphics descriptor update failed during update_sets");
+            if let Some(retirement) = ppl.publish_descriptor_generation(
+                "tracer.resize.graphics.descriptors",
+                descriptor_generation,
+            ) {
+                descriptor_retirements.borrow_mut().push(retirement);
+            }
         };
 
         let all_resources = self.all_descriptor_resources(
@@ -1724,6 +1763,17 @@ impl Tracer {
         ] {
             update_compute_fn(pipeline, &[ddgi_builder]);
         }
+        self.pending_frame_retirements
+            .extend(descriptor_retirements.into_inner());
+    }
+
+    fn next_descriptor_generation(&mut self) -> u64 {
+        let generation = self.descriptor_generation;
+        self.descriptor_generation = self
+            .descriptor_generation
+            .checked_add(1)
+            .expect("tracer descriptor generation overflow");
+        generation
     }
 
     fn tracer_descriptor_resources(&self) -> [&dyn ResourceContainer; 3] {
@@ -1758,7 +1808,27 @@ impl Tracer {
         ]
     }
 
-    fn update_ddgi_builder_descriptors(&self, ddgi_volume: &DdgiVolume) {
+    fn update_ddgi_builder_descriptors(
+        &self,
+        ddgi_volume: &DdgiVolume,
+        generation: u64,
+    ) -> Vec<FrameRetirement> {
+        let pipelines = [
+            &self.compute_pipelines.ddgi_probe_relocate_ppl,
+            &self.compute_pipelines.ddgi_probe_trace_ppl,
+            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
+            &self.compute_pipelines.ddgi_visibility_filter_ppl,
+            &self.compute_pipelines.ddgi_atlas_reduce_ppl,
+            &self.compute_pipelines.ddgi_global_sky_filter_ppl,
+            &self.compute_pipelines.ddgi_octahedral_gutter_ppl,
+            &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
+            &self.compute_pipelines.ddgi_visibility_gutter_ppl,
+        ];
+        for pipeline in pipelines.iter() {
+            pipeline
+                .begin_descriptor_generation()
+                .expect("DDGI builder descriptor generation fork failed");
+        }
         // Rewrite only volume-owned bindings. Builder and scene resources stay valid and
         // must not be omitted from a reflected full-pipeline auto update.
         for pipeline in [
@@ -1923,9 +1993,47 @@ impl Tracer {
                 ),
             );
         }
+
+        pipelines
+            .into_iter()
+            .filter_map(|pipeline| {
+                pipeline.publish_descriptor_generation("ddgi.builder.descriptors", generation)
+            })
+            .collect()
     }
 
-    fn update_ddgi_consumer_descriptors(&self, ddgi_volume: &DdgiVolume) {
+    fn update_ddgi_consumer_descriptors(
+        &self,
+        ddgi_volume: &DdgiVolume,
+        generation: u64,
+    ) -> Vec<FrameRetirement> {
+        let compute_pipelines = [&self.compute_pipelines.tracer_ppl];
+        let graphics_pipelines = [
+            &self.graphics_pipelines.flora_ppl,
+            &self.graphics_pipelines.flora_lod_ppl,
+            &self.graphics_pipelines.leaves_ppl,
+            &self.graphics_pipelines.leaves_lod_ppl,
+            &self.graphics_pipelines.sprinkler_ppl,
+            &self.graphics_pipelines.dynamic_fruit_ppl,
+            &self.graphics_pipelines.particle_ppl,
+            &self.graphics_pipelines.water_droplet_ppl,
+            &self
+                .graphics_pipelines
+                .environment_probe_visualization_depth_ppl,
+            &self
+                .graphics_pipelines
+                .environment_probe_visualization_overlay_ppl,
+        ];
+        for pipeline in compute_pipelines.iter() {
+            pipeline
+                .begin_descriptor_generation()
+                .expect("DDGI consumer compute descriptor generation fork failed");
+        }
+        for pipeline in graphics_pipelines.iter() {
+            pipeline
+                .begin_descriptor_generation()
+                .expect("DDGI consumer graphics descriptor generation fork failed");
+        }
         let irradiance_atlas = ddgi_volume
             .published_irradiance_atlas()
             .unwrap_or(&ddgi_volume.ddgi_irradiance_atlas);
@@ -1945,22 +2053,7 @@ impl Tracer {
                 TextureLayout::SHADER_READ_ONLY,
             ),
         );
-        for pipeline in [
-            &self.graphics_pipelines.flora_ppl,
-            &self.graphics_pipelines.flora_lod_ppl,
-            &self.graphics_pipelines.leaves_ppl,
-            &self.graphics_pipelines.leaves_lod_ppl,
-            &self.graphics_pipelines.sprinkler_ppl,
-            &self.graphics_pipelines.dynamic_fruit_ppl,
-            &self.graphics_pipelines.particle_ppl,
-            &self.graphics_pipelines.water_droplet_ppl,
-            &self
-                .graphics_pipelines
-                .environment_probe_visualization_depth_ppl,
-            &self
-                .graphics_pipelines
-                .environment_probe_visualization_overlay_ppl,
-        ] {
+        for pipeline in graphics_pipelines.iter() {
             pipeline.write_descriptor_set(
                 0,
                 WriteDescriptorSet::new_buffer_write(
@@ -1989,22 +2082,7 @@ impl Tracer {
                     TextureLayout::SHADER_READ_ONLY,
                 ),
             );
-            for pipeline in [
-                &self.graphics_pipelines.flora_ppl,
-                &self.graphics_pipelines.flora_lod_ppl,
-                &self.graphics_pipelines.leaves_ppl,
-                &self.graphics_pipelines.leaves_lod_ppl,
-                &self.graphics_pipelines.sprinkler_ppl,
-                &self.graphics_pipelines.dynamic_fruit_ppl,
-                &self.graphics_pipelines.particle_ppl,
-                &self.graphics_pipelines.water_droplet_ppl,
-                &self
-                    .graphics_pipelines
-                    .environment_probe_visualization_depth_ppl,
-                &self
-                    .graphics_pipelines
-                    .environment_probe_visualization_overlay_ppl,
-            ] {
+            for pipeline in graphics_pipelines.iter() {
                 pipeline.write_descriptor_set(
                     0,
                     WriteDescriptorSet::new_texture_write(
@@ -2016,6 +2094,16 @@ impl Tracer {
                 );
             }
         }
+
+        compute_pipelines
+            .into_iter()
+            .filter_map(|pipeline| {
+                pipeline.publish_descriptor_generation("ddgi.consumer.descriptors", generation)
+            })
+            .chain(graphics_pipelines.into_iter().filter_map(|pipeline| {
+                pipeline.publish_descriptor_generation("ddgi.consumer.descriptors", generation)
+            }))
+            .collect()
     }
 
     fn promote_ready_ddgi_staging(&mut self) {
@@ -2039,11 +2127,16 @@ impl Tracer {
             return;
         }
 
-        // Previous frames may still sample the active volume. Quiesce them, point every consumer
-        // at the complete staging volume, then swap ownership while the previous active resources
-        // remain alive. The frame's shading constants are updated after this method returns.
-        self.vulkan_ctx.device().wait_idle();
-        self.update_ddgi_consumer_descriptors(self.ddgi_volumes.builder());
+        // Previous frames may still sample the active volume. Publish a new descriptor generation
+        // and keep the old generation/resource owners on the frame-completion retirement clock
+        // while the frame's shading constants move to the complete staging volume.
+        let descriptor_generation = self.next_descriptor_generation();
+        let descriptor_retirements = {
+            let builder = self.ddgi_volumes.builder();
+            self.update_ddgi_consumer_descriptors(builder, descriptor_generation)
+        };
+        self.pending_frame_retirements
+            .extend(descriptor_retirements);
         let retired_active = self
             .ddgi_volumes
             .promote_staging(build_token)
@@ -2121,10 +2214,21 @@ impl Tracer {
             new_capacity,
         );
         self.wind_source_buffer_capacity = new_capacity;
+        let descriptor_generation = self.next_descriptor_generation();
         let tracer_resources = self.tracer_descriptor_resources();
         self.compute_pipelines
             .wind_volume_ppl
+            .begin_descriptor_generation()?;
+        self.compute_pipelines
+            .wind_volume_ppl
             .auto_update_descriptor_sets(&tracer_resources)?;
+        if let Some(retirement) = self
+            .compute_pipelines
+            .wind_volume_ppl
+            .publish_descriptor_generation("tracer.wind.descriptors", descriptor_generation)
+        {
+            self.pending_frame_retirements.push(retirement);
+        }
         Ok(())
     }
 
@@ -2710,11 +2814,16 @@ impl Tracer {
                                     )?;
                                     // Previous frames can still reference this descriptor set.
                                     // Match consumer publication's lifetime rule before rebinding.
-                                    self.vulkan_ctx.device().wait_idle();
-                                    self.update_ddgi_capture_descriptor(
-                                        self.ddgi_volumes.builder(),
-                                        identity,
-                                    )?;
+                                    let descriptor_generation = self.next_descriptor_generation();
+                                    let descriptor_retirement = {
+                                        let builder = self.ddgi_volumes.builder();
+                                        self.update_ddgi_capture_descriptor(
+                                            builder,
+                                            identity,
+                                            descriptor_generation,
+                                        )?
+                                    };
+                                    self.pending_frame_retirements.push(descriptor_retirement);
                                     let build_token = build_token
                                         .context("validated DDGI S0 has no volume build token")?;
                                     self.observe_ddgi_capture_checkpoint(
@@ -2783,8 +2892,16 @@ impl Tracer {
                                     )
                                 })?;
                             if self.ddgi_volumes.builder_is_active() {
-                                self.vulkan_ctx.device().wait_idle();
-                                self.update_ddgi_consumer_descriptors(self.ddgi_volumes.builder());
+                                let descriptor_generation = self.next_descriptor_generation();
+                                let descriptor_retirements = {
+                                    let builder = self.ddgi_volumes.builder();
+                                    self.update_ddgi_consumer_descriptors(
+                                        builder,
+                                        descriptor_generation,
+                                    )
+                                };
+                                self.pending_frame_retirements
+                                    .extend(descriptor_retirements);
                                 let slot = self
                                     .ddgi_volumes
                                     .builder()

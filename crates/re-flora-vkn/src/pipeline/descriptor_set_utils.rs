@@ -49,6 +49,18 @@ pub fn auto_update_descriptor_sets(
     descriptor_sets_storage: &Mutex<Vec<DescriptorSet>>,
 ) -> Result<()> {
     let descriptor_sets = descriptor_sets_storage.lock().unwrap();
+    auto_update_descriptor_sets_on_sets(
+        resource_containers,
+        descriptor_sets_bindings,
+        &descriptor_sets,
+    )
+}
+
+pub fn auto_update_descriptor_sets_on_sets(
+    resource_containers: &[&dyn ResourceContainer],
+    descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+    descriptor_sets: &[DescriptorSet],
+) -> Result<()> {
     let mut sorted_sets: Vec<_> = descriptor_sets_bindings.iter().collect();
     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
 

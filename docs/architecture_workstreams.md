@@ -267,7 +267,9 @@ under matched, reproducible conditions.
 
 **Blocked by:** Existing GitHub issue [#53 — Deepen DDGI Volume runtime ownership](https://github.com/tr-nc/re-flora/issues/53).
 
-**Status:** ready-for-agent
+**Status:** in-progress (`8b35ec2c`; descriptor sets now retain the Buffer/Texture/acceleration-
+structure owners associated with each written binding; runtime generation publication and removal of
+in-place mutation remain)
 
 - [ ] The benchmark exercises a real DDGI Volume publication after the ownership migration, including
       the current device-wide idle behavior.
@@ -323,8 +325,8 @@ creation-time initialization path where no prior generation can be in flight.
 
 - [ ] Every descriptor update that can race an in-flight frame uses generation publication and
       completion-scoped retirement.
-- [ ] Runtime descriptor objects retain the Buffer, Image, Image View, Sampler, or acceleration-
-      structure owners they reference.
+- [x] Descriptor objects retain the Buffer, Texture (including Image View/Sampler), or acceleration-
+      structure owner associated with each written binding.
 - [ ] Duplicate pipeline-side texture residency maps are removed where the descriptor generation now
       owns the same information.
 - [ ] Creation-time initialization remains explicit and cannot be mistaken for safe runtime mutation.
