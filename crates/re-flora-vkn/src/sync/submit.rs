@@ -2,7 +2,7 @@ use ash::vk;
 
 use crate::{CommandBuffer, Fence, Semaphore};
 
-pub(crate) const MAX_SUBMIT_COMMAND_BUFFERS: usize = 8;
+const MAX_SUBMIT_COMMAND_BUFFERS: usize = 8;
 const MAX_SUBMIT_WAITS: usize = 8;
 const MAX_SUBMIT_SIGNALS: usize = 8;
 

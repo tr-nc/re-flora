@@ -177,7 +177,6 @@ pub struct ChunkSolidSampleJob {
     submitted_at: Instant,
     prepare_elapsed: Duration,
     submit_elapsed: Duration,
-    _command_buffer: CommandBuffer,
     gpu_job: GpuJobToken,
 }
 
@@ -1516,7 +1515,6 @@ impl PlainBuilder {
             submitted_at,
             prepare_elapsed,
             submit_elapsed,
-            _command_buffer: command_buffer,
             gpu_job,
         })
     }
@@ -1594,6 +1592,7 @@ impl PlainBuilder {
 
         let _completed_gpu_job = self
             .build_cmdbuf
+            .clone()
             .submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "plain.chunk_init")?
             .wait_complete()?;
         return Ok(());
