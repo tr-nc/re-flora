@@ -2534,6 +2534,8 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
+        self.record_graphics_instance_buffer_uses(cmdbuf, surface_resources);
+
         if let Some(batch) = self.ddgi_trace_stats_readback_pending.take() {
             let volume = self.ddgi_volumes.builder();
             if !volume.pending_trace_stats_batch_is(batch) {
@@ -3198,6 +3200,60 @@ impl Tracer {
         }
 
         Ok(())
+    }
+
+    /// Declares CPU-filled instance buffers before any shadow or main render pass binds them.
+    ///
+    /// The same instance generation can be consumed by both passes, so this seam deliberately
+    /// sits before the shadow prepass rather than inside either render pass.
+    fn record_graphics_instance_buffer_uses(
+        &self,
+        cmdbuf: &CommandBuffer,
+        surface_resources: &SurfaceResources,
+    ) {
+        let record_instance = |buffer: &Buffer| {
+            cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
+            cmdbuf.use_buffer(buffer, BufferUse::VertexRead);
+        };
+
+        if self.dynamic_fruit_resources.instance_count > 0 {
+            record_instance(&self.dynamic_fruit_resources.instances);
+        }
+        if self.particle_resources.instance_count > 0 {
+            record_instance(&self.particle_resources.instance_buffer);
+        }
+        if self.particle_resources.translucent_instance_count > 0 {
+            record_instance(&self.particle_resources.translucent_instance_buffer);
+        }
+        if self.sprinkler_resources.instance_count > 0 {
+            record_instance(&self.sprinkler_resources.instances);
+        }
+        if self.irrigation_pipe_resources.instance_count > 0 {
+            record_instance(&self.irrigation_pipe_resources.instances);
+        }
+        for preview in [
+            &self.geometry_preview_resources.pipe,
+            &self.geometry_preview_resources.tree,
+        ] {
+            if preview.instance_count > 0 {
+                record_instance(&preview.instances);
+            }
+        }
+        for (_, flora_resources) in &surface_resources.instances.chunk_flora_instances {
+            if flora_resources.total_instance_len() > 0 {
+                record_instance(&flora_resources.resource.instances_buf);
+            }
+        }
+        for tree_instances in surface_resources
+            .instances
+            .leaves_instances
+            .values()
+            .chain(surface_resources.instances.apple_instances.values())
+        {
+            if tree_instances.resources.instances_len > 0 {
+                record_instance(&tree_instances.resources.instances_buf);
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
