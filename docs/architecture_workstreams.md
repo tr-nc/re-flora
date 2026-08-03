@@ -416,11 +416,11 @@ order and rendergraph-lite architecture.
 **Blocked by:** Ticket 11 — Track Buffer hazards through one Contree build.
 
 **Status:** in-progress (`5fb17dbf`, `f04ef4ca`, `8d09317f`, `48d27b1b`, `b9108858`, `b4ef4d29`,
-`4f1d8592`, `14d3b0ef`, `419fff8d`, `1d0b34d5`, `dd0fc745`; DDGI voxel-visibility and
+`4f1d8592`, `14d3b0ef`, `419fff8d`, `1d0b34d5`, `dd0fc745`, `91a7bed8`; DDGI voxel-visibility and
 terrain-query one-time paths, CPU-updated tracer/DDGI uniform buffers, CPU-filled tracer graphics
 instance buffers, tracer static mesh inputs, flora/wind shader lookup buffers, irradiance-capture
-storage writes, and DDGI metadata/transient-ray transitions now declare Buffer uses; frame-wide
-Image tracking and Egui/non-tracer graphics declarations remain incomplete)
+storage writes, DDGI metadata/transient-ray transitions, and Egui mesh buffers now declare Buffer
+uses; frame-wide Image tracking remains incomplete)
 
 - [ ] Tracer Buffer producers and consumers declare their use through the shared recording seam.
 - [x] DDGI voxel-visibility and terrain-query one-time paths declare HostWrite/ComputeRead,
@@ -449,10 +449,10 @@ Image tracking and Egui/non-tracer graphics declarations remain incomplete)
       equivalent under matched conditions.
 - [ ] Hidden release logs remain free of synchronization, descriptor, and resource-state errors.
 
-**Deferred boundary:** Egui's dynamic Mesh buffers are outside the tracer migration. The independent
-retirement bug is now covered by the Egui completion-retirement seam (`74ce3a02`), but Egui's
-HostWrite/IndexRead/VertexRead declarations still need a per-frame buffer or recording seam before
-they can move outside the render pass.
+**Deferred boundary:** Egui's dynamic Mesh buffers now declare HostWrite/IndexRead/VertexRead before
+the GUI render pass and retain replaced generations through completion (`74ce3a02`, `91a7bed8`).
+Frame-wide Image tracking still needs a recording-reservation seam before normal and off-frame image
+recordings can safely overlap.
 
 ---
 
@@ -467,7 +467,8 @@ barriers only as a narrow, intentional diagnostic or exceptional-operation seam.
 - Ticket 12 — Migrate remaining builder Buffer hazards.
 - Ticket 13 — Migrate tracer Buffer hazards.
 
-**Status:** ready-for-agent
+**Status:** in-progress (`7ef223bb`; pipeline-local Image trackers removed and ImageUse declarations
+now route through CommandBuffer; normal-frame Image transactions still need a safe overlap seam)
 
 - [ ] One command-recording module owns committed Image state, Buffer hazards, and barrier emission
       for normal rendering and builder work.
