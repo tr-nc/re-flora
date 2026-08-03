@@ -1,11 +1,11 @@
-use super::descriptor_set_utils;
+use super::{descriptor_set_utils, manual_buffer_descriptor_sets::ManualBufferDescriptorSets};
 use crate::{
-    Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayout,
-    DescriptorSetLayoutBinding, Device, FormatOverride, MergeWithEq, PipelineLayout, RenderPass,
+    Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
+    FormatOverride, MergeWithEq, PipelineLayout, RenderPass,
     RenderPassDesc, ResourceContainer, ResourceState, ResourceStatePolicy, ResourceStateTracker,
     ShaderModule, Texture, Viewport, WriteDescriptorSet,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use ash::vk;
 use std::{
     collections::HashMap,
@@ -27,74 +27,6 @@ struct GraphicsPipelineInner {
 }
 
 const MANUAL_TEXTURE_BINDING_PREFIX: &str = "manual:";
-
-#[derive(Default)]
-struct ManualBufferDescriptorSets {
-    active_frame_slot: Option<usize>,
-    next_slot: usize,
-    frame_slots: Vec<ManualBufferDescriptorFrame>,
-}
-
-#[derive(Default)]
-struct ManualBufferDescriptorFrame {
-    slots: Vec<ManualBufferDescriptorSlot>,
-}
-
-struct ManualBufferDescriptorSlot {
-    set_no: u32,
-    descriptor_set: DescriptorSet,
-}
-
-impl ManualBufferDescriptorSets {
-    fn begin_frame(&mut self, frame_slot: usize) {
-        if self.frame_slots.len() <= frame_slot {
-            self.frame_slots
-                .resize_with(frame_slot + 1, ManualBufferDescriptorFrame::default);
-        }
-        self.active_frame_slot = Some(frame_slot);
-        self.next_slot = 0;
-    }
-
-    fn next_descriptor_set(
-        &mut self,
-        set_no: u32,
-        descriptor_pool: &DescriptorPool,
-        layout: &DescriptorSetLayout,
-    ) -> Result<DescriptorSet> {
-        let frame_slot = self.active_frame_slot.expect(
-            "GraphicsPipeline::begin_manual_buffer_frame must be called before record_indexed_with_manual_buffer",
-        );
-        let draw_slot = self.next_slot;
-        self.next_slot += 1;
-
-        let frame = self
-            .frame_slots
-            .get_mut(frame_slot)
-            .expect("active manual descriptor frame slot was not initialized");
-        if let Some(slot) = frame.slots.get(draw_slot) {
-            if slot.set_no == set_no {
-                return Ok(slot.descriptor_set.clone());
-            }
-        }
-
-        let descriptor_set = descriptor_pool.allocate_set(layout).with_context(|| {
-            format!(
-                "failed to allocate manual buffer descriptor set for frame_slot={frame_slot} draw_slot={draw_slot} set={set_no}"
-            )
-        })?;
-        let slot = ManualBufferDescriptorSlot {
-            set_no,
-            descriptor_set: descriptor_set.clone(),
-        };
-        if draw_slot == frame.slots.len() {
-            frame.slots.push(slot);
-        } else {
-            frame.slots[draw_slot] = slot;
-        }
-
-        Ok(descriptor_set)
-    }
-}
 
 #[derive(Clone)]
 struct GraphicsTextureBinding {
@@ -641,7 +573,7 @@ impl GraphicsPipeline {
             .manual_buffer_descriptor_sets
             .lock()
             .unwrap()
-            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout)
+            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout, "GraphicsPipeline")
             .unwrap_or_else(|err| panic!("{err:#}"));
         let mut writes = buffers
             .iter()

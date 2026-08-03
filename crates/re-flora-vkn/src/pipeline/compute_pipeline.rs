@@ -1,4 +1,4 @@
-use super::descriptor_set_utils;
+use super::{descriptor_set_utils, manual_buffer_descriptor_sets::ManualBufferDescriptorSets};
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
     Extent3D, PipelineLayout, ResourceContainer, ResourceState, ResourceStatePolicy,
@@ -14,10 +14,12 @@ use std::{
 
 struct ComputePipelineInner {
     device: Device,
+    descriptor_pool: DescriptorPool,
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
     workgroup_size: [u32; 3],
     descriptor_sets: Mutex<Vec<DescriptorSet>>,
+    manual_buffer_descriptor_sets: Mutex<ManualBufferDescriptorSets>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     texture_bindings: Mutex<HashMap<String, ComputeTextureBinding>>,
     resource_state_tracker: Mutex<ResourceStateTracker>,
@@ -81,10 +83,12 @@ impl ComputePipeline {
 
         let pipeline_instance = Self(Arc::new(ComputePipelineInner {
             device: device.clone(),
+            descriptor_pool: descriptor_pool.clone(),
             pipeline,
             pipeline_layout,
             workgroup_size,
             descriptor_sets: Mutex::new(vec![]),
+            manual_buffer_descriptor_sets: Mutex::new(ManualBufferDescriptorSets::default()),
             descriptor_sets_bindings,
             texture_bindings: Mutex::new(HashMap::new()),
             resource_state_tracker: Mutex::new(ResourceStateTracker::automatic()),
@@ -124,6 +128,15 @@ impl ComputePipeline {
         self.update_texture_binding_from_write(set_no, &write);
         let guard = self.0.descriptor_sets.lock().unwrap();
         guard[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
+    }
+
+    /// Starts a new frame for manually-bound buffer descriptor sets.
+    pub fn begin_manual_buffer_frame(&self, frame_slot: usize) {
+        self.0
+            .manual_buffer_descriptor_sets
+            .lock()
+            .unwrap()
+            .begin_frame(frame_slot);
     }
 
     pub fn set_resource_state_tracker(&self, tracker: ResourceStateTracker) {
@@ -235,6 +248,32 @@ impl ComputePipeline {
             .cmd_bind_pipeline_compute_raw(cmdbuf.as_raw(), self.0.pipeline);
     }
 
+    fn next_manual_buffer_descriptor_set_with_writes(
+        &self,
+        set_no: u32,
+        buffers: &[(u32, &Buffer)],
+    ) -> DescriptorSet {
+        let layout = self
+            .0
+            .pipeline_layout
+            .get_descriptor_set_layouts()
+            .get(&set_no)
+            .unwrap_or_else(|| panic!("Missing descriptor set layout {set_no}"));
+        let descriptor_set = self
+            .0
+            .manual_buffer_descriptor_sets
+            .lock()
+            .unwrap()
+            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout, "ComputePipeline")
+            .unwrap_or_else(|err| panic!("{err:#}"));
+        let mut writes = buffers
+            .iter()
+            .map(|(binding, buffer)| WriteDescriptorSet::new_buffer_write(*binding, buffer))
+            .collect::<Vec<_>>();
+        descriptor_set.perform_writes(&mut writes);
+        descriptor_set
+    }
+
     fn record_push_constants(&self, cmdbuf: &CommandBuffer, push_constants: &[u8]) {
         self.0.device.cmd_push_constants_raw(
             cmdbuf.as_raw(),
@@ -266,6 +305,45 @@ impl ComputePipeline {
         if !self.0.descriptor_sets.lock().unwrap().is_empty() {
             self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
         }
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
+        }
+        self.record_dispatch(
+            cmdbuf,
+            [
+                dispatch_extent.width,
+                dispatch_extent.height,
+                dispatch_extent.depth,
+            ],
+        );
+    }
+
+    /// Records a compute dispatch with one descriptor set populated from per-dispatch buffers.
+    pub fn record_with_manual_buffers(
+        &self,
+        cmdbuf: &CommandBuffer,
+        manual_set_no: u32,
+        manual_buffers: &[(u32, &Buffer)],
+        dispatch_extent: Extent3D,
+        push_constants: Option<&[u8]>,
+    ) {
+        self.record_texture_transitions(cmdbuf);
+        self.record_bind(cmdbuf);
+        let manual_set = self.next_manual_buffer_descriptor_set_with_writes(
+            manual_set_no,
+            manual_buffers,
+        );
+        {
+            let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
+            if manual_set_no > 0 && !descriptor_sets.is_empty() {
+                self.record_bind_descriptor_sets(
+                    cmdbuf,
+                    &descriptor_sets[..manual_set_no as usize],
+                    0,
+                );
+            }
+        }
+        self.record_bind_descriptor_sets(cmdbuf, std::slice::from_ref(&manual_set), manual_set_no);
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
         }
