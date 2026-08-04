@@ -1,7 +1,7 @@
 use super::CommandPool;
 use crate::{
-    Buffer, BufferUse, DescriptorSet, Device, Extent2D, GpuJobManager, GraphicsPipeline, Image,
-    ImageUse, Queue, QueueLane, ResourceState, ResourceStateTransaction, SubmitDesc, Viewport,
+    Buffer, BufferUse, Device, Extent2D, GpuJobManager, GraphicsPipeline, Image, ImageUse, Queue,
+    QueueLane, ResourceState, ResourceStateTransaction, SubmitDesc, Viewport,
 };
 use ash::vk;
 use std::sync::{Arc, Mutex};
@@ -250,20 +250,6 @@ impl CommandBuffer {
         self.0
             .device
             .cmd_set_scissor_raw(self.0.command_buffer, 0, &scissors);
-    }
-
-    pub fn bind_graphics_descriptor_set(
-        &self,
-        pipeline: &GraphicsPipeline,
-        first_set: u32,
-        descriptor_set: &DescriptorSet,
-    ) {
-        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-            self.0.command_buffer,
-            pipeline.get_layout().as_raw(),
-            first_set,
-            &[descriptor_set.as_raw()],
-        );
     }
 
     pub fn draw_indexed(

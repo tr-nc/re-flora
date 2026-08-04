@@ -439,6 +439,26 @@ impl GraphicsPipeline {
         }
     }
 
+    /// Binds an externally owned descriptor set at the reflected set containing `name`.
+    ///
+    /// This is the adapter for standalone resources such as egui textures. The caller supplies
+    /// the semantic resource name; the numeric set location remains owned by the pipeline plan.
+    pub fn bind_descriptor_set(
+        &self,
+        cmdbuf: &CommandBuffer,
+        name: &str,
+        descriptor_set: &DescriptorSet,
+    ) -> Result<()> {
+        let set_no = self.0.descriptor_binding_plan.binding(name)?.set_no();
+        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+            cmdbuf.as_raw(),
+            self.0.pipeline_layout.as_raw(),
+            set_no,
+            &[descriptor_set.as_raw()],
+        );
+        Ok(())
+    }
+
     pub fn tracked_texture_binding_count(&self) -> usize {
         self.0
             .descriptor_sets

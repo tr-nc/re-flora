@@ -373,7 +373,9 @@ impl EguiRenderer {
 
                     if Some(m.texture_id) != current_texture_id {
                         let managed = managed_textures.get(&m.texture_id).unwrap();
-                        cmdbuf.bind_graphics_descriptor_set(pipeline, 0, &managed.descriptor_set);
+                        pipeline
+                            .bind_descriptor_set(cmdbuf, "font_sampler", &managed.descriptor_set)
+                            .expect("egui font sampler descriptor must match reflected set");
                         current_texture_id = Some(m.texture_id);
                     }
 
