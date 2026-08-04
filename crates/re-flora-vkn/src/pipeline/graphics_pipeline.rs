@@ -770,6 +770,104 @@ impl GraphicsPipeline {
         descriptor_set
     }
 
+    fn next_transient_descriptor_set(
+        &self,
+        descriptors: &[(&str, super::DescriptorResource<'_>)],
+    ) -> Result<(u32, DescriptorSet)> {
+        let first_name = descriptors
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("transient descriptor set requires at least one resource"))?
+            .0;
+        let set_no = self.0.descriptor_binding_plan.binding(first_name)?.set_no();
+        let layout = self
+            .0
+            .pipeline_layout
+            .get_descriptor_set_layouts()
+            .get(&set_no)
+            .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?;
+        let descriptor_set = self
+            .0
+            .manual_buffer_descriptor_sets
+            .lock()
+            .unwrap()
+            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout)?;
+        let mut writes = Vec::with_capacity(descriptors.len());
+        for (name, resource) in descriptors {
+            let binding = self.0.descriptor_binding_plan.binding(name)?;
+            anyhow::ensure!(
+                binding.set_no() == set_no,
+                "transient descriptor resources must use one descriptor set; '{}' is in set {} but '{}' is in set {}",
+                first_name,
+                set_no,
+                name,
+                binding.set_no(),
+            );
+            writes.push(self.0.descriptor_binding_plan.make_write(name, *resource)?);
+        }
+        descriptor_set.perform_writes(&mut writes);
+        Ok((set_no, descriptor_set))
+    }
+
+    /// Records an indexed draw using a per-draw descriptor set addressed by reflected names.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_indexed_with_descriptors(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptors: &[(&str, super::DescriptorResource<'_>)],
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        first_instance: u32,
+        push_constants: Option<&PushConstantInfo>,
+    ) -> Result<()> {
+        self.record_bind(cmdbuf);
+        let (set_no, descriptor_set) = self.next_transient_descriptor_set(descriptors)?;
+        let active = self.0.descriptor_sets.lock().unwrap();
+        if !active.is_empty() {
+            self.record_bind_descriptor_sets(cmdbuf, &active);
+        }
+        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+            cmdbuf.as_raw(),
+            self.0.pipeline_layout.as_raw(),
+            set_no,
+            &[descriptor_set.as_raw()],
+        );
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
+        }
+        self.record_draw_indexed(
+            cmdbuf,
+            index_count,
+            instance_count,
+            first_index,
+            vertex_offset,
+            first_instance,
+        );
+        Ok(())
+    }
+
+    /// Allocates a standalone descriptor set for a reflected resource, for example an egui
+    /// texture.  The set is owned by the returned `DescriptorSet` and is independent of the
+    /// pipeline's active generation.
+    pub fn allocate_transient_descriptor(
+        &self,
+        name: &str,
+        resource: super::DescriptorResource<'_>,
+    ) -> Result<DescriptorSet> {
+        let binding = self.0.descriptor_binding_plan.binding(name)?;
+        let layout = self
+            .0
+            .pipeline_layout
+            .get_descriptor_set_layouts()
+            .get(&binding.set_no())
+            .ok_or_else(|| anyhow::anyhow!("descriptor set {} is not reflected", binding.set_no()))?;
+        let descriptor_set = self.0.descriptor_pool.allocate_set(layout)?;
+        let mut write = self.0.descriptor_binding_plan.make_write(name, resource)?;
+        descriptor_set.perform_writes(std::slice::from_mut(&mut write));
+        Ok(descriptor_set)
+    }
+
     fn record_draw_indexed(
         &self,
         cmdbuf: &CommandBuffer,

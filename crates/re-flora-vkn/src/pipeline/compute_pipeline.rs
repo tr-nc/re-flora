@@ -484,6 +484,75 @@ impl ComputePipeline {
         descriptor_set
     }
 
+    fn next_transient_descriptor_set(
+        &self,
+        descriptors: &[(&str, super::DescriptorResource<'_>)],
+    ) -> Result<(u32, DescriptorSet)> {
+        let first_name = descriptors
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("transient descriptor set requires at least one resource"))?
+            .0;
+        let set_no = self.0.descriptor_binding_plan.binding(first_name)?.set_no();
+        let layout = self
+            .0
+            .pipeline_layout
+            .get_descriptor_set_layouts()
+            .get(&set_no)
+            .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?;
+        let descriptor_set = self
+            .0
+            .manual_buffer_descriptor_sets
+            .lock()
+            .unwrap()
+            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout, "ComputePipeline")?;
+        let mut writes = Vec::with_capacity(descriptors.len());
+        for (name, resource) in descriptors {
+            let binding = self.0.descriptor_binding_plan.binding(name)?;
+            anyhow::ensure!(
+                binding.set_no() == set_no,
+                "transient descriptor resources must use one descriptor set; '{}' is in set {} but '{}' is in set {}",
+                first_name,
+                set_no,
+                name,
+                binding.set_no(),
+            );
+            writes.push(self.0.descriptor_binding_plan.make_write(name, *resource)?);
+        }
+        descriptor_set.perform_writes(&mut writes);
+        Ok((set_no, descriptor_set))
+    }
+
+    /// Records a dispatch using a per-dispatch descriptor set addressed by reflected names.
+    pub fn record_with_descriptors(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptors: &[(&str, super::DescriptorResource<'_>)],
+        dispatch_extent: Extent3D,
+        push_constants: Option<&[u8]>,
+    ) -> Result<()> {
+        self.record_texture_transitions(cmdbuf);
+        self.record_bind(cmdbuf);
+        let (set_no, descriptor_set) = self.next_transient_descriptor_set(descriptors)?;
+        let active = self.0.descriptor_sets.lock().unwrap();
+        if !active.is_empty() {
+            self.record_bind_descriptor_sets(cmdbuf, &active);
+        }
+        self.0.device.cmd_bind_descriptor_sets_compute_raw(
+            cmdbuf.as_raw(),
+            self.0.pipeline_layout.as_raw(),
+            set_no,
+            &[descriptor_set.as_raw()],
+        );
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
+        }
+        self.record_dispatch(
+            cmdbuf,
+            [dispatch_extent.width, dispatch_extent.height, dispatch_extent.depth],
+        );
+        Ok(())
+    }
+
     /// Record the compute pipeline into the command buffer.
     ///
     /// This function will bind the pipeline, bind the descriptor sets, push the push constants, and dispatch the compute work.

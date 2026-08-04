@@ -13,6 +13,7 @@ pub type DescriptorSetGeneration = HashMap<u32, crate::DescriptorSet>;
 /// The descriptor set number and binding number are deliberately not part of this
 /// application-facing value.  They are resolved from the shader resource name by
 /// [`DescriptorBindingPlan`].
+#[derive(Clone, Copy)]
 pub enum DescriptorResource<'a> {
     Buffer(&'a Buffer),
     Texture(&'a Texture),
