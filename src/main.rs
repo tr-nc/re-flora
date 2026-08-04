@@ -20,6 +20,8 @@ mod particles;
 mod procedual_placer;
 mod resource;
 mod run_log;
+#[allow(dead_code)]
+mod terrain_persistence;
 mod tracer;
 mod tree_gen;
 mod util;
