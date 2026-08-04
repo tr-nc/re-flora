@@ -1236,12 +1236,14 @@ pub struct GraphicsPipelines {
 }
 
 impl GraphicsPipelines {
-    pub fn begin_manual_buffer_frame(&self, frame_slot: usize) {
-        self.flora_ppl.begin_manual_buffer_frame(frame_slot);
-        self.flora_lod_ppl.begin_manual_buffer_frame(frame_slot);
-        self.leaves_ppl.begin_manual_buffer_frame(frame_slot);
-        self.leaves_lod_ppl.begin_manual_buffer_frame(frame_slot);
+    pub fn begin_transient_descriptor_frame(&self, frame_slot: usize) {
+        self.flora_ppl.begin_transient_descriptor_frame(frame_slot);
+        self.flora_lod_ppl
+            .begin_transient_descriptor_frame(frame_slot);
+        self.leaves_ppl.begin_transient_descriptor_frame(frame_slot);
+        self.leaves_lod_ppl
+            .begin_transient_descriptor_frame(frame_slot);
         self.leaves_shadow_lod_ppl
-            .begin_manual_buffer_frame(frame_slot);
+            .begin_transient_descriptor_frame(frame_slot);
     }
 }

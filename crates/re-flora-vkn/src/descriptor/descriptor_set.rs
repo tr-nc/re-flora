@@ -61,7 +61,7 @@ impl DescriptorSet {
         self.0.descriptor_set
     }
 
-    pub fn perform_writes(&self, writes: &mut [WriteDescriptorSet]) {
+    pub(crate) fn perform_writes(&self, writes: &mut [WriteDescriptorSet]) {
         if writes.is_empty() {
             return;
         }
@@ -163,7 +163,7 @@ impl Drop for DescriptorSetInner {
     }
 }
 
-pub struct WriteDescriptorSet<'a> {
+pub(crate) struct WriteDescriptorSet<'a> {
     binding: u32,
     descriptor_type: vk::DescriptorType,
     array_element: u32,
@@ -180,7 +180,7 @@ pub struct WriteDescriptorSet<'a> {
 }
 
 impl<'a> WriteDescriptorSet<'a> {
-    pub fn new_texture_write(
+    pub(crate) fn new_texture_write(
         binding: u32,
         descriptor_type: vk::DescriptorType,
         texture: &Texture,
@@ -204,12 +204,6 @@ impl<'a> WriteDescriptorSet<'a> {
             accel_struct: None,
             _accel_handles: None,
         }
-    }
-
-    pub fn new_buffer_write(binding: u32, buffer: &Buffer) -> Self {
-        let descriptor_type = Self::descriptor_type_from_usage(buffer.get_usage().as_raw())
-            .expect("buffer usage must support a Vulkan buffer descriptor");
-        Self::new_buffer_write_for_type(binding, descriptor_type, buffer)
     }
 
     pub(crate) fn new_buffer_write_for_type(
@@ -238,7 +232,7 @@ impl<'a> WriteDescriptorSet<'a> {
     }
 
     #[allow(dead_code)]
-    pub fn new_acceleration_structure_write(binding: u32, tlas: &AccelStruct) -> Self {
+    pub(crate) fn new_acceleration_structure_write(binding: u32, tlas: &AccelStruct) -> Self {
         let handles = vec![tlas.as_raw()];
         let as_info = vk::WriteDescriptorSetAccelerationStructureKHR {
             acceleration_structure_count: handles.len() as u32,
@@ -259,24 +253,6 @@ impl<'a> WriteDescriptorSet<'a> {
             accel_struct: Some(tlas.clone()),
             _accel_handles: Some(handles),
         }
-    }
-
-    fn descriptor_type_from_usage(usage: vk::BufferUsageFlags) -> Result<vk::DescriptorType> {
-        if usage.contains(vk::BufferUsageFlags::STORAGE_BUFFER) {
-            Ok(vk::DescriptorType::STORAGE_BUFFER)
-        } else if usage.contains(vk::BufferUsageFlags::UNIFORM_BUFFER) {
-            Ok(vk::DescriptorType::UNIFORM_BUFFER)
-        } else {
-            Err(anyhow::anyhow!(
-                "Unsupported buffer usage for descriptor type: {:?}",
-                usage
-            ))
-        }
-    }
-
-    pub fn with_array_element(mut self, array_element: u32) -> Self {
-        self.array_element = array_element;
-        self
     }
 
     pub(crate) fn binding(&self) -> u32 {
@@ -308,7 +284,7 @@ impl<'a> WriteDescriptorSet<'a> {
         })
     }
 
-    pub fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet<'_> {
+    pub(crate) fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet<'_> {
         assert!(
             self.image_infos.is_some()
                 ^ self.buffer_infos.is_some()

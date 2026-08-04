@@ -1,13 +1,13 @@
 use super::{
-    descriptor_set_utils, DescriptorBindingPlan, DescriptorGenerationDraft, DescriptorSetGeneration,
+    descriptor_set_utils, transient_descriptor_sets::TransientDescriptorSets,
+    DescriptorBindingPlan, DescriptorGenerationDraft, DescriptorSetGeneration,
 };
 use crate::{
-    Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayout,
-    DescriptorSetLayoutBinding, Device, FormatOverride, MergeWithEq, PipelineLayout, RenderPass,
-    FrameRetirement, RenderPassDesc, ResourceContainer, ShaderModule,
-    Viewport, WriteDescriptorSet,
+    CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
+    FormatOverride, FrameRetirement, MergeWithEq, PipelineLayout, RenderPass, RenderPassDesc,
+    ResourceContainer, ShaderModule, Viewport,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use ash::vk;
 use std::{
     collections::HashMap,
@@ -22,79 +22,10 @@ struct GraphicsPipelineInner {
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
     descriptor_sets: Mutex<DescriptorSetGeneration>,
-    pending_descriptor_sets: Mutex<Option<DescriptorSetGeneration>>,
-    manual_buffer_descriptor_sets: Mutex<ManualBufferDescriptorSets>,
+    transient_descriptor_sets: Mutex<TransientDescriptorSets>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     descriptor_binding_plan: DescriptorBindingPlan,
     descriptor_draft_active: Arc<AtomicBool>,
-}
-
-#[derive(Default)]
-struct ManualBufferDescriptorSets {
-    active_frame_slot: Option<usize>,
-    next_slot: usize,
-    frame_slots: Vec<ManualBufferDescriptorFrame>,
-}
-
-#[derive(Default)]
-struct ManualBufferDescriptorFrame {
-    slots: Vec<ManualBufferDescriptorSlot>,
-}
-
-struct ManualBufferDescriptorSlot {
-    set_no: u32,
-    descriptor_set: DescriptorSet,
-}
-
-impl ManualBufferDescriptorSets {
-    fn begin_frame(&mut self, frame_slot: usize) {
-        if self.frame_slots.len() <= frame_slot {
-            self.frame_slots
-                .resize_with(frame_slot + 1, ManualBufferDescriptorFrame::default);
-        }
-        self.active_frame_slot = Some(frame_slot);
-        self.next_slot = 0;
-    }
-
-    fn next_descriptor_set(
-        &mut self,
-        set_no: u32,
-        descriptor_pool: &DescriptorPool,
-        layout: &DescriptorSetLayout,
-    ) -> Result<DescriptorSet> {
-        let frame_slot = self.active_frame_slot.expect(
-            "GraphicsPipeline::begin_manual_buffer_frame must be called before record_indexed_with_manual_buffer",
-        );
-        let draw_slot = self.next_slot;
-        self.next_slot += 1;
-
-        let frame = self
-            .frame_slots
-            .get_mut(frame_slot)
-            .expect("active manual descriptor frame slot was not initialized");
-        if let Some(slot) = frame.slots.get(draw_slot) {
-            if slot.set_no == set_no {
-                return Ok(slot.descriptor_set.clone());
-            }
-        }
-
-        let descriptor_set = descriptor_pool.allocate_set(layout).with_context(|| {
-            format!(
-                "failed to allocate manual buffer descriptor set for frame_slot={frame_slot} draw_slot={draw_slot} set={set_no}"
-            )
-        })?;
-        let slot = ManualBufferDescriptorSlot {
-            set_no,
-            descriptor_set: descriptor_set.clone(),
-        };
-        if draw_slot == frame.slots.len() {
-            frame.slots.push(slot);
-        } else {
-            frame.slots[draw_slot] = slot;
-        }
-
-        Ok(descriptor_set)
-    }
 }
 
 impl Drop for GraphicsPipelineInner {
@@ -335,15 +266,14 @@ impl GraphicsPipeline {
                 )
                 .expect("descriptor sets must be allocatable from reflected layouts"),
             ),
-            pending_descriptor_sets: Mutex::new(None),
-            manual_buffer_descriptor_sets: Mutex::new(ManualBufferDescriptorSets::default()),
+            transient_descriptor_sets: Mutex::new(TransientDescriptorSets::default()),
             descriptor_sets_bindings,
             descriptor_binding_plan,
             descriptor_draft_active: Arc::new(AtomicBool::new(false)),
         }));
 
         if initialize {
-            descriptor_set_utils::auto_update_descriptor_sets(
+            descriptor_set_utils::initialize_descriptor_sets(
                 resource_containers,
                 &pipeline_instance.0.descriptor_sets_bindings,
                 &pipeline_instance.0.descriptor_sets,
@@ -397,18 +327,12 @@ impl GraphicsPipeline {
     ) -> Result<()> {
         let write = self.0.descriptor_binding_plan.make_write(name, resource)?;
         let set_no = self.0.descriptor_binding_plan.binding(name)?.set_no();
-        self.initialize_descriptor_set(set_no, write);
-        Ok(())
-    }
-
-    pub fn write_descriptor(
-        &self,
-        name: &str,
-        resource: super::DescriptorResource<'_>,
-    ) -> Result<()> {
-        let write = self.0.descriptor_binding_plan.make_write(name, resource)?;
-        let set_no = self.0.descriptor_binding_plan.binding(name)?.set_no();
-        self.write_descriptor_set(set_no, write);
+        let mut write = write;
+        let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
+        descriptor_sets
+            .get(&set_no)
+            .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?
+            .perform_writes(std::slice::from_mut(&mut write));
         Ok(())
     }
 
@@ -423,7 +347,7 @@ impl GraphicsPipeline {
         let mut set_nos = self.0.descriptor_sets_bindings.keys().copied().collect::<Vec<_>>();
         set_nos.sort_unstable();
         let result = (|| {
-            let mut pending = HashMap::new();
+            let mut pending = DescriptorSetGeneration::empty();
             for set_no in set_nos {
                 let set = active.get(&set_no).ok_or_else(|| {
                     anyhow::anyhow!(
@@ -489,15 +413,15 @@ impl GraphicsPipeline {
         )
     }
 
-    /// Starts a new frame for manually-bound buffer descriptor sets.
+    /// Starts a new frame for transient descriptor sets.
     ///
     /// The graphics pipeline keeps one descriptor-set sequence per frame slot so
     /// descriptors can be updated and reused after that slot's fence has been
     /// waited. Call this once before recording any
-    /// `record_indexed_with_manual_buffer` draws for the frame.
-    pub fn begin_manual_buffer_frame(&self, frame_slot: usize) {
+    /// `record_indexed_with_descriptors` draws for the frame.
+    pub fn begin_transient_descriptor_frame(&self, frame_slot: usize) {
         self.0
-            .manual_buffer_descriptor_sets
+            .transient_descriptor_sets
             .lock()
             .unwrap()
             .begin_frame(frame_slot);
@@ -549,7 +473,12 @@ impl GraphicsPipeline {
             } else {
                 run_start = Some(set_no);
             }
-            run.push(descriptor_sets[&set_no].as_raw());
+            run.push(
+                descriptor_sets
+                    .get(&set_no)
+                    .expect("descriptor set location was collected from the generation")
+                    .as_raw(),
+            );
         }
         if let Some(start) = run_start {
             self.0.device.cmd_bind_descriptor_sets_graphics_raw(
@@ -660,129 +589,6 @@ impl GraphicsPipeline {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn record_indexed_with_manual_buffer(
-        &self,
-        cmdbuf: &CommandBuffer,
-        manual_set_no: u32,
-        manual_binding: u32,
-        manual_buffer: &Buffer,
-        index_count: u32,
-        instance_count: u32,
-        first_index: u32,
-        vertex_offset: i32,
-        first_instance: u32,
-        push_constants: Option<&PushConstantInfo>,
-    ) {
-        self.record_bind(cmdbuf);
-        let manual_set = self.next_manual_buffer_descriptor_set(
-            manual_set_no,
-            manual_binding,
-            manual_buffer,
-        );
-        {
-            let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
-            if !descriptor_sets.is_empty() {
-                self.record_bind_descriptor_sets(cmdbuf, &descriptor_sets);
-            }
-        }
-        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-            cmdbuf.as_raw(),
-            self.0.pipeline_layout.as_raw(),
-            manual_set_no,
-            &[manual_set.as_raw()],
-        );
-        if let Some(push_constants) = push_constants {
-            self.record_push_constants(cmdbuf, push_constants);
-        }
-        self.record_draw_indexed(
-            cmdbuf,
-            index_count,
-            instance_count,
-            first_index,
-            vertex_offset,
-            first_instance,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn record_indexed_with_manual_buffers(
-        &self,
-        cmdbuf: &CommandBuffer,
-        manual_set_no: u32,
-        manual_buffers: &[(u32, &Buffer)],
-        index_count: u32,
-        instance_count: u32,
-        first_index: u32,
-        vertex_offset: i32,
-        first_instance: u32,
-        push_constants: Option<&PushConstantInfo>,
-    ) {
-        self.record_bind(cmdbuf);
-        let manual_set = self.next_manual_buffer_descriptor_set_with_writes(
-            manual_set_no,
-            manual_buffers,
-        );
-        {
-            let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
-            if !descriptor_sets.is_empty() {
-                self.record_bind_descriptor_sets(cmdbuf, &descriptor_sets);
-            }
-        }
-        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-            cmdbuf.as_raw(),
-            self.0.pipeline_layout.as_raw(),
-            manual_set_no,
-            &[manual_set.as_raw()],
-        );
-        if let Some(push_constants) = push_constants {
-            self.record_push_constants(cmdbuf, push_constants);
-        }
-        self.record_draw_indexed(
-            cmdbuf,
-            index_count,
-            instance_count,
-            first_index,
-            vertex_offset,
-            first_instance,
-        );
-    }
-
-    fn next_manual_buffer_descriptor_set(
-        &self,
-        set_no: u32,
-        binding: u32,
-        buffer: &Buffer,
-    ) -> DescriptorSet {
-        self.next_manual_buffer_descriptor_set_with_writes(set_no, &[(binding, buffer)])
-    }
-
-    fn next_manual_buffer_descriptor_set_with_writes(
-        &self,
-        set_no: u32,
-        buffers: &[(u32, &Buffer)],
-    ) -> DescriptorSet {
-        let layout = self
-            .0
-            .pipeline_layout
-            .get_descriptor_set_layouts()
-            .get(&set_no)
-            .unwrap_or_else(|| panic!("Missing descriptor set layout {}", set_no));
-        let descriptor_set = self
-            .0
-            .manual_buffer_descriptor_sets
-            .lock()
-            .unwrap()
-            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout)
-            .unwrap_or_else(|err| panic!("{err:#}"));
-        let mut writes = buffers
-            .iter()
-            .map(|(binding, buffer)| WriteDescriptorSet::new_buffer_write(*binding, buffer))
-            .collect::<Vec<_>>();
-        descriptor_set.perform_writes(&mut writes);
-        descriptor_set
-    }
-
     fn next_transient_descriptor_set(
         &self,
         descriptors: &[(&str, super::DescriptorResource<'_>)],
@@ -800,10 +606,10 @@ impl GraphicsPipeline {
             .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?;
         let descriptor_set = self
             .0
-            .manual_buffer_descriptor_sets
+            .transient_descriptor_sets
             .lock()
             .unwrap()
-            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout)?;
+            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout, "GraphicsPipeline")?;
         let mut writes = Vec::with_capacity(descriptors.len());
         for (name, resource) in descriptors {
             let binding = self.0.descriptor_binding_plan.binding(name)?;
@@ -898,122 +704,6 @@ impl GraphicsPipeline {
             vertex_offset,
             first_instance,
         );
-    }
-
-    /// Initialize a descriptor set before any command can reference it.
-    ///
-    /// Runtime updates must use `begin_descriptor_generation` and
-    /// `write_descriptor_set`; direct mutation of the active generation is
-    /// intentionally unavailable.
-    pub fn initialize_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
-        assert!(
-            self.0.pending_descriptor_sets.lock().unwrap().is_none(),
-            "descriptor initialization cannot run while a generation is staged"
-        );
-        let mut write = write;
-        self.0
-            .descriptor_binding_plan
-            .validate_write(set_no, &write)
-            .expect("descriptor initialization must match shader reflection");
-        let guard = self.0.descriptor_sets.lock().unwrap();
-        guard
-            .get(&set_no)
-            .expect("descriptor set must exist for reflected set")
-            .perform_writes(std::slice::from_mut(&mut write));
-    }
-
-    /// Write a descriptor into the staged generation only.
-    pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
-        let mut write = write;
-        self.0
-            .descriptor_binding_plan
-            .validate_write(set_no, &write)
-            .expect("descriptor write must match shader reflection");
-        let pending = self.0.pending_descriptor_sets.lock().unwrap();
-        let descriptor_sets = pending
-            .as_ref()
-            .expect("runtime descriptor writes require begin_descriptor_generation");
-        descriptor_sets
-            .get(&set_no)
-            .expect("descriptor set must exist for reflected set")
-            .perform_writes(std::slice::from_mut(&mut write));
-    }
-
-    /// Updates existing descriptor sets with new resources.
-    #[allow(dead_code)]
-    pub fn auto_update_descriptor_sets(
-        &self,
-        resource_containers: &[&dyn ResourceContainer],
-    ) -> Result<()> {
-        if let Some(descriptor_sets) = self.0.pending_descriptor_sets.lock().unwrap().as_ref() {
-            descriptor_set_utils::auto_update_descriptor_sets_on_sets(
-                resource_containers,
-                &self.0.descriptor_sets_bindings,
-                descriptor_sets,
-                true,
-            )?;
-        } else {
-            descriptor_set_utils::auto_update_descriptor_sets(
-                resource_containers,
-                &self.0.descriptor_sets_bindings,
-                &self.0.descriptor_sets,
-            )?;
-        }
-        Ok(())
-    }
-
-    /// Fork the current descriptor generation so runtime writes cannot mutate an in-flight set.
-    pub fn begin_descriptor_generation(&self) -> Result<()> {
-        let active = self.0.descriptor_sets.lock().unwrap();
-        let mut set_nos = self.0.descriptor_sets_bindings.keys().copied().collect::<Vec<_>>();
-        set_nos.sort_unstable();
-        let mut pending = HashMap::new();
-        for set_no in set_nos {
-            let set = active.get(&set_no).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "descriptor generation for {} is missing reflected set {}",
-                    self.0.descriptor_binding_plan.pipeline_name(),
-                    set_no
-                )
-            })?;
-            let layout = self
-                .0
-                .pipeline_layout
-                .get_descriptor_set_layouts()
-                .get(&set_no)
-                .ok_or_else(|| anyhow::anyhow!("descriptor set layout {set_no} is not reflected"))?;
-            pending.insert(set_no, set.fork(&self.0.descriptor_pool, layout)?);
-        }
-        let replaced = self
-            .0
-            .pending_descriptor_sets
-            .lock()
-            .unwrap()
-            .replace(pending);
-        assert!(replaced.is_none(), "descriptor generation already in progress");
-        Ok(())
-    }
-
-    /// Publish the staged descriptor generation and return the previous one for completion-scoped
-    /// retirement. Callers must schedule the returned retirement on the frame clock.
-    pub fn publish_descriptor_generation(
-        &self,
-        name: &'static str,
-        generation: u64,
-    ) -> Option<FrameRetirement> {
-        let pending = self.take_staged_descriptor_sets();
-        Some(self.publish_descriptor_sets(name, generation, pending))
-    }
-
-    /// Takes a fully written staged generation without making it active. This lets a caller
-    /// prepare a private resource generation before the visibility boundary where it is published.
-    pub fn take_staged_descriptor_sets(&self) -> DescriptorSetGeneration {
-        self.0
-            .pending_descriptor_sets
-            .lock()
-            .unwrap()
-            .take()
-            .expect("taking a descriptor generation requires begin_descriptor_generation")
     }
 
     /// Publishes a previously staged generation and returns the old generation for completion-

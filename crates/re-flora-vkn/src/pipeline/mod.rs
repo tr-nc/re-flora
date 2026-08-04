@@ -11,4 +11,4 @@ mod descriptor_binding_plan;
 pub use descriptor_binding_plan::*;
 
 mod descriptor_set_utils;
-mod manual_buffer_descriptor_sets;
+mod transient_descriptor_sets;

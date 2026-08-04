@@ -306,11 +306,13 @@ mod tests {
             .split_once("fn publish_ddgi_consumer_descriptors")
             .expect("staged consumer descriptors must have an explicit publication seam")
             .0;
-        assert!(consumer_update.contains("compute_pipelines.tracer_ppl"));
-        assert!(consumer_update.contains("graphics_pipelines.flora_ppl"));
-        assert!(consumer_update.contains("DDGI_PROBE_METADATA_BINDING"));
-        assert!(consumer_update.contains("DDGI_IRRADIANCE_ATLAS_BINDING"));
-        assert!(consumer_update.contains("DDGI_VISIBILITY_ATLAS_BINDING"));
+        assert!(consumer_update.contains("compute_pipelines"));
+        assert!(consumer_update.contains("tracer_ppl"));
+        assert!(consumer_update.contains("graphics_pipelines"));
+        assert!(consumer_update.contains("flora_ppl"));
+        assert!(consumer_update.contains("ddgi_probe_metadata"));
+        assert!(consumer_update.contains("ddgi_irradiance_atlas"));
+        assert!(consumer_update.contains("ddgi_visibility_atlas"));
 
         let promotion = tracer_host
             .split_once("fn promote_ready_ddgi_staging")

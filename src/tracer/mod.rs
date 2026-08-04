@@ -3280,7 +3280,7 @@ impl Tracer {
         self.start_next_ddgi_scheduled_work()?;
 
         self.graphics_pipelines
-            .begin_manual_buffer_frame(gpu_profiler_frame_slot);
+            .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
 
         // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
         // flora vertex shader samples it in the same command buffer. MoltenVK/Metal
@@ -4259,7 +4259,7 @@ impl Tracer {
             let cache_buffer = self.flora_lighting_cache.buffer(gpu_profiler_frame_slot);
             self.compute_pipelines
                 .flora_lighting_cache_ppl
-                .begin_manual_buffer_frame(gpu_profiler_frame_slot);
+                .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
 
             let cache_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(

@@ -9,7 +9,41 @@ use std::{
     sync::{Arc, atomic::{AtomicBool, Ordering}},
 };
 
-pub type DescriptorSetGeneration = HashMap<u32, crate::DescriptorSet>;
+/// An opaque, prepared descriptor generation owned by a pipeline.
+///
+/// The numeric set locations stay inside VKN. Application code may move a prepared generation
+/// across a transaction boundary, but cannot construct or mutate its numeric bindings directly.
+pub struct DescriptorSetGeneration {
+    sets: HashMap<u32, crate::DescriptorSet>,
+}
+
+impl DescriptorSetGeneration {
+    pub(crate) fn empty() -> Self {
+        Self {
+            sets: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn insert(&mut self, set_no: u32, descriptor_set: crate::DescriptorSet) {
+        self.sets.insert(set_no, descriptor_set);
+    }
+
+    pub(crate) fn get(&self, set_no: &u32) -> Option<&crate::DescriptorSet> {
+        self.sets.get(set_no)
+    }
+
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &u32> {
+        self.sets.keys()
+    }
+
+    pub(crate) fn values(&self) -> impl Iterator<Item = &crate::DescriptorSet> {
+        self.sets.values()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.sets.is_empty()
+    }
+}
 
 /// A resource kind that can be supplied to a reflected descriptor binding.
 ///
@@ -40,7 +74,7 @@ impl DescriptorGenerationDraft {
         self.write_descriptor_set(set_no, write)
     }
 
-    pub fn write_descriptor_set(
+    pub(crate) fn write_descriptor_set(
         &mut self,
         set_no: u32,
         mut write: WriteDescriptorSet,
@@ -121,7 +155,7 @@ impl DescriptorGenerationDraft {
 
     pub fn into_generation(self) -> DescriptorSetGeneration {
         let mut this = self;
-        std::mem::take(&mut this.sets)
+        std::mem::replace(&mut this.sets, DescriptorSetGeneration::empty())
     }
 }
 
@@ -163,9 +197,6 @@ impl DescriptorBinding {
         self.set_no
     }
 
-    pub(crate) fn binding_no(&self) -> u32 {
-        self.binding_no
-    }
 }
 
 /// The semantic descriptor interface for one compute or graphics pipeline.
@@ -429,7 +460,7 @@ pub(crate) fn image_layout(descriptor_type: vk::DescriptorType) -> TextureLayout
     }
 }
 
-fn ensure_buffer_usage(
+pub(crate) fn ensure_buffer_usage(
     name: &str,
     descriptor_type: vk::DescriptorType,
     usage: vk::BufferUsageFlags,

@@ -1,48 +1,18 @@
 use crate::{
     DescriptorPool, DescriptorSetLayoutBinding, PipelineLayout, ResourceContainer,
-    TextureLayout, WriteDescriptorSet,
+    WriteDescriptorSet,
 };
 use anyhow::Result;
-use ash::vk;
 use std::{collections::HashMap, sync::Mutex};
 
-use super::DescriptorSetGeneration;
-
-/// Creates descriptor sets for a pipeline using automatic resource binding.
-pub fn auto_create_descriptor_sets(
-    descriptor_pool: &DescriptorPool,
-    resource_containers: &[&dyn ResourceContainer],
-    pipeline_layout: &PipelineLayout,
-    descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
-    descriptor_sets_storage: &Mutex<DescriptorSetGeneration>,
-) -> Result<()> {
-    let descriptor_sets = allocate_descriptor_sets(
-        descriptor_pool,
-        pipeline_layout,
-        descriptor_sets_bindings,
-    )?;
-    {
-        let mut guard = descriptor_sets_storage.lock().unwrap();
-        *guard = descriptor_sets;
-    }
-
-    // Legacy construction keeps the historical manual-resource escape hatch until all
-    // application call sites use explicit semantic initialization.
-    auto_update_descriptor_sets(
-        resource_containers,
-        descriptor_sets_bindings,
-        descriptor_sets_storage,
-    )?;
-
-    Ok(())
-}
+use super::{ensure_buffer_usage, image_layout, DescriptorSetGeneration};
 
 pub fn allocate_descriptor_sets(
     descriptor_pool: &DescriptorPool,
     pipeline_layout: &PipelineLayout,
     descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
 ) -> Result<DescriptorSetGeneration> {
-    let mut descriptor_sets = HashMap::new();
+    let mut descriptor_sets = DescriptorSetGeneration::empty();
     let mut sorted_sets: Vec<_> = descriptor_sets_bindings.iter().collect();
     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
 
@@ -58,21 +28,6 @@ pub fn allocate_descriptor_sets(
     Ok(descriptor_sets)
 }
 
-/// Updates existing descriptor sets with new resources.
-pub fn auto_update_descriptor_sets(
-    resource_containers: &[&dyn ResourceContainer],
-    descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
-    descriptor_sets_storage: &Mutex<DescriptorSetGeneration>,
-) -> Result<()> {
-    let descriptor_sets = descriptor_sets_storage.lock().unwrap();
-    auto_update_descriptor_sets_on_sets(
-        resource_containers,
-        descriptor_sets_bindings,
-        &descriptor_sets,
-        true,
-    )
-}
-
 /// Fully initializes a descriptor generation from resource containers.
 ///
 /// Unlike the legacy automatic path, every reflected binding must resolve.  Pipelines with
@@ -84,11 +39,10 @@ pub fn initialize_descriptor_sets(
     descriptor_sets_storage: &Mutex<DescriptorSetGeneration>,
 ) -> Result<()> {
     let descriptor_sets = descriptor_sets_storage.lock().unwrap();
-    auto_update_descriptor_sets_on_sets(
+    initialize_descriptor_sets_on_sets(
         resource_containers,
         descriptor_sets_bindings,
         &descriptor_sets,
-        false,
     )
 }
 
@@ -107,19 +61,17 @@ pub fn initialize_descriptor_set(
         .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?;
     let selected = HashMap::from([(set_no, bindings.clone())]);
     let descriptor_sets = descriptor_sets_storage.lock().unwrap();
-    auto_update_descriptor_sets_on_sets(
+    initialize_descriptor_sets_on_sets(
         resource_containers,
         &selected,
         &descriptor_sets,
-        false,
     )
 }
 
-pub fn auto_update_descriptor_sets_on_sets(
+fn initialize_descriptor_sets_on_sets(
     resource_containers: &[&dyn ResourceContainer],
     descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     descriptor_sets: &DescriptorSetGeneration,
-    allow_unresolved_manual: bool,
 ) -> Result<()> {
     let mut sorted_sets: Vec<_> = descriptor_sets_bindings.iter().collect();
     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
@@ -146,12 +98,6 @@ pub fn auto_update_descriptor_sets_on_sets(
             // ensure that only one resource container has that resource
             let total_found = found_buffer_containers.len() + found_texture_containers.len();
             if total_found == 0 {
-                // Creation-time automatic binding predates the semantic initialization API.
-                // Keep the legacy escape hatch only until the owning pipeline migrates to
-                // explicit initialization; the final contract rejects all unresolved names.
-                if allow_unresolved_manual && binding.name.starts_with("manual_") {
-                    continue;
-                }
                 return Err(anyhow::anyhow!("Resource not found: {}", binding.name));
             } else if total_found > 1 {
                 return Err(anyhow::anyhow!(
@@ -175,8 +121,15 @@ pub fn auto_update_descriptor_sets_on_sets(
                 let resource = resource_containers[*container_idx]
                     .get_buffer(&binding.name)
                     .unwrap();
-                descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write(
-                    binding.no, resource,
+                ensure_buffer_usage(
+                    &binding.name,
+                    binding.descriptor_type,
+                    resource.get_usage().as_raw(),
+                )?;
+                descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_buffer_write_for_type(
+                    binding.no,
+                    binding.descriptor_type,
+                    resource,
                 )]);
             } else if let Some(container_idx) = found_texture_containers.first() {
                 let resource = resource_containers[*container_idx]
@@ -186,19 +139,10 @@ pub fn auto_update_descriptor_sets_on_sets(
                     binding.no,
                     binding.descriptor_type,
                     resource,
-                    descriptor_image_layout(binding.descriptor_type),
+                    image_layout(binding.descriptor_type),
                 )]);
             }
         }
     }
     Ok(())
-}
-
-pub fn descriptor_image_layout(descriptor_type: vk::DescriptorType) -> TextureLayout {
-    match descriptor_type {
-        vk::DescriptorType::COMBINED_IMAGE_SAMPLER | vk::DescriptorType::SAMPLED_IMAGE => {
-            TextureLayout::SHADER_READ_ONLY
-        }
-        _ => TextureLayout::GENERAL,
-    }
 }

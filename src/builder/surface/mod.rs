@@ -925,7 +925,7 @@ impl SurfaceBuilder {
                     .map_err(|err| anyhow::anyhow!("invalid flora instance readback: {err}"))?;
 
                 positions.extend(instances.iter().filter_map(|instance| {
-                    let local_position = unpack_manual_flora_instance_local_position(*instance);
+                    let local_position = unpack_flora_instance_local_position(*instance);
                     local_position
                         .cmplt(self.voxel_dim_per_chunk)
                         .all()
@@ -1270,7 +1270,7 @@ impl SurfaceBuilder {
                 if local_pos.cmpge(self.voxel_dim_per_chunk).any() {
                     continue;
                 }
-                gpu_instances.push(pack_manual_flora_instance(
+                gpu_instances.push(pack_flora_instance(
                     local_pos,
                     instance.growth_progress,
                     instance.spawn_start_ms,
@@ -1758,7 +1758,7 @@ impl SurfaceBuilder {
     }
 }
 
-fn pack_manual_flora_instance(
+fn pack_flora_instance(
     local_pos: UVec3,
     growth_progress: u32,
     spawn_start_ms: u32,
@@ -1772,7 +1772,7 @@ fn pack_manual_flora_instance(
     }
 }
 
-fn unpack_manual_flora_instance_local_position(instance: resources::Instance) -> UVec3 {
+fn unpack_flora_instance_local_position(instance: resources::Instance) -> UVec3 {
     UVec3::new(
         instance.packed_local_pos & 0xff,
         (instance.packed_local_pos >> 8) & 0xff,
@@ -2002,12 +2002,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn manual_flora_instance_position_round_trips_without_growth_bits() {
+    fn flora_instance_position_round_trips_without_growth_bits() {
         let local_position = UVec3::new(17, 93, 241);
-        let instance = pack_manual_flora_instance(local_position, 0xab, 1234);
+        let instance = pack_flora_instance(local_position, 0xab, 1234);
 
         assert_eq!(
-            unpack_manual_flora_instance_local_position(instance),
+            unpack_flora_instance_local_position(instance),
             local_position
         );
     }
