@@ -3,7 +3,7 @@ use glam::{IVec3, UVec3};
 
 use crate::tracer::{
     voxel_geometry::{CUBE_INDICES, CUBE_INDICES_LOD, VOXEL_VERTICES, VOXEL_VERTICES_LOD},
-    Vertex,
+    LeafVertex, Vertex,
 };
 
 const BIT_PER_POS: u32 = 7;
@@ -89,14 +89,14 @@ pub struct FloraVoxelInfoEntry {
 }
 
 #[derive(Clone, Debug)]
-pub struct FloraMeshData {
-    pub vertices: Vec<Vertex>,
+pub struct FloraMeshData<V = Vertex> {
+    pub vertices: Vec<V>,
     pub indices: Vec<u32>,
     pub voxel_infos: Vec<FloraVoxelInfoEntry>,
     pub max_length: u32,
 }
 
-impl FloraMeshData {
+impl<V> FloraMeshData<V> {
     pub fn new(max_length: u32) -> Self {
         Self {
             vertices: Vec::new(),
@@ -106,7 +106,7 @@ impl FloraMeshData {
         }
     }
 
-    pub fn into_render_data(self) -> (Vec<Vertex>, Vec<u32>) {
+    pub fn into_render_data(self) -> (Vec<V>, Vec<u32>) {
         (self.vertices, self.indices)
     }
 }
@@ -198,15 +198,13 @@ pub fn append_indexed_cube_data(
     )
 }
 
-/// Appends 8 vertices and 36 indices for a single cube to the provided lists.
-pub fn append_indexed_cube_data_with_info(
-    vertices: &mut Vec<Vertex>,
+fn append_indexed_cube_vertices<V>(
+    vertices: &mut Vec<V>,
     indices: &mut Vec<u32>,
-    voxel_infos: &mut Vec<FloraVoxelInfoEntry>,
     pos: IVec3,
     vertex_offset: u32,
-    info: FloraVoxelInfo,
     is_lod_used: bool,
+    make_vertex: impl Fn(u32) -> V,
 ) -> Result<()> {
     const LOWER_BOUND: i32 = -(1 << (BIT_PER_POS - 1));
     const UPPER_BOUND: i32 = (1 << (BIT_PER_POS - 1)) - 1;
@@ -221,30 +219,93 @@ pub fn append_indexed_cube_data_with_info(
     }
 
     let encoded_pos = encode_pos(pos)?;
-
-    let voxel_verts: Vec<UVec3> = if is_lod_used {
-        VOXEL_VERTICES_LOD.to_vec()
+    let (voxel_verts, base_indices) = if is_lod_used {
+        (&VOXEL_VERTICES_LOD[..], &CUBE_INDICES_LOD[..])
     } else {
-        VOXEL_VERTICES.to_vec()
-    };
-    let base_indices = if is_lod_used {
-        CUBE_INDICES_LOD.to_vec()
-    } else {
-        CUBE_INDICES.to_vec()
+        (&VOXEL_VERTICES[..], &CUBE_INDICES[..])
     };
 
-    let voxel_index = voxel_infos.len() as u32;
-    for voxel_vert in voxel_verts {
+    for &voxel_vert in voxel_verts {
         let encoded_offset = encode_voxel_offset(voxel_vert)?;
         let packed_data = make_value_from_parts(encoded_pos, encoded_offset);
-        vertices.push(Vertex {
-            packed_data,
-            voxel_index,
-        });
+        vertices.push(make_vertex(packed_data));
     }
-    for index in base_indices {
+    for &index in base_indices {
         indices.push(vertex_offset + index);
     }
+
+    Ok(())
+}
+
+/// Appends indexed cube data with a per-vertex source voxel index.
+pub fn append_indexed_cube_data_with_info(
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u32>,
+    voxel_infos: &mut Vec<FloraVoxelInfoEntry>,
+    pos: IVec3,
+    vertex_offset: u32,
+    info: FloraVoxelInfo,
+    is_lod_used: bool,
+) -> Result<()> {
+    let voxel_index = voxel_infos.len() as u32;
+    append_indexed_cube_vertices(
+        vertices,
+        indices,
+        pos,
+        vertex_offset,
+        is_lod_used,
+        |packed_data| Vertex {
+            packed_data,
+            voxel_index,
+        },
+    )?;
+    voxel_infos.push(FloraVoxelInfoEntry { pos, info });
+
+    Ok(())
+}
+
+/// Appends indexed cube data using the compact leaf/fruit vertex layout.
+#[allow(clippy::too_many_arguments)]
+pub fn append_indexed_leaf_cube_data(
+    vertices: &mut Vec<LeafVertex>,
+    indices: &mut Vec<u32>,
+    voxel_infos: &mut Vec<FloraVoxelInfoEntry>,
+    pos: IVec3,
+    vertex_offset: u32,
+    origin: IVec3,
+    max_length: u32,
+    is_lod_used: bool,
+) -> Result<()> {
+    let gradient = gradient_from_origin(pos, origin, max_length);
+    append_indexed_leaf_cube_data_with_info(
+        vertices,
+        indices,
+        voxel_infos,
+        pos,
+        vertex_offset,
+        FloraVoxelInfo::gradient(gradient),
+        is_lod_used,
+    )
+}
+
+/// Appends indexed cube data without a per-vertex source voxel index.
+pub fn append_indexed_leaf_cube_data_with_info(
+    vertices: &mut Vec<LeafVertex>,
+    indices: &mut Vec<u32>,
+    voxel_infos: &mut Vec<FloraVoxelInfoEntry>,
+    pos: IVec3,
+    vertex_offset: u32,
+    info: FloraVoxelInfo,
+    is_lod_used: bool,
+) -> Result<()> {
+    append_indexed_cube_vertices(
+        vertices,
+        indices,
+        pos,
+        vertex_offset,
+        is_lod_used,
+        |packed_data| LeafVertex { packed_data },
+    )?;
     voxel_infos.push(FloraVoxelInfoEntry { pos, info });
 
     Ok(())
@@ -300,6 +361,44 @@ mod tests {
             assert!(vertices[vertices_per_voxel..]
                 .iter()
                 .all(|vertex| vertex.voxel_index == 1));
+        }
+    }
+
+    #[test]
+    fn generated_leaf_vertices_match_the_compact_shader_layout_for_both_lods() {
+        assert_eq!(
+            std::mem::size_of::<LeafVertex>(),
+            std::mem::size_of::<u32>()
+        );
+        assert_eq!(
+            std::mem::size_of::<Vertex>(),
+            2 * std::mem::size_of::<u32>()
+        );
+
+        for is_lod_used in [false, true] {
+            let mut vertices = Vec::<LeafVertex>::new();
+            let mut indices = Vec::new();
+            let mut voxel_infos = Vec::new();
+            append_indexed_leaf_cube_data_with_info(
+                &mut vertices,
+                &mut indices,
+                &mut voxel_infos,
+                IVec3::ZERO,
+                0,
+                FloraVoxelInfo::fallback(),
+                is_lod_used,
+            )
+            .unwrap();
+
+            let expected_vertices = if is_lod_used { 4 } else { 8 };
+            let expected_indices = if is_lod_used {
+                CUBE_INDICES_LOD.as_slice()
+            } else {
+                CUBE_INDICES.as_slice()
+            };
+            assert_eq!(vertices.len(), expected_vertices);
+            assert_eq!(indices.as_slice(), expected_indices);
+            assert_eq!(voxel_infos.len(), 1);
         }
     }
 }

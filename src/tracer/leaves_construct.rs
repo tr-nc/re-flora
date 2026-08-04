@@ -1,5 +1,9 @@
-use crate::tracer::voxel_encoding::{
-    append_indexed_cube_data, append_indexed_cube_data_with_info, FloraMeshData, FloraVoxelInfo,
+use crate::tracer::{
+    voxel_encoding::{
+        append_indexed_leaf_cube_data, append_indexed_leaf_cube_data_with_info, FloraMeshData,
+        FloraVoxelInfo,
+    },
+    LeafVertex,
 };
 use anyhow::Result;
 use glam::{IVec3, Vec3};
@@ -18,14 +22,14 @@ pub struct LeafVoxelShape {
 }
 
 fn push_voxel(
-    mesh: &mut FloraMeshData,
+    mesh: &mut FloraMeshData<LeafVertex>,
     pos: IVec3,
     origin: IVec3,
     max_length: u32,
     is_lod_used: bool,
 ) -> Result<()> {
     let vertex_offset = mesh.vertices.len() as u32;
-    append_indexed_cube_data(
+    append_indexed_leaf_cube_data(
         &mut mesh.vertices,
         &mut mesh.indices,
         &mut mesh.voxel_infos,
@@ -134,11 +138,11 @@ pub fn generate_indexed_voxel_leaves(
     inner_radius: f32,
     outer_radius: f32,
     is_lod_used: bool,
-) -> Result<FloraMeshData> {
+) -> Result<FloraMeshData<LeafVertex>> {
     let shape =
         generate_voxel_leaf_shape(inner_density, outer_density, inner_radius, outer_radius)?;
     let origin = IVec3::ZERO;
-    let mut mesh = FloraMeshData::new(shape.max_length);
+    let mut mesh = FloraMeshData::<LeafVertex>::new(shape.max_length);
 
     for pos in shape.offsets {
         push_voxel(&mut mesh, pos, origin, shape.max_length, is_lod_used)?;
@@ -151,9 +155,9 @@ pub fn generate_indexed_voxel_leaves(
 pub fn generate_indexed_single_voxel_leaf(
     max_length: u32,
     is_lod_used: bool,
-) -> Result<FloraMeshData> {
+) -> Result<FloraMeshData<LeafVertex>> {
     let max_length = max_length.max(1);
-    let mut mesh = FloraMeshData::new(max_length);
+    let mut mesh = FloraMeshData::<LeafVertex>::new(max_length);
     push_voxel(&mut mesh, IVec3::ZERO, IVec3::ZERO, max_length, is_lod_used)?;
 
     Ok(mesh)
@@ -163,17 +167,17 @@ pub fn generate_indexed_single_voxel_leaf(
 ///
 /// The apple is intentionally render-only: tree placement creates instances for
 /// this mesh instead of stamping fruit into the terrain voxel field.
-pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<FloraMeshData> {
+pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<FloraMeshData<LeafVertex>> {
     const MAX_LENGTH: u32 = TREE_FRUIT_MAX_RADIUS_VOXELS;
 
-    let mut mesh = FloraMeshData::new(MAX_LENGTH);
+    let mut mesh = FloraMeshData::<LeafVertex>::new(MAX_LENGTH);
 
     for pos in voxel_apple_offsets() {
         let vertex_offset = mesh.vertices.len() as u32;
         let color_gradient = ((pos.y + MAX_LENGTH as i32) as f32
             / (MAX_LENGTH as f32 * 2.0).max(1.0))
         .clamp(0.0, 1.0);
-        append_indexed_cube_data_with_info(
+        append_indexed_leaf_cube_data_with_info(
             &mut mesh.vertices,
             &mut mesh.indices,
             &mut mesh.voxel_infos,

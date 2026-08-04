@@ -707,8 +707,12 @@ fn extract_buffer_layouts(
 #[cfg(test)]
 mod tests {
     use super::{
-        get_slang_matrix_wrapper_type, is_slang_array_wrapper_type, normalize_buffer_type_name,
-        PlainMemberType,
+        find_precompiled_shader, get_slang_matrix_wrapper_type, is_slang_array_wrapper_type,
+        normalize_buffer_type_name, PlainMemberType,
+    };
+    use spirv_reflect::{
+        types::ReflectDecorationFlags,
+        ShaderModule as ReflectShaderModule,
     };
 
     #[test]
@@ -743,6 +747,31 @@ mod tests {
             Some(PlainMemberType::Mat4)
         );
         assert_eq!(get_slang_matrix_wrapper_type("U_CameraInfo"), None);
+    }
+
+    #[test]
+    fn leaf_vertex_shaders_reflect_only_the_compact_packed_input() {
+        for shader_path in [
+            "shader/foliage/leaves.vert",
+            "shader/foliage/leaves_lod.vert",
+            "shader/foliage/leaves_shadow.vert",
+        ] {
+            let artifact = find_precompiled_shader(shader_path)
+                .unwrap_or_else(|| panic!("missing precompiled shader {shader_path}"));
+            let module = ReflectShaderModule::load_u8_data(artifact.reflection_spirv).unwrap();
+            let mut inputs = module.enumerate_input_variables(None).unwrap();
+            inputs.retain(|input| {
+                !input
+                    .decoration_flags
+                    .contains(ReflectDecorationFlags::BUILT_IN)
+            });
+
+            assert_eq!(
+                inputs.iter().map(|input| input.location).collect::<Vec<_>>(),
+                vec![0],
+                "{shader_path} must expose only packed_data as a per-vertex input"
+            );
+        }
     }
 }
 

@@ -14,7 +14,7 @@ use crate::{
             encode_lookup_pos_key, FloraMeshData, FloraVoxelInfo, FloraVoxelInfoEntry,
             FLORA_VOXEL_LOOKUP_EMPTY_KEY,
         },
-        ButterflyPalettePreset, ExtentDependentResources, ParticleTextureLayout,
+        ButterflyPalettePreset, ExtentDependentResources, LeafVertex, ParticleTextureLayout,
         TerrainLightingCache, Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
@@ -123,7 +123,7 @@ impl FloraVoxelLookupTypeData {
         }
     }
 
-    pub fn from_mesh_data(mesh_data: &FloraMeshData) -> Self {
+    pub fn from_mesh_data<V>(mesh_data: &FloraMeshData<V>) -> Self {
         Self::new(mesh_data.voxel_infos.clone(), mesh_data.max_length)
     }
 
@@ -303,13 +303,13 @@ fn flora_lookup_hash(key: u32) -> u32 {
 }
 
 #[derive(ResourceContainer)]
-pub struct LeavesResources {
+pub struct LeafMeshResources {
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
     pub indices_len: u32,
 }
 
-impl LeavesResources {
+impl LeafMeshResources {
     pub fn new(device: Device, allocator: Allocator, is_lod_used: bool) -> Self {
         // use default parameters for initial leaf generation
         Self::new_with_params(
@@ -339,39 +339,41 @@ impl LeavesResources {
             generate_voxel_leaf_shape(inner_density, outer_density, inner_radius, outer_radius)
                 .unwrap();
         let mesh_data = generate_indexed_single_voxel_leaf(shape.max_length, is_lod_used).unwrap();
+        Self::from_mesh_data(device, allocator, mesh_data)
+    }
+
+    pub fn from_mesh_data(
+        device: Device,
+        allocator: Allocator,
+        mesh_data: FloraMeshData<LeafVertex>,
+    ) -> Self {
         let (mut vertices_data, mut indices_data) = mesh_data.into_render_data();
 
-        // guard against empty data - create minimal buffers to avoid Vulkan validation errors
         if vertices_data.is_empty() {
-            vertices_data.push(Vertex {
-                packed_data: 0,
-                voxel_index: 0,
-            }); // Dummy vertex
+            vertices_data.push(LeafVertex { packed_data: 0 });
         }
         if indices_data.is_empty() {
-            indices_data.push(0); // Dummy index
+            indices_data.push(0);
         }
 
         let indices_len = if indices_data.len() == 1 && indices_data[0] == 0 {
-            0 // Don't render anything if this was a dummy index
+            0
         } else {
             indices_data.len() as u32
         };
 
-        // 2. Create and fill the vertex buffer.
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
             MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
+            (std::mem::size_of::<LeafVertex>() * vertices_data.len()) as u64,
         );
         vertices.fill(&vertices_data).unwrap();
 
-        // 3. Create and fill the index buffer.
         let indices = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
+            device,
+            allocator,
             BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
             MemoryLocation::CpuToGpu,
             (std::mem::size_of::<u32>() * indices_data.len()) as u64,
@@ -906,11 +908,11 @@ pub struct TracerTextureResources {
 pub struct TracerMeshResources {
     pub terrain_depth_prefill_vertices: Buffer,
     pub flora_meshes: Vec<FloraMeshResources>,
-    pub leaves_resources: LeavesResources,
-    pub apple_resources: FloraMeshResources,
+    pub leaves_resources: LeafMeshResources,
+    pub apple_resources: LeafMeshResources,
     pub flora_meshes_lod: Vec<FloraMeshResources>,
-    pub leaves_resources_lod: LeavesResources,
-    pub apple_resources_lod: FloraMeshResources,
+    pub leaves_resources_lod: LeafMeshResources,
+    pub apple_resources_lod: LeafMeshResources,
     pub glass: GlassMeshResources,
 }
 
@@ -1267,12 +1269,11 @@ impl TracerMeshResources {
                 )
             })
             .collect::<Vec<_>>();
-        let leaves_resources = LeavesResources::new(device.clone(), allocator.clone(), false);
-        let apple_resources = FloraMeshResources::new(
+        let leaves_resources = LeafMeshResources::new(device.clone(), allocator.clone(), false);
+        let apple_resources = LeafMeshResources::from_mesh_data(
             device.clone(),
             allocator.clone(),
-            false,
-            generate_indexed_voxel_apple,
+            generate_indexed_voxel_apple(false).unwrap(),
         );
         let flora_meshes_lod = species::species()
             .iter()
@@ -1285,12 +1286,11 @@ impl TracerMeshResources {
                 )
             })
             .collect::<Vec<_>>();
-        let leaves_resources_lod = LeavesResources::new(device.clone(), allocator.clone(), true);
-        let apple_resources_lod = FloraMeshResources::new(
+        let leaves_resources_lod = LeafMeshResources::new(device.clone(), allocator.clone(), true);
+        let apple_resources_lod = LeafMeshResources::from_mesh_data(
             device.clone(),
             allocator.clone(),
-            true,
-            generate_indexed_voxel_apple,
+            generate_indexed_voxel_apple(true).unwrap(),
         );
         let glass = GlassMeshResources::new(device, allocator, chunk_bound);
 

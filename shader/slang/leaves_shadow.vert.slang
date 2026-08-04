@@ -50,7 +50,6 @@ static const int FLORA_LOOKUP_AXIS_BIAS =
 struct VertexInput
 {
     [[vk::location(0)]] uint packed_data : TEXCOORD0;
-    [[vk::location(1)]] uint voxel_index : TEXCOORD1;
     uint instance_index : SV_VulkanInstanceID;
 };
 
