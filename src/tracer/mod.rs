@@ -105,7 +105,6 @@ use re_flora_vkn::{
     DescriptorPool, DescriptorResource, DescriptorSetGeneration, Extent2D, Extent3D,
     FrameRetirement, Framebuffer, GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage,
     PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
-    WriteDescriptorSet,
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -164,19 +163,6 @@ const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
 const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
-const DDGI_GLOBAL_SKY_BINDING: u32 = 23;
-const DDGI_PROBE_METADATA_BINDING: u32 = 24;
-const DDGI_TRANSIENT_RAY_DATA_BINDING: u32 = 25;
-const DDGI_TRACE_STATS_BINDING: u32 = 26;
-const DDGI_IRRADIANCE_ATLAS_BINDING: u32 = 27;
-const DDGI_VISIBILITY_ATLAS_BINDING: u32 = 28;
-const DDGI_TRANSPORT_SOURCE_IRRADIANCE_ATLAS_BINDING: u32 = 29;
-const DDGI_RADIANCE_SUN_BINDING: u32 = 30;
-const DDGI_RADIANCE_VOXEL_PALETTE_BINDING: u32 = 31;
-const DDGI_TRANSPORT_QUERY_INFO_BINDING: u32 = 32;
-const DDGI_ATLAS_REDUCTION_BINDING: u32 = 33;
-const DDGI_CAPTURE_IRRADIANCE_ATLAS_BINDING: u32 = 34;
-const DDGI_RELOCATION_STATS_BINDING: u32 = 37;
 const DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE: u32 = 64;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
 
@@ -1470,23 +1456,22 @@ impl Tracer {
         let irradiance_atlas = volume
             .capture_irradiance_atlas(field)
             .context("DDGI capture field has no resident irradiance atlas")?;
-        self.compute_pipelines
-            .tracer_ppl
-            .begin_descriptor_generation()?;
-        self.compute_pipelines.tracer_ppl.write_descriptor_set(
-            0,
-            WriteDescriptorSet::new_texture_write(
-                DDGI_CAPTURE_IRRADIANCE_ATLAS_BINDING,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                irradiance_atlas,
-                TextureLayout::SHADER_READ_ONLY,
-            ),
-        );
-        Ok(self
+        let mut draft = self
             .compute_pipelines
             .tracer_ppl
-            .publish_descriptor_generation("ddgi.capture.descriptors", generation)
-            .expect("descriptor generation publication must return its prior set"))
+            .begin_descriptor_draft()
+            .context("DDGI capture descriptor draft failed")?;
+        draft
+            .write(
+                "ddgi_capture_irradiance_atlas",
+                DescriptorResource::Texture(irradiance_atlas),
+            )
+            .context("DDGI capture atlas descriptor write failed")?;
+        Ok(self.compute_pipelines.tracer_ppl.publish_descriptor_draft(
+            "ddgi.capture.descriptors",
+            generation,
+            draft,
+        ))
     }
 
     pub fn ddgi_ready(&self) -> bool {
@@ -1989,212 +1974,233 @@ impl Tracer {
         ddgi_volume: &DdgiVolume,
         generation: u64,
     ) -> Vec<FrameRetirement> {
-        let pipelines = [
-            &self.compute_pipelines.ddgi_probe_relocate_ppl,
-            &self.compute_pipelines.ddgi_probe_trace_ppl,
-            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
-            &self.compute_pipelines.ddgi_visibility_filter_ppl,
-            &self.compute_pipelines.ddgi_atlas_reduce_ppl,
-            &self.compute_pipelines.ddgi_global_sky_filter_ppl,
-            &self.compute_pipelines.ddgi_octahedral_gutter_ppl,
-            &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
-            &self.compute_pipelines.ddgi_visibility_gutter_ppl,
-        ];
-        for pipeline in pipelines.iter() {
-            pipeline
-                .begin_descriptor_generation()
-                .expect("DDGI builder descriptor generation fork failed");
-        }
-        // Rewrite only volume-owned bindings. Builder and scene resources stay valid and
-        // must not be omitted from a reflected full-pipeline auto update.
-        for pipeline in [
-            &self.compute_pipelines.ddgi_probe_relocate_ppl,
-            &self.compute_pipelines.ddgi_probe_trace_ppl,
-            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
-            &self.compute_pipelines.ddgi_visibility_filter_ppl,
-            &self.compute_pipelines.ddgi_atlas_reduce_ppl,
-        ] {
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    DDGI_PROBE_METADATA_BINDING,
-                    &ddgi_volume.ddgi_probe_metadata,
-                ),
-            );
-        }
-        self.compute_pipelines
+        let mut relocate = self
+            .compute_pipelines
             .ddgi_probe_relocate_ppl
-            .write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    DDGI_RELOCATION_STATS_BINDING,
-                    &ddgi_volume.ddgi_relocation_stats,
-                ),
-            );
-        for pipeline in [
-            &self.compute_pipelines.ddgi_probe_trace_ppl,
-            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
-            &self.compute_pipelines.ddgi_visibility_filter_ppl,
-        ] {
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    DDGI_TRANSIENT_RAY_DATA_BINDING,
-                    &ddgi_volume.ddgi_transient_ray_data,
-                ),
-            );
-        }
-        self.compute_pipelines
+            .begin_descriptor_draft()
+            .expect("DDGI relocation descriptor draft failed");
+        let mut trace = self
+            .compute_pipelines
             .ddgi_probe_trace_ppl
-            .write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    DDGI_TRACE_STATS_BINDING,
-                    &ddgi_volume.ddgi_trace_stats,
-                ),
-            );
-        self.compute_pipelines
+            .begin_descriptor_draft()
+            .expect("DDGI trace descriptor draft failed");
+        let mut irradiance_filter = self
+            .compute_pipelines
+            .ddgi_irradiance_filter_ppl
+            .begin_descriptor_draft()
+            .expect("DDGI irradiance filter descriptor draft failed");
+        let mut visibility_filter = self
+            .compute_pipelines
+            .ddgi_visibility_filter_ppl
+            .begin_descriptor_draft()
+            .expect("DDGI visibility filter descriptor draft failed");
+        let mut atlas_reduce = self
+            .compute_pipelines
             .ddgi_atlas_reduce_ppl
-            .write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    DDGI_ATLAS_REDUCTION_BINDING,
-                    &ddgi_volume.ddgi_atlas_reduction,
-                ),
-            );
-        for pipeline in [
-            &self.compute_pipelines.ddgi_global_sky_filter_ppl,
-            &self.compute_pipelines.ddgi_probe_trace_ppl,
-        ] {
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    DDGI_RADIANCE_SUN_BINDING,
-                    &ddgi_volume.ddgi_radiance_sun,
-                ),
-            );
+            .begin_descriptor_draft()
+            .expect("DDGI atlas reduction descriptor draft failed");
+        let mut global_sky_filter = self
+            .compute_pipelines
+            .ddgi_global_sky_filter_ppl
+            .begin_descriptor_draft()
+            .expect("DDGI global sky filter descriptor draft failed");
+        let mut octahedral_gutter = self
+            .compute_pipelines
+            .ddgi_octahedral_gutter_ppl
+            .begin_descriptor_draft()
+            .expect("DDGI octahedral gutter descriptor draft failed");
+        let mut irradiance_gutter = self
+            .compute_pipelines
+            .ddgi_irradiance_gutter_ppl
+            .begin_descriptor_draft()
+            .expect("DDGI irradiance gutter descriptor draft failed");
+        let mut visibility_gutter = self
+            .compute_pipelines
+            .ddgi_visibility_gutter_ppl
+            .begin_descriptor_draft()
+            .expect("DDGI visibility gutter descriptor draft failed");
+
+        macro_rules! write_buffer {
+            ($draft:expr, $name:literal, $buffer:expr) => {
+                $draft
+                    .write($name, DescriptorResource::Buffer($buffer))
+                    .expect(concat!("DDGI descriptor write failed: ", $name));
+            };
         }
-        for (binding, buffer) in [
-            (
-                DDGI_RADIANCE_VOXEL_PALETTE_BINDING,
-                &ddgi_volume.ddgi_radiance_voxel_palette,
-            ),
-            (
-                DDGI_TRANSPORT_QUERY_INFO_BINDING,
-                &ddgi_volume.ddgi_transport_query_info,
-            ),
-        ] {
-            self.compute_pipelines
-                .ddgi_probe_trace_ppl
-                .write_descriptor_set(0, WriteDescriptorSet::new_buffer_write(binding, buffer));
-        }
-        self.compute_pipelines
-            .ddgi_probe_trace_ppl
-            .write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_texture_write(
-                    DDGI_TRANSPORT_SOURCE_IRRADIANCE_ATLAS_BINDING,
-                    vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    &ddgi_volume.ddgi_transport_source_irradiance_atlas,
-                    TextureLayout::SHADER_READ_ONLY,
-                ),
-            );
-        for (binding, texture) in [
-            (
-                DDGI_GLOBAL_SKY_BINDING,
-                ddgi_volume.building_global_sky_irradiance(),
-            ),
-            (
-                DDGI_IRRADIANCE_ATLAS_BINDING,
-                &ddgi_volume.ddgi_irradiance_atlas,
-            ),
-            (
-                DDGI_VISIBILITY_ATLAS_BINDING,
-                &ddgi_volume.ddgi_visibility_atlas,
-            ),
-        ] {
-            self.compute_pipelines
-                .ddgi_probe_trace_ppl
-                .write_descriptor_set(
-                    0,
-                    WriteDescriptorSet::new_texture_write(
-                        binding,
-                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                        texture,
-                        TextureLayout::SHADER_READ_ONLY,
-                    ),
-                );
+        macro_rules! write_texture {
+            ($draft:expr, $name:literal, $texture:expr) => {
+                $draft
+                    .write($name, DescriptorResource::Texture($texture))
+                    .expect(concat!("DDGI descriptor write failed: ", $name));
+            };
         }
 
-        for pipeline in [
-            &self.compute_pipelines.ddgi_global_sky_filter_ppl,
-            &self.compute_pipelines.ddgi_octahedral_gutter_ppl,
+        write_buffer!(
+            relocate,
+            "ddgi_probe_metadata",
+            &ddgi_volume.ddgi_probe_metadata
+        );
+        write_buffer!(
+            relocate,
+            "ddgi_relocation_stats",
+            &ddgi_volume.ddgi_relocation_stats
+        );
+
+        for draft in [
+            &mut trace,
+            &mut irradiance_filter,
+            &mut visibility_filter,
+            &mut atlas_reduce,
         ] {
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_texture_write(
-                    DDGI_GLOBAL_SKY_BINDING,
-                    vk::DescriptorType::STORAGE_IMAGE,
-                    ddgi_volume.building_global_sky_irradiance(),
-                    TextureLayout::GENERAL,
-                ),
+            write_buffer!(
+                draft,
+                "ddgi_probe_metadata",
+                &ddgi_volume.ddgi_probe_metadata
             );
         }
-        for pipeline in [
-            &self.compute_pipelines.ddgi_irradiance_filter_ppl,
-            &self.compute_pipelines.ddgi_irradiance_gutter_ppl,
-            &self.compute_pipelines.ddgi_atlas_reduce_ppl,
-        ] {
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_texture_write(
-                    DDGI_IRRADIANCE_ATLAS_BINDING,
-                    vk::DescriptorType::STORAGE_IMAGE,
-                    &ddgi_volume.ddgi_irradiance_atlas,
-                    TextureLayout::GENERAL,
-                ),
-            );
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_texture_write(
-                    DDGI_TRANSPORT_SOURCE_IRRADIANCE_ATLAS_BINDING,
-                    vk::DescriptorType::STORAGE_IMAGE,
-                    &ddgi_volume.ddgi_transport_source_irradiance_atlas,
-                    TextureLayout::GENERAL,
-                ),
+        for draft in [&mut trace, &mut irradiance_filter, &mut visibility_filter] {
+            write_buffer!(
+                draft,
+                "ddgi_transient_ray_data",
+                &ddgi_volume.ddgi_transient_ray_data
             );
         }
-        for pipeline in [
-            &self.compute_pipelines.ddgi_visibility_filter_ppl,
-            &self.compute_pipelines.ddgi_visibility_gutter_ppl,
+        write_buffer!(trace, "ddgi_trace_stats", &ddgi_volume.ddgi_trace_stats);
+        write_buffer!(
+            atlas_reduce,
+            "ddgi_atlas_reduction",
+            &ddgi_volume.ddgi_atlas_reduction
+        );
+        write_buffer!(
+            global_sky_filter,
+            "ddgi_radiance_sun",
+            &ddgi_volume.ddgi_radiance_sun
+        );
+        write_buffer!(trace, "ddgi_radiance_sun", &ddgi_volume.ddgi_radiance_sun);
+        write_buffer!(
+            trace,
+            "ddgi_radiance_voxel_palette",
+            &ddgi_volume.ddgi_radiance_voxel_palette
+        );
+        write_buffer!(
+            trace,
+            "ddgi_transport_query_info",
+            &ddgi_volume.ddgi_transport_query_info
+        );
+
+        write_texture!(
+            trace,
+            "ddgi_transport_source_irradiance_atlas",
+            &ddgi_volume.ddgi_transport_source_irradiance_atlas
+        );
+        write_texture!(
+            trace,
+            "ddgi_global_sky_irradiance",
+            ddgi_volume.building_global_sky_irradiance()
+        );
+        write_texture!(
+            trace,
+            "ddgi_irradiance_atlas",
+            &ddgi_volume.ddgi_irradiance_atlas
+        );
+        write_texture!(
+            trace,
+            "ddgi_visibility_atlas",
+            &ddgi_volume.ddgi_visibility_atlas
+        );
+        write_texture!(
+            global_sky_filter,
+            "ddgi_global_sky_irradiance",
+            ddgi_volume.building_global_sky_irradiance()
+        );
+        write_texture!(
+            octahedral_gutter,
+            "ddgi_global_sky_irradiance",
+            ddgi_volume.building_global_sky_irradiance()
+        );
+        for draft in [
+            &mut irradiance_filter,
+            &mut irradiance_gutter,
+            &mut atlas_reduce,
         ] {
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_texture_write(
-                    DDGI_VISIBILITY_ATLAS_BINDING,
-                    vk::DescriptorType::STORAGE_IMAGE,
-                    &ddgi_volume.ddgi_visibility_atlas,
-                    TextureLayout::GENERAL,
-                ),
+            write_texture!(
+                draft,
+                "ddgi_irradiance_atlas",
+                &ddgi_volume.ddgi_irradiance_atlas
+            );
+            write_texture!(
+                draft,
+                "ddgi_transport_source_irradiance_atlas",
+                &ddgi_volume.ddgi_transport_source_irradiance_atlas
+            );
+        }
+        for draft in [&mut visibility_filter, &mut visibility_gutter] {
+            write_texture!(
+                draft,
+                "ddgi_visibility_atlas",
+                &ddgi_volume.ddgi_visibility_atlas
             );
         }
 
-        pipelines
-            .into_iter()
-            .filter_map(|pipeline| {
-                pipeline.publish_descriptor_generation("ddgi.builder.descriptors", generation)
-            })
-            .collect()
+        vec![
+            self.compute_pipelines
+                .ddgi_probe_relocate_ppl
+                .publish_descriptor_draft("ddgi.builder.descriptors", generation, relocate),
+            self.compute_pipelines
+                .ddgi_probe_trace_ppl
+                .publish_descriptor_draft("ddgi.builder.descriptors", generation, trace),
+            self.compute_pipelines
+                .ddgi_irradiance_filter_ppl
+                .publish_descriptor_draft(
+                    "ddgi.builder.descriptors",
+                    generation,
+                    irradiance_filter,
+                ),
+            self.compute_pipelines
+                .ddgi_visibility_filter_ppl
+                .publish_descriptor_draft(
+                    "ddgi.builder.descriptors",
+                    generation,
+                    visibility_filter,
+                ),
+            self.compute_pipelines
+                .ddgi_atlas_reduce_ppl
+                .publish_descriptor_draft("ddgi.builder.descriptors", generation, atlas_reduce),
+            self.compute_pipelines
+                .ddgi_global_sky_filter_ppl
+                .publish_descriptor_draft(
+                    "ddgi.builder.descriptors",
+                    generation,
+                    global_sky_filter,
+                ),
+            self.compute_pipelines
+                .ddgi_octahedral_gutter_ppl
+                .publish_descriptor_draft(
+                    "ddgi.builder.descriptors",
+                    generation,
+                    octahedral_gutter,
+                ),
+            self.compute_pipelines
+                .ddgi_irradiance_gutter_ppl
+                .publish_descriptor_draft(
+                    "ddgi.builder.descriptors",
+                    generation,
+                    irradiance_gutter,
+                ),
+            self.compute_pipelines
+                .ddgi_visibility_gutter_ppl
+                .publish_descriptor_draft(
+                    "ddgi.builder.descriptors",
+                    generation,
+                    visibility_gutter,
+                ),
+        ]
     }
 
     fn stage_ddgi_consumer_descriptors(
         &self,
         ddgi_volume: &DdgiVolume,
     ) -> PreparedDdgiConsumerDescriptors {
-        let compute_pipelines = [
-            &self.compute_pipelines.tracer_ppl,
-            &self.compute_pipelines.flora_lighting_cache_ppl,
-        ];
         let graphics_pipelines = [
             &self.graphics_pipelines.flora_ppl,
             &self.graphics_pipelines.flora_lod_ppl,
@@ -2211,94 +2217,71 @@ impl Tracer {
                 .graphics_pipelines
                 .environment_probe_visualization_overlay_ppl,
         ];
-        for pipeline in compute_pipelines.iter() {
-            pipeline
-                .begin_descriptor_generation()
-                .expect("DDGI consumer compute descriptor generation fork failed");
-        }
-        for pipeline in graphics_pipelines.iter() {
-            pipeline
-                .begin_descriptor_generation()
-                .expect("DDGI consumer graphics descriptor generation fork failed");
-        }
+        let mut tracer = self
+            .compute_pipelines
+            .tracer_ppl
+            .begin_descriptor_draft()
+            .expect("DDGI consumer tracer descriptor draft failed");
+        let mut flora_lighting_cache = self
+            .compute_pipelines
+            .flora_lighting_cache_ppl
+            .begin_descriptor_draft()
+            .expect("DDGI consumer flora cache descriptor draft failed");
+        let mut graphics_drafts = graphics_pipelines
+            .iter()
+            .map(|pipeline| {
+                pipeline
+                    .begin_descriptor_draft()
+                    .expect("DDGI consumer graphics descriptor draft failed")
+            })
+            .collect::<Vec<_>>();
         let irradiance_atlas = ddgi_volume
             .published_irradiance_atlas()
             .unwrap_or(&ddgi_volume.ddgi_irradiance_atlas);
-        self.compute_pipelines.tracer_ppl.write_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(
-                DDGI_PROBE_METADATA_BINDING,
-                &ddgi_volume.ddgi_probe_metadata,
-            ),
-        );
-        self.compute_pipelines
-            .flora_lighting_cache_ppl
-            .write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    DDGI_PROBE_METADATA_BINDING,
-                    &ddgi_volume.ddgi_probe_metadata,
-                ),
-            );
-        self.compute_pipelines.tracer_ppl.write_descriptor_set(
-            0,
-            WriteDescriptorSet::new_texture_write(
-                DDGI_CAPTURE_IRRADIANCE_ATLAS_BINDING,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                irradiance_atlas,
-                TextureLayout::SHADER_READ_ONLY,
-            ),
-        );
-        for pipeline in graphics_pipelines.iter() {
-            pipeline.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_buffer_write(
-                    DDGI_PROBE_METADATA_BINDING,
-                    &ddgi_volume.ddgi_probe_metadata,
-                ),
-            );
+        tracer
+            .write(
+                "ddgi_probe_metadata",
+                DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
+            )
+            .expect("DDGI consumer tracer metadata descriptor write failed");
+        flora_lighting_cache
+            .write(
+                "ddgi_probe_metadata",
+                DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
+            )
+            .expect("DDGI consumer flora cache metadata descriptor write failed");
+        tracer
+            .write(
+                "ddgi_capture_irradiance_atlas",
+                DescriptorResource::Texture(irradiance_atlas),
+            )
+            .expect("DDGI capture atlas descriptor write failed");
+        for draft in &mut graphics_drafts {
+            draft
+                .write(
+                    "ddgi_probe_metadata",
+                    DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
+                )
+                .expect("DDGI consumer graphics metadata descriptor write failed");
         }
         for (binding, texture) in [
             (
-                DDGI_GLOBAL_SKY_BINDING,
+                "ddgi_global_sky_irradiance",
                 ddgi_volume.published_global_sky_irradiance(),
             ),
-            (DDGI_IRRADIANCE_ATLAS_BINDING, irradiance_atlas),
-            (
-                DDGI_VISIBILITY_ATLAS_BINDING,
-                &ddgi_volume.ddgi_visibility_atlas,
-            ),
+            ("ddgi_irradiance_atlas", irradiance_atlas),
+            ("ddgi_visibility_atlas", &ddgi_volume.ddgi_visibility_atlas),
         ] {
-            self.compute_pipelines.tracer_ppl.write_descriptor_set(
-                0,
-                WriteDescriptorSet::new_texture_write(
-                    binding,
-                    vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                    texture,
-                    TextureLayout::SHADER_READ_ONLY,
-                ),
-            );
-            self.compute_pipelines
-                .flora_lighting_cache_ppl
-                .write_descriptor_set(
-                    0,
-                    WriteDescriptorSet::new_texture_write(
-                        binding,
-                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                        texture,
-                        TextureLayout::SHADER_READ_ONLY,
-                    ),
-                );
-            for pipeline in graphics_pipelines.iter() {
-                pipeline.write_descriptor_set(
-                    0,
-                    WriteDescriptorSet::new_texture_write(
-                        binding,
-                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                        texture,
-                        TextureLayout::SHADER_READ_ONLY,
-                    ),
-                );
+            tracer
+                .write(binding, DescriptorResource::Texture(texture))
+                .expect("DDGI consumer tracer atlas descriptor write failed");
+            flora_lighting_cache
+                .write(binding, DescriptorResource::Texture(texture))
+                .expect("DDGI consumer flora cache atlas descriptor write failed");
+            for draft in &mut graphics_drafts {
+                draft
+                    .write(binding, DescriptorResource::Texture(texture))
+                    .expect("DDGI consumer graphics atlas descriptor write failed");
             }
         }
 
@@ -2308,17 +2291,11 @@ impl Tracer {
                 .build_token
                 .expect("staged DDGI consumer descriptors require a build token")
                 .serial(),
-            tracer: self
-                .compute_pipelines
-                .tracer_ppl
-                .take_staged_descriptor_sets(),
-            flora_lighting_cache: self
-                .compute_pipelines
-                .flora_lighting_cache_ppl
-                .take_staged_descriptor_sets(),
-            graphics: graphics_pipelines
+            tracer: tracer.into_generation(),
+            flora_lighting_cache: flora_lighting_cache.into_generation(),
+            graphics: graphics_drafts
                 .into_iter()
-                .map(|pipeline| pipeline.take_staged_descriptor_sets())
+                .map(|draft| draft.into_generation())
                 .collect(),
         }
     }
@@ -2513,19 +2490,16 @@ impl Tracer {
         self.wind_source_buffer_capacity = new_capacity;
         let descriptor_generation = self.next_descriptor_generation();
         let tracer_resources = self.tracer_descriptor_resources();
-        self.compute_pipelines
-            .wind_volume_ppl
-            .begin_descriptor_generation()?;
-        self.compute_pipelines
-            .wind_volume_ppl
-            .auto_update_descriptor_sets(&tracer_resources)?;
-        if let Some(retirement) = self
+        let mut draft = self
             .compute_pipelines
             .wind_volume_ppl
-            .publish_descriptor_generation("tracer.wind.descriptors", descriptor_generation)
-        {
-            self.pending_frame_retirements.push(retirement);
-        }
+            .begin_descriptor_draft()?;
+        draft.write_from_resources(&tracer_resources)?;
+        self.pending_frame_retirements.push(
+            self.compute_pipelines
+                .wind_volume_ppl
+                .publish_descriptor_draft("tracer.wind.descriptors", descriptor_generation, draft),
+        );
         Ok(())
     }
 

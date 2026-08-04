@@ -514,6 +514,17 @@ impl PipelineBuilder {
             &shader_modules.flora_lighting_cache_sm,
             pool,
         );
+        flora_lighting_cache_ppl
+            .initialize_descriptor_set_resources(
+                0,
+                &[
+                    resources,
+                    plain_builder_resources,
+                    ddgi_volume,
+                    ddgi_voxel_visibility,
+                ],
+            )
+            .expect("flora lighting cache static descriptors must resolve");
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,

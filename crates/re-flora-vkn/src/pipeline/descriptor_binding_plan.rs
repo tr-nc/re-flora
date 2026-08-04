@@ -119,7 +119,7 @@ impl DescriptorGenerationDraft {
         Self { sets, plan, lease }
     }
 
-    pub(crate) fn into_generation(self) -> DescriptorSetGeneration {
+    pub fn into_generation(self) -> DescriptorSetGeneration {
         let mut this = self;
         std::mem::take(&mut this.sets)
     }
