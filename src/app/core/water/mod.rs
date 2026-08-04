@@ -4,6 +4,7 @@ use crate::app::GuiAdjustables;
 use crate::builder::{ChunkSolidSampleJob, ContreeCpuVoxelSourceDependency, VOXEL_TYPE_ROCK};
 use crate::util::ChunkPopMode;
 use crate::AppOptions;
+use anyhow::Result;
 use glam::{IVec3, UVec3, Vec2, Vec3};
 use re_flora_terrain_collider::signed_distance_from_solid_samples;
 use re_flora_water::{
@@ -407,6 +408,27 @@ impl App {
         self.try_submit_next_terrain_sdf_source_refresh();
     }
 
+    /// Consumes the currently submitted solid-grid sample without reading the
+    /// result into a collider source. Pending source refreshes remain queued
+    /// but are never submitted once shutdown begins.
+    pub(super) fn discard_terrain_sdf_source_refresh_for_shutdown(&mut self) -> Result<()> {
+        let Some(active) = self.terrain_sdf_source_refresh_inflight.take() else {
+            return Ok(());
+        };
+        let chunk_id = active.chunk_id;
+        let revision = active.revision;
+        self.plain_builder
+            .discard_chunk_atlas_solid_grid_sample(active.job)?;
+        self.deferred_terrain_sdf_source_refreshes
+            .complete(chunk_id, revision);
+        log::info!(
+            "[SHUTDOWN][TERRAIN_SDF_SOURCE] discarded active solid sample chunk {:?} revision {} without readback/publication",
+            chunk_id,
+            revision,
+        );
+        Ok(())
+    }
+
     fn try_submit_next_terrain_sdf_source_refresh(&mut self) {
         if self.terrain_sdf_source_refresh_inflight.is_some() {
             return;
@@ -667,7 +689,18 @@ impl App {
             request,
         };
         self.water_terrain_cache_rebuild_inflight = true;
-        if let Err(err) = self.water_terrain_cache_job_tx.send(job) {
+        let Some(job_tx) = self.water_terrain_cache_job_tx.as_ref() else {
+            log::error!(
+                "[WATER][TERRAIN_CACHE] worker input unavailable during shutdown chunk {:?} rev {}",
+                chunk_id,
+                revision,
+            );
+            self.water_terrain_cache_rebuild_inflight = false;
+            self.deferred_water_terrain_cache_rebuilds
+                .complete(chunk_key, revision);
+            return;
+        };
+        if let Err(err) = job_tx.send(job) {
             log::error!(
                 "[WATER][TERRAIN_CACHE] failed to submit worker cache rebuild chunk {:?} rev {}: {}",
                 chunk_id,
@@ -859,10 +892,11 @@ impl App {
     pub(super) fn spawn_terrain_sdf_collider_worker() -> (
         mpsc::Sender<TerrainSdfColliderWorkerJob>,
         mpsc::Receiver<TerrainSdfColliderWorkerResult>,
+        thread::JoinHandle<()>,
     ) {
         let (job_tx, job_rx) = mpsc::channel::<TerrainSdfColliderWorkerJob>();
         let (result_tx, result_rx) = mpsc::channel();
-        thread::spawn(move || {
+        let worker = thread::spawn(move || {
             while let Ok(job) = job_rx.recv() {
                 let build =
                     build_terrain_sdf_collider_chunk(&job.source, job.chunk_id, job.revision);
@@ -879,16 +913,17 @@ impl App {
             }
         });
 
-        (job_tx, result_rx)
+        (job_tx, result_rx, worker)
     }
 
     pub(super) fn spawn_water_terrain_cache_worker() -> (
         mpsc::Sender<WaterTerrainCacheWorkerJob>,
         mpsc::Receiver<WaterTerrainCacheWorkerResult>,
+        thread::JoinHandle<()>,
     ) {
         let (job_tx, job_rx) = mpsc::channel::<WaterTerrainCacheWorkerJob>();
         let (result_tx, result_rx) = mpsc::channel();
-        thread::spawn(move || {
+        let worker = thread::spawn(move || {
             while let Ok(job) = job_rx.recv() {
                 let patch = build_terrain_grid_cache_patch(job.request);
                 let result = WaterTerrainCacheWorkerResult {
@@ -903,7 +938,7 @@ impl App {
             }
         });
 
-        (job_tx, result_rx)
+        (job_tx, result_rx, worker)
     }
 
     fn try_submit_next_terrain_sdf_collider_rebuild(&mut self) {
@@ -976,7 +1011,18 @@ impl App {
             source,
         };
         self.terrain_sdf_collider_build_inflight = true;
-        if let Err(err) = self.terrain_sdf_collider_job_tx.send(job) {
+        let Some(job_tx) = self.terrain_sdf_collider_job_tx.as_ref() else {
+            log::error!(
+                "[WATER][TERRAIN] collider worker input unavailable during shutdown chunk {:?} rev {}",
+                chunk_id,
+                revision,
+            );
+            self.terrain_sdf_collider_build_inflight = false;
+            self.deferred_terrain_sdf_collider_rebuilds
+                .complete(chunk_key, revision);
+            return;
+        };
+        if let Err(err) = job_tx.send(job) {
             log::error!(
                 "[WATER][TERRAIN] failed to submit collider build chunk {:?} rev {}: {}",
                 chunk_id,

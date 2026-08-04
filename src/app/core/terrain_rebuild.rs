@@ -224,6 +224,37 @@ impl App {
         self.deferred_chunk_rebuilds.is_idle() && self.terrain_chunk_rebuild_inflight.is_none()
     }
 
+    /// Consumes the one currently submitted rebuild stage without progressing
+    /// to a later Surface, Contree, or scene-texture stage. Queued requests are
+    /// intentionally abandoned when the application is exiting.
+    pub(super) fn discard_deferred_chunk_rebuild_for_shutdown(&mut self) -> Result<()> {
+        let Some(inflight) = self.terrain_chunk_rebuild_inflight.take() else {
+            return Ok(());
+        };
+        let chunk_id = inflight.chunk_id;
+        let revision = inflight.revision;
+        match inflight.stage {
+            TerrainChunkRebuildStage::Surface { job } => {
+                self.surface_builder.discard_build_surface(job)?;
+            }
+            TerrainChunkRebuildStage::ContreeReady { .. } => {}
+            TerrainChunkRebuildStage::Contree { job, .. } => {
+                self.contree_builder
+                    .discard_build_and_alloc_for_shutdown(job)?;
+            }
+            TerrainChunkRebuildStage::Scene { job, .. } => {
+                self.scene_accel_builder.discard_update_scene_tex(job)?;
+            }
+        }
+        self.deferred_chunk_rebuilds.complete(chunk_id, revision);
+        log::info!(
+            "[SHUTDOWN][DEFERRED_REBUILD] discarded active chunk {:?} revision {} without follow-up stage",
+            chunk_id,
+            revision,
+        );
+        Ok(())
+    }
+
     pub(super) fn process_deferred_chunk_rebuild(&mut self) {
         if self.terrain_chunk_rebuild_inflight.is_some() {
             self.progress_deferred_chunk_rebuild();

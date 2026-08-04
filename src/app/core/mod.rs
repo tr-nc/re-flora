@@ -85,7 +85,7 @@ use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText,
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 use rand::RngExt;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::mpsc, thread::JoinHandle};
 
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -393,12 +393,13 @@ pub struct App {
     terrain_sdf_built_source_revisions: HashMap<UVec3, water::TerrainSdfSourceRevision>,
     terrain_sdf_source_refresh_inflight: Option<water::TerrainSdfSourceRefreshInFlight>,
     terrain_sdf_collider_build_inflight: bool,
-    terrain_sdf_collider_job_tx: std::sync::mpsc::Sender<water::TerrainSdfColliderWorkerJob>,
-    terrain_sdf_collider_result_rx:
-        std::sync::mpsc::Receiver<water::TerrainSdfColliderWorkerResult>,
+    terrain_sdf_collider_job_tx: Option<mpsc::Sender<water::TerrainSdfColliderWorkerJob>>,
+    terrain_sdf_collider_result_rx: mpsc::Receiver<water::TerrainSdfColliderWorkerResult>,
+    terrain_sdf_collider_worker: Option<JoinHandle<()>>,
     water_terrain_cache_rebuild_inflight: bool,
-    water_terrain_cache_job_tx: std::sync::mpsc::Sender<water::WaterTerrainCacheWorkerJob>,
-    water_terrain_cache_result_rx: std::sync::mpsc::Receiver<water::WaterTerrainCacheWorkerResult>,
+    water_terrain_cache_job_tx: Option<mpsc::Sender<water::WaterTerrainCacheWorkerJob>>,
+    water_terrain_cache_result_rx: mpsc::Receiver<water::WaterTerrainCacheWorkerResult>,
+    water_terrain_cache_worker: Option<JoinHandle<()>>,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -423,6 +424,7 @@ pub struct App {
     visible_terrain_revision: u32,
     deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
     terrain_chunk_rebuild_inflight: Option<TerrainChunkRebuildInFlight>,
+    shutdown_started: bool,
 
     // note: always keep the context to end, as it has to be destroyed last
     vulkan_ctx: VulkanContext,
@@ -616,6 +618,9 @@ impl MouseWheelDollySmoother {
 
 impl Drop for App {
     fn drop(&mut self) {
+        if let Err(err) = self.shutdown_for_termination() {
+            panic!("[SHUTDOWN] failed during App drop: {err:#}");
+        }
         if let Err(err) = self.spatial_sound_manager.stop() {
             log::warn!("Failed to stop audio engine during shutdown: {}", err);
         }
@@ -1377,9 +1382,12 @@ impl App {
             cells_per_unit,
         );
         let water_sim = water::AsyncWaterSim::new(water_config);
-        let (terrain_sdf_collider_job_tx, terrain_sdf_collider_result_rx) =
-            Self::spawn_terrain_sdf_collider_worker();
-        let (water_terrain_cache_job_tx, water_terrain_cache_result_rx) =
+        let (
+            terrain_sdf_collider_job_tx,
+            terrain_sdf_collider_result_rx,
+            terrain_sdf_collider_worker,
+        ) = Self::spawn_terrain_sdf_collider_worker();
+        let (water_terrain_cache_job_tx, water_terrain_cache_result_rx, water_terrain_cache_worker) =
             Self::spawn_water_terrain_cache_worker();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
         let particle_forces = ParticleForces {
@@ -1509,11 +1517,13 @@ impl App {
             terrain_sdf_built_source_revisions: HashMap::new(),
             terrain_sdf_source_refresh_inflight: None,
             terrain_sdf_collider_build_inflight: false,
-            terrain_sdf_collider_job_tx,
+            terrain_sdf_collider_job_tx: Some(terrain_sdf_collider_job_tx),
             terrain_sdf_collider_result_rx,
+            terrain_sdf_collider_worker: Some(terrain_sdf_collider_worker),
             water_terrain_cache_rebuild_inflight: false,
-            water_terrain_cache_job_tx,
+            water_terrain_cache_job_tx: Some(water_terrain_cache_job_tx),
             water_terrain_cache_result_rx,
+            water_terrain_cache_worker: Some(water_terrain_cache_worker),
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,
@@ -1545,6 +1555,7 @@ impl App {
             visible_terrain_revision: 0,
             deferred_chunk_rebuilds: LatestChunkQueue::default(),
             terrain_chunk_rebuild_inflight: None,
+            shutdown_started: false,
 
             spatial_sound_manager,
             tree_audio_manager,
@@ -2080,6 +2091,9 @@ impl App {
         _id: WindowId,
         event: WindowEvent,
     ) {
+        if self.shutdown_started {
+            return;
+        }
         let is_keyboard_event = matches!(&event, WindowEvent::KeyboardInput { .. });
         let gui_wanted_keyboard_before_event = self.gui_wants_keyboard_input();
 
@@ -2320,6 +2334,9 @@ impl App {
 
             // redraw the window
             WindowEvent::RedrawRequested => {
+                if self.shutdown_started {
+                    return;
+                }
                 // when the windiw is resized, redraw is called afterwards, so when the window is minimized, return
                 if self.window_state.is_minimized() {
                     return;

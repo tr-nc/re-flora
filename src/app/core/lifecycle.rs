@@ -1,14 +1,19 @@
 use super::App;
+use anyhow::{Context, Result};
 use winit::event_loop::ActiveEventLoop;
 
 impl App {
     pub fn on_terminate(&mut self, event_loop: &ActiveEventLoop) {
-        self.stop_terrain_edit_loop_sound();
-        self.vulkan_ctx.device().wait_idle();
+        if let Err(err) = self.shutdown_for_termination() {
+            panic!("[SHUTDOWN] failed to drain application GPU work: {err:#}");
+        }
         event_loop.exit();
     }
 
     pub fn on_about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if self.shutdown_started {
+            return;
+        }
         if let Some(test) = self.resize_lifecycle_test.as_mut() {
             test.request_next(
                 &self.window_state.window(),
@@ -17,6 +22,54 @@ impl App {
         }
         if !self.window_state.is_minimized() {
             self.window_state.window().request_redraw();
+        }
+    }
+
+    /// Runs the one legal application teardown transition. The flag is set
+    /// before any blocking operation so a re-entrant event cannot submit more
+    /// work while shutdown consumes the already-submitted jobs.
+    pub(super) fn shutdown_for_termination(&mut self) -> Result<()> {
+        if self.shutdown_started {
+            return Ok(());
+        }
+        self.shutdown_started = true;
+
+        log::info!("[SHUTDOWN] phase=quiesce_producers");
+        self.stop_terrain_edit_loop_sound();
+        self.water_sim.shutdown();
+
+        log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
+        self.discard_terrain_sdf_source_refresh_for_shutdown()
+            .context("discard terrain SDF source refresh")?;
+        self.discard_deferred_chunk_rebuild_for_shutdown()
+            .context("discard deferred terrain rebuild")?;
+        self.contree_builder
+            .discard_active_cpu_chunk_cache_job()
+            .context("discard active Contree CPU-cache GPU readback")?;
+
+        log::info!("[SHUTDOWN] phase=join_dependent_workers");
+        self.stop_terrain_worker_threads();
+        self.contree_builder.shutdown_cpu_chunk_cache_worker();
+
+        log::info!("[SHUTDOWN] phase=wait_device_idle");
+        self.vulkan_ctx.device().wait_idle();
+        log::info!("[SHUTDOWN] phase=complete");
+        Ok(())
+    }
+
+    fn stop_terrain_worker_threads(&mut self) {
+        self.terrain_sdf_collider_job_tx.take();
+        if let Some(worker) = self.terrain_sdf_collider_worker.take() {
+            if worker.join().is_err() {
+                log::warn!("[SHUTDOWN][TERRAIN] collider worker panicked during shutdown");
+            }
+        }
+
+        self.water_terrain_cache_job_tx.take();
+        if let Some(worker) = self.water_terrain_cache_worker.take() {
+            if worker.join().is_err() {
+                log::warn!("[SHUTDOWN][TERRAIN_CACHE] worker panicked during shutdown");
+            }
         }
     }
 

@@ -105,6 +105,7 @@ pub struct ContreeBuilder {
     cpu_chunk_cache_decode_inflight: bool,
     cpu_chunk_cache_job_tx: mpsc::Sender<CpuChunkCacheWorkerJob>,
     cpu_chunk_cache_result_rx: mpsc::Receiver<CpuChunkCacheWorkerResult>,
+    cpu_chunk_cache_worker: Option<thread::JoinHandle<()>>,
     shared_ray_query_state: Arc<RwLock<ContreeRayQueryState>>,
     audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
 }
@@ -1004,7 +1005,7 @@ impl ContreeBuilder {
 
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
-        let (cpu_chunk_cache_job_tx, cpu_chunk_cache_result_rx) =
+        let (cpu_chunk_cache_job_tx, cpu_chunk_cache_result_rx, cpu_chunk_cache_worker) =
             Self::spawn_cpu_chunk_cache_workers();
         let cpu_chunk_readback_buffers = Some(CpuChunkReadbackBuffers::new(
             device.clone(),
@@ -1057,6 +1058,7 @@ impl ContreeBuilder {
             cpu_chunk_cache_decode_inflight: false,
             cpu_chunk_cache_job_tx,
             cpu_chunk_cache_result_rx,
+            cpu_chunk_cache_worker: Some(cpu_chunk_cache_worker),
             shared_ray_query_state,
             audio_ray_tracer,
         }
@@ -1346,6 +1348,20 @@ impl ContreeBuilder {
         let _completed_gpu_job = job.gpu_job.wait_complete()?;
         self.cpu_chunk_readback_buffers = Some(job.readback_buffers);
         Ok(())
+    }
+
+    /// Closes the CPU decoder input and joins the worker after all submitted
+    /// GPU readback work has been consumed. Pending cache requests are never
+    /// sent once shutdown has begun.
+    pub fn shutdown_cpu_chunk_cache_worker(&mut self) {
+        let (replacement_tx, _replacement_rx) = mpsc::channel();
+        let input_tx = std::mem::replace(&mut self.cpu_chunk_cache_job_tx, replacement_tx);
+        drop(input_tx);
+        if let Some(worker) = self.cpu_chunk_cache_worker.take() {
+            if worker.join().is_err() {
+                log::warn!("[CONTREE][CPU_CACHE] worker panicked during shutdown");
+            }
+        }
     }
 
     pub fn cpu_chunk_cache_jobs_idle(&self) -> bool {
@@ -1642,6 +1658,19 @@ impl ContreeBuilder {
             job.node_alloc_id,
             job.leaf_alloc_id,
         );
+    }
+
+    /// Shutdown variant of stale-build discard. It preserves the normal
+    /// runtime helper's best-effort logging contract while allowing the
+    /// application shutdown coordinator to fail fast if completion cannot be
+    /// observed.
+    pub fn discard_build_and_alloc_for_shutdown(&mut self, job: ContreeBuildJob) -> Result<()> {
+        let chunk_idx = job.chunk_idx;
+        let node_alloc_id = job.node_alloc_id;
+        let leaf_alloc_id = job.leaf_alloc_id;
+        let _completed_gpu_job = job.gpu_job.wait_complete()?;
+        self.deallocate_stale_build_allocations(chunk_idx, node_alloc_id, leaf_alloc_id);
+        Ok(())
     }
 
     fn deallocate_stale_build_allocations(
@@ -2116,10 +2145,11 @@ impl ContreeBuilder {
     fn spawn_cpu_chunk_cache_workers() -> (
         mpsc::Sender<CpuChunkCacheWorkerJob>,
         mpsc::Receiver<CpuChunkCacheWorkerResult>,
+        thread::JoinHandle<()>,
     ) {
         let (job_tx, job_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
-        thread::spawn(move || loop {
+        let worker = thread::spawn(move || loop {
             let job = match job_rx.recv() {
                 Ok(job) => job,
                 Err(_) => break,
@@ -2137,7 +2167,7 @@ impl ContreeBuilder {
             }
         });
 
-        (job_tx, result_rx)
+        (job_tx, result_rx, worker)
     }
 }
 

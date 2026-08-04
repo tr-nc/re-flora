@@ -414,6 +414,28 @@ impl AsyncWaterSim {
         self.send_critical_command(WaterSimCommand::StabilizeAfterTerrainChunkChange(chunk_id));
     }
 
+    /// Stops the simulation worker at the explicit application-shutdown
+    /// boundary.  Calling this more than once is harmless; `Drop` uses the
+    /// same path as a fallback for construction sites that do not run the
+    /// normal event-loop termination handler.
+    pub(crate) fn shutdown(&mut self) {
+        if self.worker.is_none() {
+            return;
+        }
+
+        match self.command_tx.try_send(WaterSimCommand::Shutdown) {
+            Ok(()) | Err(mpsc::TrySendError::Disconnected(_)) => {}
+            Err(mpsc::TrySendError::Full(command)) => {
+                let _ = self.command_tx.send(command);
+            }
+        }
+        if let Some(worker) = self.worker.take() {
+            if worker.join().is_err() {
+                log::warn!("[WATER][THREAD] water simulation thread panicked during shutdown");
+            }
+        }
+    }
+
     #[allow(dead_code)]
     pub(crate) fn request_debug_particle_spawn(
         &mut self,
@@ -460,17 +482,7 @@ impl AsyncWaterSim {
 
 impl Drop for AsyncWaterSim {
     fn drop(&mut self) {
-        match self.command_tx.try_send(WaterSimCommand::Shutdown) {
-            Ok(()) | Err(mpsc::TrySendError::Disconnected(_)) => {}
-            Err(mpsc::TrySendError::Full(command)) => {
-                let _ = self.command_tx.send(command);
-            }
-        }
-        if let Some(worker) = self.worker.take() {
-            if worker.join().is_err() {
-                log::warn!("[WATER][THREAD] water simulation thread panicked during shutdown");
-            }
-        }
+        self.shutdown();
     }
 }
 
@@ -853,5 +865,12 @@ mod tests {
         assert_eq!(snapshot.publish_bucket_count, 4);
         assert_eq!(report.total_ms, 0.0);
         assert_eq!(report.lock_ms, 0.0);
+    }
+
+    #[test]
+    fn async_water_sim_shutdown_is_idempotent() {
+        let mut sim = AsyncWaterSim::new(PondWaterConfig::default());
+        sim.shutdown();
+        sim.shutdown();
     }
 }
