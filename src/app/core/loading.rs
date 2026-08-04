@@ -140,6 +140,7 @@ impl App {
                         reader.finish().unwrap_or_else(|err| {
                             panic!("terrain snapshot final validation failed: {err:#}")
                         });
+                        self.plain_builder.mark_all_solid_workgroups_dirty();
                     } else {
                         should_apply_debug_startup_materials = true;
                     }
@@ -567,6 +568,7 @@ impl App {
                 )?;
             }
             reader.finish()?;
+            self.plain_builder.mark_all_solid_workgroups_dirty();
             Ok(())
         })();
         if let Err(err) = upload_result {

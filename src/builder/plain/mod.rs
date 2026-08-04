@@ -813,7 +813,7 @@ impl PlainBuilder {
         )
     }
 
-    fn mark_all_solid_workgroups_dirty(&self) {
+    pub fn mark_all_solid_workgroups_dirty(&self) {
         execute_one_time_command(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),
