@@ -66,6 +66,7 @@ use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
+use crate::terrain_persistence::{TerrainSnapshotMetadata, TerrainSnapshotReader};
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
     allium_height_color_tables, grass_flora_height_color_tables, kochia_color_tables,
@@ -408,6 +409,8 @@ pub struct App {
     render_start_time: Option<Instant>,
     screenshot_path: Option<String>,
     screenshot_delay: Option<f32>,
+    terrain_load_path: Option<String>,
+    terrain_save_path: Option<String>,
     screenshot_taken: bool,
     screenshot_to_clipboard_requested: bool,
     environment_irradiance_capture_path: Option<String>,
@@ -1106,6 +1109,27 @@ impl App {
 
         let allocator = Allocator::new_for_context(&vulkan_ctx);
 
+        let terrain_snapshot_metadata =
+            TerrainSnapshotMetadata::new(CHUNK_DIM.to_array(), VOXEL_DIM_PER_CHUNK.to_array());
+        let terrain_snapshot_reader = options
+            .terrain_load_path
+            .as_deref()
+            .map(|path| -> Result<TerrainSnapshotReader> {
+                TerrainSnapshotReader::validate(path, terrain_snapshot_metadata)
+                    .with_context(|| format!("validate terrain snapshot {}", path))?;
+                let reader = TerrainSnapshotReader::open(path)
+                    .with_context(|| format!("open terrain snapshot {}", path))?;
+                log::info!(
+                    "[TERRAIN_PERSISTENCE] startup load validated path={} chunks={} bytes={}",
+                    path,
+                    terrain_snapshot_metadata.chunk_count()?,
+                    terrain_snapshot_metadata.chunk_count()?
+                        * terrain_snapshot_metadata.chunk_byte_len()?
+                );
+                Ok(reader)
+            })
+            .transpose()?;
+
         let swapchain = Swapchain::new(
             vulkan_ctx.clone(),
             window_state.window_extent(),
@@ -1401,6 +1425,7 @@ impl App {
             window_state,
             loading_state: Some(LoadingState {
                 chunk_indices,
+                terrain_snapshot_reader,
                 current: 0,
                 step_label: "Initializing...".to_owned(),
                 phase: LoadingPhase::Terrain,
@@ -1531,6 +1556,8 @@ impl App {
             render_start_time: None,
             screenshot_path: options.screenshot_path.clone(),
             screenshot_delay: options.screenshot_delay,
+            terrain_load_path: options.terrain_load_path.clone(),
+            terrain_save_path: options.terrain_save_path.clone(),
             screenshot_taken: false,
             screenshot_to_clipboard_requested: false,
             environment_irradiance_capture_path: options

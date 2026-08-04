@@ -1,4 +1,7 @@
 use super::*;
+use crate::terrain_persistence::TerrainSnapshotReader;
+use crate::terrain_persistence::{TerrainSnapshotMetadata, TerrainSnapshotWriter};
+use std::path::Path;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoadingPhase {
@@ -9,6 +12,7 @@ pub(super) enum LoadingPhase {
 
 pub(super) struct LoadingState {
     pub(super) chunk_indices: Vec<UVec3>,
+    pub(super) terrain_snapshot_reader: Option<TerrainSnapshotReader>,
     pub(super) current: usize,
     pub(super) step_label: String,
     pub(super) phase: LoadingPhase,
@@ -63,20 +67,47 @@ impl App {
 
         match loading.phase {
             LoadingPhase::Terrain => {
-                let chunk_id = loading.chunk_indices[loading.current];
+                let (chunk_id, snapshot_bytes) =
+                    if let Some(reader) = loading.terrain_snapshot_reader.as_mut() {
+                        let chunk = reader
+                            .read_next_chunk()
+                            .unwrap_or_else(|err| {
+                                panic!("terrain snapshot upload read failed: {err:#}")
+                            })
+                            .unwrap_or_else(|| {
+                                panic!("terrain snapshot ended before all chunks were uploaded")
+                            });
+                        let chunk_id = UVec3::from_array(chunk.coordinate);
+                        (chunk_id, Some(chunk.bytes))
+                    } else {
+                        (loading.chunk_indices[loading.current], None)
+                    };
                 let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
                 loading.step_label = format!("Terrain {}/{}", current, total);
 
-                if let Err(err) = self
-                    .plain_builder
-                    .chunk_init(atlas_offset, VOXEL_DIM_PER_CHUNK)
-                {
-                    log::error!("chunk_init failed for {chunk_id:?}: {err}");
+                let result = match snapshot_bytes {
+                    Some(bytes) => self.plain_builder.write_chunk_atlas_region(
+                        atlas_offset,
+                        VOXEL_DIM_PER_CHUNK,
+                        &bytes,
+                    ),
+                    None => self
+                        .plain_builder
+                        .chunk_init(atlas_offset, VOXEL_DIM_PER_CHUNK),
+                };
+                if let Err(err) = result {
+                    panic!("terrain snapshot/procedural atlas initialization failed for {chunk_id:?}: {err:#}");
                 }
 
                 loading.current += 1;
                 if loading.current >= total {
-                    should_apply_debug_startup_materials = true;
+                    if let Some(reader) = loading.terrain_snapshot_reader.as_mut() {
+                        reader.finish().unwrap_or_else(|err| {
+                            panic!("terrain snapshot final validation failed: {err:#}")
+                        });
+                    } else {
+                        should_apply_debug_startup_materials = true;
+                    }
                     loading.current = 0;
                     loading.phase = LoadingPhase::Building;
                 }
@@ -348,12 +379,26 @@ impl App {
     pub(super) fn finalize_loading(&mut self) {
         self.vulkan_ctx.device().wait_idle();
         self.contree_builder.flush_cpu_chunk_cache_jobs();
+        if !self.contree_builder.cpu_chunk_cache_jobs_idle() {
+            panic!("[TERRAIN_PERSISTENCE] Contree CPU cache was not ready at startup");
+        }
         BENCH.lock().unwrap().summary();
 
         self.ensure_butterfly_emitter();
 
-        if let Err(err) = self.plant_startup_tuned_tree() {
-            log::error!("Failed to plant startup tuning tree: {}", err);
+        if self.terrain_load_path.is_none() {
+            if let Err(err) = self.plant_startup_tuned_tree() {
+                log::error!("Failed to plant startup tuning tree: {}", err);
+            }
+        } else {
+            log::info!(
+                "[TERRAIN_PERSISTENCE] startup snapshot loaded; procedural tuning-tree stamp suppressed"
+            );
+        }
+
+        if let Some(path) = self.terrain_save_path.clone() {
+            self.save_terrain_snapshot(Path::new(&path))
+                .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));
         }
 
         if let Err(err) = self.spatial_sound_manager.start() {
@@ -371,6 +416,41 @@ impl App {
         }
         self.time_info.reset_frame_delta();
         self.render_start_time = Some(Instant::now());
+    }
+
+    fn save_terrain_snapshot(&mut self, path: &Path) -> Result<()> {
+        let start = Instant::now();
+        let metadata =
+            TerrainSnapshotMetadata::new(CHUNK_DIM.to_array(), VOXEL_DIM_PER_CHUNK.to_array());
+        log::info!(
+            "[TERRAIN_PERSISTENCE] Saving path={} chunks={} chunk_bytes={} total_bytes={}",
+            path.display(),
+            metadata.chunk_count()?,
+            metadata.chunk_byte_len()?,
+            metadata.chunk_count()? * metadata.chunk_byte_len()?
+        );
+        let mut writer = TerrainSnapshotWriter::create(path, metadata)?;
+        for x in 0..CHUNK_DIM.x {
+            for y in 0..CHUNK_DIM.y {
+                for z in 0..CHUNK_DIM.z {
+                    let coordinate = UVec3::new(x, y, z);
+                    let bytes = self.plain_builder.read_chunk_atlas_region(
+                        coordinate * VOXEL_DIM_PER_CHUNK,
+                        VOXEL_DIM_PER_CHUNK,
+                    )?;
+                    writer.write_chunk(coordinate.to_array(), &bytes)?;
+                }
+            }
+        }
+        let summary = writer.finish()?;
+        log::info!(
+            "[TERRAIN_PERSISTENCE] Save complete path={} chunks={} payload_bytes={} elapsed_ms={:.2}",
+            path.display(),
+            summary.chunk_count,
+            summary.payload_bytes,
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+        Ok(())
     }
 
     #[allow(dead_code)]
