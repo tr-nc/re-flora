@@ -24,7 +24,7 @@ Known from inspection:
   - `Image::record_copy_to`
   - swapchain blit/readback paths in `crates/re-flora-vkn/src/swapchain.rs`
 - Game/render `record_transition(...)` call sites have been migrated out; explicit image transitions now mostly live inside `vkn` helpers such as clears, uploads, copies, swapchain paths, render-target tracking, and pipeline texture-use tracking.
-- Descriptor writes are not transitions. `auto_update_descriptor_sets` now writes sampled descriptors with `SHADER_READ_ONLY` and storage-image descriptors with `GENERAL`; actual barriers still come from resource-state tracking. Pipeline-level manual texture writes are tracked as declared texture use, while raw `DescriptorSet::perform_writes` remains an escape hatch.
+- Descriptor writes are not transitions. Reflected semantic initialization and `DescriptorGenerationDraft::write` select sampled-image `SHADER_READ_ONLY` or storage-image `GENERAL`; actual barriers still come from resource-state tracking. Numeric descriptor locations and raw write construction remain internal to `re-flora-vkn`.
 - Texture-backed render targets update tracked attachment initial/final layouts at render-pass begin/end. Raw swapchain framebuffer paths still use explicit swapchain handling.
 - Full correctness requires tracking more than image layout: layout, pipeline stage, access mask, and subresource range.
 
@@ -83,7 +83,7 @@ Assumptions to confirm:
 - Objective: Replace repeated manual transitions with declared usage through the new `vkn` API while keeping debug assertions available.
 - Expected output: Smaller call sites in `src/builder/*` and `src/tracer/*`, with behavior unchanged.
 - Dependencies/blockers: Phases 2-4 should exist first.
-- Status: complete for current scope; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions, graphics texture transitions, or render-target attachment tracking. Pipeline-level manual texture descriptor writes now update tracked texture use; raw descriptor-set writes remain manual/escape-hatch territory.
+- Status: complete for current scope; game-code `record_transition(...)` calls in `src/builder/*` and `src/tracer/mod.rs` have been migrated to vkn-owned compute texture transitions, graphics texture transitions, or render-target attachment tracking. Pipeline descriptor updates now use reflected semantic resource names; numeric descriptor writes remain internal to `vkn`.
 
 ### Phase 7: Diagnostics and strict modes
 
@@ -155,4 +155,4 @@ If verification is not yet possible, the missing piece is the tracker/encoder im
 - Render-pass attachment tracking now works only for texture-backed framebuffers; raw image-view framebuffers such as swapchain targets still need explicit swapchain handling.
 - Overly conservative barriers may be correct but could hurt performance; precise barriers may require more metadata.
 - Existing `Image::set_layout` is an escape hatch and can hide bugs; migration should replace it with explicit tracker assumptions/assertions where possible.
-- Pipeline-level manual texture descriptor writes are tracked for automatic compute/graphics transitions; raw `DescriptorSet::perform_writes` calls still bypass pipeline tracking and should remain an explicit escape hatch.
+- Descriptor generations retain their resource owners for automatic compute/graphics transitions; callers cannot bypass the reflected semantic plan with a public numeric write API.
