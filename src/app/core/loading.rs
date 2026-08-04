@@ -3,6 +3,41 @@ use crate::terrain_persistence::TerrainSnapshotReader;
 use crate::terrain_persistence::{TerrainSnapshotMetadata, TerrainSnapshotWriter};
 use std::path::Path;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum TerrainPersistenceStatus {
+    Ready,
+    Saving,
+    Loading,
+    Error(String),
+}
+
+impl TerrainPersistenceStatus {
+    pub(super) fn label(&self) -> String {
+        match self {
+            Self::Ready => "Ready".to_owned(),
+            Self::Saving => "Saving".to_owned(),
+            Self::Loading => "Loading".to_owned(),
+            Self::Error(error) => format!("Error: {error}"),
+        }
+    }
+
+    pub(super) fn is_ready(&self) -> bool {
+        matches!(self, Self::Ready)
+    }
+}
+
+fn terrain_chunk_ids() -> Vec<UVec3> {
+    let mut chunk_ids = Vec::new();
+    for x in 0..CHUNK_DIM.x {
+        for y in 0..CHUNK_DIM.y {
+            for z in 0..CHUNK_DIM.z {
+                chunk_ids.push(UVec3::new(x, y, z));
+            }
+        }
+    }
+    chunk_ids
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoadingPhase {
     Terrain,
@@ -418,7 +453,7 @@ impl App {
         self.render_start_time = Some(Instant::now());
     }
 
-    fn save_terrain_snapshot(&mut self, path: &Path) -> Result<()> {
+    pub(super) fn save_terrain_snapshot(&mut self, path: &Path) -> Result<()> {
         let start = Instant::now();
         let metadata =
             TerrainSnapshotMetadata::new(CHUNK_DIM.to_array(), VOXEL_DIM_PER_CHUNK.to_array());
@@ -451,6 +486,142 @@ impl App {
             start.elapsed().as_secs_f64() * 1000.0
         );
         Ok(())
+    }
+
+    pub(super) fn perform_runtime_terrain_save(&mut self) {
+        if !self.terrain_persistence_status.is_ready() {
+            return;
+        }
+        self.terrain_persistence_status = TerrainPersistenceStatus::Saving;
+        let path = self.terrain_snapshot_path.clone();
+        let result = (|| {
+            self.vulkan_ctx.device().wait_idle();
+            self.contree_builder.flush_cpu_chunk_cache_jobs();
+            anyhow::ensure!(
+                self.contree_builder.cpu_chunk_cache_jobs_idle(),
+                "Contree CPU cache did not reach Ready before save"
+            );
+            self.save_terrain_snapshot(Path::new(&path))
+        })();
+        match result {
+            Ok(()) => {
+                self.terrain_persistence_status = TerrainPersistenceStatus::Ready;
+            }
+            Err(err) => {
+                log::error!(
+                    "[TERRAIN_PERSISTENCE] runtime save failed path={}: {err:#}",
+                    path
+                );
+                self.terrain_persistence_status =
+                    TerrainPersistenceStatus::Error(format!("save failed: {err}"));
+            }
+        }
+    }
+
+    pub(super) fn perform_runtime_terrain_load(&mut self) {
+        if !self.terrain_persistence_status.is_ready() {
+            return;
+        }
+        self.terrain_persistence_status = TerrainPersistenceStatus::Loading;
+        let path = self.terrain_snapshot_path.clone();
+        let result = self.load_terrain_snapshot(Path::new(&path));
+        match result {
+            Ok(()) => {
+                self.terrain_persistence_status = TerrainPersistenceStatus::Ready;
+                log::info!(
+                    "[TERRAIN_PERSISTENCE] runtime load complete path={}; non-terrain state retained",
+                    path
+                );
+            }
+            Err((mutated, err)) => {
+                log::error!(
+                    "[TERRAIN_PERSISTENCE] runtime load failed path={} mutated={} error={err:#}",
+                    path,
+                    mutated
+                );
+                if mutated {
+                    self.terrain_persistence_fatal = true;
+                }
+                self.terrain_persistence_status =
+                    TerrainPersistenceStatus::Error(format!("load failed: {err}"));
+            }
+        }
+    }
+
+    fn load_terrain_snapshot(&mut self, path: &Path) -> Result<(), (bool, anyhow::Error)> {
+        let metadata =
+            TerrainSnapshotMetadata::new(CHUNK_DIM.to_array(), VOXEL_DIM_PER_CHUNK.to_array());
+        TerrainSnapshotReader::validate(path, metadata).map_err(|err| (false, err))?;
+        let mut reader = TerrainSnapshotReader::open(path).map_err(|err| (false, err))?;
+        self.vulkan_ctx.device().wait_idle();
+
+        let mut mutated = false;
+        let upload_result = (|| -> Result<()> {
+            while let Some(chunk) = reader.read_next_chunk()? {
+                mutated = true;
+                let chunk_id = UVec3::from_array(chunk.coordinate);
+                self.plain_builder.write_chunk_atlas_region(
+                    chunk_id * VOXEL_DIM_PER_CHUNK,
+                    VOXEL_DIM_PER_CHUNK,
+                    &chunk.bytes,
+                )?;
+            }
+            reader.finish()?;
+            Ok(())
+        })();
+        if let Err(err) = upload_result {
+            return Err((mutated, err));
+        }
+
+        let chunk_ids = terrain_chunk_ids();
+        if !self.enqueue_deferred_chunk_rebuilds(&chunk_ids) {
+            return Err((
+                true,
+                anyhow::anyhow!("visible terrain rebuild failed after snapshot upload"),
+            ));
+        }
+        self.contree_builder.flush_cpu_chunk_cache_jobs();
+        if !self.contree_builder.cpu_chunk_cache_jobs_idle() {
+            return Err((
+                true,
+                anyhow::anyhow!("Contree CPU cache did not reach Ready after snapshot rebuild"),
+            ));
+        }
+        self.observe_published_terrain_edit_for_ddgi(UAabb3::new(
+            UVec3::ZERO,
+            CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
+        ))
+        .map_err(|err| (true, err))?;
+        self.terrain_physics
+            .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
+            .map_err(|err| (true, err))?;
+        loop {
+            let (completed, total) = self
+                .terrain_physics
+                .process_world_terrain_collider_import(&self.contree_builder)
+                .map_err(|err| (true, err))?;
+            if completed >= total {
+                break;
+            }
+        }
+        self.terrain_persistence_water_paused = true;
+        self.enqueue_startup_water_terrain_collider_rebuilds();
+        self.request_vsm_history_reset();
+        self.player_tools.shovel_dig_held = false;
+        Ok(())
+    }
+
+    pub(super) fn maybe_resume_terrain_persistence_water(&mut self) {
+        if !self.terrain_persistence_water_paused
+            || !self.water_terrain_initialized
+            || !self.deferred_terrain_sdf_source_refreshes.is_idle()
+            || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
+            || !self.deferred_water_terrain_cache_rebuilds.is_idle()
+        {
+            return;
+        }
+        self.terrain_persistence_water_paused = false;
+        log::info!("[TERRAIN_PERSISTENCE] water terrain cache Ready; water simulation resumed");
     }
 
     #[allow(dead_code)]

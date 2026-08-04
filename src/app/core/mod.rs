@@ -34,7 +34,7 @@ use self::denoiser_bench::{
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
-use self::loading::{LoadingPhase, LoadingState};
+use self::loading::{LoadingPhase, LoadingState, TerrainPersistenceStatus};
 use self::particles::TreeLeafEmitter;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerEmitter, SprinklerRecord};
@@ -411,6 +411,10 @@ pub struct App {
     screenshot_delay: Option<f32>,
     terrain_load_path: Option<String>,
     terrain_save_path: Option<String>,
+    terrain_snapshot_path: String,
+    terrain_persistence_status: TerrainPersistenceStatus,
+    terrain_persistence_fatal: bool,
+    terrain_persistence_water_paused: bool,
     screenshot_taken: bool,
     screenshot_to_clipboard_requested: bool,
     environment_irradiance_capture_path: Option<String>,
@@ -746,6 +750,10 @@ impl App {
 
 impl WorldBuildBackend for App {
     fn apply_voxel_edit(&mut self, edit: VoxelEdit) -> Result<()> {
+        anyhow::ensure!(
+            !self.terrain_persistence_fatal,
+            "terrain persistence is in fatal Error; restart is required"
+        );
         let result = world_ops::apply_voxel_edit(&mut self.plain_builder, edit);
         if result.is_ok() {
             self.request_vsm_history_reset();
@@ -754,6 +762,10 @@ impl WorldBuildBackend for App {
     }
 
     fn apply_build_edit(&mut self, edit: BuildEdit) -> Result<()> {
+        anyhow::ensure!(
+            !self.terrain_persistence_fatal,
+            "terrain persistence is in fatal Error; restart is required"
+        );
         match edit {
             BuildEdit::RebuildMesh(bound) => {
                 let chunk_ids =
@@ -1558,6 +1570,14 @@ impl App {
             screenshot_delay: options.screenshot_delay,
             terrain_load_path: options.terrain_load_path.clone(),
             terrain_save_path: options.terrain_save_path.clone(),
+            terrain_snapshot_path: options
+                .terrain_load_path
+                .clone()
+                .or_else(|| options.terrain_save_path.clone())
+                .unwrap_or_else(|| "terrain_snapshot.rflterrain".to_owned()),
+            terrain_persistence_status: TerrainPersistenceStatus::Ready,
+            terrain_persistence_fatal: false,
+            terrain_persistence_water_paused: false,
             screenshot_taken: false,
             screenshot_to_clipboard_requested: false,
             environment_irradiance_capture_path: options
@@ -2402,7 +2422,7 @@ impl App {
                     return;
                 }
 
-                if self.player_tools.shovel_dig_held {
+                if !self.terrain_persistence_fatal && self.player_tools.shovel_dig_held {
                     let now = Instant::now();
                     if self.is_shovel_selected() && self.player_tools.left_mouse_held {
                         self.try_shovel_dig(now);
@@ -2427,11 +2447,13 @@ impl App {
                     }
                 }
                 let frame_delta_time = self.time_info.delta_time();
-                if let Err(err) = self
-                    .terrain_physics
-                    .advance_dynamic_bodies(frame_delta_time, &mut self.tracer)
-                {
-                    log::error!("Failed to advance dynamic bodies: {err:#}");
+                if !self.terrain_persistence_fatal {
+                    if let Err(err) = self
+                        .terrain_physics
+                        .advance_dynamic_bodies(frame_delta_time, &mut self.tracer)
+                    {
+                        log::error!("Failed to advance dynamic bodies: {err:#}");
+                    }
                 }
                 let fruit_refresh_tree_ids =
                     self.terrain_physics.take_attached_fruit_refresh_trees();
@@ -2442,14 +2464,16 @@ impl App {
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
                 );
-                self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
+                if !self.terrain_persistence_fatal {
+                    self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
+                }
                 let mut world_tick_steps = 0u32;
                 while self.flora_tick_accumulator >= 1.0 {
                     self.flora_tick = self.flora_tick.wrapping_add(1);
                     self.flora_tick_accumulator -= 1.0;
                     world_tick_steps += 1;
                 }
-                if world_tick_steps > 0 {
+                if !self.terrain_persistence_fatal && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
                 let active_wind_sources =
@@ -2542,6 +2566,8 @@ impl App {
                 let collision_probe_status = self.terrain_physics.collision_probe_status();
                 let mut drop_collision_probe_requested = false;
                 let mut clear_collision_probe_requested = false;
+                let mut terrain_save_requested = false;
+                let mut terrain_load_requested = false;
                 let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
                 let environment_probe_status = ddgi_runtime_status.active();
                 let environment_probe_draft_grid = DdgiVolumeGrid::new(
@@ -2734,6 +2760,36 @@ impl App {
                                     if let Some(status) = self.debug_settings.save_status() {
                                         ui.small(status);
                                     }
+
+                                    ui.add_space(8.0);
+                                    ui.separator();
+                                    ui.add_space(8.0);
+                                    ui.heading(
+                                        RichText::new("Terrain Snapshot")
+                                            .size(16.0)
+                                            .color(GOLD_ACCENT),
+                                    );
+                                    ui.label("Terrain-only; trees, entities, water, and time are retained.");
+                                    ui.horizontal(|ui| {
+                                        ui.label("Path");
+                                        ui.text_edit_singleline(&mut self.terrain_snapshot_path);
+                                    });
+                                    ui.horizontal(|ui| {
+                                        let ready = self.terrain_persistence_status.is_ready();
+                                        if ui
+                                            .add_enabled(ready, egui::Button::new("Save terrain"))
+                                            .clicked()
+                                        {
+                                            terrain_save_requested = true;
+                                        }
+                                        if ui
+                                            .add_enabled(ready, egui::Button::new("Load terrain"))
+                                            .clicked()
+                                        {
+                                            terrain_load_requested = true;
+                                        }
+                                        ui.label(self.terrain_persistence_status.label());
+                                    });
 
                                     ui.add_space(4.0);
                                     ui.separator();
@@ -3285,6 +3341,15 @@ impl App {
                         draw_center_cross_mark(ctx);
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
+                if terrain_load_requested || terrain_save_requested {
+                    if terrain_load_requested {
+                        self.perform_runtime_terrain_load();
+                    } else {
+                        self.perform_runtime_terrain_save();
+                    }
+                    self.sync_cursor_with_panels();
+                    return;
+                }
                 if clear_collision_probe_requested {
                     self.terrain_physics.clear_collision_probe(&mut self.tracer);
                 }
@@ -3388,6 +3453,7 @@ impl App {
                 cpu_timings.time(FrameCpuScope::WaterCache, || {
                     self.process_deferred_water_terrain_cache_rebuild();
                 });
+                self.maybe_resume_terrain_persistence_water();
                 cpu_timings.time(FrameCpuScope::ColliderQueue, || {
                     self.process_deferred_terrain_sdf_collider_rebuild();
                 });
@@ -3451,7 +3517,10 @@ impl App {
                 }
 
                 if self.render_flags.enable_particles {
-                    if self.water_terrain_initialized {
+                    if self.water_terrain_initialized
+                        && !self.terrain_persistence_water_paused
+                        && !self.terrain_persistence_fatal
+                    {
                         let water_handoff_start = Instant::now();
                         self.update_water_sim(frame_delta_time, world_tick_seconds);
                         let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
