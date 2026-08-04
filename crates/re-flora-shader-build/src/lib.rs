@@ -250,6 +250,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
+        logical_path: "shader/foliage/flora_lighting_cache.comp",
+        source_path: "shader/slang/flora_lighting_cache.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/foliage/flora_lod.vert",
         source_path: "shader/slang/flora_lod.vert.slang",
         module_path: "shader/slang",
@@ -420,6 +426,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
     ShaderConfig {
         logical_path: "shader/ddgi/voxel_visibility_pack.comp",
         source_path: "shader/slang/ddgi_voxel_visibility_pack.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/ddgi/voxel_visibility_blocks.comp",
+        source_path: "shader/slang/ddgi_voxel_visibility_blocks.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Compute,
     },

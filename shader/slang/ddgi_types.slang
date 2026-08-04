@@ -26,6 +26,11 @@ public struct B_DdgiTraceStats
     public uint data[];
 };
 
+public struct B_DdgiRelocationStats
+{
+    public uint data[];
+};
+
 public struct B_DdgiAtlasReduction
 {
     public uint data[];
@@ -69,6 +74,8 @@ public struct U_DdgiTransportQueryInfo
 
 // Exact authoritative voxel occupancy published for DDGI query visibility. X is packed into
 // 32-bit words while Y/Z retain voxel resolution.
+public static const uint DDGI_VOXEL_VISIBILITY_BLOCK_SIZE = 8u;
+
 public struct U_DdgiVoxelVisibilityInfo
 {
     public uint3 voxel_dimensions;

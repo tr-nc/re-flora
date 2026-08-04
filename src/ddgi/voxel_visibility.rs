@@ -17,6 +17,7 @@ use re_flora_vkn::{
 };
 
 pub const DDGI_VOXEL_VISIBILITY_MAX_STEPS: u32 = 2048;
+pub const DDGI_VOXEL_VISIBILITY_BLOCK_SIZE: u32 = 8;
 
 /// Deep owner of the exact voxel-occupancy publication consumed by every production DDGI query.
 ///
@@ -25,9 +26,11 @@ pub const DDGI_VOXEL_VISIBILITY_MAX_STEPS: u32 = 2048;
 /// completed.
 pub struct DdgiVoxelVisibility {
     word_dimensions: UVec3,
+    block_dimensions: UVec3,
     info_snapshot: DdgiVoxelVisibilityInfo,
     published_revision: Option<u32>,
     pub ddgi_voxel_visibility_bits: Resource<Texture>,
+    pub ddgi_voxel_visibility_blocks: Resource<Texture>,
     pub ddgi_voxel_visibility_info: Resource<Buffer>,
 }
 
@@ -48,6 +51,11 @@ impl DdgiVoxelVisibility {
             "DDGI voxel visibility world scale must be nonzero",
         );
         let word_dimensions = packed_word_dimensions(dimensions);
+        let block_dimensions = UVec3::new(
+            dimensions.x.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
+            dimensions.y.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
+            dimensions.z.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
+        );
         let max_steps = dimensions.element_sum().saturating_add(3);
         ensure!(
             max_steps <= DDGI_VOXEL_VISIBILITY_MAX_STEPS,
@@ -68,6 +76,13 @@ impl DdgiVoxelVisibility {
             word_dimensions.y,
             word_dimensions.z,
         );
+        ensure!(
+            block_dimensions.max_element() <= max_image_dimension,
+            "DDGI voxel visibility block volume {}x{}x{} exceeds device 3D texture limit {max_image_dimension}",
+            block_dimensions.x,
+            block_dimensions.y,
+            block_dimensions.z,
+        );
 
         let texture = Texture::new(
             vulkan_ctx.device().clone(),
@@ -75,6 +90,19 @@ impl DdgiVoxelVisibility {
             &ImageDesc {
                 extent: Extent3D::new(word_dimensions.x, word_dimensions.y, word_dimensions.z),
                 format: vk::Format::R32_UINT,
+                usage: vk::ImageUsageFlags::STORAGE,
+                initial_layout: TextureLayout::UNDEFINED,
+                aspect: vk::ImageAspectFlags::COLOR,
+                ..Default::default()
+            },
+            &SamplerDesc::default(),
+        );
+        let block_texture = Texture::new(
+            vulkan_ctx.device().clone(),
+            allocator.clone(),
+            &ImageDesc {
+                extent: Extent3D::new(block_dimensions.x, block_dimensions.y, block_dimensions.z),
+                format: vk::Format::R8_UINT,
                 usage: vk::ImageUsageFlags::STORAGE,
                 initial_layout: TextureLayout::UNDEFINED,
                 aspect: vk::ImageAspectFlags::COLOR,
@@ -100,15 +128,21 @@ impl DdgiVoxelVisibility {
         };
         info.fill_uniform(&info_snapshot)?;
 
-        let bytes = word_dimensions.element_product() as u64 * std::mem::size_of::<u32>() as u64;
+        let packed_bytes =
+            word_dimensions.element_product() as u64 * std::mem::size_of::<u32>() as u64;
+        let block_bytes = block_dimensions.element_product() as u64;
+        let bytes = packed_bytes + block_bytes;
         log::info!(
-            "[DDGI][VOXEL_VISIBILITY] allocated voxels={}x{}x{} packed={}x{}x{} bytes={} mib={:.2} max_steps={}",
+            "[DDGI][VOXEL_VISIBILITY] allocated voxels={}x{}x{} packed={}x{}x{} blocks={}x{}x{} bytes={} mib={:.2} max_steps={}",
             dimensions.x,
             dimensions.y,
             dimensions.z,
             word_dimensions.x,
             word_dimensions.y,
             word_dimensions.z,
+            block_dimensions.x,
+            block_dimensions.y,
+            block_dimensions.z,
             bytes,
             bytes as f64 / (1024.0 * 1024.0),
             max_steps,
@@ -116,15 +150,21 @@ impl DdgiVoxelVisibility {
 
         Ok(Self {
             word_dimensions,
+            block_dimensions,
             info_snapshot,
             published_revision: None,
             ddgi_voxel_visibility_bits: Resource::new(texture),
+            ddgi_voxel_visibility_blocks: Resource::new(block_texture),
             ddgi_voxel_visibility_info: Resource::new(info),
         })
     }
 
     pub fn word_dimensions(&self) -> UVec3 {
         self.word_dimensions
+    }
+
+    pub fn block_dimensions(&self) -> UVec3 {
+        self.block_dimensions
     }
 
     pub fn published_revision(&self) -> Option<u32> {
@@ -159,11 +199,19 @@ impl ResourceContainer for DdgiVoxelVisibility {
     }
 
     fn get_texture(&self, name: &str) -> Option<&Texture> {
-        (name == "ddgi_voxel_visibility_bits").then_some(&self.ddgi_voxel_visibility_bits)
+        match name {
+            "ddgi_voxel_visibility_bits" => Some(&self.ddgi_voxel_visibility_bits),
+            "ddgi_voxel_visibility_blocks" => Some(&self.ddgi_voxel_visibility_blocks),
+            _ => None,
+        }
     }
 
     fn get_resource_names(&self) -> Vec<&'static str> {
-        vec!["ddgi_voxel_visibility_bits", "ddgi_voxel_visibility_info"]
+        vec![
+            "ddgi_voxel_visibility_bits",
+            "ddgi_voxel_visibility_blocks",
+            "ddgi_voxel_visibility_info",
+        ]
     }
 }
 
@@ -219,7 +267,20 @@ impl CpuVisibilityVolume {
         if !self.ready || self.geometry_revision != expected_geometry_revision {
             return false;
         }
-        optical_open_segment_visible(self, start_voxels, end_voxels, max_steps)
+        optical_open_segment_visible(self, start_voxels, end_voxels, max_steps, false)
+    }
+
+    fn segment_visible_with_empty_block_skips(
+        &self,
+        expected_geometry_revision: u32,
+        start_voxels: Vec3,
+        end_voxels: Vec3,
+        max_steps: u32,
+    ) -> bool {
+        if !self.ready || self.geometry_revision != expected_geometry_revision {
+            return false;
+        }
+        optical_open_segment_visible(self, start_voxels, end_voxels, max_steps, true)
     }
 }
 
@@ -244,6 +305,7 @@ fn optical_open_segment_visible(
     start: Vec3,
     end: Vec3,
     max_steps: u32,
+    skip_empty_blocks: bool,
 ) -> bool {
     let dimensions = volume.dimensions.as_vec3();
     if volume.dimensions.min_element() == 0
@@ -302,35 +364,122 @@ fn optical_open_segment_visible(
     );
 
     for _ in 0..max_steps {
-        let crossing = next.min_element();
-        if !crossing.is_finite() || crossing > 1.0 + OPEN_SEGMENT_EPSILON_VOXELS {
-            return false;
-        }
-        let tie = [
-            (next.x - crossing).abs() <= OPEN_SEGMENT_EPSILON_VOXELS,
-            (next.y - crossing).abs() <= OPEN_SEGMENT_EPSILON_VOXELS,
-            (next.z - crossing).abs() <= OPEN_SEGMENT_EPSILON_VOXELS,
-        ];
-        if tie[0] {
-            cell.x += step.x;
-            next.x += delta.x;
-        }
-        if tie[1] {
-            cell.y += step.y;
-            next.y += delta.y;
-        }
-        if tie[2] {
-            cell.z += step.z;
-            next.z += delta.z;
-        }
-        if occupied_cell(volume, cell) {
-            return false;
+        let block = voxel_block_coordinate(cell);
+        let block_occupied = !skip_empty_blocks || voxel_block_occupied(volume, block);
+        if block_occupied {
+            if occupied_cell(volume, cell) {
+                return false;
+            }
+        } else if block == voxel_block_coordinate(end_cell) {
+            return true;
         }
         if cell == end_cell {
             return true;
         }
+
+        let crossing_by_axis = if block_occupied {
+            next
+        } else {
+            Vec3::new(
+                block_axis_next(next.x, delta.x, cell.x, step.x),
+                block_axis_next(next.y, delta.y, cell.y, step.y),
+                block_axis_next(next.z, delta.z, cell.z, step.z),
+            )
+        };
+        let crossing = crossing_by_axis.min_element();
+        if !crossing.is_finite() || crossing > 1.0 + OPEN_SEGMENT_EPSILON_VOXELS {
+            return false;
+        }
+        if block_occupied {
+            let tie = [
+                (next.x - crossing).abs() <= OPEN_SEGMENT_EPSILON_VOXELS,
+                (next.y - crossing).abs() <= OPEN_SEGMENT_EPSILON_VOXELS,
+                (next.z - crossing).abs() <= OPEN_SEGMENT_EPSILON_VOXELS,
+            ];
+            if tie[0] {
+                cell.x += step.x;
+                next.x += delta.x;
+            }
+            if tie[1] {
+                cell.y += step.y;
+                next.y += delta.y;
+            }
+            if tie[2] {
+                cell.z += step.z;
+                next.z += delta.z;
+            }
+        } else {
+            advance_axis_across_empty_block(crossing, step.x, delta.x, &mut cell.x, &mut next.x);
+            advance_axis_across_empty_block(crossing, step.y, delta.y, &mut cell.y, &mut next.y);
+            advance_axis_across_empty_block(crossing, step.z, delta.z, &mut cell.z, &mut next.z);
+        }
     }
     false
+}
+
+#[cfg(test)]
+fn voxel_block_coordinate(cell: glam::IVec3) -> glam::IVec3 {
+    cell / DDGI_VOXEL_VISIBILITY_BLOCK_SIZE as i32
+}
+
+#[cfg(test)]
+fn voxel_block_occupied(volume: &CpuVisibilityVolume, block: glam::IVec3) -> bool {
+    let first = block * DDGI_VOXEL_VISIBILITY_BLOCK_SIZE as i32;
+    let end = (first + glam::IVec3::splat(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE as i32))
+        .min(volume.dimensions.as_ivec3());
+    for z in first.z..end.z {
+        for y in first.y..end.y {
+            for x in first.x..end.x {
+                if volume.occupied(UVec3::new(x as u32, y as u32, z as u32)) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+fn cells_to_block_exit(cell: i32, step: i32) -> i32 {
+    if step == 0 {
+        return 0;
+    }
+    let block_start =
+        (cell / DDGI_VOXEL_VISIBILITY_BLOCK_SIZE as i32) * DDGI_VOXEL_VISIBILITY_BLOCK_SIZE as i32;
+    if step > 0 {
+        block_start + DDGI_VOXEL_VISIBILITY_BLOCK_SIZE as i32 - cell
+    } else {
+        cell - block_start + 1
+    }
+}
+
+#[cfg(test)]
+fn block_axis_next(next: f32, delta: f32, cell: i32, step: i32) -> f32 {
+    let cells = cells_to_block_exit(cell, step);
+    if cells == 0 {
+        f32::INFINITY
+    } else {
+        next + delta * (cells - 1) as f32
+    }
+}
+
+#[cfg(test)]
+fn advance_axis_across_empty_block(
+    crossing: f32,
+    step: i32,
+    delta: f32,
+    cell: &mut i32,
+    next: &mut f32,
+) {
+    if step == 0 || *next > crossing + OPEN_SEGMENT_EPSILON_VOXELS {
+        return;
+    }
+    let advances = 1
+        + ((crossing + OPEN_SEGMENT_EPSILON_VOXELS - *next) / delta)
+            .max(0.0)
+            .floor() as i32;
+    *cell += step * advances;
+    *next += delta * advances as f32;
 }
 
 #[cfg(test)]
@@ -428,6 +577,14 @@ mod tests {
     }
 
     #[test]
+    fn rust_and_shader_empty_block_sizes_match() {
+        let shader_types = include_str!("../../shader/slang/ddgi_types.slang");
+        assert!(shader_types.contains(&format!(
+            "DDGI_VOXEL_VISIBILITY_BLOCK_SIZE = {DDGI_VOXEL_VISIBILITY_BLOCK_SIZE}u;"
+        )));
+    }
+
+    #[test]
     fn axis_segment_blocks_on_an_occupied_cell() {
         let volume = volume(UVec3::splat(4), &[UVec3::new(2, 1, 1)]);
         assert!(!volume.segment_visible(
@@ -501,5 +658,46 @@ mod tests {
             16,
         ));
         assert!(!volume.segment_visible(REVISION, Vec3::splat(0.25), Vec3::splat(3.75), 0));
+    }
+
+    #[test]
+    fn empty_block_skips_match_exact_voxel_traversal() {
+        let dimensions = UVec3::new(35, 27, 19);
+        let occupied = (0..dimensions.z)
+            .flat_map(|z| {
+                (0..dimensions.y).flat_map(move |y| {
+                    (0..dimensions.x)
+                        .filter(move |&x| (x * 17 + y * 31 + z * 43) % 67 == 0)
+                        .map(move |x| UVec3::new(x, y, z))
+                })
+            })
+            .collect::<Vec<_>>();
+        let volume = volume(dimensions, &occupied);
+        let max_steps = dimensions.element_sum() + 3;
+        let mut state = 0x1234_5678_u32;
+        let mut random_unit = || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 8) as f32 / (u32::MAX >> 8) as f32
+        };
+
+        for case in 0..4_096 {
+            let start = Vec3::new(
+                random_unit() * dimensions.x as f32,
+                random_unit() * dimensions.y as f32,
+                random_unit() * dimensions.z as f32,
+            );
+            let end = Vec3::new(
+                random_unit() * dimensions.x as f32,
+                random_unit() * dimensions.y as f32,
+                random_unit() * dimensions.z as f32,
+            );
+            let exact = volume.segment_visible(REVISION, start, end, max_steps);
+            let accelerated =
+                volume.segment_visible_with_empty_block_skips(REVISION, start, end, max_steps);
+            assert_eq!(
+                accelerated, exact,
+                "empty-block traversal diverged for case {case}: {start:?} -> {end:?}",
+            );
+        }
     }
 }

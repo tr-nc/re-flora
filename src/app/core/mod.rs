@@ -639,7 +639,9 @@ impl App {
                 for scope in results.scopes.iter().filter(|scope| {
                     matches!(
                         scope.name,
-                        "environment_probes.rederive" | "environment_probes.trace_priority"
+                        "environment_probes.rederive"
+                            | "environment_probes.trace_priority"
+                            | "ddgi.probe_relocate"
                     )
                 }) {
                     log::info!(
@@ -1219,6 +1221,7 @@ impl App {
                     .environment_irradiance_capture_target,
                 ddgi_batch_order: options.ddgi_batch_order,
                 ddgi_debug_view: options.ddgi_debug_view,
+                ddgi_consumer_visibility: options.ddgi_consumer_visibility,
                 ddgi_terrain_hard_origin: options.ddgi_terrain_hard_origin,
             },
             spatial_sound_manager.clone(),

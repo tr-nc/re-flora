@@ -8,3 +8,4 @@ mod pipeline_layout;
 pub use pipeline_layout::*;
 
 mod descriptor_set_utils;
+mod manual_buffer_descriptor_sets;

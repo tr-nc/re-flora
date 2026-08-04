@@ -21,15 +21,45 @@ public static const uint FLORA_VOXEL_MATERIAL_BITS = 3u;
 public static const uint FLORA_VOXEL_MATERIAL_MASK =
     (1u << FLORA_VOXEL_MATERIAL_BITS) - 1u;
 
+public static const uint FLORA_LIGHTING_CACHE_OFFSET_BITS = 22u;
+public static const uint FLORA_LIGHTING_CACHE_OFFSET_MASK =
+    (1u << FLORA_LIGHTING_CACHE_OFFSET_BITS) - 1u;
+public static const uint FLORA_LIGHTING_CACHE_VOXEL_COUNT_SHIFT = 22u;
+public static const uint FLORA_LIGHTING_CACHE_VOXEL_COUNT_MASK = 0x1ffu;
+public static const uint FLORA_LIGHTING_CACHE_LOD_BIT = 0x80000000u;
+public static const uint FLORA_INSTANCE_TYPE_MASK = 0xffu;
+public static const uint FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT = 8u;
+
 public struct PushConstantFlora
 {
     public float time;
     public uint instance_ty;
     public uint3 chunk_world_offset;
-    public uint _padding_after_chunk_world_offset;
+    public uint lighting_cache_location;
     public uint height_dark_color_rgb10[FLORA_HEIGHT_COLOR_TABLE_LEN];
     public uint height_light_color_rgb10[FLORA_HEIGHT_COLOR_TABLE_LEN];
 };
+
+public uint floraLightingCacheOffset(PushConstantFlora pc)
+{
+    return pc.lighting_cache_location & FLORA_LIGHTING_CACHE_OFFSET_MASK;
+}
+
+public uint floraLightingCacheVoxelCount(PushConstantFlora pc)
+{
+    return (pc.lighting_cache_location >> FLORA_LIGHTING_CACHE_VOXEL_COUNT_SHIFT) &
+           FLORA_LIGHTING_CACHE_VOXEL_COUNT_MASK;
+}
+
+public uint floraLightingCacheVerticesPerVoxel(PushConstantFlora pc)
+{
+    return (pc.lighting_cache_location & FLORA_LIGHTING_CACHE_LOD_BIT) != 0u ? 4u : 8u;
+}
+
+public uint floraLightingCacheInstanceCount(PushConstantFlora pc)
+{
+    return pc.instance_ty >> FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT;
+}
 
 public struct U_FloraGrowthInfo
 {

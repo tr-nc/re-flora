@@ -693,6 +693,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/ddgi/visibility_gutter.comp",
     "shader/ddgi/atlas_reduce.comp",
     "shader/ddgi/voxel_visibility_pack.comp",
+    "shader/ddgi/voxel_visibility_blocks.comp",
     "shader/tracer/tracer.comp",
     "shader/tracer/tracer_shadow.comp",
     "shader/tracer/leaf_shadow_temporal.comp",
@@ -706,6 +707,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/tracer/terrain_query.comp",
     "shader/tracer/wind_volume.comp",
     "shader/foliage/flora.vert",
+    "shader/foliage/flora_lighting_cache.comp",
     "shader/foliage/flora_lod.vert",
     "shader/foliage/leaves_shadow.vert",
 ];

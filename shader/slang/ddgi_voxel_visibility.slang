@@ -12,6 +12,9 @@ readonly RWTexture3D<uint> ddgi_voxel_visibility_bits;
 [[vk::binding(36, 0)]]
 ConstantBuffer<U_DdgiVoxelVisibilityInfo> ddgi_voxel_visibility_info;
 
+[[vk::binding(38, 0)]] [[vk::image_format("r8ui")]]
+readonly RWTexture3D<uint> ddgi_voxel_visibility_blocks;
+
 bool ddgiVoxelCoordinateInside(int3 coordinate, uint3 dimensions)
 {
     return all(coordinate >= int3(0)) && all(coordinate < int3(dimensions));
@@ -24,6 +27,16 @@ bool ddgiVoxelIsOccupied(int3 coordinate, uint3 dimensions)
     uint word = ddgi_voxel_visibility_bits[
         uint3(voxel.x >> 5u, voxel.y, voxel.z)];
     return (word & (1u << (voxel.x & 31u))) != 0u;
+}
+
+int3 ddgiVoxelBlockCoordinate(int3 coordinate)
+{
+    return coordinate / int(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE);
+}
+
+bool ddgiVoxelBlockIsOccupied(int3 coordinate)
+{
+    return ddgi_voxel_visibility_blocks[uint3(ddgiVoxelBlockCoordinate(coordinate))] != 0u;
 }
 
 bool ddgiVoxelEndpointGrosslyOutside(float3 point, float3 dimensions)
@@ -56,6 +69,33 @@ float ddgiVoxelAxisNext(float origin, float direction, int cell, int step)
     if (step == 0) return 1.0e30;
     float boundary = float(step > 0 ? cell + 1 : cell);
     return (boundary - origin) / direction;
+}
+
+int ddgiVoxelCellsToBlockExit(int cell, int step)
+{
+    if (step == 0) return 0;
+    int blockStart = (cell / int(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE)) *
+                     int(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE);
+    return step > 0
+        ? blockStart + int(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE) - cell
+        : cell - blockStart + 1;
+}
+
+float ddgiVoxelBlockAxisNext(float next, float delta, int cell, int step)
+{
+    int cells = ddgiVoxelCellsToBlockExit(cell, step);
+    return cells == 0 ? 1.0e30 : next + delta * float(cells - 1);
+}
+
+void ddgiVoxelAdvanceAxisAcrossEmptyBlock(float crossing, int step, float delta,
+                                          inout int cell, inout float next)
+{
+    if (step == 0 || next > crossing + DDGI_VOXEL_OPEN_SEGMENT_EPSILON) return;
+    int advances = 1 + int(floor(max(
+        0.0,
+        (crossing + DDGI_VOXEL_OPEN_SEGMENT_EPSILON - next) / delta)));
+    cell += step * advances;
+    next += delta * float(advances);
 }
 
 // Tests the open segment between a surface-biased origin and a probe. Exact domain endpoints and
@@ -119,8 +159,6 @@ public float ddgiVoxelSegmentVisibility(float3 biasedWorldPosition,
 
     int3 cell = int3(floor(clippedStart));
     int3 endCell = int3(floor(clippedEnd));
-    if (ddgiVoxelIsOccupied(cell, info.voxel_dimensions)) return 0.0;
-    if (all(cell == endCell)) return 1.0;
 
     int3 step = int3(sign(clippedSegment));
     float3 delta = float3(
@@ -132,22 +170,57 @@ public float ddgiVoxelSegmentVisibility(float3 biasedWorldPosition,
         ddgiVoxelAxisNext(clippedStart.y, clippedSegment.y, cell.y, step.y),
         ddgiVoxelAxisNext(clippedStart.z, clippedSegment.z, cell.z, step.z));
 
+    int3 cachedBlock = int3(-1);
+    bool cachedBlockOccupied = true;
     for (uint stepIndex = 0u; stepIndex < DDGI_VOXEL_VISIBILITY_MAX_STEPS; ++stepIndex)
     {
         if (stepIndex >= info.max_steps) return 0.0;
-        float crossing = min(next.x, min(next.y, next.z));
+        int3 block = ddgiVoxelBlockCoordinate(cell);
+        if (any(block != cachedBlock))
+        {
+            cachedBlock = block;
+            cachedBlockOccupied = ddgiVoxelBlockIsOccupied(cell);
+        }
+
+        if (cachedBlockOccupied)
+        {
+            if (ddgiVoxelIsOccupied(cell, info.voxel_dimensions)) return 0.0;
+        }
+        else if (all(block == ddgiVoxelBlockCoordinate(endCell)))
+        {
+            return 1.0;
+        }
+        if (all(cell == endCell)) return 1.0;
+
+        float3 crossingByAxis = cachedBlockOccupied
+            ? next
+            : float3(
+                ddgiVoxelBlockAxisNext(next.x, delta.x, cell.x, step.x),
+                ddgiVoxelBlockAxisNext(next.y, delta.y, cell.y, step.y),
+                ddgiVoxelBlockAxisNext(next.z, delta.z, cell.z, step.z));
+        float crossing = min(crossingByAxis.x, min(crossingByAxis.y, crossingByAxis.z));
         if (crossing >= 1.0e29 || crossing > 1.0 + DDGI_VOXEL_OPEN_SEGMENT_EPSILON)
             return 0.0;
-        bool3 tie = abs(next - float3(crossing)) <=
-                    float3(DDGI_VOXEL_OPEN_SEGMENT_EPSILON);
-        if (tie.x) { cell.x += step.x; next.x += delta.x; }
-        if (tie.y) { cell.y += step.y; next.y += delta.y; }
-        if (tie.z) { cell.z += step.z; next.z += delta.z; }
-        // At an exact edge or corner crossing the ray enters only the cell
-        // reached by advancing every tied axis. Side cells touched at a
-        // zero-area boundary do not occlude an optical segment.
-        if (ddgiVoxelIsOccupied(cell, info.voxel_dimensions)) return 0.0;
-        if (all(cell == endCell)) return 1.0;
+        if (cachedBlockOccupied)
+        {
+            bool3 tie = abs(next - float3(crossing)) <=
+                        float3(DDGI_VOXEL_OPEN_SEGMENT_EPSILON);
+            if (tie.x) { cell.x += step.x; next.x += delta.x; }
+            if (tie.y) { cell.y += step.y; next.y += delta.y; }
+            if (tie.z) { cell.z += step.z; next.z += delta.z; }
+            // At an exact edge or corner crossing the ray enters only the cell
+            // reached by advancing every tied axis. Side cells touched at a
+            // zero-area boundary do not occlude an optical segment.
+        }
+        else
+        {
+            ddgiVoxelAdvanceAxisAcrossEmptyBlock(
+                crossing, step.x, delta.x, cell.x, next.x);
+            ddgiVoxelAdvanceAxisAcrossEmptyBlock(
+                crossing, step.y, delta.y, cell.y, next.y);
+            ddgiVoxelAdvanceAxisAcrossEmptyBlock(
+                crossing, step.z, delta.z, cell.z, next.z);
+        }
     }
     return 0.0;
 }

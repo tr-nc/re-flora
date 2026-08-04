@@ -10,6 +10,9 @@ static const uint DDGI_IRRADIANCE_STORED_SIDE = 10u;
 static const uint DDGI_VISIBILITY_INTERIOR_SIDE = 16u;
 static const uint DDGI_VISIBILITY_STORED_SIDE = 18u;
 static const float DDGI_QUERY_WEIGHT_EPSILON = 1.0e-6;
+public static const uint DDGI_CONSUMER_VISIBILITY_FULL = 0u;
+static const uint DDGI_CONSUMER_VISIBILITY_MOMENT_ONLY = 1u;
+static const uint DDGI_CONSUMER_VISIBILITY_EXACT_ONLY = 2u;
 
 [[vk::binding(23, 0)]]
 Sampler2D ddgi_global_sky_irradiance;
@@ -68,6 +71,7 @@ public struct DdgiQueryInfo
     public uint visibility_tile_columns;
     public uint ready;
     public uint geometry_revision;
+    public uint consumer_visibility;
     public uint invalidation_enabled;
     public float3 invalidation_world_min;
     public float3 invalidation_world_max;
@@ -83,6 +87,7 @@ DdgiQueryInfo ddgiConsumerQueryInfo(U_ShadingInfo lighting)
     query.visibility_tile_columns = lighting.ddgi_visibility_tile_columns;
     query.ready = lighting.ddgi_ready;
     query.geometry_revision = lighting.ddgi_geometry_revision;
+    query.consumer_visibility = lighting.ddgi_consumer_visibility;
     query.invalidation_enabled = lighting.ddgi_invalidation_enabled;
     query.invalidation_world_min = lighting.ddgi_invalidation_world_min;
     query.invalidation_world_max = lighting.ddgi_invalidation_world_max;
@@ -99,6 +104,7 @@ DdgiQueryInfo ddgiTransportQueryInfo(U_DdgiTransportQueryInfo transport)
     query.visibility_tile_columns = transport.visibility_tile_columns;
     query.ready = transport.source_ready;
     query.geometry_revision = transport.geometry_revision;
+    query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_FULL;
     query.invalidation_enabled = 0u;
     query.invalidation_world_min = float3(0.0);
     query.invalidation_world_max = float3(0.0);
@@ -311,18 +317,33 @@ public DdgiProbeContribution getDdgiProbeContribution(
     float supportDistance = length(spacingWorld) + relocationDistance;
     if (distanceToSurface > supportDistance) return contribution;
 
-    float3 probeToSurfaceDirection = normalize(probeToBiasedSurface);
-    float2 moments = sampleDdgiDistanceMoments(
-        probeIndex, probeToSurfaceDirection, query);
+    bool useMomentVisibility =
+        query.consumer_visibility == DDGI_CONSUMER_VISIBILITY_FULL ||
+        query.consumer_visibility == DDGI_CONSUMER_VISIBILITY_MOMENT_ONLY;
+    bool useExactVisibility =
+        query.consumer_visibility == DDGI_CONSUMER_VISIBILITY_FULL ||
+        query.consumer_visibility == DDGI_CONSUMER_VISIBILITY_EXACT_ONLY;
+    float momentVisibility = 1.0;
+    if (useMomentVisibility)
+    {
+        float3 probeToSurfaceDirection = normalize(probeToBiasedSurface);
+        float2 moments = sampleDdgiDistanceMoments(
+            probeIndex, probeToSurfaceDirection, query);
+        momentVisibility = ddgiChebyshevVisibility(moments, distanceToSurface);
+    }
+    float hardVisibility = 1.0;
+    if (useExactVisibility)
+    {
+        hardVisibility = ddgiVoxelSegmentVisibility(
+            hardVisibilityWorldPosition, actualPosition, query.geometry_revision);
+    }
     contribution.trustworthy = true;
     contribution.probe_index = probeIndex;
     contribution.actual_position = actualPosition;
     contribution.nominal_position = nominalPosition;
     contribution.base_weight = positionWeight * surfaceSideWeight;
-    contribution.moment_visibility = ddgiChebyshevVisibility(
-        moments, distanceToSurface);
-    contribution.hard_visibility = ddgiVoxelSegmentVisibility(
-        hardVisibilityWorldPosition, actualPosition, query.geometry_revision);
+    contribution.moment_visibility = momentVisibility;
+    contribution.hard_visibility = hardVisibility;
     contribution.irradiance = sampleDdgiProbeIrradiance(
         probeIndex, normal, query.irradiance_tile_columns, irradianceAtlas);
     return contribution;
@@ -334,6 +355,17 @@ public DdgiProbeContribution getDdgiProbeContribution(
 {
     return getDdgiProbeContribution(
         ddgiConsumerQueryInfo(lighting), worldPosition, surfaceNormal,
+        hardVisibilityWorldPosition, cageCorner, ddgi_irradiance_atlas);
+}
+
+public DdgiProbeContribution getDdgiFullVisibilityProbeContribution(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition, uint3 cageCorner)
+{
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_FULL;
+    return getDdgiProbeContribution(
+        query, worldPosition, surfaceNormal,
         hardVisibilityWorldPosition, cageCorner, ddgi_irradiance_atlas);
 }
 

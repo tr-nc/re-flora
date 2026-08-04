@@ -20,6 +20,7 @@ use re_flora_vkn::{
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
 const DDGI_TRACE_STATS_COUNT: usize = 8;
+const DDGI_RELOCATION_STATS_COUNT: usize = 14;
 const DDGI_ATLAS_REDUCTION_COUNT: usize = 6;
 
 /// Conservative, centralized feedback stopping policy. The relative metric uses a symmetric
@@ -279,6 +280,45 @@ impl DdgiTraceStats {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DdgiRelocationReadbackStats {
+    pub probes: u32,
+    pub valid: u32,
+    pub failed: u32,
+    pub fast_target: u32,
+    pub local_target: u32,
+    pub outer_target: u32,
+    pub outer_best_effort: u32,
+    pub full_escape: u32,
+    pub clearance_sum: u32,
+    pub distance_squared_twice_sum: u32,
+    pub moved: u32,
+    pub clearance_below_half_target: u32,
+    pub clearance_half_to_target: u32,
+    pub clearance_target: u32,
+}
+
+impl DdgiRelocationReadbackStats {
+    fn from_array(values: [u32; DDGI_RELOCATION_STATS_COUNT]) -> Self {
+        Self {
+            probes: values[0],
+            valid: values[1],
+            failed: values[2],
+            fast_target: values[3],
+            local_target: values[4],
+            outer_target: values[5],
+            outer_best_effort: values[6],
+            full_escape: values[7],
+            clearance_sum: values[8],
+            distance_squared_twice_sum: values[9],
+            moved: values[10],
+            clearance_below_half_target: values[11],
+            clearance_half_to_target: values[12],
+            clearance_target: values[13],
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DdgiAtlasValidationStats {
     pub max_absolute_rgb_delta: f32,
@@ -371,6 +411,7 @@ pub struct DdgiResourceBytes {
     pub probe_metadata: u64,
     pub transient_ray_data: u64,
     pub trace_stats: u64,
+    pub relocation_stats: u64,
     pub atlas_reduction: u64,
     pub radiance_sun: u64,
     pub radiance_voxel_palette: u64,
@@ -413,6 +454,7 @@ impl DdgiResourceBytes {
                 * DDGI_RAYS_PER_PROBE as u64
                 * std::mem::size_of::<[f32; 4]>() as u64,
             trace_stats: (DDGI_TRACE_STATS_COUNT * std::mem::size_of::<u32>()) as u64,
+            relocation_stats: (DDGI_RELOCATION_STATS_COUNT * std::mem::size_of::<u32>()) as u64,
             atlas_reduction: (DDGI_ATLAS_REDUCTION_COUNT * std::mem::size_of::<u32>()) as u64,
             radiance_sun: std::mem::size_of::<DdgiRadianceSun>() as u64,
             radiance_voxel_palette: std::mem::size_of::<DdgiRadianceVoxelPalette>() as u64,
@@ -428,6 +470,7 @@ impl DdgiResourceBytes {
             + self.probe_metadata
             + self.transient_ray_data
             + self.trace_stats
+            + self.relocation_stats
             + self.atlas_reduction
             + self.radiance_sun
             + self.radiance_voxel_palette
@@ -558,6 +601,8 @@ pub struct DdgiVolume {
     pub ddgi_transient_ray_data: Resource<Buffer>,
     pub ddgi_trace_stats: Resource<Buffer>,
     ddgi_trace_stats_readback: Buffer,
+    pub ddgi_relocation_stats: Resource<Buffer>,
+    ddgi_relocation_stats_readback: Buffer,
     pub ddgi_atlas_reduction: Resource<Buffer>,
     ddgi_atlas_reduction_readback: Buffer,
     pub ddgi_irradiance_atlas: Resource<Texture>,
@@ -646,6 +691,7 @@ impl ResourceContainer for DdgiVolume {
             "ddgi_probe_metadata" => Some(&self.ddgi_probe_metadata),
             "ddgi_transient_ray_data" => Some(&self.ddgi_transient_ray_data),
             "ddgi_trace_stats" => Some(&self.ddgi_trace_stats),
+            "ddgi_relocation_stats" => Some(&self.ddgi_relocation_stats),
             "ddgi_atlas_reduction" => Some(&self.ddgi_atlas_reduction),
             "ddgi_radiance_sun" => Some(&self.ddgi_radiance_sun),
             "ddgi_radiance_voxel_palette" => Some(&self.ddgi_radiance_voxel_palette),
@@ -675,6 +721,7 @@ impl ResourceContainer for DdgiVolume {
             "ddgi_probe_metadata",
             "ddgi_transient_ray_data",
             "ddgi_trace_stats",
+            "ddgi_relocation_stats",
             "ddgi_atlas_reduction",
             "ddgi_radiance_sun",
             "ddgi_radiance_voxel_palette",
@@ -791,6 +838,24 @@ impl DdgiVolume {
             MemoryLocation::GpuToCpu,
             resource_bytes.trace_stats,
         );
+        let relocation_stats = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::STORAGE_BUFFER
+                    | vk::BufferUsageFlags::TRANSFER_SRC
+                    | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            MemoryLocation::GpuOnly,
+            resource_bytes.relocation_stats,
+        );
+        let relocation_stats_readback = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            MemoryLocation::GpuToCpu,
+            resource_bytes.relocation_stats,
+        );
         let atlas_reduction = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -863,7 +928,7 @@ impl DdgiVolume {
             Texture::new(device, allocator, &global_sky_desc, &sampler_desc);
 
         log::info!(
-            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} total_mib={:.2}",
+            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
@@ -881,6 +946,7 @@ impl DdgiVolume {
             resource_bytes.visibility_atlas,
             resource_bytes.transient_ray_data,
             resource_bytes.trace_stats,
+            resource_bytes.relocation_stats,
             resource_bytes.atlas_reduction,
             resource_bytes.global_sky_irradiance,
             resource_bytes.radiance_sun + resource_bytes.radiance_voxel_palette,
@@ -914,6 +980,8 @@ impl DdgiVolume {
             ddgi_transient_ray_data: Resource::new(transient_ray_data),
             ddgi_trace_stats: Resource::new(trace_stats),
             ddgi_trace_stats_readback: trace_stats_readback,
+            ddgi_relocation_stats: Resource::new(relocation_stats),
+            ddgi_relocation_stats_readback: relocation_stats_readback,
             ddgi_atlas_reduction: Resource::new(atlas_reduction),
             ddgi_atlas_reduction_readback: atlas_reduction_readback,
             ddgi_irradiance_atlas: Resource::new(irradiance_atlas),
@@ -1514,6 +1582,32 @@ impl DdgiVolume {
         cmdbuf.use_buffer(&self.ddgi_trace_stats_readback, BufferUse::HostRead);
     }
 
+    pub fn record_relocation_stats_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
+        self.ddgi_relocation_stats.record_copy_to_buffer(
+            cmdbuf,
+            &self.ddgi_relocation_stats_readback,
+            self.resource_bytes.relocation_stats,
+            0,
+            0,
+        );
+        cmdbuf.use_buffer(&self.ddgi_relocation_stats_readback, BufferUse::HostRead);
+    }
+
+    pub fn update_relocation_stats_from_readback(&self) -> Result<DdgiRelocationReadbackStats> {
+        let bytes = self.ddgi_relocation_stats_readback.read_back()?;
+        ensure!(
+            bytes.len() == self.resource_bytes.relocation_stats as usize,
+            "DDGI relocation stats readback returned {} bytes, expected {}",
+            bytes.len(),
+            self.resource_bytes.relocation_stats,
+        );
+        let mut values = [0_u32; DDGI_RELOCATION_STATS_COUNT];
+        for (value, bytes) in values.iter_mut().zip(bytes.chunks_exact(4)) {
+            *value = u32::from_ne_bytes(bytes.try_into().expect("u32-sized chunk"));
+        }
+        Ok(DdgiRelocationReadbackStats::from_array(values))
+    }
+
     pub fn record_atlas_reduction_readback(&self, cmdbuf: &re_flora_vkn::CommandBuffer) {
         self.ddgi_atlas_reduction.record_copy_to_buffer(
             cmdbuf,
@@ -1698,6 +1792,7 @@ mod tests {
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
         assert_eq!(bytes.trace_stats, 32);
+        assert_eq!(bytes.relocation_stats, 56);
         assert_eq!(bytes.atlas_reduction, 24);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
         assert_eq!(bytes.radiance_sun, 32);

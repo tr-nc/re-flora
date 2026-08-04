@@ -531,7 +531,17 @@ mod tests {
             "surfacePosition +\n            normalDirection * gui_input.terrain_ray_origin_offset_world"
         ));
         assert!(tracer.contains(
-            "shading_info, ddgiReceiverPosition, result.normal,\n        ddgiHardVisibilityOrigin"
+            "sampleTerrainDdgiEnvironmentCached(\n            result.center_position, ddgiReceiverPosition, result.normal,\n            ddgiHardVisibilityOrigin)"
+        ));
+        let terrain_cache = tracer
+            .split_once("float3 sampleTerrainDdgiEnvironmentCached(")
+            .expect("terrain DDGI cache seam must exist")
+            .1
+            .split_once("float3 shadowRayColor(")
+            .expect("terrain cache must remain ahead of direct lighting")
+            .0;
+        assert!(terrain_cache.contains(
+            "shading_info, worldPosition, surfaceNormal,\n            hardVisibilityWorldPosition"
         ));
         let exact_reference = tracer
             .split_once("DdgiQueryResult sampleDdgiExactTerrainReference(")
@@ -541,6 +551,20 @@ mod tests {
             .expect("exact reference must remain isolated")
             .0;
         assert!(exact_reference.contains("contribution.hard_visibility"));
+    }
+
+    #[test]
+    fn consumer_visibility_ab_keeps_transport_and_exact_debug_on_full_visibility() {
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let tracer = include_str!("../shader/slang/tracer.slang");
+
+        assert!(query.contains("query.consumer_visibility = lighting.ddgi_consumer_visibility;"));
+        assert!(query.contains("query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_FULL;"));
+        assert!(query.contains("bool useMomentVisibility ="));
+        assert!(query.contains("bool useExactVisibility ="));
+        assert!(query.contains("if (useMomentVisibility)"));
+        assert!(query.contains("if (useExactVisibility)"));
+        assert!(tracer.contains("getDdgiFullVisibilityProbeContribution("));
     }
 
     #[test]

@@ -14,8 +14,8 @@ use crate::{
             encode_lookup_pos_key, FloraMeshData, FloraVoxelInfo, FloraVoxelInfoEntry,
             FLORA_VOXEL_LOOKUP_EMPTY_KEY,
         },
-        ButterflyPalettePreset, ExtentDependentResources, ParticleTextureLayout, Vertex,
-        WIND_VOLUME_BUCKET_COUNT,
+        ButterflyPalettePreset, ExtentDependentResources, ParticleTextureLayout,
+        TerrainLightingCache, Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
 };
@@ -39,6 +39,7 @@ pub struct FloraMeshResources {
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
     pub indices_len: u32,
+    pub voxel_count: u32,
 }
 
 impl FloraMeshResources {
@@ -53,21 +54,31 @@ impl FloraMeshResources {
     }
 
     pub fn from_mesh_data(device: Device, allocator: Allocator, mesh_data: FloraMeshData) -> Self {
-        Self::from_data(device, allocator, mesh_data.vertices, mesh_data.indices)
+        let voxel_count = mesh_data.voxel_infos.len() as u32;
+        Self::from_data(
+            device,
+            allocator,
+            mesh_data.vertices,
+            mesh_data.indices,
+            voxel_count,
+        )
     }
 
-    pub fn from_data(
+    fn from_data(
         device: Device,
         allocator: Allocator,
         vertices_data: Vec<Vertex>,
         indices_data: Vec<u32>,
+        voxel_count: u32,
     ) -> Self {
         let indices_len = indices_data.len() as u32;
 
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
+            ),
             MemoryLocation::CpuToGpu,
             (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
         );
@@ -86,6 +97,7 @@ impl FloraMeshResources {
             vertices: Resource::new(vertices),
             indices: Resource::new(indices),
             indices_len,
+            voxel_count,
         }
     }
 }
@@ -331,7 +343,10 @@ impl LeavesResources {
 
         // guard against empty data - create minimal buffers to avoid Vulkan validation errors
         if vertices_data.is_empty() {
-            vertices_data.push(Vertex { packed_data: 0 }); // Dummy vertex
+            vertices_data.push(Vertex {
+                packed_data: 0,
+                voxel_index: 0,
+            }); // Dummy vertex
         }
         if indices_data.is_empty() {
             indices_data.push(0); // Dummy index
@@ -1299,6 +1314,7 @@ pub struct TracerResources {
     pub wind: WindResources,
     pub flora_voxel_lookup: FloraVoxelLookupResources,
     pub terrain_query: TerrainQueryResources,
+    pub terrain_lighting_cache: TerrainLightingCache,
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,
     pub extent_dependent_resources: ExtentDependentResources,
@@ -1361,6 +1377,7 @@ impl TracerResources {
                 terrain_query_sm,
                 max_terrain_queries,
             ),
+            terrain_lighting_cache: TerrainLightingCache::new(device.clone(), allocator.clone()),
             textures: TracerTextureResources::new(vulkan_ctx, allocator.clone()),
             meshes: TracerMeshResources::new(device.clone(), allocator.clone(), chunk_bound),
             extent_dependent_resources: ExtentDependentResources::new(

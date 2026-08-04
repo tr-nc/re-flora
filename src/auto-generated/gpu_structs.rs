@@ -62,6 +62,13 @@ pub struct DdgiRayData {
     pub data: [u32; 0],
 }
 
+/// Auto-generated from `B_DdgiRelocationStats` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiRelocationStats {
+    pub data: [u32; 0],
+}
+
 /// Auto-generated from `B_DdgiTraceStats` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -137,6 +144,20 @@ pub struct MakeSurfaceResult {
 pub struct ManualFloraInstances {
     pub packed_local_pos: u32,
     pub spawn_start_ms: u32,
+}
+
+/// Auto-generated from `B_ManualFloraLightingCache` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ManualFloraLightingCache {
+    pub irradiance: [u32; 0],
+}
+
+/// Auto-generated from `B_ManualFloraVertices` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ManualFloraVertices {
+    pub data: [u32; 0],
 }
 
 /// Auto-generated from `B_ModelTriangles` (native Slang source of truth).
@@ -272,7 +293,20 @@ pub struct PushConstantFlora {
     pub instance_ty: u32,
     pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
-    pub _padding_after_chunk_world_offset: u32,
+    pub lighting_cache_location: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
+}
+
+/// Auto-generated from `PushConstantFloraLightingCache` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantFloraLightingCache {
+    pub time: f32,
+    pub instance_ty: u32,
+    pub _pad0: [u8; 8],
+    pub chunk_world_offset: [u32; 3],
+    pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
     pub height_light_color_rgb10: [u32; 12],
 }
@@ -285,7 +319,7 @@ pub struct PushConstantFloraLod {
     pub instance_ty: u32,
     pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
-    pub _padding_after_chunk_world_offset: u32,
+    pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
     pub height_light_color_rgb10: [u32; 12],
 }
@@ -329,7 +363,7 @@ pub struct PushConstantLeavesShadow {
     pub instance_ty: u32,
     pub _pad0: [u8; 8],
     pub chunk_world_offset: [u32; 3],
-    pub _padding_after_chunk_world_offset: u32,
+    pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
     pub height_light_color_rgb10: [u32; 12],
 }
@@ -781,9 +815,11 @@ pub struct ShadingInfo {
     pub ddgi_irradiance_tile_columns: u32,
     pub ddgi_visibility_tile_columns: u32,
     pub ddgi_debug_view: u32,
+    pub ddgi_consumer_visibility: u32,
     pub ddgi_terrain_hard_origin: u32,
+    pub ddgi_query_revision: u32,
     pub ddgi_invalidation_enabled: u32,
-    pub _pad2: [u8; 12],
+    pub _pad2: [u8; 4],
     pub ddgi_invalidation_world_min: [f32; 3],
     pub _pad3: [u8; 4],
     pub ddgi_invalidation_world_max: [f32; 3],
