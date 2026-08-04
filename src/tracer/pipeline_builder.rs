@@ -516,7 +516,7 @@ impl PipelineBuilder {
         );
         flora_lighting_cache_ppl
             .initialize_descriptor_set_resources(
-                0,
+                "gui_input",
                 &[
                     resources,
                     plain_builder_resources,
@@ -739,7 +739,7 @@ impl PipelineBuilder {
             },
         );
         flora_ppl
-            .initialize_descriptor_set_resources(0, &flora_resources)
+            .initialize_descriptor_set_resources("gui_input", &flora_resources)
             .expect("flora static descriptors must resolve from tracer resources");
 
         let flora_lod_ppl = Self::create_gfx_pipeline_uninitialized(
@@ -757,7 +757,7 @@ impl PipelineBuilder {
             },
         );
         flora_lod_ppl
-            .initialize_descriptor_set_resources(0, &flora_resources)
+            .initialize_descriptor_set_resources("gui_input", &flora_resources)
             .expect("flora LOD static descriptors must resolve from tracer resources");
 
         let leaves_ppl = Self::create_gfx_pipeline_uninitialized(
@@ -775,7 +775,7 @@ impl PipelineBuilder {
             },
         );
         leaves_ppl
-            .initialize_descriptor_set_resources(0, &environment_lighting_resources)
+            .initialize_descriptor_set_resources("gui_input", &environment_lighting_resources)
             .expect("leaf static descriptors must resolve from tracer resources");
 
         let leaves_lod_ppl = Self::create_gfx_pipeline_uninitialized(
@@ -793,7 +793,7 @@ impl PipelineBuilder {
             },
         );
         leaves_lod_ppl
-            .initialize_descriptor_set_resources(0, &environment_lighting_resources)
+            .initialize_descriptor_set_resources("gui_input", &environment_lighting_resources)
             .expect("leaf LOD static descriptors must resolve from tracer resources");
 
         let leaves_shadow_lod_ppl = Self::create_gfx_pipeline_with_desc_uninitialized(
@@ -811,7 +811,7 @@ impl PipelineBuilder {
             },
         );
         leaves_shadow_lod_ppl
-            .initialize_descriptor_set_resources(0, &[resources])
+            .initialize_descriptor_set_resources("gui_input", &[resources])
             .expect("leaf shadow static descriptors must resolve from tracer resources");
 
         let sprinkler_ppl = Self::create_gfx_pipeline(

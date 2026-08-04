@@ -65,6 +65,7 @@ pub struct DescriptorGenerationDraft {
     sets: DescriptorSetGeneration,
     plan: DescriptorBindingPlan,
     lease: Arc<AtomicBool>,
+    required_set_nos: Vec<u32>,
 }
 
 impl DescriptorGenerationDraft {
@@ -149,12 +150,20 @@ impl DescriptorGenerationDraft {
         sets: DescriptorSetGeneration,
         plan: DescriptorBindingPlan,
         lease: Arc<AtomicBool>,
+        required_set_nos: Vec<u32>,
     ) -> Self {
-        Self { sets, plan, lease }
+        Self {
+            sets,
+            plan,
+            lease,
+            required_set_nos,
+        }
     }
 
     pub fn into_generation(self) -> DescriptorSetGeneration {
         let mut this = self;
+        this.plan
+            .assert_generation_complete_for_sets(&this.sets, &this.required_set_nos);
         std::mem::replace(&mut this.sets, DescriptorSetGeneration::empty())
     }
 }
@@ -197,6 +206,10 @@ impl DescriptorBinding {
         self.set_no
     }
 
+    pub(crate) fn binding_no(&self) -> u32 {
+        self.binding_no
+    }
+
 }
 
 /// The semantic descriptor interface for one compute or graphics pipeline.
@@ -214,7 +227,7 @@ pub struct DescriptorBindingPlan {
 }
 
 impl DescriptorBindingPlan {
-    pub fn from_reflection(
+    pub(crate) fn from_reflection(
         pipeline_name: impl Into<String>,
         reflected: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     ) -> Result<Self> {
@@ -369,8 +382,49 @@ impl DescriptorBindingPlan {
             })
     }
 
-    pub fn set_numbers(&self) -> &[u32] {
+    pub(crate) fn set_numbers(&self) -> &[u32] {
         &self.set_numbers
+    }
+
+    pub(crate) fn assert_generation_complete(&self, generation: &DescriptorSetGeneration) {
+        self.assert_generation_complete_except(generation, None);
+    }
+
+    pub(crate) fn assert_generation_complete_except(
+        &self,
+        generation: &DescriptorSetGeneration,
+        excluded_set_no: Option<u32>,
+    ) {
+        let set_nos = self
+            .set_numbers
+            .iter()
+            .copied()
+            .filter(|set_no| Some(*set_no) != excluded_set_no)
+            .collect::<Vec<_>>();
+        self.assert_generation_complete_for_sets(generation, &set_nos);
+    }
+
+    pub(crate) fn assert_generation_complete_for_sets(
+        &self,
+        generation: &DescriptorSetGeneration,
+        set_nos: &[u32],
+    ) {
+        for set_no in set_nos {
+            let set = generation
+                .get(set_no)
+                .unwrap_or_else(|| panic!("descriptor generation for {} is missing reflected set {set_no}", self.pipeline_name));
+            let binding_numbers = self
+                .bindings_for_set(*set_no)
+                .expect("descriptor plan set list must be internally consistent")
+                .iter()
+                .map(|binding| binding.binding_no)
+                .collect::<Vec<_>>();
+            assert!(
+                set.has_bindings(&binding_numbers),
+                "descriptor generation for {} has incomplete reflected set {set_no}; initialize every binding before recording",
+                self.pipeline_name,
+            );
+        }
     }
 
     pub(crate) fn validate_write(

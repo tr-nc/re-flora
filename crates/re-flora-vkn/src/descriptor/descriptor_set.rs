@@ -139,6 +139,13 @@ impl DescriptorSet {
             .filter(|owner| matches!(&owner.owner, DescriptorResourceOwner::Texture(_)))
             .count()
     }
+
+    pub(crate) fn has_bindings(&self, binding_numbers: &[u32]) -> bool {
+        let owners = self.0.owners.lock().unwrap();
+        binding_numbers
+            .iter()
+            .all(|binding| owners.contains_key(&(*binding, 0)))
+    }
 }
 
 fn descriptor_image_use(descriptor_type: vk::DescriptorType) -> Option<ImageUse> {

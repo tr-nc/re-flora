@@ -97,7 +97,7 @@ impl PipelineLayout {
         self.0.pipeline_layout
     }
 
-    pub fn get_descriptor_set_layouts(&self) -> &HashMap<u32, DescriptorSetLayout> {
+    pub(crate) fn get_descriptor_set_layouts(&self) -> &HashMap<u32, DescriptorSetLayout> {
         &self.0.descriptor_set_layouts
     }
 

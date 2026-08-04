@@ -133,7 +133,7 @@ impl ComputePipeline {
         if initialize {
             descriptor_set_utils::initialize_descriptor_sets(
                 resource_containers,
-                &pipeline_instance.0.descriptor_sets_bindings,
+                &pipeline_instance.0.descriptor_binding_plan,
                 &pipeline_instance.0.descriptor_sets,
             )
             .expect("automatic descriptor initialization must resolve reflected resources");
@@ -151,20 +151,24 @@ impl ComputePipeline {
     ) -> Result<()> {
         descriptor_set_utils::initialize_descriptor_sets(
             resource_containers,
-            &self.0.descriptor_sets_bindings,
+            &self.0.descriptor_binding_plan,
             &self.0.descriptor_sets,
         )
     }
 
+    /// Initializes the reflected descriptor set containing `binding_name`.
+    ///
+    /// The resource name is the stable semantic anchor; the Vulkan set number remains private to
+    /// the pipeline/reflection implementation.
     pub fn initialize_descriptor_set_resources(
         &self,
-        set_no: u32,
+        binding_name: &str,
         resource_containers: &[&dyn ResourceContainer],
     ) -> Result<()> {
         descriptor_set_utils::initialize_descriptor_set(
-            set_no,
+            binding_name,
             resource_containers,
-            &self.0.descriptor_sets_bindings,
+            &self.0.descriptor_binding_plan,
             &self.0.descriptor_sets,
         )
     }
@@ -195,6 +199,23 @@ impl ComputePipeline {
         let active = self.0.descriptor_sets.lock().unwrap();
         let mut set_nos = self.0.descriptor_sets_bindings.keys().copied().collect::<Vec<_>>();
         set_nos.sort_unstable();
+        let required_set_nos = set_nos
+            .iter()
+            .copied()
+            .filter(|set_no| {
+                let binding_numbers = self
+                    .0
+                    .descriptor_binding_plan
+                    .bindings_for_set(*set_no)
+                    .expect("descriptor plan set list must be internally consistent")
+                    .iter()
+                    .map(|binding| binding.binding_no())
+                    .collect::<Vec<_>>();
+                active
+                    .get(set_no)
+                    .is_some_and(|set| set.has_bindings(&binding_numbers))
+            })
+            .collect::<Vec<_>>();
         let result = (|| {
             let mut pending = DescriptorSetGeneration::empty();
             for set_no in set_nos {
@@ -217,6 +238,7 @@ impl ComputePipeline {
                 pending,
                 self.0.descriptor_binding_plan.clone(),
                 self.0.descriptor_draft_active.clone(),
+                required_set_nos,
             ))
         })();
         if result.is_err() {
@@ -277,8 +299,13 @@ impl ComputePipeline {
         &self,
         cmdbuf: &CommandBuffer,
         descriptor_sets: &DescriptorSetGeneration,
+        excluded_set_no: Option<u32>,
     ) {
-        let mut set_nos = descriptor_sets.keys().copied().collect::<Vec<_>>();
+        let mut set_nos = descriptor_sets
+            .keys()
+            .copied()
+            .filter(|set_no| Some(*set_no) != excluded_set_no)
+            .collect::<Vec<_>>();
         set_nos.sort_unstable();
         let mut run = Vec::new();
         let mut run_start = None;
@@ -346,6 +373,29 @@ impl ComputePipeline {
             .ok_or_else(|| anyhow::anyhow!("transient descriptor set requires at least one resource"))?
             .0;
         let set_no = self.0.descriptor_binding_plan.binding(first_name)?.set_no();
+        let reflected_bindings = self.0.descriptor_binding_plan.bindings_for_set(set_no)?;
+        anyhow::ensure!(
+            descriptors.len() == reflected_bindings.len(),
+            "transient descriptor set {} for {} requires exactly {} reflected resources, got {}",
+            set_no,
+            self.0.descriptor_binding_plan.pipeline_name(),
+            reflected_bindings.len(),
+            descriptors.len(),
+        );
+        for reflected in reflected_bindings {
+            let count = descriptors
+                .iter()
+                .filter(|(name, _)| *name == reflected.name())
+                .count();
+            anyhow::ensure!(
+                count == 1,
+                "transient descriptor set {} for {} requires exactly one resource named '{}', got {}",
+                set_no,
+                self.0.descriptor_binding_plan.pipeline_name(),
+                reflected.name(),
+                count,
+            );
+        }
         let layout = self
             .0
             .pipeline_layout
@@ -387,8 +437,11 @@ impl ComputePipeline {
         self.record_bind(cmdbuf);
         let (set_no, descriptor_set) = self.next_transient_descriptor_set(descriptors)?;
         let active = self.0.descriptor_sets.lock().unwrap();
+        self.0
+            .descriptor_binding_plan
+            .assert_generation_complete_except(&active, Some(set_no));
         if !active.is_empty() {
-            self.record_bind_descriptor_sets(cmdbuf, &active);
+            self.record_bind_descriptor_sets(cmdbuf, &active, Some(set_no));
         }
         self.0.device.cmd_bind_descriptor_sets_compute_raw(
             cmdbuf.as_raw(),
@@ -415,10 +468,18 @@ impl ComputePipeline {
         dispatch_extent: Extent3D,
         push_constants: Option<&[u8]>,
     ) {
+        let has_active = {
+            let active = self.0.descriptor_sets.lock().unwrap();
+            self.0
+                .descriptor_binding_plan
+                .assert_generation_complete(&active);
+            !active.is_empty()
+        };
         self.record_texture_transitions(cmdbuf);
         self.record_bind(cmdbuf);
-        if !self.0.descriptor_sets.lock().unwrap().is_empty() {
-            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap());
+        if has_active {
+            let active = self.0.descriptor_sets.lock().unwrap();
+            self.record_bind_descriptor_sets(cmdbuf, &active, None);
         }
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
@@ -442,10 +503,18 @@ impl ComputePipeline {
         buffer: &Buffer,
         push_constants: Option<&[u8]>,
     ) {
+        let has_active = {
+            let active = self.0.descriptor_sets.lock().unwrap();
+            self.0
+                .descriptor_binding_plan
+                .assert_generation_complete(&active);
+            !active.is_empty()
+        };
         self.record_texture_transitions(cmdbuf);
         self.record_bind(cmdbuf);
-        if !self.0.descriptor_sets.lock().unwrap().is_empty() {
-            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap());
+        if has_active {
+            let active = self.0.descriptor_sets.lock().unwrap();
+            self.record_bind_descriptor_sets(cmdbuf, &active, None);
         }
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);

@@ -409,7 +409,7 @@ impl ShaderModule {
         bindings
     }
 
-    pub fn get_descriptor_sets_bindings(
+    pub(crate) fn get_descriptor_sets_bindings(
         &self,
     ) -> HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>> {
         let refl_descriptor_sets = self.get_reflect_descriptor_sets();
@@ -420,7 +420,7 @@ impl ShaderModule {
         bindings
     }
 
-    pub fn get_descriptor_set_layouts(&self) -> HashMap<u32, DescriptorSetLayout> {
+    pub(crate) fn get_descriptor_set_layouts(&self) -> HashMap<u32, DescriptorSetLayout> {
         let bindings = self.get_descriptor_sets_bindings();
         let mut layouts = HashMap::new();
         for (set_no, bindings) in bindings {
