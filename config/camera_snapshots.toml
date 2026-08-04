@@ -23,3 +23,29 @@ yaw_deg = -166.67726
 pitch_deg = -55.05971
 fov_deg = 60.0
 fly_mode = true
+
+[[snapshots]]
+name = "patt-seam-roof-audit"
+description = "Overhead audit of the patt seam terrain-removal replay"
+position = [
+    0.56,
+    1.15,
+    1.34,
+]
+yaw_deg = 0.0
+pitch_deg = -89.0
+fov_deg = 60.0
+fly_mode = true
+
+[[snapshots]]
+name = "patt"
+description = ""
+position = [
+    0.65,
+    0.58,
+    1.38,
+]
+yaw_deg = 20.168081
+pitch_deg = -10.419271
+fov_deg = 60.0
+fly_mode = true

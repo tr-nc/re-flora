@@ -38,6 +38,7 @@ pub enum MonitorScorePreference {
 pub enum EnvironmentLightingTestCase {
     #[default]
     Sealed,
+    PattSeam,
     Portal,
     Walls,
     Donor,
@@ -54,6 +55,7 @@ impl EnvironmentLightingTestCase {
     fn from_cli_value(value: &str) -> Option<Self> {
         match value {
             "sealed" => Some(Self::Sealed),
+            "patt-seam" => Some(Self::PattSeam),
             "portal" => Some(Self::Portal),
             "walls" => Some(Self::Walls),
             "donor" => Some(Self::Donor),
@@ -71,6 +73,7 @@ impl EnvironmentLightingTestCase {
     pub fn label(self) -> &'static str {
         match self {
             Self::Sealed => "sealed",
+            Self::PattSeam => "patt-seam",
             Self::Portal => "portal",
             Self::Walls => "walls",
             Self::Donor => "donor",
@@ -598,7 +601,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
                 )
             }),
     }
@@ -789,7 +792,7 @@ Options:
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --environment-lighting-test-scene [case]
-                              Build a lighting case: sealed (default), portal, walls, donor, dogleg,
+                              Build a lighting case: sealed (default), patt-seam, portal, walls, donor, dogleg,
                               radiance-changes, density-changes, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
@@ -976,6 +979,7 @@ mod tests {
     fn parses_named_environment_lighting_test_scenes() {
         for (name, expected) in [
             ("sealed", EnvironmentLightingTestCase::Sealed),
+            ("patt-seam", EnvironmentLightingTestCase::PattSeam),
             ("portal", EnvironmentLightingTestCase::Portal),
             ("walls", EnvironmentLightingTestCase::Walls),
             ("donor", EnvironmentLightingTestCase::Donor),
@@ -1017,7 +1021,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
         ));
     }
 

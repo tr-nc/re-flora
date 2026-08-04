@@ -2602,7 +2602,15 @@ impl App {
                     egui::pos2(cursor.x / scale_factor + 18.0, cursor.y / scale_factor)
                 });
                 let status_bar_text = format!("{}\n{}", water_status_text, placeable_hint);
-                let terrain_edit_preview_center = terrain_edit_hover.map(|hover| hover.center);
+                let hide_terrain_edit_preview = self
+                    .environment_lighting_test_scene
+                    .as_ref()
+                    .is_some_and(
+                        environment_lighting_test_scene::EnvironmentLightingTestScene::hides_terrain_edit_preview,
+                    );
+                let terrain_edit_preview_center = (!hide_terrain_edit_preview)
+                    .then(|| terrain_edit_hover.map(|hover| hover.center))
+                    .flatten();
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
                 let terrain_edit_preview_color = self.terrain_edit_preview_color(
                     terrain_edit_hover
