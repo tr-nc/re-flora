@@ -433,6 +433,9 @@ impl App {
         }
 
         if let Some(path) = self.terrain_save_path.clone() {
+            if !self.finish_visible_rebuilds_for_persistence() {
+                panic!("[TERRAIN_PERSISTENCE] visible terrain rebuild was not ready at CLI save");
+            }
             self.save_terrain_snapshot(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));
         }
@@ -497,6 +500,10 @@ impl App {
         let path = self.terrain_snapshot_path.clone();
         let result = (|| {
             self.vulkan_ctx.device().wait_idle();
+            anyhow::ensure!(
+                self.finish_visible_rebuilds_for_persistence(),
+                "visible terrain rebuild did not reach Ready before save"
+            );
             self.contree_builder.flush_cpu_chunk_cache_jobs();
             anyhow::ensure!(
                 self.contree_builder.cpu_chunk_cache_jobs_idle(),
@@ -555,6 +562,12 @@ impl App {
         TerrainSnapshotReader::validate(path, metadata).map_err(|err| (false, err))?;
         let mut reader = TerrainSnapshotReader::open(path).map_err(|err| (false, err))?;
         self.vulkan_ctx.device().wait_idle();
+        if !self.finish_visible_rebuilds_for_persistence() {
+            return Err((
+                false,
+                anyhow::anyhow!("visible terrain rebuild did not reach Ready before load"),
+            ));
+        }
 
         let mut mutated = false;
         let upload_result = (|| -> Result<()> {

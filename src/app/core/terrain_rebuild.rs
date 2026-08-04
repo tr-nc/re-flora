@@ -224,6 +224,22 @@ impl App {
         self.deferred_chunk_rebuilds.is_idle() && self.terrain_chunk_rebuild_inflight.is_none()
     }
 
+    pub(super) fn finish_visible_rebuilds_for_persistence(&mut self) -> bool {
+        while !self.deferred_chunk_rebuilds.is_idle()
+            || self.terrain_chunk_rebuild_inflight.is_some()
+        {
+            if self.terrain_chunk_rebuild_inflight.is_none() {
+                self.process_deferred_chunk_rebuild();
+            }
+            if self.terrain_chunk_rebuild_inflight.is_some()
+                && !self.finish_deferred_chunk_rebuild_blocking()
+            {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Consumes the one currently submitted rebuild stage without progressing
     /// to a later Surface, Contree, or scene-texture stage. Queued requests are
     /// intentionally abandoned when the application is exiting.
