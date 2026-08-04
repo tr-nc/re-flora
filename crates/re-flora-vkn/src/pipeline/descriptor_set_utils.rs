@@ -16,6 +16,32 @@ pub fn auto_create_descriptor_sets(
     descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     descriptor_sets_storage: &Mutex<DescriptorSetGeneration>,
 ) -> Result<()> {
+    let descriptor_sets = allocate_descriptor_sets(
+        descriptor_pool,
+        pipeline_layout,
+        descriptor_sets_bindings,
+    )?;
+    {
+        let mut guard = descriptor_sets_storage.lock().unwrap();
+        *guard = descriptor_sets;
+    }
+
+    // Legacy construction keeps the historical manual-resource escape hatch until all
+    // application call sites use explicit semantic initialization.
+    auto_update_descriptor_sets(
+        resource_containers,
+        descriptor_sets_bindings,
+        descriptor_sets_storage,
+    )?;
+
+    Ok(())
+}
+
+pub fn allocate_descriptor_sets(
+    descriptor_pool: &DescriptorPool,
+    pipeline_layout: &PipelineLayout,
+    descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+) -> Result<DescriptorSetGeneration> {
     let mut descriptor_sets = HashMap::new();
     let mut sorted_sets: Vec<_> = descriptor_sets_bindings.iter().collect();
     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
@@ -29,21 +55,7 @@ pub fn auto_create_descriptor_sets(
         let descriptor_set = descriptor_pool.allocate_set(layout)?;
         descriptor_sets.insert(*set_no, descriptor_set);
     }
-
-    // store the allocated descriptor sets
-    {
-        let mut guard = descriptor_sets_storage.lock().unwrap();
-        *guard = descriptor_sets;
-    }
-
-    // update the descriptor sets with the provided resources
-    auto_update_descriptor_sets(
-        resource_containers,
-        descriptor_sets_bindings,
-        descriptor_sets_storage,
-    )?;
-
-    Ok(())
+    Ok(descriptor_sets)
 }
 
 /// Updates existing descriptor sets with new resources.
@@ -57,6 +69,26 @@ pub fn auto_update_descriptor_sets(
         resource_containers,
         descriptor_sets_bindings,
         &descriptor_sets,
+        true,
+    )
+}
+
+/// Fully initializes a descriptor generation from resource containers.
+///
+/// Unlike the legacy automatic path, every reflected binding must resolve.  Pipelines with
+/// resources whose lifetime starts after construction must use their semantic initialization
+/// methods instead of relying on an implicit name prefix.
+pub fn initialize_descriptor_sets(
+    resource_containers: &[&dyn ResourceContainer],
+    descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+    descriptor_sets_storage: &Mutex<DescriptorSetGeneration>,
+) -> Result<()> {
+    let descriptor_sets = descriptor_sets_storage.lock().unwrap();
+    auto_update_descriptor_sets_on_sets(
+        resource_containers,
+        descriptor_sets_bindings,
+        &descriptor_sets,
+        false,
     )
 }
 
@@ -64,6 +96,7 @@ pub fn auto_update_descriptor_sets_on_sets(
     resource_containers: &[&dyn ResourceContainer],
     descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     descriptor_sets: &DescriptorSetGeneration,
+    allow_unresolved_manual: bool,
 ) -> Result<()> {
     let mut sorted_sets: Vec<_> = descriptor_sets_bindings.iter().collect();
     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
@@ -93,7 +126,7 @@ pub fn auto_update_descriptor_sets_on_sets(
                 // Creation-time automatic binding predates the semantic initialization API.
                 // Keep the legacy escape hatch only until the owning pipeline migrates to
                 // explicit initialization; the final contract rejects all unresolved names.
-                if binding.name.starts_with("manual_") {
+                if allow_unresolved_manual && binding.name.starts_with("manual_") {
                     continue;
                 }
                 return Err(anyhow::anyhow!("Resource not found: {}", binding.name));

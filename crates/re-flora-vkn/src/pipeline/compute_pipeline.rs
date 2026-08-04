@@ -1,6 +1,6 @@
 use super::{
     descriptor_set_utils, manual_buffer_descriptor_sets::ManualBufferDescriptorSets,
-    DescriptorBindingPlan,
+    DescriptorBindingPlan, DescriptorGenerationDraft, DescriptorSetGeneration,
 };
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
@@ -13,9 +13,8 @@ use std::{
     collections::HashMap,
     ops::Deref,
     sync::{Arc, Mutex},
+    sync::atomic::{AtomicBool, Ordering},
 };
-
-pub type DescriptorSetGeneration = HashMap<u32, DescriptorSet>;
 
 struct ComputePipelineInner {
     device: Device,
@@ -28,6 +27,7 @@ struct ComputePipelineInner {
     manual_buffer_descriptor_sets: Mutex<ManualBufferDescriptorSets>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     descriptor_binding_plan: DescriptorBindingPlan,
+    descriptor_draft_active: Arc<AtomicBool>,
 }
 
 impl Drop for ComputePipelineInner {
@@ -60,6 +60,32 @@ impl ComputePipeline {
         descriptor_pool: &DescriptorPool,
         resource_containers: &[&dyn ResourceContainer],
     ) -> Self {
+        Self::new_with_initialization(
+            device,
+            shader_module,
+            descriptor_pool,
+            resource_containers,
+            true,
+        )
+    }
+
+    /// Creates a pipeline and allocates its descriptor sets without writing any resources.
+    /// Call an explicit initialization method before recording commands.
+    pub fn new_uninitialized(
+        device: &Device,
+        shader_module: &ShaderModule,
+        descriptor_pool: &DescriptorPool,
+    ) -> Self {
+        Self::new_with_initialization(device, shader_module, descriptor_pool, &[], false)
+    }
+
+    fn new_with_initialization(
+        device: &Device,
+        shader_module: &ShaderModule,
+        descriptor_pool: &DescriptorPool,
+        resource_containers: &[&dyn ResourceContainer],
+        initialize: bool,
+    ) -> Self {
         let stage_info = shader_module.get_shader_stage_create_info();
         let pipeline_layout = PipelineLayout::from_shader_module(device, shader_module);
         let workgroup_size = shader_module.get_workgroup_size().unwrap();
@@ -89,25 +115,32 @@ impl ComputePipeline {
         let pipeline_instance = Self(Arc::new(ComputePipelineInner {
             device: device.clone(),
             pipeline,
-            pipeline_layout,
+            pipeline_layout: pipeline_layout.clone(),
             workgroup_size,
             descriptor_pool: descriptor_pool.clone(),
-            descriptor_sets: Mutex::new(HashMap::new()),
+            descriptor_sets: Mutex::new(
+                descriptor_set_utils::allocate_descriptor_sets(
+                    descriptor_pool,
+                    &pipeline_layout,
+                    &descriptor_sets_bindings,
+                )
+                .expect("descriptor sets must be allocatable from reflected layouts"),
+            ),
             pending_descriptor_sets: Mutex::new(None),
             manual_buffer_descriptor_sets: Mutex::new(ManualBufferDescriptorSets::default()),
             descriptor_sets_bindings,
             descriptor_binding_plan,
+            descriptor_draft_active: Arc::new(AtomicBool::new(false)),
         }));
 
-        // auto-create descriptor sets
-        descriptor_set_utils::auto_create_descriptor_sets(
-            descriptor_pool,
-            resource_containers,
-            &pipeline_instance.0.pipeline_layout,
-            &pipeline_instance.0.descriptor_sets_bindings,
-            &pipeline_instance.0.descriptor_sets,
-        )
-        .unwrap();
+        if initialize {
+            descriptor_set_utils::auto_update_descriptor_sets(
+                resource_containers,
+                &pipeline_instance.0.descriptor_sets_bindings,
+                &pipeline_instance.0.descriptor_sets,
+            )
+            .expect("automatic descriptor initialization must resolve reflected resources");
+        }
         pipeline_instance
     }
 
@@ -121,6 +154,7 @@ impl ComputePipeline {
                 resource_containers,
                 &self.0.descriptor_sets_bindings,
                 descriptor_sets,
+                true,
             )?;
         } else {
             descriptor_set_utils::auto_update_descriptor_sets(
@@ -130,6 +164,21 @@ impl ComputePipeline {
             )?;
         }
         Ok(())
+    }
+
+    /// Completes creation-time descriptor initialization.
+    ///
+    /// This is intentionally separate from runtime generation preparation: every reflected
+    /// binding must resolve here, and no prefixed or otherwise implicit exception is accepted.
+    pub fn initialize_descriptor_resources(
+        &self,
+        resource_containers: &[&dyn ResourceContainer],
+    ) -> Result<()> {
+        descriptor_set_utils::initialize_descriptor_sets(
+            resource_containers,
+            &self.0.descriptor_sets_bindings,
+            &self.0.descriptor_sets,
+        )
     }
 
     pub fn initialize_descriptor(
@@ -150,6 +199,56 @@ impl ComputePipeline {
         let write = self.0.descriptor_binding_plan.make_write(name, resource)?;
         let set_no = self.0.descriptor_binding_plan.binding(name)?.set_no();
         self.write_descriptor_set_checked(set_no, write)
+    }
+
+    /// Starts an owned runtime descriptor draft cloned from the active generation.
+    pub fn begin_descriptor_draft(&self) -> Result<DescriptorGenerationDraft> {
+        self.0
+            .descriptor_draft_active
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .map_err(|_| anyhow::anyhow!("descriptor draft already exists for {}", self.0.descriptor_binding_plan.pipeline_name()))?;
+
+        let active = self.0.descriptor_sets.lock().unwrap();
+        let mut set_nos = self.0.descriptor_sets_bindings.keys().copied().collect::<Vec<_>>();
+        set_nos.sort_unstable();
+        let result = (|| {
+            let mut pending = HashMap::new();
+            for set_no in set_nos {
+                let set = active.get(&set_no).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "descriptor generation for {} is missing reflected set {}",
+                        self.0.descriptor_binding_plan.pipeline_name(),
+                        set_no
+                    )
+                })?;
+                let layout = self
+                    .0
+                    .pipeline_layout
+                    .get_descriptor_set_layouts()
+                    .get(&set_no)
+                    .ok_or_else(|| anyhow::anyhow!("descriptor set layout {set_no} is not reflected"))?;
+                pending.insert(set_no, set.fork(&self.0.descriptor_pool, layout)?);
+            }
+            Ok(DescriptorGenerationDraft::new(
+                pending,
+                self.0.descriptor_binding_plan.clone(),
+                self.0.descriptor_draft_active.clone(),
+            ))
+        })();
+        if result.is_err() {
+            self.0.descriptor_draft_active.store(false, Ordering::Release);
+        }
+        result
+    }
+
+    /// Publishes a prepared draft by infallibly swapping the active generation.
+    pub fn publish_descriptor_draft(
+        &self,
+        name: &'static str,
+        generation: u64,
+        draft: DescriptorGenerationDraft,
+    ) -> FrameRetirement {
+        self.publish_descriptor_sets(name, generation, draft.into_generation())
     }
 
     /// Fork the current descriptor generation so runtime writes cannot mutate an in-flight set.

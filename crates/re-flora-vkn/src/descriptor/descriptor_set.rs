@@ -87,7 +87,11 @@ impl DescriptorSet {
             .map(|(&(binding, array_element), owner)| {
                 let mut write = match &owner.owner {
                     DescriptorResourceOwner::Buffer(buffer) => {
-                        WriteDescriptorSet::new_buffer_write(binding, buffer)
+                        WriteDescriptorSet::new_buffer_write_for_type(
+                            binding,
+                            owner.descriptor_type,
+                            buffer,
+                        )
                     }
                     DescriptorResourceOwner::Texture(texture) => WriteDescriptorSet::new_texture_write(
                         binding,

@@ -1,7 +1,12 @@
 use crate::{AccelStruct, Buffer, DescriptorSetLayoutBinding, Texture, TextureLayout, WriteDescriptorSet};
 use anyhow::{anyhow, ensure, Result};
 use ash::vk;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
+};
+
+pub type DescriptorSetGeneration = HashMap<u32, crate::DescriptorSet>;
 
 /// A resource kind that can be supplied to a reflected descriptor binding.
 ///
@@ -12,6 +17,60 @@ pub enum DescriptorResource<'a> {
     Buffer(&'a Buffer),
     Texture(&'a Texture),
     AccelerationStructure(&'a AccelStruct),
+}
+
+/// A private, writable descriptor generation prepared from the active generation.
+///
+/// The owner pipeline supplies a lease so only one draft can exist at a time. Dropping the
+/// draft releases the lease and drops its descriptor sets without changing the active generation.
+pub struct DescriptorGenerationDraft {
+    sets: DescriptorSetGeneration,
+    plan: DescriptorBindingPlan,
+    lease: Arc<AtomicBool>,
+}
+
+impl DescriptorGenerationDraft {
+    pub fn write(&mut self, name: &str, resource: DescriptorResource<'_>) -> Result<()> {
+        let write = self.plan.make_write(name, resource)?;
+        let set_no = self.plan.binding(name)?.set_no();
+        self.write_descriptor_set(set_no, write)
+    }
+
+    pub fn write_descriptor_set(
+        &mut self,
+        set_no: u32,
+        mut write: WriteDescriptorSet,
+    ) -> Result<()> {
+        self.plan.validate_write(set_no, &write)?;
+        self.sets
+            .get(&set_no)
+            .ok_or_else(|| anyhow!("descriptor set {set_no} is not reflected"))?
+            .perform_writes(std::slice::from_mut(&mut write));
+        Ok(())
+    }
+
+    pub fn pipeline_name(&self) -> &str {
+        self.plan.pipeline_name()
+    }
+
+    pub(crate) fn new(
+        sets: DescriptorSetGeneration,
+        plan: DescriptorBindingPlan,
+        lease: Arc<AtomicBool>,
+    ) -> Self {
+        Self { sets, plan, lease }
+    }
+
+    pub(crate) fn into_generation(self) -> DescriptorSetGeneration {
+        let mut this = self;
+        std::mem::take(&mut this.sets)
+    }
+}
+
+impl Drop for DescriptorGenerationDraft {
+    fn drop(&mut self) {
+        self.lease.store(false, Ordering::Release);
+    }
 }
 
 /// One descriptor binding as declared by shader reflection.

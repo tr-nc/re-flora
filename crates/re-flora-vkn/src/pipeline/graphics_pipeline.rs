@@ -1,6 +1,5 @@
 use super::{
-    descriptor_set_utils, DescriptorBindingPlan,
-    DescriptorSetGeneration,
+    descriptor_set_utils, DescriptorBindingPlan, DescriptorGenerationDraft, DescriptorSetGeneration,
 };
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayout,
@@ -14,6 +13,7 @@ use std::{
     collections::HashMap,
     ops::Deref,
     sync::{Arc, Mutex},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 struct GraphicsPipelineInner {
@@ -26,6 +26,7 @@ struct GraphicsPipelineInner {
     manual_buffer_descriptor_sets: Mutex<ManualBufferDescriptorSets>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     descriptor_binding_plan: DescriptorBindingPlan,
+    descriptor_draft_active: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -157,6 +158,56 @@ impl GraphicsPipeline {
         descriptor_pool: &DescriptorPool,
         resource_containers: &[&dyn ResourceContainer],
     ) -> Self {
+        Self::new_with_initialization(
+            device,
+            vert_shader_module,
+            frag_shader_module,
+            render_pass,
+            desc,
+            instance_rate_starting_location,
+            descriptor_pool,
+            resource_containers,
+            true,
+        )
+    }
+
+    /// Creates a pipeline and allocates its descriptor sets without writing any resources.
+    /// Call an explicit initialization method before recording commands.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_uninitialized(
+        device: &Device,
+        vert_shader_module: &ShaderModule,
+        frag_shader_module: &ShaderModule,
+        render_pass: &RenderPass,
+        desc: &GraphicsPipelineDesc,
+        instance_rate_starting_location: Option<u32>,
+        descriptor_pool: &DescriptorPool,
+    ) -> Self {
+        Self::new_with_initialization(
+            device,
+            vert_shader_module,
+            frag_shader_module,
+            render_pass,
+            desc,
+            instance_rate_starting_location,
+            descriptor_pool,
+            &[],
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_initialization(
+        device: &Device,
+        vert_shader_module: &ShaderModule,
+        frag_shader_module: &ShaderModule,
+        render_pass: &RenderPass,
+        desc: &GraphicsPipelineDesc,
+        instance_rate_starting_location: Option<u32>,
+        descriptor_pool: &DescriptorPool,
+        resource_containers: &[&dyn ResourceContainer],
+        initialize: bool,
+    ) -> Self {
         let vert_pipeline_layout = PipelineLayout::from_shader_module(device, vert_shader_module);
         let frag_pipeline_layout = PipelineLayout::from_shader_module(device, frag_shader_module);
         let pipeline_layout = vert_pipeline_layout.merge(&frag_pipeline_layout).unwrap();
@@ -275,23 +326,30 @@ impl GraphicsPipeline {
             device: device.clone(),
             descriptor_pool: descriptor_pool.clone(),
             pipeline,
-            pipeline_layout,
-            descriptor_sets: Mutex::new(HashMap::new()),
+            pipeline_layout: pipeline_layout.clone(),
+            descriptor_sets: Mutex::new(
+                descriptor_set_utils::allocate_descriptor_sets(
+                    descriptor_pool,
+                    &pipeline_layout,
+                    &descriptor_sets_bindings,
+                )
+                .expect("descriptor sets must be allocatable from reflected layouts"),
+            ),
             pending_descriptor_sets: Mutex::new(None),
             manual_buffer_descriptor_sets: Mutex::new(ManualBufferDescriptorSets::default()),
             descriptor_sets_bindings,
             descriptor_binding_plan,
+            descriptor_draft_active: Arc::new(AtomicBool::new(false)),
         }));
 
-        // auto-create descriptor sets
-        descriptor_set_utils::auto_create_descriptor_sets(
-            descriptor_pool,
-            resource_containers,
-            &pipeline_instance.0.pipeline_layout,
-            &pipeline_instance.0.descriptor_sets_bindings,
-            &pipeline_instance.0.descriptor_sets,
-        )
-        .unwrap();
+        if initialize {
+            descriptor_set_utils::auto_update_descriptor_sets(
+                resource_containers,
+                &pipeline_instance.0.descriptor_sets_bindings,
+                &pipeline_instance.0.descriptor_sets,
+            )
+            .expect("automatic descriptor initialization must resolve reflected resources");
+        }
         return pipeline_instance;
 
         fn merge_descriptor_sets_bindings(
@@ -352,6 +410,70 @@ impl GraphicsPipeline {
         let set_no = self.0.descriptor_binding_plan.binding(name)?.set_no();
         self.write_descriptor_set(set_no, write);
         Ok(())
+    }
+
+    /// Starts an owned runtime descriptor draft cloned from the active generation.
+    pub fn begin_descriptor_draft(&self) -> Result<DescriptorGenerationDraft> {
+        self.0
+            .descriptor_draft_active
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .map_err(|_| anyhow::anyhow!("descriptor draft already exists for {}", self.0.descriptor_binding_plan.pipeline_name()))?;
+
+        let active = self.0.descriptor_sets.lock().unwrap();
+        let mut set_nos = self.0.descriptor_sets_bindings.keys().copied().collect::<Vec<_>>();
+        set_nos.sort_unstable();
+        let result = (|| {
+            let mut pending = HashMap::new();
+            for set_no in set_nos {
+                let set = active.get(&set_no).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "descriptor generation for {} is missing reflected set {}",
+                        self.0.descriptor_binding_plan.pipeline_name(),
+                        set_no
+                    )
+                })?;
+                let layout = self
+                    .0
+                    .pipeline_layout
+                    .get_descriptor_set_layouts()
+                    .get(&set_no)
+                    .ok_or_else(|| anyhow::anyhow!("descriptor set layout {set_no} is not reflected"))?;
+                pending.insert(set_no, set.fork(&self.0.descriptor_pool, layout)?);
+            }
+            Ok(DescriptorGenerationDraft::new(
+                pending,
+                self.0.descriptor_binding_plan.clone(),
+                self.0.descriptor_draft_active.clone(),
+            ))
+        })();
+        if result.is_err() {
+            self.0.descriptor_draft_active.store(false, Ordering::Release);
+        }
+        result
+    }
+
+    /// Publishes a prepared draft by infallibly swapping the active generation.
+    pub fn publish_descriptor_draft(
+        &self,
+        name: &'static str,
+        generation: u64,
+        draft: DescriptorGenerationDraft,
+    ) -> FrameRetirement {
+        self.publish_descriptor_sets(name, generation, draft.into_generation())
+    }
+
+    /// Completes creation-time descriptor initialization.
+    ///
+    /// Every reflected binding must resolve; runtime generation preparation is a separate API.
+    pub fn initialize_descriptor_resources(
+        &self,
+        resource_containers: &[&dyn ResourceContainer],
+    ) -> Result<()> {
+        descriptor_set_utils::initialize_descriptor_sets(
+            resource_containers,
+            &self.0.descriptor_sets_bindings,
+            &self.0.descriptor_sets,
+        )
     }
 
     /// Starts a new frame for manually-bound buffer descriptor sets.
@@ -717,6 +839,7 @@ impl GraphicsPipeline {
                 resource_containers,
                 &self.0.descriptor_sets_bindings,
                 descriptor_sets,
+                true,
             )?;
         } else {
             descriptor_set_utils::auto_update_descriptor_sets(
