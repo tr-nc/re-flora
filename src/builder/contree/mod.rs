@@ -1335,6 +1335,19 @@ impl ContreeBuilder {
         }
     }
 
+    /// Consumes only the currently submitted CPU-cache readback job. Pending
+    /// logical cache requests are deliberately left unsubmitted during
+    /// shutdown, and no decoded cache is published.
+    pub fn discard_active_cpu_chunk_cache_job(&mut self) -> Result<()> {
+        let Some(job) = self.active_cpu_chunk_cache_job.take() else {
+            return Ok(());
+        };
+
+        let _completed_gpu_job = job.gpu_job.wait_complete()?;
+        self.cpu_chunk_readback_buffers = Some(job.readback_buffers);
+        Ok(())
+    }
+
     pub fn cpu_chunk_cache_jobs_idle(&self) -> bool {
         self.cpu_chunk_cache_jobs_are_idle()
     }

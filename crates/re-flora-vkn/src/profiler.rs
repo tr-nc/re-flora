@@ -398,6 +398,20 @@ impl GpuJobProfiler {
                 * self.query_pool.timestamp_period_ns() as f64,
         }))
     }
+
+    /// Releases a job scope whose result is intentionally discarded.
+    ///
+    /// Shutdown consumes the owning GPU job but must not perform profiler
+    /// readback just to publish a result that no caller can observe.  The
+    /// generation check keeps a stale token from releasing a newer scope.
+    pub fn discard_scope(&mut self, token: GpuJobScopeToken) {
+        let Some(slot) = self.slots.get_mut(token.slot_index) else {
+            return;
+        };
+        if slot.in_use && slot.generation == token.generation {
+            slot.in_use = false;
+        }
+    }
 }
 
 impl GpuProfilerFrame<'_> {

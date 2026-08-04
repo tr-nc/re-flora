@@ -194,6 +194,13 @@ impl SceneAccelBuilder {
         Ok(())
     }
 
+    /// Consumes a submitted scene-texture update without publishing a logical
+    /// result.  Shutdown must not advance the terrain rebuild pipeline.
+    pub fn discard_update_scene_tex(&mut self, job: SceneTexUpdateJob) -> Result<()> {
+        let _completed_gpu_job = job.gpu_job.wait_complete()?;
+        Ok(())
+    }
+
     pub fn finish_update_scene_tex(
         &mut self,
         job: SceneTexUpdateJob,

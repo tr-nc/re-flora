@@ -1541,6 +1541,16 @@ impl PlainBuilder {
             .map_err(|err| anyhow::anyhow!("failed to poll chunk solid sample GPU job: {err}"))
     }
 
+    /// Consumes a submitted solid-grid sample without reading or publishing its
+    /// result.  This is the only legal shutdown path for an in-flight sample.
+    pub fn discard_chunk_atlas_solid_grid_sample(
+        &mut self,
+        job: ChunkSolidSampleJob,
+    ) -> Result<()> {
+        let _completed_gpu_job = job.gpu_job.wait_complete()?;
+        Ok(())
+    }
+
     pub fn finish_chunk_atlas_solid_grid_sample(
         &mut self,
         job: ChunkSolidSampleJob,

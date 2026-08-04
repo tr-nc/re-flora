@@ -816,6 +816,19 @@ impl SurfaceBuilder {
         Ok(())
     }
 
+    /// Consumes a submitted surface build without readback or flora mutation.
+    /// Any profiler reservation is released after the GPU completion has been
+    /// observed through the owning managed job token.
+    pub fn discard_build_surface(&mut self, mut job: SurfaceBuildJob) -> Result<()> {
+        let _completed_gpu_job = job.gpu_job.wait_complete()?;
+        if let Some(scope) = job.gpu_scope.take() {
+            if let Some(profiler) = self.gpu_job_profiler.as_mut() {
+                profiler.discard_scope(scope);
+            }
+        }
+        Ok(())
+    }
+
     pub fn finish_build_surface(&mut self, job: SurfaceBuildJob) -> Result<SurfaceBuildResult> {
         let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         let _completed_gpu_job = job.gpu_job.wait_complete()?;
