@@ -102,9 +102,9 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
     ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue,
-    DescriptorPool, DescriptorSet, Extent2D, Extent3D, FrameRetirement, Framebuffer, GpuProfiler,
-    GraphicsPipeline, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass, RenderTarget,
-    Texture, TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
+    DescriptorPool, DescriptorSetGeneration, Extent2D, Extent3D, FrameRetirement,
+    Framebuffer, GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage, PushConstantInfo,
+    RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -739,9 +739,9 @@ pub struct DirectSunShadowResources<'a> {
 /// volume's resource owners but are not visible to any frame until promotion publishes them.
 struct PreparedDdgiConsumerDescriptors {
     token_serial: u64,
-    tracer: Vec<DescriptorSet>,
-    flora_lighting_cache: Vec<DescriptorSet>,
-    graphics: Vec<Vec<DescriptorSet>>,
+    tracer: DescriptorSetGeneration,
+    flora_lighting_cache: DescriptorSetGeneration,
+    graphics: Vec<DescriptorSetGeneration>,
 }
 
 pub struct Tracer {

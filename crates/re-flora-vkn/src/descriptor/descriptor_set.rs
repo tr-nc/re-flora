@@ -203,13 +203,20 @@ impl<'a> WriteDescriptorSet<'a> {
     }
 
     pub fn new_buffer_write(binding: u32, buffer: &Buffer) -> Self {
+        let descriptor_type = Self::descriptor_type_from_usage(buffer.get_usage().as_raw())
+            .expect("buffer usage must support a Vulkan buffer descriptor");
+        Self::new_buffer_write_for_type(binding, descriptor_type, buffer)
+    }
+
+    pub(crate) fn new_buffer_write_for_type(
+        binding: u32,
+        descriptor_type: vk::DescriptorType,
+        buffer: &Buffer,
+    ) -> Self {
         let buffer_info = vk::DescriptorBufferInfo::default()
             .buffer(buffer.as_raw())
             .offset(0)
             .range(buffer.get_size_bytes());
-
-        let descriptor_type =
-            Self::descriptor_type_from_usage(buffer.get_usage().as_raw()).unwrap();
 
         Self {
             binding,
@@ -274,6 +281,10 @@ impl<'a> WriteDescriptorSet<'a> {
 
     pub(crate) fn array_element(&self) -> u32 {
         self.array_element
+    }
+
+    pub(crate) fn descriptor_type(&self) -> vk::DescriptorType {
+        self.descriptor_type
     }
 
     fn owner(&self) -> Option<DescriptorBindingOwner> {

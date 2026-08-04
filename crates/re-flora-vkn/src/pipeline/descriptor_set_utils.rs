@@ -1,10 +1,12 @@
 use crate::{
-    DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, PipelineLayout, ResourceContainer,
+    DescriptorPool, DescriptorSetLayoutBinding, PipelineLayout, ResourceContainer,
     TextureLayout, WriteDescriptorSet,
 };
 use anyhow::Result;
 use ash::vk;
 use std::{collections::HashMap, sync::Mutex};
+
+use super::DescriptorSetGeneration;
 
 /// Creates descriptor sets for a pipeline using automatic resource binding.
 pub fn auto_create_descriptor_sets(
@@ -12,18 +14,20 @@ pub fn auto_create_descriptor_sets(
     resource_containers: &[&dyn ResourceContainer],
     pipeline_layout: &PipelineLayout,
     descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
-    descriptor_sets_storage: &Mutex<Vec<DescriptorSet>>,
+    descriptor_sets_storage: &Mutex<DescriptorSetGeneration>,
 ) -> Result<()> {
-    let mut descriptor_sets = Vec::new();
+    let mut descriptor_sets = HashMap::new();
     let mut sorted_sets: Vec<_> = descriptor_sets_bindings.iter().collect();
     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
 
     // allocate descriptor sets from the pool
     for (set_no, _) in sorted_sets {
-        let descriptor_set = descriptor_pool
-            .allocate_set(&pipeline_layout.get_descriptor_set_layouts()[set_no])
-            .unwrap();
-        descriptor_sets.push(descriptor_set);
+        let layout = pipeline_layout
+            .get_descriptor_set_layouts()
+            .get(set_no)
+            .ok_or_else(|| anyhow::anyhow!("missing descriptor set layout {set_no}"))?;
+        let descriptor_set = descriptor_pool.allocate_set(layout)?;
+        descriptor_sets.insert(*set_no, descriptor_set);
     }
 
     // store the allocated descriptor sets
@@ -46,7 +50,7 @@ pub fn auto_create_descriptor_sets(
 pub fn auto_update_descriptor_sets(
     resource_containers: &[&dyn ResourceContainer],
     descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
-    descriptor_sets_storage: &Mutex<Vec<DescriptorSet>>,
+    descriptor_sets_storage: &Mutex<DescriptorSetGeneration>,
 ) -> Result<()> {
     let descriptor_sets = descriptor_sets_storage.lock().unwrap();
     auto_update_descriptor_sets_on_sets(
@@ -59,15 +63,17 @@ pub fn auto_update_descriptor_sets(
 pub fn auto_update_descriptor_sets_on_sets(
     resource_containers: &[&dyn ResourceContainer],
     descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
-    descriptor_sets: &[DescriptorSet],
+    descriptor_sets: &DescriptorSetGeneration,
 ) -> Result<()> {
     let mut sorted_sets: Vec<_> = descriptor_sets_bindings.iter().collect();
     sorted_sets.sort_by_key(|(set_no, _)| *set_no);
 
-    for (set_idx, (_, bindings)) in sorted_sets.iter().enumerate() {
-        let descriptor_set = &descriptor_sets[set_idx];
+    for (set_no, bindings) in sorted_sets {
+        let descriptor_set = descriptor_sets
+            .get(set_no)
+            .ok_or_else(|| anyhow::anyhow!("missing allocated descriptor set {set_no}"))?;
 
-        for (_binding_idx, binding) in bindings.iter() {
+        for (_binding_idx, binding) in bindings {
             // find the exact resource for this binding across all resource containers
             let mut found_buffer_containers = Vec::new();
             let mut found_texture_containers = Vec::new();
@@ -84,12 +90,13 @@ pub fn auto_update_descriptor_sets_on_sets(
             // ensure that only one resource container has that resource
             let total_found = found_buffer_containers.len() + found_texture_containers.len();
             if total_found == 0 {
-                // if binding.name starts with "manual_", ignore it, it's left for manual binding
-                if !binding.name.starts_with("manual_") {
-                    return Err(anyhow::anyhow!("Resource not found: {}", binding.name));
-                } else {
+                // Creation-time automatic binding predates the semantic initialization API.
+                // Keep the legacy escape hatch only until the owning pipeline migrates to
+                // explicit initialization; the final contract rejects all unresolved names.
+                if binding.name.starts_with("manual_") {
                     continue;
                 }
+                return Err(anyhow::anyhow!("Resource not found: {}", binding.name));
             } else if total_found > 1 {
                 return Err(anyhow::anyhow!(
                     "Resource '{}' found in multiple containers: {} buffer containers, {} texture containers",

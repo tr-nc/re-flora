@@ -1,0 +1,436 @@
+use crate::{AccelStruct, Buffer, DescriptorSetLayoutBinding, Texture, TextureLayout, WriteDescriptorSet};
+use anyhow::{anyhow, ensure, Result};
+use ash::vk;
+use std::collections::HashMap;
+
+/// A resource kind that can be supplied to a reflected descriptor binding.
+///
+/// The descriptor set number and binding number are deliberately not part of this
+/// application-facing value.  They are resolved from the shader resource name by
+/// [`DescriptorBindingPlan`].
+pub enum DescriptorResource<'a> {
+    Buffer(&'a Buffer),
+    Texture(&'a Texture),
+    AccelerationStructure(&'a AccelStruct),
+}
+
+/// One descriptor binding as declared by shader reflection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DescriptorBinding {
+    name: String,
+    set_no: u32,
+    binding_no: u32,
+    descriptor_type: vk::DescriptorType,
+    descriptor_count: u32,
+    stage_flags: vk::ShaderStageFlags,
+}
+
+impl DescriptorBinding {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn descriptor_type(&self) -> vk::DescriptorType {
+        self.descriptor_type
+    }
+
+    pub fn descriptor_count(&self) -> u32 {
+        self.descriptor_count
+    }
+
+    pub fn stage_flags(&self) -> vk::ShaderStageFlags {
+        self.stage_flags
+    }
+
+    pub(crate) fn set_no(&self) -> u32 {
+        self.set_no
+    }
+
+    pub(crate) fn binding_no(&self) -> u32 {
+        self.binding_no
+    }
+}
+
+/// The semantic descriptor interface for one compute or graphics pipeline.
+///
+/// Reflection is converted once at pipeline construction time.  Application code
+/// addresses resources by their stable shader name; this plan owns the numeric
+/// Vulkan location and validates writes before they reach `vkUpdateDescriptorSets`.
+#[derive(Clone, Debug)]
+pub struct DescriptorBindingPlan {
+    pipeline_name: String,
+    bindings_by_name: HashMap<String, DescriptorBinding>,
+    bindings_by_location: HashMap<(u32, u32), DescriptorBinding>,
+    bindings_by_set: HashMap<u32, Vec<DescriptorBinding>>,
+    set_numbers: Vec<u32>,
+}
+
+impl DescriptorBindingPlan {
+    pub fn from_reflection(
+        pipeline_name: impl Into<String>,
+        reflected: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+    ) -> Result<Self> {
+        let pipeline_name = pipeline_name.into();
+        let mut bindings_by_name = HashMap::<String, DescriptorBinding>::new();
+        let mut bindings_by_location = HashMap::<(u32, u32), DescriptorBinding>::new();
+        let mut bindings_by_set = HashMap::<u32, Vec<DescriptorBinding>>::new();
+
+        let mut set_numbers = reflected.keys().copied().collect::<Vec<_>>();
+        set_numbers.sort_unstable();
+
+        for set_no in &set_numbers {
+            let bindings = reflected.get(set_no).ok_or_else(|| {
+                anyhow!(
+                    "descriptor plan for {pipeline_name} lost reflected descriptor set {set_no}"
+                )
+            })?;
+            let mut binding_numbers = bindings.keys().copied().collect::<Vec<_>>();
+            binding_numbers.sort_unstable();
+
+            let set_bindings = bindings_by_set.entry(*set_no).or_default();
+            for binding_no in binding_numbers {
+                let binding = bindings.get(&binding_no).ok_or_else(|| {
+                    anyhow!(
+                        "descriptor plan for {pipeline_name} lost reflected binding {set_no}:{binding_no}"
+                    )
+                })?;
+                ensure!(
+                    binding.no == binding_no,
+                    "descriptor plan for {pipeline_name} has inconsistent reflected binding key {}:{} (binding metadata says {})",
+                    set_no,
+                    binding_no,
+                    binding.no,
+                );
+                ensure!(
+                    !binding.name.is_empty(),
+                    "descriptor plan for {pipeline_name} has an unnamed reflected binding at {}:{}",
+                    set_no,
+                    binding_no,
+                );
+                ensure!(
+                    binding.descriptor_count == 1,
+                    "descriptor plan for {pipeline_name} does not support descriptor arrays: {} at {}:{} has count {}",
+                    binding.name,
+                    set_no,
+                    binding_no,
+                    binding.descriptor_count,
+                );
+
+                let semantic_binding = DescriptorBinding {
+                    name: binding.name.clone(),
+                    set_no: *set_no,
+                    binding_no,
+                    descriptor_type: binding.descriptor_type,
+                    descriptor_count: binding.descriptor_count,
+                    stage_flags: binding.stage_flags,
+                };
+
+                if let Some(previous) = bindings_by_name.get(&semantic_binding.name) {
+                    ensure!(
+                        previous.set_no == semantic_binding.set_no
+                            && previous.binding_no == semantic_binding.binding_no,
+                        "descriptor resource name '{}' is declared at both {}:{} and {}:{} in {}",
+                        semantic_binding.name,
+                        previous.set_no,
+                        previous.binding_no,
+                        semantic_binding.set_no,
+                        semantic_binding.binding_no,
+                        pipeline_name,
+                    );
+                    ensure!(
+                        previous.descriptor_type == semantic_binding.descriptor_type
+                            && previous.descriptor_count == semantic_binding.descriptor_count,
+                        "descriptor resource '{}' has incompatible declarations in {}",
+                        semantic_binding.name,
+                        pipeline_name,
+                    );
+                }
+
+                if let Some(previous) = bindings_by_location
+                    .get(&(semantic_binding.set_no, semantic_binding.binding_no))
+                {
+                    ensure!(
+                        previous.name == semantic_binding.name
+                            && previous.descriptor_type == semantic_binding.descriptor_type
+                            && previous.descriptor_count == semantic_binding.descriptor_count,
+                        "descriptor location {}:{} has incompatible declarations in {}",
+                        semantic_binding.set_no,
+                        semantic_binding.binding_no,
+                        pipeline_name,
+                    );
+                }
+
+                bindings_by_name
+                    .entry(semantic_binding.name.clone())
+                    .or_insert_with(|| semantic_binding.clone());
+                bindings_by_location
+                    .entry((semantic_binding.set_no, semantic_binding.binding_no))
+                    .or_insert_with(|| semantic_binding.clone());
+                set_bindings.push(semantic_binding);
+            }
+        }
+
+        Ok(Self {
+            pipeline_name,
+            bindings_by_name,
+            bindings_by_location,
+            bindings_by_set,
+            set_numbers,
+        })
+    }
+
+    pub fn pipeline_name(&self) -> &str {
+        &self.pipeline_name
+    }
+
+    pub fn binding(&self, name: &str) -> Result<&DescriptorBinding> {
+        self.bindings_by_name.get(name).ok_or_else(|| {
+            anyhow!(
+                "descriptor resource '{}' is not reflected by {}",
+                name,
+                self.pipeline_name
+            )
+        })
+    }
+
+    pub fn bindings(&self) -> impl Iterator<Item = &DescriptorBinding> {
+        self.bindings_by_name.values()
+    }
+
+    pub(crate) fn binding_at(&self, set_no: u32, binding_no: u32) -> Result<&DescriptorBinding> {
+        self.bindings_by_location.get(&(set_no, binding_no)).ok_or_else(|| {
+            anyhow!(
+                "descriptor location {}:{} is not reflected by {}",
+                set_no,
+                binding_no,
+                self.pipeline_name
+            )
+        })
+    }
+
+    pub(crate) fn bindings_for_set(&self, set_no: u32) -> Result<&[DescriptorBinding]> {
+        self.bindings_by_set
+            .get(&set_no)
+            .map(Vec::as_slice)
+            .ok_or_else(|| {
+                anyhow!(
+                    "descriptor set {} is not reflected by {}",
+                    set_no,
+                    self.pipeline_name
+                )
+            })
+    }
+
+    pub fn set_numbers(&self) -> &[u32] {
+        &self.set_numbers
+    }
+
+    pub(crate) fn validate_write(
+        &self,
+        set_no: u32,
+        write: &WriteDescriptorSet<'_>,
+    ) -> Result<()> {
+        let binding = self.binding_at(set_no, write.binding())?;
+        ensure!(
+            write.array_element() < binding.descriptor_count,
+            "descriptor write for '{}' in {} uses array element {}, but reflected count is {}",
+            binding.name,
+            self.pipeline_name,
+            write.array_element(),
+            binding.descriptor_count,
+        );
+        ensure!(
+            write.descriptor_type() == binding.descriptor_type,
+            "descriptor write for '{}' in {} uses {:?}, reflection requires {:?}",
+            binding.name,
+            self.pipeline_name,
+            write.descriptor_type(),
+            binding.descriptor_type,
+        );
+        Ok(())
+    }
+
+    pub(crate) fn make_write<'a>(
+        &self,
+        name: &str,
+        resource: DescriptorResource<'a>,
+    ) -> Result<WriteDescriptorSet<'a>> {
+        let binding = self.binding(name)?;
+        match resource {
+            DescriptorResource::Buffer(buffer) => {
+                let usage = buffer.get_usage().as_raw();
+                ensure_buffer_usage(name, binding.descriptor_type, usage)?;
+                Ok(WriteDescriptorSet::new_buffer_write_for_type(
+                    binding.binding_no,
+                    binding.descriptor_type,
+                    buffer,
+                ))
+            }
+            DescriptorResource::Texture(texture) => {
+                ensure!(
+                    matches!(
+                        binding.descriptor_type,
+                        vk::DescriptorType::COMBINED_IMAGE_SAMPLER
+                            | vk::DescriptorType::SAMPLED_IMAGE
+                            | vk::DescriptorType::STORAGE_IMAGE
+                    ),
+                    "descriptor resource '{}' in {} expects {:?}, but a texture was supplied",
+                    name,
+                    self.pipeline_name,
+                    binding.descriptor_type,
+                );
+                Ok(WriteDescriptorSet::new_texture_write(
+                    binding.binding_no,
+                    binding.descriptor_type,
+                    texture,
+                    image_layout(binding.descriptor_type),
+                ))
+            }
+            DescriptorResource::AccelerationStructure(accel_struct) => {
+                ensure!(
+                    binding.descriptor_type == vk::DescriptorType::ACCELERATION_STRUCTURE_KHR,
+                    "descriptor resource '{}' in {} expects {:?}, but an acceleration structure was supplied",
+                    name,
+                    self.pipeline_name,
+                    binding.descriptor_type,
+                );
+                Ok(WriteDescriptorSet::new_acceleration_structure_write(
+                    binding.binding_no,
+                    accel_struct,
+                ))
+            }
+        }
+    }
+}
+
+pub(crate) fn image_layout(descriptor_type: vk::DescriptorType) -> TextureLayout {
+    match descriptor_type {
+        vk::DescriptorType::COMBINED_IMAGE_SAMPLER | vk::DescriptorType::SAMPLED_IMAGE => {
+            TextureLayout::SHADER_READ_ONLY
+        }
+        _ => TextureLayout::GENERAL,
+    }
+}
+
+fn ensure_buffer_usage(
+    name: &str,
+    descriptor_type: vk::DescriptorType,
+    usage: vk::BufferUsageFlags,
+) -> Result<()> {
+    let required = match descriptor_type {
+        vk::DescriptorType::UNIFORM_BUFFER | vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC => {
+            vk::BufferUsageFlags::UNIFORM_BUFFER
+        }
+        vk::DescriptorType::STORAGE_BUFFER | vk::DescriptorType::STORAGE_BUFFER_DYNAMIC => {
+            vk::BufferUsageFlags::STORAGE_BUFFER
+        }
+        vk::DescriptorType::UNIFORM_TEXEL_BUFFER => vk::BufferUsageFlags::UNIFORM_TEXEL_BUFFER,
+        vk::DescriptorType::STORAGE_TEXEL_BUFFER => vk::BufferUsageFlags::STORAGE_TEXEL_BUFFER,
+        _ => {
+            return Err(anyhow!(
+                "descriptor resource '{}' expects image or acceleration-structure type {:?}, but a buffer was supplied",
+                name,
+                descriptor_type,
+            ));
+        }
+    };
+    ensure!(
+        usage.contains(required),
+        "buffer for descriptor resource '{}' lacks required {:?} usage for {:?} descriptor",
+        name,
+        required,
+        descriptor_type,
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn binding(
+        no: u32,
+        name: &str,
+        descriptor_type: vk::DescriptorType,
+    ) -> DescriptorSetLayoutBinding {
+        DescriptorSetLayoutBinding {
+            no,
+            name: name.to_owned(),
+            descriptor_type,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::COMPUTE,
+        }
+    }
+
+    #[test]
+    fn plans_binding_zero_and_binding_one_without_dense_set_assumptions() {
+        let mut reflected = HashMap::new();
+        reflected.insert(
+            1,
+            HashMap::from([
+                (0, binding(0, "instances", vk::DescriptorType::STORAGE_BUFFER)),
+                (1, binding(1, "growth", vk::DescriptorType::STORAGE_BUFFER)),
+            ]),
+        );
+
+        let plan = DescriptorBindingPlan::from_reflection("test", &reflected).unwrap();
+        assert_eq!(plan.set_numbers(), &[1]);
+        assert_eq!(plan.binding("instances").unwrap().binding_no(), 0);
+        assert_eq!(plan.binding("growth").unwrap().binding_no(), 1);
+
+        let mut sparse = HashMap::new();
+        sparse.insert(3, HashMap::from([(7, binding(7, "sparse", vk::DescriptorType::STORAGE_BUFFER))]));
+        let sparse_plan = DescriptorBindingPlan::from_reflection("sparse", &sparse).unwrap();
+        assert_eq!(sparse_plan.set_numbers(), &[3]);
+        assert_eq!(sparse_plan.binding("sparse").unwrap().set_no(), 3);
+    }
+
+    #[test]
+    fn rejects_duplicate_names_at_different_locations() {
+        let mut reflected = HashMap::new();
+        reflected.insert(
+            0,
+            HashMap::from([(0, binding(0, "same", vk::DescriptorType::STORAGE_BUFFER))]),
+        );
+        reflected.insert(
+            2,
+            HashMap::from([(4, binding(4, "same", vk::DescriptorType::STORAGE_BUFFER))]),
+        );
+
+        let error = DescriptorBindingPlan::from_reflection("duplicate", &reflected)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("same"));
+        assert!(error.contains("0:0"));
+        assert!(error.contains("2:4"));
+    }
+
+    #[test]
+    fn rejects_descriptor_arrays_at_the_semantic_boundary() {
+        let mut reflected = HashMap::new();
+        reflected.insert(
+            0,
+            HashMap::from([(
+                0,
+                DescriptorSetLayoutBinding {
+                    descriptor_count: 2,
+                    ..binding(0, "array", vk::DescriptorType::STORAGE_BUFFER)
+                },
+            )]),
+        );
+
+        let error = DescriptorBindingPlan::from_reflection("array", &reflected)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("descriptor arrays"));
+        assert!(error.contains("array"));
+    }
+
+    #[test]
+    fn chooses_image_layout_from_reflection_type() {
+        assert_eq!(image_layout(vk::DescriptorType::SAMPLED_IMAGE), TextureLayout::SHADER_READ_ONLY);
+        assert_eq!(image_layout(vk::DescriptorType::COMBINED_IMAGE_SAMPLER), TextureLayout::SHADER_READ_ONLY);
+        assert_eq!(image_layout(vk::DescriptorType::STORAGE_IMAGE), TextureLayout::GENERAL);
+    }
+}

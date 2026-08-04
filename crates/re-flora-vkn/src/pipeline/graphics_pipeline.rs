@@ -1,4 +1,7 @@
-use super::descriptor_set_utils;
+use super::{
+    descriptor_set_utils, DescriptorBindingPlan,
+    DescriptorSetGeneration,
+};
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, Device, FormatOverride, MergeWithEq, PipelineLayout, RenderPass,
@@ -18,10 +21,11 @@ struct GraphicsPipelineInner {
     descriptor_pool: DescriptorPool,
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
-    descriptor_sets: Mutex<Vec<DescriptorSet>>,
-    pending_descriptor_sets: Mutex<Option<Vec<DescriptorSet>>>,
+    descriptor_sets: Mutex<DescriptorSetGeneration>,
+    pending_descriptor_sets: Mutex<Option<DescriptorSetGeneration>>,
     manual_buffer_descriptor_sets: Mutex<ManualBufferDescriptorSets>,
     descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+    descriptor_binding_plan: DescriptorBindingPlan,
 }
 
 #[derive(Default)]
@@ -138,6 +142,10 @@ impl Default for GraphicsPipelineDesc {
 }
 
 impl GraphicsPipeline {
+    pub fn descriptor_binding_plan(&self) -> &DescriptorBindingPlan {
+        &self.0.descriptor_binding_plan
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &Device,
@@ -253,16 +261,26 @@ impl GraphicsPipeline {
             &frag_descriptor_sets_bindings,
         )
         .unwrap();
+        let descriptor_binding_plan = DescriptorBindingPlan::from_reflection(
+            format!(
+                "graphics shaders {} + {}",
+                vert_shader_module.get_module_name(),
+                frag_shader_module.get_module_name()
+            ),
+            &descriptor_sets_bindings,
+        )
+        .expect("shader reflection must produce a valid descriptor binding plan");
 
         let pipeline_instance = Self(Arc::new(GraphicsPipelineInner {
             device: device.clone(),
             descriptor_pool: descriptor_pool.clone(),
             pipeline,
             pipeline_layout,
-            descriptor_sets: Mutex::new(Vec::new()),
+            descriptor_sets: Mutex::new(HashMap::new()),
             pending_descriptor_sets: Mutex::new(None),
             manual_buffer_descriptor_sets: Mutex::new(ManualBufferDescriptorSets::default()),
             descriptor_sets_bindings,
+            descriptor_binding_plan,
         }));
 
         // auto-create descriptor sets
@@ -314,6 +332,28 @@ impl GraphicsPipeline {
         &self.0.pipeline_layout
     }
 
+    pub fn initialize_descriptor(
+        &self,
+        name: &str,
+        resource: super::DescriptorResource<'_>,
+    ) -> Result<()> {
+        let write = self.0.descriptor_binding_plan.make_write(name, resource)?;
+        let set_no = self.0.descriptor_binding_plan.binding(name)?.set_no();
+        self.initialize_descriptor_set(set_no, write);
+        Ok(())
+    }
+
+    pub fn write_descriptor(
+        &self,
+        name: &str,
+        resource: super::DescriptorResource<'_>,
+    ) -> Result<()> {
+        let write = self.0.descriptor_binding_plan.make_write(name, resource)?;
+        let set_no = self.0.descriptor_binding_plan.binding(name)?.set_no();
+        self.write_descriptor_set(set_no, write);
+        Ok(())
+    }
+
     /// Starts a new frame for manually-bound buffer descriptor sets.
     ///
     /// The graphics pipeline keeps one descriptor-set sequence per frame slot so
@@ -335,7 +375,7 @@ impl GraphicsPipeline {
     /// render pass is active.
     pub fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
         let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
-        for descriptor_set in descriptor_sets.iter() {
+        for descriptor_set in descriptor_sets.values() {
             descriptor_set.record_image_uses(cmdbuf);
         }
     }
@@ -345,7 +385,7 @@ impl GraphicsPipeline {
             .descriptor_sets
             .lock()
             .unwrap()
-            .iter()
+            .values()
             .map(DescriptorSet::image_owner_count)
             .sum()
     }
@@ -353,20 +393,37 @@ impl GraphicsPipeline {
     fn record_bind_descriptor_sets(
         &self,
         cmdbuf: &CommandBuffer,
-        descriptor_sets: &[DescriptorSet],
-        first_set: u32,
+        descriptor_sets: &DescriptorSetGeneration,
     ) {
-        let descriptor_sets = descriptor_sets
-            .iter()
-            .map(|s| s.as_raw())
-            .collect::<Vec<_>>();
-
-        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-            cmdbuf.as_raw(),
-            self.0.pipeline_layout.as_raw(),
-            first_set,
-            &descriptor_sets,
-        );
+        let mut set_nos = descriptor_sets.keys().copied().collect::<Vec<_>>();
+        set_nos.sort_unstable();
+        let mut run = Vec::new();
+        let mut run_start = None;
+        for set_no in set_nos {
+            if let Some(start) = run_start {
+                if set_no != start + run.len() as u32 {
+                    self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+                        cmdbuf.as_raw(),
+                        self.0.pipeline_layout.as_raw(),
+                        start,
+                        &run,
+                    );
+                    run.clear();
+                    run_start = Some(set_no);
+                }
+            } else {
+                run_start = Some(set_no);
+            }
+            run.push(descriptor_sets[&set_no].as_raw());
+        }
+        if let Some(start) = run_start {
+            self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+                cmdbuf.as_raw(),
+                self.0.pipeline_layout.as_raw(),
+                start,
+                &run,
+            );
+        }
     }
 
     fn create_pipeline(
@@ -426,7 +483,7 @@ impl GraphicsPipeline {
     ) {
         self.record_bind(cmdbuf);
         if !self.0.descriptor_sets.lock().unwrap().is_empty() {
-            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
+            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap());
         }
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
@@ -453,7 +510,7 @@ impl GraphicsPipeline {
     ) {
         self.record_bind(cmdbuf);
         if !self.0.descriptor_sets.lock().unwrap().is_empty() {
-            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap(), 0);
+            self.record_bind_descriptor_sets(cmdbuf, &self.0.descriptor_sets.lock().unwrap());
         }
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
@@ -490,15 +547,16 @@ impl GraphicsPipeline {
         );
         {
             let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
-            if manual_set_no > 0 && !descriptor_sets.is_empty() {
-                self.record_bind_descriptor_sets(
-                    cmdbuf,
-                    &descriptor_sets[..manual_set_no as usize],
-                    0,
-                );
+            if !descriptor_sets.is_empty() {
+                self.record_bind_descriptor_sets(cmdbuf, &descriptor_sets);
             }
         }
-        self.record_bind_descriptor_sets(cmdbuf, std::slice::from_ref(&manual_set), manual_set_no);
+        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+            cmdbuf.as_raw(),
+            self.0.pipeline_layout.as_raw(),
+            manual_set_no,
+            &[manual_set.as_raw()],
+        );
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
         }
@@ -532,15 +590,16 @@ impl GraphicsPipeline {
         );
         {
             let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
-            if manual_set_no > 0 && !descriptor_sets.is_empty() {
-                self.record_bind_descriptor_sets(
-                    cmdbuf,
-                    &descriptor_sets[..manual_set_no as usize],
-                    0,
-                );
+            if !descriptor_sets.is_empty() {
+                self.record_bind_descriptor_sets(cmdbuf, &descriptor_sets);
             }
         }
-        self.record_bind_descriptor_sets(cmdbuf, std::slice::from_ref(&manual_set), manual_set_no);
+        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+            cmdbuf.as_raw(),
+            self.0.pipeline_layout.as_raw(),
+            manual_set_no,
+            &[manual_set.as_raw()],
+        );
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
         }
@@ -619,18 +678,32 @@ impl GraphicsPipeline {
             "descriptor initialization cannot run while a generation is staged"
         );
         let mut write = write;
+        self.0
+            .descriptor_binding_plan
+            .validate_write(set_no, &write)
+            .expect("descriptor initialization must match shader reflection");
         let guard = self.0.descriptor_sets.lock().unwrap();
-        guard[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
+        guard
+            .get(&set_no)
+            .expect("descriptor set must exist for reflected set")
+            .perform_writes(std::slice::from_mut(&mut write));
     }
 
     /// Write a descriptor into the staged generation only.
     pub fn write_descriptor_set(&self, set_no: u32, write: WriteDescriptorSet) {
         let mut write = write;
+        self.0
+            .descriptor_binding_plan
+            .validate_write(set_no, &write)
+            .expect("descriptor write must match shader reflection");
         let pending = self.0.pending_descriptor_sets.lock().unwrap();
         let descriptor_sets = pending
             .as_ref()
             .expect("runtime descriptor writes require begin_descriptor_generation");
-        descriptor_sets[set_no as usize].perform_writes(std::slice::from_mut(&mut write));
+        descriptor_sets
+            .get(&set_no)
+            .expect("descriptor set must exist for reflected set")
+            .perform_writes(std::slice::from_mut(&mut write));
     }
 
     /// Updates existing descriptor sets with new resources.
@@ -660,19 +733,23 @@ impl GraphicsPipeline {
         let active = self.0.descriptor_sets.lock().unwrap();
         let mut set_nos = self.0.descriptor_sets_bindings.keys().copied().collect::<Vec<_>>();
         set_nos.sort_unstable();
-        let pending = active
-            .iter()
-            .zip(set_nos)
-            .map(|(set, set_no)| {
-                let layout = self
-                    .0
-                    .pipeline_layout
-                    .get_descriptor_set_layouts()
-                    .get(&set_no)
-                    .expect("descriptor set layout disappeared during generation fork");
-                set.fork(&self.0.descriptor_pool, layout)
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let mut pending = HashMap::new();
+        for set_no in set_nos {
+            let set = active.get(&set_no).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "descriptor generation for {} is missing reflected set {}",
+                    self.0.descriptor_binding_plan.pipeline_name(),
+                    set_no
+                )
+            })?;
+            let layout = self
+                .0
+                .pipeline_layout
+                .get_descriptor_set_layouts()
+                .get(&set_no)
+                .ok_or_else(|| anyhow::anyhow!("descriptor set layout {set_no} is not reflected"))?;
+            pending.insert(set_no, set.fork(&self.0.descriptor_pool, layout)?);
+        }
         let replaced = self
             .0
             .pending_descriptor_sets
@@ -696,7 +773,7 @@ impl GraphicsPipeline {
 
     /// Takes a fully written staged generation without making it active. This lets a caller
     /// prepare a private resource generation before the visibility boundary where it is published.
-    pub fn take_staged_descriptor_sets(&self) -> Vec<DescriptorSet> {
+    pub fn take_staged_descriptor_sets(&self) -> DescriptorSetGeneration {
         self.0
             .pending_descriptor_sets
             .lock()
@@ -711,7 +788,7 @@ impl GraphicsPipeline {
         &self,
         name: &'static str,
         generation: u64,
-        pending: Vec<DescriptorSet>,
+        pending: DescriptorSetGeneration,
     ) -> FrameRetirement {
         let old = std::mem::replace(&mut *self.0.descriptor_sets.lock().unwrap(), pending);
         FrameRetirement::new(name, generation, old)

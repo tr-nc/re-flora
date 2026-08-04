@@ -141,6 +141,11 @@ impl ShaderModule {
         self.0.shader_module
     }
 
+    /// Returns the stable artifact name used in diagnostics for this shader.
+    pub fn get_module_name(&self) -> &str {
+        &self.0.module_name
+    }
+
     /// Convenience for creating a stage create info (for pipeline creation).
     pub fn get_shader_stage_create_info(&self) -> vk::PipelineShaderStageCreateInfo<'_> {
         vk::PipelineShaderStageCreateInfo::default()
