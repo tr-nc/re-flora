@@ -92,6 +92,29 @@ pub fn initialize_descriptor_sets(
     )
 }
 
+/// Initializes one reflected descriptor set during a two-phase pipeline construction.
+///
+/// This is useful when a pipeline's other sets are supplied by a later frame/draw lifetime. The
+/// selected set is still complete: every binding in that set must resolve.
+pub fn initialize_descriptor_set(
+    set_no: u32,
+    resource_containers: &[&dyn ResourceContainer],
+    descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
+    descriptor_sets_storage: &Mutex<DescriptorSetGeneration>,
+) -> Result<()> {
+    let bindings = descriptor_sets_bindings
+        .get(&set_no)
+        .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?;
+    let selected = HashMap::from([(set_no, bindings.clone())]);
+    let descriptor_sets = descriptor_sets_storage.lock().unwrap();
+    auto_update_descriptor_sets_on_sets(
+        resource_containers,
+        &selected,
+        &descriptor_sets,
+        false,
+    )
+}
+
 pub fn auto_update_descriptor_sets_on_sets(
     resource_containers: &[&dyn ResourceContainer],
     descriptor_sets_bindings: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,

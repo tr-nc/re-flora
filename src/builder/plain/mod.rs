@@ -23,6 +23,7 @@ use re_flora_vkn::ColorClearValue;
 use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
+use re_flora_vkn::DescriptorResource;
 use re_flora_vkn::Extent3D;
 use re_flora_vkn::GpuJobToken;
 use re_flora_vkn::MemoryLocation;
@@ -31,7 +32,6 @@ use re_flora_vkn::Texture;
 use re_flora_vkn::TextureLayout;
 use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
-use re_flora_vkn::WriteDescriptorSet;
 pub use resources::*;
 use std::collections::VecDeque;
 use std::convert::TryInto;
@@ -543,7 +543,7 @@ impl PlainBuilder {
         let terrain_soil_mix_ppl =
             ComputePipeline::new(device, &terrain_soil_mix_sm, &pool, &[&resources]);
         let terrain_moisture_dry_ppl =
-            ComputePipeline::new(device, &terrain_moisture_dry_sm, &pool, &[&resources]);
+            ComputePipeline::new_uninitialized(device, &terrain_moisture_dry_sm, &pool);
         let terrain_moisture_spread_ppl =
             ComputePipeline::new(device, &terrain_moisture_spread_sm, &pool, &[&resources]);
         let voxel_property_sample_ppl =
@@ -1107,6 +1107,7 @@ impl PlainBuilder {
     pub fn initialize_terrain_moisture_dry_resources(
         &self,
         gui_input: &Buffer,
+        chunk_atlas: &Texture,
         shadow_camera_info: &Buffer,
         shadow_map_tex_for_vsm_ping: &Texture,
         leaf_shadow_opacity_blended_tex: &Texture,
@@ -1115,61 +1116,44 @@ impl PlainBuilder {
         contree_leaf_data: &Buffer,
         surface_leaf_coords: &Buffer,
         surface_leaf_chunk_info: &Buffer,
-    ) {
+    ) -> Result<()> {
         self.terrain_moisture_dry_ppl
-            .initialize_descriptor_set(0, WriteDescriptorSet::new_buffer_write(0, gui_input));
-        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(2, shadow_camera_info),
-        );
-        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
-            0,
-            WriteDescriptorSet::new_texture_write(
-                3,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                shadow_map_tex_for_vsm_ping,
-                TextureLayout::SHADER_READ_ONLY,
-            ),
-        );
-        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(4, contree_leaf_data),
-        );
-        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(5, surface_leaf_coords),
-        );
-        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
-            0,
-            WriteDescriptorSet::new_buffer_write(6, surface_leaf_chunk_info),
-        );
-        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
-            0,
-            WriteDescriptorSet::new_texture_write(
-                7,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                leaf_shadow_opacity_blended_tex,
-                TextureLayout::SHADER_READ_ONLY,
-            ),
-        );
-        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
-            0,
-            WriteDescriptorSet::new_texture_write(
-                8,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                leaf_shadow_mask_tex,
-                TextureLayout::SHADER_READ_ONLY,
-            ),
-        );
-        self.terrain_moisture_dry_ppl.initialize_descriptor_set(
-            0,
-            WriteDescriptorSet::new_texture_write(
-                9,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                cloud_shadow_tex,
-                TextureLayout::SHADER_READ_ONLY,
-            ),
-        );
+            .initialize_descriptor("gui_input", DescriptorResource::Buffer(gui_input))?;
+        self.terrain_moisture_dry_ppl
+            .initialize_descriptor("chunk_atlas", DescriptorResource::Texture(chunk_atlas))?;
+        self.terrain_moisture_dry_ppl.initialize_descriptor(
+            "shadow_camera_info",
+            DescriptorResource::Buffer(shadow_camera_info),
+        )?;
+        self.terrain_moisture_dry_ppl.initialize_descriptor(
+            "shadow_map_tex_for_vsm_ping",
+            DescriptorResource::Texture(shadow_map_tex_for_vsm_ping),
+        )?;
+        self.terrain_moisture_dry_ppl.initialize_descriptor(
+            "contree_leaf_data",
+            DescriptorResource::Buffer(contree_leaf_data),
+        )?;
+        self.terrain_moisture_dry_ppl.initialize_descriptor(
+            "surface_leaf_coords",
+            DescriptorResource::Buffer(surface_leaf_coords),
+        )?;
+        self.terrain_moisture_dry_ppl.initialize_descriptor(
+            "surface_leaf_chunk_info",
+            DescriptorResource::Buffer(surface_leaf_chunk_info),
+        )?;
+        self.terrain_moisture_dry_ppl.initialize_descriptor(
+            "leaf_shadow_opacity_blended_tex",
+            DescriptorResource::Texture(leaf_shadow_opacity_blended_tex),
+        )?;
+        self.terrain_moisture_dry_ppl.initialize_descriptor(
+            "leaf_shadow_mask_tex",
+            DescriptorResource::Texture(leaf_shadow_mask_tex),
+        )?;
+        self.terrain_moisture_dry_ppl.initialize_descriptor(
+            "cloud_shadow_tex",
+            DescriptorResource::Texture(cloud_shadow_tex),
+        )?;
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]

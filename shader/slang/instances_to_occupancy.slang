@@ -26,7 +26,7 @@ RWTexture3D<uint> occupancy_data;
 
 [[vk::binding(0, 1)]]
 readonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
-    manual_flora_instances;
+    flora_instances;
 
 bool isInChunkWorldBound(uint3 worldPosition)
 {
@@ -42,7 +42,7 @@ void markBaseOccupied(uint speciesIndex, uint index, uint instanceCount)
         return;
     }
 
-    Instance instance = manual_flora_instances.data[
+    Instance instance = flora_instances.data[
         floraSpeciesInstanceOffset(speciesIndex) + index];
     uint3 baseWorld = instanceWorldPosition(
         instance, instances_to_occupancy_info.chunk_world_offset);

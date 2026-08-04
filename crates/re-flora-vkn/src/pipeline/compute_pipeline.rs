@@ -181,6 +181,19 @@ impl ComputePipeline {
         )
     }
 
+    pub fn initialize_descriptor_set_resources(
+        &self,
+        set_no: u32,
+        resource_containers: &[&dyn ResourceContainer],
+    ) -> Result<()> {
+        descriptor_set_utils::initialize_descriptor_set(
+            set_no,
+            resource_containers,
+            &self.0.descriptor_sets_bindings,
+            &self.0.descriptor_sets,
+        )
+    }
+
     pub fn initialize_descriptor(
         &self,
         name: &str,

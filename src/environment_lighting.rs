@@ -595,6 +595,6 @@ mod tests {
         assert!(transport.contains("hardVisibilityWorldPosition);"));
         assert!(!transport.contains("visibility_bias_world *"));
         assert!(moisture.contains("import terrain_ray_origin;"));
-        assert!(moisture.contains("manual_gui_input.terrain_ray_origin_offset_world"));
+        assert!(moisture.contains("gui_input.terrain_ray_origin_offset_world"));
     }
 }

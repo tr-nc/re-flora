@@ -12,14 +12,14 @@ struct B_GrassGrowthPotentialLevels
 
 [[vk::binding(1, 1)]]
 readonly GLSLShaderStorageBuffer<B_GrassGrowthPotentialLevels, Std430DataLayout>
-    manual_grass_growth_potential_levels;
+    grass_growth_potential_levels;
 
 public uint grassGrowthPotentialLevel(uint3 localBase, uint3 chunkDimension)
 {
     uint linearIndex = localBase.x +
         chunkDimension.x * (localBase.y + chunkDimension.y * localBase.z);
     uint packedWord =
-        manual_grass_growth_potential_levels.words[linearIndex >> 3u];
+        grass_growth_potential_levels.words[linearIndex >> 3u];
     return (packedWord >> ((linearIndex & 7u) * 4u)) & 0x0fu;
 }
 

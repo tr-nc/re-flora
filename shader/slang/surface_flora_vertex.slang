@@ -14,7 +14,7 @@ struct B_GrassGrowthPotentialLevels
 
 [[vk::binding(1, 1)]]
 readonly GLSLShaderStorageBuffer<B_GrassGrowthPotentialLevels, Std430DataLayout>
-    manual_grass_growth_potential_levels;
+    grass_growth_potential_levels;
 
 static const uint GRASS_GROWTH_POTENTIAL_LEVEL_MAX = 15u;
 static const uint3 GRASS_GROWTH_POTENTIAL_CHUNK_DIM = uint3(256u);
@@ -23,7 +23,7 @@ uint grassGrowthPotentialLevel(uint3 localBase)
 {
     uint linearIndex = localBase.x + GRASS_GROWTH_POTENTIAL_CHUNK_DIM.x *
         (localBase.y + GRASS_GROWTH_POTENTIAL_CHUNK_DIM.y * localBase.z);
-    uint word = manual_grass_growth_potential_levels.words[linearIndex >> 3u];
+    uint word = grass_growth_potential_levels.words[linearIndex >> 3u];
     return (word >> ((linearIndex & 7u) * 4u)) & 0x0fu;
 }
 

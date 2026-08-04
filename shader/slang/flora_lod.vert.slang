@@ -10,7 +10,7 @@ struct B_ManualFloraInstances
 
 [[vk::binding(0, 1)]]
 readonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
-    manual_flora_instances;
+    flora_instances;
 
 struct B_ManualFloraLightingCache
 {
@@ -19,7 +19,7 @@ struct B_ManualFloraLightingCache
 
 [[vk::binding(2, 1)]]
 readonly GLSLShaderStorageBuffer<B_ManualFloraLightingCache, Std430DataLayout>
-    manual_flora_lighting_cache;
+    flora_lighting_cache;
 
 struct VertexInput
 {
@@ -44,7 +44,7 @@ VertexOutput main(VertexInput input)
 
     uint instanceType = floraInstanceType();
     uint3 chunkWorldOffset = floraChunkWorldOffset();
-    Instance instance = manual_flora_instances.data[input.instance_index];
+    Instance instance = flora_instances.data[input.instance_index];
     uint packedLocalPosition = instance.packed_local_pos;
     uint3 instancePosition = surfaceFloraStemWorldPosition(
         packedLocalPosition, chunkWorldOffset);
@@ -82,7 +82,7 @@ VertexOutput main(VertexInput input)
     uint localInstanceIndex = input.instance_index -
                               instanceType * MAX_FLORA_INSTANCES_PER_SPECIES;
     PushConstantFlora floraPc = floraPushConstants();
-    float3 environmentLight = manual_flora_lighting_cache.irradiance[
+    float3 environmentLight = flora_lighting_cache.irradiance[
         floraLightingCacheIndex(
             floraPc, localInstanceIndex, input.voxel_index)].xyz;
     output.color = shadeFloraVertexWithEnvironment(

@@ -14,10 +14,10 @@ use re_flora_vkn::RenderPass;
 use re_flora_vkn::TextureLayout;
 use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
-use re_flora_vkn::WriteDescriptorSet;
 use re_flora_vkn::{
-    execute_one_time_command, Allocator, DescriptorPool, DescriptorSet, Device, Extent2D, Extent3D,
-    FrameRetirement, GraphicsPipeline, GraphicsPipelineDesc, ShaderModule, Texture,
+    execute_one_time_command, Allocator, DescriptorPool, DescriptorResource, DescriptorSet, Device,
+    Extent2D, Extent3D, FrameRetirement, GraphicsPipeline, GraphicsPipelineDesc, ShaderModule,
+    Texture,
 };
 use std::collections::HashMap;
 use winit::event::WindowEvent;
@@ -67,7 +67,7 @@ impl EguiRenderer {
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
-        let gui_ppl = GraphicsPipeline::new(
+        let gui_ppl = GraphicsPipeline::new_uninitialized(
             device,
             &egui_vert_sm,
             &egui_frag_sm,
@@ -81,7 +81,6 @@ impl EguiRenderer {
             },
             None,
             &pool,
-            &[],
         );
 
         let egui_context = egui::Context::default();
@@ -123,7 +122,7 @@ impl EguiRenderer {
     ///
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: &RenderPass) {
-        self.gui_ppl = GraphicsPipeline::new(
+        self.gui_ppl = GraphicsPipeline::new_uninitialized(
             self.vulkan_context.device(),
             &self.egui_vert_sm,
             &self.egui_frag_sm,
@@ -137,7 +136,6 @@ impl EguiRenderer {
             },
             None,
             &self.pool,
-            &[],
         );
     }
 
@@ -151,23 +149,9 @@ impl EguiRenderer {
     /// You should pass the list of textures detla contained in the [`egui::TexturesDelta::set`].
     /// This method should be called _before_ the frame starts rendering.
     fn allocate_texture_descriptor(&self, texture: &Texture) -> DescriptorSet {
-        let descriptor_layout = self
-            .gui_ppl
-            .get_layout()
-            .get_descriptor_set_layouts()
-            .get(&0)
-            .expect("Egui pipeline is expected to expose descriptor set 0");
-        let descriptor_set = self
-            .pool
-            .allocate_set(descriptor_layout)
-            .expect("Failed to allocate egui texture descriptor set");
-        descriptor_set.perform_writes(&mut [WriteDescriptorSet::new_texture_write(
-            0,
-            vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            texture,
-            TextureLayout::SHADER_READ_ONLY,
-        )]);
-        descriptor_set
+        self.gui_ppl
+            .allocate_transient_descriptor("font_sampler", DescriptorResource::Texture(texture))
+            .expect("egui font sampler descriptor must match reflected shader interface")
     }
 
     fn publish_texture_generation(

@@ -1,4 +1,7 @@
-use crate::{AccelStruct, Buffer, DescriptorSetLayoutBinding, Texture, TextureLayout, WriteDescriptorSet};
+use crate::{
+    AccelStruct, Buffer, DescriptorSetLayoutBinding, ResourceContainer, Texture, TextureLayout,
+    WriteDescriptorSet,
+};
 use anyhow::{anyhow, ensure, Result};
 use ash::vk;
 use std::{
@@ -47,6 +50,60 @@ impl DescriptorGenerationDraft {
             .get(&set_no)
             .ok_or_else(|| anyhow!("descriptor set {set_no} is not reflected"))?
             .perform_writes(std::slice::from_mut(&mut write));
+        Ok(())
+    }
+
+    /// Resolves every reflected resource from the supplied containers and writes it into the
+    /// draft. Missing or duplicate providers are errors; callers that have a late-bound resource
+    /// should provide a container for it before publishing the draft.
+    pub fn write_from_resources(&mut self, containers: &[&dyn ResourceContainer]) -> Result<()> {
+        let set_nos = self.plan.set_numbers().to_vec();
+        for set_no in set_nos {
+            self.write_set_from_resources(set_no, containers)?;
+        }
+        Ok(())
+    }
+
+    /// Resolves all bindings in one reflected set from the supplied containers.
+    ///
+    /// This is the runtime resize/update seam for pipelines that keep a late-bound set (for
+    /// example, per-draw flora buffers) separate from their static resource set.
+    pub fn write_set_from_resources(
+        &mut self,
+        set_no: u32,
+        containers: &[&dyn ResourceContainer],
+    ) -> Result<()> {
+        let names = self
+            .plan
+            .bindings_for_set(set_no)?
+            .iter()
+            .map(|binding| binding.name().to_owned())
+            .collect::<Vec<_>>();
+        for name in names {
+            let mut buffers = Vec::new();
+            let mut textures = Vec::new();
+            for container in containers {
+                if let Some(buffer) = container.get_buffer(&name) {
+                    buffers.push(buffer);
+                }
+                if let Some(texture) = container.get_texture(&name) {
+                    textures.push(texture);
+                }
+            }
+            ensure!(
+                buffers.len() + textures.len() == 1,
+                "descriptor resource '{}' must have exactly one provider in draft for {} (found {} buffers and {} textures)",
+                name,
+                self.plan.pipeline_name(),
+                buffers.len(),
+                textures.len(),
+            );
+            if let Some(buffer) = buffers.first() {
+                self.write(&name, DescriptorResource::Buffer(buffer))?;
+            } else if let Some(texture) = textures.first() {
+                self.write(&name, DescriptorResource::Texture(texture))?;
+            }
+        }
         Ok(())
     }
 

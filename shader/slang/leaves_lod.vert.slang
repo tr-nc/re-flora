@@ -8,7 +8,7 @@ struct B_TreeLeafInstances
 
 [[vk::binding(0, 1)]]
 readonly GLSLShaderStorageBuffer<B_TreeLeafInstances, Std430DataLayout>
-    manual_tree_leaf_instances;
+    tree_leaf_instances;
 
 struct VertexInput
 {
@@ -34,7 +34,7 @@ VertexOutput main(VertexInput input)
     uint instanceType = floraInstanceType();
     uint3 chunkWorldOffset = floraChunkWorldOffset();
     TreeLeafInstance leafInstance =
-        manual_tree_leaf_instances.data[input.instance_index];
+        tree_leaf_instances.data[input.instance_index];
     uint3 leafVoxelWorldPosition = treeLeafWorldPosition(
         leafInstance.packed_local_pos, chunkWorldOffset);
     bool isTreeLeaf = instanceType == FLORA_SPECIES_TREE_LEAF;

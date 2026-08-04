@@ -64,7 +64,7 @@ Relevant files:
 ### Phase 3: Compute shader update
 
 - Objective: Make generation, edit, and growth shaders address one buffer with species offsets.
-- Expected output: shader buffer declaration is a single `manual_flora_instances`; reads/writes use `flora_species_instance_offset(species_idx) + idx`.
+- Expected output: shader buffer declaration is a single `flora_instances`; reads/writes use `flora_species_instance_offset(species_idx) + idx`.
 - Dependencies/blockers: Phase 2.
 - Status: done.
 
@@ -121,7 +121,7 @@ Acceptance criteria:
 - 2026-06-03: Inspected flora instance resource layout.
   - Found current model: per chunk, `FloraInstanceResources` stored a `Vec<InstanceResource>`, one buffer per species.
   - Found instance payload is one packed `u32`.
-  - Found compute shaders bound flora buffers as descriptor array `manual_flora_instances[MAX_FLORA_SPECIES]`.
+  - Found compute shaders bound flora buffers as descriptor array `flora_instances[MAX_FLORA_SPECIES]`.
 - 2026-06-03: Decided initial implementation should use fixed per-species ranges in a single buffer.
   - Reason: low-risk migration that reduces buffer/descriptor count without introducing compaction complexity.
 - 2026-06-03: Created branch `flora-single-instance-buffer`.

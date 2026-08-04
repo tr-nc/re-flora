@@ -7,8 +7,8 @@ use anyhow::Result;
 use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ShaderModule,
-    Texture, TextureLayout,
+    Allocator, Buffer, BufferUsage, Device, Extent3D, ImageDesc, MemoryLocation, ResourceContainer,
+    ShaderModule, Texture, TextureLayout,
 };
 use resource_container_derive::ResourceContainer;
 use std::collections::HashMap;
@@ -102,6 +102,24 @@ pub struct FloraInstanceResources {
     /// One four-bit ordinary-grass growth-potential level per local voxel (15 means unrestricted).
     pub grass_growth_potential_levels: Resource<Buffer>,
     species_instance_len: [u32; species::MAX_FLORA_SPECIES],
+}
+
+impl ResourceContainer for FloraInstanceResources {
+    fn get_buffer(&self, name: &str) -> Option<&Buffer> {
+        match name {
+            "flora_instances" => Some(&self.resource.instances_buf),
+            "grass_growth_potential_levels" => Some(&self.grass_growth_potential_levels),
+            _ => None,
+        }
+    }
+
+    fn get_texture(&self, _name: &str) -> Option<&Texture> {
+        None
+    }
+
+    fn get_resource_names(&self) -> Vec<&'static str> {
+        vec!["flora_instances", "grass_growth_potential_levels"]
+    }
 }
 
 impl FloraInstanceResources {

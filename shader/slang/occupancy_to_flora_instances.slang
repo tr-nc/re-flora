@@ -25,7 +25,7 @@ readonly RWTexture3D<uint> surface;
 
 [[vk::binding(0, 1)]]
 writeonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
-    manual_flora_instances;
+    flora_instances;
 
 void addFloraInstance(int3 baseWorldPosition, uint speciesIndex,
                       uint growthProgress, uint growthLimit,
@@ -46,7 +46,7 @@ void addFloraInstance(int3 baseWorldPosition, uint speciesIndex,
             occupancy_to_instances_info.chunk_world_offset,
         growthProgress,
         spawnStartMs);
-    manual_flora_instances.data[
+    flora_instances.data[
         floraSpeciesInstanceOffset(speciesIndex) + writeIndex] = instance;
 
     if (growthProgress < growthLimit)

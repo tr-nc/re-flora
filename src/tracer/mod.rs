@@ -102,9 +102,10 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
     ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue,
-    DescriptorPool, DescriptorSetGeneration, Extent2D, Extent3D, FrameRetirement, Framebuffer,
-    GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage, PushConstantInfo, RenderPass,
-    RenderTarget, Texture, TextureLayout, Viewport, VulkanContext, WriteDescriptorSet,
+    DescriptorPool, DescriptorResource, DescriptorSetGeneration, Extent2D, Extent3D,
+    FrameRetirement, Framebuffer, GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage,
+    PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    WriteDescriptorSet,
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -1730,30 +1731,53 @@ impl Tracer {
         let descriptor_generation = self.next_descriptor_generation();
         let descriptor_retirements = std::cell::RefCell::new(Vec::new());
         let update_compute_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
-            ppl.begin_descriptor_generation()
-                .expect("compute descriptor generation fork failed during update_sets");
-            ppl.auto_update_descriptor_sets(resources)
+            let mut draft = ppl
+                .begin_descriptor_draft()
+                .expect("compute descriptor draft failed during update_sets");
+            draft
+                .write_from_resources(resources)
                 .expect("compute descriptor update failed during update_sets");
-            if let Some(retirement) = ppl.publish_descriptor_generation(
-                "tracer.resize.compute.descriptors",
-                descriptor_generation,
-            ) {
-                descriptor_retirements.borrow_mut().push(retirement);
-            }
+            descriptor_retirements
+                .borrow_mut()
+                .push(ppl.publish_descriptor_draft(
+                    "tracer.resize.compute.descriptors",
+                    descriptor_generation,
+                    draft,
+                ));
         };
 
         let update_graphics_fn = |ppl: &GraphicsPipeline, resources: &[&dyn ResourceContainer]| {
-            ppl.begin_descriptor_generation()
-                .expect("graphics descriptor generation fork failed during update_sets");
-            ppl.auto_update_descriptor_sets(resources)
+            let mut draft = ppl
+                .begin_descriptor_draft()
+                .expect("graphics descriptor draft failed during update_sets");
+            draft
+                .write_from_resources(resources)
                 .expect("graphics descriptor update failed during update_sets");
-            if let Some(retirement) = ppl.publish_descriptor_generation(
-                "tracer.resize.graphics.descriptors",
-                descriptor_generation,
-            ) {
-                descriptor_retirements.borrow_mut().push(retirement);
-            }
+            descriptor_retirements
+                .borrow_mut()
+                .push(ppl.publish_descriptor_draft(
+                    "tracer.resize.graphics.descriptors",
+                    descriptor_generation,
+                    draft,
+                ));
         };
+
+        let update_graphics_set_fn =
+            |ppl: &GraphicsPipeline, set_no: u32, resources: &[&dyn ResourceContainer]| {
+                let mut draft = ppl
+                    .begin_descriptor_draft()
+                    .expect("graphics descriptor draft failed during update_sets");
+                draft
+                    .write_set_from_resources(set_no, resources)
+                    .expect("graphics descriptor set update failed during update_sets");
+                descriptor_retirements
+                    .borrow_mut()
+                    .push(ppl.publish_descriptor_draft(
+                        "tracer.resize.graphics.descriptors",
+                        descriptor_generation,
+                        draft,
+                    ));
+            };
 
         let all_resources = self.all_descriptor_resources(
             contree_builder_resources,
@@ -1764,10 +1788,8 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.tracer_shadow_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.player_collider_ppl, &all_resources);
         update_compute_fn(&self.compute_pipelines.terrain_query_ppl, &all_resources);
-        update_compute_fn(
-            &self.compute_pipelines.flora_lighting_cache_ppl,
-            &all_resources,
-        );
+        // The flora lighting cache pipeline has only per-draw set 1 descriptors. Its
+        // generation is created by the transient adapter at dispatch time.
 
         let tracer_resources = self.tracer_descriptor_resources();
         let environment_lighting_resources = self.environment_lighting_descriptor_resources();
@@ -1814,18 +1836,21 @@ impl Tracer {
             &self.graphics_pipelines.terrain_depth_prefill_ppl,
             &tracer_resources,
         );
-        update_graphics_fn(&self.graphics_pipelines.flora_ppl, &all_resources);
-        update_graphics_fn(&self.graphics_pipelines.flora_lod_ppl, &all_resources);
-        update_graphics_fn(
+        update_graphics_set_fn(&self.graphics_pipelines.flora_ppl, 0, &all_resources);
+        update_graphics_set_fn(&self.graphics_pipelines.flora_lod_ppl, 0, &all_resources);
+        update_graphics_set_fn(
             &self.graphics_pipelines.leaves_ppl,
+            0,
             &environment_lighting_resources,
         );
-        update_graphics_fn(
+        update_graphics_set_fn(
             &self.graphics_pipelines.leaves_lod_ppl,
+            0,
             &environment_lighting_resources,
         );
-        update_graphics_fn(
+        update_graphics_set_fn(
             &self.graphics_pipelines.leaves_shadow_lod_ppl,
+            0,
             &tracer_resources,
         );
         update_graphics_fn(
@@ -4300,18 +4325,31 @@ impl Tracer {
                             flora_lighting_cache_instance_ty(species_index as u32, instance_count);
                         self.compute_pipelines
                             .flora_lighting_cache_ppl
-                            .record_with_manual_buffers(
+                            .record_with_descriptors(
                                 cmdbuf,
-                                1,
                                 &[
-                                    (0, &instances.resource.instances_buf),
-                                    (1, &instances.grass_growth_potential_levels),
-                                    (2, &cache_buffer),
-                                    (3, &mesh.vertices),
+                                    (
+                                        "flora_instances",
+                                        DescriptorResource::Buffer(
+                                            &instances.resource.instances_buf,
+                                        ),
+                                    ),
+                                    (
+                                        "grass_growth_potential_levels",
+                                        DescriptorResource::Buffer(
+                                            &instances.grass_growth_potential_levels,
+                                        ),
+                                    ),
+                                    (
+                                        "flora_lighting_cache",
+                                        DescriptorResource::Buffer(&cache_buffer),
+                                    ),
+                                    ("flora_vertices", DescriptorResource::Buffer(&mesh.vertices)),
                                 ],
                                 Extent3D::new(mesh.voxel_count, instance_count, 1),
                                 Some(bytemuck::bytes_of(&push_constant)),
-                            );
+                            )
+                            .expect("flora lighting transient descriptors must match reflection");
                         cache_offset += instance_count * mesh.voxel_count;
                     }
                 }

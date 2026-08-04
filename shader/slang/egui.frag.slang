@@ -5,10 +5,10 @@ struct FragmentInput
 };
 
 [[vk::binding(0, 0)]]
-Sampler2D manual_font_sampler;
+Sampler2D font_sampler;
 
 [shader("fragment")]
 float4 main(FragmentInput input) : SV_Target0
 {
-    return input.color * manual_font_sampler.Sample(input.uv);
+    return input.color * font_sampler.Sample(input.uv);
 }

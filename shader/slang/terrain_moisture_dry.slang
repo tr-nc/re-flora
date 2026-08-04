@@ -30,38 +30,38 @@ static const int3 SOIL_NEIGHBOURS[6] =
 ConstantBuffer<TerrainMoistureDryPushConstants> pc;
 
 [[vk::binding(0, 0)]]
-ConstantBuffer<U_GuiInput> manual_gui_input;
+ConstantBuffer<U_GuiInput> gui_input;
 
 [[vk::binding(1, 0)]]
 [[vk::image_format("r8ui")]]
 RWTexture3D<uint> chunk_atlas;
 
 [[vk::binding(2, 0)]]
-ConstantBuffer<U_ShadowCameraInfo> manual_shadow_camera_info;
+ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
 
 [[vk::binding(3, 0)]]
-Sampler2D manual_shadow_map_tex_for_vsm_ping;
+Sampler2D shadow_map_tex_for_vsm_ping;
 
 [[vk::binding(4, 0)]]
 readonly GLSLShaderStorageBuffer<B_ManualContreeLeafData, Std430DataLayout>
-    manual_contree_leaf_data;
+    contree_leaf_data;
 
 [[vk::binding(5, 0)]]
 readonly GLSLShaderStorageBuffer<B_ManualSurfaceLeafCoords, Std430DataLayout>
-    manual_surface_leaf_coords;
+    surface_leaf_coords;
 
 [[vk::binding(6, 0)]]
 readonly GLSLShaderStorageBuffer<B_ManualSurfaceLeafChunkInfo, Std430DataLayout>
-    manual_surface_leaf_chunk_info;
+    surface_leaf_chunk_info;
 
 [[vk::binding(7, 0)]]
-Sampler2D manual_leaf_shadow_opacity_blended_tex;
+Sampler2D leaf_shadow_opacity_blended_tex;
 
 [[vk::binding(8, 0)]]
-Sampler2D manual_leaf_shadow_mask_tex;
+Sampler2D leaf_shadow_mask_tex;
 
 [[vk::binding(9, 0)]]
-Sampler2D manual_cloud_shadow_tex;
+Sampler2D cloud_shadow_tex;
 
 uint loadAtlasMoisture(int3 position)
 {
@@ -126,7 +126,7 @@ bool sunRayIsOccluded(float3 originVoxel, float3 sunDirection)
 bool shadowCameraContains(float3 worldPosition)
 {
     float4 lightSpace = mul(
-        manual_shadow_camera_info.view_proj_mat,
+        shadow_camera_info.view_proj_mat,
         float4(worldPosition, 1.0));
     if (abs(lightSpace.w) <= 1.0e-6)
     {
@@ -149,12 +149,12 @@ float directShadowExposure(float3 worldPosition,
         DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
     return directSunShadowTransmittanceVsmLeafCloud(
         receiver,
-        manual_gui_input,
-        manual_shadow_camera_info.view_proj_mat,
-        manual_shadow_map_tex_for_vsm_ping,
-        manual_leaf_shadow_opacity_blended_tex,
-        manual_leaf_shadow_mask_tex,
-        manual_cloud_shadow_tex);
+        gui_input,
+        shadow_camera_info.view_proj_mat,
+        shadow_map_tex_for_vsm_ping,
+        leaf_shadow_opacity_blended_tex,
+        leaf_shadow_mask_tex,
+        cloud_shadow_tex);
 }
 
 int3 unpackSurfaceLeafLocalCoordinate(uint packedCoordinate)
@@ -171,7 +171,7 @@ float3 surfaceShadowSamplePosition(float3 voxelCenterWorld,
 {
     return terrainRayOriginAlongNormal(
         voxelCenterWorld, normal, 1.0 / voxelsPerWorldUnit,
-        manual_gui_input.terrain_ray_origin_offset_world);
+        gui_input.terrain_ray_origin_offset_world);
 }
 
 float surfaceSunExposure(float3 sampleWorldPosition,
@@ -218,7 +218,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    uint4 chunkInfo = manual_surface_leaf_chunk_info.data[chunkInfoIndex];
+    uint4 chunkInfo = surface_leaf_chunk_info.data[chunkInfoIndex];
     uint leafOffset = chunkInfo.x;
     uint leafCountFromInfo = chunkInfo.y;
     bool chunkSurfaceReady = chunkInfo.z != 0u;
@@ -229,7 +229,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     uint globalLeafIndex = leafOffset + surfaceLeafLocalIndex;
     int3 localCoordinate = unpackSurfaceLeafLocalCoordinate(
-        manual_surface_leaf_coords.data[globalLeafIndex]);
+        surface_leaf_coords.data[globalLeafIndex]);
     int3 atlasCoordinate = int3(pc.offset.xyz) + localCoordinate;
     uint atlasWidth;
     uint atlasHeight;
@@ -265,7 +265,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    uint surfaceData = manual_contree_leaf_data.data[globalLeafIndex];
+    uint surfaceData = contree_leaf_data.data[globalLeafIndex];
     float3 normal = voxelSurfaceNormalFromData(surfaceData);
     float3 voxelCenterWorld =
         (float3(atlasCoordinate) + float3(0.5)) / voxelsPerWorldUnit;

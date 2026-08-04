@@ -21,7 +21,7 @@ GLSLShaderStorageBuffer<B_OccupancyToInstancesResult, Std430DataLayout>
 
 [[vk::binding(0, 1)]]
 GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
-    manual_flora_instances;
+    flora_instances;
 
 void updateSpeciesGrowth(uint speciesIndex, uint index, uint instanceCount)
 {
@@ -31,7 +31,7 @@ void updateSpeciesGrowth(uint speciesIndex, uint index, uint instanceCount)
     }
 
     uint instanceIndex = floraSpeciesInstanceOffset(speciesIndex) + index;
-    Instance instance = manual_flora_instances.data[instanceIndex];
+    Instance instance = flora_instances.data[instanceIndex];
     uint progress = unpackInstanceGrowthProgress(instance.packed_local_pos);
     uint3 localPosition = unpackInstanceLocalPosition(instance.packed_local_pos);
     bool isGrass = speciesIndex == FLORA_SPECIES_TALL_GRASS ||
@@ -49,7 +49,7 @@ void updateSpeciesGrowth(uint speciesIndex, uint index, uint instanceCount)
     progress += min(instances_to_occupancy_info.tick_delta, remaining);
     instance.packed_local_pos =
         setInstanceGrowthProgress(instance.packed_local_pos, progress);
-    manual_flora_instances.data[instanceIndex] = instance;
+    flora_instances.data[instanceIndex] = instance;
 
     if (progress < growthLimit)
     {

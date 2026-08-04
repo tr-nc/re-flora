@@ -30,7 +30,7 @@ readonly GLSLShaderStorageBuffer<B_MakeSurfaceResult, Std430DataLayout>
 
 [[vk::binding(0, 1)]]
 writeonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
-    manual_flora_instances;
+    flora_instances;
 
 void addFloraInstance(int3 baseWorldPosition, uint speciesIndex,
                       uint growthProgress, uint growthLimit)
@@ -47,7 +47,7 @@ void addFloraInstance(int3 baseWorldPosition, uint speciesIndex,
             occupancy_to_instances_info.chunk_world_offset,
         growthProgress,
         INSTANCE_SPAWN_INACTIVE);
-    manual_flora_instances.data[
+    flora_instances.data[
         floraSpeciesInstanceOffset(speciesIndex) + writeIndex] = instance;
 
     if (growthProgress < growthLimit)

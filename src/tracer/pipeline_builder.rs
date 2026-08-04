@@ -509,16 +509,10 @@ impl PipelineBuilder {
             pool,
             &[ddgi_voxel_visibility],
         );
-        let flora_lighting_cache_ppl = ComputePipeline::new(
+        let flora_lighting_cache_ppl = ComputePipeline::new_uninitialized(
             device,
             &shader_modules.flora_lighting_cache_sm,
             pool,
-            &[
-                resources,
-                plain_builder_resources,
-                ddgi_volume,
-                ddgi_voxel_visibility,
-            ],
         );
         let tracer_ppl = ComputePipeline::new(
             device,
@@ -719,54 +713,85 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
-        let flora_ppl = Self::create_gfx_pipeline(
+        let flora_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.flora_vert_sm,
             &shader_modules.flora_frag_sm,
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
-            &flora_resources,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
         );
+        flora_ppl
+            .initialize_descriptor_set_resources(0, &flora_resources)
+            .expect("flora static descriptors must resolve from tracer resources");
 
-        let flora_lod_ppl = Self::create_gfx_pipeline(
+        let flora_lod_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.flora_lod_vert_sm,
             &shader_modules.flora_frag_sm,
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
-            &flora_resources,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
         );
+        flora_lod_ppl
+            .initialize_descriptor_set_resources(0, &flora_resources)
+            .expect("flora LOD static descriptors must resolve from tracer resources");
 
-        let leaves_ppl = Self::create_gfx_pipeline(
+        let leaves_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.leaves_vert_sm,
             &shader_modules.flora_frag_sm,
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
-            &environment_lighting_resources,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
         );
+        leaves_ppl
+            .initialize_descriptor_set_resources(0, &environment_lighting_resources)
+            .expect("leaf static descriptors must resolve from tracer resources");
 
-        let leaves_lod_ppl = Self::create_gfx_pipeline(
+        let leaves_lod_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.leaves_lod_vert_sm,
             &shader_modules.flora_frag_sm,
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
-            &environment_lighting_resources,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
         );
+        leaves_lod_ppl
+            .initialize_descriptor_set_resources(0, &environment_lighting_resources)
+            .expect("leaf LOD static descriptors must resolve from tracer resources");
 
-        let leaves_shadow_lod_ppl = Self::create_gfx_pipeline_with_desc(
+        let leaves_shadow_lod_ppl = Self::create_gfx_pipeline_with_desc_uninitialized(
             vulkan_ctx,
             &shader_modules.leaves_shadow_vert_sm,
             &shader_modules.leaves_shadow_frag_sm,
             &render_passes.render_pass_leaf_shadow_opacity,
             None,
             pool,
-            &[resources],
             GraphicsPipelineDesc {
                 cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: false,
@@ -774,6 +799,9 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
+        leaves_shadow_lod_ppl
+            .initialize_descriptor_set_resources(0, &[resources])
+            .expect("leaf shadow static descriptors must resolve from tracer resources");
 
         let sprinkler_ppl = Self::create_gfx_pipeline(
             vulkan_ctx,
@@ -1014,6 +1042,26 @@ impl PipelineBuilder {
         )
     }
 
+    fn create_gfx_pipeline_uninitialized(
+        vulkan_ctx: &VulkanContext,
+        vert_sm: &ShaderModule,
+        frag_sm: &ShaderModule,
+        render_pass: &RenderPass,
+        instance_rate_starting_location: Option<u32>,
+        descriptor_pool: &DescriptorPool,
+        desc: GraphicsPipelineDesc,
+    ) -> GraphicsPipeline {
+        GraphicsPipeline::new_uninitialized(
+            vulkan_ctx.device(),
+            vert_sm,
+            frag_sm,
+            render_pass,
+            &desc,
+            instance_rate_starting_location,
+            descriptor_pool,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn create_gfx_pipeline_with_desc(
         vulkan_ctx: &VulkanContext,
@@ -1034,6 +1082,27 @@ impl PipelineBuilder {
             instance_rate_starting_location,
             descriptor_pool,
             resource_containers,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_gfx_pipeline_with_desc_uninitialized(
+        vulkan_ctx: &VulkanContext,
+        vert_sm: &ShaderModule,
+        frag_sm: &ShaderModule,
+        render_pass: &RenderPass,
+        instance_rate_starting_location: Option<u32>,
+        descriptor_pool: &DescriptorPool,
+        desc: GraphicsPipelineDesc,
+    ) -> GraphicsPipeline {
+        GraphicsPipeline::new_uninitialized(
+            vulkan_ctx.device(),
+            vert_sm,
+            frag_sm,
+            render_pass,
+            &desc,
+            instance_rate_starting_location,
+            descriptor_pool,
         )
     }
 }

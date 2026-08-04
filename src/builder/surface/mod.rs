@@ -14,7 +14,7 @@ use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::{
     Buffer, BufferUse, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
     Extent3D, FrameRetirement, GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineStage,
-    QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext, WriteDescriptorSet,
+    QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext,
 };
 pub use resources::*;
 use std::{
@@ -482,42 +482,37 @@ impl SurfaceBuilder {
             &pool,
             &[&resources, plain_builder_resources],
         );
-        let instances_to_occupancy_ppl = ComputePipeline::new(
-            device,
-            &instances_to_occupancy_sm,
-            &pool,
-            &[&resources, plain_builder_resources],
-        );
-        let edit_occupancy_ppl = ComputePipeline::new(
-            device,
-            &edit_occupancy_sm,
-            &pool,
-            &[&resources, plain_builder_resources],
-        );
-        let occupancy_to_instances_ppl = ComputePipeline::new(
-            device,
-            &occupancy_to_instances_sm,
-            &pool,
-            &[&resources, plain_builder_resources],
-        );
+        let instances_to_occupancy_ppl =
+            ComputePipeline::new_uninitialized(device, &instances_to_occupancy_sm, &pool);
+        instances_to_occupancy_ppl
+            .initialize_descriptor_set_resources(0, &[&resources, plain_builder_resources])
+            .expect("instances-to-occupancy static descriptors must resolve");
+        let edit_occupancy_ppl =
+            ComputePipeline::new_uninitialized(device, &edit_occupancy_sm, &pool);
+        edit_occupancy_ppl
+            .initialize_descriptor_set_resources(0, &[&resources, plain_builder_resources])
+            .expect("edit-occupancy static descriptors must resolve");
+        let occupancy_to_instances_ppl =
+            ComputePipeline::new_uninitialized(device, &occupancy_to_instances_sm, &pool);
+        occupancy_to_instances_ppl
+            .initialize_descriptor_set_resources(0, &[&resources, plain_builder_resources])
+            .expect("occupancy-to-instances static descriptors must resolve");
         let prepare_active_surface_flora_dispatch_ppl = ComputePipeline::new(
             device,
             &prepare_active_surface_flora_dispatch_sm,
             &pool,
             &[&resources],
         );
-        let active_surface_to_flora_ppl = ComputePipeline::new(
-            device,
-            &active_surface_to_flora_sm,
-            &pool,
-            &[&resources, plain_builder_resources],
-        );
-        let update_flora_growth_ppl = ComputePipeline::new(
-            device,
-            &update_flora_growth_sm,
-            &pool,
-            &[&resources, plain_builder_resources],
-        );
+        let active_surface_to_flora_ppl =
+            ComputePipeline::new_uninitialized(device, &active_surface_to_flora_sm, &pool);
+        active_surface_to_flora_ppl
+            .initialize_descriptor_set_resources(0, &[&resources, plain_builder_resources])
+            .expect("active-surface-to-flora static descriptors must resolve");
+        let update_flora_growth_ppl =
+            ComputePipeline::new_uninitialized(device, &update_flora_growth_sm, &pool);
+        update_flora_growth_ppl
+            .initialize_descriptor_set_resources(0, &[&resources, plain_builder_resources])
+            .expect("flora-growth static descriptors must resolve");
 
         let pass_timing = SurfacePassTiming::maybe_new(&vulkan_ctx);
 
@@ -599,7 +594,7 @@ impl SurfaceBuilder {
             cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
             let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
             let descriptor_retirement =
-                self.bind_instance_descriptors(&self.active_surface_to_flora_ppl, chunk_resources);
+                self.bind_instance_descriptors(&self.active_surface_to_flora_ppl, chunk_resources)?;
             (Some(chunk_idx), Some(descriptor_retirement))
         } else {
             (None, None)
@@ -1447,9 +1442,9 @@ impl SurfaceBuilder {
 
         let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
         let descriptor_retirements = vec![
-            self.bind_instance_descriptors(&self.instances_to_occupancy_ppl, chunk_resources),
-            self.bind_instance_descriptors(&self.edit_occupancy_ppl, chunk_resources),
-            self.bind_instance_descriptors(&self.occupancy_to_instances_ppl, chunk_resources),
+            self.bind_instance_descriptors(&self.instances_to_occupancy_ppl, chunk_resources)?,
+            self.bind_instance_descriptors(&self.edit_occupancy_ppl, chunk_resources)?,
+            self.bind_instance_descriptors(&self.occupancy_to_instances_ppl, chunk_resources)?,
         ];
 
         let flora_edit_timing_passes: &[SurfacePassTimingPass] = if max_len > 0 {
@@ -1657,7 +1652,7 @@ impl SurfaceBuilder {
 
         let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
         let descriptor_retirement =
-            self.bind_instance_descriptors(&self.update_flora_growth_ppl, chunk_resources);
+            self.bind_instance_descriptors(&self.update_flora_growth_ppl, chunk_resources)?;
 
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
@@ -1746,27 +1741,16 @@ impl SurfaceBuilder {
         &self,
         pipeline: &ComputePipeline,
         resources: &FloraInstanceResources,
-    ) -> FrameRetirement {
+    ) -> Result<FrameRetirement> {
         let generation = self.next_descriptor_generation.get();
         self.next_descriptor_generation.set(
             generation
                 .checked_add(1)
                 .expect("surface descriptor generation overflow"),
         );
-        pipeline
-            .begin_descriptor_generation()
-            .expect("surface descriptor generation fork failed");
-        pipeline.write_descriptor_set(
-            1,
-            WriteDescriptorSet::new_buffer_write(0, &resources.resource.instances_buf),
-        );
-        pipeline.write_descriptor_set(
-            1,
-            WriteDescriptorSet::new_buffer_write(1, &resources.grass_growth_potential_levels),
-        );
-        pipeline
-            .publish_descriptor_generation("surface.instance.descriptors", generation)
-            .expect("surface descriptor publication must return its prior generation")
+        let mut draft = pipeline.begin_descriptor_draft()?;
+        draft.write_from_resources(&[&self.resources, resources])?;
+        Ok(pipeline.publish_descriptor_draft("surface.instance.descriptors", generation, draft))
     }
 
     pub fn get_resources(&self) -> &SurfaceResources {
