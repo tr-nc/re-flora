@@ -4507,19 +4507,29 @@ impl Tracer {
                         );
 
                         cmdbuf.bind_vertex_buffers(0, &[&mesh.vertices]);
-                        pipeline.record_indexed_with_manual_buffers(
-                            cmdbuf,
-                            1,
-                            &[
-                                (0, &instances.resource.instances_buf),
-                                (1, &instances.grass_growth_potential_levels),
-                                (
-                                    2,
-                                    flora_cache_buffer.expect(
-                                        "nonempty visible flora must have a lighting cache buffer",
+                        pipeline
+                            .record_indexed_with_descriptors(
+                                cmdbuf,
+                                &[
+                                    (
+                                        "flora_instances",
+                                        DescriptorResource::Buffer(&instances.resource.instances_buf),
                                     ),
-                                ),
-                            ],
+                                    (
+                                        "grass_growth_potential_levels",
+                                        DescriptorResource::Buffer(
+                                            &instances.grass_growth_potential_levels,
+                                        ),
+                                    ),
+                                    (
+                                        "flora_lighting_cache",
+                                        DescriptorResource::Buffer(
+                                            flora_cache_buffer.expect(
+                                                "nonempty visible flora must have a lighting cache buffer",
+                                            ),
+                                        ),
+                                    ),
+                                ],
                             mesh.indices_len,
                             instance_count,
                             0,
@@ -4529,7 +4539,8 @@ impl Tracer {
                                 shader_stage: vk::ShaderStageFlags::VERTEX,
                                 push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
                             }),
-                        );
+                            )
+                            .expect("flora draw descriptors must match reflection");
                         recorded_flora_instance_count += u64::from(instance_count);
                         flora_cache_offset += instance_count * mesh.voxel_count;
                     }
@@ -4615,21 +4626,26 @@ impl Tracer {
                             leaf_color_tables,
                         );
                         cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
-                        pipeline.record_indexed_with_manual_buffer(
-                            cmdbuf,
-                            1,
-                            0,
-                            &tree_instance.resources.instances_buf,
-                            indices_len,
-                            tree_instance.resources.instances_len,
-                            0,
-                            0,
-                            0,
-                            Some(&PushConstantInfo {
-                                shader_stage: vk::ShaderStageFlags::VERTEX,
-                                push_constants: bytemuck::bytes_of(&leaf_push).to_vec(),
-                            }),
-                        );
+                        pipeline
+                            .record_indexed_with_descriptors(
+                                cmdbuf,
+                                &[(
+                                    "tree_leaf_instances",
+                                    DescriptorResource::Buffer(
+                                        &tree_instance.resources.instances_buf,
+                                    ),
+                                )],
+                                indices_len,
+                                tree_instance.resources.instances_len,
+                                0,
+                                0,
+                                0,
+                                Some(&PushConstantInfo {
+                                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                                    push_constants: bytemuck::bytes_of(&leaf_push).to_vec(),
+                                }),
+                            )
+                            .expect("leaf draw descriptors must match reflection");
                     }
                 }
                 if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
@@ -4696,21 +4712,24 @@ impl Tracer {
                         solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
                     );
                     cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
-                    pipeline.record_indexed_with_manual_buffer(
-                        cmdbuf,
-                        1,
-                        0,
-                        &tree_instance.resources.instances_buf,
-                        indices_len,
-                        tree_instance.resources.instances_len,
-                        0,
-                        0,
-                        0,
-                        Some(&PushConstantInfo {
-                            shader_stage: vk::ShaderStageFlags::VERTEX,
-                            push_constants: bytemuck::bytes_of(&apple_push).to_vec(),
-                        }),
-                    );
+                    pipeline
+                        .record_indexed_with_descriptors(
+                            cmdbuf,
+                            &[(
+                                "tree_leaf_instances",
+                                DescriptorResource::Buffer(&tree_instance.resources.instances_buf),
+                            )],
+                            indices_len,
+                            tree_instance.resources.instances_len,
+                            0,
+                            0,
+                            0,
+                            Some(&PushConstantInfo {
+                                shader_stage: vk::ShaderStageFlags::VERTEX,
+                                push_constants: bytemuck::bytes_of(&apple_push).to_vec(),
+                            }),
+                        )
+                        .expect("apple draw descriptors must match reflection");
                 }
             }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), apples_scope) {
@@ -5140,11 +5159,12 @@ impl Tracer {
             // render this instance for shadow map
             self.graphics_pipelines
                 .leaves_shadow_lod_ppl
-                .record_indexed_with_manual_buffer(
+                .record_indexed_with_descriptors(
                     cmdbuf,
-                    1,
-                    0,
-                    &tree_instance.resources.instances_buf,
+                    &[(
+                        "tree_leaf_instances",
+                        DescriptorResource::Buffer(&tree_instance.resources.instances_buf),
+                    )],
                     self.resources.meshes.leaves_resources_lod.indices_len,
                     tree_instance.resources.instances_len,
                     0,
@@ -5154,7 +5174,8 @@ impl Tracer {
                         shader_stage: vk::ShaderStageFlags::VERTEX,
                         push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
                     }),
-                );
+                )
+                .expect("leaf shadow draw descriptors must match reflection");
         }
 
         cmdbuf.bind_index_buffer_u32(&self.resources.meshes.apple_resources_lod.indices);
@@ -5172,11 +5193,12 @@ impl Tracer {
             cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.apple_resources_lod.vertices]);
             self.graphics_pipelines
                 .leaves_shadow_lod_ppl
-                .record_indexed_with_manual_buffer(
+                .record_indexed_with_descriptors(
                     cmdbuf,
-                    1,
-                    0,
-                    &tree_instance.resources.instances_buf,
+                    &[(
+                        "tree_leaf_instances",
+                        DescriptorResource::Buffer(&tree_instance.resources.instances_buf),
+                    )],
                     self.resources.meshes.apple_resources_lod.indices_len,
                     tree_instance.resources.instances_len,
                     0,
@@ -5186,7 +5208,8 @@ impl Tracer {
                         shader_stage: vk::ShaderStageFlags::VERTEX,
                         push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
                     }),
-                );
+                )
+                .expect("apple shadow draw descriptors must match reflection");
         }
 
         self.render_target_leaf_shadow_opacity.record_end(cmdbuf);
