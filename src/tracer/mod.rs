@@ -4522,9 +4522,10 @@ impl Tracer {
                                     (
                                         "flora_lighting_cache",
                                         DescriptorResource::Buffer(
-                                            flora_cache_buffer
-                                                .as_deref()
-                                                .unwrap_or(&instances.resource.instances_buf),
+                                            match flora_cache_buffer.as_ref() {
+                                                Some(buffer) => buffer.as_ref(),
+                                                None => &*instances.resource.instances_buf,
+                                            },
                                         ),
                                     ),
                                 ],
