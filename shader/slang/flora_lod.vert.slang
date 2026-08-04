@@ -79,14 +79,22 @@ VertexOutput main(VertexInput input)
     baseColor = applyGrassGrowthStressTint(
         baseColor, prepared.is_grass,
         effectiveGrowthPotential(true, competitionFactor, environmentFactor));
-    uint localInstanceIndex = input.instance_index -
-                              instanceType * MAX_FLORA_INSTANCES_PER_SPECIES;
-    PushConstantFlora floraPc = floraPushConstants();
-    float3 environmentLight = flora_lighting_cache.irradiance[
-        floraLightingCacheIndex(
-            floraPc, localInstanceIndex, input.voxel_index)].xyz;
-    output.color = shadeFloraVertexWithEnvironment(
-        baseColor, prepared.shadow_weight, environmentLight,
-        prepared.voxel_position);
+    if (rasterFloraUsesDdgiLighting())
+    {
+        uint localInstanceIndex = input.instance_index -
+                                  instanceType * MAX_FLORA_INSTANCES_PER_SPECIES;
+        PushConstantFlora floraPc = floraPushConstants();
+        float3 environmentLight = flora_lighting_cache.irradiance[
+            floraLightingCacheIndex(
+                floraPc, localInstanceIndex, input.voxel_index)].xyz;
+        output.color = shadeFloraVertexWithEnvironment(
+            baseColor, prepared.shadow_weight, environmentLight,
+            prepared.voxel_position);
+    }
+    else
+    {
+        output.color = shadeLegacyRasterFloraVertex(
+            baseColor, prepared.shadow_weight, prepared.voxel_position);
+    }
     return output;
 }

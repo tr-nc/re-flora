@@ -611,6 +611,13 @@ fn flora_lighting_cache_instance_ty(instance_ty: u32, instance_count: u32) -> u3
     instance_ty | (instance_count << FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT)
 }
 
+fn flora_lighting_cache_dispatch_enabled(
+    raster_flora_ddgi_lighting: bool,
+    required_entries: u32,
+) -> bool {
+    raster_flora_ddgi_lighting && required_entries > 0
+}
+
 #[cfg(test)]
 mod flora_lighting_cache_location_tests {
     use super::*;
@@ -631,6 +638,13 @@ mod flora_lighting_cache_location_tests {
         let packed = flora_lighting_cache_instance_ty(3, 40_000);
         assert_eq!(packed & FLORA_INSTANCE_TYPE_MASK, 3);
         assert_eq!(packed >> FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT, 40_000);
+    }
+
+    #[test]
+    fn cache_dispatch_requires_ddgi_mode_and_visible_flora() {
+        assert!(flora_lighting_cache_dispatch_enabled(true, 1));
+        assert!(!flora_lighting_cache_dispatch_enabled(true, 0));
+        assert!(!flora_lighting_cache_dispatch_enabled(false, 1));
     }
 
     #[test]
@@ -783,6 +797,7 @@ pub struct Tracer {
     pool: DescriptorPool,
 
     world_tick_seconds: f32,
+    raster_flora_ddgi_lighting: bool,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     wind_source_buffer_capacity: usize,
@@ -1114,6 +1129,7 @@ impl Tracer {
             tree_instance_generation: 1,
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
+            raster_flora_ddgi_lighting: true,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             wind_source_buffer_capacity: 1,
@@ -2509,6 +2525,7 @@ impl Tracer {
         time_info: &TimeInfo,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
+        raster_flora_ddgi_lighting: bool,
         path_tracing_reference: bool,
         path_tracing_max_bounces: u32,
         path_tracing_ambient_light: Vec3,
@@ -2668,12 +2685,14 @@ impl Tracer {
         )?;
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
+        self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
         BufferUpdater::update_gui_input(
             &self.resources,
             flora_growth_override_enabled,
             flora_growth_override,
+            raster_flora_ddgi_lighting,
             path_tracing_reference,
             path_tracing_max_bounces,
             path_tracing_ambient_light,
@@ -4249,7 +4268,10 @@ impl Tracer {
             FLORA_LIGHTING_CACHE_OFFSET_MASK + 1,
         );
 
-        let flora_cache_buffer = if required_flora_cache_entries > 0 {
+        let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
+            self.raster_flora_ddgi_lighting,
+            required_flora_cache_entries,
+        ) {
             self.flora_lighting_cache.ensure_capacity(
                 self.vulkan_ctx.device().clone(),
                 self.allocator.clone(),
@@ -4487,7 +4509,9 @@ impl Tracer {
                                 &[
                                     (
                                         "flora_instances",
-                                        DescriptorResource::Buffer(&instances.resource.instances_buf),
+                                        DescriptorResource::Buffer(
+                                            &instances.resource.instances_buf,
+                                        ),
                                     ),
                                     (
                                         "grass_growth_potential_levels",
@@ -4498,21 +4522,21 @@ impl Tracer {
                                     (
                                         "flora_lighting_cache",
                                         DescriptorResource::Buffer(
-                                            flora_cache_buffer.expect(
-                                                "nonempty visible flora must have a lighting cache buffer",
-                                            ),
+                                            flora_cache_buffer
+                                                .as_deref()
+                                                .unwrap_or(&instances.resource.instances_buf),
                                         ),
                                     ),
                                 ],
-                            mesh.indices_len,
-                            instance_count,
-                            0,
-                            0,
-                            instance_offset,
-                            Some(&PushConstantInfo {
-                                shader_stage: vk::ShaderStageFlags::VERTEX,
-                                push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
-                            }),
+                                mesh.indices_len,
+                                instance_count,
+                                0,
+                                0,
+                                instance_offset,
+                                Some(&PushConstantInfo {
+                                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                                }),
                             )
                             .expect("flora draw descriptors must match reflection");
                         recorded_flora_instance_count += u64::from(instance_count);
@@ -4521,7 +4545,7 @@ impl Tracer {
                 }
             }
             debug_assert_eq!(flora_cache_offset, required_flora_cache_entries);
-            if recorded_flora_instance_count > 0 {
+            if self.raster_flora_ddgi_lighting && recorded_flora_instance_count > 0 {
                 let active = self.ddgi_runtime.volumes().status().active();
                 if let Some(token) = active.build_token.filter(|token| {
                     self.ddgi_flora_consumer_logged_token_serial != Some(token.serial())

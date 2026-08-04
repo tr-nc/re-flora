@@ -3567,6 +3567,10 @@ impl App {
                             .flora_growth_override_enabled
                             .value,
                         self.debug_settings.adjustables.flora_growth_override.value,
+                        self.debug_settings
+                            .adjustables
+                            .raster_flora_ddgi_lighting
+                            .value,
                         self.debug_settings.adjustables.path_tracing_reference.value,
                         self.debug_settings
                             .adjustables
