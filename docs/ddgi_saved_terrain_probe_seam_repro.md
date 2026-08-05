@@ -68,6 +68,32 @@ The first validated capture set is under
 | `exact-irradiance.png` / `exact-irradiance-crop.png` | `--ddgi-debug-view exact-irradiance` plus `--environment-probe-visualization` | The exact DDGI terrain-reference irradiance is displayed directly. Green diamonds are valid probe markers drawn as a depth-tested overlay. | This is the clearest diagnostic view of the spatial bands. It is not final material color and is not path-traced ground truth; it still comes from the DDGI probe field and its exact per-probe visibility query. |
 | `dominant-probe.png` / `dominant-probe-crop.png` | `--ddgi-debug-view dominant-probe` | Each pixel is colored from the index of the probe with the largest contribution. | The large flat color regions map probe ownership/cell transitions. Their hard color boundaries are expected for this diagnostic and are not, by themselves, a brightness or lighting verdict. |
 
+The diagnosis branch also provides three read-only comparison views. They use the same saved
+terrain and camera; only the query operation used for the displayed debug value changes:
+
+| Capture | What it removes | Interpretation |
+| --- | --- | --- |
+| `unoccluded-irradiance` | moment and exact consumer visibility only | If this still bands, visibility attenuation is not required. |
+| `equal-weight-irradiance` | position and surface-side weights, retaining trustworthy/support gates | A GREEN result here points at the spatial weighting/gating interaction. |
+| `raw-cage-irradiance` | all query weights, support, and visibility; averages the eight valid nominal-cell atlas tiles | A GREEN result here means the raw local atlas values are not carrying the internal wall bands. |
+
+For a matched hidden capture, replace the debug view in the normal command with one of:
+
+```bash
+cargo run --release -- --hidden --mute --no-god-rays \
+    --terrain-load saves/terrain_snapshot.rflterrain \
+    --ddgi-debug-view unoccluded-irradiance \
+    --environment-probe-visualization \
+    --screenshot snapshot target/ddgi-seam-repro/experiments/unoccluded32/final.png \
+    --screenshot-delay 7 --auto-exit 10
+```
+
+Then center-crop with the same `magick ... -crop 55%x68%+0+0` command and run
+`python3 scripts/analyze_saved_ddgi_seam.py <crop>`. The edge-excluded metric is RED for
+`exact-irradiance` and `unoccluded-irradiance`, but GREEN for the equal-weight and raw-cage
+diagnostics; see [`docs/references/ddgi/ddgi_probe_seam_research.md`](references/ddgi/ddgi_probe_seam_research.md)
+for the retained logs and interpretation.
+
 The exact-irradiance capture is the best first image for checking the reported seam because it
 removes albedo and direct-sun composition from the displayed value while retaining the spatial
 DDGI query. The probe markers make it possible to compare a wall transition with nearby probe

@@ -109,6 +109,61 @@ read carefully. `--ddgi-consumer-visibility none` changes the normal consumer qu
 visibility-none run of that debug view is **not** an all-visibility-disabled experiment.
 Normal-view parity and exact-view evidence answer different questions.
 
+## Matched hidden-release isolation results
+
+The following runs use the saved terrain, the single `snapshot` camera, the existing lighting
+fixture, `--no-god-rays`, and a 7-second screenshot delay. They were run after the DDGI field
+reported convergence; no terrain, camera, material, or lighting input was changed. The new
+debug views are diagnostic-only and do not enter the Final path:
+
+- `exact-irradiance` uses the existing exact reference query and forces full hard visibility.
+- `unoccluded-irradiance` keeps the normal valid/relocated/support and surface-side gates but
+  sets both consumer visibility terms to one.
+- `equal-weight-irradiance` keeps the trustworthy/support gates but averages the eight probe
+  irradiances without position or surface-side weights.
+- `raw-cage-irradiance` averages the eight valid atlas tiles in the nominal cell, bypassing
+  query weights, support, and visibility altogether.
+
+The captured crops are under `target/ddgi-seam-repro/experiments/`:
+
+| View | Crop | Log | Edge-excluded metric |
+| --- | --- | --- | --- |
+| exact irradiance | `baseline/exact-irradiance-crop.png` | `re-flora-20260806-014819.173-296921.log` (matched `exact-none` run) | RED, 24 internal bands, ratio 1.961422 |
+| unoccluded irradiance | `unoccluded32/crop.png` | `re-flora-20260806-015224.226-299529.log` | RED, 24 internal bands, ratio 1.961422 |
+| equal-weight irradiance | `equalweight32/crop.png` | `re-flora-20260806-015750.868-302798.log` | GREEN, 1 internal band, ratio 0.067848 |
+| raw cage irradiance | `rawcage32/crop.png` | `re-flora-20260806-020646.703-308245.log` | GREEN, 1 internal band, ratio 0.089716 |
+
+The exact view with `--ddgi-consumer-visibility none` is byte-identical to the full exact view
+(crop RMSE `0`), as expected from its deliberate full-visibility reference call. The normal
+`full` and `none` captures also have the same row-gradient peaks, so the consumer visibility
+switch is not the source of the reported bands.
+
+The reproducible metric is:
+
+```bash
+python3 scripts/analyze_saved_ddgi_seam.py \
+    target/ddgi-seam-repro/experiments/baseline/exact-irradiance-crop.png
+```
+
+It finds the largest projected-light/geometry edge, excludes a 50-pixel neighborhood around
+that edge, and counts separated internal horizontal gradient peaks. This is intentionally not
+an edge-only score. The analyzer and its two synthetic PNG tests are in
+[`scripts/analyze_saved_ddgi_seam.py`](../../../scripts/analyze_saved_ddgi_seam.py) and
+[`scripts/tests/test_analyze_saved_ddgi_seam.py`](../../../scripts/tests/test_analyze_saved_ddgi_seam.py).
+
+### Evidence classification
+
+The `exact` and `unoccluded` images retain the same 24 internal bands, so moment/hard visibility
+attenuation is not required to produce them. Removing the eight-probe position and surface-side
+weights makes the internal-band metric GREEN, while removing all query gates with the raw cage
+view remains GREEN. This localizes the symptom to the current spatial query weighting/gating
+interaction with the relocated sparse field, rather than to a final VSM edge or an already-banded
+per-probe atlas tile. It does **not** yet prove that the intended repair is a generic DDGI change:
+relocation-aware weighting and support rejection are project-specific parameterization, and the
+strong sun still amplifies the underlying sparse-field error. A next renderer change should first
+instrument the eight contributions at pixels immediately above, inside, and below one measured
+band, then test a continuity-preserving weight contract before changing transport or materials.
+
 ## Working diagnosis
 
 The current symptom is best described as **a project-specific DDGI result that is exposed by
