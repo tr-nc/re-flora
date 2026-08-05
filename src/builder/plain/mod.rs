@@ -718,7 +718,6 @@ impl PlainBuilder {
         );
     }
 
-    #[allow(dead_code)]
     pub fn read_chunk_atlas_region(
         &mut self,
         atlas_offset: UVec3,
@@ -766,7 +765,55 @@ impl PlainBuilder {
         buffer.read_back_range(0, byte_count)
     }
 
-    fn mark_all_solid_workgroups_dirty(&self) {
+    pub fn write_chunk_atlas_region(
+        &mut self,
+        atlas_offset: UVec3,
+        atlas_dim: UVec3,
+        data: &[u8],
+    ) -> Result<()> {
+        let atlas_extent = self.resources.chunk_atlas.get_image().get_desc().extent;
+        let atlas_size = UVec3::new(atlas_extent.width, atlas_extent.height, atlas_extent.depth);
+        if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
+            anyhow::ensure!(data.is_empty(), "empty atlas region requires empty data");
+            return Ok(());
+        }
+        if (atlas_offset + atlas_dim).cmpgt(atlas_size).any() {
+            anyhow::bail!(
+                "chunk atlas write outside bounds: offset={:?} dim={:?} atlas={:?}",
+                atlas_offset,
+                atlas_dim,
+                atlas_size
+            );
+        }
+        let expected_byte_count =
+            atlas_dim.x as usize * atlas_dim.y as usize * atlas_dim.z as usize;
+        anyhow::ensure!(
+            data.len() == expected_byte_count,
+            "chunk atlas write has {} bytes, expected {}",
+            data.len(),
+            expected_byte_count
+        );
+
+        let queue = self.vulkan_ctx.get_general_queue();
+        let command_pool = self.vulkan_ctx.command_pool();
+        self.resources.chunk_atlas.get_image().fill_with_raw_u8(
+            &queue,
+            command_pool,
+            TextureRegion {
+                offset: [
+                    atlas_offset.x as i32,
+                    atlas_offset.y as i32,
+                    atlas_offset.z as i32,
+                ],
+                extent: Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
+            },
+            data,
+            0,
+            Some(TextureLayout::GENERAL),
+        )
+    }
+
+    pub fn mark_all_solid_workgroups_dirty(&self) {
         execute_one_time_command(
             self.vulkan_ctx.device(),
             self.vulkan_ctx.command_pool(),

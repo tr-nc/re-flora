@@ -4,6 +4,7 @@ public struct U_GuiInput
 {
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
+    public uint raster_flora_ddgi_lighting;
     public uint path_tracing_reference;
     public uint path_tracing_max_bounces;
     public float3 path_tracing_ambient_light;

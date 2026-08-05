@@ -149,3 +149,16 @@ public float3 applyStylizedVoxelLightingWithEnvironment(
     float3 sunLight = sun.sun_color * sunLuminance;
     return baseColor * (sunLight * shadowWeight + environmentLight);
 }
+
+// main's raster flora ambient default was #181818, uploaded as RGB / 255.
+public static const float3 LEGACY_RASTER_FLORA_AMBIENT_LIGHT =
+    float3(24.0 / 255.0);
+
+public float3 applyLegacyRasterFloraLighting(
+    U_SunInfo sun, float3 baseColor, float shadowWeight)
+{
+    float sunLuminance = sunLuminanceFromDirection(sun.sun_dir, sun.sun_luminance);
+    float3 sunLight = sun.sun_color * sunLuminance;
+    return baseColor *
+           (sunLight * shadowWeight + LEGACY_RASTER_FLORA_AMBIENT_LIGHT);
+}

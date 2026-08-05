@@ -478,6 +478,20 @@ public float4 projectFloraPosition(float3 worldPosition)
     return mul(camera_info.view_proj_mat, float4(worldPosition, 1.0));
 }
 
+public bool rasterFloraUsesDdgiLighting()
+{
+    return gui_input.raster_flora_ddgi_lighting != 0u;
+}
+
+public float3 shadeLegacyRasterFloraVertex(
+    float3 baseColor, float shadowWeight, float3 voxelPosition)
+{
+    float3 litColor = applyLegacyRasterFloraLighting(
+        sun_info, baseColor, shadowWeight);
+    return applyTerrainEditPreviewTint(
+        terrain_edit_preview, litColor, voxelPosition);
+}
+
 public float3 shadeFloraVertex(float3 baseColor, float shadowWeight,
                                float3 voxelPosition, float3 shadingNormal)
 {
@@ -510,9 +524,18 @@ public float3 shadeTreeLeafVertex(float3 baseColor, float shadowWeight,
                                   float3 voxelPosition,
                                   float3 shadingNormal)
 {
-    float3 litColor = applyStylizedVoxelLighting(
-        gui_input, sun_info, shading_info, baseColor, shadowWeight,
-        voxelPosition, shadingNormal);
+    float3 litColor;
+    if (rasterFloraUsesDdgiLighting())
+    {
+        litColor = applyStylizedVoxelLighting(
+            gui_input, sun_info, shading_info, baseColor, shadowWeight,
+            voxelPosition, shadingNormal);
+    }
+    else
+    {
+        litColor = applyLegacyRasterFloraLighting(
+            sun_info, baseColor, shadowWeight);
+    }
 
     float3 toCamera = camera_info.pos.xyz - voxelPosition;
     float toCameraLengthSquared = dot(toCamera, toCamera);

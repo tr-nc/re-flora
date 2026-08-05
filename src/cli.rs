@@ -167,6 +167,10 @@ pub struct AppOptions {
     pub screenshot_path: Option<String>,
     /// Delay in seconds after rendering starts before taking the screenshot. Required with --screenshot.
     pub screenshot_delay: Option<f32>,
+    /// Load a terrain-only authoritative voxel snapshot during startup.
+    pub terrain_load_path: Option<String>,
+    /// Save a terrain-only authoritative voxel snapshot after startup reaches readiness.
+    pub terrain_save_path: Option<String>,
     /// Apply a named camera snapshot at startup. Screenshot runs set this from the requested preset.
     pub camera_snapshot: Option<String>,
     /// Run a fixed-camera temporal stability benchmark and write a TOML report.
@@ -459,6 +463,21 @@ impl AppOptions {
             .as_ref()
             .map(|screenshot| screenshot.path.clone());
         let screenshot_delay = screenshot.as_ref().map(|screenshot| screenshot.delay);
+        let terrain_load_path =
+            parse_required_string_after("--terrain-load", "a terrain snapshot path")?;
+        let terrain_save_path =
+            parse_required_string_after("--terrain-save", "a terrain snapshot path")?;
+        if terrain_load_path.is_some()
+            && (environment_lighting_test_scene.is_some()
+                || args.iter().any(|arg| {
+                    arg == "--hybrid-transparency-test-scene" || arg == "--water-edit-soak"
+                }))
+        {
+            return Err(
+                "Do not combine --terrain-load with terrain-stamping test scenes or --water-edit-soak"
+                    .to_owned(),
+            );
+        }
 
         let tail_latest_log = args
             .iter()
@@ -486,6 +505,8 @@ impl AppOptions {
             swapchain_images: parse_f32_after("--swapchain-images").map(|v| v as u32),
             screenshot_path,
             screenshot_delay,
+            terrain_load_path,
+            terrain_save_path,
             camera_snapshot,
             denoiser_bench: denoiser_bench.map(|(_, options)| options),
             list_camera_snapshots: args.iter().any(|a| a == "--list-camera-snapshots"),
@@ -762,6 +783,8 @@ Options:
   --screenshot <preset> <path>
                               Save one screenshot from exactly one camera snapshot preset
   --screenshot-delay <sec>    Required delay before screenshot capture when --screenshot is used
+  --terrain-load <path>      Load a terrain-only voxel snapshot during startup
+  --terrain-save <path>      Save a terrain-only voxel snapshot once startup is ready
   --denoiser-bench <preset> <report.toml>
                               Capture a frame sequence and write temporal metrics
   --denoiser-bench-warmup-frames <N>
@@ -908,6 +931,8 @@ mod tests {
         ));
         assert!(options.screenshot_path.is_none());
         assert!(options.screenshot_delay.is_none());
+        assert!(options.terrain_load_path.is_none());
+        assert!(options.terrain_save_path.is_none());
         assert!(options.camera_snapshot.is_none());
         assert!(!options.list_camera_snapshots);
         assert!(!options.egui_texture_lifecycle_test);
@@ -1174,6 +1199,52 @@ mod tests {
         let options = parse(&["re-flora", "--hybrid-transparency-test-scene"]);
 
         assert!(options.hybrid_transparency_test_scene);
+    }
+
+    #[test]
+    fn parses_terrain_snapshot_load_save_paths() {
+        let options = parse(&[
+            "re-flora",
+            "--terrain-load",
+            "target/input.rflterrain",
+            "--terrain-save",
+            "target/output.rflterrain",
+        ]);
+
+        assert_eq!(
+            options.terrain_load_path.as_deref(),
+            Some("target/input.rflterrain")
+        );
+        assert_eq!(
+            options.terrain_save_path.as_deref(),
+            Some("target/output.rflterrain")
+        );
+    }
+
+    #[test]
+    fn terrain_load_requires_a_path_and_rejects_stamping_scenes() {
+        let missing = AppOptions::try_from_arg_strings(
+            ["re-flora", "--terrain-load"]
+                .iter()
+                .map(|arg| (*arg).to_owned())
+                .collect(),
+        )
+        .unwrap_err();
+        assert!(missing.contains("Missing value for --terrain-load"));
+
+        let incompatible = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--terrain-load",
+                "target/input.rflterrain",
+                "--hybrid-transparency-test-scene",
+            ]
+            .iter()
+            .map(|arg| (*arg).to_owned())
+            .collect(),
+        )
+        .unwrap_err();
+        assert!(incompatible.contains("terrain-stamping test scenes"));
     }
 
     #[test]

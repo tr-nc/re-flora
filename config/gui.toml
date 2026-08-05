@@ -126,6 +126,15 @@ min = 0
 max = 2
 
 [[section.param]]
+id = "raster_flora_ddgi_lighting"
+kind = "bool"
+label = "Raster Flora DDGI Lighting"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "path_tracing_reference"
 kind = "bool"
 label = "Path Tracing Reference (Terrain)"
