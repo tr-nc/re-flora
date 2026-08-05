@@ -601,6 +601,20 @@ mod tests {
     }
 
     #[test]
+    fn unoccluded_irradiance_debug_isolated_from_final_visibility_path() {
+        let tracer = include_str!("../shader/slang/tracer.slang");
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+
+        assert!(tracer.contains("DDGI_DEBUG_UNOCCLUDED_IRRADIANCE = 12u"));
+        assert!(tracer.contains("sampleDdgiUnoccludedTerrainReference("));
+        assert!(query.contains("query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_NONE;"));
+        assert!(query.contains("getDdgiUnoccludedProbeContribution("));
+        assert!(tracer.contains("accumulateDdgiContribution(result, contribution, 1.0);"));
+        assert!(query.contains("public DdgiProbeContribution getDdgiProbeContribution("));
+        assert!(tracer.contains("if (view == DDGI_DEBUG_EXACT_IRRADIANCE)"));
+    }
+
+    #[test]
     fn direct_terrain_shadow_uses_exact_surface_hit_and_keeps_ddgi_voxel_receiver() {
         let tracer = include_str!("../shader/slang/tracer.slang");
         let ray_origin = include_str!("../shader/slang/terrain_ray_origin.slang");

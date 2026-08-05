@@ -396,11 +396,11 @@ impl AppOptions {
             };
         let ddgi_debug_view = match parse_required_string_after(
             "--ddgi-debug-view",
-            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
+            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
         )? {
             Some(value) => DdgiDebugView::from_cli_value(&value).ok_or_else(|| {
                 format!(
-                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
+                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
                 )
             })?,
             None => DdgiDebugView::Final,
@@ -1118,6 +1118,9 @@ mod tests {
     fn parses_ddgi_debug_view() {
         let options = parse(&["re-flora", "--ddgi-debug-view", "exact-visibility"]);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::ExactVisibility);
+
+        let options = parse(&["re-flora", "--ddgi-debug-view", "unoccluded-irradiance"]);
+        assert_eq!(options.ddgi_debug_view, DdgiDebugView::UnoccludedIrradiance);
     }
 
     #[test]

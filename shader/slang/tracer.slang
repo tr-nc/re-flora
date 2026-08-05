@@ -92,6 +92,7 @@ static const uint DDGI_DEBUG_PROBE_STATE = 8u;
 static const uint DDGI_DEBUG_RELOCATION = 9u;
 static const uint DDGI_DEBUG_IRRADIANCE_ATLAS = 10u;
 static const uint DDGI_DEBUG_VISIBILITY_ATLAS = 11u;
+static const uint DDGI_DEBUG_UNOCCLUDED_IRRADIANCE = 12u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED = 1u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED = 2u;
 static const uint TERRAIN_DDGI_CACHE_CAPACITY = 1u << 20u;
@@ -405,6 +406,44 @@ DdgiQueryResult sampleDdgiExactTerrainReference(
     return result;
 }
 
+// Diagnostic-only reference: retain the normal probe validity, relocation-aware
+// position weight, surface-side weight, and support-distance gates, but force
+// both consumer visibility terms to one. This isolates probe transport/query
+// irradiance from visibility attenuation without changing the final path.
+DdgiQueryResult sampleDdgiUnoccludedTerrainReference(
+    float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
+{
+    DdgiQueryResult result = makeEmptyDdgiQueryResult();
+    float3 normal = normalize(surfaceNormal);
+    if (ddgiQueryIsTerrainInvalidated(shading_info, worldPosition)) return result;
+    if (ddgiQueryUsesGlobalSky(shading_info, worldPosition))
+    {
+        result.irradiance = sampleDdgiGlobalSky(normal);
+        result.mean_visibility = 1.0;
+        return result;
+    }
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                DdgiProbeContribution contribution =
+                    getDdgiUnoccludedProbeContribution(
+                        shading_info, worldPosition, normal,
+                        hardVisibilityWorldPosition, uint3(x, y, z));
+                accumulateDdgiContribution(result, contribution, 1.0);
+            }
+        }
+    }
+    finalizeDdgiQueryResult(result);
+    return result;
+}
+
 float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
                              float3 surfaceNormal,
                              float3 hardVisibilityWorldPosition,
@@ -420,6 +459,13 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
                       float(momentResult.contributing_probe_count) / 8.0);
     if (view == DDGI_DEBUG_DOMINANT_PROBE)
         return ddgiDominantProbeDebugColor(momentResult);
+    if (view == DDGI_DEBUG_UNOCCLUDED_IRRADIANCE)
+    {
+        DdgiQueryResult unoccludedResult =
+            sampleDdgiUnoccludedTerrainReference(
+                worldPosition, surfaceNormal, hardVisibilityWorldPosition);
+        return unoccludedResult.irradiance;
+    }
     if (view == DDGI_DEBUG_PROBE_STATE)
         return ddgiProbeStateDebugColor(shading_info, worldPosition);
     if (view == DDGI_DEBUG_RELOCATION)

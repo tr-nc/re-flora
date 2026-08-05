@@ -13,6 +13,7 @@ static const float DDGI_QUERY_WEIGHT_EPSILON = 1.0e-6;
 public static const uint DDGI_CONSUMER_VISIBILITY_FULL = 0u;
 static const uint DDGI_CONSUMER_VISIBILITY_MOMENT_ONLY = 1u;
 static const uint DDGI_CONSUMER_VISIBILITY_EXACT_ONLY = 2u;
+public static const uint DDGI_CONSUMER_VISIBILITY_NONE = 3u;
 
 [[vk::binding(23, 0)]]
 Sampler2D ddgi_global_sky_irradiance;
@@ -379,6 +380,20 @@ public DdgiProbeContribution getDdgiProbeContribution(
     return getDdgiProbeContribution(
         ddgiConsumerQueryInfo(lighting), worldPosition, surfaceNormal,
         worldPosition + normal * biasWorld, cageCorner, ddgi_irradiance_atlas);
+}
+
+// Diagnostic-only adapter for an unoccluded query. Keep all normal probe
+// validity, relocation, support, and irradiance sampling in this module while
+// suppressing only the consumer visibility terms.
+public DdgiProbeContribution getDdgiUnoccludedProbeContribution(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition, uint3 cageCorner)
+{
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_NONE;
+    return getDdgiProbeContribution(
+        query, worldPosition, surfaceNormal,
+        hardVisibilityWorldPosition, cageCorner, ddgi_irradiance_atlas);
 }
 
 public void accumulateDdgiContribution(

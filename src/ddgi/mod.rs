@@ -134,6 +134,7 @@ pub enum DdgiDebugView {
     Relocation = 9,
     IrradianceAtlas = 10,
     VisibilityAtlas = 11,
+    UnoccludedIrradiance = 12,
 }
 
 impl DdgiDebugView {
@@ -151,6 +152,7 @@ impl DdgiDebugView {
             "relocation" => Some(Self::Relocation),
             "irradiance-atlas" => Some(Self::IrradianceAtlas),
             "visibility-atlas" => Some(Self::VisibilityAtlas),
+            "unoccluded-irradiance" => Some(Self::UnoccludedIrradiance),
             _ => None,
         }
     }
@@ -173,6 +175,7 @@ impl DdgiDebugView {
             Self::Relocation => "relocation",
             Self::IrradianceAtlas => "irradiance-atlas",
             Self::VisibilityAtlas => "visibility-atlas",
+            Self::UnoccludedIrradiance => "unoccluded-irradiance",
         }
     }
 }
