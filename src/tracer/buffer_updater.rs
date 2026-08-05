@@ -249,6 +249,7 @@ impl BufferUpdater {
         resources: &TracerResources,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
+        raster_flora_ddgi_lighting: bool,
         path_tracing_reference: bool,
         path_tracing_max_bounces: u32,
         path_tracing_ambient_light: Vec3,
@@ -309,6 +310,7 @@ impl BufferUpdater {
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
             flora_growth_override_enabled: flora_growth_override_enabled as u32,
             flora_growth_override: flora_growth_override.clamp(0.0, 1.0),
+            raster_flora_ddgi_lighting: raster_flora_ddgi_lighting as u32,
             path_tracing_reference: path_tracing_reference as u32,
             path_tracing_max_bounces,
             path_tracing_ambient_light: path_tracing_ambient_light.to_array(),

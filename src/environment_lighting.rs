@@ -345,6 +345,7 @@ mod tests {
             .0;
 
         assert!(!shared.contains("path_tracing_reference"));
+        assert!(!terrain.contains("raster_flora_ddgi_lighting"));
         assert!(shared.contains("return sampleDdgiDiffuseEnvironment("));
         assert!(path_tracing_branch.contains("pathTraceTerrainReference("));
         assert!(path_tracing_branch.contains("return;"));
@@ -358,6 +359,36 @@ mod tests {
             include_str!("../shader/slang/particle_lod_textured.vert.slang"),
         ] {
             assert!(consumer.contains("gui_input, sun_info, shading_info"));
+        }
+    }
+
+    #[test]
+    fn raster_flora_lighting_switch_preserves_legacy_and_ddgi_paths() {
+        let config: toml::Value = toml::from_str(include_str!("../config/gui.toml"))
+            .expect("GUI config must be valid TOML");
+        let switch = gui_param(&config, "raster_flora_ddgi_lighting");
+        let lighting = include_str!("../shader/slang/flora_shadow.slang");
+        let shared = include_str!("../shader/slang/flora_vertex.slang");
+        let flora = include_str!("../shader/slang/flora.vert.slang");
+        let flora_lod = include_str!("../shader/slang/flora_lod.vert.slang");
+
+        assert_eq!(switch["kind"].as_str(), Some("bool"));
+        assert_eq!(switch["data"]["value"].as_bool(), Some(true));
+        assert!(lighting.contains("float3(24.0 / 255.0)"));
+        assert!(lighting.contains("sunLight * shadowWeight + LEGACY_RASTER_FLORA_AMBIENT_LIGHT"));
+        assert!(shared.contains("applyLegacyRasterFloraLighting("));
+        let leaf_lighting = shared
+            .split_once("public float3 shadeTreeLeafVertex(")
+            .expect("tree-leaf lighting helper must exist")
+            .1;
+        assert!(leaf_lighting.contains("if (rasterFloraUsesDdgiLighting())"));
+        for shader in [flora, flora_lod] {
+            let lighting_branch = shader
+                .split_once("if (rasterFloraUsesDdgiLighting())")
+                .expect("raster flora shader must branch before cache access")
+                .1;
+            assert!(lighting_branch.contains("flora_lighting_cache.irradiance["));
+            assert!(lighting_branch.contains("shadeLegacyRasterFloraVertex("));
         }
     }
 
