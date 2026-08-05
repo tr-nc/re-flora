@@ -416,6 +416,24 @@ public void accumulateDdgiContribution(
     }
 }
 
+// Diagnostic-only averaging that removes the trilinear position and surface-side
+// weights while retaining the same trustworthy-probe and support gates.
+public void accumulateDdgiEqualWeightContribution(
+    inout DdgiQueryResult result, DdgiProbeContribution contribution)
+{
+    if (!contribution.trustworthy) return;
+    result.accumulated_base_weight += 1.0;
+    result.mean_visibility += 1.0;
+    result.irradiance += contribution.irradiance;
+    result.accumulated_weight += 1.0;
+    result.contributing_probe_count += 1u;
+    if (result.dominant_probe_weight < 1.0)
+    {
+        result.dominant_probe_weight = 1.0;
+        result.dominant_probe_index = contribution.probe_index;
+    }
+}
+
 public void finalizeDdgiQueryResult(inout DdgiQueryResult result)
 {
     if (result.accumulated_base_weight > DDGI_QUERY_WEIGHT_EPSILON)

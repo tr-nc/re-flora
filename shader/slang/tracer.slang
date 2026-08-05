@@ -93,6 +93,7 @@ static const uint DDGI_DEBUG_RELOCATION = 9u;
 static const uint DDGI_DEBUG_IRRADIANCE_ATLAS = 10u;
 static const uint DDGI_DEBUG_VISIBILITY_ATLAS = 11u;
 static const uint DDGI_DEBUG_UNOCCLUDED_IRRADIANCE = 12u;
+static const uint DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE = 13u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED = 1u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED = 2u;
 static const uint TERRAIN_DDGI_CACHE_CAPACITY = 1u << 20u;
@@ -444,6 +445,40 @@ DdgiQueryResult sampleDdgiUnoccludedTerrainReference(
     return result;
 }
 
+DdgiQueryResult sampleDdgiEqualWeightTerrainReference(
+    float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
+{
+    DdgiQueryResult result = makeEmptyDdgiQueryResult();
+    float3 normal = normalize(surfaceNormal);
+    if (ddgiQueryIsTerrainInvalidated(shading_info, worldPosition)) return result;
+    if (ddgiQueryUsesGlobalSky(shading_info, worldPosition))
+    {
+        result.irradiance = sampleDdgiGlobalSky(normal);
+        result.mean_visibility = 1.0;
+        return result;
+    }
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                DdgiProbeContribution contribution =
+                    getDdgiUnoccludedProbeContribution(
+                        shading_info, worldPosition, normal,
+                        hardVisibilityWorldPosition, uint3(x, y, z));
+                accumulateDdgiEqualWeightContribution(result, contribution);
+            }
+        }
+    }
+    finalizeDdgiQueryResult(result);
+    return result;
+}
+
 float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
                              float3 surfaceNormal,
                              float3 hardVisibilityWorldPosition,
@@ -465,6 +500,13 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
             sampleDdgiUnoccludedTerrainReference(
                 worldPosition, surfaceNormal, hardVisibilityWorldPosition);
         return unoccludedResult.irradiance;
+    }
+    if (view == DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE)
+    {
+        DdgiQueryResult equalWeightResult =
+            sampleDdgiEqualWeightTerrainReference(
+                worldPosition, surfaceNormal, hardVisibilityWorldPosition);
+        return equalWeightResult.irradiance;
     }
     if (view == DDGI_DEBUG_PROBE_STATE)
         return ddgiProbeStateDebugColor(shading_info, worldPosition);
