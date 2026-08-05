@@ -136,6 +136,7 @@ pub enum DdgiDebugView {
     VisibilityAtlas = 11,
     UnoccludedIrradiance = 12,
     EqualWeightIrradiance = 13,
+    RawCageIrradiance = 14,
 }
 
 impl DdgiDebugView {
@@ -155,6 +156,7 @@ impl DdgiDebugView {
             "visibility-atlas" => Some(Self::VisibilityAtlas),
             "unoccluded-irradiance" => Some(Self::UnoccludedIrradiance),
             "equal-weight-irradiance" => Some(Self::EqualWeightIrradiance),
+            "raw-cage-irradiance" => Some(Self::RawCageIrradiance),
             _ => None,
         }
     }
@@ -179,6 +181,7 @@ impl DdgiDebugView {
             Self::VisibilityAtlas => "visibility-atlas",
             Self::UnoccludedIrradiance => "unoccluded-irradiance",
             Self::EqualWeightIrradiance => "equal-weight-irradiance",
+            Self::RawCageIrradiance => "raw-cage-irradiance",
         }
     }
 }

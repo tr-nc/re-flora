@@ -94,6 +94,7 @@ static const uint DDGI_DEBUG_IRRADIANCE_ATLAS = 10u;
 static const uint DDGI_DEBUG_VISIBILITY_ATLAS = 11u;
 static const uint DDGI_DEBUG_UNOCCLUDED_IRRADIANCE = 12u;
 static const uint DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE = 13u;
+static const uint DDGI_DEBUG_RAW_CAGE_IRRADIANCE = 14u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED = 1u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED = 2u;
 static const uint TERRAIN_DDGI_CACHE_CAPACITY = 1u << 20u;
@@ -508,6 +509,9 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
                 worldPosition, surfaceNormal, hardVisibilityWorldPosition);
         return equalWeightResult.irradiance;
     }
+    if (view == DDGI_DEBUG_RAW_CAGE_IRRADIANCE)
+        return sampleDdgiRawCageIrradiance(
+            shading_info, worldPosition, surfaceNormal);
     if (view == DDGI_DEBUG_PROBE_STATE)
         return ddgiProbeStateDebugColor(shading_info, worldPosition);
     if (view == DDGI_DEBUG_RELOCATION)

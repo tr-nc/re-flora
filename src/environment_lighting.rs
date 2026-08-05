@@ -607,11 +607,14 @@ mod tests {
 
         assert!(tracer.contains("DDGI_DEBUG_UNOCCLUDED_IRRADIANCE = 12u"));
         assert!(tracer.contains("DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE = 13u"));
+        assert!(tracer.contains("DDGI_DEBUG_RAW_CAGE_IRRADIANCE = 14u"));
         assert!(tracer.contains("sampleDdgiUnoccludedTerrainReference("));
         assert!(tracer.contains("sampleDdgiEqualWeightTerrainReference("));
+        assert!(tracer.contains("sampleDdgiRawCageIrradiance("));
         assert!(query.contains("query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_NONE;"));
         assert!(query.contains("getDdgiUnoccludedProbeContribution("));
         assert!(query.contains("accumulateDdgiEqualWeightContribution("));
+        assert!(query.contains("sampleDdgiRawCageIrradiance("));
         assert!(tracer.contains("accumulateDdgiContribution(result, contribution, 1.0);"));
         assert!(query.contains("public DdgiProbeContribution getDdgiProbeContribution("));
         assert!(tracer.contains("if (view == DDGI_DEBUG_EXACT_IRRADIANCE)"));

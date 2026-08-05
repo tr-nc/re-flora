@@ -159,6 +159,47 @@ public float3 sampleDdgiProbeIrradiance(uint probeIndex, float3 normal,
         ddgi_irradiance_atlas);
 }
 
+// Diagnostic-only view of the local probe field. It averages the eight atlas
+// tiles in the current nominal cell and deliberately bypasses all receiver
+// position, surface-side, support, and visibility weights.
+public float3 sampleDdgiRawCageIrradiance(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+{
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    if (ddgiQueryUsesGlobalSky(query, worldPosition))
+        return sampleDdgiGlobalSky(normal);
+    uint3 dimensions = query.grid_dimensions;
+    float3 gridPosition = worldPosition * query.world_to_grid_scale;
+    uint3 base = min(uint3(floor(gridPosition)), dimensions - uint3(2u));
+    float3 sum = float3(0.0);
+    float count = 0.0;
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                uint3 coordinate = base + uint3(x, y, z);
+                uint probeIndex = coordinate.x +
+                    dimensions.x * (coordinate.y +
+                                    dimensions.y * coordinate.z);
+                DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
+                if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID)
+                    continue;
+                sum += sampleDdgiProbeIrradiance(
+                    probeIndex, normal, query.irradiance_tile_columns,
+                    ddgi_irradiance_atlas);
+                count += 1.0;
+            }
+        }
+    }
+    return count > 0.0 ? sum / count : float3(0.0);
+}
+
 public float2 sampleDdgiDistanceMoments(uint probeIndex, float3 direction,
                                        DdgiQueryInfo query)
 {
