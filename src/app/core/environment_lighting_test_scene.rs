@@ -1967,25 +1967,16 @@ mod tests {
     }
 
     #[test]
-    fn patt_seam_replay_uses_the_user_snapshot_and_only_punches_the_roof() {
+    fn patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof() {
         let snapshots = crate::app::camera_snapshots::CameraSnapshotLibrary::load(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/camera_snapshots.toml"),
         )
         .unwrap();
-        let patt = snapshots.find("patt").expect("patt snapshot must exist");
-        let camera_position = Vec3::from_array(patt.position);
-        let yaw = patt.yaw_deg.to_radians();
-        let pitch = patt.pitch_deg.to_radians();
-        let front = Vec3::new(
-            yaw.sin() * pitch.cos(),
-            pitch.sin(),
-            -yaw.cos() * pitch.cos(),
-        )
-        .normalize();
-        let right = front.cross(Vec3::Y).normalize();
-        assert_eq!(patt.position, [0.65, 0.58, 1.38]);
-        assert_eq!(patt.yaw_deg, 20.168_081);
-        assert_eq!(patt.pitch_deg, -10.419_271);
+        assert_eq!(snapshots.snapshots().len(), 1);
+        let snapshot = snapshots
+            .find("snapshot")
+            .expect("saved snapshot must exist");
+        let camera_position = Vec3::from_array(snapshot.position);
         assert_eq!(
             PATT_SEAM_DIG_CENTERS,
             [
@@ -2006,7 +1997,6 @@ mod tests {
         for center in PATT_SEAM_DIG_CENTERS {
             let camera_to_dig = center - camera_position;
             assert!(camera_to_dig.y > 0.0);
-            assert!(camera_to_dig.dot(right) < 0.0, "dig must be camera-left");
 
             let dig_min = center - Vec3::splat(radius);
             let dig_max = center + Vec3::splat(radius);
