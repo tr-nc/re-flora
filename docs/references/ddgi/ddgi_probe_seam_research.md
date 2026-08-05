@@ -164,6 +164,12 @@ strong sun still amplifies the underlying sparse-field error. A next renderer ch
 instrument the eight contributions at pixels immediately above, inside, and below one measured
 band, then test a continuity-preserving weight contract before changing transport or materials.
 
+The relocation log makes that interaction concrete: at spacing 32, only `3876/4913` probes were
+valid, `1372` moved, and the relocation search allowed up to `16` voxels of displacement
+(`target/re-flora-logs/re-flora-20260806-021558.489-310653.log`). Those are facts about this saved
+fixture, not proof that relocation is wrong; they explain why a nominal-cell query can have a
+very different surviving-weight set on neighboring wall layers.
+
 ## Working diagnosis
 
 The current symptom is best described as **a project-specific DDGI result that is exposed by
