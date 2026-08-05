@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -8,6 +8,7 @@ pub const TERRAIN_FORMAT_VERSION: u32 = 1;
 pub const TERRAIN_VOXEL_SCHEMA_ID: u32 = 1;
 pub const TERRAIN_BYTES_PER_VOXEL: u32 = 1;
 pub const TERRAIN_RAW_CODEC: u32 = 0;
+pub const DEFAULT_TERRAIN_SNAPSHOT_PATH: &str = "saves/terrain_snapshot.rflterrain";
 
 const MAGIC: [u8; 8] = *b"RFLTRN\0\x01";
 const HEADER_LEN: usize = 64;
@@ -109,7 +110,13 @@ impl TerrainSnapshotWriter {
     pub fn create(path: impl AsRef<Path>, metadata: TerrainSnapshotMetadata) -> Result<Self> {
         metadata.validate()?;
         let destination = path.as_ref().to_path_buf();
-        let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+        let parent = parent_directory(&destination);
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "create terrain snapshot parent directory {}",
+                parent.display()
+            )
+        })?;
         let file = NamedTempFile::new_in(parent).with_context(|| {
             format!("create temporary terrain snapshot in {}", parent.display())
         })?;
@@ -550,7 +557,7 @@ fn read_u64(bytes: &[u8], offset: usize) -> u64 {
 fn sync_parent_directory(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let parent = parent_directory(path);
         File::open(parent)
             .with_context(|| format!("open snapshot parent directory {}", parent.display()))?
             .sync_all()
@@ -559,6 +566,12 @@ fn sync_parent_directory(path: &Path) -> Result<()> {
             })?;
     }
     Ok(())
+}
+
+fn parent_directory(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
 }
 
 #[cfg(test)]
@@ -705,5 +718,25 @@ mod tests {
         assert!(too_many.validate().is_err());
         let too_large = TerrainSnapshotMetadata::new([1, 1, 1], [512, 512, 512]);
         assert!(too_large.validate().is_err());
+    }
+
+    #[test]
+    fn bare_filename_uses_current_directory_for_atomic_sync() {
+        assert_eq!(
+            parent_directory(Path::new("terrain.rflterrain")),
+            Path::new(".")
+        );
+        assert_eq!(
+            parent_directory(Path::new("./terrain.rflterrain")),
+            Path::new(".")
+        );
+    }
+
+    #[test]
+    fn writer_creates_missing_snapshot_parent_directory() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("new-save/terrain.rflterrain");
+        write_snapshot(&path, &[0, 1, 2, 3]).unwrap();
+        assert!(path.is_file());
     }
 }

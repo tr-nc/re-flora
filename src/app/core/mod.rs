@@ -66,7 +66,9 @@ use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
-use crate::terrain_persistence::{TerrainSnapshotMetadata, TerrainSnapshotReader};
+use crate::terrain_persistence::{
+    TerrainSnapshotMetadata, TerrainSnapshotReader, DEFAULT_TERRAIN_SNAPSHOT_PATH,
+};
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
     allium_height_color_tables, grass_flora_height_color_tables, kochia_color_tables,
@@ -1574,7 +1576,7 @@ impl App {
                 .terrain_load_path
                 .clone()
                 .or_else(|| options.terrain_save_path.clone())
-                .unwrap_or_else(|| "terrain_snapshot.rflterrain".to_owned()),
+                .unwrap_or_else(|| DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned()),
             terrain_persistence_status: TerrainPersistenceStatus::Ready,
             terrain_persistence_fatal: false,
             terrain_persistence_water_paused: false,

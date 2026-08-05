@@ -13,6 +13,7 @@ CLAUDE.md
 CLAUDE.local.md
 *.local
 *.local.*
+/saves/*.rflterrain
 .cc2cc-session-id
 settings.local.json
 Makefile
