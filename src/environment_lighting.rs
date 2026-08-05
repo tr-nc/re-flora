@@ -570,6 +570,28 @@ mod tests {
     }
 
     #[test]
+    fn direct_terrain_shadow_uses_exact_surface_hit_and_keeps_ddgi_voxel_receiver() {
+        let tracer = include_str!("../shader/slang/tracer.slang");
+        let ray_origin = include_str!("../shader/slang/terrain_ray_origin.slang");
+
+        assert!(ray_origin.contains("public float3 terrainRayOriginFromSurface("));
+        assert!(ray_origin.contains(
+            "return surfacePosition +\n        normalDirection * max(0.0, offsetWorld);"
+        ));
+        assert!(tracer.contains(
+            "shadowRay.origin = terrainShadowReceiverPositionFromSurface(\n        surfacePosition, normal);"
+        ));
+        assert!(tracer
+            .contains("directLight = directLighting(albedo, result.normal, result.position);"));
+        assert!(tracer.contains(
+            "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
+        ));
+        assert!(tracer.contains(
+            "sampleTerrainDdgiEnvironmentCached(\n            result.center_position, ddgiReceiverPosition, result.normal,"
+        ));
+    }
+
+    #[test]
     fn terrain_ray_origin_offset_is_shared_by_every_exact_terrain_ray_stage() {
         let shared = include_str!("../shader/slang/terrain_ray_origin.slang");
         let tracer = include_str!("../shader/slang/tracer.slang");
@@ -578,6 +600,7 @@ mod tests {
         let moisture = include_str!("../shader/slang/terrain_moisture_dry.slang");
 
         assert!(shared.contains("public float3 terrainRayOriginAlongNormal("));
+        assert!(shared.contains("public float3 terrainRayOriginFromSurface("));
         assert!(tracer.contains("import terrain_ray_origin;"));
         assert!(tracer.contains("gui_input.terrain_ray_origin_offset_world"));
         assert!(exact_sun.contains("originOffsetWorld"));

@@ -126,6 +126,13 @@ float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal)
         voxelCenter, normal, gui_input.terrain_ray_origin_offset_world);
 }
 
+float3 terrainShadowReceiverPositionFromSurface(float3 surfacePosition,
+                                                float3 normal)
+{
+    return terrainRayOriginFromSurface(
+        surfacePosition, normal, gui_input.terrain_ray_origin_offset_world);
+}
+
 uint terrainDdgiCacheKey(float3 voxelCenter)
 {
     uint3 voxelCoordinate = uint3(floor(voxelCenter * 256.0));
@@ -257,12 +264,13 @@ void parseTraceResult(out float3 albedo, MarchingResult result)
                                    result.center_position);
 }
 
-float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter)
+float3 directLighting(float3 albedo, float3 normal, float3 surfacePosition)
 {
     Ray shadowRay;
     shadowRay.direction = normalize(sun_info.sun_dir);
     shadowRay.inverse_direction = 1.0 / shadowRay.direction;
-    shadowRay.origin = terrainShadowReceiverPosition(voxelCenter, normal);
+    shadowRay.origin = terrainShadowReceiverPositionFromSurface(
+        surfacePosition, normal);
     float cosine = dot(shadowRay.direction, normal);
     if (cosine <= 0.0) return float3(0.0);
     return shadowRayColor(shadowRay, normal) * cosine * albedo;
@@ -502,7 +510,7 @@ void getPixelColor(out float3 color, out float depth,
     if (shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL ||
         shading_info.environment_irradiance_capture_enabled != 0u)
     {
-        directLight = directLighting(albedo, result.normal, result.center_position);
+        directLight = directLighting(albedo, result.normal, result.position);
     }
     // DDGI is part of the flat voxel material contract. Every pixel that hits
     // this voxel must query from the same receiver, independent of the camera
