@@ -22,6 +22,8 @@ public static const uint DDGI_SPATIAL_WEIGHT_RELOCATION_HARD = 0u;
 public static const uint DDGI_SPATIAL_WEIGHT_NOMINAL_HARD = 1u;
 public static const uint DDGI_SPATIAL_WEIGHT_RELOCATION_WRAP = 2u;
 public static const uint DDGI_SPATIAL_WEIGHT_NOMINAL_WRAP = 3u;
+public static const uint DDGI_SPATIAL_WEIGHT_RELOCATION_NO_SURFACE = 4u;
+public static const uint DDGI_SPATIAL_WEIGHT_NOMINAL_NO_SURFACE = 5u;
 static const uint DDGI_PROBE_REJECTION_INVALID_STATE = 1u;
 static const uint DDGI_PROBE_REJECTION_POSITION_WEIGHT = 2u;
 static const uint DDGI_PROBE_REJECTION_SURFACE_SIDE_WEIGHT = 4u;
@@ -389,7 +391,11 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
         : normal;
     float surfaceAlignment = dot(normal, surfaceToProbeDirection);
     float surfaceSideWeight;
-    if ((spatialWeightMode & 2u) != 0u)
+    if ((spatialWeightMode & 4u) != 0u)
+    {
+        surfaceSideWeight = 1.0;
+    }
+    else if ((spatialWeightMode & 2u) != 0u)
     {
         // RTXGI's wrap-shading component only. Keep the existing support and
         // exact/moment visibility gates unchanged for this diagnosis.

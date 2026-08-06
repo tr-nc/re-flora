@@ -171,6 +171,8 @@ pub enum DdgiDebugView {
     SpatialWeightWrap = 17,
     SpatialWeightNominalWrap = 18,
     SpatialWeightReadback = 19,
+    SpatialWeightCurrentNoSurface = 20,
+    SpatialWeightNominalNoSurface = 21,
 }
 
 impl DdgiDebugView {
@@ -196,6 +198,8 @@ impl DdgiDebugView {
             "spatial-weight-wrap" => Some(Self::SpatialWeightWrap),
             "spatial-weight-nominal-wrap" => Some(Self::SpatialWeightNominalWrap),
             "spatial-weight-readback" => Some(Self::SpatialWeightReadback),
+            "spatial-weight-current-no-surface" => Some(Self::SpatialWeightCurrentNoSurface),
+            "spatial-weight-nominal-no-surface" => Some(Self::SpatialWeightNominalNoSurface),
             _ => None,
         }
     }
@@ -226,6 +230,8 @@ impl DdgiDebugView {
             Self::SpatialWeightWrap => "spatial-weight-wrap",
             Self::SpatialWeightNominalWrap => "spatial-weight-nominal-wrap",
             Self::SpatialWeightReadback => "spatial-weight-readback",
+            Self::SpatialWeightCurrentNoSurface => "spatial-weight-current-no-surface",
+            Self::SpatialWeightNominalNoSurface => "spatial-weight-nominal-no-surface",
         }
     }
 }

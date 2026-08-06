@@ -103,6 +103,8 @@ static const uint DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL = 16u;
 static const uint DDGI_DEBUG_SPATIAL_WEIGHT_WRAP = 17u;
 static const uint DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL_WRAP = 18u;
 static const uint DDGI_DEBUG_SPATIAL_WEIGHT_READBACK = 19u;
+static const uint DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT_NO_SURFACE = 20u;
+static const uint DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL_NO_SURFACE = 21u;
 static const uint DDGI_SPATIAL_WEIGHT_READBACK_STRIDE = 53u;
 static const uint DDGI_SPATIAL_WEIGHT_READBACK_PROBE_STRIDE = 6u;
 static const uint DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT = 6u;
@@ -708,6 +710,18 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
     }
     if (view == DDGI_DEBUG_SPATIAL_WEIGHT_READBACK)
         return momentResult.irradiance;
+    if (view == DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT_NO_SURFACE ||
+        view == DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL_NO_SURFACE)
+    {
+        uint spatialWeightMode = view == DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT_NO_SURFACE
+            ? DDGI_SPATIAL_WEIGHT_RELOCATION_NO_SURFACE
+            : DDGI_SPATIAL_WEIGHT_NOMINAL_NO_SURFACE;
+        DdgiQueryResult noSurfaceResult =
+            sampleDdgiSpatialWeightTerrainReference(
+                worldPosition, surfaceNormal, hardVisibilityWorldPosition,
+                spatialWeightMode);
+        return noSurfaceResult.irradiance;
+    }
     if (view == DDGI_DEBUG_PROBE_STATE)
         return ddgiProbeStateDebugColor(shading_info, worldPosition);
     if (view == DDGI_DEBUG_RELOCATION)

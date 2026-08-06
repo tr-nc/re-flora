@@ -23,7 +23,8 @@ debug_view="${SAVED_TERRAIN_DDGI_DEBUG_VIEW:-exact-irradiance}"
 
 case "$debug_view" in
     exact-irradiance|spatial-weight-current|spatial-weight-nominal|\
-    spatial-weight-wrap|spatial-weight-nominal-wrap)
+    spatial-weight-wrap|spatial-weight-nominal-wrap|\
+    spatial-weight-current-no-surface|spatial-weight-nominal-no-surface)
         ;;
     *)
         printf '[SAVED_DDGI_SEAM_CHECK] verdict=INVALID_VIEW view=%s\n' \
