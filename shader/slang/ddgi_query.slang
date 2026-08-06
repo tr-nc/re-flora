@@ -15,6 +15,14 @@ static const uint DDGI_CONSUMER_VISIBILITY_MOMENT_ONLY = 1u;
 static const uint DDGI_CONSUMER_VISIBILITY_EXACT_ONLY = 2u;
 public static const uint DDGI_CONSUMER_VISIBILITY_NONE = 3u;
 
+// Diagnostic-only spatial weight candidates. The low bit selects nominal versus
+// relocation-aware position weights; the second bit selects hard versus wrap
+// surface-side weighting. Production consumers always use the zero mode.
+public static const uint DDGI_SPATIAL_WEIGHT_RELOCATION_HARD = 0u;
+public static const uint DDGI_SPATIAL_WEIGHT_NOMINAL_HARD = 1u;
+public static const uint DDGI_SPATIAL_WEIGHT_RELOCATION_WRAP = 2u;
+public static const uint DDGI_SPATIAL_WEIGHT_NOMINAL_WRAP = 3u;
+
 [[vk::binding(23, 0)]]
 Sampler2D ddgi_global_sky_irradiance;
 
@@ -238,6 +246,14 @@ float ddgiRelocationAwarePositionWeight(float3 fragmentInCell,
     return axial.x * axial.y * axial.z;
 }
 
+float ddgiNominalTrilinearPositionWeight(float3 fragmentInCell,
+                                          float3 corner)
+{
+    float3 axial = lerp(float3(1.0) - fragmentInCell,
+                        fragmentInCell, corner);
+    return axial.x * axial.y * axial.z;
+}
+
 float3 ddgiNormalizedSurfaceNormal(float3 surfaceNormal)
 {
     float normalLengthSquared = dot(surfaceNormal, surfaceNormal);
@@ -296,10 +312,10 @@ public DdgiQueryResult makeEmptyDdgiQueryResult()
     return result;
 }
 
-public DdgiProbeContribution getDdgiProbeContribution(
+public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
     DdgiQueryInfo query, float3 worldPosition, float3 surfaceNormal,
     float3 hardVisibilityWorldPosition, uint3 cageCorner,
-    Sampler2D irradianceAtlas)
+    uint spatialWeightMode, Sampler2D irradianceAtlas)
 {
     DdgiProbeContribution contribution;
     contribution.trustworthy = false;
@@ -332,9 +348,12 @@ public DdgiProbeContribution getDdgiProbeContribution(
 
     float3 actualPosition = metadata.actual_position_and_clearance.xyz;
     float3 nominalPosition = metadata.nominal_position_and_min_clearance.xyz;
-    float positionWeight = ddgiRelocationAwarePositionWeight(
-        fragmentInCell, float3(cageCorner), nominalPosition,
-        actualPosition, spacingWorld);
+    float positionWeight = (spatialWeightMode & 1u) != 0u
+        ? ddgiNominalTrilinearPositionWeight(
+            fragmentInCell, float3(cageCorner))
+        : ddgiRelocationAwarePositionWeight(
+            fragmentInCell, float3(cageCorner), nominalPosition,
+            actualPosition, spacingWorld);
     if (positionWeight <= DDGI_QUERY_WEIGHT_EPSILON) return contribution;
 
     float3 surfaceToProbe = actualPosition - worldPosition;
@@ -342,8 +361,20 @@ public DdgiProbeContribution getDdgiProbeContribution(
     float3 surfaceToProbeDirection = distanceSquared > 1.0e-10
         ? surfaceToProbe * rsqrt(distanceSquared)
         : normal;
-    float surfaceSideWeight = max(0.0, dot(normal, surfaceToProbeDirection));
-    surfaceSideWeight *= surfaceSideWeight;
+    float surfaceAlignment = dot(normal, surfaceToProbeDirection);
+    float surfaceSideWeight;
+    if ((spatialWeightMode & 2u) != 0u)
+    {
+        // RTXGI's wrap-shading component only. Keep the existing support and
+        // exact/moment visibility gates unchanged for this diagnosis.
+        float wrapShading = (surfaceAlignment + 1.0) * 0.5;
+        surfaceSideWeight = wrapShading * wrapShading + 0.2;
+    }
+    else
+    {
+        surfaceSideWeight = max(0.0, surfaceAlignment);
+        surfaceSideWeight *= surfaceSideWeight;
+    }
     if (surfaceSideWeight <= DDGI_QUERY_WEIGHT_EPSILON) return contribution;
 
     float biasWorld = max(0.0, query.visibility_bias_world);
@@ -392,6 +423,16 @@ public DdgiProbeContribution getDdgiProbeContribution(
 }
 
 public DdgiProbeContribution getDdgiProbeContribution(
+    DdgiQueryInfo query, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition, uint3 cageCorner,
+    Sampler2D irradianceAtlas)
+{
+    return getDdgiSpatialWeightProbeContribution(
+        query, worldPosition, surfaceNormal, hardVisibilityWorldPosition,
+        cageCorner, DDGI_SPATIAL_WEIGHT_RELOCATION_HARD, irradianceAtlas);
+}
+
+public DdgiProbeContribution getDdgiProbeContribution(
     U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
     float3 hardVisibilityWorldPosition, uint3 cageCorner)
 {
@@ -409,6 +450,18 @@ public DdgiProbeContribution getDdgiFullVisibilityProbeContribution(
     return getDdgiProbeContribution(
         query, worldPosition, surfaceNormal,
         hardVisibilityWorldPosition, cageCorner, ddgi_irradiance_atlas);
+}
+
+public DdgiProbeContribution getDdgiFullVisibilitySpatialWeightProbeContribution(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition, uint3 cageCorner,
+    uint spatialWeightMode)
+{
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_FULL;
+    return getDdgiSpatialWeightProbeContribution(
+        query, worldPosition, surfaceNormal, hardVisibilityWorldPosition,
+        cageCorner, spatialWeightMode, ddgi_irradiance_atlas);
 }
 
 public DdgiProbeContribution getDdgiProbeContribution(

@@ -396,11 +396,11 @@ impl AppOptions {
             };
         let ddgi_debug_view = match parse_required_string_after(
             "--ddgi-debug-view",
-            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
+            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
         )? {
             Some(value) => DdgiDebugView::from_cli_value(&value).ok_or_else(|| {
                 format!(
-                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
+                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
                 )
             })?,
             None => DdgiDebugView::Final,
@@ -1130,6 +1130,25 @@ mod tests {
 
         let options = parse(&["re-flora", "--ddgi-debug-view", "raw-cage-irradiance"]);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::RawCageIrradiance);
+
+        for (value, expected) in [
+            (
+                "spatial-weight-current",
+                DdgiDebugView::SpatialWeightCurrent,
+            ),
+            (
+                "spatial-weight-nominal",
+                DdgiDebugView::SpatialWeightNominal,
+            ),
+            ("spatial-weight-wrap", DdgiDebugView::SpatialWeightWrap),
+            (
+                "spatial-weight-nominal-wrap",
+                DdgiDebugView::SpatialWeightNominalWrap,
+            ),
+        ] {
+            let options = parse(&["re-flora", "--ddgi-debug-view", value]);
+            assert_eq!(options.ddgi_debug_view, expected);
+        }
     }
 
     #[test]

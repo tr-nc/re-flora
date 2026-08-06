@@ -137,6 +137,10 @@ pub enum DdgiDebugView {
     UnoccludedIrradiance = 12,
     EqualWeightIrradiance = 13,
     RawCageIrradiance = 14,
+    SpatialWeightCurrent = 15,
+    SpatialWeightNominal = 16,
+    SpatialWeightWrap = 17,
+    SpatialWeightNominalWrap = 18,
 }
 
 impl DdgiDebugView {
@@ -157,6 +161,10 @@ impl DdgiDebugView {
             "unoccluded-irradiance" => Some(Self::UnoccludedIrradiance),
             "equal-weight-irradiance" => Some(Self::EqualWeightIrradiance),
             "raw-cage-irradiance" => Some(Self::RawCageIrradiance),
+            "spatial-weight-current" => Some(Self::SpatialWeightCurrent),
+            "spatial-weight-nominal" => Some(Self::SpatialWeightNominal),
+            "spatial-weight-wrap" => Some(Self::SpatialWeightWrap),
+            "spatial-weight-nominal-wrap" => Some(Self::SpatialWeightNominalWrap),
             _ => None,
         }
     }
@@ -182,6 +190,10 @@ impl DdgiDebugView {
             Self::UnoccludedIrradiance => "unoccluded-irradiance",
             Self::EqualWeightIrradiance => "equal-weight-irradiance",
             Self::RawCageIrradiance => "raw-cage-irradiance",
+            Self::SpatialWeightCurrent => "spatial-weight-current",
+            Self::SpatialWeightNominal => "spatial-weight-nominal",
+            Self::SpatialWeightWrap => "spatial-weight-wrap",
+            Self::SpatialWeightNominalWrap => "spatial-weight-nominal-wrap",
         }
     }
 }

@@ -19,9 +19,21 @@ output_dir="${1:-target/ddgi-seam-repro/single-exact}"
 terrain_path="${TERRAIN_SNAPSHOT_PATH:-saves/terrain_snapshot.rflterrain}"
 screenshot_delay="${SAVED_TERRAIN_SCREENSHOT_DELAY:-10}"
 auto_exit="${SAVED_TERRAIN_AUTO_EXIT:-18}"
+debug_view="${SAVED_TERRAIN_DDGI_DEBUG_VIEW:-exact-irradiance}"
 
-screenshot="$output_dir/exact-irradiance.png"
-crop="$output_dir/exact-irradiance-crop.png"
+case "$debug_view" in
+    exact-irradiance|spatial-weight-current|spatial-weight-nominal|\
+    spatial-weight-wrap|spatial-weight-nominal-wrap)
+        ;;
+    *)
+        printf '[SAVED_DDGI_SEAM_CHECK] verdict=INVALID_VIEW view=%s\n' \
+            "$debug_view" >&2
+        exit 2
+        ;;
+esac
+
+screenshot="$output_dir/$debug_view.png"
+crop="$output_dir/$debug_view-crop.png"
 app_stdout="$output_dir/app.stdout.log"
 log_path=""
 
@@ -29,7 +41,7 @@ run_command=(
     cargo run --release --
     --hidden --mute --no-god-rays
     --terrain-load "$terrain_path"
-    --ddgi-debug-view exact-irradiance
+    --ddgi-debug-view "$debug_view"
     --environment-probe-visualization
     --screenshot snapshot "$screenshot"
     --screenshot-delay "$screenshot_delay"

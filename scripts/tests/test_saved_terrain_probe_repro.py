@@ -60,6 +60,17 @@ class SavedTerrainProbeReproTests(unittest.TestCase):
         self.assertIn("magick", result.stdout)
         self.assertIn("analyze_saved_ddgi_seam.py", result.stdout)
 
+        candidate_result = subprocess.run(
+            [str(CHECKER), "--dry-run", str(output_dir / "candidate")],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "SAVED_TERRAIN_DDGI_DEBUG_VIEW": "spatial-weight-nominal"},
+        )
+        self.assertEqual(candidate_result.returncode, 0, candidate_result.stderr)
+        self.assertIn("--ddgi-debug-view spatial-weight-nominal", candidate_result.stdout)
+        self.assertIn("spatial-weight-nominal-crop.png", candidate_result.stdout)
+
     def test_single_checker_is_executable(self) -> None:
         self.assertTrue(os.access(CHECKER, os.X_OK))
 

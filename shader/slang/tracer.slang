@@ -95,6 +95,10 @@ static const uint DDGI_DEBUG_VISIBILITY_ATLAS = 11u;
 static const uint DDGI_DEBUG_UNOCCLUDED_IRRADIANCE = 12u;
 static const uint DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE = 13u;
 static const uint DDGI_DEBUG_RAW_CAGE_IRRADIANCE = 14u;
+static const uint DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT = 15u;
+static const uint DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL = 16u;
+static const uint DDGI_DEBUG_SPATIAL_WEIGHT_WRAP = 17u;
+static const uint DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL_WRAP = 18u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED = 1u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED = 2u;
 static const uint TERRAIN_DDGI_CACHE_CAPACITY = 1u << 20u;
@@ -480,6 +484,44 @@ DdgiQueryResult sampleDdgiEqualWeightTerrainReference(
     return result;
 }
 
+DdgiQueryResult sampleDdgiSpatialWeightTerrainReference(
+    float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition, uint spatialWeightMode)
+{
+    DdgiQueryResult result = makeEmptyDdgiQueryResult();
+    float3 normal = normalize(surfaceNormal);
+    if (ddgiQueryIsTerrainInvalidated(shading_info, worldPosition)) return result;
+    if (ddgiQueryUsesGlobalSky(shading_info, worldPosition))
+    {
+        result.irradiance = sampleDdgiGlobalSky(normal);
+        result.mean_visibility = 1.0;
+        return result;
+    }
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                DdgiProbeContribution contribution =
+                    getDdgiFullVisibilitySpatialWeightProbeContribution(
+                        shading_info, worldPosition, normal,
+                        hardVisibilityWorldPosition, uint3(x, y, z),
+                        spatialWeightMode);
+                float visibility = contribution.trustworthy
+                    ? contribution.hard_visibility
+                    : 0.0;
+                accumulateDdgiContribution(result, contribution, visibility);
+            }
+        }
+    }
+    finalizeDdgiQueryResult(result);
+    return result;
+}
+
 float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
                              float3 surfaceNormal,
                              float3 hardVisibilityWorldPosition,
@@ -512,6 +554,17 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
     if (view == DDGI_DEBUG_RAW_CAGE_IRRADIANCE)
         return sampleDdgiRawCageIrradiance(
             shading_info, worldPosition, surfaceNormal);
+    if (view >= DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT &&
+        view <= DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL_WRAP)
+    {
+        uint spatialWeightMode =
+            view - DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT;
+        DdgiQueryResult spatialWeightResult =
+            sampleDdgiSpatialWeightTerrainReference(
+                worldPosition, surfaceNormal, hardVisibilityWorldPosition,
+                spatialWeightMode);
+        return spatialWeightResult.irradiance;
+    }
     if (view == DDGI_DEBUG_PROBE_STATE)
         return ddgiProbeStateDebugColor(shading_info, worldPosition);
     if (view == DDGI_DEBUG_RELOCATION)
