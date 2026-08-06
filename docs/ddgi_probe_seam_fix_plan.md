@@ -2,13 +2,70 @@
 
 ## 状态
 
-本文记录 saved-terrain 场景中 DDGI 探针层亮度接缝的实施计划。当前状态为**待实施**；
+本文记录 saved-terrain 场景中 DDGI 探针层亮度接缝的实施计划。当前状态为**诊断阶段进行中，
+生产修复待实施**；
 本文不包含渲染器修复，也不把现有诊断结果表述成已经确认的最终根因。
 
 计划基于分支 `agent/ddgi-seam-repro` 在提交 `38cc5dda` 时的证据。复现输入、相机、
 光照和截图流程由 [saved-terrain 复现文档](ddgi_saved_terrain_probe_seam_repro.md) 固定，
 背景研究和已完成的隔离实验见
 [DDGI 探针接缝研究](references/ddgi/ddgi_probe_seam_research.md)。
+
+## 2026-08-07 诊断进展
+
+本节记录从阶段 0 到阶段 2、以及 terminal-field readback 后得到的现场结论。它取代了
+“只根据历史截图描述现象”的状态，但不宣告生产修复完成。相关诊断提交依次为：
+`8c8e2fbf`、`4d8110df`、`e8b2d243`、`e8fc61ec`、`46bfae09`。
+
+### 现场复现与单变量结果
+
+固定 saved terrain、camera、lighting、32-voxel spacing 和收敛后的 hidden release capture
+仍能稳定得到 RED。四个空间权重候选的 analyzer 结果如下：
+
+| 候选 | position weight | surface-side weight | contrast | primary row | bands | ratio |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| A | relocation-aware | hard squared-dot | 33.584 | 493 | 24 | 1.961422 |
+| B | nominal trilinear | hard squared-dot | 34.416 | 544 | 23 | 4.280742 |
+| C | relocation-aware | wrap-style | 30.077 | 493 | 29 | 0.640614 |
+| D | nominal trilinear | wrap-style | 31.021 | 544 | 29 | 2.407828 |
+
+把 surface-side weight 单独置为 `1` 也没有得到 GREEN：relocation/current 为
+`contrast=28.336, bands=25, ratio=0.512488`，nominal 为
+`contrast=29.411, bands=28, ratio=1.904084`。因此 surface-side weight 会改变严重程度，
+但不是充分根因。
+
+### Terminal readback 证据
+
+固定六个 receiver 的 readback 来自 `serial=6, geometry_revision=0, radiance_revision=1,
+spacing=32, stage=Converged, iteration=5`。原始 cell-face 附近的六点中，八个 probe 均为
+valid/trustworthy，`rejection_flags=0`，hard visibility 和 moment visibility 均为 `1`；
+没有观察到 invalid、support、surface-side 或 visibility gate 导致的候选集跳变。
+
+在 nominal cell face 两侧，旧 relocation-aware 聚合权重从约 `0.477975` 跳到 `0.523814`，
+而 nominal 聚合权重约为 `0.500026` 到 `0.497683`。probe index 会按 nominal cage 正常切换，
+但旧 position weight 在共享面上产生了额外的不连续。另一组 analyzer 层带附近的 readback
+同样保持八个 valid probe 和稳定候选集；这说明 H3 在已采样位置没有被观察到，但尚未对整张
+截图的所有 cell face 做穷尽证明。
+
+### CPU 数学检查与当前边界
+
+对合法 relocation（shared probe 沿轴移动 `+0.1` 个 spacing）做的一维检查显示，旧公式在共享
+cell face 的 shared-probe weight 为 `1.0` 与 `0.9090909`，用非恒定 probe value 采样时对应
+`10.0` 与 `9.0909091`；ordinary nominal trilinear 在两侧保持连续。这个结果确认旧
+`ddgiRelocationAwarePositionWeight` 没有满足计划要求的 cell-face continuity contract。
+
+但是，把 nominal basis 临时切入普通生产 consumer 后，真实 `exact-irradiance` 仍为 RED：
+`contrast=34.417, primary_row=544, bands=22, ratio=4.291830`。因此：
+
+- H1（旧 relocation-aware 公式违反连续性契约）已被数学和现场 readback 证实；
+- H2（surface-side 权重单独造成条带）未被 no-surface 对照支持；
+- H3 在固定 readback 点没有观察到 gate/candidate-set 跳变，但不能据此宣告全局排除；
+- nominal trilinear 是连续性候选，不是已验收的生产修复；
+- 当前没有提交生产 shader/Rust 公式修复，未改变 DDGI transport、atlas、材质或 spacing。
+
+下一步应把正确的一维/三维 continuity oracle 与真正被选择的公式放在同一个修复提交中，
+并继续检查所有投影 cell face 的一阶变化或更平滑的空间 basis；`exact-irradiance` 与
+`normal` 必须共同达到 GREEN 后才进入阶段 5/6。
 
 ## 目标
 
