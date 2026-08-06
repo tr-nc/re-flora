@@ -1,6 +1,7 @@
 use super::App;
 use crate::ddgi::{
-    DDGI_SPATIAL_WEIGHT_READBACK_BYTE_COUNT, DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_PROBE,
+    DdgiFieldIdentity, DDGI_SPATIAL_WEIGHT_READBACK_BYTE_COUNT,
+    DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_PROBE,
     DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_RECEIVER, DDGI_SPATIAL_WEIGHT_READBACK_PIXELS,
     DDGI_SPATIAL_WEIGHT_READBACK_PROBE_COUNT, DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT,
 };
@@ -17,6 +18,7 @@ const AGGREGATE_OFFSET: usize =
 
 pub(super) struct DdgiSpatialWeightReadback {
     path: String,
+    field: DdgiFieldIdentity,
     buffer: Buffer,
 }
 
@@ -74,6 +76,22 @@ impl App {
                     * FLOAT4_BYTE_COUNT,
             "DDGI spatial-weight readback host layout is inconsistent"
         );
+        let active = self.tracer.ddgi_runtime_status().active();
+        let field = active
+            .complete_field
+            .filter(|field| {
+                matches!(
+                    field.field().stage(),
+                    crate::ddgi::DdgiFieldStage::Converged
+                        | crate::ddgi::DdgiFieldStage::NonConverged
+                )
+            })
+            .context("cannot capture DDGI spatial weights before a terminal field is complete")?;
+        ensure!(
+            active.published_field == Some(field),
+            "terminal DDGI field is not the published active field: terminal={field:?} published={:?}",
+            active.published_field,
+        );
 
         let allocator = self
             .tracer
@@ -88,7 +106,11 @@ impl App {
             MemoryLocation::GpuToCpu,
             DDGI_SPATIAL_WEIGHT_READBACK_BYTE_COUNT as u64,
         );
-        Ok(DdgiSpatialWeightReadback { path, buffer })
+        Ok(DdgiSpatialWeightReadback {
+            path,
+            field,
+            buffer,
+        })
     }
 
     pub(super) fn record_ddgi_spatial_weight_readback(
@@ -117,6 +139,17 @@ impl App {
         writeln!(file, "render_extent=1440x810")?;
         writeln!(file, "screen_extent=2880x1620")?;
         writeln!(file, "tracer_scale=0.5")?;
+        let field_key = readback.field.field();
+        writeln!(
+            file,
+            "field=serial:{} geometry_revision:{} radiance_revision:{} spacing_voxels:{} stage:{:?} iteration:{}",
+            field_key.serial(),
+            field_key.geometry_revision(),
+            field_key.radiance_revision(),
+            field_key.spacing_voxels(),
+            field_key.stage(),
+            field_key.iteration(),
+        )?;
         writeln!(
             file,
             "receiver_count={DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT}"

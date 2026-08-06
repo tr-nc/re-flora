@@ -55,8 +55,8 @@ use crate::builder::{
     SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
 use crate::ddgi::{
-    DdgiBuildToken, DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid, DdgiVolumeStage,
-    SUPPORTED_DDGI_SPACINGS_VOXELS,
+    DdgiBuildToken, DdgiFieldStage, DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid,
+    DdgiVolumeStage, SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
@@ -4445,7 +4445,18 @@ impl App {
                 let mut ddgi_spatial_weight_readback = None;
                 if !self.ddgi_spatial_weight_readback_taken {
                     if let Some(path) = self.ddgi_spatial_weight_readback_path.clone() {
-                        if self.tracer.ddgi_ready() {
+                        let terminal_field = self
+                            .tracer
+                            .ddgi_runtime_status()
+                            .active()
+                            .complete_field
+                            .filter(|field| {
+                                matches!(
+                                    field.field().stage(),
+                                    DdgiFieldStage::Converged | DdgiFieldStage::NonConverged
+                                )
+                            });
+                        if terminal_field.is_some() {
                             if self.ddgi_spatial_weight_readback_ready {
                                 match self.prepare_ddgi_spatial_weight_readback(path.clone()) {
                                     Ok(readback) => {
