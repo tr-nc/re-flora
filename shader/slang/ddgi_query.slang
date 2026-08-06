@@ -22,6 +22,10 @@ public static const uint DDGI_SPATIAL_WEIGHT_RELOCATION_HARD = 0u;
 public static const uint DDGI_SPATIAL_WEIGHT_NOMINAL_HARD = 1u;
 public static const uint DDGI_SPATIAL_WEIGHT_RELOCATION_WRAP = 2u;
 public static const uint DDGI_SPATIAL_WEIGHT_NOMINAL_WRAP = 3u;
+static const uint DDGI_PROBE_REJECTION_INVALID_STATE = 1u;
+static const uint DDGI_PROBE_REJECTION_POSITION_WEIGHT = 2u;
+static const uint DDGI_PROBE_REJECTION_SURFACE_SIDE_WEIGHT = 4u;
+static const uint DDGI_PROBE_REJECTION_SUPPORT = 8u;
 
 [[vk::binding(23, 0)]]
 Sampler2D ddgi_global_sky_irradiance;
@@ -67,6 +71,12 @@ public struct DdgiProbeContribution
     public float base_weight;
     public float moment_visibility;
     public float hard_visibility;
+    public uint probe_state;
+    public uint rejection_flags;
+    public float position_weight;
+    public float surface_side_weight;
+    public float distance_to_surface;
+    public float support_distance;
 };
 
 // The visibility-aware eight-probe algorithm consumes this narrow value instead of a renderer
@@ -326,6 +336,12 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
     contribution.base_weight = 0.0;
     contribution.moment_visibility = 0.0;
     contribution.hard_visibility = 0.0;
+    contribution.probe_state = 0u;
+    contribution.rejection_flags = 0u;
+    contribution.position_weight = 0.0;
+    contribution.surface_side_weight = 0.0;
+    contribution.distance_to_surface = 0.0;
+    contribution.support_distance = 0.0;
 
     if (ddgiQueryUsesGlobalSky(query, worldPosition)) return contribution;
 
@@ -341,8 +357,13 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
         dimensions.x * (cornerCoordinate.y +
                         dimensions.y * cornerCoordinate.z);
     DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
+    contribution.probe_index = probeIndex;
+    contribution.probe_state = metadata.state_and_reserved.x;
+    contribution.actual_position = metadata.actual_position_and_clearance.xyz;
+    contribution.nominal_position = metadata.nominal_position_and_min_clearance.xyz;
     if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID)
     {
+        contribution.rejection_flags |= DDGI_PROBE_REJECTION_INVALID_STATE;
         return contribution;
     }
 
@@ -354,7 +375,12 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
         : ddgiRelocationAwarePositionWeight(
             fragmentInCell, float3(cageCorner), nominalPosition,
             actualPosition, spacingWorld);
-    if (positionWeight <= DDGI_QUERY_WEIGHT_EPSILON) return contribution;
+    contribution.position_weight = positionWeight;
+    if (positionWeight <= DDGI_QUERY_WEIGHT_EPSILON)
+    {
+        contribution.rejection_flags |= DDGI_PROBE_REJECTION_POSITION_WEIGHT;
+        return contribution;
+    }
 
     float3 surfaceToProbe = actualPosition - worldPosition;
     float distanceSquared = dot(surfaceToProbe, surfaceToProbe);
@@ -375,7 +401,12 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
         surfaceSideWeight = max(0.0, surfaceAlignment);
         surfaceSideWeight *= surfaceSideWeight;
     }
-    if (surfaceSideWeight <= DDGI_QUERY_WEIGHT_EPSILON) return contribution;
+    contribution.surface_side_weight = surfaceSideWeight;
+    if (surfaceSideWeight <= DDGI_QUERY_WEIGHT_EPSILON)
+    {
+        contribution.rejection_flags |= DDGI_PROBE_REJECTION_SURFACE_SIDE_WEIGHT;
+        return contribution;
+    }
 
     float biasWorld = max(0.0, query.visibility_bias_world);
     float3 biasedWorldPosition = worldPosition + normal * biasWorld;
@@ -388,7 +419,13 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
     }
     float relocationDistance = distance(actualPosition, nominalPosition);
     float supportDistance = length(spacingWorld) + relocationDistance;
-    if (distanceToSurface > supportDistance) return contribution;
+    contribution.distance_to_surface = distanceToSurface;
+    contribution.support_distance = supportDistance;
+    if (distanceToSurface > supportDistance)
+    {
+        contribution.rejection_flags |= DDGI_PROBE_REJECTION_SUPPORT;
+        return contribution;
+    }
 
     bool useMomentVisibility =
         query.consumer_visibility == DDGI_CONSUMER_VISIBILITY_FULL ||
@@ -411,9 +448,6 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
             hardVisibilityWorldPosition, actualPosition, query.geometry_revision);
     }
     contribution.trustworthy = true;
-    contribution.probe_index = probeIndex;
-    contribution.actual_position = actualPosition;
-    contribution.nominal_position = nominalPosition;
     contribution.base_weight = positionWeight * surfaceSideWeight;
     contribution.moment_visibility = momentVisibility;
     contribution.hard_visibility = hardVisibility;

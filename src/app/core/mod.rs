@@ -4,6 +4,7 @@ use crate::util::Timer;
 mod authored_flora_bench;
 mod boot;
 mod camera_snapshot_ui;
+mod ddgi_spatial_weight_readback;
 mod denoiser_bench;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
@@ -421,6 +422,9 @@ pub struct App {
     screenshot_to_clipboard_requested: bool,
     environment_irradiance_capture_path: Option<String>,
     environment_irradiance_capture_taken: bool,
+    ddgi_spatial_weight_readback_path: Option<String>,
+    ddgi_spatial_weight_readback_taken: bool,
+    ddgi_spatial_weight_readback_ready: bool,
     denoiser_bench: Option<DenoiserBench>,
     auto_exit_delay: Option<f32>,
     tree_bench: Option<TreeBench>,
@@ -1260,6 +1264,9 @@ impl App {
                 environment_irradiance_capture_enabled: options
                     .environment_irradiance_capture_path
                     .is_some(),
+                ddgi_spatial_weight_readback_enabled: options
+                    .ddgi_spatial_weight_readback_path
+                    .is_some(),
                 environment_irradiance_capture_target: options
                     .environment_irradiance_capture_target,
                 ddgi_batch_order: options.ddgi_batch_order,
@@ -1586,6 +1593,9 @@ impl App {
                 .environment_irradiance_capture_path
                 .clone(),
             environment_irradiance_capture_taken: false,
+            ddgi_spatial_weight_readback_path: options.ddgi_spatial_weight_readback_path.clone(),
+            ddgi_spatial_weight_readback_taken: false,
+            ddgi_spatial_weight_readback_ready: false,
             denoiser_bench: options.denoiser_bench.clone().map(DenoiserBench::new),
             auto_exit_delay: options.auto_exit_delay,
             tree_bench: options
@@ -4432,6 +4442,40 @@ impl App {
                     }
                 }
 
+                let mut ddgi_spatial_weight_readback = None;
+                if !self.ddgi_spatial_weight_readback_taken {
+                    if let Some(path) = self.ddgi_spatial_weight_readback_path.clone() {
+                        if self.tracer.ddgi_ready() {
+                            if self.ddgi_spatial_weight_readback_ready {
+                                match self.prepare_ddgi_spatial_weight_readback(path.clone()) {
+                                    Ok(readback) => {
+                                        self.record_ddgi_spatial_weight_readback(cmdbuf, &readback);
+                                        self.ddgi_spatial_weight_readback_taken = true;
+                                        log::info!(
+                                            "[DDGI_SPATIAL_WEIGHT_READBACK] recording path={}",
+                                            readback.path(),
+                                        );
+                                        ddgi_spatial_weight_readback = Some(readback);
+                                    }
+                                    Err(err) => log::error!(
+                                        "[DDGI_SPATIAL_WEIGHT_READBACK] failed to prepare {}: {err:#}",
+                                        path,
+                                    ),
+                                }
+                            } else {
+                                // DDGI can become ready during the tracer pass. Arm here and
+                                // record on the next frame, after shading_info carries ready=true.
+                                self.ddgi_spatial_weight_readback_ready = true;
+                                log::info!(
+                                    "[DDGI_SPATIAL_WEIGHT_READBACK] armed; waiting one frame for shading_info ready"
+                                );
+                            }
+                        } else {
+                            self.ddgi_spatial_weight_readback_ready = false;
+                        }
+                    }
+                }
+
                 let render_area = self.window_state.window_extent();
                 let tracer_screen_extent = self.tracer.extent_resource_screen_extent();
                 assert_eq!(
@@ -4564,7 +4608,11 @@ impl App {
 
                 let mut denoiser_bench_complete = false;
                 let mut environment_irradiance_capture_complete = false;
-                if screenshot_readback.is_some() || environment_irradiance_readback.is_some() {
+                let mut ddgi_spatial_weight_readback_complete = false;
+                if screenshot_readback.is_some()
+                    || environment_irradiance_readback.is_some()
+                    || ddgi_spatial_weight_readback.is_some()
+                {
                     // Finish the GPU copy before handing CPU processing to a worker. Waiting on
                     // this frame's fence from the worker raced the frame manager resetting the
                     // same fence when its slot was reused.
@@ -4591,6 +4639,16 @@ impl App {
                                             "[ENV_IRRADIANCE_CAPTURE] failed to write capture: {err:#}"
                                         );
                                     }
+                                }
+                            }
+                            if let Some(readback) = ddgi_spatial_weight_readback.take() {
+                                match Self::write_ddgi_spatial_weight_readback(readback) {
+                                    Ok(()) => {
+                                        ddgi_spatial_weight_readback_complete = true;
+                                    }
+                                    Err(err) => log::error!(
+                                        "[DDGI_SPATIAL_WEIGHT_READBACK] failed to write: {err:#}"
+                                    ),
                                 }
                             }
                             if let Some(readback) = screenshot_readback.take() {
@@ -4739,6 +4797,13 @@ impl App {
                 }
                 if environment_irradiance_capture_complete {
                     log::info!(target: "re_flora::app::core::environment_irradiance_capture", "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run");
+                    self.on_terminate(event_loop);
+                }
+                if ddgi_spatial_weight_readback_complete {
+                    log::info!(
+                        target: "re_flora::app::core::ddgi_spatial_weight_readback",
+                        "[DDGI_SPATIAL_WEIGHT_READBACK] complete; exiting one-shot readback run"
+                    );
                     self.on_terminate(event_loop);
                 }
             }

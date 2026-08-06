@@ -57,6 +57,9 @@ RWTexture2D<float> compute_depth_tex;
 [[vk::binding(2, 1)]]
 RWStructuredBuffer<float4> environment_irradiance_capture;
 
+[[vk::binding(41, 0)]]
+RWStructuredBuffer<float4> ddgi_spatial_weight_readback;
+
 [[vk::binding(0, 2)]] Sampler2DArray scalar_bn;
 [[vk::binding(1, 2)]] Sampler2DArray unit_vec2_bn;
 [[vk::binding(5, 2)]] Sampler2DArray fast_weighted_cosine_bn;
@@ -99,6 +102,11 @@ static const uint DDGI_DEBUG_SPATIAL_WEIGHT_CURRENT = 15u;
 static const uint DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL = 16u;
 static const uint DDGI_DEBUG_SPATIAL_WEIGHT_WRAP = 17u;
 static const uint DDGI_DEBUG_SPATIAL_WEIGHT_NOMINAL_WRAP = 18u;
+static const uint DDGI_DEBUG_SPATIAL_WEIGHT_READBACK = 19u;
+static const uint DDGI_SPATIAL_WEIGHT_READBACK_STRIDE = 53u;
+static const uint DDGI_SPATIAL_WEIGHT_READBACK_PROBE_STRIDE = 6u;
+static const uint DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT = 6u;
+static const uint DDGI_SPATIAL_WEIGHT_READBACK_PROBE_COUNT = 8u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_CENTER_FIXED = 1u;
 static const uint DDGI_TERRAIN_HARD_ORIGIN_SURFACE_FIXED = 2u;
 static const uint TERRAIN_DDGI_CACHE_CAPACITY = 1u << 20u;
@@ -522,6 +530,139 @@ DdgiQueryResult sampleDdgiSpatialWeightTerrainReference(
     return result;
 }
 
+uint ddgiSpatialWeightReadbackReceiver(uint2 pixel)
+{
+    if (all(pixel == uint2(824u, 370u))) return 0u;
+    if (all(pixel == uint2(824u, 376u))) return 1u;
+    if (all(pixel == uint2(824u, 382u))) return 2u;
+    if (all(pixel == uint2(824u, 395u))) return 3u;
+    if (all(pixel == uint2(824u, 401u))) return 4u;
+    if (all(pixel == uint2(824u, 407u))) return 5u;
+    return DDGI_SPATIAL_WEIGHT_READBACK_PROBE_COUNT;
+}
+
+void writeDdgiSpatialWeightReadback(Ray ray, uint2 pixel,
+                                    uint localInvocationIndex)
+{
+    uint receiverIndex = ddgiSpatialWeightReadbackReceiver(pixel);
+    if (receiverIndex >= DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT) return;
+
+    uint receiverBase = receiverIndex * DDGI_SPATIAL_WEIGHT_READBACK_STRIDE;
+    [unroll]
+    for (uint slot = 0u; slot < DDGI_SPATIAL_WEIGHT_READBACK_STRIDE; ++slot)
+    {
+        ddgi_spatial_weight_readback[receiverBase + slot] = float4(0.0);
+    }
+
+    MarchingResult result = generalSceneMarching(ray, localInvocationIndex);
+    if (!result.is_hit) return;
+
+    float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
+        result.center_position, result.normal);
+    float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(
+        result.center_position, ddgiReceiverPosition, result.normal);
+    bool usesGlobalSky = ddgiQueryUsesGlobalSky(shading_info, ddgiReceiverPosition);
+    float queryStatus = 1.0 + (shading_info.ddgi_ready != 0u ? 2.0 : 0.0) +
+        (usesGlobalSky ? 4.0 : 0.0);
+    ddgi_spatial_weight_readback[receiverBase] = float4(
+        ddgiReceiverPosition, queryStatus);
+
+    DdgiQueryResult exactResult = makeEmptyDdgiQueryResult();
+    DdgiQueryResult consumerResult = makeEmptyDdgiQueryResult();
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                uint3 cageCorner = uint3(x, y, z);
+                DdgiProbeContribution contribution =
+                    getDdgiFullVisibilityProbeContribution(
+                        shading_info, ddgiReceiverPosition, result.normal,
+                        ddgiHardVisibilityOrigin, cageCorner);
+                DdgiProbeContribution nominalContribution =
+                    getDdgiFullVisibilitySpatialWeightProbeContribution(
+                        shading_info, ddgiReceiverPosition, result.normal,
+                        ddgiHardVisibilityOrigin, cageCorner,
+                        DDGI_SPATIAL_WEIGHT_NOMINAL_HARD);
+                DdgiProbeContribution wrapContribution =
+                    getDdgiFullVisibilitySpatialWeightProbeContribution(
+                        shading_info, ddgiReceiverPosition, result.normal,
+                        ddgiHardVisibilityOrigin, cageCorner,
+                        DDGI_SPATIAL_WEIGHT_RELOCATION_WRAP);
+                DdgiProbeContribution nominalWrapContribution =
+                    getDdgiFullVisibilitySpatialWeightProbeContribution(
+                        shading_info, ddgiReceiverPosition, result.normal,
+                        ddgiHardVisibilityOrigin, cageCorner,
+                        DDGI_SPATIAL_WEIGHT_NOMINAL_WRAP);
+                float hardVisibility = contribution.trustworthy
+                    ? contribution.hard_visibility
+                    : 0.0;
+                float consumerVisibility = contribution.trustworthy
+                    ? hardVisibility * contribution.moment_visibility
+                    : 0.0;
+                accumulateDdgiContribution(
+                    exactResult, contribution, hardVisibility);
+                accumulateDdgiContribution(
+                    consumerResult, contribution, consumerVisibility);
+
+                uint probeIndex = x + 2u * (y + 2u * z);
+                uint probeBase = receiverBase + 1u +
+                    probeIndex * DDGI_SPATIAL_WEIGHT_READBACK_PROBE_STRIDE;
+                ddgi_spatial_weight_readback[probeBase] = float4(
+                    float(contribution.probe_index),
+                    float(contribution.probe_state),
+                    contribution.trustworthy ? 1.0 : 0.0,
+                    float(contribution.rejection_flags));
+                ddgi_spatial_weight_readback[probeBase + 1u] = float4(
+                    contribution.actual_position,
+                    contribution.position_weight);
+                ddgi_spatial_weight_readback[probeBase + 2u] = float4(
+                    contribution.nominal_position,
+                    contribution.surface_side_weight);
+                ddgi_spatial_weight_readback[probeBase + 3u] = float4(
+                    contribution.irradiance,
+                    contribution.moment_visibility);
+                ddgi_spatial_weight_readback[probeBase + 4u] = float4(
+                    contribution.hard_visibility,
+                    contribution.distance_to_surface,
+                    contribution.support_distance,
+                    contribution.base_weight);
+                ddgi_spatial_weight_readback[probeBase + 5u] = float4(
+                    contribution.base_weight * hardVisibility,
+                    nominalContribution.base_weight *
+                        (nominalContribution.trustworthy
+                            ? nominalContribution.hard_visibility : 0.0),
+                    wrapContribution.base_weight *
+                        (wrapContribution.trustworthy
+                            ? wrapContribution.hard_visibility : 0.0),
+                    nominalWrapContribution.base_weight *
+                        (nominalWrapContribution.trustworthy
+                            ? nominalWrapContribution.hard_visibility : 0.0));
+            }
+        }
+    }
+    finalizeDdgiQueryResult(exactResult);
+    finalizeDdgiQueryResult(consumerResult);
+    ddgi_spatial_weight_readback[receiverBase + 49u] = float4(
+        exactResult.irradiance, exactResult.accumulated_weight);
+    ddgi_spatial_weight_readback[receiverBase + 50u] = float4(
+        consumerResult.irradiance, consumerResult.accumulated_weight);
+    ddgi_spatial_weight_readback[receiverBase + 51u] = float4(
+        exactResult.accumulated_base_weight,
+        exactResult.mean_visibility,
+        float(exactResult.contributing_probe_count),
+        float(exactResult.dominant_probe_index));
+    ddgi_spatial_weight_readback[receiverBase + 52u] = float4(
+        consumerResult.accumulated_base_weight,
+        consumerResult.mean_visibility,
+        float(consumerResult.contributing_probe_count),
+        float(consumerResult.dominant_probe_index));
+}
+
 float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
                              float3 surfaceNormal,
                              float3 hardVisibilityWorldPosition,
@@ -565,6 +706,8 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
                 spatialWeightMode);
         return spatialWeightResult.irradiance;
     }
+    if (view == DDGI_DEBUG_SPATIAL_WEIGHT_READBACK)
+        return momentResult.irradiance;
     if (view == DDGI_DEBUG_PROBE_STATE)
         return ddgiProbeStateDebugColor(shading_info, worldPosition);
     if (view == DDGI_DEBUG_RELOCATION)
@@ -735,6 +878,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
                   environmentCaptureIrradiance, directLight, terrainHit,
                   environmentCaptureWorld, ray, screenUv, seed,
                   localInvocationIndex);
+
+    if (shading_info.ddgi_debug_view == DDGI_DEBUG_SPATIAL_WEIGHT_READBACK)
+    {
+        writeDdgiSpatialWeightReadback(
+            ray, dispatchThreadId.xy, localInvocationIndex);
+    }
 
     if (shading_info.environment_irradiance_capture_enabled != 0u)
     {
