@@ -5,6 +5,7 @@ use resource_container_derive::ResourceContainer;
 pub const TERRAIN_LIGHTING_CACHE_CAPACITY: u32 = 1 << 20;
 const TERRAIN_LIGHTING_CACHE_METADATA_BYTES_PER_ENTRY: u64 = 16;
 const TERRAIN_LIGHTING_CACHE_IRRADIANCE_BYTES_PER_ENTRY: u64 = 16;
+const TERRAIN_LIGHTING_CACHE_VISIBILITY_BYTES_PER_ENTRY: u64 = 16;
 const TERRAIN_LIGHTING_CACHE_REVISION_MAX: u32 = 0x7fff_ffff;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,6 +22,7 @@ pub struct TerrainLightingCacheIdentity {
 pub struct TerrainLightingCache {
     pub terrain_ddgi_cache_metadata: Resource<Buffer>,
     pub terrain_ddgi_cache_irradiance: Resource<Buffer>,
+    pub terrain_ddgi_cache_visibility: Resource<Buffer>,
     identity: Option<TerrainLightingCacheIdentity>,
     revision: u32,
     needs_clear: bool,
@@ -32,6 +34,8 @@ impl TerrainLightingCache {
             * TERRAIN_LIGHTING_CACHE_METADATA_BYTES_PER_ENTRY;
         let irradiance_bytes = u64::from(TERRAIN_LIGHTING_CACHE_CAPACITY)
             * TERRAIN_LIGHTING_CACHE_IRRADIANCE_BYTES_PER_ENTRY;
+        let visibility_bytes = u64::from(TERRAIN_LIGHTING_CACHE_CAPACITY)
+            * TERRAIN_LIGHTING_CACHE_VISIBILITY_BYTES_PER_ENTRY;
         let metadata = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -42,22 +46,32 @@ impl TerrainLightingCache {
             metadata_bytes,
         );
         let irradiance = Buffer::new_sized(
-            device,
-            allocator,
+            device.clone(),
+            allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
             MemoryLocation::GpuOnly,
             irradiance_bytes,
         );
+        let visibility = Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::GpuOnly,
+            visibility_bytes,
+        );
         log::info!(
-            "[DDGI][TERRAIN_CACHE] allocated entries={} metadata_bytes={} irradiance_bytes={} total_mib={:.2}",
+            "[DDGI][TERRAIN_CACHE] allocated entries={} metadata_bytes={} irradiance_bytes={} visibility_bytes={} total_mib={:.2}",
             TERRAIN_LIGHTING_CACHE_CAPACITY,
             metadata_bytes,
             irradiance_bytes,
-            (metadata_bytes + irradiance_bytes) as f64 / (1024.0 * 1024.0),
+            visibility_bytes,
+            (metadata_bytes + irradiance_bytes + visibility_bytes) as f64
+                / (1024.0 * 1024.0),
         );
         Self {
             terrain_ddgi_cache_metadata: Resource::new(metadata),
             terrain_ddgi_cache_irradiance: Resource::new(irradiance),
+            terrain_ddgi_cache_visibility: Resource::new(visibility),
             identity: None,
             revision: 0,
             needs_clear: true,
@@ -132,6 +146,14 @@ mod tests {
         assert!(shader.contains("metadata.ready_frame != env_info.frame_serial_idx"));
         assert!(shader.contains("environment_irradiance_capture_enabled == 0u"));
         assert!(shader.contains("environment_irradiance_capture_unpublished == 0u"));
-        assert!(shader.contains("sampleDdgiDiffuseEnvironment("));
+        assert!(shader.contains("sampleTerrainDdgiEnvironmentSmoothCached("));
+        assert!(shader.contains("terrain_ddgi_cache_visibility[slot]"));
+        assert!(shader.contains("result.center_position, ddgiReceiverPosition, result.position,"));
+    }
+
+    #[test]
+    fn smooth_cache_allocates_one_packed_visibility_value_per_probe_corner() {
+        assert_eq!(TERRAIN_LIGHTING_CACHE_VISIBILITY_BYTES_PER_ENTRY, 16);
+        assert_eq!(TERRAIN_LIGHTING_CACHE_CAPACITY, 1 << 20);
     }
 }

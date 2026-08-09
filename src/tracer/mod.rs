@@ -676,6 +676,7 @@ pub struct TracerDesc {
     pub environment_probe_spacing_voxels: u32,
     pub environment_probe_visualization_enabled: bool,
     pub environment_irradiance_capture_enabled: bool,
+    pub ddgi_spatial_weight_readback_enabled: bool,
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_batch_order: DdgiBatchOrder,
     pub ddgi_debug_view: DdgiDebugView,
@@ -1536,6 +1537,16 @@ impl Tracer {
             .resources
             .extent_dependent_resources
             .environment_irradiance_capture;
+        assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
+        source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
+        cmdbuf.use_buffer(readback, BufferUse::HostRead);
+    }
+
+    pub fn record_ddgi_spatial_weight_readback(&self, cmdbuf: &CommandBuffer, readback: &Buffer) {
+        let source = &self
+            .resources
+            .extent_dependent_resources
+            .ddgi_spatial_weight_readback;
         assert_eq!(source.get_size_bytes(), readback.get_size_bytes());
         source.record_copy_to_buffer(cmdbuf, readback, source.get_size_bytes(), 0, 0);
         cmdbuf.use_buffer(readback, BufferUse::HostRead);
@@ -3849,6 +3860,15 @@ impl Tracer {
                         .resources
                         .extent_dependent_resources
                         .environment_irradiance_capture,
+                    BufferUse::ComputeWrite,
+                );
+            }
+            if self.desc.ddgi_spatial_weight_readback_enabled {
+                cmdbuf.use_buffer(
+                    &self
+                        .resources
+                        .extent_dependent_resources
+                        .ddgi_spatial_weight_readback,
                     BufferUse::ComputeWrite,
                 );
             }

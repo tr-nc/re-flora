@@ -175,6 +175,41 @@ mod tests {
         }
     }
 
+    fn sample_linear_probe_field(position_in_probe_cells: f64) -> f64 {
+        let base = position_in_probe_cells.floor();
+        let fraction = position_in_probe_cells - base;
+        base * (1.0 - fraction) + (base + 1.0) * fraction
+    }
+
+    fn canonical_terrain_voxel_center_in_probe_cells(
+        position_in_probe_cells: f64,
+        terrain_voxels_per_probe: f64,
+    ) -> f64 {
+        ((position_in_probe_cells * terrain_voxels_per_probe).floor() + 0.5)
+            / terrain_voxels_per_probe
+    }
+
+    #[test]
+    fn continuous_terrain_position_basis_does_not_quantize_a_linear_probe_field() {
+        let epsilon = 1.0e-6;
+        let left = 1.0 - epsilon;
+        let right = 1.0 + epsilon;
+        let exact_delta = sample_linear_probe_field(right) - sample_linear_probe_field(left);
+
+        assert!((exact_delta - 2.0 * epsilon).abs() < 1.0e-12);
+
+        let terrain_voxels_per_probe = 32.0;
+        let canonical_left =
+            canonical_terrain_voxel_center_in_probe_cells(left, terrain_voxels_per_probe);
+        let canonical_right =
+            canonical_terrain_voxel_center_in_probe_cells(right, terrain_voxels_per_probe);
+        let quantized_delta =
+            sample_linear_probe_field(canonical_right) - sample_linear_probe_field(canonical_left);
+
+        assert!((quantized_delta - 1.0 / terrain_voxels_per_probe).abs() < 1.0e-12);
+        assert!(quantized_delta > exact_delta * 10_000.0);
+    }
+
     #[test]
     fn cache_revision_is_stable_for_an_identical_radiance_snapshot() {
         let mut cache = EnvironmentLightingCache::default();
@@ -274,7 +309,7 @@ mod tests {
         assert!(!shared.contains("SH"));
         assert!(!shared.contains("environment_probe_coefficients"));
         assert!(!shared.contains("environment_lighting_backend"));
-        assert!(terrain.contains("consumerResult = sampleDdgiDiffuseEnvironment("));
+        assert!(terrain.contains("consumerResult = sampleDdgiTerrainSmoothEnvironment("));
         assert!(terrain.contains("environmentIrradiance = consumerResult.irradiance"));
         assert!(terrain.contains("environmentCaptureIrradiance = captureResult.irradiance"));
         assert!(terrain.contains("color = environmentIrradiance * albedo"));
@@ -340,7 +375,7 @@ mod tests {
             .split_once("if (gui_input.path_tracing_reference != 0u")
             .expect("terrain shader must expose the path-tracing GUI switch")
             .1
-            .split_once("// DDGI is part of the flat voxel material contract")
+            .split_once("// Geometry-facing visibility remains fixed")
             .expect("path-tracing branch must remain ahead of the DDGI query")
             .0;
 
@@ -493,8 +528,8 @@ mod tests {
             .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
             .expect("shared atlas-parametric DDGI query must exist")
             .1
-            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
-            .expect("consumer adapter must follow the shared query")
+            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
+            .expect("terrain smoothing adapter must follow the shared query")
             .0;
         let consumer = query
             .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
@@ -564,18 +599,35 @@ mod tests {
             "surfacePosition +\n            normalDirection * gui_input.terrain_ray_origin_offset_world"
         ));
         assert!(tracer.contains(
-            "sampleTerrainDdgiEnvironmentCached(\n            result.center_position, ddgiReceiverPosition, result.normal,\n            ddgiHardVisibilityOrigin)"
+            "sampleTerrainDdgiEnvironmentSmoothCached(\n            result.center_position, ddgiReceiverPosition, result.position,\n            result.normal, ddgiHardVisibilityOrigin)"
         ));
         let terrain_cache = tracer
-            .split_once("float3 sampleTerrainDdgiEnvironmentCached(")
+            .split_once("float3 sampleTerrainDdgiEnvironmentSmoothCached(")
             .expect("terrain DDGI cache seam must exist")
             .1
             .split_once("float3 shadowRayColor(")
             .expect("terrain cache must remain ahead of direct lighting")
             .0;
         assert!(terrain_cache.contains(
-            "shading_info, worldPosition, surfaceNormal,\n            hardVisibilityWorldPosition"
+            "shading_info, receiverWorldPosition,\n            positionWeightWorldPosition, surfaceNormal,\n            hardVisibilityWorldPosition"
         ));
+        assert!(terrain_cache.contains("terrain_ddgi_cache_visibility[slot]"));
+        assert!(query.contains(
+            "query, receiverWorldPosition, positionWeightWorldPosition,\n        surfaceNormal, hardVisibilityWorldPosition"
+        ));
+        assert!(query.contains("float3 biasedWorldPosition = worldPosition + normal * biasWorld;"));
+        assert!(query.contains(
+            "ddgiVoxelSegmentVisibility(\n            hardVisibilityWorldPosition, actualPosition"
+        ));
+        assert!(
+            query.contains("float3 surfaceToProbe = actualPosition - positionWeightWorldPosition;")
+        );
+        assert!(query.contains(
+            "ddgiRelocationAwarePositionWeight(\n                        canonicalFragment"
+        ));
+        assert!(query.contains("saturate(visibility) * 65535.0"));
+        assert!(!query.contains("f32tof16"));
+        assert!(!query.contains("f16tof32"));
         let exact_reference = tracer
             .split_once("DdgiQueryResult sampleDdgiExactTerrainReference(")
             .expect("exact voxel reference must exist")
@@ -601,6 +653,48 @@ mod tests {
     }
 
     #[test]
+    fn unoccluded_irradiance_debug_isolated_from_final_visibility_path() {
+        let tracer = include_str!("../shader/slang/tracer.slang");
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+
+        assert!(tracer.contains("DDGI_DEBUG_UNOCCLUDED_IRRADIANCE = 12u"));
+        assert!(tracer.contains("DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE = 13u"));
+        assert!(tracer.contains("DDGI_DEBUG_RAW_CAGE_IRRADIANCE = 14u"));
+        assert!(tracer.contains("sampleDdgiUnoccludedTerrainReference("));
+        assert!(tracer.contains("sampleDdgiEqualWeightTerrainReference("));
+        assert!(tracer.contains("sampleDdgiRawCageIrradiance("));
+        assert!(query.contains("query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_NONE;"));
+        assert!(query.contains("getDdgiUnoccludedProbeContribution("));
+        assert!(query.contains("accumulateDdgiEqualWeightContribution("));
+        assert!(query.contains("sampleDdgiRawCageIrradiance("));
+        assert!(tracer.contains("accumulateDdgiContribution(result, contribution, 1.0);"));
+        assert!(query.contains("public DdgiProbeContribution getDdgiProbeContribution("));
+        assert!(tracer.contains("if (view == DDGI_DEBUG_EXACT_IRRADIANCE)"));
+    }
+
+    #[test]
+    fn direct_terrain_shadow_uses_exact_surface_hit_and_keeps_ddgi_voxel_receiver() {
+        let tracer = include_str!("../shader/slang/tracer.slang");
+        let ray_origin = include_str!("../shader/slang/terrain_ray_origin.slang");
+
+        assert!(ray_origin.contains("public float3 terrainRayOriginFromSurface("));
+        assert!(ray_origin.contains(
+            "return surfacePosition +\n        normalDirection * max(0.0, offsetWorld);"
+        ));
+        assert!(tracer.contains(
+            "shadowRay.origin = terrainShadowReceiverPositionFromSurface(\n        surfacePosition, normal);"
+        ));
+        assert!(tracer
+            .contains("directLight = directLighting(albedo, result.normal, result.position);"));
+        assert!(tracer.contains(
+            "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
+        ));
+        assert!(tracer.contains(
+            "sampleTerrainDdgiEnvironmentSmoothCached(\n            result.center_position, ddgiReceiverPosition, result.position,\n            result.normal,"
+        ));
+    }
+
+    #[test]
     fn terrain_ray_origin_offset_is_shared_by_every_exact_terrain_ray_stage() {
         let shared = include_str!("../shader/slang/terrain_ray_origin.slang");
         let tracer = include_str!("../shader/slang/tracer.slang");
@@ -609,6 +703,7 @@ mod tests {
         let moisture = include_str!("../shader/slang/terrain_moisture_dry.slang");
 
         assert!(shared.contains("public float3 terrainRayOriginAlongNormal("));
+        assert!(shared.contains("public float3 terrainRayOriginFromSurface("));
         assert!(tracer.contains("import terrain_ray_origin;"));
         assert!(tracer.contains("gui_input.terrain_ray_origin_offset_world"));
         assert!(exact_sun.contains("originOffsetWorld"));
