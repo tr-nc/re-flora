@@ -202,7 +202,7 @@ impl App {
         let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
         let mut recorded_count = 0;
         for source in sprinkler_sources {
-            let spray_axis = source.spray_axis(self.flora_tick, tick_seconds);
+            let spray_axis = source.spray_axis(self.world_clock.flora_tick(), tick_seconds);
             if self
                 .plain_builder
                 .record_directional_pair_moisture_brush(

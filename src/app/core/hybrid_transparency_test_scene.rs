@@ -114,8 +114,7 @@ fn sentinel_mesh() -> GeometryPreviewMesh {
 
 impl App {
     pub(super) fn configure_hybrid_transparency_test_scene(&mut self) -> Result<()> {
-        self.current_time_of_day = TEST_TIME_OF_DAY;
-        self.debug_settings.adjustables.time_of_day.value = TEST_TIME_OF_DAY;
+        self.set_manual_time_of_day(TEST_TIME_OF_DAY);
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
         self.camera_control.set_orbit_focus(CAMERA_TARGET);
         if !self

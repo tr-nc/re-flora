@@ -1512,7 +1512,7 @@ impl App {
                     start: edit.center,
                     end: edit.center,
                     radius: edit.radius,
-                    tick: self.flora_tick,
+                    tick: self.world_clock.flora_tick(),
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
                 terrain_changed,
@@ -1539,7 +1539,7 @@ impl App {
             start: edit.start,
             end: edit.end,
             radius: edit.radius,
-            tick: self.flora_tick,
+            tick: self.world_clock.flora_tick(),
             spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
         };
 
@@ -1592,7 +1592,7 @@ impl App {
             start: center,
             end: center,
             radius,
-            tick: self.flora_tick,
+            tick: self.world_clock.flora_tick(),
             spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
         };
 
@@ -1658,7 +1658,10 @@ impl App {
                     start: edit.start,
                     end: edit.end,
                     radius: edit.radius,
-                    tick: self.flora_tick.wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
+                    tick: self
+                        .world_clock
+                        .flora_tick()
+                        .wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
                     spawn_time_ms,
                 },
                 paint_selection,
@@ -1835,7 +1838,7 @@ impl App {
                     start: edit.start,
                     end: edit.end,
                     radius: edit.radius,
-                    tick: self.flora_tick,
+                    tick: self.world_clock.flora_tick(),
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
             )?;
@@ -1866,7 +1869,7 @@ impl App {
                     start: brush_edit.start,
                     end: brush_edit.end,
                     radius: brush_edit.radius,
-                    tick: self.flora_tick,
+                    tick: self.world_clock.flora_tick(),
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
                 target_age,

@@ -69,6 +69,7 @@ use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
 };
 use crate::flora::species;
+use crate::game_time::WorldClock;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
@@ -274,16 +275,6 @@ impl ResizeLifecycleTest {
     }
 }
 
-fn advance_time_of_day(
-    current_time_of_day: f32,
-    elapsed_ticks: u32,
-    world_tick_seconds: f32,
-    day_cycle_minutes: f32,
-) -> f32 {
-    let time_speed = 1.0 / (day_cycle_minutes * 60.0);
-    (current_time_of_day + elapsed_ticks as f32 * world_tick_seconds * time_speed) % 1.0
-}
-
 pub struct App {
     egui_renderer: EguiRenderer,
     loading_state: Option<LoadingState>,
@@ -297,7 +288,7 @@ pub struct App {
     gpu_profiler: Option<GpuProfiler>,
     gpu_profiler_latest_results: Option<GpuProfilerFrameResults>,
     time_info: TimeInfo,
-    current_time_of_day: f32,
+    world_clock: WorldClock,
     render_flags: RenderFlags,
     cursor_position_physical: Option<Vec2>,
     camera_control: CameraControlRuntime,
@@ -342,12 +333,9 @@ pub struct App {
     voxel_backpack: VoxelBackpack,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
-    flora_tick: u32,
-    flora_tick_accumulator: f32,
     moisture_dry_chunk_cursor: u32,
     moisture_spread_chunk_cursor: u32,
     growing_flora_chunks: GrowingFloraQueue,
-    sun_position_update_tick_accumulator: u32,
 
     #[allow(dead_code)]
     tree_variation_config: TreeVariationConfig,
@@ -421,8 +409,14 @@ impl Drop for App {
 }
 
 impl App {
+    pub(super) fn set_manual_time_of_day(&mut self, time_of_day: f32) {
+        self.debug_settings.adjustables.time_of_day.value = time_of_day;
+        self.world_clock.set_live_time_of_day(time_of_day);
+    }
+
     pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
-        self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+        self.growing_flora_chunks
+            .push(chunk_id, self.world_clock.flora_tick());
     }
 
     fn collect_gpu_profiler_frame(&mut self, frame_slot: usize) {
@@ -498,7 +492,7 @@ impl App {
             return;
         };
 
-        let tick_delta = self.flora_tick.wrapping_sub(last_flora_tick);
+        let tick_delta = self.world_clock.flora_tick().wrapping_sub(last_flora_tick);
         let growth_tick_delta = tick_delta / FLORA_GROWTH_SPEED_DIVISOR;
         if growth_tick_delta == 0 {
             self.growing_flora_chunks.push(chunk_id, last_flora_tick);
@@ -557,8 +551,6 @@ const FLORA_GROWTH_SPEED_DIVISOR: u32 = 10;
 // Trimmed grasses should read as clipped, not newly sprouted: the shader's floor-based
 // height trim makes low growth values collapse short grass to one voxel.
 const FLORA_TRIM_MAX_GROWTH_PROGRESS: u32 = 160;
-const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
-
 fn draw_center_cross_mark(ctx: &egui::Context) {
     let center = ctx.content_rect().center();
     let painter = ctx.layer_painter(egui::LayerId::new(
@@ -956,7 +948,10 @@ impl App {
         if render_flags.enable_flora {
             render_flags.enable_leaves = debug_settings.tree.render_leaves;
         }
-        let current_time_of_day = debug_settings.adjustables.time_of_day.value;
+        let world_clock = WorldClock::new(
+            FLORA_FULL_GROWTH_TICKS,
+            debug_settings.adjustables.time_of_day.value,
+        );
         let terrain_physics = TerrainPhysics::new(debug_settings.adjustables.fruit_cycle.value);
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
@@ -1100,7 +1095,7 @@ impl App {
             }),
             egui_texture_lifecycle_test,
             time_info: TimeInfo::default(),
-            current_time_of_day,
+            world_clock,
             render_flags,
 
             debug_settings,
@@ -1135,12 +1130,9 @@ impl App {
             player_tools: PlayerToolRuntime::default(),
             voxel_backpack: VoxelBackpack::default(),
             water_particle_handoff_main_thread_ms: None,
-            flora_tick: FLORA_FULL_GROWTH_TICKS,
-            flora_tick_accumulator: 0.0,
             moisture_dry_chunk_cursor: 0,
             moisture_spread_chunk_cursor: 0,
             growing_flora_chunks: GrowingFloraQueue::default(),
-            sun_position_update_tick_accumulator: 0,
 
             // multi-tree management
             next_tree_id: 1, // Start from 1, use 0 for GUI single tree
@@ -1950,16 +1942,13 @@ impl App {
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
                 );
-                if self.terrain_persistence.allows_world_updates() {
-                    self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
-                }
-                let mut world_tick_steps = 0u32;
-                while self.flora_tick_accumulator >= 1.0 {
-                    self.flora_tick = self.flora_tick.wrapping_add(1);
-                    self.flora_tick_accumulator -= 1.0;
-                    world_tick_steps += 1;
-                }
-                if self.terrain_persistence.allows_world_updates() && world_tick_steps > 0 {
+                let world_updates_running = self.terrain_persistence.allows_world_updates();
+                let world_tick_steps = self.world_clock.advance_simulation(
+                    frame_delta_time,
+                    world_tick_seconds,
+                    world_updates_running,
+                );
+                if world_updates_running && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
                 let active_wind_sources =
@@ -2954,41 +2943,25 @@ impl App {
                     }
                 }
 
-                let mut sun_update_ticks = 0;
-                if self.debug_settings.adjustables.auto_daynight_cycle.value && world_tick_steps > 0
-                {
-                    self.sun_position_update_tick_accumulator += world_tick_steps;
-                    while self.sun_position_update_tick_accumulator
-                        >= SUN_POSITION_UPDATE_INTERVAL_TICKS
-                    {
-                        self.sun_position_update_tick_accumulator -=
-                            SUN_POSITION_UPDATE_INTERVAL_TICKS;
-                        sun_update_ticks += SUN_POSITION_UPDATE_INTERVAL_TICKS;
-                    }
-                }
-
                 let time_of_day_changed_by_gui =
                     self.debug_settings.adjustables.time_of_day.value != time_of_day_before_gui;
                 let vsm_blur_radius_changed_by_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value
                         != vsm_blur_radius_before_gui;
                 if time_of_day_changed_by_gui {
-                    self.current_time_of_day = self.debug_settings.adjustables.time_of_day.value;
+                    self.world_clock
+                        .set_live_time_of_day(self.debug_settings.adjustables.time_of_day.value);
                 }
                 if time_of_day_changed_by_gui || vsm_blur_radius_changed_by_gui {
                     self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }
 
-                // update sun position if auto day/night cycle is enabled
-                let sun_position_updated = sun_update_ticks > 0;
-                if sun_position_updated {
-                    self.current_time_of_day = advance_time_of_day(
-                        self.current_time_of_day,
-                        sun_update_ticks,
-                        world_tick_seconds,
-                        self.debug_settings.adjustables.day_cycle_minutes.value,
-                    );
-                }
+                self.world_clock.advance_daynight(
+                    world_tick_steps,
+                    world_tick_seconds,
+                    self.debug_settings.adjustables.day_cycle_minutes.value,
+                    self.debug_settings.adjustables.auto_daynight_cycle.value,
+                );
 
                 if self.render_flags.enable_particles {
                     if self.water_terrain_status().is_initialized()
@@ -3038,7 +3011,7 @@ impl App {
                 });
 
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
-                    self.current_time_of_day,
+                    self.world_clock.live_time_of_day(),
                     self.debug_settings.adjustables.latitude.value,
                     self.debug_settings.adjustables.season.value,
                 );
@@ -3493,7 +3466,7 @@ impl App {
                             .value,
                         wind_gui_params,
                         cloud_gui_params,
-                        self.flora_tick,
+                        self.world_clock.flora_tick(),
                         FLORA_SPROUT_DELAY_TICKS,
                         FLORA_FULL_GROWTH_TICKS,
                         self.time_info.time_since_start_duration().as_millis() as u32,
@@ -4124,17 +4097,8 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{advance_time_of_day, App};
+    use super::App;
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
-
-    #[test]
-    fn day_night_clock_advances_without_mutating_its_persisted_start_value() {
-        let persisted_start = 0.25;
-        let current = advance_time_of_day(persisted_start, 600, 0.05, 1.0);
-
-        assert_eq!(persisted_start, 0.25);
-        assert!((current - 0.75).abs() < 1.0e-6);
-    }
 
     #[test]
     fn ambisonics_backend_selects_matching_decoder_backend() {

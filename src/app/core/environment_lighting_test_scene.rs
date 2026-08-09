@@ -767,8 +767,7 @@ impl App {
         let palette = voxel_palette(case);
         let (time_of_day, latitude, season) = test_lighting(case);
         let sun_luminance = RADIANCE_R1_SUN_LUMINANCE;
-        self.current_time_of_day = time_of_day;
-        self.debug_settings.adjustables.time_of_day.value = time_of_day;
+        self.set_manual_time_of_day(time_of_day);
         self.debug_settings.adjustables.latitude.value = latitude;
         self.debug_settings.adjustables.season.value = season;
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
@@ -856,8 +855,7 @@ impl App {
         sun_luminance: f32,
         rock_color: Color32,
     ) {
-        self.current_time_of_day = time_of_day;
-        self.debug_settings.adjustables.time_of_day.value = time_of_day;
+        self.set_manual_time_of_day(time_of_day);
         self.debug_settings.adjustables.sun_color.value = sun_color;
         self.debug_settings.adjustables.sun_luminance.value = sun_luminance;
         self.debug_settings.adjustables.voxel_rock_color.value = rock_color;

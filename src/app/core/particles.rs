@@ -479,7 +479,7 @@ impl App {
             &mut self.particle_system,
             dt,
             wind_time,
-            self.flora_tick,
+            self.world_clock.flora_tick(),
             world_tick_seconds,
         );
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
