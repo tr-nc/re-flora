@@ -6,7 +6,7 @@ use crate::builder::{
 use crate::flora::species::{FloraPaintBrushSettings, FloraPaintSelection};
 use crate::geom::UAabb3;
 use crate::util::BENCH;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use glam::{UVec3, Vec3};
 use std::time::{Duration, Instant};
 
@@ -28,7 +28,6 @@ struct DirectChunkRebuildRecord {
     scene_offsets: Option<(u64, u64)>,
     contree_skipped: bool,
     contree_done: bool,
-    failed: bool,
 }
 
 struct PendingDirectContree {
@@ -40,9 +39,9 @@ fn finish_pending_direct_contree(
     contree_builder: &mut ContreeBuilder,
     pending: &mut Option<PendingDirectContree>,
     records: &mut [DirectChunkRebuildRecord],
-) {
+) -> Result<()> {
     let Some(pending_job) = pending.take() else {
-        return;
+        return Ok(());
     };
 
     let finish_start = Instant::now();
@@ -67,15 +66,14 @@ fn finish_pending_direct_contree(
                 .lock()
                 .unwrap()
                 .record("build_and_alloc", record.contree_elapsed);
+            Ok(())
         }
-        Err(err) => {
-            record.failed = true;
-            log::error!(
-                "Failed to finish contree for chunk {} after pipelined submit: {}",
-                record.chunk_id,
-                err
-            );
-        }
+        Err(err) => Err(err).with_context(|| {
+            format!(
+                "failed to finish Contree publication for chunk {} after pipelined submit",
+                record.chunk_id
+            )
+        }),
     }
 }
 
@@ -322,9 +320,9 @@ fn mesh_generate_chunks_with_flora(
         let active_voxel_len = match surface_builder.build_surface(chunk_id, place_flora) {
             Ok(active_voxel_len) => active_voxel_len,
             Err(e) => {
-                finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records);
-                log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-                continue;
+                finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records)?;
+                return Err(e)
+                    .with_context(|| format!("failed to build Surface for chunk {chunk_id}"));
             }
         };
 
@@ -345,13 +343,12 @@ fn mesh_generate_chunks_with_flora(
             scene_offsets: None,
             contree_skipped: active_voxel_len == 0,
             contree_done: false,
-            failed: false,
         });
 
         // The surface build submitted after the previous contree build runs on the same queue.
         // Once it has returned, the previous contree GPU job should usually already be satisfied;
         // finishing it here avoids an extra blocking wait between every pair of chunks.
-        finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records);
+        finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records)?;
 
         if active_voxel_len == 0 {
             contree_skipped_count += 1;
@@ -376,18 +373,18 @@ fn mesh_generate_chunks_with_flora(
                 pending_contree = Some(PendingDirectContree { record_index, job });
             }
             Err(e) => {
-                records[record_index].failed = true;
-                log::error!("Failed to submit contree for chunk {}: {}", chunk_id, e);
+                return Err(e)
+                    .with_context(|| format!("failed to submit Contree for chunk {chunk_id}"));
             }
         }
     }
 
-    finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records);
+    finish_pending_direct_contree(contree_builder, &mut pending_contree, &mut records)?;
 
     let mut rebuilt_chunk_count = 0;
     let mut scene_total = Duration::ZERO;
     for record in &mut records {
-        if record.failed || !record.contree_done {
+        if !record.contree_done {
             continue;
         }
 
@@ -407,6 +404,11 @@ fn mesh_generate_chunks_with_flora(
 
         log_direct_chunk_rebuild_record(record);
     }
+
+    anyhow::ensure!(
+        rebuilt_chunk_count == chunk_count,
+        "visible terrain publication was incomplete: rebuilt {rebuilt_chunk_count} of {chunk_count} requested chunks"
+    );
 
     let contree_total = records.iter().fold(Duration::ZERO, |total, record| {
         total + record.contree_elapsed
@@ -475,8 +477,7 @@ pub(crate) fn mesh_generate_chunk_preserve_flora_for_brush_edit(
     let active_voxel_len = match surface_builder.build_surface(chunk_id, false) {
         Ok(active_voxel_len) => active_voxel_len,
         Err(e) => {
-            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-            return Ok(());
+            return Err(e).with_context(|| format!("failed to build Surface for chunk {chunk_id}"));
         }
     };
     let surface_elapsed = surface_start.elapsed();
