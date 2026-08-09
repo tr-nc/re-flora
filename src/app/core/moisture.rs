@@ -1,5 +1,6 @@
 use super::{vegetation::SurfaceOccupantClearPath, App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use crate::app::world_edits::TerrainBrushEdit;
+use crate::builder::{ContreeBuilder, PlainBuilder};
 use crate::util::BENCH;
 use anyhow::Result;
 use glam::{UVec3, Vec3};
@@ -23,28 +24,31 @@ const TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS: u32 = 1;
 const TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT: u32 = 2;
 const TERRAIN_MOISTURE_SPREAD_CHUNKS_PER_FRAME: usize = 1;
 
-impl App {
-    pub(super) fn has_terrain_moisture_dry_chunks(&self) -> bool {
-        Self::terrain_moisture_chunk_count() > 0
+#[derive(Default)]
+pub(super) struct TerrainMoistureRuntime {
+    dry_chunk_cursor: u32,
+    spread_task_cursor: u32,
+}
+
+impl TerrainMoistureRuntime {
+    pub(super) fn has_chunks(&self) -> bool {
+        Self::chunk_count() > 0
     }
 
-    pub(super) fn has_terrain_moisture_spread_chunks(&self) -> bool {
-        Self::terrain_moisture_chunk_count() > 0
-    }
-
-    pub(super) fn record_terrain_moisture_spread_chunks(
+    pub(super) fn record_spread(
         &mut self,
+        plain_builder: &mut PlainBuilder,
         cmdbuf: &CommandBuffer,
+        perf_logging: bool,
     ) -> usize {
         let mut recorded_count = 0;
         for _ in 0..TERRAIN_MOISTURE_SPREAD_CHUNKS_PER_FRAME {
-            let Some((chunk_id, axis, pair_parity)) = self.next_terrain_moisture_spread_task()
-            else {
+            let Some((chunk_id, axis, pair_parity)) = self.next_spread_task() else {
                 return recorded_count;
             };
             let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
-            let spread_record_start = self.perf_logging.then(Instant::now);
-            if !self.plain_builder.record_terrain_moisture_spread_region(
+            let spread_record_start = perf_logging.then(Instant::now);
+            if !plain_builder.record_terrain_moisture_spread_region(
                 cmdbuf,
                 atlas_offset,
                 VOXEL_DIM_PER_CHUNK,
@@ -75,7 +79,7 @@ impl App {
                     TERRAIN_MOISTURE_SPREAD_UPWARD_MULTIPLIER,
                     axis,
                     pair_parity,
-                    self.moisture_spread_chunk_cursor,
+                    self.spread_task_cursor,
                     spread_record_elapsed.as_secs_f64() * 1000.0,
                 );
             }
@@ -83,25 +87,27 @@ impl App {
         recorded_count
     }
 
-    pub(super) fn record_terrain_moisture_dry_chunks(
+    pub(super) fn record_dry(
         &mut self,
+        plain_builder: &mut PlainBuilder,
+        contree_builder: &ContreeBuilder,
         cmdbuf: &CommandBuffer,
         sun_dir: Vec3,
         direct_shadow_source_mask: u32,
         direct_shadow_available_mask: u32,
+        perf_logging: bool,
     ) -> usize {
         let mut recorded_count = 0;
         for _ in 0..TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME {
-            let Some(chunk_id) = self.next_terrain_moisture_dry_chunk() else {
+            let Some(chunk_id) = self.next_dry_chunk() else {
                 return recorded_count;
             };
             let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
-            let Some(surface_leaf_info) = self.contree_builder.surface_leaf_dry_info(chunk_id)
-            else {
+            let Some(surface_leaf_info) = contree_builder.surface_leaf_dry_info(chunk_id) else {
                 continue;
             };
-            let dry_record_start = self.perf_logging.then(Instant::now);
-            if !self.plain_builder.record_terrain_moisture_dry_region(
+            let dry_record_start = perf_logging.then(Instant::now);
+            if !plain_builder.record_terrain_moisture_dry_region(
                 cmdbuf,
                 atlas_offset,
                 VOXEL_DIM_PER_CHUNK,
@@ -137,7 +143,7 @@ impl App {
                     direct_shadow_source_mask,
                     direct_shadow_available_mask,
                     sun_dir,
-                    self.moisture_dry_chunk_cursor,
+                    self.dry_chunk_cursor,
                     dry_record_elapsed.as_secs_f64() * 1000.0,
                 );
             }
@@ -145,52 +151,50 @@ impl App {
         recorded_count
     }
 
-    fn next_terrain_moisture_dry_chunk(&mut self) -> Option<UVec3> {
-        let chunk_count = Self::terrain_moisture_chunk_count();
+    fn next_dry_chunk(&mut self) -> Option<UVec3> {
+        let chunk_count = Self::chunk_count();
         if chunk_count == 0 {
             return None;
         }
 
-        let chunk_index = self.moisture_dry_chunk_cursor % chunk_count;
-        self.moisture_dry_chunk_cursor = (chunk_index + 1) % chunk_count;
-        Some(Self::terrain_moisture_chunk_from_index(chunk_index))
+        let chunk_index = self.dry_chunk_cursor % chunk_count;
+        self.dry_chunk_cursor = (chunk_index + 1) % chunk_count;
+        Some(Self::chunk_from_index(chunk_index))
     }
 
-    fn next_terrain_moisture_spread_task(&mut self) -> Option<(UVec3, u32, u32)> {
-        let chunk_count = Self::terrain_moisture_chunk_count();
+    fn next_spread_task(&mut self) -> Option<(UVec3, u32, u32)> {
+        let chunk_count = Self::chunk_count();
         let task_count = chunk_count.saturating_mul(TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT);
         if task_count == 0 {
             return None;
         }
 
-        let task_index = self.moisture_spread_chunk_cursor % task_count;
-        self.moisture_spread_chunk_cursor = (task_index + 1) % task_count;
+        let task_index = self.spread_task_cursor % task_count;
+        self.spread_task_cursor = (task_index + 1) % task_count;
         let chunk_index = task_index % chunk_count;
         let pair_phase = task_index / chunk_count;
         let axis = TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS;
         let pair_parity = pair_phase % TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT;
-        Some((
-            Self::terrain_moisture_chunk_from_index(chunk_index),
-            axis,
-            pair_parity,
-        ))
+        Some((Self::chunk_from_index(chunk_index), axis, pair_parity))
     }
 
-    fn terrain_moisture_chunk_count() -> u32 {
+    fn chunk_count() -> u32 {
         CHUNK_DIM
             .x
             .saturating_mul(CHUNK_DIM.y)
             .saturating_mul(CHUNK_DIM.z)
     }
 
-    fn terrain_moisture_chunk_from_index(mut chunk_index: u32) -> UVec3 {
+    fn chunk_from_index(mut chunk_index: u32) -> UVec3 {
         let z = chunk_index % CHUNK_DIM.z;
         chunk_index /= CHUNK_DIM.z;
         let y = chunk_index % CHUNK_DIM.y;
         let x = chunk_index / CHUNK_DIM.y;
         UVec3::new(x, y, z)
     }
+}
 
+impl App {
     pub(super) fn record_sprinkler_moisture(&mut self, cmdbuf: &CommandBuffer, dt: f32) -> usize {
         if dt <= 0.0 || self.sprinklers.is_empty() {
             return 0;
@@ -269,5 +273,57 @@ impl App {
             TILLER_BRUSH_SOIL_MIX_STRENGTH,
         )?;
         self.clear_surface_occupants_in_brush(edit, SurfaceOccupantClearPath::Standalone)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        TerrainMoistureRuntime, TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT,
+        TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS,
+    };
+    use std::collections::HashSet;
+
+    #[test]
+    fn dry_schedule_visits_each_chunk_once_before_wrapping() {
+        let mut runtime = TerrainMoistureRuntime::default();
+        let chunk_count = TerrainMoistureRuntime::chunk_count();
+
+        let first_cycle = (0..chunk_count)
+            .map(|_| runtime.next_dry_chunk().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            first_cycle.iter().copied().collect::<HashSet<_>>().len(),
+            chunk_count as usize
+        );
+        assert_eq!(runtime.next_dry_chunk(), Some(first_cycle[0]));
+    }
+
+    #[test]
+    fn spread_schedule_visits_both_pair_phases_before_wrapping() {
+        let mut runtime = TerrainMoistureRuntime::default();
+        let chunk_count = TerrainMoistureRuntime::chunk_count();
+        let task_count = chunk_count * TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT;
+
+        let first_cycle = (0..task_count)
+            .map(|_| runtime.next_spread_task().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            first_cycle.iter().copied().collect::<HashSet<_>>().len(),
+            task_count as usize
+        );
+        assert!(first_cycle[..chunk_count as usize]
+            .iter()
+            .all(
+                |(_, axis, parity)| *axis == TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS && *parity == 0
+            ));
+        assert!(first_cycle[chunk_count as usize..]
+            .iter()
+            .all(
+                |(_, axis, parity)| *axis == TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS && *parity == 1
+            ));
+        assert_eq!(runtime.next_spread_task(), Some(first_cycle[0]));
     }
 }

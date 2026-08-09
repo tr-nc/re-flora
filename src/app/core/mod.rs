@@ -42,6 +42,7 @@ use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
 use self::loading::{LoadingPhase, LoadingState};
+use self::moisture::TerrainMoistureRuntime;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
@@ -330,8 +331,7 @@ pub struct App {
     voxel_backpack: VoxelBackpack,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
-    moisture_dry_chunk_cursor: u32,
-    moisture_spread_chunk_cursor: u32,
+    terrain_moisture: TerrainMoistureRuntime,
     growing_flora_chunks: GrowingFloraQueue,
 
     #[allow(dead_code)]
@@ -1115,8 +1115,7 @@ impl App {
             player_tools: PlayerToolRuntime::default(),
             voxel_backpack: VoxelBackpack::default(),
             water_particle_handoff_main_thread_ms: None,
-            moisture_dry_chunk_cursor: 0,
-            moisture_spread_chunk_cursor: 0,
+            terrain_moisture: TerrainMoistureRuntime::default(),
             growing_flora_chunks: GrowingFloraQueue::default(),
 
             particle_system,
@@ -3018,7 +3017,7 @@ impl App {
                     }
                 }
 
-                if self.has_terrain_moisture_spread_chunks() {
+                if self.terrain_moisture.has_chunks() {
                     let moisture_spread_gpu_scope =
                         self.gpu_profiler.as_mut().and_then(|profiler| {
                             profiler.begin_scope(
@@ -3028,7 +3027,11 @@ impl App {
                                 PipelineStage::COMPUTE_SHADER,
                             )
                         });
-                    self.record_terrain_moisture_spread_chunks(cmdbuf);
+                    self.terrain_moisture.record_spread(
+                        &mut self.plain_builder,
+                        cmdbuf,
+                        self.perf_logging,
+                    );
                     if let Some(scope) = moisture_spread_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
                             profiler.end_scope(
@@ -3702,7 +3705,7 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_shadow;
 
-                if self.has_terrain_moisture_dry_chunks() {
+                if self.terrain_moisture.has_chunks() {
                     let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                         profiler.begin_scope(
                             frame_slot,
@@ -3711,11 +3714,16 @@ impl App {
                             PipelineStage::COMPUTE_SHADER,
                         )
                     });
-                    self.record_terrain_moisture_dry_chunks(
+                    let direct_shadow_available_mask =
+                        self.tracer.direct_sun_shadow_available_mask();
+                    self.terrain_moisture.record_dry(
+                        &mut self.plain_builder,
+                        &self.contree_builder,
                         cmdbuf,
                         sun_dir,
                         DIRECT_SUN_SHADOW_SOURCE_ALL,
-                        self.tracer.direct_sun_shadow_available_mask(),
+                        direct_shadow_available_mask,
+                        self.perf_logging,
                     );
                     if let Some(scope) = moisture_dry_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
