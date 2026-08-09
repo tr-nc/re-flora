@@ -68,7 +68,7 @@ class PostProcessingDitherTests(unittest.TestCase):
 
         self.assertEqual(parameter["kind"], "float")
         self.assertEqual(parameter["label"], "Dither Strength (Max 8-bit LSB)")
-        self.assertEqual(parameter["data"], {"value": 1.5, "min": 0, "max": 4})
+        self.assertEqual(parameter["data"], {"value": 1, "min": 0, "max": 4})
 
     def _dither_parameter(self) -> dict:
         with GUI_CONFIG.open("rb") as config_file:

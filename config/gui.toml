@@ -192,7 +192,7 @@ label = "Dither Strength (Max 8-bit LSB)"
 type = "Float"
 
 [section.param.data]
-value = 1.5
+value = 1
 min = 0
 max = 4
 
