@@ -25,6 +25,7 @@ mod tree_bench;
 mod ui_style;
 mod vegetation;
 mod water;
+mod water_experience_scene;
 
 use self::authored_flora_bench::AuthoredFloraBench;
 use self::camera_snapshot_ui::draw_camera_snapshots_ui;
@@ -430,6 +431,7 @@ pub struct App {
     tree_bench: Option<TreeBench>,
     authored_flora_bench: Option<AuthoredFloraBench>,
     water_edit_soak: Option<water::WaterEditSoak>,
+    water_experience_scene: Option<water_experience_scene::WaterExperienceScene>,
     environment_lighting_test_scene:
         Option<environment_lighting_test_scene::EnvironmentLightingTestScene>,
     hybrid_transparency_test_scene:
@@ -1389,19 +1391,26 @@ impl App {
                 .with_collider_bounds(Vec3::ZERO, world_extent)
                 .with_grid_dim(world_grid_dim),
         };
-        let water_gui_config_applied = options.water_profile.is_none();
-        let water_profile_config = options.water_profile.map(|_| water_config.clone());
-        water::apply_water_gui_adjustables_to_config(
-            &mut water_config,
-            &debug_settings.adjustables,
-        );
+        let water_gui_config_applied = options.water_profile.is_none() && !options.water_experience;
+        if water_gui_config_applied {
+            water::apply_water_gui_adjustables_to_config(
+                &mut water_config,
+                &debug_settings.adjustables,
+            );
+        }
+        if options.water_experience {
+            water_experience_scene::WaterExperienceScene::configure_water(&mut water_config);
+        }
+        let water_profile_config = (options.water_profile.is_some() || options.water_experience)
+            .then(|| water_config.clone());
         let water_runtime_overrides =
             water::WaterRuntimeOverrides::from_options(options, water_profile_config);
         water_runtime_overrides.apply(&mut water_config);
 
         log::info!(
-            "[WATER] config profile={:?} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} cells_per_unit={}",
+            "[WATER] config profile={:?} experience={} gui_config_applied={} particles={} grid={:?} substep_dt={:.6}s terrain_margin_cells={:.2} boundary_density_min_fluid_fraction={:.2} boundary_density_max_correction={:.2} boundary_density_transition_cells={:.2} damping={:.2}/s quiet_settling={:.2}/{:.2}/s terrain_tangent_damping={:.2}/s debug_spawn_height_offset={:.2} gravity={:?} stiffness={:.1} gamma={:.2} j_min={:.3} viscosity={:.3} pressure_floor={:.3} wall_damping={:.2} collider_bounds {:?}..{:?} initial_fluid={:?} cells_per_unit={}",
             options.water_profile,
+            options.water_experience,
             water_gui_config_applied,
             water_config.particle_count,
             water_config.grid_dim,
@@ -1424,8 +1433,12 @@ impl App {
             water_config.wall_damping,
             water_config.collider.min_ws,
             water_config.collider.max_ws,
+            water_config.initial_fluid_bounds,
             cells_per_unit,
         );
+        let water_experience_scene = options.water_experience.then(|| {
+            water_experience_scene::WaterExperienceScene::new(water_config.particle_count)
+        });
         let water_sim = water::AsyncWaterSim::new(water_config);
         let (
             terrain_sdf_collider_job_tx,
@@ -1605,6 +1618,7 @@ impl App {
                 .authored_flora_bench
                 .then(|| AuthoredFloraBench::new(options.authored_flora_bench_samples)),
             water_edit_soak: options.water_edit_soak.then(water::WaterEditSoak::default),
+            water_experience_scene,
             environment_lighting_test_scene: options
                 .environment_lighting_test_scene
                 .map(environment_lighting_test_scene::EnvironmentLightingTestScene::new),
@@ -1629,6 +1643,9 @@ impl App {
 
         if options.environment_lighting_test_scene.is_some() {
             app.configure_environment_lighting_test_scene_camera();
+        }
+        if options.water_experience {
+            app.configure_water_experience_camera()?;
         }
         app.sync_cursor_with_panels();
 
@@ -3553,6 +3570,7 @@ impl App {
                         self.update_particle_simulation(frame_delta_time);
                     });
                 }
+                self.process_water_experience_scene();
 
                 self.apply_denoiser_benchmark_camera_motion();
 

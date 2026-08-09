@@ -791,7 +791,7 @@ impl App {
             .poll_latest_particle_frame_after_frame(frame_delta_time, water_tick_seconds);
     }
 
-    fn water_terrain_work_active(&self) -> bool {
+    pub(super) fn water_terrain_work_active(&self) -> bool {
         !self.deferred_chunk_rebuilds_idle()
             || !self.deferred_terrain_sdf_source_refreshes.is_idle()
             || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()

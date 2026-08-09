@@ -187,6 +187,8 @@ pub struct AppOptions {
     pub resize_lifecycle_test: bool,
     /// Enable per-frame performance timing output to console.
     pub perf: bool,
+    /// Launch the stable, deterministic water experience scene.
+    pub water_experience: bool,
     /// Select a named water MLS-MPM configuration profile.
     pub water_profile: Option<WaterProfilePreference>,
     /// Override water MLS-MPM particle count.
@@ -487,11 +489,26 @@ impl AppOptions {
             parse_required_string_after("--terrain-load", "a terrain snapshot path")?;
         let terrain_save_path =
             parse_required_string_after("--terrain-save", "a terrain snapshot path")?;
+        let water_experience = args.iter().any(|arg| arg == "--water-experience");
+        let hybrid_transparency_test_scene = args
+            .iter()
+            .any(|arg| arg == "--hybrid-transparency-test-scene");
+        let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
+        if water_experience
+            && (environment_lighting_test_scene.is_some()
+                || hybrid_transparency_test_scene
+                || water_edit_soak)
+        {
+            return Err(
+                "Do not combine --water-experience with terrain-stamping test scenes or --water-edit-soak"
+                    .to_owned(),
+            );
+        }
         if terrain_load_path.is_some()
             && (environment_lighting_test_scene.is_some()
-                || args.iter().any(|arg| {
-                    arg == "--hybrid-transparency-test-scene" || arg == "--water-edit-soak"
-                }))
+                || hybrid_transparency_test_scene
+                || water_edit_soak
+                || water_experience)
         {
             return Err(
                 "Do not combine --terrain-load with terrain-stamping test scenes or --water-edit-soak"
@@ -534,6 +551,7 @@ impl AppOptions {
             egui_texture_lifecycle_test: args.iter().any(|a| a == "--egui-texture-lifecycle-test"),
             resize_lifecycle_test: args.iter().any(|a| a == "--resize-lifecycle-test"),
             perf: args.iter().any(|a| a == "--perf"),
+            water_experience,
             water_profile,
             water_particles: parse_u32_after("--water-particles").map(|v| v as usize),
             water_particle_edge_len: parse_f32_after("--water-particle-edge-len")
@@ -548,7 +566,7 @@ impl AppOptions {
             water_stiffness: parse_f32_after("--water-stiffness").map(|v| v.max(0.0)),
             water_gamma: parse_f32_after("--water-gamma").map(|v| v.max(1.0e-4)),
             water_j_min: parse_f32_after("--water-j-min").map(|v| v.clamp(1.0e-4, 1.0)),
-            water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
+            water_edit_soak,
             environment_lighting_test_scene,
             environment_irradiance_capture_path,
             ddgi_spatial_weight_readback_path,
@@ -557,9 +575,7 @@ impl AppOptions {
             ddgi_debug_view,
             ddgi_consumer_visibility,
             ddgi_terrain_hard_origin,
-            hybrid_transparency_test_scene: args
-                .iter()
-                .any(|a| a == "--hybrid-transparency-test-scene"),
+            hybrid_transparency_test_scene,
             environment_probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels,
             environment_probe_visualization: args
@@ -820,6 +836,7 @@ Options:
                               Exercise egui texture generations through full/partial/free updates
   --resize-lifecycle-test     Exercise coalesced programmatic resizes through the render path
   --perf                      Enable per-frame performance logging
+  --water-experience          Launch the stable basin, water fill, lighting, and camera experience
   --water-profile <profile>   Select water profile: default, performance
   --water-particles <N>       Seed N initial water MLS-MPM particles in the startup pool (0 = none)
   --water-particle-edge-len <L>
@@ -889,6 +906,7 @@ Examples:
   re-flora --list-camera-snapshots
   re-flora --auto-exit 10 --perf
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance
+  re-flora --water-experience
   re-flora --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
@@ -947,6 +965,7 @@ mod tests {
         assert!(options.audio_output_device.is_none());
         assert!(!options.list_audio_output_devices);
         assert!(!options.perf);
+        assert!(!options.water_experience);
         assert!(options.present_mode.is_none());
         assert!(matches!(
             options.monitor_score,
@@ -1428,6 +1447,58 @@ mod tests {
         assert_eq!(options.water_gamma, Some(4.0));
         assert_eq!(options.water_j_min, Some(0.25));
         assert!(options.water_edit_soak);
+    }
+
+    #[test]
+    fn parses_stable_water_experience_entry() {
+        let options = parse(&[
+            "re-flora",
+            "--water-experience",
+            "--hidden",
+            "--mute",
+            "--auto-exit",
+            "8",
+        ]);
+
+        assert!(options.water_experience);
+        assert!(options.hidden);
+        assert!(options.mute);
+        assert_eq!(options.auto_exit_delay, Some(8.0));
+    }
+
+    #[test]
+    fn water_experience_rejects_competing_terrain_scenes() {
+        let error = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--water-experience",
+                "--hybrid-transparency-test-scene",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("Do not combine --water-experience"));
+    }
+
+    #[test]
+    fn water_experience_rejects_loaded_terrain() {
+        let error = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--water-experience",
+                "--terrain-load",
+                "saves/custom.rflterrain",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("Do not combine --terrain-load"));
     }
 
     #[test]

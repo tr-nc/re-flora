@@ -46,6 +46,10 @@ pub struct PondWaterConfig {
     pub collider: WaterBoxCollider,
     pub grid_dim: UVec3,
     pub particle_count: usize,
+    /// Optional startup-only fill volume. Runtime configuration updates never
+    /// reseed particles; this only selects where `PondWaterSim::new` places its
+    /// initial markers. `None` preserves the existing full safe-collider seed.
+    pub initial_fluid_bounds: Option<WaterBoxCollider>,
     pub substep_dt: f32,
     pub particle_mass: f32,
     pub particle_volume: f32,
@@ -75,6 +79,7 @@ impl Default for PondWaterConfig {
             collider,
             grid_dim: DEFAULT_GRID_DIM,
             particle_count: DEFAULT_PARTICLE_COUNT,
+            initial_fluid_bounds: None,
             substep_dt: 1.0 / 240.0,
             particle_volume: default_particle_volume(),
             particle_mass: default_particle_mass(default_particle_volume()),
@@ -104,6 +109,12 @@ impl Default for PondWaterConfig {
 impl PondWaterConfig {
     pub fn with_particle_count(mut self, particle_count: usize) -> Self {
         self.particle_count = particle_count;
+        self
+    }
+
+    pub fn with_initial_fluid_bounds(mut self, min_ws: Vec3, max_ws: Vec3) -> Self {
+        assert!(min_ws.is_finite() && max_ws.is_finite() && max_ws.cmpgt(min_ws).all());
+        self.initial_fluid_bounds = Some(WaterBoxCollider::new(min_ws, max_ws));
         self
     }
 
@@ -387,10 +398,11 @@ impl PondWaterSim {
         sim.grid_dim = sim.config.grid_dim;
         sim.seed_particles();
         log::info!(
-            "[WATER][INIT] seeded {} initial particles bounds {:?}..{:?} grid {:?} dx {:.5} particle_volume {:.6} rest_density {:.1}",
+            "[WATER][INIT] seeded {} initial particles bounds {:?}..{:?} initial_fluid={:?} grid {:?} dx {:.5} particle_volume {:.6} rest_density {:.1}",
             sim.particles.len(),
             sim.config.collider.min_ws,
             sim.config.collider.max_ws,
+            sim.config.initial_fluid_bounds,
             sim.grid_dim,
             sim.dx,
             sim.config.particle_volume,
@@ -838,8 +850,11 @@ impl PondWaterSim {
             return;
         }
 
-        let volume_min = safe_min;
-        let volume_max = safe_max;
+        let (volume_min, volume_max) = self
+            .config
+            .initial_fluid_bounds
+            .map(|initial| (initial.min_ws.max(safe_min), initial.max_ws.min(safe_max)))
+            .unwrap_or((safe_min, safe_max));
         if volume_min.cmpge(volume_max).any() {
             return;
         }
@@ -1087,6 +1102,27 @@ mod tests {
         }
         assert!(max_y <= seed_surface_y + 1.0e-5, "max_y={max_y}");
         assert!(min_y < seed_surface_y - sim.dx, "seeded water has no volume: min_y={min_y} surface={seed_surface_y}");
+    }
+
+    #[test]
+    fn explicit_initial_fluid_bounds_limit_the_complete_seed() {
+        let initial_min = Vec3::new(0.4, 0.2, 0.5);
+        let initial_max = Vec3::new(1.6, 0.8, 1.5);
+        let sim = PondWaterSim::new(
+            PondWaterConfig::default()
+                .with_collider_bounds(Vec3::ZERO, Vec3::splat(2.0))
+                .with_initial_fluid_bounds(initial_min, initial_max)
+                .with_particle_count(1024),
+        );
+
+        assert_eq!(sim.particles.len(), 1024);
+        assert!(sim.particles.iter().all(|particle| {
+            particle.x.cmpge(initial_min).all() && particle.x.cmple(initial_max).all()
+        }));
+        assert!(sim
+            .particles
+            .iter()
+            .any(|particle| particle.x.y < initial_max.y - sim.dx));
     }
 
     #[test]
