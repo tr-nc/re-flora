@@ -1,12 +1,5 @@
 use super::placeables::{PipeRayHit, PlaceableKind, SprinklerPlacementTarget};
-use super::player_tools::ContinuousTerrainToolAction;
-use super::ui_style::{
-    FERTILIZER_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, ITEM_PANEL_SLOT_COUNT,
-    PIPE_PLACEABLE_SLOT_INDEX, PIPE_SLOT_INDEX, PLACEABLE_PANEL_SLOT_COUNT, PLACE_TOOL_SLOT_INDEX,
-    SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX,
-    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, TILLER_SLOT_INDEX,
-    TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
-};
+use super::player_tools::{ContinuousTerrainToolAction, PlayerTool, PlayerToolSelectionUpdate};
 use super::App;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{
@@ -380,80 +373,27 @@ impl App {
         }
     }
 
-    pub(super) fn clear_selected_tool(&mut self) {
-        if self.player_tools.selected_item_panel_slot.is_some() {
-            self.cancel_pipe_drag();
-            self.player_tools.selected_item_panel_slot = None;
-            self.player_tools.reset_staff_stroke_tracking();
-            self.player_tools.reset_watering_stroke_tracking();
-            self.player_tools.reset_fertilizing_stroke_tracking();
-            self.player_tools.reset_tilling_stroke_tracking();
-            self.player_tools.cancel_continuous_hold();
-            self.stop_terrain_edit_loop_sound();
-            self.play_item_panel_scroll_sound();
-        }
-    }
-
-    pub(super) fn activate_item_panel_slot(&mut self, slot_idx: usize) {
-        if slot_idx == HAND_SLOT_INDEX {
-            self.clear_selected_tool();
+    fn apply_player_tool_selection_update(&mut self, update: PlayerToolSelectionUpdate) {
+        if !update.changed() {
             return;
         }
-
-        if slot_idx <= PLACE_TOOL_SLOT_INDEX
-            && Some(slot_idx) != self.player_tools.selected_item_panel_slot
-        {
-            self.player_tools.selected_item_panel_slot = Some(slot_idx);
-            self.player_tools.reset_staff_stroke_tracking();
-            self.player_tools.reset_watering_stroke_tracking();
-            self.player_tools.reset_fertilizing_stroke_tracking();
-            self.player_tools.reset_tilling_stroke_tracking();
-            self.play_item_panel_scroll_sound();
+        if update.cancel_placeable_interaction() {
+            self.cancel_pipe_drag();
         }
+        if update.active_tool_changed() {
+            self.stop_terrain_edit_loop_sound();
+        }
+        self.play_item_panel_scroll_sound();
     }
 
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) {
-        if slot_idx == TREE_SLOT_INDEX {
-            self.select_placeable_tool(TREE_PLACEABLE_SLOT_INDEX);
-        } else if slot_idx == SPRINKLER_SLOT_INDEX {
-            self.select_placeable_tool(SPRINKLER_PLACEABLE_SLOT_INDEX);
-        } else if slot_idx == PIPE_SLOT_INDEX {
-            self.select_placeable_tool(PIPE_PLACEABLE_SLOT_INDEX);
-        } else if slot_idx == HAND_SLOT_INDEX
-            || Some(slot_idx) == self.player_tools.selected_item_panel_slot
-        {
-            self.clear_selected_tool();
-        } else if slot_idx < ITEM_PANEL_SLOT_COUNT {
-            self.activate_item_panel_slot(slot_idx);
-        }
-    }
-
-    pub(super) fn select_placeable_panel_slot(&mut self, slot_idx: usize) {
-        if slot_idx < PLACEABLE_PANEL_SLOT_COUNT
-            && slot_idx != self.player_tools.selected_placeable_panel_slot
-        {
-            self.player_tools.selected_placeable_panel_slot = slot_idx;
-            self.play_item_panel_scroll_sound();
-        }
+        let update = self.player_tools.select_item_panel_slot(slot_idx);
+        self.apply_player_tool_selection_update(update);
     }
 
     pub(super) fn select_placeable_tool(&mut self, slot_idx: usize) {
-        if slot_idx >= PLACEABLE_PANEL_SLOT_COUNT {
-            return;
-        }
-
-        if slot_idx != self.player_tools.selected_placeable_panel_slot {
-            self.cancel_pipe_drag();
-        }
-        if self.is_place_tool_selected()
-            && slot_idx == self.player_tools.selected_placeable_panel_slot
-        {
-            self.clear_selected_tool();
-            return;
-        }
-
-        self.select_placeable_panel_slot(slot_idx);
-        self.activate_item_panel_slot(TREE_SLOT_INDEX);
+        let update = self.player_tools.select_placeable_tool(slot_idx);
+        self.apply_player_tool_selection_update(update);
     }
 
     pub(super) fn current_flora_paint_selection(&self) -> species::FloraPaintSelection {
@@ -539,23 +479,15 @@ impl App {
     }
 
     pub(super) fn is_shovel_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == Some(SHOVEL_SLOT_INDEX)
+        self.player_tools.selected_tool() == PlayerTool::Shovel
     }
 
     pub(super) fn is_smooth_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == Some(SMOOTH_SLOT_INDEX)
+        self.player_tools.selected_tool() == PlayerTool::Smooth
     }
 
     pub(super) fn is_terrain_edit_radius_tool_selected(&self) -> bool {
-        self.is_shovel_selected()
-            || self.is_smooth_selected()
-            || self.is_staff_selected()
-            || self.is_hoe_selected()
-            || self.is_place_tool_selected()
-            || self.is_watering_selected()
-            || self.is_soil_inspector_selected()
-            || self.is_fertilizer_selected()
-            || self.is_tiller_selected()
+        self.player_tools.selected_tool().uses_terrain_edit_radius()
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
@@ -579,31 +511,31 @@ impl App {
     }
 
     pub(super) fn is_staff_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == Some(STAFF_SLOT_INDEX)
+        self.player_tools.selected_tool() == PlayerTool::Staff
     }
 
     pub(super) fn is_hoe_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == Some(HOE_SLOT_INDEX)
+        self.player_tools.selected_tool() == PlayerTool::Hoe
     }
 
     pub(super) fn is_place_tool_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == Some(TREE_SLOT_INDEX)
+        self.player_tools.selected_tool() == PlayerTool::Placeable
     }
 
     pub(super) fn is_watering_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == Some(WATERING_SLOT_INDEX)
+        self.player_tools.selected_tool() == PlayerTool::Watering
     }
 
     pub(super) fn is_soil_inspector_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == Some(SOIL_INSPECTOR_SLOT_INDEX)
+        self.player_tools.selected_tool() == PlayerTool::SoilInspector
     }
 
     pub(super) fn is_fertilizer_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == Some(FERTILIZER_SLOT_INDEX)
+        self.player_tools.selected_tool() == PlayerTool::Fertilizer
     }
 
     pub(super) fn is_tiller_selected(&self) -> bool {
-        self.player_tools.selected_item_panel_slot == Some(TILLER_SLOT_INDEX)
+        self.player_tools.selected_tool() == PlayerTool::Tiller
     }
 
     fn active_voxel_type_id(&self) -> Option<u32> {

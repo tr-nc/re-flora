@@ -45,7 +45,6 @@ pub(crate) const ITEM_PANEL_TILLER_ICON_FALLBACK_PATH: &str =
 pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str = "assets/texture/tool_icons/tree.png";
 pub(crate) const ITEM_PANEL_TREE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/8_Wooden_Axe.PNG";
-pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 12;
 pub(crate) const HAND_SLOT_INDEX: usize = 0;
 pub(crate) const STAFF_SLOT_INDEX: usize = 1;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 2;
@@ -59,7 +58,6 @@ pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = 9;
 pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
 pub(crate) const SPRINKLER_SLOT_INDEX: usize = 10;
 pub(crate) const PIPE_SLOT_INDEX: usize = 11;
-pub(crate) const PLACEABLE_PANEL_SLOT_COUNT: usize = 3;
 pub(crate) const TREE_PLACEABLE_SLOT_INDEX: usize = 0;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 pub(crate) const PIPE_PLACEABLE_SLOT_INDEX: usize = 2;

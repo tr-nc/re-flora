@@ -426,14 +426,6 @@ pub(super) enum PlaceableKind {
 }
 
 impl PlaceableKind {
-    pub(super) fn from_slot(slot_idx: usize) -> Self {
-        match slot_idx {
-            super::ui_style::SPRINKLER_PLACEABLE_SLOT_INDEX => Self::Sprinkler,
-            super::ui_style::PIPE_PLACEABLE_SLOT_INDEX => Self::Pipe,
-            _ => Self::Tree,
-        }
-    }
-
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::Tree => "Tree",
@@ -627,7 +619,7 @@ fn sprinkler_seed(id: u32, position: Vec3) -> u64 {
 
 impl App {
     pub(super) fn current_placeable_kind(&self) -> PlaceableKind {
-        PlaceableKind::from_slot(self.player_tools.selected_placeable_panel_slot)
+        self.player_tools.selected_placeable()
     }
 
     pub(super) fn current_placeable_label(&self) -> &'static str {

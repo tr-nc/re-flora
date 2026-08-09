@@ -44,7 +44,7 @@ use self::loading::{LoadingPhase, LoadingState};
 use self::particles::TreeLeafEmitter;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerEmitter, SprinklerRecord};
-use self::player_tools::{PlayerToolPointerAction, PlayerToolRuntime};
+use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
@@ -2072,8 +2072,8 @@ impl App {
                 let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
                 let item_panel_fertilizer_icon = self.item_panel_fertilizer_icon.clone();
                 let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
-                let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
-                let selected_placeable_panel_slot = self.player_tools.selected_placeable_panel_slot;
+                let selected_item_panel_display_slot =
+                    self.player_tools.selected_item_panel_display_slot();
                 let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
                     .iter()
                     .copied()
@@ -2724,27 +2724,15 @@ impl App {
                                 enabled: true,
                             },
                         ];
-                        let selected_item_panel_display_slot = if selected_item_panel_slot
-                            == Some(TREE_SLOT_INDEX)
-                            && selected_placeable_panel_slot == SPRINKLER_PLACEABLE_SLOT_INDEX
-                        {
-                            Some(SPRINKLER_SLOT_INDEX)
-                        } else if selected_item_panel_slot == Some(TREE_SLOT_INDEX)
-                            && selected_placeable_panel_slot == PIPE_PLACEABLE_SLOT_INDEX
-                        {
-                            Some(PIPE_SLOT_INDEX)
-                        } else {
-                            selected_item_panel_slot.or(Some(HAND_SLOT_INDEX))
-                        };
                         let item_panel_response = draw_item_panel(
                             ctx,
                             &item_panel_slots,
-                            selected_item_panel_display_slot,
+                            Some(selected_item_panel_display_slot),
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
 
-                        if selected_item_panel_slot == Some(STAFF_SLOT_INDEX) {
+                        if self.player_tools.selected_tool() == PlayerTool::Staff {
                             let flora_paint_panel_response = draw_flora_paint_panel(
                                 ctx,
                                 &flora_paint_panel_entries,
