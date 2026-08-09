@@ -24,6 +24,9 @@ pub use dynamic_fruit_resources::*;
 mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
 
+mod flora_frame_plan;
+use flora_frame_plan::{FloraFramePlan, FloraFramePlanConfig};
+
 mod terrain_lighting_cache;
 use terrain_lighting_cache::{TerrainLightingCache, TerrainLightingCacheIdentity};
 
@@ -2828,45 +2831,6 @@ impl Tracer {
         Ok(())
     }
 
-    /// Returns a list of chunks that need to be drawn this frame.
-    fn chunks_needs_to_draw_this_frame<'a>(
-        &self,
-        surface_resources: &'a SurfaceResources,
-        lod_distance: f32,
-        flora_draw_distance: f32,
-    ) -> HashMap<LodState, Vec<&'a FloraInstanceResources>> {
-        let mut lod0_instances = Vec::new();
-        let mut lod1_instances = Vec::new();
-        let camera_pos = self.camera.position();
-
-        for (aabb, instances) in &surface_resources.instances.chunk_flora_instances {
-            // perform frustum culling
-            if !aabb.is_inside_frustum(self.current_view_proj_mat) {
-                continue;
-            }
-
-            // calculate distance from camera to chunk center
-            let chunk_center = aabb.center();
-            let distance = (camera_pos - chunk_center).length();
-
-            // skip chunks beyond max flora draw distance
-            if distance > flora_draw_distance {
-                continue;
-            }
-
-            if distance <= lod_distance {
-                lod0_instances.push(instances);
-            } else {
-                lod1_instances.push(instances);
-            }
-        }
-
-        let mut result = HashMap::new();
-        result.insert(LodState::Lod0, lod0_instances);
-        result.insert(LodState::Lod1, lod1_instances);
-        result
-    }
-
     fn trees_needs_to_draw_this_frame<'a>(
         &self,
         tree_instances: &'a HashMap<u32, TreeLeavesInstance>,
@@ -4203,51 +4167,39 @@ impl Tracer {
             },
         ];
 
-        let chunks_by_lod = enable_flora.then(|| {
-            self.chunks_needs_to_draw_this_frame(
-                surface_resources,
-                lod_distance,
-                flora_draw_distance,
+        let flora_frame_plan = if enable_flora {
+            FloraFramePlan::build(
+                FloraFramePlanConfig {
+                    camera_position: self.camera.position(),
+                    view_projection: self.current_view_proj_mat,
+                    lod_distance,
+                    draw_distance: flora_draw_distance,
+                    chunk_count: surface_resources.instances.chunk_flora_instances.len(),
+                    species_count: flora_color_tables.len(),
+                    max_cache_entries: FLORA_LIGHTING_CACHE_OFFSET_MASK + 1,
+                },
+                |chunk_index| {
+                    surface_resources.instances.chunk_flora_instances[chunk_index]
+                        .0
+                        .clone()
+                },
+                |chunk_index, species_index| {
+                    surface_resources.instances.chunk_flora_instances[chunk_index]
+                        .1
+                        .species_len(species_index)
+                },
+                |species_index| should_render_grass_species(species_index, grass_render_mode),
+                |species_index, lod_state| match lod_state {
+                    LodState::Lod0 => self.resources.meshes.flora_meshes[species_index].voxel_count,
+                    LodState::Lod1 => {
+                        self.resources.meshes.flora_meshes_lod[species_index].voxel_count
+                    }
+                },
             )
-        });
-        let required_flora_cache_entries = chunks_by_lod
-            .as_ref()
-            .map(|chunks_by_lod| {
-                flora_color_tables
-                    .iter()
-                    .enumerate()
-                    .filter(|(species_index, _)| {
-                        should_render_grass_species(*species_index, grass_render_mode)
-                    })
-                    .map(|(species_index, _)| {
-                        [LodState::Lod0, LodState::Lod1]
-                            .into_iter()
-                            .map(|lod_state| {
-                                let mesh = match lod_state {
-                                    LodState::Lod0 => {
-                                        &self.resources.meshes.flora_meshes[species_index]
-                                    }
-                                    LodState::Lod1 => {
-                                        &self.resources.meshes.flora_meshes_lod[species_index]
-                                    }
-                                };
-                                chunks_by_lod[&lod_state]
-                                    .iter()
-                                    .map(|instances| {
-                                        instances.species_len(species_index) * mesh.voxel_count
-                                    })
-                                    .sum::<u32>()
-                            })
-                            .sum::<u32>()
-                    })
-                    .sum::<u32>()
-            })
-            .unwrap_or(0);
-        assert!(
-            required_flora_cache_entries <= FLORA_LIGHTING_CACHE_OFFSET_MASK + 1,
-            "visible flora need {required_flora_cache_entries} lighting cache entries, max is {}",
-            FLORA_LIGHTING_CACHE_OFFSET_MASK + 1,
-        );
+        } else {
+            FloraFramePlan::default()
+        };
+        let required_flora_cache_entries = flora_frame_plan.required_cache_entries();
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
             self.raster_flora_ddgi_lighting,
@@ -4272,66 +4224,55 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 )
             });
-            let mut cache_offset = 0u32;
-            for (species_index, height_color_tables) in flora_color_tables.iter().enumerate() {
-                if !should_render_grass_species(species_index, grass_render_mode) {
-                    continue;
-                }
-                for &lod_state in &[LodState::Lod0, LodState::Lod1] {
-                    let mesh = match lod_state {
-                        LodState::Lod0 => &self.resources.meshes.flora_meshes[species_index],
-                        LodState::Lod1 => &self.resources.meshes.flora_meshes_lod[species_index],
-                    };
-                    for instances in chunks_by_lod.as_ref().unwrap()[&lod_state].iter() {
-                        let instance_count = instances.species_len(species_index);
-                        if instance_count == 0 {
-                            continue;
-                        }
-                        let mut push_constant = flora_push_constant(
-                            time,
-                            species_index as u32,
-                            instances.chunk_world_offset,
-                            *height_color_tables,
-                        );
-                        push_constant.lighting_cache_location = flora_lighting_cache_location(
-                            cache_offset,
-                            mesh.voxel_count,
-                            lod_state == LodState::Lod1,
-                        );
-                        push_constant.instance_ty =
-                            flora_lighting_cache_instance_ty(species_index as u32, instance_count);
-                        self.compute_pipelines
-                            .flora_lighting_cache_ppl
-                            .record_with_descriptors(
-                                cmdbuf,
-                                &[
-                                    (
-                                        "flora_instances",
-                                        DescriptorResource::Buffer(
-                                            &instances.resource.instances_buf,
-                                        ),
-                                    ),
-                                    (
-                                        "grass_growth_potential_levels",
-                                        DescriptorResource::Buffer(
-                                            &instances.grass_growth_potential_levels,
-                                        ),
-                                    ),
-                                    (
-                                        "flora_lighting_cache",
-                                        DescriptorResource::Buffer(&cache_buffer),
-                                    ),
-                                    ("flora_vertices", DescriptorResource::Buffer(&mesh.vertices)),
-                                ],
-                                Extent3D::new(mesh.voxel_count, instance_count, 1),
-                                Some(bytemuck::bytes_of(&push_constant)),
-                            )
-                            .expect("flora lighting transient descriptors must match reflection");
-                        cache_offset += instance_count * mesh.voxel_count;
-                    }
-                }
+            for &batch in flora_frame_plan.batches() {
+                let species_index = batch.species_index();
+                let lod_state = batch.lod_state();
+                let instances =
+                    &surface_resources.instances.chunk_flora_instances[batch.chunk_index()].1;
+                let mesh = match lod_state {
+                    LodState::Lod0 => &self.resources.meshes.flora_meshes[species_index],
+                    LodState::Lod1 => &self.resources.meshes.flora_meshes_lod[species_index],
+                };
+                debug_assert_eq!(mesh.voxel_count, batch.mesh_voxel_count());
+                let mut push_constant = flora_push_constant(
+                    time,
+                    species_index as u32,
+                    instances.chunk_world_offset,
+                    flora_color_tables[species_index],
+                );
+                push_constant.lighting_cache_location = flora_lighting_cache_location(
+                    batch.lighting_cache_offset(),
+                    batch.mesh_voxel_count(),
+                    lod_state == LodState::Lod1,
+                );
+                push_constant.instance_ty =
+                    flora_lighting_cache_instance_ty(species_index as u32, batch.instance_count());
+                self.compute_pipelines
+                    .flora_lighting_cache_ppl
+                    .record_with_descriptors(
+                        cmdbuf,
+                        &[
+                            (
+                                "flora_instances",
+                                DescriptorResource::Buffer(&instances.resource.instances_buf),
+                            ),
+                            (
+                                "grass_growth_potential_levels",
+                                DescriptorResource::Buffer(
+                                    &instances.grass_growth_potential_levels,
+                                ),
+                            ),
+                            (
+                                "flora_lighting_cache",
+                                DescriptorResource::Buffer(&cache_buffer),
+                            ),
+                            ("flora_vertices", DescriptorResource::Buffer(&mesh.vertices)),
+                        ],
+                        Extent3D::new(batch.mesh_voxel_count(), batch.instance_count(), 1),
+                        Some(bytemuck::bytes_of(&push_constant)),
+                    )
+                    .expect("flora lighting transient descriptors must match reflection");
             }
-            debug_assert_eq!(cache_offset, required_flora_cache_entries);
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), cache_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
@@ -4430,8 +4371,7 @@ impl Tracer {
 
         // Draw all flora species, both LOD levels
         if enable_flora {
-            let mut recorded_flora_instance_count = 0u64;
-            let mut flora_cache_offset = 0u32;
+            let recorded_flora_instance_count = flora_frame_plan.instance_count();
             let flora_cache_buffer = flora_cache_buffer.as_ref();
             let flora_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
@@ -4441,92 +4381,75 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 )
             });
-            for (species_index, height_color_tables) in flora_color_tables.iter().enumerate() {
-                if !should_render_grass_species(species_index, grass_render_mode) {
-                    continue;
-                }
+            for group in flora_frame_plan.groups() {
+                let species_index = group.species_index();
+                let lod_state = group.lod_state();
+                let pipeline = match lod_state {
+                    LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
+                    LodState::Lod1 => &self.graphics_pipelines.flora_lod_ppl,
+                };
+                let mesh = match lod_state {
+                    LodState::Lod0 => &self.resources.meshes.flora_meshes[species_index],
+                    LodState::Lod1 => &self.resources.meshes.flora_meshes_lod[species_index],
+                };
+                pipeline.record_bind(cmdbuf);
+                pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+                cmdbuf.bind_index_buffer_u32(&mesh.indices);
+                cmdbuf.bind_vertex_buffers(0, &[&mesh.vertices]);
 
-                for &lod_state in &[LodState::Lod0, LodState::Lod1] {
-                    let pipeline = match lod_state {
-                        LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
-                        LodState::Lod1 => &self.graphics_pipelines.flora_lod_ppl,
-                    };
-                    let mesh_collection = match lod_state {
-                        LodState::Lod0 => &self.resources.meshes.flora_meshes,
-                        LodState::Lod1 => &self.resources.meshes.flora_meshes_lod,
-                    };
-                    let mesh = mesh_collection.get(species_index).unwrap_or_else(|| {
-                        panic!("Missing flora mesh for species index {}", species_index)
-                    });
+                for &batch in flora_frame_plan.group_batches(group) {
+                    debug_assert_eq!(batch.species_index(), species_index);
+                    debug_assert_eq!(batch.lod_state(), lod_state);
+                    debug_assert_eq!(batch.mesh_voxel_count(), mesh.voxel_count);
+                    let instances =
+                        &surface_resources.instances.chunk_flora_instances[batch.chunk_index()].1;
+                    let mut push_constant = flora_push_constant(
+                        time,
+                        species_index as u32,
+                        instances.chunk_world_offset,
+                        flora_color_tables[species_index],
+                    );
+                    push_constant.lighting_cache_location = flora_lighting_cache_location(
+                        batch.lighting_cache_offset(),
+                        batch.mesh_voxel_count(),
+                        lod_state == LodState::Lod1,
+                    );
 
-                    pipeline.record_bind(cmdbuf);
-                    pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-
-                    cmdbuf.bind_index_buffer_u32(&mesh.indices);
-
-                    let flora_instances = &chunks_by_lod.as_ref().unwrap()[&lod_state];
-                    for instances in flora_instances.iter() {
-                        let instance_count = instances.species_len(species_index);
-                        if instance_count == 0 {
-                            continue;
-                        }
-                        let instance_offset = FloraInstanceResources::species_offset(species_index);
-                        let mut push_constant = flora_push_constant(
-                            time,
-                            species_index as u32,
-                            instances.chunk_world_offset,
-                            *height_color_tables,
-                        );
-                        push_constant.lighting_cache_location = flora_lighting_cache_location(
-                            flora_cache_offset,
-                            mesh.voxel_count,
-                            lod_state == LodState::Lod1,
-                        );
-
-                        cmdbuf.bind_vertex_buffers(0, &[&mesh.vertices]);
-                        pipeline
-                            .record_indexed_with_descriptors(
-                                cmdbuf,
-                                &[
-                                    (
-                                        "flora_instances",
-                                        DescriptorResource::Buffer(
-                                            &instances.resource.instances_buf,
-                                        ),
+                    pipeline
+                        .record_indexed_with_descriptors(
+                            cmdbuf,
+                            &[
+                                (
+                                    "flora_instances",
+                                    DescriptorResource::Buffer(&instances.resource.instances_buf),
+                                ),
+                                (
+                                    "grass_growth_potential_levels",
+                                    DescriptorResource::Buffer(
+                                        &instances.grass_growth_potential_levels,
                                     ),
-                                    (
-                                        "grass_growth_potential_levels",
-                                        DescriptorResource::Buffer(
-                                            &instances.grass_growth_potential_levels,
-                                        ),
-                                    ),
-                                    (
-                                        "flora_lighting_cache",
-                                        DescriptorResource::Buffer(
-                                            match flora_cache_buffer.as_ref() {
-                                                Some(buffer) => buffer.as_ref(),
-                                                None => &*instances.resource.instances_buf,
-                                            },
-                                        ),
-                                    ),
-                                ],
-                                mesh.indices_len,
-                                instance_count,
-                                0,
-                                0,
-                                instance_offset,
-                                Some(&PushConstantInfo {
-                                    shader_stage: vk::ShaderStageFlags::VERTEX,
-                                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
-                                }),
-                            )
-                            .expect("flora draw descriptors must match reflection");
-                        recorded_flora_instance_count += u64::from(instance_count);
-                        flora_cache_offset += instance_count * mesh.voxel_count;
-                    }
+                                ),
+                                (
+                                    "flora_lighting_cache",
+                                    DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
+                                        Some(buffer) => buffer.as_ref(),
+                                        None => &*instances.resource.instances_buf,
+                                    }),
+                                ),
+                            ],
+                            mesh.indices_len,
+                            batch.instance_count(),
+                            0,
+                            0,
+                            FloraInstanceResources::species_offset(species_index),
+                            Some(&PushConstantInfo {
+                                shader_stage: vk::ShaderStageFlags::VERTEX,
+                                push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                            }),
+                        )
+                        .expect("flora draw descriptors must match reflection");
                 }
             }
-            debug_assert_eq!(flora_cache_offset, required_flora_cache_entries);
             if self.raster_flora_ddgi_lighting && recorded_flora_instance_count > 0 {
                 let active = self.ddgi_runtime.volumes().status().active();
                 if let Some(token) = active.build_token.filter(|token| {
