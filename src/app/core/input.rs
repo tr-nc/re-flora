@@ -420,30 +420,13 @@ impl App {
         )
     }
 
-    fn consume_next_flora_paint_dab_serial(&mut self, now: Instant) -> u32 {
-        let paint_dab_serial = self.flora_paint_dab_serial;
-        self.flora_paint_dab_serial = self.flora_paint_dab_serial.wrapping_add(1);
-        self.player_tools.active_staff_regen_paint_dab_serial = Some(paint_dab_serial);
-        self.player_tools.last_staff_regen_release_time = Some(now);
-        paint_dab_serial
-    }
-
     fn current_staff_regen_paint_dab_serial(&mut self, now: Instant) -> (u32, bool) {
         let paint_brush = species::flora_paint_brush_settings(self.current_flora_paint_selection());
-        if paint_brush.soft_spacing_voxels == 0 || paint_brush.plants_per_release == 0 {
-            return (self.flora_paint_dab_serial, true);
-        }
-
-        if let (Some(active_serial), Some(last_release)) = (
-            self.player_tools.active_staff_regen_paint_dab_serial,
-            self.player_tools.last_staff_regen_release_time,
-        ) {
-            if now.duration_since(last_release) < self.current_flora_paint_release_interval() {
-                return (active_serial, false);
-            }
-        }
-
-        (self.consume_next_flora_paint_dab_serial(now), true)
+        let release_interval = self.current_flora_paint_release_interval();
+        let spaced_releases =
+            paint_brush.soft_spacing_voxels > 0 && paint_brush.plants_per_release > 0;
+        self.player_tools
+            .flora_paint_dab(now, release_interval, spaced_releases)
     }
 
     pub(super) fn select_flora_paint_selection_index(&mut self, selection_idx: usize) {
@@ -459,8 +442,8 @@ impl App {
         }
 
         self.player_tools.flora_paint_selection_index = selection_idx;
-        self.player_tools.last_staff_regen_time = None;
-        self.player_tools.reset_staff_regen_stroke_tracking();
+        self.player_tools
+            .restart_stroke(ContinuousTerrainToolAction::StaffRegenerate);
         self.play_item_panel_scroll_sound();
         log::info!(
             "Grow brush flora selection: {}",
@@ -772,20 +755,22 @@ impl App {
             self.stop_terrain_edit_loop_sound();
             return;
         }
+        let action = ContinuousTerrainToolAction::ShovelDig;
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_shovel_dig_time = Some(now);
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_dig) = self.player_tools.last_shovel_dig_time {
-                    if now.duration_since(last_dig) < super::SHOVEL_DIG_INTERVAL {
-                        return;
-                    }
+                if !self
+                    .player_tools
+                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
+                {
+                    return;
                 }
 
                 if let Err(err) = self
@@ -816,11 +801,11 @@ impl App {
                     log::error!("Failed to apply terrain removal: {}", err);
                     return;
                 }
-                self.player_tools.last_shovel_dig_time = Some(now);
+                self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.player_tools.last_shovel_dig_time = Some(now);
+                self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
                 log::error!("Shovel carve attempt failed during terrain query: {}", err);
@@ -833,20 +818,22 @@ impl App {
             self.stop_terrain_edit_loop_sound();
             return;
         }
+        let action = ContinuousTerrainToolAction::Smooth;
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_smooth_time = Some(now);
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_smooth) = self.player_tools.last_smooth_time {
-                    if now.duration_since(last_smooth) < super::SHOVEL_DIG_INTERVAL {
-                        return;
-                    }
+                if !self
+                    .player_tools
+                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
+                {
+                    return;
                 }
 
                 if let Err(err) = self.apply_surface_terrain_smooth(
@@ -859,11 +846,11 @@ impl App {
                     log::error!("Failed to apply terrain smoothing: {}", err);
                     return;
                 }
-                self.player_tools.last_smooth_time = Some(now);
+                self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.player_tools.last_smooth_time = Some(now);
+                self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
                 log::error!(
@@ -875,9 +862,10 @@ impl App {
     }
 
     pub(super) fn try_staff_regenerate(&mut self, now: Instant) {
+        let action = ContinuousTerrainToolAction::StaffRegenerate;
         if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
             self.stop_terrain_edit_loop_sound();
-            self.player_tools.reset_staff_regen_stroke_tracking();
+            self.player_tools.interrupt_stroke(action);
             return;
         }
 
@@ -885,27 +873,24 @@ impl App {
             Ok(Some(center)) => {
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_staff_regen_time = Some(now);
-                    self.player_tools.reset_staff_regen_stroke_tracking();
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_regen) = self.player_tools.last_staff_regen_time {
-                    if now.duration_since(last_regen) < self.current_flora_paint_dab_interval() {
-                        return;
-                    }
+                let dab_interval = self.current_flora_paint_dab_interval();
+                if !self.player_tools.stroke_ready(action, now, dab_interval) {
+                    return;
                 }
 
                 let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.last_staff_regen_center,
+                    self.player_tools.previous_stroke_center(action),
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
                 if !terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_staff_regen_time = Some(now);
-                    self.player_tools.reset_staff_regen_stroke_tracking();
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 let (paint_dab_serial, is_release_step) =
@@ -914,19 +899,17 @@ impl App {
                     self.apply_surface_flora_regeneration(edit, paint_dab_serial, is_release_step)
                 {
                     log::error!("Failed to apply flora regeneration: {}", err);
-                    self.player_tools.reset_staff_regen_stroke_tracking();
+                    self.player_tools.interrupt_stroke(action);
                     return;
                 }
-                self.player_tools.last_staff_regen_time = Some(now);
-                self.player_tools.last_staff_regen_center = Some(center);
+                self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.player_tools.last_staff_regen_time = Some(now);
-                self.player_tools.reset_staff_regen_stroke_tracking();
+                self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
-                self.player_tools.reset_staff_regen_stroke_tracking();
+                self.player_tools.interrupt_stroke(action);
                 log::error!(
                     "Staff regeneration attempt failed during terrain query: {}",
                     err
@@ -936,9 +919,10 @@ impl App {
     }
 
     pub(super) fn try_staff_remove_flora(&mut self, now: Instant) {
+        let action = ContinuousTerrainToolAction::StaffRemove;
         if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
             self.stop_terrain_edit_loop_sound();
-            self.player_tools.last_staff_remove_center = None;
+            self.player_tools.interrupt_stroke(action);
             return;
         }
 
@@ -946,44 +930,41 @@ impl App {
             Ok(Some(center)) => {
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_staff_remove_time = Some(now);
-                    self.player_tools.last_staff_remove_center = None;
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_remove) = self.player_tools.last_staff_remove_time {
-                    if now.duration_since(last_remove) < super::SHOVEL_DIG_INTERVAL {
-                        return;
-                    }
+                if !self
+                    .player_tools
+                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
+                {
+                    return;
                 }
 
                 let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.last_staff_remove_center,
+                    self.player_tools.previous_stroke_center(action),
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
                 if !terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_staff_remove_time = Some(now);
-                    self.player_tools.last_staff_remove_center = None;
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 if let Err(err) = self.apply_surface_flora_removal(edit) {
                     log::error!("Failed to apply flora removal: {}", err);
-                    self.player_tools.last_staff_remove_center = None;
+                    self.player_tools.interrupt_stroke(action);
                     return;
                 }
-                self.player_tools.last_staff_remove_time = Some(now);
-                self.player_tools.last_staff_remove_center = Some(center);
+                self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.player_tools.last_staff_remove_time = Some(now);
-                self.player_tools.last_staff_remove_center = None;
+                self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
-                self.player_tools.last_staff_remove_center = None;
+                self.player_tools.interrupt_stroke(action);
                 log::error!(
                     "Staff flora removal attempt failed during terrain query: {}",
                     err
@@ -1050,6 +1031,7 @@ impl App {
             self.stop_terrain_edit_loop_sound();
             return;
         }
+        let action = ContinuousTerrainToolAction::ShovelPlace;
 
         let Some(place_voxel_type) = self.first_placeable_voxel_type() else {
             self.stop_terrain_edit_loop_sound();
@@ -1065,15 +1047,16 @@ impl App {
             Ok(Some(center)) => {
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_shovel_place_time = Some(now);
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_place) = self.player_tools.last_shovel_place_time {
-                    if now.duration_since(last_place) < super::SHOVEL_DIG_INTERVAL {
-                        return;
-                    }
+                if !self
+                    .player_tools
+                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
+                {
+                    return;
                 }
 
                 if let Err(err) = self
@@ -1095,11 +1078,11 @@ impl App {
                     log::error!("Failed to apply terrain placement: {}", err);
                     return;
                 }
-                self.player_tools.last_shovel_place_time = Some(now);
+                self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.player_tools.last_shovel_place_time = Some(now);
+                self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
                 log::error!("Shovel place attempt failed during terrain query: {}", err);
@@ -1112,20 +1095,22 @@ impl App {
             self.stop_terrain_edit_loop_sound();
             return;
         }
+        let action = ContinuousTerrainToolAction::HoeTrim;
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_hoe_trim_time = Some(now);
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_trim) = self.player_tools.last_hoe_trim_time {
-                    if now.duration_since(last_trim) < super::SHOVEL_DIG_INTERVAL {
-                        return;
-                    }
+                if !self
+                    .player_tools
+                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
+                {
+                    return;
                 }
 
                 if let Err(err) = self.apply_flora_trim(TerrainRemovalEdit {
@@ -1135,11 +1120,11 @@ impl App {
                     log::error!("Failed to apply flora trim: {}", err);
                     return;
                 }
-                self.player_tools.last_hoe_trim_time = Some(now);
+                self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.player_tools.last_hoe_trim_time = Some(now);
+                self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
                 log::error!("Hoe trim attempt failed during terrain query: {}", err);
@@ -1148,9 +1133,10 @@ impl App {
     }
 
     pub(super) fn try_watering_brush(&mut self, now: Instant) {
+        let action = ContinuousTerrainToolAction::Water;
         if !self.terrain_edit_pointer_available() || !self.is_watering_selected() {
             self.stop_terrain_edit_loop_sound();
-            self.player_tools.reset_watering_stroke_tracking();
+            self.player_tools.interrupt_stroke(action);
             return;
         }
 
@@ -1158,44 +1144,41 @@ impl App {
             Ok(Some(center)) => {
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_watering_time = Some(now);
-                    self.player_tools.reset_watering_stroke_tracking();
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_water) = self.player_tools.last_watering_time {
-                    if now.duration_since(last_water) < super::SHOVEL_DIG_INTERVAL {
-                        return;
-                    }
+                if !self
+                    .player_tools
+                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
+                {
+                    return;
                 }
 
                 let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.last_watering_center,
+                    self.player_tools.previous_stroke_center(action),
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
                 if !terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_watering_time = Some(now);
-                    self.player_tools.reset_watering_stroke_tracking();
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 if let Err(err) = self.add_watering_brush_moisture(edit) {
                     log::error!("Failed to apply watering brush: {}", err);
-                    self.player_tools.reset_watering_stroke_tracking();
+                    self.player_tools.interrupt_stroke(action);
                     return;
                 }
-                self.player_tools.last_watering_time = Some(now);
-                self.player_tools.last_watering_center = Some(center);
+                self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.player_tools.last_watering_time = Some(now);
-                self.player_tools.reset_watering_stroke_tracking();
+                self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
-                self.player_tools.reset_watering_stroke_tracking();
+                self.player_tools.interrupt_stroke(action);
                 log::error!(
                     "Watering brush attempt failed during terrain query: {}",
                     err
@@ -1205,9 +1188,10 @@ impl App {
     }
 
     pub(super) fn try_fertilizer_brush(&mut self, now: Instant) {
+        let action = ContinuousTerrainToolAction::Fertilize;
         if !self.terrain_edit_pointer_available() || !self.is_fertilizer_selected() {
             self.stop_terrain_edit_loop_sound();
-            self.player_tools.reset_fertilizing_stroke_tracking();
+            self.player_tools.interrupt_stroke(action);
             return;
         }
 
@@ -1215,45 +1199,42 @@ impl App {
             Ok(Some(center)) => {
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_fertilizing_time = Some(now);
-                    self.player_tools.reset_fertilizing_stroke_tracking();
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_fertilize) = self.player_tools.last_fertilizing_time {
-                    if now.duration_since(last_fertilize) < super::SHOVEL_DIG_INTERVAL {
-                        return;
-                    }
+                if !self
+                    .player_tools
+                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
+                {
+                    return;
                 }
 
                 let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.last_fertilizing_center,
+                    self.player_tools.previous_stroke_center(action),
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
                 if !terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_fertilizing_time = Some(now);
-                    self.player_tools.reset_fertilizing_stroke_tracking();
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
-                let stroke_seed = self.player_tools.active_fertilizer_stroke_seed();
+                let stroke_seed = self.player_tools.fertilizer_stroke_seed();
                 if let Err(err) = self.add_fertilizer_brush_fertility(edit, stroke_seed) {
                     log::error!("Failed to apply fertilizer brush: {}", err);
-                    self.player_tools.reset_fertilizing_stroke_tracking();
+                    self.player_tools.interrupt_stroke(action);
                     return;
                 }
-                self.player_tools.last_fertilizing_time = Some(now);
-                self.player_tools.last_fertilizing_center = Some(center);
+                self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.player_tools.last_fertilizing_time = Some(now);
-                self.player_tools.reset_fertilizing_stroke_tracking();
+                self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
-                self.player_tools.reset_fertilizing_stroke_tracking();
+                self.player_tools.interrupt_stroke(action);
                 log::error!(
                     "Fertilizer brush attempt failed during terrain query: {}",
                     err
@@ -1263,9 +1244,10 @@ impl App {
     }
 
     pub(super) fn try_tiller_brush(&mut self, now: Instant) {
+        let action = ContinuousTerrainToolAction::Till;
         if !self.terrain_edit_pointer_available() || !self.is_tiller_selected() {
             self.stop_terrain_edit_loop_sound();
-            self.player_tools.reset_tilling_stroke_tracking();
+            self.player_tools.interrupt_stroke(action);
             return;
         }
 
@@ -1273,44 +1255,41 @@ impl App {
             Ok(Some(center)) => {
                 if !terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_tilling_time = Some(now);
-                    self.player_tools.reset_tilling_stroke_tracking();
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 self.start_terrain_edit_loop_sound(center);
 
-                if let Some(last_till) = self.player_tools.last_tilling_time {
-                    if now.duration_since(last_till) < super::SHOVEL_DIG_INTERVAL {
-                        return;
-                    }
+                if !self
+                    .player_tools
+                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
+                {
+                    return;
                 }
 
                 let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.last_tilling_center,
+                    self.player_tools.previous_stroke_center(action),
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
                 if !terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
-                    self.player_tools.last_tilling_time = Some(now);
-                    self.player_tools.reset_tilling_stroke_tracking();
+                    self.player_tools.defer_stroke(action, now);
                     return;
                 }
                 if let Err(err) = self.mix_tiller_brush_soil(edit) {
                     log::error!("Failed to apply tiller brush: {}", err);
-                    self.player_tools.reset_tilling_stroke_tracking();
+                    self.player_tools.interrupt_stroke(action);
                     return;
                 }
-                self.player_tools.last_tilling_time = Some(now);
-                self.player_tools.last_tilling_center = Some(center);
+                self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
-                self.player_tools.last_tilling_time = Some(now);
-                self.player_tools.reset_tilling_stroke_tracking();
+                self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
-                self.player_tools.reset_tilling_stroke_tracking();
+                self.player_tools.interrupt_stroke(action);
                 log::error!("Tiller brush attempt failed during terrain query: {}", err);
             }
         }

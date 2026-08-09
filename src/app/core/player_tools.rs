@@ -1,5 +1,5 @@
 use glam::{Vec2, Vec3};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 use winit::event::{ElementState, MouseButton};
 
@@ -95,6 +95,208 @@ pub(super) enum ContinuousTerrainToolAction {
     Water,
     Fertilize,
     Till,
+}
+
+impl ContinuousTerrainToolAction {
+    fn tracks_path(self) -> bool {
+        matches!(
+            self,
+            Self::StaffRegenerate | Self::StaffRemove | Self::Water | Self::Fertilize | Self::Till
+        )
+    }
+}
+
+#[derive(Debug, Default)]
+struct TerrainStroke {
+    last_dab_time: Option<Instant>,
+    previous_center: Option<Vec3>,
+}
+
+impl TerrainStroke {
+    fn ready(&self, now: Instant, interval: Duration) -> bool {
+        self.last_dab_time
+            .is_none_or(|last_dab| now.duration_since(last_dab) >= interval)
+    }
+
+    fn record_dab(&mut self, action: ContinuousTerrainToolAction, now: Instant, center: Vec3) {
+        self.last_dab_time = Some(now);
+        self.previous_center = action.tracks_path().then_some(center);
+    }
+
+    fn defer(&mut self, now: Instant) {
+        self.last_dab_time = Some(now);
+        self.previous_center = None;
+    }
+
+    fn interrupt(&mut self) {
+        self.previous_center = None;
+    }
+
+    fn restart(&mut self) {
+        self.last_dab_time = None;
+        self.previous_center = None;
+    }
+}
+
+#[derive(Debug)]
+struct TerrainStrokeRuntime {
+    shovel_dig: TerrainStroke,
+    shovel_place: TerrainStroke,
+    smooth: TerrainStroke,
+    staff_regenerate: TerrainStroke,
+    staff_remove: TerrainStroke,
+    hoe_trim: TerrainStroke,
+    water: TerrainStroke,
+    fertilize: TerrainStroke,
+    till: TerrainStroke,
+    next_flora_paint_dab_serial: u32,
+    active_flora_paint_dab_serial: Option<u32>,
+    last_flora_paint_release_time: Option<Instant>,
+    next_fertilizer_stroke_seed: u32,
+    active_fertilizer_stroke_seed: Option<u32>,
+}
+
+impl Default for TerrainStrokeRuntime {
+    fn default() -> Self {
+        Self {
+            shovel_dig: TerrainStroke::default(),
+            shovel_place: TerrainStroke::default(),
+            smooth: TerrainStroke::default(),
+            staff_regenerate: TerrainStroke::default(),
+            staff_remove: TerrainStroke::default(),
+            hoe_trim: TerrainStroke::default(),
+            water: TerrainStroke::default(),
+            fertilize: TerrainStroke::default(),
+            till: TerrainStroke::default(),
+            next_flora_paint_dab_serial: 0,
+            active_flora_paint_dab_serial: None,
+            last_flora_paint_release_time: None,
+            next_fertilizer_stroke_seed: 1,
+            active_fertilizer_stroke_seed: None,
+        }
+    }
+}
+
+impl TerrainStrokeRuntime {
+    fn tracker(&self, action: ContinuousTerrainToolAction) -> &TerrainStroke {
+        match action {
+            ContinuousTerrainToolAction::ShovelDig => &self.shovel_dig,
+            ContinuousTerrainToolAction::ShovelPlace => &self.shovel_place,
+            ContinuousTerrainToolAction::Smooth => &self.smooth,
+            ContinuousTerrainToolAction::StaffRegenerate => &self.staff_regenerate,
+            ContinuousTerrainToolAction::StaffRemove => &self.staff_remove,
+            ContinuousTerrainToolAction::HoeTrim => &self.hoe_trim,
+            ContinuousTerrainToolAction::Water => &self.water,
+            ContinuousTerrainToolAction::Fertilize => &self.fertilize,
+            ContinuousTerrainToolAction::Till => &self.till,
+        }
+    }
+
+    fn tracker_mut(&mut self, action: ContinuousTerrainToolAction) -> &mut TerrainStroke {
+        match action {
+            ContinuousTerrainToolAction::ShovelDig => &mut self.shovel_dig,
+            ContinuousTerrainToolAction::ShovelPlace => &mut self.shovel_place,
+            ContinuousTerrainToolAction::Smooth => &mut self.smooth,
+            ContinuousTerrainToolAction::StaffRegenerate => &mut self.staff_regenerate,
+            ContinuousTerrainToolAction::StaffRemove => &mut self.staff_remove,
+            ContinuousTerrainToolAction::HoeTrim => &mut self.hoe_trim,
+            ContinuousTerrainToolAction::Water => &mut self.water,
+            ContinuousTerrainToolAction::Fertilize => &mut self.fertilize,
+            ContinuousTerrainToolAction::Till => &mut self.till,
+        }
+    }
+
+    fn ready(&self, action: ContinuousTerrainToolAction, now: Instant, interval: Duration) -> bool {
+        self.tracker(action).ready(now, interval)
+    }
+
+    fn previous_center(&self, action: ContinuousTerrainToolAction) -> Option<Vec3> {
+        self.tracker(action).previous_center
+    }
+
+    fn record_dab(&mut self, action: ContinuousTerrainToolAction, now: Instant, center: Vec3) {
+        self.tracker_mut(action).record_dab(action, now, center);
+    }
+
+    fn defer(&mut self, action: ContinuousTerrainToolAction, now: Instant) {
+        self.tracker_mut(action).defer(now);
+        self.clear_action_metadata(action);
+    }
+
+    fn interrupt(&mut self, action: ContinuousTerrainToolAction) {
+        self.tracker_mut(action).interrupt();
+        self.clear_action_metadata(action);
+    }
+
+    fn restart(&mut self, action: ContinuousTerrainToolAction) {
+        self.tracker_mut(action).restart();
+        self.clear_action_metadata(action);
+    }
+
+    fn interrupt_paths(&mut self) {
+        for action in [
+            ContinuousTerrainToolAction::StaffRegenerate,
+            ContinuousTerrainToolAction::StaffRemove,
+            ContinuousTerrainToolAction::Water,
+            ContinuousTerrainToolAction::Fertilize,
+            ContinuousTerrainToolAction::Till,
+        ] {
+            self.interrupt(action);
+        }
+    }
+
+    fn clear_action_metadata(&mut self, action: ContinuousTerrainToolAction) {
+        match action {
+            ContinuousTerrainToolAction::StaffRegenerate => {
+                self.active_flora_paint_dab_serial = None;
+                self.last_flora_paint_release_time = None;
+            }
+            ContinuousTerrainToolAction::Fertilize => {
+                self.active_fertilizer_stroke_seed = None;
+            }
+            _ => {}
+        }
+    }
+
+    fn flora_paint_dab(
+        &mut self,
+        now: Instant,
+        release_interval: Duration,
+        spaced_releases: bool,
+    ) -> (u32, bool) {
+        if !spaced_releases {
+            return (self.next_flora_paint_dab_serial, true);
+        }
+
+        if let (Some(active_serial), Some(last_release)) = (
+            self.active_flora_paint_dab_serial,
+            self.last_flora_paint_release_time,
+        ) {
+            if now.duration_since(last_release) < release_interval {
+                return (active_serial, false);
+            }
+        }
+
+        let serial = self.next_flora_paint_dab_serial;
+        self.next_flora_paint_dab_serial = self.next_flora_paint_dab_serial.wrapping_add(1);
+        self.active_flora_paint_dab_serial = Some(serial);
+        self.last_flora_paint_release_time = Some(now);
+        (serial, true)
+    }
+
+    fn fertilizer_stroke_seed(&mut self) -> u32 {
+        if let Some(seed) = self.active_fertilizer_stroke_seed {
+            return seed;
+        }
+
+        let seed = self.next_fertilizer_stroke_seed.max(1);
+        self.next_fertilizer_stroke_seed = seed
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223)
+            .max(1);
+        self.active_fertilizer_stroke_seed = Some(seed);
+        seed
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,26 +397,9 @@ pub(super) struct PlayerToolRuntime {
     selected_tool: PlayerTool,
     selected_placeable: PlaceableKind,
     pointer: ToolPointerState,
+    strokes: TerrainStrokeRuntime,
     pub(super) terrain_edit_radius: f32,
-    pub(super) last_shovel_dig_time: Option<Instant>,
-    pub(super) last_shovel_place_time: Option<Instant>,
-    pub(super) last_smooth_time: Option<Instant>,
-    pub(super) last_staff_regen_time: Option<Instant>,
-    pub(super) last_staff_remove_time: Option<Instant>,
-    pub(super) last_staff_regen_center: Option<Vec3>,
-    pub(super) last_staff_remove_center: Option<Vec3>,
-    pub(super) last_staff_regen_release_time: Option<Instant>,
-    pub(super) active_staff_regen_paint_dab_serial: Option<u32>,
     pub(super) flora_paint_selection_index: usize,
-    pub(super) last_hoe_trim_time: Option<Instant>,
-    pub(super) last_watering_time: Option<Instant>,
-    pub(super) last_watering_center: Option<Vec3>,
-    pub(super) last_fertilizing_time: Option<Instant>,
-    pub(super) last_fertilizing_center: Option<Vec3>,
-    pub(super) active_fertilizer_stroke_seed: Option<u32>,
-    pub(super) next_fertilizer_stroke_seed: u32,
-    pub(super) last_tilling_time: Option<Instant>,
-    pub(super) last_tilling_center: Option<Vec3>,
     pub(super) backpack_dirt_count: u32,
     pub(super) backpack_sand_count: u32,
     pub(super) backpack_cherry_wood_count: u32,
@@ -231,26 +416,9 @@ impl Default for PlayerToolRuntime {
             selected_tool: PlayerTool::Hand,
             selected_placeable: PlaceableKind::Tree,
             pointer: ToolPointerState::default(),
+            strokes: TerrainStrokeRuntime::default(),
             terrain_edit_radius: super::TERRAIN_EDIT_DEFAULT_RADIUS,
-            last_shovel_dig_time: None,
-            last_shovel_place_time: None,
-            last_smooth_time: None,
-            last_staff_regen_time: None,
-            last_staff_remove_time: None,
-            last_staff_regen_center: None,
-            last_staff_remove_center: None,
-            last_staff_regen_release_time: None,
-            active_staff_regen_paint_dab_serial: None,
             flora_paint_selection_index: 0,
-            last_hoe_trim_time: None,
-            last_watering_time: None,
-            last_watering_center: None,
-            last_fertilizing_time: None,
-            last_fertilizing_center: None,
-            active_fertilizer_stroke_seed: None,
-            next_fertilizer_stroke_seed: 1,
-            last_tilling_time: None,
-            last_tilling_center: None,
             backpack_dirt_count: 0,
             backpack_sand_count: 0,
             backpack_cherry_wood_count: 0,
@@ -360,10 +528,6 @@ impl PlayerToolRuntime {
     }
 
     fn reset_for_active_tool_change(&mut self) {
-        self.reset_staff_stroke_tracking();
-        self.reset_watering_stroke_tracking();
-        self.reset_fertilizing_stroke_tracking();
-        self.reset_tilling_stroke_tracking();
         self.cancel_continuous_hold();
     }
 
@@ -378,18 +542,22 @@ impl PlayerToolRuntime {
             }
         };
 
-        if button == MouseButton::Left {
-            self.reset_staff_regen_stroke_tracking();
-            self.reset_watering_stroke_tracking();
-            self.reset_fertilizing_stroke_tracking();
-            if state == ElementState::Pressed {
-                self.last_staff_regen_time = None;
-            }
-        }
-        if button == MouseButton::Right {
-            self.last_staff_remove_center = None;
-            if state == ElementState::Pressed {
-                self.last_staff_remove_time = None;
+        if state == ElementState::Released {
+            match button {
+                MouseButton::Left => {
+                    for action in [
+                        ContinuousTerrainToolAction::StaffRegenerate,
+                        ContinuousTerrainToolAction::Water,
+                        ContinuousTerrainToolAction::Fertilize,
+                        ContinuousTerrainToolAction::Till,
+                    ] {
+                        self.strokes.interrupt(action);
+                    }
+                }
+                MouseButton::Right => self
+                    .strokes
+                    .interrupt(ContinuousTerrainToolAction::StaffRemove),
+                _ => {}
             }
         }
     }
@@ -402,17 +570,14 @@ impl PlayerToolRuntime {
         self.pointer = ToolPointerState::idle(buttons);
         let action = self.pointer_action_for_button(button)?;
         if let PlayerToolPointerAction::Continuous(continuous) = action {
+            if continuous.tracks_path() {
+                self.strokes.restart(continuous);
+            }
             self.pointer = ToolPointerState::Continuous(
                 buttons
                     .non_empty()
                     .expect("a pressed tool action must retain its pointer button"),
             );
-            match continuous {
-                ContinuousTerrainToolAction::Water => self.last_watering_time = None,
-                ContinuousTerrainToolAction::Fertilize => self.last_fertilizing_time = None,
-                ContinuousTerrainToolAction::Till => self.last_tilling_time = None,
-                _ => {}
-            }
         }
         Some(action)
     }
@@ -439,14 +604,13 @@ impl PlayerToolRuntime {
 
     pub(super) fn cancel_continuous_hold(&mut self) {
         self.pointer = ToolPointerState::idle(self.pointer.buttons());
+        self.strokes.interrupt_paths();
     }
 
     pub(super) fn finish_pointer_release(&mut self) -> bool {
         let active = self.continuous_hold_active();
         if !active {
-            self.reset_staff_stroke_tracking();
-            self.reset_watering_stroke_tracking();
-            self.reset_fertilizing_stroke_tracking();
+            self.strokes.interrupt_paths();
         }
         active
     }
@@ -492,42 +656,55 @@ impl PlayerToolRuntime {
         }
     }
 
-    pub(super) fn reset_staff_stroke_tracking(&mut self) {
-        self.reset_staff_regen_stroke_tracking();
-        self.last_staff_remove_center = None;
+    pub(super) fn stroke_ready(
+        &self,
+        action: ContinuousTerrainToolAction,
+        now: Instant,
+        interval: Duration,
+    ) -> bool {
+        self.strokes.ready(action, now, interval)
     }
 
-    pub(super) fn reset_staff_regen_stroke_tracking(&mut self) {
-        self.last_staff_regen_center = None;
-        self.last_staff_regen_release_time = None;
-        self.active_staff_regen_paint_dab_serial = None;
+    pub(super) fn previous_stroke_center(
+        &self,
+        action: ContinuousTerrainToolAction,
+    ) -> Option<Vec3> {
+        self.strokes.previous_center(action)
     }
 
-    pub(super) fn reset_watering_stroke_tracking(&mut self) {
-        self.last_watering_center = None;
+    pub(super) fn record_stroke_dab(
+        &mut self,
+        action: ContinuousTerrainToolAction,
+        now: Instant,
+        center: Vec3,
+    ) {
+        self.strokes.record_dab(action, now, center);
     }
 
-    pub(super) fn reset_fertilizing_stroke_tracking(&mut self) {
-        self.last_fertilizing_center = None;
-        self.active_fertilizer_stroke_seed = None;
+    pub(super) fn defer_stroke(&mut self, action: ContinuousTerrainToolAction, now: Instant) {
+        self.strokes.defer(action, now);
     }
 
-    pub(super) fn reset_tilling_stroke_tracking(&mut self) {
-        self.last_tilling_center = None;
+    pub(super) fn interrupt_stroke(&mut self, action: ContinuousTerrainToolAction) {
+        self.strokes.interrupt(action);
     }
 
-    pub(super) fn active_fertilizer_stroke_seed(&mut self) -> u32 {
-        if let Some(seed) = self.active_fertilizer_stroke_seed {
-            return seed;
-        }
+    pub(super) fn restart_stroke(&mut self, action: ContinuousTerrainToolAction) {
+        self.strokes.restart(action);
+    }
 
-        let seed = self.next_fertilizer_stroke_seed.max(1);
-        self.next_fertilizer_stroke_seed = seed
-            .wrapping_mul(1_664_525)
-            .wrapping_add(1_013_904_223)
-            .max(1);
-        self.active_fertilizer_stroke_seed = Some(seed);
-        seed
+    pub(super) fn flora_paint_dab(
+        &mut self,
+        now: Instant,
+        release_interval: Duration,
+        spaced_releases: bool,
+    ) -> (u32, bool) {
+        self.strokes
+            .flora_paint_dab(now, release_interval, spaced_releases)
+    }
+
+    pub(super) fn fertilizer_stroke_seed(&mut self) -> u32 {
+        self.strokes.fertilizer_stroke_seed()
     }
 }
 
@@ -537,6 +714,8 @@ mod tests {
         ContinuousTerrainToolAction, PlaceableKind, PlayerTool, PlayerToolPointerAction,
         PlayerToolRuntime,
     };
+    use glam::Vec3;
+    use std::time::{Duration, Instant};
     use winit::event::{ElementState, MouseButton};
 
     #[test]
@@ -764,12 +943,89 @@ mod tests {
     #[test]
     fn fertilizer_stroke_seed_is_stable_until_the_stroke_resets() {
         let mut runtime = PlayerToolRuntime::default();
-        let first = runtime.active_fertilizer_stroke_seed();
-        assert_eq!(runtime.active_fertilizer_stroke_seed(), first);
+        let first = runtime.fertilizer_stroke_seed();
+        assert_eq!(runtime.fertilizer_stroke_seed(), first);
 
-        runtime.reset_fertilizing_stroke_tracking();
-        let next = runtime.active_fertilizer_stroke_seed();
+        runtime.interrupt_stroke(ContinuousTerrainToolAction::Fertilize);
+        let next = runtime.fertilizer_stroke_seed();
         assert_ne!(next, first);
         assert_ne!(next, 0);
+    }
+
+    #[test]
+    fn stroke_runtime_owns_cooldown_and_path_lifecycle() {
+        let mut runtime = PlayerToolRuntime::default();
+        let action = ContinuousTerrainToolAction::Water;
+        let started = Instant::now();
+        let center = Vec3::new(1.0, 2.0, 3.0);
+        let interval = Duration::from_millis(80);
+
+        assert!(runtime.stroke_ready(action, started, interval));
+        runtime.record_stroke_dab(action, started, center);
+        assert_eq!(runtime.previous_stroke_center(action), Some(center));
+        assert!(!runtime.stroke_ready(action, started + Duration::from_millis(79), interval));
+        assert!(runtime.stroke_ready(action, started + interval, interval));
+
+        runtime.defer_stroke(action, started + interval);
+        assert_eq!(runtime.previous_stroke_center(action), None);
+        assert!(!runtime.stroke_ready(
+            action,
+            started + interval + Duration::from_millis(1),
+            interval
+        ));
+    }
+
+    #[test]
+    fn releasing_each_swept_tool_breaks_its_path_including_tiller() {
+        let cases = [
+            (
+                super::STAFF_SLOT_INDEX,
+                ContinuousTerrainToolAction::StaffRegenerate,
+            ),
+            (
+                super::WATERING_SLOT_INDEX,
+                ContinuousTerrainToolAction::Water,
+            ),
+            (
+                super::FERTILIZER_SLOT_INDEX,
+                ContinuousTerrainToolAction::Fertilize,
+            ),
+            (super::TILLER_SLOT_INDEX, ContinuousTerrainToolAction::Till),
+        ];
+        for (slot, action) in cases {
+            let mut runtime = PlayerToolRuntime::default();
+            runtime.select_item_panel_slot(slot);
+            runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+            runtime.begin_pointer_action(MouseButton::Left);
+            runtime.record_stroke_dab(action, Instant::now(), Vec3::ONE);
+
+            runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
+            runtime.finish_pointer_release();
+
+            assert_eq!(runtime.previous_stroke_center(action), None);
+        }
+    }
+
+    #[test]
+    fn flora_release_serial_is_stable_inside_one_release_interval() {
+        let mut runtime = PlayerToolRuntime::default();
+        let started = Instant::now();
+        let interval = Duration::from_millis(100);
+
+        assert_eq!(runtime.flora_paint_dab(started, interval, true), (0, true));
+        assert_eq!(
+            runtime.flora_paint_dab(started + Duration::from_millis(99), interval, true),
+            (0, false)
+        );
+        assert_eq!(
+            runtime.flora_paint_dab(started + interval, interval, true),
+            (1, true)
+        );
+
+        runtime.interrupt_stroke(ContinuousTerrainToolAction::StaffRegenerate);
+        assert_eq!(
+            runtime.flora_paint_dab(started + interval, interval, true),
+            (2, true)
+        );
     }
 }
