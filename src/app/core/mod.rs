@@ -43,6 +43,7 @@ use self::particles::TreeLeafEmitter;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerEmitter, SprinklerRecord};
 use self::player_tools::PlayerToolState;
+use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRecord, TreeVariationConfig};
@@ -391,11 +392,8 @@ pub struct App {
     particle_forces: ParticleForces,
 
     render_start_time: Option<Instant>,
-    screenshot_path: Option<String>,
-    screenshot_delay: Option<f32>,
     terrain_persistence: TerrainPersistenceRuntime,
-    screenshot_taken: bool,
-    screenshot_to_clipboard_requested: bool,
+    screenshot_capture: ScreenshotRuntime,
     environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
     ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     denoiser_bench: Option<DenoiserBench>,
@@ -1448,11 +1446,8 @@ impl App {
             particle_forces,
 
             render_start_time: None,
-            screenshot_path: options.screenshot_path.clone(),
-            screenshot_delay: options.screenshot_delay,
             terrain_persistence,
-            screenshot_taken: false,
-            screenshot_to_clipboard_requested: false,
+            screenshot_capture: ScreenshotRuntime::new(options.screenshot.clone()),
             environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
                 options.environment_irradiance_capture_path.clone(),
             ),
@@ -2036,8 +2031,7 @@ impl App {
                 && !event.repeat
                 && event.physical_key == KeyCode::KeyP
             {
-                self.screenshot_to_clipboard_requested = true;
-                log::info!("[SCREENSHOT] P pressed; capturing next frame to clipboard");
+                self.screenshot_capture.request_clipboard();
                 return;
             }
 
@@ -2490,10 +2484,11 @@ impl App {
                         .unwrap_or(true),
                 );
                 let current_camera_is_free_fly = self.is_free_fly_camera_mode();
-                let hide_ui_for_environment_test_capture =
-                    (self.environment_lighting_test_scene.is_some()
-                        || self.hybrid_transparency_test_scene.is_some())
-                        && (self.screenshot_path.is_some() || self.denoiser_bench.is_some());
+                let hide_ui_for_environment_test_capture = (self
+                    .environment_lighting_test_scene
+                    .is_some()
+                    || self.hybrid_transparency_test_scene.is_some())
+                    && (self.screenshot_capture.is_scheduled() || self.denoiser_bench.is_some());
                 if self.loading_state.is_none() {
                     if let Some(test) = self.egui_texture_lifecycle_test.as_mut() {
                         test.advance();
@@ -4201,61 +4196,6 @@ impl App {
                         render_area.height,
                     );
                 }
-                let mut screenshot_readback = if self.screenshot_to_clipboard_requested {
-                    self.screenshot_to_clipboard_requested = false;
-                    match self.prepare_clipboard_screenshot_readback(render_area) {
-                        Ok(readback) => Some(readback),
-                        Err(err) => {
-                            log::error!(
-                                "[SCREENSHOT] Failed to prepare clipboard capture: {}",
-                                err
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
-                if screenshot_readback.is_none() && !self.screenshot_taken {
-                    if let (Some(render_start_time), Some(path), Some(delay)) = (
-                        self.render_start_time,
-                        self.screenshot_path.clone(),
-                        self.screenshot_delay,
-                    ) {
-                        let elapsed = render_start_time.elapsed().as_secs_f32();
-                        let test_scene_ready = self
-                            .environment_lighting_test_scene
-                            .as_ref()
-                            .is_none_or(
-                            environment_lighting_test_scene::EnvironmentLightingTestScene::is_ready,
-                        ) && self
-                            .hybrid_transparency_test_scene
-                            .as_ref()
-                            .is_none_or(
-                            hybrid_transparency_test_scene::HybridTransparencyTestScene::is_ready,
-                        );
-                        let environment_lighting_ready = self.tracer.ddgi_ready();
-                        if elapsed >= delay && test_scene_ready && environment_lighting_ready {
-                            self.screenshot_taken = true;
-                            log::info!("[SCREENSHOT] Capturing after {:.2}s to {}", elapsed, path);
-                            match self.prepare_screenshot_readback(path, render_area) {
-                                Ok(readback) => screenshot_readback = Some(readback),
-                                Err(err) => log::error!("[SCREENSHOT] Failed to prepare: {}", err),
-                            }
-                        }
-                    }
-                }
-                if screenshot_readback.is_none()
-                    && self
-                        .denoiser_bench
-                        .as_ref()
-                        .is_some_and(DenoiserBench::should_capture)
-                {
-                    match self.prepare_denoiser_benchmark_readback(render_area) {
-                        Ok(readback) => screenshot_readback = Some(readback),
-                        Err(err) => panic!("[DENOISER_BENCH] Failed to prepare readback: {err:#}"),
-                    }
-                }
 
                 self.swapchain.record_blit(
                     self.tracer.get_screen_output_tex().get_image(),
@@ -4286,9 +4226,47 @@ impl App {
 
                 cmdbuf.end_render_pass();
 
-                if let Some(readback) = &screenshot_readback {
-                    self.record_screenshot_readback(cmdbuf, image_idx, readback);
-                }
+                let screenshot_readiness = ScreenshotFrameReadiness::new(
+                    self.render_start_time
+                        .map(|started| started.elapsed().as_secs_f32()),
+                    self.environment_lighting_test_scene.as_ref().is_none_or(
+                        environment_lighting_test_scene::EnvironmentLightingTestScene::is_ready,
+                    ) && self.hybrid_transparency_test_scene.as_ref().is_none_or(
+                        hybrid_transparency_test_scene::HybridTransparencyTestScene::is_ready,
+                    ),
+                    self.tracer.ddgi_ready(),
+                );
+                let mut screenshot_readback = self.screenshot_capture.record_if_ready(
+                    &self.tracer,
+                    &self.vulkan_ctx,
+                    &self.swapchain,
+                    cmdbuf,
+                    image_idx,
+                    render_area,
+                    screenshot_readiness,
+                );
+                let mut denoiser_frame_readback = if screenshot_readback.is_none()
+                    && self
+                        .denoiser_bench
+                        .as_ref()
+                        .is_some_and(DenoiserBench::should_capture)
+                {
+                    Some(
+                        PendingDenoiserFrame::record(
+                            &self.tracer,
+                            &self.vulkan_ctx,
+                            &self.swapchain,
+                            cmdbuf,
+                            image_idx,
+                            render_area,
+                        )
+                        .unwrap_or_else(|err| {
+                            panic!("[DENOISER_BENCH] Failed to prepare readback: {err:#}")
+                        }),
+                    )
+                } else {
+                    None
+                };
 
                 if let Some(scope) = frame_gpu_scope {
                     if let Some(profiler) = self.gpu_profiler.as_mut() {
@@ -4320,6 +4298,7 @@ impl App {
                 let mut environment_irradiance_capture_complete = false;
                 let mut ddgi_spatial_weight_readback_complete = false;
                 if screenshot_readback.is_some()
+                    || denoiser_frame_readback.is_some()
                     || environment_irradiance_readback.is_some()
                     || ddgi_spatial_weight_readback.is_some()
                 {
@@ -4354,40 +4333,18 @@ impl App {
                                 }
                             }
                             if let Some(readback) = screenshot_readback.take() {
-                                if matches!(
-                                    readback.destination,
-                                    screenshot::ScreenshotDestination::DenoiserBenchmark
-                                ) {
-                                    let width = readback.width;
-                                    let height = readback.height;
-                                    let rgba = Self::read_screenshot_rgba(&readback)
-                                        .unwrap_or_else(|err| {
-                                            panic!("[DENOISER_BENCH] Failed to read frame: {err:#}")
-                                        });
-                                    denoiser_bench_complete = self
-                                        .denoiser_bench
-                                        .as_mut()
-                                        .expect("benchmark readback requires benchmark state")
-                                        .record_frame(width, height, &rgba)
-                                        .unwrap_or_else(|err| {
-                                            panic!(
-                                                "[DENOISER_BENCH] Failed to record frame: {err:#}"
-                                            )
-                                        });
-                                } else {
-                                    std::thread::Builder::new()
-                                        .name("screenshot-readback".to_owned())
-                                        .spawn(move || Self::write_screenshot_readback(readback))
-                                        .unwrap_or_else(|err| {
-                                            log::error!(
-                                                "[SCREENSHOT] Failed to start readback thread: {}",
-                                                err
-                                            );
-                                            panic!(
-                                                "failed to start screenshot readback thread: {err}"
-                                            );
-                                        });
-                                }
+                                self.screenshot_capture.complete(readback);
+                            }
+                            if let Some(readback) = denoiser_frame_readback.take() {
+                                denoiser_bench_complete = readback
+                                    .complete(
+                                        self.denoiser_bench
+                                            .as_mut()
+                                            .expect("benchmark readback requires benchmark state"),
+                                    )
+                                    .unwrap_or_else(|err| {
+                                        panic!("[DENOISER_BENCH] Failed to record frame: {err:#}")
+                                    });
                             }
                         }
                         Err(err) => {

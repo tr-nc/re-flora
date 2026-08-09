@@ -163,10 +163,8 @@ pub struct AppOptions {
     pub monitor_score: MonitorScorePreference,
     /// Override swapchain image count. None = auto (max(min_image_count, 3)).
     pub swapchain_images: Option<u32>,
-    /// Path to save a screenshot after rendering starts. None = no screenshot.
-    pub screenshot_path: Option<String>,
-    /// Delay in seconds after rendering starts before taking the screenshot. Required with --screenshot.
-    pub screenshot_delay: Option<f32>,
+    /// Save one screenshot after its render-readiness delay.
+    pub screenshot: Option<ScreenshotOptions>,
     /// Load a terrain-only authoritative voxel snapshot during startup.
     pub terrain_load_path: Option<String>,
     /// Save a terrain-only authoritative voxel snapshot after startup reaches readiness.
@@ -261,11 +259,16 @@ pub struct DenoiserBenchOptions {
     pub camera_motion: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScreenshotOptions {
+    pub path: String,
+    pub delay: f32,
+}
+
 #[derive(Clone, Debug)]
 struct ParsedScreenshot {
     preset_name: String,
-    path: String,
-    delay: f32,
+    options: ScreenshotOptions,
 }
 
 impl AppOptions {
@@ -477,10 +480,9 @@ impl AppOptions {
         } else {
             parse_required_string_after("--camera-snapshot", "a camera snapshot name")?
         };
-        let screenshot_path = screenshot
+        let screenshot_options = screenshot
             .as_ref()
-            .map(|screenshot| screenshot.path.clone());
-        let screenshot_delay = screenshot.as_ref().map(|screenshot| screenshot.delay);
+            .map(|screenshot| screenshot.options.clone());
         let terrain_load_path =
             parse_required_string_after("--terrain-load", "a terrain snapshot path")?;
         let terrain_save_path =
@@ -521,8 +523,7 @@ impl AppOptions {
             present_mode,
             monitor_score,
             swapchain_images: parse_f32_after("--swapchain-images").map(|v| v as u32),
-            screenshot_path,
-            screenshot_delay,
+            screenshot: screenshot_options,
             terrain_load_path,
             terrain_save_path,
             camera_snapshot,
@@ -713,8 +714,7 @@ fn parse_screenshot_request(args: &[String]) -> Result<Option<ParsedScreenshot>,
 
     Ok(Some(ParsedScreenshot {
         preset_name,
-        path,
-        delay,
+        options: ScreenshotOptions { path, delay },
     }))
 }
 
@@ -948,8 +948,7 @@ mod tests {
             options.monitor_score,
             MonitorScorePreference::Highest
         ));
-        assert!(options.screenshot_path.is_none());
-        assert!(options.screenshot_delay.is_none());
+        assert!(options.screenshot.is_none());
         assert!(options.terrain_load_path.is_none());
         assert!(options.terrain_save_path.is_none());
         assert!(options.camera_snapshot.is_none());
@@ -1490,8 +1489,7 @@ mod tests {
 
         assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
         assert!(options.list_camera_snapshots);
-        assert!(options.screenshot_path.is_none());
-        assert!(options.screenshot_delay.is_none());
+        assert!(options.screenshot.is_none());
     }
 
     #[test]
@@ -1508,8 +1506,13 @@ mod tests {
 
         assert!(options.hidden);
         assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
-        assert_eq!(options.screenshot_path.as_deref(), Some("out.png"));
-        assert_eq!(options.screenshot_delay, Some(2.5));
+        assert_eq!(
+            options.screenshot,
+            Some(ScreenshotOptions {
+                path: "out.png".to_owned(),
+                delay: 2.5,
+            })
+        );
     }
 
     #[test]
