@@ -543,9 +543,11 @@ impl App {
                 .water_particle_quad_size
                 .value,
         );
-        for particle in self
-            .water_sim
-            .latest_particles()
+        let Some(frame) = self.water_sim.latest_particle_frame() else {
+            return;
+        };
+        for particle in frame
+            .particles()
             .iter()
             .filter(|particle| {
                 particle.position_ws.is_finite() && bounds.contains(particle.position_ws)

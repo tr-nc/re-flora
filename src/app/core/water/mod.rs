@@ -788,7 +788,7 @@ impl App {
         );
 
         self.water_sim
-            .poll_latest_snapshot_after_frame(frame_delta_time, water_tick_seconds);
+            .poll_latest_particle_frame_after_frame(frame_delta_time, water_tick_seconds);
     }
 
     fn water_terrain_work_active(&self) -> bool {
