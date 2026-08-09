@@ -783,7 +783,7 @@ impl App {
         self.debug_settings.adjustables.voxel_oak_wood_color.value = palette.oak_wood;
         self.debug_settings.adjustables.voxel_rock_color.value = palette.rock;
         self.debug_settings.adjustables.voxel_color_variance.value = TEST_VOXEL_COLOR_VARIANCE;
-        self.orbit_camera_focus = camera_target;
+        self.camera_control.set_orbit_focus(camera_target);
         if self
             .tracer
             .set_camera_pose_looking_at(camera_position, camera_target)

@@ -117,7 +117,7 @@ impl App {
         self.current_time_of_day = TEST_TIME_OF_DAY;
         self.debug_settings.adjustables.time_of_day.value = TEST_TIME_OF_DAY;
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
-        self.orbit_camera_focus = CAMERA_TARGET;
+        self.camera_control.set_orbit_focus(CAMERA_TARGET);
         if !self
             .tracer
             .set_camera_pose_looking_at(CAMERA_POSITION, CAMERA_TARGET)

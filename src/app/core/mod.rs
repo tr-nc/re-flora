@@ -3,6 +3,7 @@ use crate::util::Timer;
 
 mod authored_flora_bench;
 mod boot;
+mod camera_control;
 mod camera_snapshot_ui;
 mod ddgi_spatial_weight_readback;
 mod denoiser_bench;
@@ -28,6 +29,7 @@ mod visible_terrain;
 mod water;
 
 use self::authored_flora_bench::AuthoredFloraBench;
+use self::camera_control::{CameraControlRuntime, ORBIT_CAMERA_DEFAULT_FOCUS};
 use self::camera_snapshot_ui::draw_camera_snapshots_ui;
 use self::ddgi_spatial_weight_readback::DdgiSpatialWeightReadbackRuntime;
 use self::denoiser_bench::{
@@ -295,19 +297,8 @@ pub struct App {
     time_info: TimeInfo,
     current_time_of_day: f32,
     render_flags: RenderFlags,
-    accumulated_mouse_delta: Vec2,
-    smoothed_mouse_delta: Vec2,
     cursor_position_physical: Option<Vec2>,
-    camera_control_mode: CameraControlMode,
-    orbit_camera_focus: Vec3,
-    orbit_keyboard_pan_input: OrbitKeyboardPanInput,
-    orbit_mouse_drag_held: bool,
-    orbit_mouse_drag_button: Option<MouseButton>,
-    orbit_mouse_drag_pan_active: bool,
-    orbit_mouse_drag_last_position_physical: Option<Vec2>,
-    orbit_pan_smoother: OrbitDeltaSmoother,
-    orbit_rotation_smoother: OrbitDeltaSmoother,
-    mouse_wheel_dolly: MouseWheelDollySmoother,
+    camera_control: CameraControlRuntime,
     modifiers: ModifiersState,
     perf_logging: bool,
     mute_audio_output: bool,
@@ -415,187 +406,6 @@ pub struct App {
     #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
     tree_audio_manager: TreeAudioManager,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-enum CameraControlMode {
-    FreeFly,
-    Walk,
-    #[default]
-    OrbitEdit,
-}
-
-impl CameraControlMode {
-    fn is_free_look(self) -> bool {
-        matches!(self, Self::FreeFly | Self::Walk)
-    }
-
-    fn is_free_fly(self) -> bool {
-        matches!(self, Self::FreeFly)
-    }
-
-    fn is_walk(self) -> bool {
-        matches!(self, Self::Walk)
-    }
-
-    fn is_orbit_edit(self) -> bool {
-        matches!(self, Self::OrbitEdit)
-    }
-
-    fn next(self) -> Self {
-        match self {
-            Self::OrbitEdit => Self::FreeFly,
-            Self::FreeFly => Self::Walk,
-            Self::Walk => Self::OrbitEdit,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct OrbitKeyboardPanInput {
-    forward: bool,
-    backward: bool,
-    left: bool,
-    right: bool,
-    up: bool,
-    down: bool,
-}
-
-impl OrbitKeyboardPanInput {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn handle_key(&mut self, code: KeyCode, pressed: bool) {
-        match code {
-            KeyCode::KeyW | KeyCode::ArrowUp => self.forward = pressed,
-            KeyCode::KeyS | KeyCode::ArrowDown => self.backward = pressed,
-            KeyCode::KeyA | KeyCode::ArrowLeft => self.left = pressed,
-            KeyCode::KeyD | KeyCode::ArrowRight => self.right = pressed,
-            KeyCode::KeyE => self.up = pressed,
-            KeyCode::KeyQ => self.down = pressed,
-            _ => {}
-        }
-    }
-
-    fn input_vector(self) -> Vec3 {
-        let mut input = Vec3::ZERO;
-        if self.forward {
-            input.z += 1.0;
-        }
-        if self.backward {
-            input.z -= 1.0;
-        }
-        if self.left {
-            input.x -= 1.0;
-        }
-        if self.right {
-            input.x += 1.0;
-        }
-        if self.up {
-            input.y += 1.0;
-        }
-        if self.down {
-            input.y -= 1.0;
-        }
-        input.normalize_or_zero()
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct OrbitDeltaSmoother {
-    current_delta: Vec3,
-    target_delta: Vec3,
-}
-
-impl OrbitDeltaSmoother {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn add_delta(&mut self, delta: Vec3) {
-        if delta.is_finite() {
-            self.target_delta += delta;
-        }
-    }
-
-    fn pending_delta(&self) -> Vec3 {
-        self.target_delta - self.current_delta
-    }
-
-    fn advance(&mut self, frame_delta_time: f32) -> Vec3 {
-        if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
-            return Vec3::ZERO;
-        }
-
-        let remaining_delta = self.pending_delta();
-        if remaining_delta.length_squared() <= ORBIT_CAMERA_DELTA_SNAP_DISTANCE.powi(2) {
-            self.reset();
-            return remaining_delta;
-        }
-
-        let alpha = (1.0 - (-ORBIT_CAMERA_DELTA_INTERPOLATION_RATE * frame_delta_time).exp())
-            .clamp(0.0, 1.0);
-        let mut advanced_delta = remaining_delta * alpha;
-        self.current_delta += advanced_delta;
-
-        let remaining_after_advance = self.target_delta - self.current_delta;
-        if remaining_after_advance.length_squared() <= ORBIT_CAMERA_DELTA_SNAP_DISTANCE.powi(2) {
-            advanced_delta += remaining_after_advance;
-            self.reset();
-        }
-
-        advanced_delta
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct MouseWheelDollySmoother {
-    current_lines: f32,
-    target_lines: f32,
-}
-
-impl MouseWheelDollySmoother {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn add_scroll_lines(&mut self, scroll_lines: f32) {
-        if scroll_lines.abs() <= f32::EPSILON || !scroll_lines.is_finite() {
-            return;
-        }
-
-        let pending_lines = (self.target_lines - self.current_lines + scroll_lines).clamp(
-            -MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES,
-            MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES,
-        );
-        self.target_lines = self.current_lines + pending_lines;
-    }
-
-    fn advance(&mut self, frame_delta_time: f32) -> f32 {
-        if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
-            return 0.0;
-        }
-
-        let remaining_lines = self.target_lines - self.current_lines;
-        if remaining_lines.abs() <= MOUSE_WHEEL_DOLLY_SNAP_LINES {
-            self.reset();
-            return 0.0;
-        }
-
-        let alpha = (1.0 - (-MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE * frame_delta_time).exp())
-            .clamp(0.0, 1.0);
-        let mut advanced_lines = remaining_lines * alpha;
-        self.current_lines += advanced_lines;
-
-        let remaining_after_advance = self.target_lines - self.current_lines;
-        if remaining_after_advance.abs() <= MOUSE_WHEEL_DOLLY_SNAP_LINES {
-            advanced_lines += remaining_after_advance;
-            self.reset();
-        }
-
-        advanced_lines
-    }
 }
 
 impl Drop for App {
@@ -728,28 +538,9 @@ const TERRAIN_EDIT_DEFAULT_RADIUS: f32 = 0.08;
 const TERRAIN_EDIT_RADIUS_MIN: f32 = 0.03;
 const TERRAIN_EDIT_RADIUS_MAX: f32 = 0.36;
 const TERRAIN_EDIT_RADIUS_SCROLL_STEP: f32 = 0.01;
-const ORBIT_CAMERA_DEFAULT_FOCUS_HEIGHT: f32 = 0.5;
-const ORBIT_CAMERA_DEFAULT_FOCUS: Vec3 =
-    INITIAL_EDITABLE_TERRAIN_BOUNDS.center_at_height(ORBIT_CAMERA_DEFAULT_FOCUS_HEIGHT);
-const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.2;
-const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
-const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
-const ORBIT_CAMERA_FOCUS_RAY_QUERY_DISTANCE: f32 = 10.0;
-const ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL: f32 = 0.005;
-const ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PHYSICAL_PIXEL: f32 = 0.001;
-const ORBIT_CAMERA_DELTA_INTERPOLATION_RATE: f32 = 14.0;
-const ORBIT_CAMERA_DELTA_SNAP_DISTANCE: f32 = 0.00001;
-const ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE: f32 = 0.9;
-const ORBIT_CAMERA_KEYBOARD_PAN_FAR_ZOOM_BOOST_START: f32 = 0.95;
-const ORBIT_CAMERA_KEYBOARD_PAN_FAR_ZOOM_MAX_MULTIPLIER: f32 = 1.6;
 const CENTER_CROSS_MARK_ARM_LENGTH: f32 = 8.0;
 const CENTER_CROSS_MARK_GAP: f32 = 3.0;
 const CENTER_CROSS_MARK_STROKE_WIDTH: f32 = 1.5;
-const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
-const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
-const MOUSE_WHEEL_DOLLY_SNAP_LINES: f32 = 0.001;
-const MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES: f32 = 24.0;
-const ORBIT_CAMERA_MAX_ELEVATION_RAD: f32 = std::f32::consts::FRAC_PI_2 - 0.04;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
 const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
@@ -1338,19 +1129,8 @@ impl App {
                 collider_total: 0,
             }),
 
-            accumulated_mouse_delta: Vec2::ZERO,
-            smoothed_mouse_delta: Vec2::ZERO,
             cursor_position_physical: None,
-            camera_control_mode: CameraControlMode::default(),
-            orbit_camera_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
-            orbit_keyboard_pan_input: OrbitKeyboardPanInput::default(),
-            orbit_mouse_drag_held: false,
-            orbit_mouse_drag_button: None,
-            orbit_mouse_drag_pan_active: false,
-            orbit_mouse_drag_last_position_physical: None,
-            orbit_pan_smoother: OrbitDeltaSmoother::default(),
-            orbit_rotation_smoother: OrbitDeltaSmoother::default(),
-            mouse_wheel_dolly: MouseWheelDollySmoother::default(),
+            camera_control: CameraControlRuntime::default(),
             modifiers: ModifiersState::default(),
             perf_logging: options.perf,
             mute_audio_output: options.mute,
@@ -2312,15 +2092,8 @@ impl App {
                 self.update_spatial_audio_backends();
 
                 if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
-                    // grab the value and immediately reset the accumulator
-                    let mouse_delta = self.accumulated_mouse_delta;
-                    self.accumulated_mouse_delta = Vec2::ZERO;
-
-                    let alpha = 0.4; // mouse smoothing factor: 0 = no smoothing, 1 = infinite smoothing
-                    self.smoothed_mouse_delta =
-                        self.smoothed_mouse_delta * alpha + mouse_delta * (1.0 - alpha);
-
-                    self.tracer.handle_mouse(self.smoothed_mouse_delta);
+                    let mouse_delta = self.camera_control.take_smoothed_free_look_mouse_delta();
+                    self.tracer.handle_mouse(mouse_delta);
                 }
 
                 let mut tree_desc_changed = false;
@@ -4470,13 +4243,8 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        advance_time_of_day, App, CameraControlMode, MouseWheelDollySmoother, OrbitDeltaSmoother,
-        OrbitKeyboardPanInput,
-    };
-    use glam::Vec3;
+    use super::{advance_time_of_day, App};
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
-    use winit::keyboard::KeyCode;
 
     #[test]
     fn day_night_clock_advances_without_mutating_its_persisted_start_value() {
@@ -4517,114 +4285,9 @@ mod tests {
     }
 
     #[test]
-    fn camera_control_mode_defaults_to_orbit_edit() {
-        assert_eq!(CameraControlMode::default(), CameraControlMode::OrbitEdit);
-    }
-
-    #[test]
-    fn camera_control_mode_cycles_through_orbit_fly_and_walk() {
-        assert_eq!(
-            CameraControlMode::OrbitEdit.next(),
-            CameraControlMode::FreeFly
-        );
-        assert_eq!(CameraControlMode::FreeFly.next(), CameraControlMode::Walk);
-        assert_eq!(CameraControlMode::Walk.next(), CameraControlMode::OrbitEdit);
-    }
-
-    #[test]
     fn debug_startup_block_top_reaches_chunk_seam() {
         let (min, max) = App::debug_startup_block_bounds();
         assert!(max.y > min.y);
         assert_eq!(max.y, super::VOXEL_DIM_PER_CHUNK.y as f32);
-    }
-
-    #[test]
-    fn orbit_keyboard_pan_input_normalizes_diagonal_motion() {
-        let mut input = OrbitKeyboardPanInput::default();
-        input.handle_key(KeyCode::KeyW, true);
-        input.handle_key(KeyCode::KeyD, true);
-
-        let direction = input.input_vector();
-        assert!((direction.length() - 1.0).abs() <= 0.0001);
-        assert!(direction.x > 0.0);
-        assert!(direction.z > 0.0);
-    }
-
-    #[test]
-    fn orbit_delta_smoother_eases_and_preserves_full_delta() {
-        let mut smoother = OrbitDeltaSmoother::default();
-        let target_delta = Vec3::new(0.25, 0.0, -0.1);
-        smoother.add_delta(target_delta);
-
-        let first_step = smoother.advance(1.0 / 60.0);
-        assert!(first_step.length() > 0.0);
-        assert!(first_step.length() < target_delta.length());
-
-        let mut total_advanced = first_step;
-        for _ in 0..120 {
-            total_advanced += smoother.advance(1.0 / 60.0);
-        }
-
-        assert!((total_advanced - target_delta).length() <= 0.0001);
-        assert_eq!(smoother.current_delta, Vec3::ZERO);
-        assert_eq!(smoother.target_delta, Vec3::ZERO);
-    }
-
-    #[test]
-    fn orbit_delta_smoother_preserves_continuous_keyboard_distance() {
-        let mut smoother = OrbitDeltaSmoother::default();
-        let frame_delta_time = 1.0 / 60.0;
-        let velocity = Vec3::new(0.9, 0.0, -0.4);
-        let mut total_advanced = Vec3::ZERO;
-
-        for _ in 0..60 {
-            smoother.add_delta(velocity * frame_delta_time);
-            total_advanced += smoother.advance(frame_delta_time);
-        }
-        assert!(total_advanced.length() < velocity.length());
-
-        for _ in 0..120 {
-            total_advanced += smoother.advance(frame_delta_time);
-        }
-
-        assert!((total_advanced - velocity).length() <= 0.0001);
-        assert_eq!(smoother.current_delta, Vec3::ZERO);
-        assert_eq!(smoother.target_delta, Vec3::ZERO);
-    }
-
-    #[test]
-    fn mouse_wheel_dolly_smoother_interpolates_toward_target() {
-        let mut smoother = MouseWheelDollySmoother::default();
-        smoother.add_scroll_lines(1.0);
-
-        let first_step = smoother.advance(1.0 / 60.0);
-        assert!(first_step > 0.0);
-        assert!(first_step < 1.0);
-
-        let mut total_advanced = first_step;
-        for _ in 0..120 {
-            total_advanced += smoother.advance(1.0 / 60.0);
-        }
-
-        assert!((total_advanced - 1.0).abs() <= 0.0001);
-        assert_eq!(smoother.current_lines, 0.0);
-        assert_eq!(smoother.target_lines, 0.0);
-    }
-
-    #[test]
-    fn mouse_wheel_dolly_smoother_clamps_pending_scroll_lines() {
-        let mut smoother = MouseWheelDollySmoother::default();
-        smoother.add_scroll_lines(100.0);
-        assert_eq!(
-            smoother.target_lines - smoother.current_lines,
-            super::MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES
-        );
-
-        smoother.advance(1.0 / 60.0);
-        smoother.add_scroll_lines(-100.0);
-        assert_eq!(
-            smoother.target_lines - smoother.current_lines,
-            -super::MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES
-        );
     }
 }
