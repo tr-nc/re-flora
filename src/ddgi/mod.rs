@@ -15,6 +15,35 @@ mod scheduler;
 mod terrain_refresh;
 mod voxel_visibility;
 
+/// Fixed-layout diagnostic readback for the saved-terrain DDGI seam fixture.
+///
+/// The shader writes six receiver records, each containing one receiver float4, eight probe
+/// records with six float4s each, and four aggregate result float4s. Keep this layout explicit so
+/// the text writer and shader cannot silently disagree about the evidence being inspected.
+pub(crate) const DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT: usize = 6;
+pub(crate) const DDGI_SPATIAL_WEIGHT_READBACK_PROBE_COUNT: usize = 8;
+pub(crate) const DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_PROBE: usize = 6;
+pub(crate) const DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_RECEIVER: usize = 1
+    + DDGI_SPATIAL_WEIGHT_READBACK_PROBE_COUNT * DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_PROBE
+    + 4;
+pub(crate) const DDGI_SPATIAL_WEIGHT_READBACK_BYTE_COUNT: usize =
+    DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT
+        * DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_RECEIVER
+        * std::mem::size_of::<[f32; 4]>();
+
+/// Half-resolution tracer pixels corresponding to full-resolution pixels from the fixed 2880x1620
+/// crop used by the saved-terrain repro. The tracer renders at a 0.5 scaling factor before the
+/// screen-output upscale.
+pub(crate) const DDGI_SPATIAL_WEIGHT_READBACK_PIXELS: [[u32; 2];
+    DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT] = [
+    [824, 370],
+    [824, 376],
+    [824, 382],
+    [824, 395],
+    [824, 401],
+    [824, 407],
+];
+
 pub use atlas::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiVolumeGrid,
     DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
@@ -134,6 +163,16 @@ pub enum DdgiDebugView {
     Relocation = 9,
     IrradianceAtlas = 10,
     VisibilityAtlas = 11,
+    UnoccludedIrradiance = 12,
+    EqualWeightIrradiance = 13,
+    RawCageIrradiance = 14,
+    SpatialWeightCurrent = 15,
+    SpatialWeightNominal = 16,
+    SpatialWeightWrap = 17,
+    SpatialWeightNominalWrap = 18,
+    SpatialWeightReadback = 19,
+    SpatialWeightCurrentNoSurface = 20,
+    SpatialWeightNominalNoSurface = 21,
 }
 
 impl DdgiDebugView {
@@ -151,6 +190,16 @@ impl DdgiDebugView {
             "relocation" => Some(Self::Relocation),
             "irradiance-atlas" => Some(Self::IrradianceAtlas),
             "visibility-atlas" => Some(Self::VisibilityAtlas),
+            "unoccluded-irradiance" => Some(Self::UnoccludedIrradiance),
+            "equal-weight-irradiance" => Some(Self::EqualWeightIrradiance),
+            "raw-cage-irradiance" => Some(Self::RawCageIrradiance),
+            "spatial-weight-current" => Some(Self::SpatialWeightCurrent),
+            "spatial-weight-nominal" => Some(Self::SpatialWeightNominal),
+            "spatial-weight-wrap" => Some(Self::SpatialWeightWrap),
+            "spatial-weight-nominal-wrap" => Some(Self::SpatialWeightNominalWrap),
+            "spatial-weight-readback" => Some(Self::SpatialWeightReadback),
+            "spatial-weight-current-no-surface" => Some(Self::SpatialWeightCurrentNoSurface),
+            "spatial-weight-nominal-no-surface" => Some(Self::SpatialWeightNominalNoSurface),
             _ => None,
         }
     }
@@ -173,6 +222,16 @@ impl DdgiDebugView {
             Self::Relocation => "relocation",
             Self::IrradianceAtlas => "irradiance-atlas",
             Self::VisibilityAtlas => "visibility-atlas",
+            Self::UnoccludedIrradiance => "unoccluded-irradiance",
+            Self::EqualWeightIrradiance => "equal-weight-irradiance",
+            Self::RawCageIrradiance => "raw-cage-irradiance",
+            Self::SpatialWeightCurrent => "spatial-weight-current",
+            Self::SpatialWeightNominal => "spatial-weight-nominal",
+            Self::SpatialWeightWrap => "spatial-weight-wrap",
+            Self::SpatialWeightNominalWrap => "spatial-weight-nominal-wrap",
+            Self::SpatialWeightReadback => "spatial-weight-readback",
+            Self::SpatialWeightCurrentNoSurface => "spatial-weight-current-no-surface",
+            Self::SpatialWeightNominalNoSurface => "spatial-weight-nominal-no-surface",
         }
     }
 }

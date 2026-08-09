@@ -1,3 +1,4 @@
+use crate::ddgi::DDGI_SPATIAL_WEIGHT_READBACK_BYTE_COUNT;
 use crate::resource::Resource;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
@@ -12,6 +13,7 @@ pub struct ExtentDependentResources {
     pub compute_depth_tex: Resource<Texture>,
     pub compute_output_tex: Resource<Texture>,
     pub environment_irradiance_capture: Resource<Buffer>,
+    pub ddgi_spatial_weight_readback: Resource<Buffer>,
     pub gfx_output_tex: Resource<Texture>,
     pub god_ray_output_tex: Resource<Texture>,
     pub lens_flare_required_count_tex: Resource<Texture>,
@@ -44,6 +46,8 @@ impl ExtentDependentResources {
             allocator.clone(),
             rendering_extent,
         );
+        let ddgi_spatial_weight_readback =
+            Self::create_ddgi_spatial_weight_readback(device.clone(), allocator.clone());
         let gfx_output_tex =
             Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
         let god_ray_output_tex =
@@ -76,6 +80,7 @@ impl ExtentDependentResources {
             compute_depth_tex: Resource::new(compute_depth_tex),
             compute_output_tex: Resource::new(compute_output_tex),
             environment_irradiance_capture: Resource::new(environment_irradiance_capture),
+            ddgi_spatial_weight_readback: Resource::new(ddgi_spatial_weight_readback),
             gfx_output_tex: Resource::new(gfx_output_tex),
             god_ray_output_tex: Resource::new(god_ray_output_tex),
             lens_flare_required_count_tex: Resource::new(lens_flare_required_count_tex),
@@ -156,6 +161,16 @@ impl ExtentDependentResources {
             BufferUsage::storage_buffer().with_transfer_src(),
             MemoryLocation::GpuOnly,
             byte_count,
+        )
+    }
+
+    fn create_ddgi_spatial_weight_readback(device: Device, allocator: Allocator) -> Buffer {
+        Buffer::new_sized(
+            device,
+            allocator,
+            BufferUsage::storage_buffer().with_transfer_src(),
+            MemoryLocation::GpuOnly,
+            DDGI_SPATIAL_WEIGHT_READBACK_BYTE_COUNT as u64,
         )
     }
 
