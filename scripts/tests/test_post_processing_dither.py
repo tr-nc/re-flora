@@ -18,19 +18,20 @@ class PostProcessingDitherTests(unittest.TestCase):
             dither_source,
         )
         self.assertIn(
-            "static const float2 DITHER_HASH_SCALE = float2(0.06711056, 0.00583715);",
+            "static const uint DITHER_HASH_SEED = 0x12345678u;",
             dither_source,
         )
         self.assertIn(
-            "static const float DITHER_HASH_MULTIPLIER = 52.9829189;",
+            "uint hash = pixel.x * 0x9E3779B9u + pixel.y * 0x85EBCA6Bu + DITHER_HASH_SEED;",
             dither_source,
         )
         self.assertIn(
-            "static const float DITHER_HASH_PHASE = 0.125;",
+            "hash ^= hash >> 16;",
             dither_source,
         )
-        self.assertIn("float hashInput = frac(dot(float2(screenSpaceUv), DITHER_HASH_SCALE)", dither_source)
-        self.assertIn("float noise = frac(DITHER_HASH_MULTIPLIER * hashInput);", dither_source)
+        self.assertIn("hash *= 0x7FEB352Du;", dither_source)
+        self.assertIn("hash ^= hash >> 15;", dither_source)
+        self.assertIn("float noise = float(hash & 0xFFFFu) / 65535.0;", dither_source)
         self.assertIn("return (noise - 0.5) * OUTPUT_QUANTIZATION_STEP;", dither_source)
         self.assertIn("float ditherOffset = getDitherOffset(uvi);", post_processing_source)
         self.assertIn("finalColor += ditherOffset.xxx;", post_processing_source)
@@ -39,8 +40,13 @@ class PostProcessingDitherTests(unittest.TestCase):
         normalized_offsets = []
         for y in range(162):
             for x in range(288):
-                hash_input = (0.06711056 * x + 0.00583715 * y + 0.125) % 1.0
-                noise = (52.9829189 * hash_input) % 1.0
+                hash_value = (
+                    x * 0x9E3779B9 + y * 0x85EBCA6B + 0x12345678
+                ) & 0xFFFFFFFF
+                hash_value ^= hash_value >> 16
+                hash_value = (hash_value * 0x7FEB352D) & 0xFFFFFFFF
+                hash_value ^= hash_value >> 15
+                noise = (hash_value & 0xFFFF) / 65535.0
                 normalized_offsets.append(noise - 0.5)
 
         self.assertLess(abs(math.fsum(normalized_offsets) / len(normalized_offsets)), 0.001)
