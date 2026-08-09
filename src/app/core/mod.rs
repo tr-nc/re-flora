@@ -2267,11 +2267,11 @@ impl App {
                     self.terrain_physics
                         .process_terrain_collider_updates(&self.contree_builder);
                 }
-                cpu_timings.time(FrameCpuScope::TerrainSource, || {
-                    self.process_terrain_sdf_source_updates();
-                });
-
                 if self.loading_state.is_some() {
+                    let water_terrain = self.advance_loading_water_terrain(frame_timing_enabled);
+                    cpu_timings.add_ms(FrameCpuScope::TerrainSource, water_terrain.source_ms);
+                    cpu_timings.add_ms(FrameCpuScope::WaterCache, water_terrain.cache_ms);
+                    cpu_timings.add_ms(FrameCpuScope::ColliderQueue, water_terrain.collider_ms);
                     self.process_loading_step();
                     self.render_loading_frame();
                     return;
@@ -3307,16 +3307,11 @@ impl App {
                     return;
                 }
 
-                cpu_timings.time(FrameCpuScope::TerrainSource, || {
-                    self.process_terrain_sdf_source_updates();
-                });
-                cpu_timings.time(FrameCpuScope::WaterCache, || {
-                    self.process_deferred_water_terrain_cache_rebuild();
-                });
+                let water_terrain = self.advance_water_terrain(frame_timing_enabled);
+                cpu_timings.add_ms(FrameCpuScope::TerrainSource, water_terrain.source_ms);
+                cpu_timings.add_ms(FrameCpuScope::WaterCache, water_terrain.cache_ms);
+                cpu_timings.add_ms(FrameCpuScope::ColliderQueue, water_terrain.collider_ms);
                 self.maybe_resume_terrain_persistence_water();
-                cpu_timings.time(FrameCpuScope::ColliderQueue, || {
-                    self.process_deferred_terrain_sdf_collider_rebuild();
-                });
                 cpu_timings.time(FrameCpuScope::WaterEditSoak, || {
                     self.process_water_edit_soak();
                 });
@@ -3375,7 +3370,7 @@ impl App {
                 }
 
                 if self.render_flags.enable_particles {
-                    if self.water_terrain.initialized
+                    if self.water_terrain_status().is_initialized()
                         && !self.terrain_persistence_water_paused
                         && !self.terrain_persistence_fatal
                     {
@@ -4569,6 +4564,7 @@ impl App {
                 if frame_perf_enabled {
                     let queue_work_ms = cpu_timings.queue_work_ms();
                     if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
+                        let water_terrain = self.water_terrain_status().diagnostics();
                         log::info!(
                             "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
                             frame_count,
@@ -4584,14 +4580,14 @@ impl App {
                             frame_timing_snapshot.particles_ms,
                             frame_timing_snapshot.tracked_cpu_ms,
                             frame_timing_snapshot.untracked_cpu_ms,
-                            self.water_terrain.source_refreshes.len(),
-                            self.water_terrain.source_refreshes.active_len(),
-                            self.water_terrain.collider_rebuilds.len(),
-                            self.water_terrain.collider_rebuilds.active_len(),
-                            self.water_terrain.collider_build_inflight,
-                            self.water_terrain.cache_rebuilds.len(),
-                            self.water_terrain.cache_rebuilds.active_len(),
-                            self.water_terrain.cache_rebuild_inflight,
+                            water_terrain.source_pending,
+                            water_terrain.source_active,
+                            water_terrain.collider_pending,
+                            water_terrain.collider_active,
+                            water_terrain.collider_inflight,
+                            water_terrain.cache_pending,
+                            water_terrain.cache_active,
+                            water_terrain.cache_inflight,
                         );
                     }
                 }

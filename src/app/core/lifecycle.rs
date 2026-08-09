@@ -40,36 +40,19 @@ impl App {
 
         log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
         self.abort_loading_physical_publication();
-        self.discard_terrain_sdf_source_refresh_for_shutdown()
-            .context("discard terrain SDF source refresh")?;
+        self.shutdown_water_terrain()
+            .context("shut down water terrain runtime")?;
         self.contree_builder
             .discard_active_cpu_chunk_cache_job()
             .context("discard active Contree CPU-cache GPU readback")?;
 
         log::info!("[SHUTDOWN] phase=join_dependent_workers");
-        self.stop_terrain_worker_threads();
         self.contree_builder.shutdown_cpu_chunk_cache_worker();
 
         log::info!("[SHUTDOWN] phase=wait_device_idle");
         self.vulkan_ctx.device().wait_idle();
         log::info!("[SHUTDOWN] phase=complete");
         Ok(())
-    }
-
-    fn stop_terrain_worker_threads(&mut self) {
-        self.water_terrain.collider_job_tx.take();
-        if let Some(worker) = self.water_terrain.collider_worker.take() {
-            if worker.join().is_err() {
-                log::warn!("[SHUTDOWN][TERRAIN] collider worker panicked during shutdown");
-            }
-        }
-
-        self.water_terrain.cache_job_tx.take();
-        if let Some(worker) = self.water_terrain.cache_worker.take() {
-            if worker.join().is_err() {
-                log::warn!("[SHUTDOWN][TERRAIN_CACHE] worker panicked during shutdown");
-            }
-        }
     }
 
     pub(super) fn on_resize(&mut self) {
