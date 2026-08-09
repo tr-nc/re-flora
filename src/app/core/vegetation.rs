@@ -906,7 +906,7 @@ impl App {
             .unregister_tree_fruits(tree_id, &mut self.tracer)?;
         self.tracer.invalidate_local_direct_sun_shadow_histories();
         self.tree_audio_manager.remove_tree(tree_id);
-        self.remove_leaf_emitter(tree_id);
+        self.tree_leaf_emitters.remove(tree_id);
         match self.tree_records.remove(&tree_id) {
             Some(record) => {
                 log::debug!(
@@ -978,7 +978,7 @@ impl App {
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, *tree_id)?;
             self.tree_audio_manager.remove_tree(*tree_id);
-            self.remove_leaf_emitter(*tree_id);
+            self.tree_leaf_emitters.remove(*tree_id);
             self.plain_builder.chunk_replace_voxel_type_in_round_cones(
                 &record.trunk_geometry.bvh_nodes,
                 &record.trunk_geometry.round_cones,
@@ -1083,7 +1083,7 @@ impl App {
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, self.single_tree_id)?;
             self.tree_audio_manager.remove_tree(self.single_tree_id);
-            self.remove_leaf_emitter(self.single_tree_id);
+            self.tree_leaf_emitters.remove(self.single_tree_id);
             old_remove_ms = old_remove_start.elapsed().as_secs_f32() * 1000.0;
             record.bound
         } else {
@@ -1988,7 +1988,7 @@ impl App {
         );
 
         let emitter_start = Instant::now();
-        self.upsert_tree_leaf_emitter(tree_id, tree_pos, &this_bound, &leaf_clusters);
+        self.tree_leaf_emitters.upsert(tree_id, &leaf_clusters);
         let emitter_elapsed = emitter_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH

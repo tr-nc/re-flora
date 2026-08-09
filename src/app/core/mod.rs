@@ -42,7 +42,7 @@ use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
 use self::loading::{LoadingPhase, LoadingState};
-use self::particles::TreeLeafEmitter;
+use self::particles::TreeLeafEmitterRuntime;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
@@ -351,9 +351,7 @@ pub struct App {
     single_tree_id: u32, // ID for GUI single tree mode
 
     particle_system: ParticleSystem,
-    leaf_emitters: Vec<TreeLeafEmitter>,
-    tree_leaf_emitter_indices: HashMap<u32, Vec<usize>>,
-    leaf_emitter_desc: LeafEmitterDesc,
+    tree_leaf_emitters: TreeLeafEmitterRuntime,
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     butterfly_spawn_source_refresh_elapsed: f32,
@@ -964,13 +962,12 @@ impl App {
         };
 
         let particle_system = ParticleSystem::new(PARTICLE_CAPACITY);
-        let leaf_emitters = Vec::new();
-        let tree_leaf_emitter_indices = HashMap::new();
         let leaf_emitter_desc = LeafEmitterDesc {
             color_low: color_to_vec4(debug_settings.adjustables.leaves_bottom_color.value),
             color_high: color_to_vec4(debug_settings.adjustables.leaves_tip_color.value),
             ..LeafEmitterDesc::default()
         };
+        let tree_leaf_emitters = TreeLeafEmitterRuntime::new(leaf_emitter_desc);
         let tree_audio_manager = TreeAudioManager::new(
             spatial_sound_manager.clone(),
             Self::tree_audio_wind_response_curve(&debug_settings.adjustables),
@@ -1139,9 +1136,7 @@ impl App {
             single_tree_id: 0,
 
             particle_system,
-            leaf_emitters,
-            tree_leaf_emitter_indices,
-            leaf_emitter_desc,
+            tree_leaf_emitters,
             butterfly_emitters,
             butterfly_emitter_desc,
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
