@@ -1,7 +1,7 @@
 use super::CommandPool;
 use crate::{
-    Buffer, BufferUse, Device, Extent2D, GpuJobManager, GraphicsPipeline, Image, ImageUse, Queue,
-    QueueLane, ResourceState, ResourceStateTransaction, SubmitDesc, Viewport,
+    Buffer, BufferState, BufferUse, Device, Extent2D, GpuJobManager, GraphicsPipeline, Image,
+    ImageUse, Queue, QueueLane, ResourceState, ResourceStateTransaction, SubmitDesc, Viewport,
 };
 use ash::vk;
 use std::sync::{Arc, Mutex};
@@ -69,8 +69,7 @@ impl CommandBuffer {
                 .begin_command_buffer(self.0.command_buffer, &begin_info)
                 .unwrap()
         };
-        *self.0.resource_state_transaction.lock().unwrap() =
-            Some(ResourceStateTransaction::new());
+        *self.0.resource_state_transaction.lock().unwrap() = Some(ResourceStateTransaction::new());
     }
 
     /// Declares the next semantic use of a Buffer in this recording.
@@ -114,13 +113,17 @@ impl CommandBuffer {
         let transaction = transaction
             .as_mut()
             .expect("Image use requires an active CommandBuffer recording");
-        transaction.transition_image(
-            self,
-            image,
-            base_array_layer,
-            layer_count,
-            target_state,
-        );
+        transaction.transition_image(self, image, base_array_layer, layer_count, target_state);
+    }
+
+    pub(crate) fn record_image_state(
+        &self,
+        image: &Image,
+        base_array_layer: u32,
+        layer_count: u32,
+        target_state: ResourceState,
+    ) {
+        self.record_state_transition(image, base_array_layer, layer_count, target_state);
     }
 
     pub(crate) fn assume_image_state(
@@ -138,20 +141,19 @@ impl CommandBuffer {
     }
 
     pub(crate) fn record_buffer_use(&self, buffer: &Buffer, usage: BufferUse) {
+        self.record_buffer_state(buffer, usage.state());
+    }
+
+    pub(crate) fn record_buffer_state(&self, buffer: &Buffer, target_state: BufferState) {
         let mut transaction = self.0.resource_state_transaction.lock().unwrap();
         let transaction = transaction
             .as_mut()
             .expect("Buffer use requires an active CommandBuffer recording");
-        transaction.use_buffer(self, buffer, usage);
+        transaction.transition_buffer(self, buffer, target_state);
     }
 
     pub(crate) fn commit_state_transaction(&self) {
-        let transaction = self
-            .0
-            .resource_state_transaction
-            .lock()
-            .unwrap()
-            .take();
+        let transaction = self.0.resource_state_transaction.lock().unwrap().take();
         if let Some(transaction) = transaction {
             transaction.commit();
         }

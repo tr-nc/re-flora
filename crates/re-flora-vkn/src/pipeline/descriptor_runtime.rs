@@ -34,6 +34,7 @@ struct DescriptorRuntimeState {
 }
 
 pub(super) struct PreparedTransientDescriptorSet {
+    identity: Arc<DescriptorRuntimeIdentity>,
     set_no: u32,
     descriptor_set: DescriptorSet,
 }
@@ -45,6 +46,10 @@ impl PreparedTransientDescriptorSet {
 
     pub(super) fn as_raw(&self) -> vk::DescriptorSet {
         self.descriptor_set.as_raw()
+    }
+
+    pub(super) fn belongs_to(&self, identity: &Arc<DescriptorRuntimeIdentity>) -> bool {
+        Arc::ptr_eq(&self.identity, identity)
     }
 }
 
@@ -147,6 +152,7 @@ impl ReflectedDescriptorRuntime {
 
     pub(super) fn prepare_transient_set(
         &self,
+        cmdbuf: &CommandBuffer,
         descriptors: &[(&str, DescriptorResource<'_>)],
     ) -> Result<PreparedTransientDescriptorSet> {
         self.seal_creation();
@@ -206,10 +212,25 @@ impl ReflectedDescriptorRuntime {
             writes.push(self.plan.make_write(name, *resource)?);
         }
         descriptor_set.perform_writes(&mut writes);
+        descriptor_set.record_resource_uses(cmdbuf);
         Ok(PreparedTransientDescriptorSet {
+            identity: self.identity.clone(),
             set_no,
             descriptor_set,
         })
+    }
+
+    pub(super) fn bind_prepared_transient(
+        &self,
+        prepared: &PreparedTransientDescriptorSet,
+        bind: impl FnOnce(u32, vk::DescriptorSet),
+    ) {
+        assert!(
+            prepared.belongs_to(&self.identity),
+            "prepared transient descriptor set belongs to another pipeline; target={}",
+            self.plan.pipeline_name(),
+        );
+        bind(prepared.set_no(), prepared.as_raw());
     }
 
     pub(super) fn allocate_standalone_descriptor(
@@ -251,12 +272,21 @@ impl ReflectedDescriptorRuntime {
         Ok(())
     }
 
-    pub(super) fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
+    pub(super) fn record_active_resource_uses(&self, cmdbuf: &CommandBuffer) {
         let mut state = self.state.lock().unwrap();
         state.creation_open = false;
         for descriptor_set in state.active.values() {
-            descriptor_set.record_image_uses(cmdbuf);
+            descriptor_set.record_resource_uses(cmdbuf);
         }
+    }
+
+    pub(super) fn record_standalone_resource_uses(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptor_set: &DescriptorSet,
+    ) {
+        self.seal_creation();
+        descriptor_set.record_resource_uses(cmdbuf);
     }
 
     pub(super) fn tracked_texture_binding_count(&self) -> usize {

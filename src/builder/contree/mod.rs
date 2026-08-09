@@ -76,9 +76,6 @@ pub struct ContreeBuilder {
     #[allow(dead_code)]
     contree_concat_ppl: ComputePipeline,
 
-    contree_make_surface_result: Buffer,
-    contree_surface_active_brick_indices: Buffer,
-
     #[allow(dead_code)]
     fixed_pool: DescriptorPool,
 
@@ -669,12 +666,6 @@ fn record_clear_sparse_leaf_nodes(
     sparse_nodes.record_fill(cmdbuf, offset_bytes, size_bytes, 0);
 }
 
-fn declare_buffer_uses(cmdbuf: &CommandBuffer, uses: &[(&Buffer, BufferUse)]) {
-    for &(buffer, usage) in uses {
-        cmdbuf.use_buffer(buffer, usage);
-    }
-}
-
 struct CpuChunkReadbackBuffers {
     node_readback: Buffer,
     leaf_readback: Buffer,
@@ -999,10 +990,6 @@ impl ContreeBuilder {
         // command will consume on every later submission.
         let total_levels = get_level(voxel_dim_per_chunk);
         let pass_timing = ContreePassTiming::maybe_new(&vulkan_ctx, total_levels);
-        let contree_make_surface_result = surfacer_resources.make_surface_result.clone();
-        let contree_surface_active_brick_indices =
-            surfacer_resources.surface_active_brick_indices.clone();
-
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
         let (cpu_chunk_cache_job_tx, cpu_chunk_cache_result_rx, cpu_chunk_cache_worker) =
@@ -1033,8 +1020,6 @@ impl ContreeBuilder {
             contree_buffer_update_ppl,
             contree_last_buffer_update_ppl,
             contree_concat_ppl,
-            contree_make_surface_result,
-            contree_surface_active_brick_indices,
             fixed_pool,
             chunk_offset_allocation_table: HashMap::new(),
             pass_timing,
@@ -1075,8 +1060,6 @@ impl ContreeBuilder {
         contree_buffer_update_ppl: &ComputePipeline,
         contree_last_buffer_update_ppl: &ComputePipeline,
         contree_concat_ppl: &ComputePipeline,
-        make_surface_result: &Buffer,
-        surface_active_brick_indices: &Buffer,
         pass_timing: Option<&ContreePassTiming>,
     ) -> CommandBuffer {
         let device = vulkan_ctx.device();
@@ -1107,39 +1090,11 @@ impl ContreeBuilder {
             }};
         }
 
-        declare_buffer_uses(
-            &cmdbuf,
-            &[
-                (&resources.contree_build_info, BufferUse::ComputeRead),
-                (&resources.contree_build_state, BufferUse::ComputeWrite),
-                (&resources.level_dispatch_indirect, BufferUse::ComputeWrite),
-                (&resources.counter_for_levels, BufferUse::ComputeWrite),
-                (&resources.node_offset_for_levels, BufferUse::ComputeWrite),
-                (&resources.contree_build_result, BufferUse::ComputeWrite),
-                (make_surface_result, BufferUse::ComputeRead),
-            ],
-        );
         record_timed_pass!({
             contree_buffer_setup_ppl.record(&cmdbuf, dispatch_1x1x1, None);
         });
 
         record_clear_sparse_leaf_nodes(&cmdbuf, &resources.sparse_nodes, total_levels);
-
-        declare_buffer_uses(
-            &cmdbuf,
-            &[
-                (&resources.contree_build_info, BufferUse::ComputeRead),
-                (&resources.contree_build_state, BufferUse::ComputeRead),
-                (&resources.level_dispatch_indirect, BufferUse::IndirectRead),
-                (&resources.node_offset_for_levels, BufferUse::ComputeRead),
-                (&resources.sparse_nodes, BufferUse::ComputeWrite),
-                (&resources.contree_leaf_data, BufferUse::ComputeWrite),
-                (&resources.contree_build_result, BufferUse::ComputeReadWrite),
-                (make_surface_result, BufferUse::ComputeRead),
-                (surface_active_brick_indices, BufferUse::ComputeRead),
-                (&resources.surface_leaf_coords, BufferUse::ComputeWrite),
-            ],
-        );
 
         record_timed_pass!({
             contree_leaf_write_ppl.record_indirect(
@@ -1149,30 +1104,11 @@ impl ContreeBuilder {
             );
         });
 
-        declare_buffer_uses(
-            &cmdbuf,
-            &[
-                (&resources.contree_build_state, BufferUse::ComputeReadWrite),
-                (&resources.level_dispatch_indirect, BufferUse::ComputeWrite),
-            ],
-        );
         record_timed_pass!({
             contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
         });
 
         for i in 0..(total_levels - 2) {
-            declare_buffer_uses(
-                &cmdbuf,
-                &[
-                    (&resources.level_dispatch_indirect, BufferUse::IndirectRead),
-                    (&resources.contree_build_state, BufferUse::ComputeRead),
-                    (&resources.node_offset_for_levels, BufferUse::ComputeRead),
-                    (&resources.sparse_nodes, BufferUse::ComputeReadWrite),
-                    (&resources.dense_nodes, BufferUse::ComputeWrite),
-                    (&resources.counter_for_levels, BufferUse::ComputeReadWrite),
-                    (&resources.contree_build_result, BufferUse::ComputeReadWrite),
-                ],
-            );
             record_timed_pass!({
                 contree_tree_write_ppl.record_indirect(
                     &cmdbuf,
@@ -1182,45 +1118,16 @@ impl ContreeBuilder {
             });
 
             if i != total_levels - 3 {
-                declare_buffer_uses(
-                    &cmdbuf,
-                    &[
-                        (&resources.contree_build_state, BufferUse::ComputeReadWrite),
-                        (&resources.level_dispatch_indirect, BufferUse::ComputeWrite),
-                    ],
-                );
                 record_timed_pass!({
                     contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
                 });
             } else {
-                declare_buffer_uses(
-                    &cmdbuf,
-                    &[
-                        (&resources.contree_build_result, BufferUse::ComputeReadWrite),
-                        (&resources.concat_dispatch_indirect, BufferUse::ComputeWrite),
-                        (&resources.sparse_nodes, BufferUse::ComputeRead),
-                        (&resources.dense_nodes, BufferUse::ComputeWrite),
-                        (&resources.counter_for_levels, BufferUse::ComputeWrite),
-                    ],
-                );
                 record_timed_pass!({
                     contree_last_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
                 });
             }
         }
 
-        declare_buffer_uses(
-            &cmdbuf,
-            &[
-                (&resources.concat_dispatch_indirect, BufferUse::IndirectRead),
-                (&resources.contree_build_info, BufferUse::ComputeRead),
-                (&resources.node_offset_for_levels, BufferUse::ComputeRead),
-                (&resources.dense_nodes, BufferUse::ComputeRead),
-                (&resources.counter_for_levels, BufferUse::ComputeRead),
-                (&resources.contree_node_data, BufferUse::ComputeWrite),
-                (&resources.contree_build_result, BufferUse::ComputeRead),
-            ],
-        );
         record_timed_pass!({
             contree_concat_ppl.record_indirect(&cmdbuf, &resources.concat_dispatch_indirect, None);
         });
@@ -1444,8 +1351,6 @@ impl ContreeBuilder {
                 &self.contree_buffer_update_ppl,
                 &self.contree_last_buffer_update_ppl,
                 &self.contree_concat_ppl,
-                &self.contree_make_surface_result,
-                &self.contree_surface_active_brick_indices,
                 self.pass_timing.as_ref(),
             );
             self.contree_cmdbuf = Some(cmdbuf);

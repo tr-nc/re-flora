@@ -2,8 +2,8 @@ use super::{
     descriptor_runtime::ReflectedDescriptorRuntime, DescriptorUpdate, PreparedDescriptorGeneration,
 };
 use crate::{
-    Buffer, CommandBuffer, DescriptorPool, Device, Extent3D, FrameRetirement, PipelineLayout,
-    ResourceContainer, ShaderModule,
+    Buffer, BufferUse, CommandBuffer, DescriptorPool, Device, Extent3D, FrameRetirement,
+    PipelineLayout, ResourceContainer, ShaderModule,
 };
 use anyhow::Result;
 use ash::vk;
@@ -159,8 +159,8 @@ impl ComputePipeline {
         self.0.descriptors.begin_transient_frame(frame_slot);
     }
 
-    fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
-        self.0.descriptors.record_texture_transitions(cmdbuf);
+    fn record_descriptor_resource_uses(&self, cmdbuf: &CommandBuffer) {
+        self.0.descriptors.record_active_resource_uses(cmdbuf);
     }
 
     pub fn tracked_texture_binding_count(&self) -> usize {
@@ -211,9 +211,12 @@ impl ComputePipeline {
         dispatch_extent: Extent3D,
         push_constants: Option<&[u8]>,
     ) -> Result<()> {
-        self.record_texture_transitions(cmdbuf);
+        self.record_descriptor_resource_uses(cmdbuf);
         self.record_bind(cmdbuf);
-        let descriptor_set = self.0.descriptors.prepare_transient_set(descriptors)?;
+        let descriptor_set = self
+            .0
+            .descriptors
+            .prepare_transient_set(cmdbuf, descriptors)?;
         self.bind_active_descriptor_sets(cmdbuf, Some(descriptor_set.set_no()));
         self.0.device.cmd_bind_descriptor_sets_compute_raw(
             cmdbuf.as_raw(),
@@ -244,7 +247,7 @@ impl ComputePipeline {
         dispatch_extent: Extent3D,
         push_constants: Option<&[u8]>,
     ) {
-        self.record_texture_transitions(cmdbuf);
+        self.record_descriptor_resource_uses(cmdbuf);
         self.record_bind(cmdbuf);
         self.bind_active_descriptor_sets(cmdbuf, None);
         if let Some(push_constants) = push_constants {
@@ -269,7 +272,8 @@ impl ComputePipeline {
         buffer: &Buffer,
         push_constants: Option<&[u8]>,
     ) {
-        self.record_texture_transitions(cmdbuf);
+        self.record_descriptor_resource_uses(cmdbuf);
+        cmdbuf.use_buffer(buffer, BufferUse::IndirectRead);
         self.record_bind(cmdbuf);
         self.bind_active_descriptor_sets(cmdbuf, None);
         if let Some(push_constants) = push_constants {

@@ -470,6 +470,22 @@ impl Image {
 
         for layer in base_array_layer..base_array_layer + layer_count {
             let old_state = states[layer as usize];
+            if let Some(merged) = old_state.merged_read_with(target_state) {
+                if let Some(old_state) = run_old_state.take() {
+                    record_image_transition_barrier(
+                        device.as_raw(),
+                        cmdbuf.as_raw(),
+                        TextureTransition::new(old_state, target_state),
+                        self.0.image,
+                        self.0.desc.get_aspect_mask(),
+                        run_start,
+                        run_len,
+                    );
+                    run_len = 0;
+                }
+                states[layer as usize] = merged;
+                continue;
+            }
             if old_state == target_state {
                 if old_state.access().contains_write() || target_state.access().contains_write() {
                     record_image_transition_barrier(
@@ -494,9 +510,11 @@ impl Image {
                     );
                     run_len = 0;
                 }
+                states[layer as usize] = target_state;
                 continue;
             }
 
+            states[layer as usize] = target_state;
             if run_old_state == Some(old_state) {
                 run_len += 1;
             } else {
@@ -527,10 +545,6 @@ impl Image {
                 run_start,
                 run_len,
             );
-        }
-
-        for state in &mut states[start..end] {
-            *state = target_state;
         }
     }
 

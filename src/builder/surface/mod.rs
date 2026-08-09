@@ -674,22 +674,6 @@ impl SurfaceBuilder {
                 &cmdbuf,
                 &self.resources.surface_solid_workgroup_dispatch_indirect,
             );
-            cmdbuf.use_buffer(
-                &self.resources.make_surface_result,
-                BufferUse::ComputeReadWrite,
-            );
-            cmdbuf.use_buffer(
-                &self.resources.surface_active_brick_flags,
-                BufferUse::ComputeRead,
-            );
-            cmdbuf.use_buffer(
-                &self.resources.surface_solid_workgroup_indices,
-                BufferUse::ComputeWrite,
-            );
-            cmdbuf.use_buffer(
-                &self.resources.surface_solid_workgroup_dispatch_indirect,
-                BufferUse::ComputeReadWrite,
-            );
             self.prepare_sparse_surface_dispatch_ppl.record(
                 &cmdbuf,
                 Extent3D::new(solid_workgroup_count, 1, 1),
@@ -697,22 +681,6 @@ impl SurfaceBuilder {
             );
         });
 
-        cmdbuf.use_buffer(
-            &self.resources.surface_solid_workgroup_dispatch_indirect,
-            BufferUse::IndirectRead,
-        );
-        cmdbuf.use_buffer(
-            &self.resources.make_surface_result,
-            BufferUse::ComputeReadWrite,
-        );
-        cmdbuf.use_buffer(
-            &self.resources.surface_active_brick_flags,
-            BufferUse::ComputeReadWrite,
-        );
-        cmdbuf.use_buffer(
-            &self.resources.surface_active_brick_indices,
-            BufferUse::ComputeWrite,
-        );
         record_timed_surface_pass!({
             self.make_surface_ppl.record_indirect(
                 &cmdbuf,
@@ -722,11 +690,6 @@ impl SurfaceBuilder {
         });
 
         if place_flora {
-            cmdbuf.use_buffer(&self.resources.make_surface_result, BufferUse::ComputeRead);
-            cmdbuf.use_buffer(
-                &self.resources.active_surface_flora_dispatch_indirect,
-                BufferUse::ComputeWrite,
-            );
             record_timed_surface_pass!({
                 self.prepare_active_surface_flora_dispatch_ppl.record(
                     &cmdbuf,
@@ -734,31 +697,6 @@ impl SurfaceBuilder {
                     None,
                 );
             });
-            cmdbuf.use_buffer(
-                &self.resources.active_surface_flora_dispatch_indirect,
-                BufferUse::IndirectRead,
-            );
-            cmdbuf.use_buffer(
-                &self.resources.occupancy_to_instances_result,
-                BufferUse::ComputeReadWrite,
-            );
-            cmdbuf.use_buffer(
-                &self.resources.surface_active_brick_indices,
-                BufferUse::ComputeRead,
-            );
-            cmdbuf.use_buffer(&self.resources.make_surface_result, BufferUse::ComputeRead);
-            let chunk_resources = flora_chunk_idx
-                .map(|chunk_idx| &self.resources.instances.chunk_flora_instances[chunk_idx].1);
-            if let Some(chunk_resources) = chunk_resources {
-                cmdbuf.use_buffer(
-                    &chunk_resources.resource.instances_buf,
-                    BufferUse::ComputeWrite,
-                );
-                cmdbuf.use_buffer(
-                    &chunk_resources.grass_growth_potential_levels,
-                    BufferUse::ComputeRead,
-                );
-            }
             record_timed_surface_pass!({
                 self.active_surface_to_flora_ppl.record_indirect(
                     &cmdbuf,
@@ -1461,7 +1399,6 @@ impl SurfaceBuilder {
         cmdbuf.begin(true);
 
         cmdbuf.use_buffer(&self.resources.clear_occupancy_info, BufferUse::HostWrite);
-        cmdbuf.use_buffer(&self.resources.clear_occupancy_info, BufferUse::ComputeRead);
 
         let pass_timing = self.pass_timing.as_ref();
         if let Some(timing) = pass_timing {
@@ -1499,10 +1436,6 @@ impl SurfaceBuilder {
                 &chunk_resources.resource.instances_buf,
                 BufferUse::HostWrite,
             );
-            cmdbuf.use_buffer(
-                &chunk_resources.resource.instances_buf,
-                BufferUse::ComputeRead,
-            );
             record_timed_flora_edit_pass!({
                 self.instances_to_occupancy_ppl
                     .record(&cmdbuf, Extent3D::new(max_len, 1, 1), None);
@@ -1510,7 +1443,6 @@ impl SurfaceBuilder {
         }
 
         cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::HostWrite);
-        cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::ComputeRead);
 
         record_timed_flora_edit_pass!({
             self.edit_occupancy_ppl.record(
@@ -1529,24 +1461,8 @@ impl SurfaceBuilder {
             BufferUse::HostWrite,
         );
         cmdbuf.use_buffer(
-            &self.resources.occupancy_to_instances_info,
-            BufferUse::ComputeRead,
-        );
-        cmdbuf.use_buffer(
             &self.resources.occupancy_to_instances_result,
             BufferUse::HostWrite,
-        );
-        cmdbuf.use_buffer(
-            &self.resources.occupancy_to_instances_result,
-            BufferUse::ComputeReadWrite,
-        );
-        cmdbuf.use_buffer(
-            &chunk_resources.resource.instances_buf,
-            BufferUse::ComputeWrite,
-        );
-        cmdbuf.use_buffer(
-            &chunk_resources.grass_growth_potential_levels,
-            BufferUse::ComputeRead,
         );
 
         record_timed_flora_edit_pass!({
@@ -1664,32 +1580,16 @@ impl SurfaceBuilder {
             BufferUse::HostWrite,
         );
         cmdbuf.use_buffer(
-            &self.resources.instances_to_occupancy_info,
-            BufferUse::ComputeRead,
-        );
-        cmdbuf.use_buffer(
             &self.resources.occupancy_to_instances_result,
             BufferUse::HostWrite,
-        );
-        cmdbuf.use_buffer(
-            &self.resources.occupancy_to_instances_result,
-            BufferUse::ComputeReadWrite,
         );
         cmdbuf.use_buffer(
             &chunk_resources.resource.instances_buf,
             BufferUse::HostWrite,
         );
         cmdbuf.use_buffer(
-            &chunk_resources.resource.instances_buf,
-            BufferUse::ComputeReadWrite,
-        );
-        cmdbuf.use_buffer(
             &chunk_resources.grass_growth_potential_levels,
             BufferUse::HostWrite,
-        );
-        cmdbuf.use_buffer(
-            &chunk_resources.grass_growth_potential_levels,
-            BufferUse::ComputeRead,
         );
 
         let pass_timing = self.pass_timing.as_ref();

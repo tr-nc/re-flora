@@ -1,7 +1,36 @@
-use crate::{Device, MergeWithEq};
+use crate::Device;
 use anyhow::Result;
 use ash::vk;
 use std::{collections::HashMap, sync::Arc};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DescriptorAccess {
+    ReadOnly,
+    WriteOnly,
+    ReadWrite,
+}
+
+impl DescriptorAccess {
+    pub(crate) fn readable(self) -> bool {
+        matches!(self, Self::ReadOnly | Self::ReadWrite)
+    }
+
+    pub(crate) fn writable(self) -> bool {
+        matches!(self, Self::WriteOnly | Self::ReadWrite)
+    }
+
+    fn merged_with(self, other: Self) -> Self {
+        match (
+            self.readable() || other.readable(),
+            self.writable() || other.writable(),
+        ) {
+            (true, false) => Self::ReadOnly,
+            (false, true) => Self::WriteOnly,
+            (true, true) => Self::ReadWrite,
+            (false, false) => unreachable!("a descriptor must be readable, writable, or both"),
+        }
+    }
+}
 
 #[derive(Debug)]
 struct DescriptorSetLayoutInner {
@@ -63,7 +92,7 @@ impl DescriptorSetLayout {
             ));
         }
 
-        let merged_bindings = self.0.bindings.merge_with_eq(&other.0.bindings)?;
+        let merged_bindings = merge_descriptor_bindings(&self.0.bindings, &other.0.bindings)?;
 
         Self::new(&self.0.device, &merged_bindings)
     }
@@ -76,6 +105,7 @@ pub struct DescriptorSetLayoutBinding {
     pub descriptor_type: vk::DescriptorType,
     pub descriptor_count: u32,
     pub stage_flags: vk::ShaderStageFlags,
+    pub(crate) access: DescriptorAccess,
 }
 
 impl DescriptorSetLayoutBinding {
@@ -86,6 +116,41 @@ impl DescriptorSetLayoutBinding {
             .descriptor_count(self.descriptor_count)
             .stage_flags(self.stage_flags)
     }
+
+    pub(crate) fn merged_with(&self, other: &Self) -> Result<Self> {
+        anyhow::ensure!(
+            self.no == other.no
+                && self.name == other.name
+                && self.descriptor_type == other.descriptor_type
+                && self.descriptor_count == other.descriptor_count,
+            "incompatible reflected descriptor declarations at binding {}: {:?} != {:?}",
+            self.no,
+            self,
+            other,
+        );
+        let mut merged = self.clone();
+        merged.stage_flags |= other.stage_flags;
+        merged.access = self.access.merged_with(other.access);
+        Ok(merged)
+    }
+}
+
+pub(crate) fn merge_descriptor_bindings(
+    left: &HashMap<u32, DescriptorSetLayoutBinding>,
+    right: &HashMap<u32, DescriptorSetLayoutBinding>,
+) -> Result<HashMap<u32, DescriptorSetLayoutBinding>> {
+    let mut merged = left.clone();
+    for (&binding_no, right_binding) in right {
+        match merged.get(&binding_no) {
+            Some(left_binding) => {
+                merged.insert(binding_no, left_binding.merged_with(right_binding)?);
+            }
+            None => {
+                merged.insert(binding_no, right_binding.clone());
+            }
+        }
+    }
+    Ok(merged)
 }
 
 pub struct DescriptorSetLayoutBuilder {
@@ -109,5 +174,35 @@ impl DescriptorSetLayoutBuilder {
 
     pub fn build(self, device: &Device) -> Result<DescriptorSetLayout> {
         DescriptorSetLayout::new(device, &self.bindings.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DescriptorAccess, DescriptorSetLayoutBinding};
+    use ash::vk;
+
+    #[test]
+    fn merging_stage_declarations_preserves_union_of_access() {
+        let vertex_read = DescriptorSetLayoutBinding {
+            no: 3,
+            name: "shared".to_owned(),
+            descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::VERTEX,
+            access: DescriptorAccess::ReadOnly,
+        };
+        let fragment_write = DescriptorSetLayoutBinding {
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            access: DescriptorAccess::WriteOnly,
+            ..vertex_read.clone()
+        };
+
+        let merged = vertex_read.merged_with(&fragment_write).unwrap();
+        assert_eq!(
+            merged.stage_flags,
+            vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT
+        );
+        assert_eq!(merged.access, DescriptorAccess::ReadWrite);
     }
 }

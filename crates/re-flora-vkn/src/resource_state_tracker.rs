@@ -1,6 +1,4 @@
-use crate::{
-    Buffer, BufferState, BufferUse, CommandBuffer, Image, ResourceState, TextureTransition,
-};
+use crate::{Buffer, BufferState, CommandBuffer, Image, ResourceState, TextureTransition};
 use ash::vk;
 
 /// Resource states tentatively produced while one command buffer is being recorded.
@@ -44,7 +42,9 @@ impl ResourceStateTransaction {
         let image_index = self
             .images
             .iter()
-            .position(|tracked| tracked.image.state_transaction_key() == image.state_transaction_key())
+            .position(|tracked| {
+                tracked.image.state_transaction_key() == image.state_transaction_key()
+            })
             .unwrap_or_else(|| {
                 let initial = image.snapshot_states();
                 self.images.push(TrackedImageState {
@@ -74,7 +74,9 @@ impl ResourceStateTransaction {
         let image_index = self
             .images
             .iter()
-            .position(|tracked| tracked.image.state_transaction_key() == image.state_transaction_key())
+            .position(|tracked| {
+                tracked.image.state_transaction_key() == image.state_transaction_key()
+            })
             .unwrap_or_else(|| {
                 let initial = image.snapshot_states();
                 self.images.push(TrackedImageState {
@@ -97,11 +99,11 @@ impl ResourceStateTransaction {
         tracked.current[start..end].fill(state);
     }
 
-    pub(crate) fn use_buffer(
+    pub(crate) fn transition_buffer(
         &mut self,
         cmdbuf: &CommandBuffer,
         buffer: &Buffer,
-        usage: BufferUse,
+        target_state: BufferState,
     ) {
         let buffer_index = self
             .buffers
@@ -121,7 +123,7 @@ impl ResourceStateTransaction {
         let tracked = &mut self.buffers[buffer_index];
         tracked.buffer.record_state_transition_from_states(
             cmdbuf,
-            usage.state(),
+            target_state,
             &mut tracked.current,
         );
     }

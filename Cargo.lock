@@ -3353,6 +3353,7 @@ dependencies = [
  "image",
  "log",
  "re-flora-shader-build",
+ "spirv",
  "spirv-reflect",
  "winit",
 ]

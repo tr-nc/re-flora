@@ -19,7 +19,7 @@ use re_flora_vkn::{
     Extent2D, Extent3D, FrameRetirement, GraphicsPipeline, GraphicsPipelineDesc, ShaderModule,
     Texture,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -438,6 +438,21 @@ impl EguiRenderer {
         };
         if primitives.is_empty() {
             return;
+        }
+
+        let mut prepared_textures = HashSet::new();
+        for primitive in primitives {
+            let Primitive::Mesh(mesh) = &primitive.primitive else {
+                continue;
+            };
+            if prepared_textures.insert(mesh.texture_id) {
+                let managed = self
+                    .managed_textures
+                    .get(&mesh.texture_id)
+                    .expect("egui primitive references an unknown managed texture");
+                self.gui_ppl
+                    .prepare_descriptor_set_resources(cmdbuf, &managed.descriptor_set);
+            }
         }
 
         if self.frames.is_none() {

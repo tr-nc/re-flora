@@ -684,7 +684,6 @@ pub struct TracerDesc {
     pub environment_probe_spacing_voxels: u32,
     pub environment_probe_visualization_enabled: bool,
     pub environment_irradiance_capture_enabled: bool,
-    pub ddgi_spatial_weight_readback_enabled: bool,
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_batch_order: DdgiBatchOrder,
     pub ddgi_debug_view: DdgiDebugView,
@@ -770,8 +769,6 @@ pub struct Tracer {
     cloud_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
     flora_lighting_cache: FloraLightingCache,
-    contree_node_data: Buffer,
-    contree_leaf_data: Buffer,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
     prepared_ddgi_consumer_descriptors: Option<PreparedDdgiConsumerDescriptors>,
@@ -810,12 +807,12 @@ impl Drop for Tracer {
 }
 
 impl Tracer {
-    /// Declares the CPU-updated tracer buffers before the first frame pass consumes them.
+    /// Declares CPU writes before reflected pipeline resources consume these buffers.
     ///
     /// The declaration is intentionally made outside render passes: a HostWrite-to-shader
-    /// dependency must be recorded before a subpass begins, while the same buffers can be read by
-    /// compute, vertex, or fragment stages depending on the enabled path.
-    pub fn record_updated_buffer_uses(&self, cmdbuf: &CommandBuffer) {
+    /// dependency must be recorded before a subpass begins. The descriptor runtime derives each
+    /// consumer stage and access from the pipeline's active reflection.
+    pub fn record_host_buffer_writes(&self, cmdbuf: &CommandBuffer) {
         let updated_buffers = [
             &*self.resources.uniforms.gui_input,
             &*self.resources.uniforms.sun_info,
@@ -834,17 +831,7 @@ impl Tracer {
         ];
         for buffer in updated_buffers {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
-            cmdbuf.use_buffer(buffer, BufferUse::ShaderRead);
         }
-    }
-
-    /// Declares builder-owned read-only buffers before tracer compute and graphics consumers.
-    ///
-    /// Contree jobs may leave these buffers in a compute-write state. Keeping the leases here
-    /// avoids relying on a frame-wide fallback barrier when the tracer binds their descriptors.
-    fn record_contree_buffer_uses(&self, cmdbuf: &CommandBuffer) {
-        cmdbuf.use_buffer(&self.contree_node_data, BufferUse::ShaderRead);
-        cmdbuf.use_buffer(&self.contree_leaf_data, BufferUse::ShaderRead);
     }
 
     pub fn direct_sun_shadow_resources(&self) -> DirectSunShadowResources<'_> {
@@ -1091,8 +1078,6 @@ impl Tracer {
             cloud_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
             flora_lighting_cache: FloraLightingCache::default(),
-            contree_node_data: (*contree_builder_resources.contree_node_data).clone(),
-            contree_leaf_data: (*contree_builder_resources.contree_leaf_data).clone(),
             ddgi_voxel_visibility,
             ddgi_runtime,
             prepared_ddgi_consumer_descriptors: None,
@@ -1270,10 +1255,6 @@ impl Tracer {
                 cmdbuf.use_buffer(
                     &self.ddgi_voxel_visibility.ddgi_voxel_visibility_info,
                     BufferUse::HostWrite,
-                );
-                cmdbuf.use_buffer(
-                    &self.ddgi_voxel_visibility.ddgi_voxel_visibility_info,
-                    BufferUse::ComputeRead,
                 );
                 self.compute_pipelines
                     .ddgi_voxel_visibility_pack_ppl
@@ -2899,7 +2880,6 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
-        self.record_contree_buffer_uses(cmdbuf);
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
         if std::mem::take(&mut self.ddgi_relocation_stats_readback_pending) {
             let stats = self
@@ -3240,7 +3220,7 @@ impl Tracer {
         self.ddgi_runtime
             .volumes()
             .builder()
-            .record_cpu_updated_buffer_uses(cmdbuf);
+            .record_cpu_buffer_writes(cmdbuf);
 
         if let Some(lighting) = self.ddgi_runtime.in_flight_authored_lighting() {
             let revision = lighting.revision;
@@ -3307,8 +3287,6 @@ impl Tracer {
                 volume.status().resource_bytes.relocation_stats,
                 0,
             );
-            cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeWrite);
-            cmdbuf.use_buffer(&volume.ddgi_relocation_stats, BufferUse::ComputeWrite);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3339,8 +3317,6 @@ impl Tracer {
             let iteration_will_complete = ddgi_frame_plan.iteration_will_complete;
             {
                 let volume = self.ddgi_runtime.volumes().builder();
-                cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
-                cmdbuf.use_buffer(&volume.ddgi_transient_ray_data, BufferUse::ComputeWrite);
                 volume.ddgi_trace_stats.record_fill(
                     cmdbuf,
                     0,
@@ -3355,7 +3331,6 @@ impl Tracer {
                         0,
                     );
                 }
-                cmdbuf.use_buffer(&volume.ddgi_trace_stats, BufferUse::ComputeWrite);
             }
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -3371,12 +3346,7 @@ impl Tracer {
                 gpu_profiler_frame_slot,
                 cmdbuf,
                 "ddgi.irradiance_filter",
-                || {
-                    let volume = self.ddgi_runtime.volumes().builder();
-                    cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
-                    cmdbuf.use_buffer(&volume.ddgi_transient_ray_data, BufferUse::ComputeRead);
-                    self.record_ddgi_irradiance_filter_pass(cmdbuf, batch)
-                },
+                || self.record_ddgi_irradiance_filter_pass(cmdbuf, batch),
             );
             // Visibility is geometry-owned and is written only by bootstrap S0. Radiance-only
             // feedback retains the complete visibility atlas.
@@ -3386,12 +3356,7 @@ impl Tracer {
                     gpu_profiler_frame_slot,
                     cmdbuf,
                     "ddgi.visibility_filter",
-                    || {
-                        let volume = self.ddgi_runtime.volumes().builder();
-                        cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
-                        cmdbuf.use_buffer(&volume.ddgi_transient_ray_data, BufferUse::ComputeRead);
-                        self.record_ddgi_visibility_filter_pass(cmdbuf, batch)
-                    },
+                    || self.record_ddgi_visibility_filter_pass(cmdbuf, batch),
                 );
             }
             Self::with_gpu_scope(
@@ -3402,9 +3367,6 @@ impl Tracer {
                 || self.record_ddgi_atlas_gutter_passes(cmdbuf, batch),
             );
             if iteration_will_complete {
-                let volume = self.ddgi_runtime.volumes().builder();
-                cmdbuf.use_buffer(&volume.ddgi_probe_metadata, BufferUse::ComputeRead);
-                cmdbuf.use_buffer(&volume.ddgi_atlas_reduction, BufferUse::ComputeWrite);
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
@@ -3448,11 +3410,6 @@ impl Tracer {
                 );
             }
         }
-
-        cmdbuf.use_buffer(
-            &self.ddgi_runtime.volumes().active().ddgi_probe_metadata,
-            BufferUse::ShaderRead,
-        );
 
         if render_flags.enable_flora {
             Self::with_gpu_scope(
@@ -3577,10 +3534,10 @@ impl Tracer {
         Ok(())
     }
 
-    /// Declares graphics buffers before any shadow or main render pass binds them.
+    /// Declares explicit vertex/index uses and CPU writes before graphics render passes.
     ///
-    /// The same meshes and instance generations can be consumed by both passes, so this seam
-    /// deliberately sits before the shadow prepass rather than inside either render pass.
+    /// Reflected storage/uniform accesses belong to the descriptor runtime. This seam deliberately
+    /// retains only operation-local vertex/index semantics and producer-side HostWrite state.
     fn record_graphics_buffer_uses(
         &self,
         cmdbuf: &CommandBuffer,
@@ -3599,14 +3556,6 @@ impl Tracer {
             cmdbuf.use_buffer(buffer, BufferUse::VertexRead);
         };
 
-        for buffer in [
-            &*self.resources.wind.wind_volume_info,
-            &*self.resources.flora_voxel_lookup.flora_voxel_table_descs,
-            &*self.resources.flora_voxel_lookup.flora_voxel_infos,
-            &*self.ddgi_voxel_visibility.ddgi_voxel_visibility_info,
-        ] {
-            cmdbuf.use_buffer(buffer, BufferUse::ShaderRead);
-        }
         record_vertex(&self.resources.meshes.terrain_depth_prefill_vertices);
         for mesh in &self.resources.meshes.flora_meshes {
             record_mesh(&mesh.indices, &mesh.vertices, mesh.indices_len);
@@ -3703,7 +3652,10 @@ impl Tracer {
         }
         for (_, flora_resources) in &surface_resources.instances.chunk_flora_instances {
             if flora_resources.total_instance_len() > 0 {
-                record_instance(&flora_resources.resource.instances_buf);
+                cmdbuf.use_buffer(
+                    &flora_resources.resource.instances_buf,
+                    BufferUse::HostWrite,
+                );
             }
         }
         for tree_instances in surface_resources
@@ -3713,7 +3665,10 @@ impl Tracer {
             .chain(surface_resources.instances.apple_instances.values())
         {
             if tree_instances.resources.instances_len > 0 {
-                record_instance(&tree_instances.resources.instances_buf);
+                cmdbuf.use_buffer(
+                    &tree_instances.resources.instances_buf,
+                    BufferUse::HostWrite,
+                );
             }
         }
     }
@@ -3767,24 +3722,6 @@ impl Tracer {
             log::debug!("[DDGI][TERRAIN_CACHE] clear scheduled before tracer pass");
         }
         if render_flags.enable_tracer {
-            if self.desc.environment_irradiance_capture_enabled {
-                cmdbuf.use_buffer(
-                    &self
-                        .resources
-                        .extent_dependent_resources
-                        .environment_irradiance_capture,
-                    BufferUse::ComputeWrite,
-                );
-            }
-            if self.desc.ddgi_spatial_weight_readback_enabled {
-                cmdbuf.use_buffer(
-                    &self
-                        .resources
-                        .extent_dependent_resources
-                        .ddgi_spatial_weight_readback,
-                    BufferUse::ComputeWrite,
-                );
-            }
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -4269,19 +4206,117 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 );
             }
-            PipelineBarrier::shader_access(
-                PipelineStage::COMPUTE_SHADER,
-                PipelineStage::VERTEX_SHADER,
-            )
-            .record_insert(self.vulkan_ctx.device(), cmdbuf);
             Some(cache_buffer)
         } else {
             None
         };
 
+        let prepared_flora_descriptors = flora_frame_plan
+            .batches()
+            .iter()
+            .map(|batch| {
+                let instances =
+                    &surface_resources.instances.chunk_flora_instances[batch.chunk_index()].1;
+                let pipeline = match batch.lod_state() {
+                    LodState::Lod0 => &self.graphics_pipelines.flora_ppl,
+                    LodState::Lod1 => &self.graphics_pipelines.flora_lod_ppl,
+                };
+                pipeline
+                    .prepare_draw_descriptors(
+                        cmdbuf,
+                        &[
+                            (
+                                "flora_instances",
+                                DescriptorResource::Buffer(&instances.resource.instances_buf),
+                            ),
+                            (
+                                "grass_growth_potential_levels",
+                                DescriptorResource::Buffer(
+                                    &instances.grass_growth_potential_levels,
+                                ),
+                            ),
+                            (
+                                "flora_lighting_cache",
+                                DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
+                                    Some(buffer) => buffer.as_ref(),
+                                    None => &*instances.resource.instances_buf,
+                                }),
+                            ),
+                        ],
+                    )
+                    .expect("flora draw descriptors must match reflection")
+            })
+            .collect::<Vec<_>>();
+
+        let leaves_by_lod = (enable_flora && enable_leaves).then(|| {
+            self.trees_needs_to_draw_this_frame(
+                &surface_resources.instances.leaves_instances,
+                lod_distance,
+                flora_draw_distance,
+            )
+        });
+        let mut prepared_leaf_descriptors = Vec::new();
+        if let Some(trees_by_lod) = leaves_by_lod.as_ref() {
+            for lod_state in [LodState::Lod0, LodState::Lod1] {
+                let pipeline = match lod_state {
+                    LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
+                    LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
+                };
+                for tree in trees_by_lod[&lod_state]
+                    .iter()
+                    .filter(|tree| tree.resources.instances_len > 0)
+                {
+                    prepared_leaf_descriptors.push(
+                        pipeline
+                            .prepare_draw_descriptors(
+                                cmdbuf,
+                                &[(
+                                    "tree_leaf_instances",
+                                    DescriptorResource::Buffer(&tree.resources.instances_buf),
+                                )],
+                            )
+                            .expect("leaf draw descriptors must match reflection"),
+                    );
+                }
+            }
+        }
+
+        let apples_by_lod = enable_flora.then(|| {
+            self.trees_needs_to_draw_this_frame(
+                &surface_resources.instances.apple_instances,
+                lod_distance,
+                flora_draw_distance,
+            )
+        });
+        let mut prepared_apple_descriptors = Vec::new();
+        if let Some(trees_by_lod) = apples_by_lod.as_ref() {
+            for lod_state in [LodState::Lod0, LodState::Lod1] {
+                let pipeline = match lod_state {
+                    LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
+                    LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
+                };
+                for tree in trees_by_lod[&lod_state]
+                    .iter()
+                    .filter(|tree| tree.resources.instances_len > 0)
+                {
+                    prepared_apple_descriptors.push(
+                        pipeline
+                            .prepare_draw_descriptors(
+                                cmdbuf,
+                                &[(
+                                    "tree_leaf_instances",
+                                    DescriptorResource::Buffer(&tree.resources.instances_buf),
+                                )],
+                            )
+                            .expect("apple draw descriptors must match reflection"),
+                    );
+                }
+            }
+        }
+
         self.graphics_pipelines
             .terrain_depth_prefill_ppl
-            .record_texture_transitions(cmdbuf);
+            .prepare_descriptor_resources(cmdbuf);
         if enable_flora {
             for pipeline in [
                 &self.graphics_pipelines.flora_ppl,
@@ -4289,7 +4324,7 @@ impl Tracer {
                 &self.graphics_pipelines.leaves_ppl,
                 &self.graphics_pipelines.leaves_lod_ppl,
             ] {
-                pipeline.record_texture_transitions(cmdbuf);
+                pipeline.prepare_descriptor_resources(cmdbuf);
             }
         }
         if self.sprinkler_resources.instance_count > 0
@@ -4297,30 +4332,30 @@ impl Tracer {
         {
             self.graphics_pipelines
                 .sprinkler_ppl
-                .record_texture_transitions(cmdbuf);
+                .prepare_descriptor_resources(cmdbuf);
         }
         if self.geometry_preview_resources.has_visible_mesh() {
             self.graphics_pipelines
                 .geometry_preview_ppl
-                .record_texture_transitions(cmdbuf);
+                .prepare_descriptor_resources(cmdbuf);
         }
         if self.dynamic_fruit_resources.instance_count > 0 {
             self.graphics_pipelines
                 .dynamic_fruit_ppl
-                .record_texture_transitions(cmdbuf);
+                .prepare_descriptor_resources(cmdbuf);
         }
         if enable_particles {
             self.graphics_pipelines
                 .particle_ppl
-                .record_texture_transitions(cmdbuf);
+                .prepare_descriptor_resources(cmdbuf);
             self.graphics_pipelines
                 .water_droplet_ppl
-                .record_texture_transitions(cmdbuf);
+                .prepare_descriptor_resources(cmdbuf);
         }
         if enable_glass {
             self.graphics_pipelines
                 .glass_ppl
-                .record_texture_transitions(cmdbuf);
+                .prepare_descriptor_resources(cmdbuf);
         }
 
         Self::with_gpu_scope(
@@ -4360,7 +4395,6 @@ impl Tracer {
         // Draw all flora species, both LOD levels
         if enable_flora {
             let recorded_flora_instance_count = flora_frame_plan.instance_count();
-            let flora_cache_buffer = flora_cache_buffer.as_ref();
             let flora_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
                     gpu_profiler_frame_slot,
@@ -4369,6 +4403,7 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 )
             });
+            let mut prepared_flora_descriptors = prepared_flora_descriptors.iter();
             for group in flora_frame_plan.groups() {
                 let species_index = group.species_index();
                 let lod_state = group.lod_state();
@@ -4403,41 +4438,24 @@ impl Tracer {
                         lod_state == LodState::Lod1,
                     );
 
-                    pipeline
-                        .record_indexed_with_descriptors(
-                            cmdbuf,
-                            &[
-                                (
-                                    "flora_instances",
-                                    DescriptorResource::Buffer(&instances.resource.instances_buf),
-                                ),
-                                (
-                                    "grass_growth_potential_levels",
-                                    DescriptorResource::Buffer(
-                                        &instances.grass_growth_potential_levels,
-                                    ),
-                                ),
-                                (
-                                    "flora_lighting_cache",
-                                    DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
-                                        Some(buffer) => buffer.as_ref(),
-                                        None => &*instances.resource.instances_buf,
-                                    }),
-                                ),
-                            ],
-                            mesh.indices_len,
-                            batch.instance_count(),
-                            0,
-                            0,
-                            FloraInstanceResources::species_offset(species_index),
-                            Some(&PushConstantInfo {
-                                shader_stage: vk::ShaderStageFlags::VERTEX,
-                                push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
-                            }),
-                        )
-                        .expect("flora draw descriptors must match reflection");
+                    pipeline.record_indexed_with_prepared_descriptors(
+                        cmdbuf,
+                        prepared_flora_descriptors
+                            .next()
+                            .expect("every flora frame batch must have prepared descriptors"),
+                        mesh.indices_len,
+                        batch.instance_count(),
+                        0,
+                        0,
+                        FloraInstanceResources::species_offset(species_index),
+                        Some(&PushConstantInfo {
+                            shader_stage: vk::ShaderStageFlags::VERTEX,
+                            push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                        }),
+                    );
                 }
             }
+            debug_assert!(prepared_flora_descriptors.next().is_none());
             if self.raster_flora_ddgi_lighting && recorded_flora_instance_count > 0 {
                 let active = self.ddgi_runtime.volumes().status().active();
                 if let Some(token) = active.build_token.filter(|token| {
@@ -4473,11 +4491,10 @@ impl Tracer {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
-                let trees_by_lod = self.trees_needs_to_draw_this_frame(
-                    &surface_resources.instances.leaves_instances,
-                    lod_distance,
-                    flora_draw_distance,
-                );
+                let trees_by_lod = leaves_by_lod
+                    .as_ref()
+                    .expect("enabled leaf rendering must have a frame plan");
+                let mut prepared_leaf_descriptors = prepared_leaf_descriptors.iter();
                 for &lod_state in &[LodState::Lod0, LodState::Lod1] {
                     let pipeline = match lod_state {
                         LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
@@ -4517,28 +4534,24 @@ impl Tracer {
                             leaf_color_tables,
                         );
                         cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
-                        pipeline
-                            .record_indexed_with_descriptors(
-                                cmdbuf,
-                                &[(
-                                    "tree_leaf_instances",
-                                    DescriptorResource::Buffer(
-                                        &tree_instance.resources.instances_buf,
-                                    ),
-                                )],
-                                indices_len,
-                                tree_instance.resources.instances_len,
-                                0,
-                                0,
-                                0,
-                                Some(&PushConstantInfo {
-                                    shader_stage: vk::ShaderStageFlags::VERTEX,
-                                    push_constants: bytemuck::bytes_of(&leaf_push).to_vec(),
-                                }),
-                            )
-                            .expect("leaf draw descriptors must match reflection");
+                        pipeline.record_indexed_with_prepared_descriptors(
+                            cmdbuf,
+                            prepared_leaf_descriptors
+                                .next()
+                                .expect("every visible leaf tree must have prepared descriptors"),
+                            indices_len,
+                            tree_instance.resources.instances_len,
+                            0,
+                            0,
+                            0,
+                            Some(&PushConstantInfo {
+                                shader_stage: vk::ShaderStageFlags::VERTEX,
+                                push_constants: bytemuck::bytes_of(&leaf_push).to_vec(),
+                            }),
+                        );
                     }
                 }
+                debug_assert!(prepared_leaf_descriptors.next().is_none());
                 if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
                     profiler.end_scope(
                         gpu_profiler_frame_slot,
@@ -4560,11 +4573,10 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 )
             });
-            let apples_by_lod = self.trees_needs_to_draw_this_frame(
-                &surface_resources.instances.apple_instances,
-                lod_distance,
-                flora_draw_distance,
-            );
+            let apples_by_lod = apples_by_lod
+                .as_ref()
+                .expect("enabled flora rendering must have an apple frame plan");
+            let mut prepared_apple_descriptors = prepared_apple_descriptors.iter();
             for &lod_state in &[LodState::Lod0, LodState::Lod1] {
                 let pipeline = match lod_state {
                     LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
@@ -4603,26 +4615,24 @@ impl Tracer {
                         solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
                     );
                     cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
-                    pipeline
-                        .record_indexed_with_descriptors(
-                            cmdbuf,
-                            &[(
-                                "tree_leaf_instances",
-                                DescriptorResource::Buffer(&tree_instance.resources.instances_buf),
-                            )],
-                            indices_len,
-                            tree_instance.resources.instances_len,
-                            0,
-                            0,
-                            0,
-                            Some(&PushConstantInfo {
-                                shader_stage: vk::ShaderStageFlags::VERTEX,
-                                push_constants: bytemuck::bytes_of(&apple_push).to_vec(),
-                            }),
-                        )
-                        .expect("apple draw descriptors must match reflection");
+                    pipeline.record_indexed_with_prepared_descriptors(
+                        cmdbuf,
+                        prepared_apple_descriptors
+                            .next()
+                            .expect("every visible apple tree must have prepared descriptors"),
+                        indices_len,
+                        tree_instance.resources.instances_len,
+                        0,
+                        0,
+                        0,
+                        Some(&PushConstantInfo {
+                            shader_stage: vk::ShaderStageFlags::VERTEX,
+                            push_constants: bytemuck::bytes_of(&apple_push).to_vec(),
+                        }),
+                    );
                 }
             }
+            debug_assert!(prepared_apple_descriptors.next().is_none());
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), apples_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
@@ -5002,10 +5012,45 @@ impl Tracer {
     ) {
         self.graphics_pipelines
             .leaves_shadow_lod_ppl
-            .record_texture_transitions(cmdbuf);
-        self.graphics_pipelines
-            .leaves_shadow_lod_ppl
-            .record_bind(cmdbuf);
+            .prepare_descriptor_resources(cmdbuf);
+        let pipeline = &self.graphics_pipelines.leaves_shadow_lod_ppl;
+        let prepared_leaves = surface_resources
+            .instances
+            .leaves_instances
+            .values()
+            .filter(|tree| tree.resources.instances_len > 0)
+            .map(|tree| {
+                let descriptors = pipeline
+                    .prepare_draw_descriptors(
+                        cmdbuf,
+                        &[(
+                            "tree_leaf_instances",
+                            DescriptorResource::Buffer(&tree.resources.instances_buf),
+                        )],
+                    )
+                    .expect("leaf shadow draw descriptors must match reflection");
+                (tree, descriptors)
+            })
+            .collect::<Vec<_>>();
+        let prepared_apples = surface_resources
+            .instances
+            .apple_instances
+            .values()
+            .filter(|tree| tree.resources.instances_len > 0)
+            .map(|tree| {
+                let descriptors = pipeline
+                    .prepare_draw_descriptors(
+                        cmdbuf,
+                        &[(
+                            "tree_leaf_instances",
+                            DescriptorResource::Buffer(&tree.resources.instances_buf),
+                        )],
+                    )
+                    .expect("apple shadow draw descriptors must match reflection");
+                (tree, descriptors)
+            })
+            .collect::<Vec<_>>();
+        pipeline.record_bind(cmdbuf);
 
         let clear_values: [vk::ClearValue; 0] = [];
 
@@ -5035,10 +5080,7 @@ impl Tracer {
         cmdbuf.bind_index_buffer_u32(&self.resources.meshes.leaves_resources_lod.indices);
 
         // loop through all tree leaves instances
-        for tree_instance in surface_resources.instances.leaves_instances.values() {
-            if tree_instance.resources.instances_len == 0 {
-                continue;
-            }
+        for (tree_instance, descriptors) in &prepared_leaves {
             let push_constant = flora_push_constant(
                 time,
                 LEAF_INSTANCE_TYPE,
@@ -5048,32 +5090,23 @@ impl Tracer {
 
             cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.leaves_resources_lod.vertices]);
             // render this instance for shadow map
-            self.graphics_pipelines
-                .leaves_shadow_lod_ppl
-                .record_indexed_with_descriptors(
-                    cmdbuf,
-                    &[(
-                        "tree_leaf_instances",
-                        DescriptorResource::Buffer(&tree_instance.resources.instances_buf),
-                    )],
-                    self.resources.meshes.leaves_resources_lod.indices_len,
-                    tree_instance.resources.instances_len,
-                    0,
-                    0,
-                    0,
-                    Some(&PushConstantInfo {
-                        shader_stage: vk::ShaderStageFlags::VERTEX,
-                        push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
-                    }),
-                )
-                .expect("leaf shadow draw descriptors must match reflection");
+            pipeline.record_indexed_with_prepared_descriptors(
+                cmdbuf,
+                descriptors,
+                self.resources.meshes.leaves_resources_lod.indices_len,
+                tree_instance.resources.instances_len,
+                0,
+                0,
+                0,
+                Some(&PushConstantInfo {
+                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                }),
+            );
         }
 
         cmdbuf.bind_index_buffer_u32(&self.resources.meshes.apple_resources_lod.indices);
-        for tree_instance in surface_resources.instances.apple_instances.values() {
-            if tree_instance.resources.instances_len == 0 {
-                continue;
-            }
+        for (tree_instance, descriptors) in &prepared_apples {
             let push_constant = flora_push_constant(
                 time,
                 APPLE_INSTANCE_TYPE,
@@ -5082,25 +5115,19 @@ impl Tracer {
             );
 
             cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.apple_resources_lod.vertices]);
-            self.graphics_pipelines
-                .leaves_shadow_lod_ppl
-                .record_indexed_with_descriptors(
-                    cmdbuf,
-                    &[(
-                        "tree_leaf_instances",
-                        DescriptorResource::Buffer(&tree_instance.resources.instances_buf),
-                    )],
-                    self.resources.meshes.apple_resources_lod.indices_len,
-                    tree_instance.resources.instances_len,
-                    0,
-                    0,
-                    0,
-                    Some(&PushConstantInfo {
-                        shader_stage: vk::ShaderStageFlags::VERTEX,
-                        push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
-                    }),
-                )
-                .expect("apple shadow draw descriptors must match reflection");
+            pipeline.record_indexed_with_prepared_descriptors(
+                cmdbuf,
+                descriptors,
+                self.resources.meshes.apple_resources_lod.indices_len,
+                tree_instance.resources.instances_len,
+                0,
+                0,
+                0,
+                Some(&PushConstantInfo {
+                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                }),
+            );
         }
 
         self.render_target_leaf_shadow_opacity.record_end(cmdbuf);
@@ -5113,7 +5140,7 @@ impl Tracer {
         }
 
         let pipeline = &self.graphics_pipelines.dynamic_fruit_shadow_ppl;
-        pipeline.record_texture_transitions(cmdbuf);
+        pipeline.prepare_descriptor_resources(cmdbuf);
 
         let clear_values: [vk::ClearValue; 0] = [];
         self.render_target_depth_only
@@ -6282,22 +6309,9 @@ impl Tracer {
                     BufferUse::HostWrite,
                 );
                 cmdbuf.use_buffer(
-                    &self.resources.terrain_query.terrain_query_count,
-                    BufferUse::ComputeRead,
-                );
-                cmdbuf.use_buffer(
                     &self.resources.terrain_query.terrain_query_info,
                     BufferUse::HostWrite,
                 );
-                cmdbuf.use_buffer(
-                    &self.resources.terrain_query.terrain_query_info,
-                    BufferUse::ComputeRead,
-                );
-                cmdbuf.use_buffer(
-                    &self.resources.terrain_query.terrain_query_result,
-                    BufferUse::ComputeWrite,
-                );
-                self.record_contree_buffer_uses(cmdbuf);
                 self.compute_pipelines.terrain_query_ppl.record(
                     cmdbuf,
                     Extent3D::new(query_count, 1, 1),

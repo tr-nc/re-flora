@@ -1,6 +1,7 @@
 use crate::{
-    AccelStruct, Buffer, CommandBuffer, DescriptorPool, DescriptorSetLayout, Device, ImageUse,
-    Texture, TextureLayout,
+    AccelStruct, Buffer, BufferState, CommandBuffer, DescriptorAccess, DescriptorPool,
+    DescriptorSetLayout, Device, MemoryAccess, PipelineStage, ResourceState, Texture,
+    TextureLayout,
 };
 use anyhow::Result;
 use ash::vk;
@@ -22,6 +23,59 @@ struct DescriptorBindingOwner {
     descriptor_type: vk::DescriptorType,
     owner: DescriptorResourceOwner,
     texture_layout: Option<TextureLayout>,
+    shader_use: Option<ReflectedShaderUse>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ReflectedShaderUse {
+    stage_flags: vk::ShaderStageFlags,
+    access: DescriptorAccess,
+}
+
+impl ReflectedShaderUse {
+    fn stage(self) -> PipelineStage {
+        let supported = vk::ShaderStageFlags::VERTEX
+            | vk::ShaderStageFlags::FRAGMENT
+            | vk::ShaderStageFlags::COMPUTE;
+        let unsupported = self.stage_flags & !supported;
+        assert!(
+            unsupported.is_empty(),
+            "unsupported reflected descriptor shader stages: {unsupported:?}",
+        );
+
+        let mut stage = PipelineStage::empty();
+        if self.stage_flags.contains(vk::ShaderStageFlags::VERTEX) {
+            stage |= PipelineStage::VERTEX_SHADER;
+        }
+        if self.stage_flags.contains(vk::ShaderStageFlags::FRAGMENT) {
+            stage |= PipelineStage::FRAGMENT_SHADER;
+        }
+        if self.stage_flags.contains(vk::ShaderStageFlags::COMPUTE) {
+            stage |= PipelineStage::COMPUTE_SHADER;
+        }
+        assert!(
+            stage != PipelineStage::empty(),
+            "reflected descriptor has no shader stage",
+        );
+        stage
+    }
+
+    fn memory_access(self) -> MemoryAccess {
+        match (self.access.readable(), self.access.writable()) {
+            (true, false) => MemoryAccess::SHADER_READ,
+            (false, true) => MemoryAccess::SHADER_WRITE,
+            (true, true) => MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
+            (false, false) => unreachable!("a reflected descriptor must have an access mode"),
+        }
+    }
+
+    fn buffer_state(self) -> BufferState {
+        BufferState::new(self.stage(), self.memory_access())
+    }
+
+    fn image_state(self, layout: TextureLayout) -> ResourceState {
+        ResourceState::new(layout, self.stage(), self.memory_access())
+    }
 }
 
 struct DescriptorSetInner {
@@ -93,17 +147,22 @@ impl DescriptorSet {
                             buffer,
                         )
                     }
-                    DescriptorResourceOwner::Texture(texture) => WriteDescriptorSet::new_texture_write(
-                        binding,
-                        owner.descriptor_type,
-                        texture,
-                        owner.texture_layout.unwrap_or(TextureLayout::SHADER_READ_ONLY),
-                    ),
+                    DescriptorResourceOwner::Texture(texture) => {
+                        WriteDescriptorSet::new_texture_write(
+                            binding,
+                            owner.descriptor_type,
+                            texture,
+                            owner
+                                .texture_layout
+                                .unwrap_or(TextureLayout::SHADER_READ_ONLY),
+                        )
+                    }
                     DescriptorResourceOwner::AccelStruct(accel_struct) => {
                         WriteDescriptorSet::new_acceleration_structure_write(binding, accel_struct)
                     }
                 };
                 write.array_element = array_element;
+                write.shader_use = owner.shader_use;
                 write
             })
             .collect::<Vec<_>>();
@@ -111,22 +170,42 @@ impl DescriptorSet {
         Ok(fork)
     }
 
-    /// Declare image uses for the textures owned by this descriptor generation.
+    /// Declare reflected shader uses for the resources owned by this descriptor generation.
     ///
     /// The descriptor set is the source of truth for both the Vulkan binding and its resource
-    /// owner. Keeping the transition declaration here avoids a second pipeline-local texture
-    /// residency/state map that could describe a different generation than the bound set.
-    pub(crate) fn record_image_uses(&self, cmdbuf: &CommandBuffer) {
-        let owners = self.0.owners.lock().unwrap().clone();
+    /// owner. Keeping the declaration here avoids a second pipeline-local resource inventory that
+    /// could describe a different generation than the bound set.
+    pub(crate) fn record_resource_uses(&self, cmdbuf: &CommandBuffer) {
+        let owners = self.0.owners.lock().unwrap();
         for owner in owners.values() {
-            let DescriptorResourceOwner::Texture(texture) = &owner.owner else {
+            let Some(shader_use) = owner.shader_use else {
                 continue;
             };
-            let Some(usage) = descriptor_image_use(owner.descriptor_type) else {
-                continue;
-            };
-            let image = texture.get_image();
-            cmdbuf.use_image_layers(image, 0, image.get_desc().array_len, usage);
+            match &owner.owner {
+                DescriptorResourceOwner::Buffer(buffer) => {
+                    cmdbuf.record_buffer_state(buffer, shader_use.buffer_state());
+                }
+                DescriptorResourceOwner::Texture(texture) => {
+                    if !descriptor_type_accesses_image(owner.descriptor_type) {
+                        continue;
+                    }
+                    let image = texture.get_image();
+                    cmdbuf.record_image_state(
+                        image,
+                        0,
+                        image.get_desc().array_len,
+                        shader_use.image_state(
+                            owner
+                                .texture_layout
+                                .unwrap_or(TextureLayout::SHADER_READ_ONLY),
+                        ),
+                    );
+                }
+                DescriptorResourceOwner::AccelStruct(_) => {
+                    // Acceleration-structure build/storage synchronization remains owned by the
+                    // RTX module; the descriptor only owns the shader-side handle.
+                }
+            }
         }
     }
 
@@ -148,14 +227,14 @@ impl DescriptorSet {
     }
 }
 
-fn descriptor_image_use(descriptor_type: vk::DescriptorType) -> Option<ImageUse> {
-    match descriptor_type {
-        vk::DescriptorType::STORAGE_IMAGE => Some(ImageUse::ComputeReadWrite),
-        vk::DescriptorType::COMBINED_IMAGE_SAMPLER | vk::DescriptorType::SAMPLED_IMAGE => {
-            Some(ImageUse::ShaderRead)
-        }
-        _ => None,
-    }
+fn descriptor_type_accesses_image(descriptor_type: vk::DescriptorType) -> bool {
+    matches!(
+        descriptor_type,
+        vk::DescriptorType::STORAGE_IMAGE
+            | vk::DescriptorType::COMBINED_IMAGE_SAMPLER
+            | vk::DescriptorType::SAMPLED_IMAGE
+            | vk::DescriptorType::INPUT_ATTACHMENT
+    )
 }
 
 impl Drop for DescriptorSetInner {
@@ -182,6 +261,7 @@ pub(crate) struct WriteDescriptorSet<'a> {
     buffer_infos: Option<Vec<vk::DescriptorBufferInfo>>,
     accel_struct_infos: Option<Vec<vk::WriteDescriptorSetAccelerationStructureKHR<'a>>>,
     accel_struct: Option<AccelStruct>,
+    shader_use: Option<ReflectedShaderUse>,
 
     _accel_handles: Option<Vec<vk::AccelerationStructureKHR>>,
 }
@@ -209,6 +289,7 @@ impl<'a> WriteDescriptorSet<'a> {
             buffer_infos: None,
             accel_struct_infos: None,
             accel_struct: None,
+            shader_use: None,
             _accel_handles: None,
         }
     }
@@ -234,6 +315,7 @@ impl<'a> WriteDescriptorSet<'a> {
             buffer_infos: Some(vec![buffer_info]),
             accel_struct_infos: None,
             accel_struct: None,
+            shader_use: None,
             _accel_handles: None,
         }
     }
@@ -258,8 +340,21 @@ impl<'a> WriteDescriptorSet<'a> {
             buffer_infos: None,
             accel_struct_infos: Some(vec![as_info]),
             accel_struct: Some(tlas.clone()),
+            shader_use: None,
             _accel_handles: Some(handles),
         }
+    }
+
+    pub(crate) fn with_shader_use(
+        mut self,
+        stage_flags: vk::ShaderStageFlags,
+        access: DescriptorAccess,
+    ) -> Self {
+        self.shader_use = Some(ReflectedShaderUse {
+            stage_flags,
+            access,
+        });
+        self
     }
 
     pub(crate) fn binding(&self) -> u32 {
@@ -275,7 +370,8 @@ impl<'a> WriteDescriptorSet<'a> {
     }
 
     fn owner(&self) -> Option<DescriptorBindingOwner> {
-        let owner = self.texture
+        let owner = self
+            .texture
             .as_ref()
             .map(|texture| DescriptorResourceOwner::Texture(texture.clone()))
             .or_else(|| {
@@ -283,15 +379,23 @@ impl<'a> WriteDescriptorSet<'a> {
                     .as_ref()
                     .map(|buffer| DescriptorResourceOwner::Buffer(buffer.clone()))
             })
-            .or_else(|| self.accel_struct.clone().map(DescriptorResourceOwner::AccelStruct))?;
+            .or_else(|| {
+                self.accel_struct
+                    .clone()
+                    .map(DescriptorResourceOwner::AccelStruct)
+            })?;
         Some(DescriptorBindingOwner {
             descriptor_type: self.descriptor_type,
             owner,
             texture_layout: self.texture_layout,
+            shader_use: self.shader_use,
         })
     }
 
-    pub(crate) fn make_raw(&mut self, descriptor_set: &DescriptorSet) -> vk::WriteDescriptorSet<'_> {
+    pub(crate) fn make_raw(
+        &mut self,
+        descriptor_set: &DescriptorSet,
+    ) -> vk::WriteDescriptorSet<'_> {
         assert!(
             self.image_infos.is_some()
                 ^ self.buffer_infos.is_some()
@@ -329,27 +433,43 @@ impl<'a> WriteDescriptorSet<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::descriptor_image_use;
+    use super::{descriptor_type_accesses_image, ReflectedShaderUse};
+    use crate::{DescriptorAccess, MemoryAccess, PipelineStage, TextureLayout};
     use ash::vk;
-    use crate::ImageUse;
 
     #[test]
-    fn descriptor_image_use_mapping_is_semantic() {
+    fn reflected_shader_use_preserves_exact_stage_and_access() {
+        let read = ReflectedShaderUse {
+            stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+            access: DescriptorAccess::ReadOnly,
+        };
         assert_eq!(
-            descriptor_image_use(vk::DescriptorType::STORAGE_IMAGE),
-            Some(ImageUse::ComputeReadWrite)
+            read.buffer_state(),
+            crate::BufferState::new(
+                PipelineStage::VERTEX_SHADER | PipelineStage::FRAGMENT_SHADER,
+                MemoryAccess::SHADER_READ,
+            )
         );
         assert_eq!(
-            descriptor_image_use(vk::DescriptorType::COMBINED_IMAGE_SAMPLER),
-            Some(ImageUse::ShaderRead)
+            read.image_state(TextureLayout::GENERAL),
+            crate::ResourceState::new(
+                TextureLayout::GENERAL,
+                PipelineStage::VERTEX_SHADER | PipelineStage::FRAGMENT_SHADER,
+                MemoryAccess::SHADER_READ,
+            )
         );
-        assert_eq!(
-            descriptor_image_use(vk::DescriptorType::SAMPLED_IMAGE),
-            Some(ImageUse::ShaderRead)
-        );
-        assert_eq!(
-            descriptor_image_use(vk::DescriptorType::STORAGE_BUFFER),
-            None
-        );
+    }
+
+    #[test]
+    fn only_image_descriptors_plan_image_state() {
+        assert!(descriptor_type_accesses_image(
+            vk::DescriptorType::STORAGE_IMAGE
+        ));
+        assert!(descriptor_type_accesses_image(
+            vk::DescriptorType::COMBINED_IMAGE_SAMPLER
+        ));
+        assert!(!descriptor_type_accesses_image(
+            vk::DescriptorType::STORAGE_BUFFER
+        ));
     }
 }

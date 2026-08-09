@@ -864,9 +864,6 @@ impl App {
                 environment_irradiance_capture_enabled: options
                     .environment_irradiance_capture_path
                     .is_some(),
-                ddgi_spatial_weight_readback_enabled: options
-                    .ddgi_spatial_weight_readback_path
-                    .is_some(),
                 environment_irradiance_capture_target: options
                     .environment_irradiance_capture_target,
                 ddgi_batch_order: options.ddgi_batch_order,
@@ -3573,7 +3570,7 @@ impl App {
                         TERRAIN_EDIT_PREVIEW_ALPHA,
                     )
                     .unwrap();
-                self.tracer.record_updated_buffer_uses(cmdbuf);
+                self.tracer.record_host_buffer_writes(cmdbuf);
 
                 let color_to_vec3 = |color: Color32| -> Vec3 {
                     Vec3::new(

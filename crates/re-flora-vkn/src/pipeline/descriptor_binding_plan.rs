@@ -1,6 +1,6 @@
 use crate::{
-    DescriptorResource, DescriptorSetLayoutBinding, ResourceContainer, ResourceLookup,
-    TextureLayout, WriteDescriptorSet,
+    DescriptorAccess, DescriptorResource, DescriptorSetLayoutBinding, ResourceContainer,
+    ResourceLookup, TextureLayout, WriteDescriptorSet,
 };
 use anyhow::{anyhow, ensure, Result};
 use ash::vk;
@@ -73,6 +73,8 @@ pub(crate) struct DescriptorBinding {
     binding_no: u32,
     descriptor_type: vk::DescriptorType,
     descriptor_count: u32,
+    stage_flags: vk::ShaderStageFlags,
+    access: DescriptorAccess,
 }
 
 impl DescriptorBinding {
@@ -160,6 +162,8 @@ impl DescriptorBindingPlan {
                     binding_no,
                     descriptor_type: binding.descriptor_type,
                     descriptor_count: binding.descriptor_count,
+                    stage_flags: binding.stage_flags,
+                    access: binding.access,
                 };
 
                 if let Some(previous) = bindings_by_name.get(&semantic_binding.name) {
@@ -335,7 +339,8 @@ impl DescriptorBindingPlan {
                     binding.binding_no,
                     binding.descriptor_type,
                     buffer,
-                ))
+                )
+                .with_shader_use(binding.stage_flags, binding.access))
             }
             DescriptorResource::Texture(texture) => {
                 ensure!(
@@ -355,7 +360,8 @@ impl DescriptorBindingPlan {
                     binding.descriptor_type,
                     texture,
                     image_layout(binding.descriptor_type),
-                ))
+                )
+                .with_shader_use(binding.stage_flags, binding.access))
             }
             DescriptorResource::AccelerationStructure(accel_struct) => {
                 ensure!(
@@ -368,7 +374,8 @@ impl DescriptorBindingPlan {
                 Ok(WriteDescriptorSet::new_acceleration_structure_write(
                     binding.binding_no,
                     accel_struct,
-                ))
+                )
+                .with_shader_use(binding.stage_flags, binding.access))
             }
         }
     }
@@ -378,9 +385,11 @@ impl DescriptorBindingPlan {
         name: &str,
         containers: &[&'a dyn ResourceContainer],
     ) -> Result<DescriptorResource<'a>> {
-        let lookup = containers.iter().fold(ResourceLookup::Missing, |lookup, container| {
-            lookup.merge(container.resolve_resource(name))
-        });
+        let lookup = containers
+            .iter()
+            .fold(ResourceLookup::Missing, |lookup, container| {
+                lookup.merge(container.resolve_resource(name))
+            });
         match lookup {
             ResourceLookup::Unique(resource) => Ok(resource),
             ResourceLookup::Missing => Err(anyhow!(
@@ -455,6 +464,7 @@ mod tests {
             descriptor_type,
             descriptor_count: 1,
             stage_flags: vk::ShaderStageFlags::COMPUTE,
+            access: DescriptorAccess::ReadOnly,
         }
     }
 

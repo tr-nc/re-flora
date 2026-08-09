@@ -1,10 +1,11 @@
 use super::{
-    descriptor_runtime::ReflectedDescriptorRuntime, DescriptorUpdate, PreparedDescriptorGeneration,
+    descriptor_runtime::{PreparedTransientDescriptorSet, ReflectedDescriptorRuntime},
+    DescriptorUpdate, PreparedDescriptorGeneration,
 };
 use crate::{
-    CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
-    FormatOverride, FrameRetirement, MergeWithEq, PipelineLayout, RenderPass, RenderPassDesc,
-    ResourceContainer, ShaderModule, Viewport,
+    merge_descriptor_bindings, CommandBuffer, DescriptorPool, DescriptorSet,
+    DescriptorSetLayoutBinding, Device, FormatOverride, FrameRetirement, PipelineLayout,
+    RenderPass, RenderPassDesc, ResourceContainer, ShaderModule, Viewport,
 };
 use anyhow::Result;
 use ash::vk;
@@ -39,6 +40,15 @@ impl Deref for GraphicsPipeline {
 pub struct PushConstantInfo {
     pub shader_stage: vk::ShaderStageFlags,
     pub push_constants: Vec<u8>,
+}
+
+/// One reflected per-draw descriptor set prepared before entering a render pass.
+///
+/// Allocation, semantic binding validation, resource ownership, and shader-use declaration are
+/// complete. Draw recording can therefore bind this opaque value without recording a Vulkan
+/// barrier inside the render pass.
+pub struct PreparedDrawDescriptors {
+    descriptor_set: PreparedTransientDescriptorSet,
 }
 
 #[derive(Clone, Debug)]
@@ -268,7 +278,8 @@ impl GraphicsPipeline {
                 }
                 // if the set id is present in both maps, merge the bindings
                 else {
-                    let set_bindings_merged = bindings.merge_with_eq(
+                    let set_bindings_merged = merge_descriptor_bindings(
+                        bindings,
                         bindings_2
                             .get(set_id)
                             .ok_or(anyhow::anyhow!("Set id not found"))?,
@@ -329,13 +340,38 @@ impl GraphicsPipeline {
         self.0.descriptors.begin_transient_frame(frame_slot);
     }
 
-    /// Declare image uses for tracked texture descriptors used by this graphics pipeline.
+    /// Declare shader uses for tracked resources in the active descriptor generation.
     ///
     /// Call this before beginning the render pass that will draw with the pipeline;
     /// Vulkan image barriers cannot be recorded from arbitrary draw helpers once a
     /// render pass is active.
-    pub fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
-        self.0.descriptors.record_texture_transitions(cmdbuf);
+    pub fn prepare_descriptor_resources(&self, cmdbuf: &CommandBuffer) {
+        self.0.descriptors.record_active_resource_uses(cmdbuf);
+    }
+
+    /// Prepare one semantic per-draw descriptor set before entering its render pass.
+    pub fn prepare_draw_descriptors(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptors: &[(&str, super::DescriptorResource<'_>)],
+    ) -> Result<PreparedDrawDescriptors> {
+        Ok(PreparedDrawDescriptors {
+            descriptor_set: self
+                .0
+                .descriptors
+                .prepare_transient_set(cmdbuf, descriptors)?,
+        })
+    }
+
+    /// Declare resources owned by an externally retained descriptor set before its render pass.
+    pub fn prepare_descriptor_set_resources(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptor_set: &DescriptorSet,
+    ) {
+        self.0
+            .descriptors
+            .record_standalone_resource_uses(cmdbuf, descriptor_set);
     }
 
     /// Binds an externally owned descriptor set at the reflected set containing `name`.
@@ -474,27 +510,31 @@ impl GraphicsPipeline {
         );
     }
 
-    /// Records an indexed draw using a per-draw descriptor set addressed by reflected names.
+    /// Records an indexed draw using descriptors prepared before the render pass.
     #[allow(clippy::too_many_arguments)]
-    pub fn record_indexed_with_descriptors(
+    pub fn record_indexed_with_prepared_descriptors(
         &self,
         cmdbuf: &CommandBuffer,
-        descriptors: &[(&str, super::DescriptorResource<'_>)],
+        descriptors: &PreparedDrawDescriptors,
         index_count: u32,
         instance_count: u32,
         first_index: u32,
         vertex_offset: i32,
         first_instance: u32,
         push_constants: Option<&PushConstantInfo>,
-    ) -> Result<()> {
+    ) {
         self.record_bind(cmdbuf);
-        let descriptor_set = self.0.descriptors.prepare_transient_set(descriptors)?;
-        self.record_bind_descriptor_sets(cmdbuf, Some(descriptor_set.set_no()));
-        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-            cmdbuf.as_raw(),
-            self.0.pipeline_layout.as_raw(),
-            descriptor_set.set_no(),
-            &[descriptor_set.as_raw()],
+        self.record_bind_descriptor_sets(cmdbuf, Some(descriptors.descriptor_set.set_no()));
+        self.0.descriptors.bind_prepared_transient(
+            &descriptors.descriptor_set,
+            |set_no, descriptor_set| {
+                self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+                    cmdbuf.as_raw(),
+                    self.0.pipeline_layout.as_raw(),
+                    set_no,
+                    &[descriptor_set],
+                );
+            },
         );
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
@@ -507,7 +547,6 @@ impl GraphicsPipeline {
             vertex_offset,
             first_instance,
         );
-        Ok(())
     }
 
     /// Allocates a standalone descriptor set for a reflected resource, for example an egui
