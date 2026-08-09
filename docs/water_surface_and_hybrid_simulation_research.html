@@ -1,0 +1,1538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="source-sha256" content="a881845b8c5b0512b570817e8012b6bb209b85156d7f1d0f847b0cefb008d973">
+  <title>Re: Flora 水面与混合水模拟架构审阅</title>
+  <style>
+    :root {
+      --bg: #f5f7f4;
+      --paper: #ffffff;
+      --ink: #18221f;
+      --muted: #5b6a64;
+      --line: #d9e2dd;
+      --accent: #087f6b;
+      --accent-soft: #e6f5f1;
+      --warn: #9a5c05;
+      --warn-soft: #fff4dc;
+      --code: #eef2ef;
+      --shadow: 0 14px 40px rgba(25, 53, 44, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111816;
+        --paper: #17201d;
+        --ink: #e5eee9;
+        --muted: #a7b7b0;
+        --line: #31423b;
+        --accent: #6bd7c1;
+        --accent-soft: #173a33;
+        --warn: #f1bd68;
+        --warn-soft: #3a2c16;
+        --code: #202c28;
+        --shadow: none;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.68;
+    }
+    a { color: var(--accent); text-underline-offset: 0.16em; }
+    a:hover { text-decoration-thickness: 2px; }
+    .hero {
+      background: linear-gradient(135deg, #0c695c, #163e38 58%, #102e2a);
+      color: white;
+      padding: 4.2rem max(1.25rem, calc((100vw - 1180px) / 2));
+    }
+    .eyebrow {
+      margin: 0 0 .65rem;
+      font-size: .8rem;
+      font-weight: 750;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      opacity: .78;
+    }
+    .hero h1 { margin: 0; max-width: 1120px; font-size: clamp(2rem, 4.5vw, 3.6rem); line-height: 1.08; }
+    .hero p { max-width: 850px; margin: 1.2rem 0 0; font-size: 1.08rem; opacity: .9; }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 2rem;
+      width: min(1180px, calc(100% - 2.5rem));
+      margin: 2rem auto 5rem;
+      align-items: start;
+    }
+    main, nav { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+    main { min-width: 0; overflow: hidden; }
+    .review { padding: clamp(1.4rem, 4vw, 3rem); border-bottom: 1px solid var(--line); }
+    .review h2 { margin-top: 0; font-size: 1.7rem; }
+    .status {
+      display: inline-flex;
+      gap: .5rem;
+      align-items: center;
+      padding: .35rem .7rem;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: .88rem;
+    }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1.4rem 0; }
+    .card { padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+    .card b { display: block; font-size: 1.35rem; color: var(--accent); }
+    .card span { color: var(--muted); font-size: .9rem; }
+    .decision { border-left: 4px solid var(--accent); padding: .7rem 1rem; background: var(--accent-soft); margin: 1.25rem 0; }
+    .questions { border-left: 4px solid var(--warn); padding: .75rem 1.1rem; background: var(--warn-soft); margin-top: 1.5rem; }
+    .questions h3 { margin-top: 0; }
+    .questions ol { margin-bottom: 0; }
+    .source-note { color: var(--muted); font-size: .9rem; }
+    article { padding: clamp(1.4rem, 4vw, 3rem); }
+    article > h1:first-child { font-size: clamp(1.75rem, 4vw, 2.5rem); margin-top: 0; }
+    article h2 { margin-top: 2.6rem; padding-top: .5rem; border-top: 1px solid var(--line); font-size: 1.65rem; }
+    article h3 { margin-top: 2rem; font-size: 1.25rem; }
+    article p, article li { max-width: 82ch; }
+    article code { background: var(--code); border-radius: 5px; padding: .12em .34em; font-size: .9em; }
+    article pre { overflow: auto; padding: 1rem; border-radius: 10px; background: var(--code); border: 1px solid var(--line); }
+    article pre code { padding: 0; background: transparent; }
+    .table-wrap, article table { width: 100%; }
+    article table { display: block; overflow-x: auto; border-collapse: collapse; font-size: .91rem; margin: 1.3rem 0; }
+    article th, article td { min-width: 130px; padding: .65rem .75rem; border: 1px solid var(--line); vertical-align: top; }
+    article th { background: var(--accent-soft); text-align: left; }
+    article blockquote { margin-left: 0; padding-left: 1rem; border-left: 4px solid var(--line); color: var(--muted); }
+    nav { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow: auto; padding: 1.1rem; }
+    nav h2 { margin: 0 0 .7rem; font-size: 1rem; }
+    nav ul { margin: 0; padding: 0; list-style: none; }
+    nav li { margin: .25rem 0; line-height: 1.35; }
+    nav li.level-3 { padding-left: .85rem; font-size: .88rem; }
+    nav a { display: block; padding: .25rem .35rem; border-radius: 6px; text-decoration: none; color: var(--muted); }
+    nav a:hover { background: var(--accent-soft); color: var(--accent); }
+    footer { padding: 1.2rem clamp(1.4rem, 4vw, 3rem) 2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .83rem; overflow-wrap: anywhere; }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      nav { position: static; max-height: none; order: -1; }
+      .cards { grid-template-columns: 1fr; }
+    }
+    @media print {
+      .hero { padding: 1.5rem; }
+      .layout { display: block; width: 100%; margin: 0; }
+      main { border: 0; box-shadow: none; }
+      nav { display: none; }
+      a { color: inherit; overflow-wrap: anywhere; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <p class="eyebrow">Architecture review · 2026-08-09</p>
+    <h1>Re: Flora 水面与混合水模拟架构</h1>
+    <p>结论先行的中文审阅页。完整英文研究规范嵌在下方，所有架构判断均区分仓库事实、实测证据、外部一手资料与项目推论。</p>
+  </header>
+  <div class="layout">
+    <main>
+      <section class="review">
+        <span class="status">研究完成 · 等待你的 review</span>
+        <h2>已经收敛的结论</h2>
+        <div class="decision"><strong>首个连续水面：</strong>复用完整同时间粒子帧，在同一 worker 完成状态中补齐物理与 filled-solid 地形代次，然后构造一个有界稠密世界空间标量场，提取完整三角网格并原子发布。</div>
+        <ul>
+          <li><strong>屏幕空间流体不是首版：</strong>它只在世界空间网格明确未过质量/性能 gate，或低档位确有需要时进入条件分支。</li>
+          <li><strong>大静池不再全粒子化：</strong>canonical 状态为守恒列体积与水平动量；Sleeping 时流体求解步数为零，需要真实水平传播时才添加浅水更新。</li>
+          <li><strong>两个深 Module：</strong>water worker 独占质量、动量、filled-solid terrain dependency 与转换事务；WaterSurfaceModule 只拥有完整派生 GPU 代次。</li>
+          <li><strong>转换不丢尾数：</strong>当前 MLS-MPM 粒子质量固定，wake 时通过调整 ownership mask 只转移整数粒子质量，剩余质量继续归 quiet columns。</li>
+          <li><strong>地形语义保持：</strong>SDF 负值是 solid、正值是 empty/water，ghost density 只用于压力，不能算作水或表面 occupancy。</li>
+        </ul>
+        <div class="cards">
+          <div class="card"><b>3.590 /s</b><span>25k 完整帧实测发布频率</span></div>
+          <div class="card"><b>89,738 /s</b><span>实测平均粒子复制率，旧路径的 97.1%</span></div>
+          <div class="card"><b>0 waits</b><span>main/render 线程硬不变量</span></div>
+        </div>
+        <h3>实施顺序</h3>
+        <p>0A 完整帧（已完成） → 0B 跨源 stamp 与命名 benchmark → 1 有界稠密世界网格 → 2 无粒子 Sleeping 静池 → 3 手动整体 wake/sleep → 4 单一守恒边界 flux → 5 自动 activity 与 render LOD。完整帧 cadence 优化、屏幕空间、稀疏场、各向异性 kernel 和 worker scalar field 都是带失败原因的条件阶段。</p>
+        <div class="questions">
+          <h3>请重点 review 这 5 点</h3>
+          <ol>
+            <li>是否接受“有界稠密世界空间网格”作为唯一首版，而不是同时做 screen-space A/B？</li>
+            <li>是否接受 quiet columns 从第一天存 volume + horizontal momentum，但首版完全 Sleeping？</li>
+            <li>是否接受 canonical worker 与派生 WaterSurfaceModule 分成两个深 Module？</li>
+            <li>是否接受 wake 时通过调整 active ownership 边界保留固定粒子质量，而不引入 variable-mass particle 或永久 residual 表示？</li>
+            <li>实施前需要补充：最低配置 CPU/GPU、允许的最大 active 水量/粒子数，以及标准画面 review 阈值。</li>
+          </ol>
+        </div>
+        <p class="source-note">中文部分是审阅导读；下方英文 Markdown 是规范事实源。HTML 未引用外部脚本、字体或样式。</p>
+      </section>
+      <article>
+        <h1>Water surface and hybrid simulation research</h1>
+<p>Status: research and target-architecture recommendation; no implementation
+Date: 2026-08-09</p>
+<h2 id="decision">Decision</h2>
+<p>Re: Flora should <strong>not</strong> require every visible water volume to be backed by MLS-MPM
+particles.</p>
+<p>The settled production architecture is a hybrid with two canonical volume representations and one
+detached-detail class:</p>
+<ol>
+<li><strong>Quiet basin water</strong> is stored as terrain-aware conservative columns and rendered with a
+clipped, tiled heightfield mesh. The first implementation stores volume and horizontal
+momentum but performs no flux update while asleep; shallow-water advection is a later update
+law for bodies that demonstrably need resolved horizontal flow.</li>
+<li><strong>Active water patches</strong> retain the existing weakly-compressible MLS-MPM particles and
+derive a coherent world-space scalar field at a declared simulation time. The first bounded
+GPU baseline is a dense field plus an extracted triangle mesh. Dense storage is deliberately
+chosen for the current configured <code>64 x 64 x 64</code> domain; sparse bricks are an internal scaling
+option only after measurement shows that the dense baseline is the limiting cost.</li>
+<li><strong>Detached spray and droplets</strong> remain particles. They are non-canonical visual/ballistic detail
+by default and are not a reason to particle-simulate the whole pond. If gameplay later makes
+spray mass-bearing, it becomes an explicitly ledgered third owner with a return/removal policy.</li>
+</ol>
+<p>The water surface mesh is a derived render product, never the authority for mass, terrain
+collision, wake/sleep state, or persistence. Each parcel of water is owned by exactly one
+canonical representation at a time.</p>
+<p>Screen-space fluid rendering remains a useful diagnostic or fallback, but it is <strong>not on the
+mandatory first implementation path</strong> and is not the recommended production target. It produces a
+continuous camera image rather than reusable world-space geometry. Implement it only if the
+bounded world-space mesh misses a declared quality or release budget, or if a lower quality tier
+needs a measured fallback.</p>
+<p>The first implementation should stop well before automatic hybrid conversion: extend the already
+coherent particle publication with same-state surface metadata, select one bounded active patch,
+and prove one dense scalar-field mesh behind a small deep Module. Do not build screen-space fluid,
+sparse allocation, a quiet-water solver, parcel conversion, automatic activity classification, or
+whole-world meshing unless the phase gates below authorize that work.</p>
+<h2 id="product-and-engineering-constraints">Product and engineering constraints</h2>
+<p>The game direction treats editable voxel terrain as the physical layer that supports water
+basins, while rasterized objects and meshes are a complementary visual layer
+(<code>docs/game_direction.md:47-58</code>). It asks for low-resolution water highlights and explicitly
+values water as atmosphere: ponds, shallow streams, reflections, and ripples
+(<code>docs/game_direction.md:141-148</code>, <code>docs/steam_direction.md:92-100</code>). Intentional temporal
+stepping is part of the aesthetic, but unstable topology, stale seams, and mixed-time
+ghosting are correctness failures rather than authored stepping
+(<code>docs/steam_direction.md:42-64</code>).</p>
+<p>The practical target is therefore not a film-quality universal fluid solver. It is:</p>
+<ul>
+<li>one or more sizable, readable ponds on consumer PCs;</li>
+<li>local splashes, pours, waterfalls, terrain edits, and player disturbances that visibly
+respond;</li>
+<li>a stable, continuous surface at the game&#39;s low internal resolution;</li>
+<li>predictable CPU/GPU budgets and no render-thread wait on the water worker;</li>
+<li>exact accounting when water changes representation.</li>
+</ul>
+<p>The README requires a Vulkan-capable GPU but does not require RTX hardware
+(<code>README.md:14-20</code>). A design that is acceptable only on the current RTX 3060 Ti validation
+machine is not yet consumer-PC evidence.</p>
+<h2 id="current-implementation-snapshot">Current implementation snapshot</h2>
+<h3 id="simulation-state-and-update-path">Simulation state and update path</h3>
+<p><code>PondWaterSim</code> owns the canonical current water state: an AoS <code>Vec&lt;WaterParticle&gt;</code> with
+position <code>x</code>, velocity <code>v</code>, affine matrix <code>c</code>, and volume ratio <code>j</code>, plus a dense MPM grid,
+touched-node list, terrain SDF samples, pressure-only terrain ghost density, accumulators,
+and diagnostics (<code>crates/re-flora-water/src/pond.rs:230-255</code>,
+<code>crates/re-flora-water/src/pond.rs:323-344</code>).</p>
+<p>Each fixed substep is:</p>
+<pre><code class="language-text">clear touched grid nodes
+    -&gt; particle-to-grid mass, momentum, ghost-boundary density, and stress
+    -&gt; grid update and terrain projection
+    -&gt; grid-to-particle gather and repair
+    -&gt; quiet-settling damping and diagnostics
+</code></pre>
+<p>This order is explicit in <code>crates/re-flora-water/src/mls_mpm/step.rs:76-128</code>. The P2G mass
+field already records unique touched nodes and persists until the next sparse clear
+(<code>crates/re-flora-water/src/mls_mpm/p2g.rs:17-36</code>,
+<code>crates/re-flora-water/src/mls_mpm/p2g.rs:38-120</code>). That field is a promising <em>derived
+surface input</em>, but it is transient solver state, not a stable water-volume representation.</p>
+<p>The default particle edge is <code>0.035</code> world units, close to the current 32-cells-per-world-unit
+grid. <code>PondWaterConfig::default()</code> uses a 240 Hz substep (<code>1 / 240 s</code>)
+(<code>crates/re-flora-water/src/pond.rs:12-24</code>, <code>crates/re-flora-water/src/pond.rs:71-100</code>). The
+app sizes the runtime grid from the current <code>2 x 2 x 2</code> world at 32 cells per unit, yielding
+<code>64 x 64 x 64</code>; the explicit <code>performance</code> profile instead forces 60 Hz
+(<code>src/app/core/mod.rs:815-817</code>, <code>src/app/core/mod.rs:1363-1384</code>). Persisted GUI values and
+CLI overrides can still change the effective configuration.</p>
+<p>Simulation runs on the dedicated <code>water-sim</code> thread. Normal ticks allow at most four
+substeps; terrain work temporarily lowers that to two. The main thread polls immutable
+snapshots at the water tick interval rather than running the solver itself
+(<code>src/app/core/water/runtime.rs:15-20</code>, <code>src/app/core/water/mod.rs:763-792</code>).</p>
+<h3 id="terrain-boundary-and-collision-data">Terrain boundary and collision data</h3>
+<p>Water collision is deliberately based on a smooth, filled-solid terrain representation:</p>
+<pre><code class="language-text">revisioned Contree dependency
+    -&gt; GPU atlas filled-solid sample
+    -&gt; immutable solid grid
+    -&gt; signed distance, normal, and pressure-only ghost density
+    -&gt; MLS-MPM terrain collision and boundary pressure
+</code></pre>
+<p>The sparse Contree surface shell is not interchangeable with this payload. A measured
+experiment found only 109-296 occupied shell samples where the filled atlas produced
+12,844-17,322, and the deepest negative SDF collapsed from about <code>-0.5</code> to <code>-0.016</code>
+(<code>docs/voxel_collision_architecture.md:115-145</code>). The surface project must preserve this
+revisioned filled-solid path; a render mesh must not replace it.</p>
+<p>Terrain ghost density contributes to EOS pressure/stress but not real grid mass or grid
+velocity normalization. The cached implementation measured approximately
+<code>0.556 ms/substep</code> rather than <code>0.960 ms/substep</code> in the recorded 1,000-particle startup
+case (<code>docs/water_boundary_density.md:17-27</code>). This distinction matters when deriving a
+surface field: render occupancy must come from real water mass, not from pressure-only
+solid-side ghost density.</p>
+<h3 id="current-particle-handoff-is-coherent-but-debug-only">Current particle handoff is coherent but debug-only</h3>
+<p>Commit <code>6a6c7d2e</code> completed the prerequisite publication fix. <code>WaterParticleFrame</code> now owns a full
+position-and-velocity array, a publication revision, and one <code>sim_time_seconds</code>; replacement
+requires a strictly newer revision plus finite, non-decreasing time
+(<code>src/app/core/water/runtime.rs:183-219</code>). The worker copies every
+particle from one completed <code>PondWaterSim</code> state and replaces the mailbox as one immutable value
+(<code>src/app/core/water/runtime.rs:713-758</code>). The main thread uses <code>try_lock</code>; a busy mailbox, a missing
+frame, a stale revision, or a regressed time retains the previous complete frame and never waits for
+the worker (<code>src/app/core/water/runtime.rs:301-330</code>).</p>
+<p>While simulation is enabled, the worker publishes one complete frame every fourth eligible
+publication opportunity. This replaces four quarter-bucket copies with one full copy and preserves
+approximately the previous average particle-copy rate without exposing mixed times
+(<code>src/app/core/water/runtime.rs:20-64</code>, <code>src/app/core/water/runtime.rs:562-580</code>). Deterministic tests
+cover complete same-state contents, monotonic revision/time replacement, stale/missing/busy
+retention, and the selected cadence (<code>src/app/core/water/runtime.rs:847-960</code>). This invariant is
+settled and must not be weakened by a surface implementation.</p>
+<p>The frame is coherent in particle time but is not yet a complete surface-input envelope. It does
+not carry the particle mass/volume, solver cell size and bounds, or the exact filled-solid terrain
+generation actually applied by the worker (<code>src/app/core/water/runtime.rs:189-196</code>). Main-thread
+configuration is updated before a coalescable command reaches the worker
+(<code>src/app/core/water/runtime.rs:263-277</code>, <code>src/app/core/water/runtime.rs:607-638</code>), while terrain
+collider and cache changes arrive through separate commands
+(<code>src/app/core/water/runtime.rs:642-677</code>). Pairing a frame with whichever configuration or terrain
+revision is newest on the main thread would therefore reintroduce cross-source incoherence. The
+remaining prerequisite is to capture those physics metadata from the same completed worker state;
+render-only kernel and isovalue policy stay in a separate revisioned render configuration.</p>
+<p>The app currently appends finite samples from the complete frame to the generic particle list,
+truncates them to whatever remains of the global 16,384-particle capacity, and sets
+<code>kind: ParticleRenderKind::Leaf</code> (<code>src/particles/system.rs:6-10</code>,
+<code>src/app/core/particles.rs:529-565</code>). These debug markers use the ordinary opaque/textured
+particle path. <code>WaterDroplet</code> is a separate kind routed into a sorted translucent instance
+buffer and a premultiplied fragment pipeline (<code>src/tracer/mod.rs:6003-6130</code>,
+<code>src/tracer/pipeline_builder.rs:917-934</code>). Neither path is a continuous MLS-MPM surface.</p>
+<p>At a tightly packed 12 bytes per position, a coherent position-only upload is
+<code>12N</code> bytes; position plus velocity is <code>24N</code> bytes before allocator, padding, and staging
+overheads. At 100,000 particles and 60 publications per second, those payload lower bounds
+are about 72 MB/s and 144 MB/s respectively. Raw bus bandwidth is unlikely to be the only
+cost: worker-side gathering, allocation, locking, main-thread copies, staging writes, and
+GPU synchronization must all be measured. A surface builder must reject an entire candidate with
+non-finite required samples and retain the prior complete surface; copying the debug path&#39;s
+per-sample filter would silently change reconstructed volume.</p>
+<p>The coherence change was measured before and after with the same hidden, muted, release command,
+25,000 particles, the <code>performance</code> water profile, the same RTX 3060 Ti, <code>2400 x 1350</code> swapchain,
+and MAILBOX present mode:</p>
+<pre><code class="language-text">cargo run --release -- --hidden --mute --auto-exit 35 --perf \
+  --water-profile performance --water-particles 25000
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>publication scheme</th>
+<th>sampled seconds</th>
+<th>publications/s</th>
+<th>particles/publication</th>
+<th>particles copied/s</th>
+<th>total publish CPU</th>
+<th>mean CPU/publication</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Four historical buckets (<code>re-flora-20260809-190550.223-71870.log</code>)</td>
+<td>34.342</td>
+<td>14.792</td>
+<td>6,250</td>
+<td>92,452.4</td>
+<td>26.050 ms</td>
+<td>0.051280 ms</td>
+</tr>
+<tr>
+<td>Complete frame every fourth opportunity (<code>re-flora-20260809-192044.002-163398.log</code>)</td>
+<td>34.545</td>
+<td>3.590</td>
+<td>25,000</td>
+<td>89,738.0</td>
+<td>17.651 ms</td>
+<td>0.142347 ms</td>
+</tr>
+</tbody></table>
+<p>The new path published at 24.3% of the old frequency, copied four times as many particles per
+publication, and retained 97.1% of the old average copy throughput. These are machine-local handoff
+measurements, not surface-renderer or consumer-PC performance proof. The resulting roughly 3.6 Hz
+publication rate in this loaded run is also a temporal-quality risk: if a mesh cannot tolerate it,
+the response is to measure a position-only/shared coherent publication, coherent worker field, or
+safe interpolation between whole frames—not to restore partial buckets.</p>
+<h3 id="existing-surface-extraction-is-not-a-fluid-mesher">Existing surface extraction is not a fluid mesher</h3>
+<p><code>shader/slang/surface_extraction.slang</code> preloads binary voxel occupancy and type rows,
+rejects solid voxels hidden by six solid neighbors, estimates a normal from a 5-cubed
+occupancy window, and writes one packed surface-voxel record
+(<code>shader/slang/surface_extraction.slang:17-25</code>,
+<code>shader/slang/surface_extraction.slang:169-225</code>,
+<code>shader/slang/surface_extraction.slang:228-249</code>). It does not construct a continuous scalar
+field, interpolate an isosurface, or emit fluid triangles.</p>
+<p>Its managed GPU-job, sparse-workgroup, active-brick, buffer-publication, and profiling
+patterns may inform scheduling. Its extraction algorithm and output are not a ready-made
+Marching Cubes implementation and should not be presented as direct reuse.</p>
+<h3 id="recorded-water-costs-and-their-limit">Recorded water costs and their limit</h3>
+<p><code>docs/water_sim_performance.md</code> is dated 2026-05-20 and describes an older
+<code>160 x 64 x 160</code>, <code>5 x 2 x 5</code>, 120 Hz setup. Its strongest directional result is that water
+cost scales materially with particle count and G2P dominated the recorded 100k workload.</p>
+<table>
+<thead>
+<tr>
+<th>particles</th>
+<th>historical average ms/substep</th>
+<th>historical 120 Hz result</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>10,000</td>
+<td>3.52</td>
+<td>realtime</td>
+</tr>
+<tr>
+<td>25,000</td>
+<td>6.65</td>
+<td>realtime</td>
+</tr>
+<tr>
+<td>50,000</td>
+<td>13.02</td>
+<td>behind</td>
+</tr>
+<tr>
+<td>100,000</td>
+<td>26.09</td>
+<td>behind</td>
+</tr>
+</tbody></table>
+<p>After the recorded G2P/P2G optimizations, the long 100k average was <code>23.10 ms/substep</code>, of
+which <code>18.31 ms</code> was G2P and <code>4.47 ms</code> was P2G
+(<code>docs/water_sim_performance.md:124-159</code>). The original breakdown put G2P at 77.8% of total
+(<code>docs/water_sim_performance.md:54-78</code>). These measurements explain why a large quiet pond
+must not casually multiply active particles.</p>
+<p>They are not a confirmed current benchmark: current world bounds, default rate, GUI state,
+code, and hardware conditions differ. The implementation gate requires a new release sweep
+at fixed configuration and matched render extent. Main-thread <code>water_handoff</code> is also not
+solver compute time (<code>docs/water_sim_performance.md:18-38</code>).</p>
+<h2 id="two-practical-ways-to-make-particles-look-continuous">Two practical ways to make particles look continuous</h2>
+<h3 id="screen-space-fluid-rendering">Screen-space fluid rendering</h3>
+<p>The standard screen-space pipeline is:</p>
+<pre><code class="language-text">coherent particles
+    -&gt; nearest particle-sphere depth
+    -&gt; additive thickness
+    -&gt; depth smoothing / curvature flow
+    -&gt; normals reconstructed from depth
+    -&gt; transparent water composite using scene color/depth
+</code></pre>
+<p>Van der Laan, Green, and Sainz describe exactly this depth, thickness, curvature smoothing,
+and compositing flow, including its configurable resolution/iteration trade-off and the fact
+that it renders only the nearest layer correctly
+(<a href="https://doi.org/10.1145/1507149.1507164">paper</a>,
+<a href="https://wstahw.win.tue.nl/edu/2IV06/andrei/particle_rendering/provided/p91-van_der_laan.pdf">university-hosted copy</a>). NVIDIA
+FleX is a concrete implementation precedent: its official manual exposes smoothed particle
+positions and anisotropy vectors specifically for ellipsoid splatting and screen-space
+surface reconstruction
+(<a href="https://nvidiagameworks.github.io/FleX/1.2/lib_docs/manual.html#fluids">FleX 1.2 manual</a>).</p>
+<p>Advantages for Re: Flora:</p>
+<ul>
+<li>no triangle generation, mesh capacity management, or world-space crack stitching;</li>
+<li>work follows visible pixels and naturally gains view-dependent LOD;</li>
+<li>thickness is directly available for approximate absorption and refraction;</li>
+<li>a half/quarter-resolution implementation may fit the low-resolution aesthetic;</li>
+<li>the same coherent position frame can test it later without changing the input contract.</li>
+</ul>
+<p>Limits:</p>
+<ul>
+<li>it is a continuous <em>view</em>, not a surface mesh;</li>
+<li>only the camera-visible front layer is reconstructed; stacked sheets and air gaps are
+ambiguous, as the original paper explicitly notes;</li>
+<li>reflection/refraction are scene-color/depth approximations; off-screen information needs
+another representation;</li>
+<li>it supplies no reusable geometry for shadow maps, world-space reflection captures, DDGI
+occlusion, selection, or collision;</li>
+<li>screen edges, disocclusions, thin sheets, smoothing radii, and camera cuts need explicit
+artifact tests;</li>
+<li>it still requires a coherent full-frame particle input; the current <code>WaterParticleFrame</code>
+satisfies particle-time coherence, but the remaining metadata/terrain stamp must also match.</li>
+</ul>
+<p>The last three integration conclusions are engineering inferences from a camera-space-only
+representation, not direct performance claims from the paper.</p>
+<h3 id="particle-scalar-field-plus-surface-extraction">Particle scalar field plus surface extraction</h3>
+<p>The world-space pipeline is:</p>
+<pre><code class="language-text">coherent particles or coherent solver-grid mass
+    -&gt; bounded density / occupancy / level-set field
+    -&gt; isovalue classification
+    -&gt; hidden baseline isosurface extraction
+    -&gt; vertex normals and optional velocity/thickness attributes
+    -&gt; translucent raster water mesh
+</code></pre>
+<p>Marching Cubes constructs triangles for a constant-density isosurface by classifying cube
+corners and interpolating edge crossings; gradients of the scalar data provide shading
+normals (<a href="https://doi.org/10.1145/37402.37422">Lorensen and Cline 1987</a>,
+<a href="https://www.cs.toronto.edu/~jacobson/seminar/lorenson-and-cline-1987.pdf">paper copy</a>). A naive isotropic
+particle kernel tends to preserve particle blobs and lose thin sheets. Yu and Turk show that
+neighbor-derived anisotropic kernels plus smoothed kernel centers produce flatter surfaces
+and better preserve thin streams and sharp features, while also documenting residual bumps
+and a visual-volume shift that must not feed back into physics
+(<a href="https://faculty.cc.gatech.edu/~turk/my_papers/sph_surfaces.pdf">paper</a>).</p>
+<p>Advantages for Re: Flora:</p>
+<ul>
+<li>actual world-space geometry can share ordinary raster visibility, shadow, reflection, and
+material paths;</li>
+<li>the same mesh can be viewed from several cameras and from above or below;</li>
+<li>terrain intersections and seams can be inspected in world coordinates;</li>
+<li>derived world-space density can support rendering queries without making the mesh a
+collider;</li>
+<li>a bounded world field makes the first result inspectable and reusable without committing the
+caller to one extraction algorithm or storage layout.</li>
+</ul>
+<p>Costs and risks:</p>
+<ul>
+<li>scalar splatting and extraction add GPU/CPU bandwidth, field clearing, append capacity, and
+synchronization;</li>
+<li>per-frame independent isosurface extraction can change topology as samples cross the
+threshold. Stable input time, deterministic field borders, and temporal quality
+gates are required;</li>
+<li>isotropic kernels are the correct first baseline but may produce blobs or holes; anisotropy
+adds neighborhood search, covariance, and more expensive splats;</li>
+<li>any baseline extractor needs a bounded worst-case output capacity and deterministic shared
+samples; a later sparse layout additionally needs crack-free brick halos;</li>
+<li>refraction still needs thickness or back-surface/depth support; a closed mesh does not make
+transparency free;</li>
+<li>using the render mesh for simulation collision would add lag and couple correctness to LOD.</li>
+</ul>
+<p>An explicitly advected mesh can improve temporal coherence, but it introduces topology
+repair and projection back to the particle implicit surface. Yu et al. demonstrate that
+trade-off in an SPH context
+(<a href="https://faculty.cc.gatech.edu/~turk/my_papers/mesh_surfaces_particle_fluids.pdf">Explicit Mesh Surfaces for Particle Based Fluids</a>).
+That complexity is disproportionate for the first Re: Flora surface; independent extraction with
+measured temporal stability is the preferred baseline.</p>
+<p>The current configured application water domain is <code>64 x 64 x 64</code> cells
+(<code>src/app/core/mod.rs:815-817</code>). A dense <code>R32F</code> field at that resolution is 262,144 samples,
+or 1 MiB before extra buffers. This does not prove GPU cost, but it makes a bounded dense field the
+smallest honest first Implementation. Starting with sparse bricks would add allocation, halos,
+compaction, and crack policy before the project has shown that one dense active domain is too
+large. Sparse storage becomes a measured internal optimization when active water grows beyond the
+bounded baseline; it is not part of the external Interface.</p>
+<h3 id="side-by-side-decision-matrix">Side-by-side decision matrix</h3>
+<table>
+<thead>
+<tr>
+<th>criterion</th>
+<th>screen-space fluid</th>
+<th>scalar field plus extracted mesh</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Output</td>
+<td>Continuous camera image; no mesh</td>
+<td>Real world-space triangle surface</td>
+</tr>
+<tr>
+<td>First prototype effort</td>
+<td>Lower</td>
+<td>Higher</td>
+</tr>
+<tr>
+<td>Temporal stability</td>
+<td>Sensitive to depth filter, screen edges, disocclusion, and input cadence</td>
+<td>Sensitive to isovalue crossings, stale jobs, topology changes, and input cadence</td>
+</tr>
+<tr>
+<td>Thin sheets</td>
+<td>Can disappear after projection/filtering; ellipsoid splats help</td>
+<td>Isotropic fields can perforate/shrink; anisotropic kernels help at added cost</td>
+</tr>
+<tr>
+<td>Thickness</td>
+<td>Natural additive screen thickness, approximate when layers overlap</td>
+<td>Requires back surface, volume integration, or a separate thickness pass</td>
+</tr>
+<tr>
+<td>Refraction</td>
+<td>Straightforward scene-color offset, screen-space limited</td>
+<td>Mesh supports geometric interface; scene-color/ray integration still required</td>
+</tr>
+<tr>
+<td>Reflection</td>
+<td>Screen-space or probe fallback; missing off-screen data</td>
+<td>Fits ordinary planar/probe/ray paths, subject to renderer support</td>
+</tr>
+<tr>
+<td>Shadows / DDGI</td>
+<td>Needs a separate proxy or particle path</td>
+<td>Mesh can participate as raster/shadow geometry; DDGI role is still a product decision</td>
+</tr>
+<tr>
+<td>Collision / buoyancy</td>
+<td>No reusable collision state</td>
+<td>Mesh exists but should remain derived; query canonical columns/particles instead</td>
+</tr>
+<tr>
+<td>CPU-to-GPU handoff</td>
+<td>Coherent particle frame</td>
+<td>Coherent particles first; coherent solver field only after a measured gate</td>
+</tr>
+<tr>
+<td>GPU bandwidth</td>
+<td>Depth/thickness render targets and filters</td>
+<td>3D field writes/reads, triangle append, vertex/index reads, and optional sparse active lists</td>
+</tr>
+<tr>
+<td>Multi-camera / captures</td>
+<td>Reconstruct per view</td>
+<td>Reuse mesh until next coherent generation</td>
+</tr>
+<tr>
+<td>Re: Flora target</td>
+<td>Conditional diagnostic or low-tier fallback</td>
+<td><strong>Recommended production active-water surface and first Implementation</strong></td>
+</tr>
+</tbody></table>
+<h2 id="coherent-surface-input">Coherent surface input</h2>
+<p>The surface path must reuse the complete-frame invariant rather than invent a second particle
+mailbox. The target worker publication is conceptually:</p>
+<pre><code class="language-text">WaterWorldFrame {
+    publication_revision,
+    sim_time_seconds,
+    bodies: [
+        WaterBodyFrame {
+            body_id,
+            body_revision,
+            parcels: [
+                WaterParcelFrame {
+                    parcel_id,
+                    representation_revision,
+                    applied_filled_solid_terrain_dependencies,
+                    source:
+                        ActiveParticles {
+                            positions, optional velocities,
+                            particle_mass, particle_volume,
+                            solver_bounds, solver_cell_size,
+                        }
+                        | QuietColumns { volume, horizontal_momentum, wet_mask }
+                        | BallisticSpray { policy-tagged particles },
+                }
+            ],
+        }
+    ],
+}
+</code></pre>
+<p>Phase 0B need not introduce every body variant. It extends or wraps today&#39;s
+<code>WaterParticleFrame</code> with the exact worker-applied metadata needed by the first active surface. The
+important rule is that all physics fields above are captured from one completed worker state.
+Kernel radius, field precision, extraction isovalue, material, and LOD belong to a separate
+<code>surface_policy_revision</code>; putting them into canonical physics would couple mass state to render
+quality.</p>
+<p>Each derived parcel job is keyed by
+<code>(body_id, parcel_id, publication_revision, sim_time_seconds, representation_revision, terrain_dependencies, surface_policy_revision)</code>. A view-dependent path additionally includes the
+view/camera/internal-extent identity. An incomplete, non-finite, mismatched, or stale input retains
+the prior complete surface and never contributes a row, brick, or particle to it. A completed GPU
+job publishes only if its entire key is still current.</p>
+<table>
+<thead>
+<tr>
+<th>input choice</th>
+<th>benefit</th>
+<th>cost / hazard</th>
+<th>recommendation</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Existing full coherent particle positions</td>
+<td>Already implemented; simplest truth-preserving input to a bounded field; also supports a later screen-space comparison</td>
+<td>O(N) worker copy and upload occurs in larger, lower-frequency bursts; current frame also carries velocity</td>
+<td><strong>Use first</strong>, for one bounded patch, after same-state metadata is stamped</td>
+</tr>
+<tr>
+<td>Worker-produced scalar/active-brick field</td>
+<td>Can reuse P2G real mass and <code>touched_grid_nodes</code>; avoids a second GPU splat and may reduce transfer</td>
+<td>Adds work to the CPU bottleneck; the grid exists at a precise substep phase and is cleared next step; ghost density must be excluded</td>
+<td>Conditional second input only if measured particle handoff/splat misses budget</td>
+</tr>
+<tr>
+<td>GPU-resident simulation/render state</td>
+<td>Removes recurring CPU particle copies and naturally shares GPU field state</td>
+<td>A major solver migration, synchronization redesign, and new terrain-collision data path</td>
+<td>Long-term only; not authorized by this research step</td>
+</tr>
+</tbody></table>
+<p>The current frame retains velocity for existing debug behavior. A future surface-only shared view
+may omit it if no accepted visual effect consumes it; position-only input halves the tightly packed
+payload relative to position plus velocity. That is a measured optimization, not permission to
+create another partial publication. If visual interpolation is introduced, it may use two complete
+frames only and must account for spawn/remove identity rather than assuming particle indices are
+stable.</p>
+<h2 id="representations-for-large-quiet-water">Representations for large quiet water</h2>
+<h3 id="comparison">Comparison</h3>
+<table>
+<thead>
+<tr>
+<th>representation</th>
+<th>good fit</th>
+<th>limitations</th>
+<th>Re: Flora role</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Static or planar mesh clipped to a basin mask</td>
+<td>Decorative pools with a fixed level; cheapest update cost</td>
+<td>Does not conserve changing volume or propagate flow; terrain edits require re-clipping</td>
+<td>Derived render LOD/debug view only; never canonical mass state</td>
+</tr>
+<tr>
+<td>Column heightfield / shallow-water grid</td>
+<td>Ponds, shallow streams, wet/dry fronts, depth-averaged currents, ripples, and sleeping</td>
+<td>Cannot represent overturning surfaces, stacked layers, waterfalls, or fully 3D splashes</td>
+<td><strong>Canonical quiet-water target</strong></td>
+</tr>
+<tr>
+<td>Sine/Gerstner displacement</td>
+<td>Cheap authored surface motion on a mesh</td>
+<td>Cosmetic; does not react to arbitrary terrain or conserve local water</td>
+<td>Normal/displacement detail only</td>
+</tr>
+<tr>
+<td>FFT spectral waves</td>
+<td>Large wind-driven ocean surfaces with stationary statistical spectra</td>
+<td>Periodic/spectral ocean model; excessive and poorly coupled for small editable basins</td>
+<td>Not first-generation pond simulation; possible distant ocean decoration only</td>
+</tr>
+<tr>
+<td>Whole-body MLS-MPM</td>
+<td>Fully 3D motion and direct reuse of current solver</td>
+<td>Cost scales with particles even when visually still; current historical 50k/100k cases missed 120 Hz</td>
+<td>Active patches only</td>
+</tr>
+</tbody></table>
+<p>The settled quiet model is one <code>QuietColumns</code> state, not separate “static pond” and
+“shallow-water pond” representations. Each horizontal cell canonically stores liquid volume (or
+mass), wet/dry state, and depth-integrated horizontal momentum. The free-surface height is derived
+by fitting that volume into the matching filled-solid terrain column; cosmetic wave displacement
+never changes it. <code>Sleeping</code> is the initial update mode and performs zero fluid substeps.
+<code>ShallowWaterActive</code> is a later conservative flux update over the same state, enabled only when a
+named stream, wet/dry-front, or disturbance-propagation scenario proves static columns inadequate.</p>
+<p>This representation is valid only where each horizontal cell contains one connected water
+interval with a single-valued free surface. Stacked layers, an overhang that disconnects the
+column, overturning water, a detached sheet, or a waterfall remain active 3D water. A terrain edit
+first waits for the matching filled-solid dependency, then preserves column volume while resolving
+a new level; if the edited region no longer satisfies the heightfield condition, only that region
+is proposed for wake. The old canonical state and last complete surface remain until that
+transaction can commit.</p>
+<p>Chentanez and Müller provide the strongest direct hybrid precedent. Their real-time system
+uses a shallow-water heightfield over arbitrary terrain with wet/dry tracking, and converts
+features the heightfield cannot represent—waterfalls, breaking waves, splashes—into particles
+that exchange mass and momentum with the heightfield
+(<a href="https://matthias-research.github.io/pages/publications/hfFluid.pdf">paper</a>). Their particles
+are simpler than Re: Flora&#39;s mass-bearing MLS-MPM patches, so the paper supports the
+representation split and conservation requirement, not this document&#39;s exact conversion
+algorithm.</p>
+<p>Their later restricted-tall-cell work is another useful principle: concentrate 3D cells
+near the interesting free surface rather than paying for a uniform full-depth 3D domain
+(<a href="https://matthias-research.github.io/pages/publications/tallCells.pdf">paper</a>). Re: Flora&#39;s
+active-patch proposal is an architectural inference in the same spirit, not a direct port of
+that solver.</p>
+<p>For rendering precedent, Unreal&#39;s official Water system draws only tiled surface regions
+defined by water bodies, shares the mesh across lake/river/ocean transitions, and morphs
+tessellation LOD with camera distance
+(<a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/water-meshing-system-and-surface-rendering-in-unreal-engine?application_version=5.7">official documentation</a>).
+This supports clipped/tiled mesh LOD as a practical rendering pattern; it does not prove
+Re: Flora&#39;s simulation or performance.</p>
+<p>A closer first-party game-production precedent is LIGHTSPEED STUDIOS&#39; Photon Water System.
+Its GDC 2023 presentation separates water data that can be precomputed or updated at runtime
+(height, velocity, and foam) from an adaptively generated water mesh, then applies CDLOD-style
+render acceleration
+(<a href="https://media.gdcvault.com/gdc2023/Slides/Open-World%2BWater%2BRendering%2Band%2BReal-Time%2BSimulation_Mao_Zhenyu%26Wu_Kui.pdf">direct slides</a>,
+<a href="https://www.gdcvault.com/play/1028829/Advanced-Graphics-Summit-Open-World">official session page</a>).
+This is concrete precedent for separating water-state data, update policy, and adaptive render
+geometry. It does not establish that Photon Water&#39;s equations, data layout, or performance
+transfer to Re: Flora.</p>
+<p>Procedural waves remain useful as visual detail. GPU Gems describes the water used in Cyan
+Worlds&#39; <em>Uru: Ages Beyond Myst</em>: a base mesh displaced by summed sine/Gerstner-like waves plus a
+higher-frequency normal map, explicitly as a flexible rendering approximation rather than
+rigorous fluid simulation
+(<a href="https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-1-effective-water-simulation-physical-models">NVIDIA GPU Gems, Chapter 1</a>).
+Tessendorf&#39;s spectral construction is specifically an ocean-water model
+(<a href="https://jtessen.people.clemson.edu/reports/papers_files/coursenotes2002.pdf">course notes</a>).
+The recommendation to defer FFT for bounded editable ponds is therefore a Re: Flora product
+inference, not a claim that FFT water cannot render a pond.</p>
+<h2 id="recommended-target-architecture">Recommended target architecture</h2>
+<h3 id="design-it-twice-outcome">Design It Twice outcome</h3>
+<p>Three independent Interface designs were compared before selecting the Seam:</p>
+<table>
+<thead>
+<tr>
+<th>design</th>
+<th>Interface</th>
+<th>leverage</th>
+<th>main risk</th>
+<th>decision</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tier-spanning <code>WaterWorld</code></td>
+<td><code>start / advance / shutdown</code> owns worker, terrain coordination, canonical state, and presentation</td>
+<td>Smallest caller and maximum hidden scheduling</td>
+<td>Makes a camera-aware renderer part of the same Module that owns mass; high god-Module risk</td>
+<td>Reject as one Module; retain its canonical-worker half</td>
+</tr>
+<tr>
+<td>Extensible <code>WaterSystem</code></td>
+<td><code>try_submit / update / record_view</code> plus named architecture profiles</td>
+<td>Explicit command backpressure and multi-view lifecycle</td>
+<td>Exposes representation profiles early and still combines physics and renderer lifetimes</td>
+<td>Useful internal vocabulary, not the external target</td>
+</tr>
+<tr>
+<td>Derived <code>WaterSurfaceModule</code></td>
+<td>one normal <code>update</code> call returns a complete opaque render state or the previous one</td>
+<td>Keeps the common caller simple while hiding cadence, storage, extraction, capacity, stale work, and fallback</td>
+<td>Requires the worker publication to carry a complete cross-source stamp</td>
+<td><strong>Selected</strong></td>
+</tr>
+</tbody></table>
+<p>The selected architecture has two deep Modules rather than one broad coordinator:</p>
+<ul>
+<li>the water-worker Module owns mutable canonical <code>WaterWorld</code> state, filled-solid terrain
+dependencies, mass/momentum transactions, and immutable publications;</li>
+<li><code>WaterSurfaceModule</code> owns only derived GPU fields, meshes or screen targets, generation
+scheduling, last-good retention, capacity, and render telemetry.</li>
+</ul>
+<p>This split gives Locality to both kinds of correctness. Deleting <code>WaterSurfaceModule</code> would force
+the App and Tracer to learn field storage, extraction, job generations, stale-result rejection,
+capacity, and fallback policy, so it has genuine Depth rather than being a pass-through. Conversely,
+putting wake/sleep or mass transfer into it would make camera-dependent code canonical and violate
+the physics Seam.</p>
+<p>Do not publish generic <code>WaterSolver</code>, <code>TerrainProvider</code>, <code>SurfaceInputProvider</code>, GPU-backend, or
+conversion traits. These are in-process dependencies with only one real Implementation. The first
+dense mesh path can remain concrete. A private active-surface Adapter Seam is justified only when a
+second production path—screen-space fluid or coherent worker fields—actually exists; a test fake by
+itself is not a reason to expose abstraction.</p>
+<h3 id="canonical-state-and-ownership">Canonical state and ownership</h3>
+<p>Preserve the current worker-thread isolation and deepen it incrementally:</p>
+<pre><code class="language-text">App / gameplay
+    -&gt; revisioned water intents and filled-solid terrain dependencies
+    -&gt; water worker owns mutable canonical WaterWorld
+        WaterBody
+          id, applied terrain dependency, total mass/momentum ledger
+          disjoint parcels:
+            QuietColumns { volume, wet state, horizontal momentum }
+            ActiveMpmPatch { particles, MPM grid/cache, ownership mask }
+            BallisticSpray { visual or explicitly mass-bearing policy }
+    -&gt; immutable complete WaterWorldFrame
+        -&gt; WaterSurfaceModule owns derived render generations only
+        -&gt; gameplay query cache owns revision-tagged derived queries only
+</code></pre>
+<p>Today&#39;s <code>PondWaterSim</code> is the existing active-water Implementation; it already owns particle state,
+grid/cache state, terrain input, and <code>sim_time_seconds</code>
+(<code>crates/re-flora-water/src/pond.rs:230-255</code>, <code>crates/re-flora-water/src/pond.rs:323-344</code>). The
+<code>WaterWorld</code>, body, and quiet variants above are target domain state, not existing code.</p>
+<p>Canonicality rules:</p>
+<ul>
+<li>A unit of water mass belongs to exactly one stable parcel representation.</li>
+<li>Quiet columns and the active ownership mask never claim the same control volume. Numerical
+stencils and visual cross-fades may overlap, but canonical ownership may not.</li>
+<li><code>terrain_ghost_density</code>, render density, extracted triangles, screen thickness, normal maps,
+foam, and procedural ripples are derived and never enter the mass ledger.</li>
+<li>Terrain collision keeps the current filled-solid SDF source identity and sign semantics.</li>
+<li>A representation change is a prepared and validated worker transaction. If any prerequisite is
+missing, the old state remains canonical and no partial publication escapes.</li>
+</ul>
+<h3 id="small-deep-surface-interface">Small deep surface Interface</h3>
+<p>The following pseudocode fixes the caller contract without choosing a public meshing algorithm:</p>
+<pre><code class="language-rust">struct WaterSurfaceInput&lt;&#39;a&gt; {
+    /* newest complete WaterWorldFrame, immutable terrain payloads, and one render view */
+}
+
+struct WaterRenderableState&lt;&#39;a&gt; {
+    /* opaque draw-ready state borrowed from WaterSurfaceModule */
+}
+
+impl WaterSurfaceModule {
+    fn update&lt;&#39;a&gt;(
+        &amp;&#39;a mut self,
+        input: WaterSurfaceInput&lt;&#39;_&gt;,
+    ) -&gt; Result&lt;WaterRenderableState&lt;&#39;a&gt;, WaterSurfaceFatal&gt;;
+
+    fn diagnostics(&amp;self) -&gt; &amp;WaterSurfaceDiagnostics;
+}
+</code></pre>
+<p>Normal usage is intentionally one path:</p>
+<pre><code class="language-rust">let water = water_surface.update(WaterSurfaceInput::from_runtime(
+    water_runtime.latest_complete_world_frame(),
+    render_view,
+))?;
+tracer.render_water(water)?;
+</code></pre>
+<p>The value types keep representation storage private. The App never calls
+<code>build_marching_cubes</code>, <code>render_screen_space</code>, <code>update_quiet_heightfield</code>, <code>wake_patch</code>, or
+<code>sleep_patch</code>. Canonical intents stay on the water runtime Interface; the surface call cannot
+mutate them.</p>
+<p><code>update</code> has this contract:</p>
+<ol>
+<li>Accept only a complete, finite, strictly newer publication with non-regressing simulation time.</li>
+<li>Require its worker-applied terrain dependency and same-state particle/column metadata; never
+pair it with live main-thread configuration.</li>
+<li>Coalesce superseded desired generations before expensive work where possible.</li>
+<li>Record bounded asynchronous upload/build work and poll prior completion without waiting for a
+worker lock, GPU fence, or readback.</li>
+<li>Publish a candidate only when every resource is complete and its full input/policy/view key is
+still current. Retire prior GPU ownership on the renderer&#39;s normal completion clock.</li>
+<li>Return the new complete generation, otherwise the last complete generation, otherwise an empty
+valid state before first success.</li>
+</ol>
+<p>This scheduling shape is already grounded in local code: the particle runtime polls with
+<code>try_lock</code> and retains its last complete frame (<code>src/app/core/water/runtime.rs:301-330</code>); deferred
+terrain surface work polls readiness and discards a non-latest revision
+(<code>src/app/core/terrain_rebuild.rs:465-505</code>); DDGI promotes only a matching ready token and retires
+the prior GPU owners on the frame-completion clock (<code>src/tracer/mod.rs:2379-2478</code>). Water reuses
+these publication patterns, not those domains&#39; data types.</p>
+<p>Missing input, mailbox contention, a pending job, a terrain mismatch, recoverable allocation
+pressure, or a stale completion are telemetry outcomes, not caller branches. Non-finite samples,
+field/mesh overflow, and invalid topology reject the whole candidate; truncation or partial success
+is forbidden. Only device loss or another existing renderer-fatal condition escapes as
+<code>WaterSurfaceFatal</code>.</p>
+<p>Repeated submission of the same key is O(1) metadata work. New input may perform one bounded
+staging write, but must not clone another full particle vector on the main thread merely to simplify
+lifetimes. A screen-space generation additionally belongs to a view/camera/internal-extent key, so
+a camera cut or resize cannot reuse stale targets. A world-space mesh can be reused across views.</p>
+<h3 id="surface-data-flow">Surface data flow</h3>
+<p>First active mesh Implementation:</p>
+<pre><code class="language-text">ActiveMpmPatch at completed state T + matching filled-solid dependency
+    -&gt; immutable complete surface input for T
+    -&gt; asynchronous GPU upload, no render-thread wait
+    -&gt; isotropic particle kernel splat into one bounded dense scalar field
+    -&gt; terrain exclusion/clipping against the same filled-solid generation
+    -&gt; bounded baseline isosurface extraction and normals
+    -&gt; atomically publish only the complete draw-ready generation
+    -&gt; translucent Raster Consumer with the water material
+</code></pre>
+<p>Extraction choice, scalar layout, and resource generations are private Implementation. The
+world-space output does not by itself solve refraction thickness, reflection source, direct shadows,
+or DDGI participation; those remain separate renderer policies. Under <code>CONTEXT.md</code> terminology,
+the first mesh is a <strong>Raster Consumer</strong>, not automatically a DDGI Occluder.</p>
+<p>If the matched dense-particle path fails a declared budget, test alternatives one at a time without
+changing canonical physics:</p>
+<pre><code class="language-text">P2G real mass at a declared completed phase T
+    -&gt; worker copies touched nodes into one coherent field publication
+    -&gt; GPU extraction and render
+
+or
+
+complete particle frame T + view key
+    -&gt; screen depth/thickness/filter/composite
+</code></pre>
+<p>The worker field must exclude <code>terrain_ghost_density</code>; screen-space work is per view and must pass
+edge/disocclusion/multiple-layer gates. Neither alternative silently activates at runtime: it is a
+named benchmark profile and a new measured decision.</p>
+<p>Quiet surface Implementation:</p>
+<pre><code class="language-text">QuietColumns + matching filled-solid dependency
+    -&gt; volume-derived wet footprint and shoreline
+    -&gt; clipped/tiled heightfield mesh
+    -&gt; optional camera-distance tessellation and cosmetic ripple
+    -&gt; same optical/material contract as active mesh
+</code></pre>
+<p>Both mesh paths share color, Fresnel response, refraction/reflection policy, fog/absorption, and
+depth composition so those choices do not change at a representation seam.</p>
+<h3 id="simulation-activity-versus-render-lod">Simulation activity versus render LOD</h3>
+<p>Keep these classifications independent:</p>
+<ul>
+<li><strong>Simulation activity</strong> answers whether a parcel needs 3D MLS-MPM, quiet columns, or
+ballistic particles. It must not sleep merely because it is off camera.</li>
+<li><strong>Render LOD</strong> chooses scalar resolution, mesh update rate, tessellation, material detail,
+reflection source, and whether a low-tier screen-space fallback is used. It may depend on
+camera distance and projected size.</li>
+</ul>
+<p>Initial activity signals should be measured from existing diagnostics rather than guessed:</p>
+<ul>
+<li>average and maximum particle speed;</li>
+<li>kinetic energy and affine-motion magnitude;</li>
+<li>surface-height range/curvature and inter-cell flux;</li>
+<li>terrain contact, edit, spawn, rain/sprinkler, player, and rigid-body impulses;</li>
+<li>flux from an active neighbor and pending terrain/SDF revision work;</li>
+<li>time continuously below all quiet thresholds.</li>
+</ul>
+<p>The existing quiet-settling code already computes whole-body average/max speed and
+local-speed damping gates (<code>crates/re-flora-water/src/mls_mpm/diagnostics.rs:21-23</code>,
+<code>crates/re-flora-water/src/mls_mpm/g2p.rs:71-120</code>). Those constants are useful telemetry
+seeds, not approved sleep thresholds.</p>
+<h3 id="wake-sleep-and-reactivation-rules">Wake, sleep, and reactivation rules</h3>
+<p>Do not implement these automatically until the manual active-patch and quiet-body phases
+have independent acceptance evidence.</p>
+<p>Sleep candidate:</p>
+<ol>
+<li>A connected patch and one-cell guard band remain below tuned velocity, kinetic,
+affine, height-gradient, and flux thresholds for a dwell interval.</li>
+<li>There is no pending terrain revision, spawn, external contact, or active-neighbor flux.</li>
+<li>Every fixed-mass particle is integrated into column volume and horizontal momentum; vertical
+momentum and affine/kinetic energy that cannot survive depth averaging are explicitly logged.</li>
+<li>The column result becomes canonical in one transaction; particles are then retired.</li>
+</ol>
+<p>Wake trigger:</p>
+<ul>
+<li>a terrain edit changes the basin or support SDF;</li>
+<li>water is spawned/removed or a source/sink changes the level;</li>
+<li>rain, sprinkler, player, rigid body, or scripted impulse exceeds a threshold;</li>
+<li>column velocity/height gradient or neighbor flux exceeds a threshold;</li>
+<li>a heightfield-only configuration would create an overhang, waterfall, detached sheet, or
+other non-heightfield feature.</li>
+</ul>
+<p>Wake transaction:</p>
+<ol>
+<li>Defer until the matching filled-solid terrain/SDF dependency is available; do not block the
+main thread or seed particles against stale terrain.</li>
+<li>Expand the proposed active region by a guard band and measure its quiet mass/momentum.</li>
+<li>Because the current solver uses one <code>particle_mass</code> for every particle
+(<code>crates/re-flora-water/src/pond.rs:44-69</code>,
+<code>crates/re-flora-water/src/mls_mpm/p2g.rs:38-58</code>), choose an integer particle count and adjust a
+deterministic boundary column so the debit is exactly <code>N * particle_mass</code>. The leftover mass
+remains quiet outside the final active ownership mask; never create one differently weighted
+particle or round mass away.</li>
+<li>Move the exact debit into transaction escrow, seed particles at the configured reference
+volume, initialize hydrostatic <code>j</code>, and map column horizontal momentum into particle velocity.</li>
+<li>Validate finite state, capacity, terrain identity, exclusive ownership, mass equality, and
+momentum residual. Atomically install the target generation and retire the source; on failure,
+abort and leave the old owner untouched.</li>
+</ol>
+<p>Stable body accounting is:</p>
+<pre><code class="language-text">body mass = quiet-column mass
+          + active-particle count * particle_mass
+          + explicitly mass-bearing spray mass
+</code></pre>
+<p>Transaction escrow exists only between prepare and commit. It is not a fourth stable water
+representation. Default detached spray is non-canonical visual detail; if gameplay later makes it
+mass-bearing, its return/removal policy must enter this ledger.</p>
+<p>Once Phase 3 enables a body mass ledger, <code>particle_mass</code> and reference <code>particle_volume</code> become part
+of an active parcel generation&#39;s canonical identity. Current GUI/config propagation can update both
+on the running worker (<code>src/app/core/water/mod.rs:106-111</code>,
+<code>src/app/core/water/runtime.rs:607-638</code>). Hybrid mode must not silently reinterpret existing
+particles after such a change: accept the measure before parcel creation, or run an explicit
+mass-preserving reparameterization/reseed transaction and bump the representation generation. This
+is a future ownership gate; the present research step does not change current solver behavior.</p>
+<p>Active/quiet face transport is a later gate, not something a guard band solves. When implemented,
+one coupling ledger owns one signed mass-and-momentum flux record per interface face and fixed
+simulation interval. The outgoing representation debits and the incoming representation credits
+the same record exactly once; two solvers must never independently estimate and apply the same
+flux. Patch-boundary motion first settles all prior flux records, then changes the ownership mask.</p>
+<h3 id="interface-terrain-and-conservation-risks">Interface, terrain, and conservation risks</h3>
+<p>The hybrid boundary is harder than either representation alone. Principal risks are:</p>
+<ul>
+<li>double mass from overlapping particles and columns;</li>
+<li>mass loss from fractional particle counts during conversion;</li>
+<li>momentum/energy jumps when depth-averaged flow becomes 3D particles or settles back;</li>
+<li>a pressure reflection at an active/quiet boundary;</li>
+<li>visible height, normal, thickness, foam, or update-rate seams;</li>
+<li>repeated wake/sleep thrashing around a threshold;</li>
+<li>terrain edits publishing a new visual basin before the matching water SDF/state is ready;</li>
+<li>stale GPU mesh jobs overwriting a newer representation generation;</li>
+<li>future scalar-brick cracks from missing kernel halos or mismatched shared samples;</li>
+<li>apparent volume shrink from smoothing or anisotropic reconstruction even when canonical
+mass is conserved.</li>
+</ul>
+<p>Terrain edits use the same prepare/commit discipline. Negative SDF remains solid, positive remains
+empty/water space, and the gradient points away from solid
+(<code>crates/re-flora-water/src/collider.rs:40-65</code>). The quiet resolver preserves canonical volume
+against the matching immutable filled-solid grid. If one connected free-surface interval no longer
+exists, it proposes only the affected region for active representation. No new shoreline or active
+surface publishes against a different terrain dependency, and pressure-only ghost density never
+becomes render occupancy.</p>
+<p>Mitigations are explicit ledgers, hysteresis plus dwell time, conservative single-owner flux,
+deterministic integer-particle reservation, shared field samples, one water material, and
+latest-complete publication. Rendering may cross-fade old/new derived surfaces for a few authored
+frames, but physics ownership changes only once.</p>
+<h2 id="phased-implementation-and-acceptance-gates">Phased implementation and acceptance gates</h2>
+<h3 id="phase-0a-complete-particle-publication-completed-in-6a6c7d2e">Phase 0A: complete particle publication — completed in <code>6a6c7d2e</code></h3>
+<p>Accepted evidence:</p>
+<ul>
+<li>every publication owns all particle positions/velocities from one completed simulation state;</li>
+<li>publication revision increases strictly and finite simulation time never regresses;</li>
+<li>missing, stale, or lock-busy polls retain the prior complete frame without a main-thread wait;</li>
+<li>enabled simulation publishes one complete frame every fourth eligible opportunity;</li>
+<li>deterministic unit tests cover completeness, time/revision coherence, stale/missing/busy
+behavior, and cadence;</li>
+<li>the matched hidden release measurement above shows 3.590 complete publications/s, 25,000
+particles/publication, and 89,738.0 particles copied/s for the measured 25k case.</li>
+</ul>
+<p>This gate must remain green. Later work may optimize ownership or payload shape, but may never
+restore partial merging.</p>
+<h3 id="phase-0b-cross-source-surface-input-and-named-benchmark">Phase 0B: cross-source surface input and named benchmark</h3>
+<p>Scope:</p>
+<ul>
+<li>Extend or wrap the worker publication with the exact applied filled-solid terrain dependency,
+particle mass/volume, solver bounds/cell size, and representation generation from that same
+completed state.</li>
+<li>Add the non-blocking <code>WaterSurfaceModule</code> generation coordinator with an empty/debug builder.</li>
+<li>Add one deterministic named hidden scenario for a bounded active patch to
+<code>config/perf_scenarios.toml</code>; record effective configuration, terrain identity, publication key,
+camera, internal/swapchain extents, and GPU.</li>
+</ul>
+<p>Acceptance:</p>
+<ul>
+<li>pure tests reject partial/non-finite input, live-main-config pairing, time/revision regression,
+mismatched terrain, stale GPU completion, and capacity overflow;</li>
+<li>missing input, busy mailbox, pending job, and stale completion return the same last-good identity
+in bounded time;</li>
+<li>the main/render wait count is zero;</li>
+<li>no surface algorithm or representation branch appears at the App call site;</li>
+<li>a 10k/25k/50k/100k release sweep refreshes solver and complete-handoff evidence at fixed effective
+profiles where the workload remains stable.</li>
+</ul>
+<h3 id="phase-1-one-bounded-dense-world-space-mesh">Phase 1: one bounded dense world-space mesh</h3>
+<p>Scope:</p>
+<ul>
+<li>Consume one accepted active-particle input; use a fixed manual patch, dense bounded field,
+isotropic kernel, explicit field border, bounded extraction output, and separate GPU profiler
+scopes.</li>
+<li>Publish only complete generations and draw through the shared water material as a Raster
+Consumer.</li>
+<li>Do not add screen-space fluid, sparse bricks, anisotropy, worker scalar fields, quiet water,
+automatic activity, persistence, or whole-world allocation.</li>
+</ul>
+<p>Acceptance:</p>
+<ul>
+<li>the active water is a continuous surface rather than capacity-limited marker quads;</li>
+<li>every field/vertex is finite, output stays within declared capacity, stale jobs never publish,
+and terrain clipping uses the input&#39;s filled-solid dependency;</li>
+<li>fixed settle, splash, pour, orbit, and camera-cut captures expose no persistent particle-scale
+holes, terrain-contact crack wider than one surface cell, or cadence-driven topology flash under
+the review thresholds declared before implementation;</li>
+<li>dense field clear/splat/extract/draw and main-thread ingest pass the matched release protocol;</li>
+<li>the result on a development GPU is recorded as machine-local until the minimum-spec gate exists.</li>
+</ul>
+<h3 id="conditional-phase-1c-diagnose-a-failed-active-mesh-gate">Conditional Phase 1C: diagnose a failed active-mesh gate</h3>
+<p>Enter only when Phase 1 names the failed metric. Test one change at a time:</p>
+<ul>
+<li>a position-only/shared complete publication or identity-aware interpolation between two complete
+frames if publication cadence—not field construction—is the temporal-quality bottleneck;</li>
+<li>a coherent worker P2G-real-mass field if particle handoff or GPU splat is the bottleneck;</li>
+<li>sparse field storage if dense field memory/clear/extraction scales beyond the approved active
+domain;</li>
+<li>anisotropic kernels if the accepted thin-sheet scene fails the isotropic quality gate;</li>
+<li>screen-space depth/thickness if the world mesh misses the consumer-PC budget or a lower tier needs
+a measured fallback.</li>
+</ul>
+<p>Each alternative uses the same complete input identity and named workload. Screen-space adds edge,
+disocclusion, nearest-layer, camera-cut, resize, and multi-view gates. Changing the production
+default requires an explicit measured decision; an Adapter cannot silently fall back.</p>
+<h3 id="phase-2-one-particle-free-sleeping-quiet-pond">Phase 2: one particle-free sleeping quiet pond</h3>
+<p>Scope:</p>
+<ul>
+<li>Store one authored/edit-derived basin as canonical <code>QuietColumns</code> and render its clipped/tiled
+heightfield through the same optical/material contract.</li>
+<li>Preserve volume against the matching filled-solid terrain dependency.</li>
+<li>Keep it in <code>Sleeping</code>; cosmetic ripple may update, but there is no canonical shallow-water step.</li>
+</ul>
+<p>Acceptance:</p>
+<ul>
+<li>increasing quiet pond area does not increase MLS-MPM particles or worker substeps;</li>
+<li>60 seconds of sleeping reports zero fluid-solver work and no canonical mass/level drift;</li>
+<li>wet/dry and single-connected-column representability are deterministic;</li>
+<li>a stale terrain result cannot publish, and a deterministic terrain edit preserves volume or
+explicitly reports that the affected region must wake;</li>
+<li>active and quiet reference surfaces share material policy and meet the declared seam threshold.</li>
+</ul>
+<h3 id="conditional-phase-2c-conservative-shallow-water-update">Conditional Phase 2C: conservative shallow-water update</h3>
+<p>Enter only if a named shallow stream, wet/dry front, or horizontal disturbance scenario cannot be
+served by sleeping columns plus cosmetic detail. Advance volume and horizontal momentum with one
+stable explicit time-step policy. Acceptance requires deterministic wet/dry behavior, equal and
+opposite per-face flux accounting, bounded volume/momentum residual, and a return to zero substeps
+after sleep. A cosmetic ripple alone does not justify a canonical solver.</p>
+<h3 id="phase-3-manual-whole-region-wake-sleep-transaction">Phase 3: manual whole-region wake/sleep transaction</h3>
+<p>Scope:</p>
+<ul>
+<li>Add explicit debug intents to wake and sleep one selected bounded region.</li>
+<li>Implement prepare/escrow/validate/atomic-commit with an adjusted ownership mask and integer
+fixed-mass particles.</li>
+<li>Repeat one deterministic cycle 100 times. Do not add automatic thresholds or live active/quiet
+face transport yet.</li>
+</ul>
+<p>Acceptance:</p>
+<ul>
+<li>the body ledger accounts for every unit of mass before and after each commit; any numerical
+residual remains an explicit diagnostic and no percentage budget permits unowned mass;</li>
+<li>the stable transaction has no fourth residual representation, no differently weighted particle,
+and no parcel with two canonical owners;</li>
+<li>horizontal momentum maps within a declared deterministic numerical tolerance; vertical momentum
+and energy loss are separately logged as intentional settling or numerical residual;</li>
+<li>100 cycles show no directional mass trend, and an abort caused by terrain/capacity/stale input
+leaves the source canonical owner unchanged at the Interface test surface;</li>
+<li>a derived visual cross-fade does not alter the ledger, and the seam does not grow while idle.</li>
+</ul>
+<h3 id="phase-4-one-conservative-active-quiet-interface-flux">Phase 4: one conservative active/quiet interface flux</h3>
+<p>Scope one interface face or one small deterministic boundary before general coupling. One ledger
+record owns its signed mass/momentum flux and both representations consume it exactly once.</p>
+<p>Acceptance:</p>
+<ul>
+<li>debit equals credit for every sequence; duplicate, missing, out-of-order, terrain-stale, and
+representation-stale records are rejected deterministically;</li>
+<li>moving an ownership boundary first settles its prior flux sequence;</li>
+<li>there is no growing height/momentum discontinuity or reflected-pressure instability in the named
+boundary workload;</li>
+<li>all Phase 3 ownership and terrain gates remain green.</li>
+</ul>
+<h3 id="phase-5-automatic-activity-and-render-lod">Phase 5: automatic activity and render LOD</h3>
+<p>Scope:</p>
+<ul>
+<li>Calibrate hysteresis/dwell from recorded speed, kinetic/affine motion, height/flux, terrain edit,
+source/sink, and external-impulse scenarios; reuse the one conversion transaction.</li>
+<li>Add distance-based scalar resolution, mesh update rate, tessellation, and material detail without
+changing canonical activity.</li>
+<li>Add spray to the ledger only if gameplay explicitly makes it mass-bearing.</li>
+</ul>
+<p>Acceptance:</p>
+<ul>
+<li>off-camera water remains physically correct; only render LOD changes with visibility;</li>
+<li>the same deterministic input sequence produces the same transition sequence, representation
+revisions, flux log, and water-mass log;</li>
+<li>threshold-adjacent disturbances do not cause more than one transition per dwell interval;</li>
+<li>every earlier conservation, terrain, stale-publication, and no-wait gate remains green;</li>
+<li>a large quiet pond plus the approved maximum active patch count passes on the designated
+minimum-spec consumer PC.</li>
+</ul>
+<h2 id="release-mode-benchmark-protocol">Release-mode benchmark protocol</h2>
+<p>Performance conclusions use hidden, muted, release-mode application runs. Unit tests prove pure
+state invariants; they are not performance evidence. An ad hoc solver/handoff sweep can be refreshed
+with:</p>
+<pre><code class="language-bash">cargo run --release -- --hidden --mute --auto-exit 35 --perf \
+  --water-profile performance --water-particles 10000
+cargo run --release -- --hidden --mute --auto-exit 35 --perf \
+  --water-profile performance --water-particles 25000
+cargo run --release -- --hidden --mute --auto-exit 35 --perf \
+  --water-profile performance --water-particles 50000
+cargo run --release -- --hidden --mute --auto-exit 35 --perf \
+  --water-profile performance --water-particles 100000
+</code></pre>
+<p>Those commands are preparatory evidence only. Before drawing a production conclusion, add named
+workloads to <code>config/perf_scenarios.toml</code>, run <code>scripts/perf_suite.py</code>, warm separate release
+binaries, execute <code>A,B,B,A</code>, pool repeated samples, and reject mismatched workloads as required by
+<code>docs/performance-benchmarking.md:1-54</code>.</p>
+<p>Required named scenarios by gate:</p>
+<ol>
+<li><code>water-active-handoff-{10k,25k,50k,100k}</code>: no-surface solver plus complete-frame baseline;</li>
+<li><code>water-active-dense-mesh-25k</code>: one fixed active patch and camera path;</li>
+<li><code>water-quiet-sleeping-large</code>: scalable quiet footprint with zero active particles;</li>
+<li><code>water-combined-quiet-active-25k</code>: final surface budget workload;</li>
+<li><code>water-manual-wake-sleep-100</code>: conversion ledger and surface preemption;</li>
+<li><code>water-interface-flux</code>: added only with Phase 4;</li>
+<li>screen-space, sparse-field, anisotropy, or worker-field variants only when the corresponding
+conditional gate is entered.</li>
+</ol>
+<p>Required matching fields:</p>
+<ul>
+<li>commit, dirty state, host, CPU, GPU, driver, Vulkan device, present mode;</li>
+<li>effective water profile and every water tuning override;</li>
+<li>world/collider bounds, grid dimensions, particle mass/volume/count, touched/active-node signature;</li>
+<li>accepted publication revision/time, representation generation, worker-applied terrain dependency
+and SDF/source hash;</li>
+<li>active ownership bounds, quiet footprint/wet-cell count, and coupling-face count when applicable;</li>
+<li>field dimensions/precision/kernel/isovalue/border, extraction policy revision, triangle/capacity
+counts, and optional active-brick count;</li>
+<li>camera snapshot, view count, internal render extent, and actual swapchain extent;</li>
+<li>warm-up duration, sample count, run order, and workload hash.</li>
+</ul>
+<p>Required metrics:</p>
+<ul>
+<li><code>[PERF][WATER]</code> average and P2G/G2P breakdown;</li>
+<li><code>[PERF][WATER_THREAD]</code> publication frequency, particles/publication, particles copied/s, collect,
+lock, accepted revision/time, and optional published-brick counts;</li>
+<li>main-thread input validation, handoff, staging/upload, scheduling, promotion, and observed wait
+count;</li>
+<li>separate GPU scopes for dense clear, particle splat, terrain exclusion, extraction, mesh draw,
+and—only in a conditional path—screen depth/thickness/filter/composite;</li>
+<li>full-frame median and p95;</li>
+<li>allocated field, mesh, staging, history, quiet-column, and optional screen-target bytes;</li>
+<li>quiet solver substeps/wet cells, mass/momentum/flux ledgers, stale/deferred/dropped generations,
+capacity high-water/overflow, non-finite values, terrain penetration, and Vulkan validation/fatal
+errors.</li>
+</ul>
+<p>Hard correctness gates are zero render/main waits, partial publications, unowned/double-owned mass,
+duplicate/missing flux records, stale promotions, capacity overflows, non-finite output, Vulkan
+validation errors, and fatal log lines. Sleeping quiet-water solver substeps are also exactly zero.</p>
+<p>The following remain <strong>provisional review budgets</strong>, not established performance facts, for the
+selected path on the designated minimum-spec Vulkan consumer PC:</p>
+<ul>
+<li>water-surface GPU work at or below <code>1.5 ms</code> median and <code>2.5 ms</code> p95 in the combined quiet
+pond plus 25k active-patch scenario;</li>
+<li>surface gather/handoff/upload at or below <code>0.5 ms</code> p95 on the main thread;</li>
+<li>no more than <code>5%</code> regression in <code>[PERF][WATER] avg ms/substep</code> versus the matched no-surface
+build;</li>
+<li>no more than <code>5%</code> full-frame median and <code>10%</code> p95 regression versus the matched debug-marker
+disabled baseline;</li>
+<li>MLS-MPM cost depends on active particles rather than total visible quiet-pond area.</li>
+</ul>
+<p>No absolute millisecond gate can be accepted until the minimum-spec CPU/GPU, approved maximum active
+water workload, and review resolution are named. RTX 3060 Ti results remain machine-local. Do not
+relax a failed budget or change workload silently: lower dense resolution/update cadence or active
+area first, then enter exactly one conditional Phase 1C alternative and repeat the matched protocol.</p>
+<h2 id="non-goals">Non-goals</h2>
+<ul>
+<li>No Rust or shader implementation in this research step.</li>
+<li>No migration of MLS-MPM to the GPU.</li>
+<li>No replacement of the filled-solid terrain SDF, ghost-boundary density, or terrain revision
+system.</li>
+<li>No use of the render mesh as the canonical water collider.</li>
+<li>No automatic wake/sleep before the manual transition gate.</li>
+<li>No screen-space fluid, sparse field, shallow-water stepping, or hybrid conversion in the first
+active-mesh Implementation unless its explicit gate is entered.</li>
+<li>No ocean-scale FFT simulation, breaking-wave ocean, or infinite water plane.</li>
+<li>No film-quality anisotropic reconstruction, explicit mesh tracking, foam system, caustics,
+underwater renderer, or multi-layer refraction in the first surface spike.</li>
+<li>No persistence-format decision for hybrid water bodies in this document.</li>
+<li>No guarantee of rigid-body buoyancy or player swimming; those consumers need a separate
+canonical-state query contract.</li>
+</ul>
+<h2 id="settled-decisions-and-required-implementation-inputs">Settled decisions and required implementation inputs</h2>
+<p>The architectural questions in scope are settled:</p>
+<ul>
+<li>complete full particle frames are the first active-surface input; same-state physics/terrain
+metadata is the remaining prerequisite;</li>
+<li>the first continuous surface is a bounded dense world-space scalar field and hidden baseline
+extractor; screen-space, sparse storage, worker fields, and anisotropy are conditional;</li>
+<li>large quiet basins use conservative <code>QuietColumns</code>, sleep with zero substeps, and add
+shallow-water transport only for a named failed scenario;</li>
+<li>the worker owns one mass/momentum ledger and atomic representation transaction; the renderer owns
+only derived generations;</li>
+<li>stable conversions use two canonical volume representations plus optional explicitly
+mass-bearing spray, use fixed-mass particles, and leave fractional wake mass in adjusted quiet
+ownership rather than dropping it;</li>
+<li>quiet terrain edits volume-resolve against a matching filled-solid dependency and wake only an
+affected non-heightfield-representable region;</li>
+<li>the first surface is a Raster Consumer; reflection, direct-shadow, and DDGI participation are
+separate measured renderer decisions.</li>
+</ul>
+<p>Implementation still requires these product/calibration inputs; they do not reopen the Module or
+ownership architecture:</p>
+<ol>
+<li>the minimum-spec CPU/GPU, approved render resolution, and maximum simultaneous active-patch
+volume/particle count;</li>
+<li>review captures and numeric visual thresholds for the low-resolution settle, splash, pour,
+shoreline, camera-cut, and seam scenes;</li>
+<li>measured field precision/resolution, isotropic kernel radius, isovalue, extraction algorithm,
+and capacities inside the selected dense Implementation;</li>
+<li>the water reflection/refraction quality tiers and whether later direct-shadow or DDGI roles are
+worth their measured cost;</li>
+<li>a persistence schema when runtime hybrid-water persistence enters scope.</li>
+</ol>
+<h2 id="evidence-and-inference-table">Evidence and inference table</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>class</th>
+<th>source</th>
+<th>direct support</th>
+<th>inference boundary</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>L1</td>
+<td>Direct local code</td>
+<td><code>crates/re-flora-water/src/pond.rs</code>, <code>crates/re-flora-water/src/mls_mpm/*</code></td>
+<td>Particle/grid canonical state, fixed-step order, transient touched-node mass, defaults</td>
+<td>Does not prove that its P2G mass is the best render field</td>
+</tr>
+<tr>
+<td>L2</td>
+<td>Direct local code</td>
+<td><code>src/app/core/water/runtime.rs</code>, <code>src/app/core/water/mod.rs</code></td>
+<td>Full immutable particle frames, monotonic revision/time, every-fourth-opportunity cadence, non-blocking retention; separately revisioned terrain work</td>
+<td>Current frame still lacks worker-applied terrain/config metadata required for a cross-source surface stamp</td>
+</tr>
+<tr>
+<td>L3</td>
+<td>Direct local code</td>
+<td><code>src/app/core/particles.rs</code>, <code>src/particles/system.rs</code>, <code>src/tracer/mod.rs</code></td>
+<td>Debug water is capacity-limited generic <code>Leaf</code> rendering; <code>WaterDroplet</code> is separate translucent billboard rendering</td>
+<td>Does not predict final mesh material cost</td>
+</tr>
+<tr>
+<td>L4</td>
+<td>Direct local evidence</td>
+<td><code>docs/water_sim_performance.md</code></td>
+<td>Historical release-mode particle-count scaling and G2P/P2G timing</td>
+<td>Results are not current apples-to-apples evidence because setup/defaults changed</td>
+</tr>
+<tr>
+<td>L5</td>
+<td>Direct local evidence</td>
+<td><code>docs/water_boundary_density.md</code>, <code>docs/voxel_collision_architecture.md</code></td>
+<td>Pressure-only ghost-density rule and required filled-solid terrain SDF semantics</td>
+<td>Does not choose a free-surface renderer</td>
+</tr>
+<tr>
+<td>L6</td>
+<td>Direct local code</td>
+<td><code>shader/slang/surface_extraction.slang</code></td>
+<td>Existing terrain extraction consumes binary occupancy and emits packed surface voxels</td>
+<td>Scheduling ideas may transfer; the algorithm is not a fluid mesher</td>
+</tr>
+<tr>
+<td>E1</td>
+<td>Direct external research</td>
+<td><a href="https://wstahw.win.tue.nl/edu/2IV06/andrei/particle_rendering/provided/p91-van_der_laan.pdf">van der Laan, Green, Sainz 2009</a>, <a href="https://doi.org/10.1145/1507149.1507164">DOI</a></td>
+<td>Screen-space depth, thickness, curvature smoothing, composite, view-dependent LOD, nearest-layer limitation</td>
+<td>Re: Flora integration and budget are unmeasured</td>
+</tr>
+<tr>
+<td>E2</td>
+<td>Direct official implementation documentation</td>
+<td><a href="https://nvidiagameworks.github.io/FleX/1.2/lib_docs/manual.html#fluids">NVIDIA FleX 1.2 manual</a></td>
+<td>Smoothed positions and neighbor anisotropy support ellipsoid splatting/screen-space reconstruction</td>
+<td>FleX performance does not transfer to this CPU MLS-MPM implementation</td>
+</tr>
+<tr>
+<td>E3</td>
+<td>Direct external research</td>
+<td><a href="https://faculty.cc.gatech.edu/~turk/my_papers/sph_surfaces.pdf">Yu and Turk 2010</a></td>
+<td>Anisotropic particle kernels improve flat/thin/sharp surface reconstruction; reconstruction may visually shrink volume</td>
+<td>Flora admits anisotropy only after an isotropic visual gate fails</td>
+</tr>
+<tr>
+<td>L7</td>
+<td>Direct local measurement</td>
+<td>Same-worktree hidden release logs <code>re-flora-20260809-190550.223-71870.log</code> and <code>re-flora-20260809-192044.002-163398.log</code></td>
+<td>Matched old-bucket versus complete-frame publication frequency, burst size, copy throughput, and CPU publication time</td>
+<td>One RTX 3060 Ti/25k workload is not surface or consumer-PC proof</td>
+</tr>
+<tr>
+<td>E4</td>
+<td>Direct external research</td>
+<td><a href="https://www.cs.toronto.edu/~jacobson/seminar/lorenson-and-cline-1987.pdf">Lorensen and Cline 1987</a>, <a href="https://doi.org/10.1145/37402.37422">DOI</a></td>
+<td>Triangle extraction from a sampled constant-density field with interpolated crossings and gradient normals</td>
+<td>Dense/sparse GPU layout, exact extractor, capacity, and timing are project decisions</td>
+</tr>
+<tr>
+<td>E5</td>
+<td>Direct external research</td>
+<td><a href="https://matthias-research.github.io/pages/publications/hfFluid.pdf">Chentanez and Müller 2010</a></td>
+<td>Shallow-water grid plus particles for non-heightfield events, with mass/momentum exchange</td>
+<td>Re: Flora&#39;s disjoint quiet-column/MLS-MPM parcel design is an adaptation, not their algorithm</td>
+</tr>
+<tr>
+<td>E6</td>
+<td>Direct external research</td>
+<td><a href="https://matthias-research.github.io/pages/publications/tallCells.pdf">Chentanez and Müller 2011</a></td>
+<td>Concentrating full 3D work near an interesting surface reduces large-water cost</td>
+<td>Active MLS-MPM patches are an analogous architectural inference</td>
+</tr>
+<tr>
+<td>E7</td>
+<td>Direct official engine documentation</td>
+<td><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/water-meshing-system-and-surface-rendering-in-unreal-engine?application_version=5.7">Unreal Water meshing</a></td>
+<td>Shared tiled water surfaces, quadtree LOD/morphing, and a Fortnite example are production patterns</td>
+<td>It is engine/game precedent, not Re: Flora performance proof</td>
+</tr>
+<tr>
+<td>E8</td>
+<td>Direct official technical presentation</td>
+<td><a href="https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-1-effective-water-simulation-physical-models">GPU Gems, Chapter 1</a></td>
+<td>Uru used base-mesh geometric waves plus higher-frequency normal detail as convincing rather than rigorous physics</td>
+<td>Recommended only as cosmetic quiet-water detail; no performance transfer</td>
+</tr>
+<tr>
+<td>E9</td>
+<td>Direct external course notes</td>
+<td><a href="https://jtessen.people.clemson.edu/reports/papers_files/coursenotes2002.pdf">Tessendorf, <em>Simulating Ocean Water</em></a></td>
+<td>Spectral/FFT techniques model ocean-water environments</td>
+<td>Deferring FFT for editable ponds is a product inference</td>
+</tr>
+<tr>
+<td>E10</td>
+<td>Direct first-party production presentation</td>
+<td><a href="https://media.gdcvault.com/gdc2023/Slides/Open-World%2BWater%2BRendering%2Band%2BReal-Time%2BSimulation_Mao_Zhenyu%26Wu_Kui.pdf">LIGHTSPEED STUDIOS, Photon Water System slides</a> and <a href="https://www.gdcvault.com/play/1028829/Advanced-Graphics-Summit-Open-World">GDC session</a></td>
+<td>Precomputed and runtime-updated height/velocity/foam data feed an adaptive water mesh with CDLOD acceleration</td>
+<td>It is production precedent, not proof for Re: Flora&#39;s solver split or budget</td>
+</tr>
+<tr>
+<td>I1</td>
+<td>Recommendation / inference</td>
+<td>This document</td>
+<td>Every visible pond should not be particle-backed; use disjoint quiet columns and active MLS-MPM patches, with spray visual by default</td>
+<td>Must pass manual-patch, conservation, seam, and minimum-spec gates</td>
+</tr>
+<tr>
+<td>I2</td>
+<td>Recommendation / inference</td>
+<td>This document</td>
+<td>Production active water should start with a bounded dense world-space scalar field and extracted mesh; screen-space is conditional</td>
+<td>May be reversed only by a named failed gate, matched evidence, and an explicit decision</td>
+</tr>
+<tr>
+<td>I3</td>
+<td>Recommendation / inference</td>
+<td>This document</td>
+<td>Extend the existing full coherent frame with worker-captured physics/terrain metadata before surface work</td>
+<td>Exact payload ownership and bandwidth require implementation and release measurement</td>
+</tr>
+<tr>
+<td>I4</td>
+<td>Recommendation / inference</td>
+<td>Three independent Interface designs plus local code</td>
+<td>Keep canonical <code>WaterWorld</code> ownership in the worker and derived generations behind one small deep <code>WaterSurfaceModule</code></td>
+<td>Exact Rust placement is implementation work; the ownership Seam is settled</td>
+</tr>
+</tbody></table>
+<h2 id="final-answer-to-the-design-question">Final answer to the design question</h2>
+<p>The mixed-time prerequisite is already fixed: Re: Flora now publishes complete immutable particle
+frames at one simulation time and retains the last complete frame without waiting. Before any
+surface is built, that publication must also stamp the worker&#39;s matching particle measure, solver
+bounds/cell size, representation generation, and applied filled-solid terrain dependency.</p>
+<p>The practical continuous surface path is then one bounded dense world-space scalar field from the
+coherent active particles, followed by a hidden baseline extractor and an atomically published
+triangle mesh. This is the production target and first Implementation. Screen-space fluid is a
+conditional diagnostic/fallback, not a mesh and not mandatory work; sparse bricks, worker scalar
+fields, and anisotropic kernels are likewise admitted only by a named failed gate.</p>
+<p>Large still ponds should be canonical conservative columns with a clipped/tiled heightfield surface
+and zero fluid substeps while sleeping. Shallow-water transport is a later update mode for the same
+columns, not a prerequisite. Only locally active, non-heightfield water needs MLS-MPM particles.</p>
+<p>The decisive hybrid rule is exclusive ownership: the worker alone moves fixed particle mass and
+momentum through a prepared atomic transaction against the matching filled-solid terrain state.
+The selected small deep <code>WaterSurfaceModule</code> owns only complete derived render generations. The
+phases therefore prove cross-source input, one dense active mesh, one particle-free quiet pond,
+manual conversion, one conservative interface flux, and only then automatic wake/sleep and LOD.</p>
+
+      </article>
+      <footer>
+        Canonical source: docs/water_surface_and_hybrid_simulation_research.md<br>
+        SHA-256: <code>a881845b8c5b0512b570817e8012b6bb209b85156d7f1d0f847b0cefb008d973</code>
+      </footer>
+    </main>
+    <nav aria-label="研究目录">
+      <h2>完整规范目录</h2>
+      <ul><li class="level-2"><a href="#decision">Decision</a></li>
+<li class="level-2"><a href="#product-and-engineering-constraints">Product and engineering constraints</a></li>
+<li class="level-2"><a href="#current-implementation-snapshot">Current implementation snapshot</a></li>
+<li class="level-3"><a href="#simulation-state-and-update-path">Simulation state and update path</a></li>
+<li class="level-3"><a href="#terrain-boundary-and-collision-data">Terrain boundary and collision data</a></li>
+<li class="level-3"><a href="#current-particle-handoff-is-coherent-but-debug-only">Current particle handoff is coherent but debug-only</a></li>
+<li class="level-3"><a href="#existing-surface-extraction-is-not-a-fluid-mesher">Existing surface extraction is not a fluid mesher</a></li>
+<li class="level-3"><a href="#recorded-water-costs-and-their-limit">Recorded water costs and their limit</a></li>
+<li class="level-2"><a href="#two-practical-ways-to-make-particles-look-continuous">Two practical ways to make particles look continuous</a></li>
+<li class="level-3"><a href="#screen-space-fluid-rendering">Screen-space fluid rendering</a></li>
+<li class="level-3"><a href="#particle-scalar-field-plus-surface-extraction">Particle scalar field plus surface extraction</a></li>
+<li class="level-3"><a href="#side-by-side-decision-matrix">Side-by-side decision matrix</a></li>
+<li class="level-2"><a href="#coherent-surface-input">Coherent surface input</a></li>
+<li class="level-2"><a href="#representations-for-large-quiet-water">Representations for large quiet water</a></li>
+<li class="level-3"><a href="#comparison">Comparison</a></li>
+<li class="level-2"><a href="#recommended-target-architecture">Recommended target architecture</a></li>
+<li class="level-3"><a href="#design-it-twice-outcome">Design It Twice outcome</a></li>
+<li class="level-3"><a href="#canonical-state-and-ownership">Canonical state and ownership</a></li>
+<li class="level-3"><a href="#small-deep-surface-interface">Small deep surface Interface</a></li>
+<li class="level-3"><a href="#surface-data-flow">Surface data flow</a></li>
+<li class="level-3"><a href="#simulation-activity-versus-render-lod">Simulation activity versus render LOD</a></li>
+<li class="level-3"><a href="#wake-sleep-and-reactivation-rules">Wake, sleep, and reactivation rules</a></li>
+<li class="level-3"><a href="#interface-terrain-and-conservation-risks">Interface, terrain, and conservation risks</a></li>
+<li class="level-2"><a href="#phased-implementation-and-acceptance-gates">Phased implementation and acceptance gates</a></li>
+<li class="level-3"><a href="#phase-0a-complete-particle-publication-completed-in-6a6c7d2e">Phase 0A: complete particle publication — completed in 6a6c7d2e</a></li>
+<li class="level-3"><a href="#phase-0b-cross-source-surface-input-and-named-benchmark">Phase 0B: cross-source surface input and named benchmark</a></li>
+<li class="level-3"><a href="#phase-1-one-bounded-dense-world-space-mesh">Phase 1: one bounded dense world-space mesh</a></li>
+<li class="level-3"><a href="#conditional-phase-1c-diagnose-a-failed-active-mesh-gate">Conditional Phase 1C: diagnose a failed active-mesh gate</a></li>
+<li class="level-3"><a href="#phase-2-one-particle-free-sleeping-quiet-pond">Phase 2: one particle-free sleeping quiet pond</a></li>
+<li class="level-3"><a href="#conditional-phase-2c-conservative-shallow-water-update">Conditional Phase 2C: conservative shallow-water update</a></li>
+<li class="level-3"><a href="#phase-3-manual-whole-region-wake-sleep-transaction">Phase 3: manual whole-region wake/sleep transaction</a></li>
+<li class="level-3"><a href="#phase-4-one-conservative-active-quiet-interface-flux">Phase 4: one conservative active/quiet interface flux</a></li>
+<li class="level-3"><a href="#phase-5-automatic-activity-and-render-lod">Phase 5: automatic activity and render LOD</a></li>
+<li class="level-2"><a href="#release-mode-benchmark-protocol">Release-mode benchmark protocol</a></li>
+<li class="level-2"><a href="#non-goals">Non-goals</a></li>
+<li class="level-2"><a href="#settled-decisions-and-required-implementation-inputs">Settled decisions and required implementation inputs</a></li>
+<li class="level-2"><a href="#evidence-and-inference-table">Evidence and inference table</a></li>
+<li class="level-2"><a href="#final-answer-to-the-design-question">Final answer to the design question</a></li></ul>
+    </nav>
+  </div>
+</body>
+</html>
