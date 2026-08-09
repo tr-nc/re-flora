@@ -1,9 +1,8 @@
 use anyhow::Result;
-use petalsonic::audio_data::PetalSonicAudioData;
+use petalsonic::ResidentClip;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
 /// Cache for pre-loaded audio clips to avoid redundant file I/O.
 ///
@@ -11,7 +10,7 @@ use std::sync::Arc;
 /// and provides O(1) lookup by full path. This is crucial for performance when the
 /// same audio clip (for example, UI or ambience one-shots) needs to be instantiated many times.
 pub struct AudioClipCache {
-    clips: HashMap<String, Arc<PetalSonicAudioData>>,
+    clips: HashMap<String, ResidentClip>,
 }
 
 impl AudioClipCache {
@@ -45,7 +44,7 @@ impl AudioClipCache {
 
     /// Recursively loads all .wav files from a directory
     fn load_wav_files_recursive(
-        clips: &mut HashMap<String, Arc<PetalSonicAudioData>>,
+        clips: &mut HashMap<String, ResidentClip>,
         dir: &Path,
         project_root: &str,
     ) -> Result<()> {
@@ -81,9 +80,9 @@ impl AudioClipCache {
                     };
 
                 // Load the audio data
-                let audio_data = PetalSonicAudioData::from_path(&normalized_full_path)?;
+                let clip = ResidentClip::from_path(&normalized_full_path)?;
 
-                clips.insert(relative_path, audio_data);
+                clips.insert(relative_path, clip);
             }
         }
 
@@ -96,8 +95,8 @@ impl AudioClipCache {
     /// * `path` - The full path to the audio file (e.g., "assets/sfx/click.wav")
     ///
     /// # Returns
-    /// Some(Arc<PetalSonicAudioData>) if the clip is cached, None otherwise
-    pub fn get(&self, path: &str) -> Option<Arc<PetalSonicAudioData>> {
+    /// Some immutable ResidentClip if the clip is cached, None otherwise.
+    pub fn get(&self, path: &str) -> Option<ResidentClip> {
         // Normalize the input path to match cached paths
         let normalized_path = path.replace('\\', "/");
         self.clips.get(&normalized_path).cloned()

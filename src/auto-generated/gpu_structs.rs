@@ -776,7 +776,8 @@ pub struct PlayerColliderInfo {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PostProcessingInfo {
     pub scaling_factor: f32,
-    pub _pad0: [u8; 12],
+    pub dither_strength_lsb: f32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_RegionInfo` (native Slang source of truth).

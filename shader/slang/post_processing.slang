@@ -3,6 +3,7 @@ import dither;
 struct U_PostProcessingInfo
 {
     float scaling_factor;
+    float dither_strength_lsb;
 };
 
 [[vk::binding(1, 0)]]
@@ -37,6 +38,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     int2 mappedUvi = int2(float2(uvi) * scalingFactor);
     float3 finalColor = composited_tex[mappedUvi].rgb;
 
-    finalColor += getDitherMask(uvi) * 3.0;
+    float ditherOffset = getDitherOffset(uvi, post_processing_info.dither_strength_lsb);
+    finalColor += ditherOffset.xxx;
     screen_output_tex.Store(uvi, float4(finalColor, 1.0));
 }

@@ -1,4 +1,4 @@
-use petalsonic::{ProceduralAudioFactory, ProceduralAudioSource};
+use petalsonic::ResidentClip;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -157,15 +157,38 @@ impl TreeRustleFactory {
         control.set_params(TreeRustleParams::dense());
         Self::new(seed, control)
     }
-}
 
-impl ProceduralAudioFactory for TreeRustleFactory {
-    fn create(&self, sample_rate: u32) -> Box<dyn ProceduralAudioSource> {
-        Box::new(TreeRustleVoice::new(
-            sample_rate,
-            self.seed,
-            self.control.clone(),
-        ))
+    /// Render a loopable immutable rustle clip outside PetalSonic's realtime path.
+    pub fn render_resident_clip(
+        &self,
+        sample_rate: u32,
+        duration_seconds: f32,
+    ) -> Result<ResidentClip, petalsonic::PetalSonicError> {
+        const BLOCK_FRAMES: usize = 1_024;
+        const WARMUP_SECONDS: f32 = 1.0;
+        const LOOP_CROSSFADE_SECONDS: f32 = 0.25;
+
+        self.control.set_wind_response(1.0);
+        let mut voice = TreeRustleVoice::new(sample_rate, self.seed, self.control.clone());
+        let mut warmup = vec![0.0; (sample_rate as f32 * WARMUP_SECONDS) as usize];
+        for block in warmup.chunks_mut(BLOCK_FRAMES) {
+            voice.render_mono(block);
+        }
+
+        let output_frames = (sample_rate as f32 * duration_seconds.max(1.0)) as usize;
+        let crossfade_frames = (sample_rate as f32 * LOOP_CROSSFADE_SECONDS) as usize;
+        let mut samples = vec![0.0; output_frames + crossfade_frames];
+        for block in samples.chunks_mut(BLOCK_FRAMES) {
+            voice.render_mono(block);
+        }
+
+        for index in 0..crossfade_frames {
+            let blend = index as f32 / crossfade_frames.max(1) as f32;
+            samples[index] =
+                samples[output_frames + index] * (1.0 - blend) + samples[index] * blend;
+        }
+        samples.truncate(output_frames);
+        ResidentClip::from_mono_pcm(samples, sample_rate)
     }
 }
 
@@ -386,7 +409,7 @@ impl TreeRustleVoice {
     }
 }
 
-impl ProceduralAudioSource for TreeRustleVoice {
+impl TreeRustleVoice {
     fn render_mono(&mut self, out: &mut [f32]) {
         if out.is_empty() {
             return;
@@ -440,30 +463,6 @@ impl ProceduralAudioSource for TreeRustleVoice {
         for sample in out {
             *sample = self.render_sample(&coeffs, params);
         }
-    }
-
-    fn reset(&mut self) {
-        self.wind = self.control.wind_response();
-        self.leaf_activity = smoothstep(0.12, 0.92, self.wind);
-        self.gust_target = 0.0;
-        self.gust_wander = 0.0;
-        self.air_lp = 0.0;
-        self.air_lp2 = 0.0;
-        self.air_slow = 0.0;
-        self.body_lp = 0.0;
-        self.body_lp2 = 0.0;
-        self.body_slow = 0.0;
-        self.leaf_hp = 0.0;
-        self.leaf_lp = 0.0;
-        self.leaf_lp2 = 0.0;
-        self.sheen_hp = 0.0;
-        self.sheen_lp = 0.0;
-        self.sheen_lp2 = 0.0;
-        self.air_hi_hp = 0.0;
-        self.air_hi_lp = 0.0;
-        self.air_hi_lp2 = 0.0;
-        self.grains.clear();
-        self.creaks.clear();
     }
 }
 
@@ -751,6 +750,18 @@ mod tests {
             highpass_rms(&windy, 3_000.0, 48_000.0) > highpass_rms(&quiet, 3_000.0, 48_000.0) * 1.5
         );
         assert!(windy.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn predecoded_rustle_clip_has_the_requested_resident_shape() {
+        let control = Arc::new(TreeRustleControl::new());
+        let clip = TreeRustleFactory::new(42, control)
+            .render_resident_clip(8_000, 1.0)
+            .unwrap();
+
+        assert_eq!(clip.sample_rate(), 8_000);
+        assert_eq!(clip.channels(), 1);
+        assert_eq!(clip.total_frames(), 8_000);
     }
 
     #[test]

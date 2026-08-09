@@ -102,12 +102,14 @@ impl BufferUpdater {
     pub fn update_post_processing_info(
         resources: &TracerResources,
         scaling_factor: f32,
+        dither_strength_lsb: f32,
     ) -> Result<()> {
         resources
             .uniforms
             .post_processing_info
             .fill_uniform(&PostProcessingInfo {
                 scaling_factor,
+                dither_strength_lsb: dither_strength_lsb.max(0.0),
                 ..PostProcessingInfo::zeroed()
             })
     }

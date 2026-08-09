@@ -92,7 +92,6 @@ use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePrefer
 use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
-use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 use rand::RngExt;
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -656,58 +655,6 @@ impl App {
         );
     }
 
-    fn update_spatial_audio_backends(&mut self) {
-        let use_ambisonics = self.debug_settings.adjustables.audio_use_ambisonics.value;
-        let ambisonics_backend = Self::selected_ambisonics_backend(
-            self.debug_settings
-                .adjustables
-                .audio_ambisonics_backend
-                .value,
-        );
-        let hrtf_backend = Self::effective_hrtf_backend(
-            Self::selected_hrtf_backend(self.debug_settings.adjustables.audio_hrtf_backend.value),
-            use_ambisonics,
-            ambisonics_backend,
-        );
-
-        if let Err(err) = self.spatial_sound_manager.set_spatial_audio_rendering(
-            hrtf_backend,
-            use_ambisonics,
-            ambisonics_backend,
-        ) {
-            log::error!("Failed to apply spatial audio rendering setting: {}", err);
-        }
-    }
-
-    fn selected_hrtf_backend(value: u32) -> HrtfBackend {
-        match value {
-            1 => HrtfBackend::SteamAudio,
-            _ => HrtfBackend::Native,
-        }
-    }
-
-    fn selected_ambisonics_backend(value: u32) -> AmbisonicsBackend {
-        match value {
-            1 => AmbisonicsBackend::SteamAudio,
-            _ => AmbisonicsBackend::Native,
-        }
-    }
-
-    fn effective_hrtf_backend(
-        direct_hrtf_backend: HrtfBackend,
-        use_ambisonics: bool,
-        ambisonics_backend: AmbisonicsBackend,
-    ) -> HrtfBackend {
-        if !use_ambisonics {
-            return direct_hrtf_backend;
-        }
-
-        match ambisonics_backend {
-            AmbisonicsBackend::Native => HrtfBackend::Native,
-            AmbisonicsBackend::SteamAudio => HrtfBackend::SteamAudio,
-        }
-    }
-
     fn tree_audio_wind_response_curve(gui_adjustables: &GuiAdjustables) -> WindResponseCurve {
         WindResponseCurve {
             min_strength: gui_adjustables.tree_wind_response_min_strength.value,
@@ -959,7 +906,7 @@ impl App {
             Self::tree_audio_wind_response_curve(&debug_settings.adjustables),
             debug_settings.adjustables.tree_wind_volume_db.value,
             Self::tree_rustle_params(&debug_settings.adjustables),
-        );
+        )?;
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
@@ -1941,11 +1888,10 @@ impl App {
                 ) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                if let Err(err) = self.spatial_sound_manager.pump_audio() {
-                    log::warn!("Failed to pump audio: {}", err);
+                if let Err(err) = self.spatial_sound_manager.publish_spatial_frame() {
+                    log::warn!("Failed to publish spatial audio frame: {}", err);
                 }
                 self.update_audio_ray_tracing();
-                self.update_spatial_audio_backends();
 
                 if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
                     let mouse_delta = self.camera_control.take_smoothed_free_look_mouse_delta();
@@ -2879,8 +2825,12 @@ impl App {
                 self.tree_audio_manager.set_wind_response_curve(
                     Self::tree_audio_wind_response_curve(&self.debug_settings.adjustables),
                 );
-                self.tree_audio_manager
-                    .set_rustle_params(Self::tree_rustle_params(&self.debug_settings.adjustables));
+                if let Err(err) = self
+                    .tree_audio_manager
+                    .set_rustle_params(Self::tree_rustle_params(&self.debug_settings.adjustables))
+                {
+                    log::error!("Failed to rebuild resident tree rustle clip: {err:#}");
+                }
 
                 if TreeBench::run_next(self) {
                     self.on_terminate(event_loop);
@@ -3086,6 +3036,7 @@ impl App {
                             .flora_growth_override_enabled
                             .value,
                         self.debug_settings.adjustables.flora_growth_override.value,
+                        self.debug_settings.adjustables.dither_strength_lsb.value,
                         self.debug_settings
                             .adjustables
                             .raster_flora_ddgi_lighting
@@ -4081,23 +4032,6 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::App;
-    use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
-
-    #[test]
-    fn ambisonics_backend_selects_matching_decoder_backend() {
-        assert_eq!(
-            App::effective_hrtf_backend(HrtfBackend::Native, false, AmbisonicsBackend::SteamAudio),
-            HrtfBackend::Native
-        );
-        assert_eq!(
-            App::effective_hrtf_backend(HrtfBackend::Native, true, AmbisonicsBackend::SteamAudio),
-            HrtfBackend::SteamAudio
-        );
-        assert_eq!(
-            App::effective_hrtf_backend(HrtfBackend::SteamAudio, true, AmbisonicsBackend::Native),
-            HrtfBackend::Native
-        );
-    }
 
     #[test]
     fn mute_state_forces_effective_master_volume_to_silence() {
