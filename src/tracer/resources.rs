@@ -755,6 +755,27 @@ impl GlassMeshResources {
     }
 }
 
+// The active particle shader exposes only packed_data at vertex rate; locations 2+ are instances.
+fn particle_mesh_data() -> (Vec<LeafVertex>, Vec<u32>) {
+    use crate::tracer::voxel_encoding::append_indexed_leaf_cube_data;
+
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let mut voxel_infos = Vec::new();
+    append_indexed_leaf_cube_data(
+        &mut vertices,
+        &mut indices,
+        &mut voxel_infos,
+        IVec3::ZERO,
+        0,
+        IVec3::ZERO,
+        1,
+        true,
+    )
+    .unwrap();
+    (vertices, indices)
+}
+
 impl ParticleRendererResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         let instance_capacity = PARTICLE_CAPACITY as u32;
@@ -785,29 +806,14 @@ impl ParticleRendererResources {
     }
 
     fn create_particle_mesh(device: Device, allocator: Allocator) -> (Buffer, Buffer, u32) {
-        use crate::tracer::voxel_encoding::append_indexed_cube_data;
-
-        let mut vertices_data = Vec::new();
-        let mut indices_data = Vec::new();
-        let mut voxel_infos = Vec::new();
-        append_indexed_cube_data(
-            &mut vertices_data,
-            &mut indices_data,
-            &mut voxel_infos,
-            IVec3::ZERO,
-            0,
-            IVec3::ZERO,
-            1,
-            true,
-        )
-        .unwrap();
+        let (vertices_data, indices_data) = particle_mesh_data();
 
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
             MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
+            std::mem::size_of_val(vertices_data.as_slice()) as u64,
         );
         vertices.fill(&vertices_data).unwrap();
 
@@ -1897,4 +1903,21 @@ impl TracerResources {
 struct WindVolumeInfoGpu {
     world_chunk_extent: [f32; 3],
     _pad0: f32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn particle_mesh_matches_the_compact_shader_vertex_stride() {
+        let (vertices, indices) = particle_mesh_data();
+
+        assert!(!vertices.is_empty());
+        assert!(!indices.is_empty());
+        assert_eq!(
+            std::mem::size_of_val(vertices.as_slice()) / vertices.len(),
+            std::mem::size_of::<LeafVertex>(),
+        );
+    }
 }

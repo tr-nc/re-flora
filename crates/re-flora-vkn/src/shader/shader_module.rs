@@ -773,6 +773,27 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn particle_vertex_shader_reflects_one_compact_mesh_input_before_instances() {
+        let shader_path = "shader/particles/particle_lod_textured.vert";
+        let artifact = find_precompiled_shader(shader_path)
+            .unwrap_or_else(|| panic!("missing precompiled shader {shader_path}"));
+        let module = ReflectShaderModule::load_u8_data(artifact.reflection_spirv).unwrap();
+        let mut inputs = module.enumerate_input_variables(None).unwrap();
+        inputs.retain(|input| {
+            !input
+                .decoration_flags
+                .contains(ReflectDecorationFlags::BUILT_IN)
+        });
+        inputs.sort_by_key(|input| input.location);
+
+        assert_eq!(
+            inputs.iter().map(|input| input.location).collect::<Vec<_>>(),
+            vec![0, 2, 3, 4, 5],
+            "{shader_path} must expose one compact mesh input followed by instance inputs"
+        );
+    }
 }
 
 fn reflect_descriptor_type_to_descriptor_type(
