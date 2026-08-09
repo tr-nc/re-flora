@@ -13,8 +13,8 @@ use bytemuck::Zeroable;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::{
     Buffer, BufferUse, ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DescriptorPool,
-    Extent3D, FrameRetirement, GpuJobProfiler, GpuJobScopeToken, GpuJobToken, PipelineStage,
-    QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext,
+    DescriptorUpdate, Extent3D, FrameRetirement, GpuJobProfiler, GpuJobScopeToken, GpuJobToken,
+    PipelineStage, QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext,
 };
 pub use resources::*;
 use std::{
@@ -485,26 +485,26 @@ impl SurfaceBuilder {
         let instances_to_occupancy_ppl =
             ComputePipeline::new_uninitialized(device, &instances_to_occupancy_sm, &pool);
         instances_to_occupancy_ppl
-            .initialize_descriptor_set_resources(
-                "instances_to_occupancy_info",
-                &[&resources, plain_builder_resources],
-            )
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "instances_to_occupancy_info",
+                providers: &[&resources, plain_builder_resources],
+            })
             .expect("instances-to-occupancy static descriptors must resolve");
         let edit_occupancy_ppl =
             ComputePipeline::new_uninitialized(device, &edit_occupancy_sm, &pool);
         edit_occupancy_ppl
-            .initialize_descriptor_set_resources(
-                "edit_occupancy_info",
-                &[&resources, plain_builder_resources],
-            )
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "edit_occupancy_info",
+                providers: &[&resources, plain_builder_resources],
+            })
             .expect("edit-occupancy static descriptors must resolve");
         let occupancy_to_instances_ppl =
             ComputePipeline::new_uninitialized(device, &occupancy_to_instances_sm, &pool);
         occupancy_to_instances_ppl
-            .initialize_descriptor_set_resources(
-                "occupancy_to_instances_info",
-                &[&resources, plain_builder_resources],
-            )
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "occupancy_to_instances_info",
+                providers: &[&resources, plain_builder_resources],
+            })
             .expect("occupancy-to-instances static descriptors must resolve");
         let prepare_active_surface_flora_dispatch_ppl = ComputePipeline::new(
             device,
@@ -515,18 +515,18 @@ impl SurfaceBuilder {
         let active_surface_to_flora_ppl =
             ComputePipeline::new_uninitialized(device, &active_surface_to_flora_sm, &pool);
         active_surface_to_flora_ppl
-            .initialize_descriptor_set_resources(
-                "occupancy_to_instances_info",
-                &[&resources, plain_builder_resources],
-            )
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "occupancy_to_instances_info",
+                providers: &[&resources, plain_builder_resources],
+            })
             .expect("active-surface-to-flora static descriptors must resolve");
         let update_flora_growth_ppl =
             ComputePipeline::new_uninitialized(device, &update_flora_growth_sm, &pool);
         update_flora_growth_ppl
-            .initialize_descriptor_set_resources(
-                "instances_to_occupancy_info",
-                &[&resources, plain_builder_resources],
-            )
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "instances_to_occupancy_info",
+                providers: &[&resources, plain_builder_resources],
+            })
             .expect("flora-growth static descriptors must resolve");
 
         let pass_timing = SurfacePassTiming::maybe_new(&vulkan_ctx);
@@ -1752,9 +1752,11 @@ impl SurfaceBuilder {
                 .checked_add(1)
                 .expect("surface descriptor generation overflow"),
         );
-        let mut draft = pipeline.begin_descriptor_draft()?;
-        draft.write_from_resources(&[&self.resources, resources])?;
-        Ok(pipeline.publish_descriptor_draft("surface.instance.descriptors", generation, draft))
+        pipeline.publish_descriptors(
+            "surface.instance.descriptors",
+            generation,
+            DescriptorUpdate::All(&[&self.resources, resources]),
+        )
     }
 
     pub fn get_resources(&self) -> &SurfaceResources {

@@ -24,6 +24,8 @@ use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
 use re_flora_vkn::DescriptorResource;
+use re_flora_vkn::DescriptorUpdate;
+use re_flora_vkn::DescriptorWrite;
 use re_flora_vkn::Extent3D;
 use re_flora_vkn::GpuJobToken;
 use re_flora_vkn::MemoryLocation;
@@ -1165,42 +1167,48 @@ impl PlainBuilder {
         surface_leaf_chunk_info: &Buffer,
     ) -> Result<()> {
         self.terrain_moisture_dry_ppl
-            .initialize_descriptor("gui_input", DescriptorResource::Buffer(gui_input))?;
-        self.terrain_moisture_dry_ppl
-            .initialize_descriptor("chunk_atlas", DescriptorResource::Texture(chunk_atlas))?;
-        self.terrain_moisture_dry_ppl.initialize_descriptor(
-            "shadow_camera_info",
-            DescriptorResource::Buffer(shadow_camera_info),
-        )?;
-        self.terrain_moisture_dry_ppl.initialize_descriptor(
-            "shadow_map_tex_for_vsm_ping",
-            DescriptorResource::Texture(shadow_map_tex_for_vsm_ping),
-        )?;
-        self.terrain_moisture_dry_ppl.initialize_descriptor(
-            "contree_leaf_data",
-            DescriptorResource::Buffer(contree_leaf_data),
-        )?;
-        self.terrain_moisture_dry_ppl.initialize_descriptor(
-            "surface_leaf_coords",
-            DescriptorResource::Buffer(surface_leaf_coords),
-        )?;
-        self.terrain_moisture_dry_ppl.initialize_descriptor(
-            "surface_leaf_chunk_info",
-            DescriptorResource::Buffer(surface_leaf_chunk_info),
-        )?;
-        self.terrain_moisture_dry_ppl.initialize_descriptor(
-            "leaf_shadow_opacity_blended_tex",
-            DescriptorResource::Texture(leaf_shadow_opacity_blended_tex),
-        )?;
-        self.terrain_moisture_dry_ppl.initialize_descriptor(
-            "leaf_shadow_mask_tex",
-            DescriptorResource::Texture(leaf_shadow_mask_tex),
-        )?;
-        self.terrain_moisture_dry_ppl.initialize_descriptor(
-            "cloud_shadow_tex",
-            DescriptorResource::Texture(cloud_shadow_tex),
-        )?;
-        Ok(())
+            .initialize_descriptors(DescriptorUpdate::Named(&[
+                DescriptorWrite {
+                    name: "gui_input",
+                    resource: DescriptorResource::Buffer(gui_input),
+                },
+                DescriptorWrite {
+                    name: "chunk_atlas",
+                    resource: DescriptorResource::Texture(chunk_atlas),
+                },
+                DescriptorWrite {
+                    name: "shadow_camera_info",
+                    resource: DescriptorResource::Buffer(shadow_camera_info),
+                },
+                DescriptorWrite {
+                    name: "shadow_map_tex_for_vsm_ping",
+                    resource: DescriptorResource::Texture(shadow_map_tex_for_vsm_ping),
+                },
+                DescriptorWrite {
+                    name: "contree_leaf_data",
+                    resource: DescriptorResource::Buffer(contree_leaf_data),
+                },
+                DescriptorWrite {
+                    name: "surface_leaf_coords",
+                    resource: DescriptorResource::Buffer(surface_leaf_coords),
+                },
+                DescriptorWrite {
+                    name: "surface_leaf_chunk_info",
+                    resource: DescriptorResource::Buffer(surface_leaf_chunk_info),
+                },
+                DescriptorWrite {
+                    name: "leaf_shadow_opacity_blended_tex",
+                    resource: DescriptorResource::Texture(leaf_shadow_opacity_blended_tex),
+                },
+                DescriptorWrite {
+                    name: "leaf_shadow_mask_tex",
+                    resource: DescriptorResource::Texture(leaf_shadow_mask_tex),
+                },
+                DescriptorWrite {
+                    name: "cloud_shadow_tex",
+                    resource: DescriptorResource::Texture(cloud_shadow_tex),
+                },
+            ]))
     }
 
     #[allow(clippy::too_many_arguments)]

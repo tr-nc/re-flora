@@ -1,6 +1,5 @@
 use super::{
-    descriptor_runtime::ReflectedDescriptorRuntime, DescriptorGenerationDraft,
-    DescriptorSetGeneration,
+    descriptor_runtime::ReflectedDescriptorRuntime, DescriptorUpdate, PreparedDescriptorGeneration,
 };
 use crate::{
     Buffer, CommandBuffer, DescriptorPool, Device, Extent3D, FrameRetirement, PipelineLayout,
@@ -110,7 +109,7 @@ impl ComputePipeline {
             pipeline_instance
                 .0
                 .descriptors
-                .initialize_resources(resource_containers)
+                .initialize(DescriptorUpdate::All(resource_containers))
                 .expect("automatic descriptor initialization must resolve reflected resources");
         }
         pipeline_instance
@@ -120,61 +119,39 @@ impl ComputePipeline {
     ///
     /// This is intentionally separate from runtime generation preparation: every reflected
     /// binding must resolve here, and no prefixed or otherwise implicit exception is accepted.
-    pub fn initialize_descriptor_resources(
-        &self,
-        resource_containers: &[&dyn ResourceContainer],
-    ) -> Result<()> {
-        self.0.descriptors.initialize_resources(resource_containers)
+    pub fn initialize_descriptors(&self, update: DescriptorUpdate<'_>) -> Result<()> {
+        self.0.descriptors.initialize(update)
     }
 
-    /// Initializes the reflected descriptor set containing `binding_name`.
-    ///
-    /// The resource name is the stable semantic anchor; the Vulkan set number remains private to
-    /// the pipeline/reflection implementation.
-    pub fn initialize_descriptor_set_resources(
-        &self,
-        binding_name: &str,
-        resource_containers: &[&dyn ResourceContainer],
-    ) -> Result<()> {
-        self.0
-            .descriptors
-            .initialize_set_resources(binding_name, resource_containers)
-    }
-
-    pub fn initialize_descriptor(
-        &self,
-        name: &str,
-        resource: super::DescriptorResource<'_>,
-    ) -> Result<()> {
-        self.0.descriptors.initialize_descriptor(name, resource)
-    }
-
-    /// Starts an owned runtime descriptor draft cloned from the active generation.
-    pub fn begin_descriptor_draft(&self) -> Result<DescriptorGenerationDraft> {
-        self.0.descriptors.begin_draft()
-    }
-
-    /// Publishes a prepared draft by infallibly swapping the active generation.
-    pub fn publish_descriptor_draft(
+    /// Applies and publishes a complete semantic update in one operation.
+    pub fn publish_descriptors(
         &self,
         name: &'static str,
         generation: u64,
-        draft: DescriptorGenerationDraft,
-    ) -> FrameRetirement {
-        self.0.descriptors.publish_draft(name, generation, draft)
+        update: DescriptorUpdate<'_>,
+    ) -> Result<FrameRetirement> {
+        self.0.descriptors.publish(name, generation, update)
     }
 
-    /// Publishes a previously staged generation and returns the old generation for completion-
-    /// scoped retirement.
-    pub fn publish_descriptor_sets(
+    /// Prepares an opaque generation for a later coordinated publication.
+    pub fn prepare_descriptors(
+        &self,
+        update: DescriptorUpdate<'_>,
+    ) -> Result<PreparedDescriptorGeneration> {
+        self.0.descriptors.prepare(update)
+    }
+
+    /// Publishes a previously prepared generation and returns the old generation for
+    /// completion-scoped retirement.
+    pub fn publish_prepared_descriptors(
         &self,
         name: &'static str,
         generation: u64,
-        pending: DescriptorSetGeneration,
+        pending: PreparedDescriptorGeneration,
     ) -> FrameRetirement {
         self.0
             .descriptors
-            .publish_generation(name, generation, pending)
+            .publish_prepared(name, generation, pending)
     }
 
     /// Starts a new frame for manually-bound buffer descriptor sets.

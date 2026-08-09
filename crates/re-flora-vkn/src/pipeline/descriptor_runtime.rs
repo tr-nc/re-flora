@@ -1,7 +1,7 @@
 use super::{
-    transient_descriptor_sets::TransientDescriptorSets, DescriptorBindingPlan,
-    DescriptorGenerationDraft, DescriptorResource, DescriptorRuntimeIdentity,
-    DescriptorSetGeneration,
+    descriptor_binding_plan::{DescriptorBindingPlan, DescriptorRuntimeIdentity},
+    transient_descriptor_sets::TransientDescriptorSets,
+    DescriptorResource, DescriptorUpdate, PreparedDescriptorGeneration,
 };
 use crate::{
     CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, FrameRetirement,
@@ -11,25 +11,26 @@ use anyhow::{Context, Result};
 use ash::vk;
 use std::{
     collections::HashMap,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 
 /// Owns the reflected descriptor lifecycle shared by compute and graphics pipelines.
 ///
-/// Numeric Vulkan locations, active-generation residency, draft leasing, provider resolution,
+/// Numeric Vulkan locations, active-generation residency, provider resolution,
 /// completeness checks, transient allocation, and bind-run construction stay behind this module.
 /// Pipeline modules remain the concrete adapters that encode compute or graphics bind commands.
 pub(super) struct ReflectedDescriptorRuntime {
     descriptor_pool: DescriptorPool,
     pipeline_layout: PipelineLayout,
-    active: Mutex<DescriptorSetGeneration>,
+    state: Mutex<DescriptorRuntimeState>,
     transient: Mutex<TransientDescriptorSets>,
     plan: DescriptorBindingPlan,
     identity: Arc<DescriptorRuntimeIdentity>,
-    draft_active: Arc<AtomicBool>,
+}
+
+struct DescriptorRuntimeState {
+    active: PreparedDescriptorGeneration,
+    creation_open: bool,
 }
 
 pub(super) struct PreparedTransientDescriptorSet {
@@ -66,134 +67,77 @@ impl ReflectedDescriptorRuntime {
         Ok(Self {
             descriptor_pool: descriptor_pool.clone(),
             pipeline_layout: pipeline_layout.clone(),
-            active: Mutex::new(active),
+            state: Mutex::new(DescriptorRuntimeState {
+                active,
+                creation_open: true,
+            }),
             transient: Mutex::new(TransientDescriptorSets::default()),
             plan,
             identity,
-            draft_active: Arc::new(AtomicBool::new(false)),
         })
     }
 
-    pub(super) fn initialize_resources(
-        &self,
-        resource_containers: &[&dyn ResourceContainer],
-    ) -> Result<()> {
-        let active = self.active.lock().unwrap();
-        for set_no in self.plan.set_numbers() {
-            self.write_set_from_resources(*set_no, resource_containers, &active)?;
-        }
+    /// Completes descriptor initialization while the pipeline is still under construction.
+    /// The first prepare, publish, or recording operation seals this creation-only interface.
+    pub(super) fn initialize(&self, update: DescriptorUpdate<'_>) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        anyhow::ensure!(
+            state.creation_open,
+            "creation-time descriptor initialization is closed for {}",
+            self.plan.pipeline_name(),
+        );
+        let touched_set_nos = self.apply_update(&state.active, update)?;
+        self.plan
+            .assert_generation_complete_for_sets(&state.active, &touched_set_nos);
         Ok(())
     }
 
-    pub(super) fn initialize_set_resources(
+    /// Forks the active generation, applies one complete semantic update, and validates it.
+    pub(super) fn prepare(
         &self,
-        binding_name: &str,
-        resource_containers: &[&dyn ResourceContainer],
-    ) -> Result<()> {
-        let set_no = self.plan.binding(binding_name)?.set_no();
-        let active = self.active.lock().unwrap();
-        self.write_set_from_resources(set_no, resource_containers, &active)
+        update: DescriptorUpdate<'_>,
+    ) -> Result<PreparedDescriptorGeneration> {
+        let (pending, mut required_set_nos) = {
+            let mut state = self.state.lock().unwrap();
+            state.creation_open = false;
+            (
+                self.fork_generation(&state.active)?,
+                self.complete_set_numbers(&state.active),
+            )
+        };
+
+        required_set_nos.extend(self.apply_update(&pending, update)?);
+        required_set_nos.sort_unstable();
+        required_set_nos.dedup();
+        self.plan
+            .assert_generation_complete_for_sets(&pending, &required_set_nos);
+        Ok(pending)
     }
 
-    pub(super) fn initialize_descriptor(
-        &self,
-        name: &str,
-        resource: DescriptorResource<'_>,
-    ) -> Result<()> {
-        let mut write = self.plan.make_write(name, resource)?;
-        let set_no = self.plan.binding(name)?.set_no();
-        self.active
-            .lock()
-            .unwrap()
-            .get(&set_no)
-            .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?
-            .perform_writes(std::slice::from_mut(&mut write));
-        Ok(())
-    }
-
-    pub(super) fn begin_draft(&self) -> Result<DescriptorGenerationDraft> {
-        self.draft_active
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "descriptor draft already exists for {}",
-                    self.plan.pipeline_name()
-                )
-            })?;
-
-        let active = self.active.lock().unwrap();
-        let required_set_nos = self
-            .plan
-            .set_numbers()
-            .iter()
-            .copied()
-            .filter(|set_no| {
-                let binding_numbers = self
-                    .plan
-                    .bindings_for_set(*set_no)
-                    .expect("descriptor plan set list must be internally consistent")
-                    .iter()
-                    .map(|binding| binding.binding_no())
-                    .collect::<Vec<_>>();
-                active
-                    .get(set_no)
-                    .is_some_and(|set| set.has_bindings(&binding_numbers))
-            })
-            .collect::<Vec<_>>();
-
-        let result = (|| {
-            let mut pending = DescriptorSetGeneration::empty(self.identity.clone());
-            for set_no in self.plan.set_numbers() {
-                let set = active.get(set_no).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "descriptor generation for {} is missing reflected set {}",
-                        self.plan.pipeline_name(),
-                        set_no
-                    )
-                })?;
-                let layout = self
-                    .pipeline_layout
-                    .get_descriptor_set_layouts()
-                    .get(set_no)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("descriptor set layout {set_no} is not reflected")
-                    })?;
-                pending.insert(*set_no, set.fork(&self.descriptor_pool, layout)?);
-            }
-            Ok(DescriptorGenerationDraft::new(
-                pending,
-                self.plan.clone(),
-                self.draft_active.clone(),
-                required_set_nos,
-            ))
-        })();
-        if result.is_err() {
-            self.draft_active.store(false, Ordering::Release);
-        }
-        result
-    }
-
-    pub(super) fn publish_draft(
+    pub(super) fn publish(
         &self,
         name: &'static str,
         generation: u64,
-        draft: DescriptorGenerationDraft,
-    ) -> FrameRetirement {
-        self.publish_generation(name, generation, draft.into_generation())
+        update: DescriptorUpdate<'_>,
+    ) -> Result<FrameRetirement> {
+        let pending = self.prepare(update)?;
+        Ok(self.publish_prepared(name, generation, pending))
     }
 
-    pub(super) fn publish_generation(
+    pub(super) fn publish_prepared(
         &self,
         name: &'static str,
         generation: u64,
-        pending: DescriptorSetGeneration,
+        pending: PreparedDescriptorGeneration,
     ) -> FrameRetirement {
         assert!(
             pending.belongs_to(&self.identity),
             "prepared descriptor generation belongs to another pipeline; target={}",
             self.plan.pipeline_name(),
         );
-        let old = std::mem::replace(&mut *self.active.lock().unwrap(), pending);
+        let mut state = self.state.lock().unwrap();
+        state.creation_open = false;
+        let old = std::mem::replace(&mut state.active, pending);
         FrameRetirement::new(name, generation, old)
     }
 
@@ -205,6 +149,7 @@ impl ReflectedDescriptorRuntime {
         &self,
         descriptors: &[(&str, DescriptorResource<'_>)],
     ) -> Result<PreparedTransientDescriptorSet> {
+        self.seal_creation();
         let first_name = descriptors
             .first()
             .ok_or_else(|| {
@@ -272,6 +217,7 @@ impl ReflectedDescriptorRuntime {
         name: &str,
         resource: DescriptorResource<'_>,
     ) -> Result<DescriptorSet> {
+        self.seal_creation();
         let binding = self.plan.binding(name)?;
         let reflected_bindings = self.plan.bindings_for_set(binding.set_no())?;
         anyhow::ensure!(
@@ -299,21 +245,25 @@ impl ReflectedDescriptorRuntime {
         descriptor_set: &DescriptorSet,
         bind: impl FnOnce(u32, vk::DescriptorSet),
     ) -> Result<()> {
+        self.seal_creation();
         let set_no = self.plan.binding(name)?.set_no();
         bind(set_no, descriptor_set.as_raw());
         Ok(())
     }
 
     pub(super) fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
-        for descriptor_set in self.active.lock().unwrap().values() {
+        let mut state = self.state.lock().unwrap();
+        state.creation_open = false;
+        for descriptor_set in state.active.values() {
             descriptor_set.record_image_uses(cmdbuf);
         }
     }
 
     pub(super) fn tracked_texture_binding_count(&self) -> usize {
-        self.active
+        self.state
             .lock()
             .unwrap()
+            .active
             .values()
             .map(DescriptorSet::image_owner_count)
             .sum()
@@ -324,18 +274,21 @@ impl ReflectedDescriptorRuntime {
         excluded_set_no: Option<u32>,
         bind_run: impl FnMut(u32, &[vk::DescriptorSet]),
     ) {
-        let active = self.active.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        state.creation_open = false;
         self.plan
-            .assert_generation_complete_except(&active, excluded_set_no);
+            .assert_generation_complete_except(&state.active, excluded_set_no);
 
-        let descriptor_sets = active
+        let descriptor_sets = state
+            .active
             .keys()
             .copied()
             .filter(|set_no| Some(*set_no) != excluded_set_no)
             .map(|set_no| {
                 (
                     set_no,
-                    active
+                    state
+                        .active
                         .get(&set_no)
                         .expect("descriptor set location was collected from the generation")
                         .as_raw(),
@@ -349,11 +302,8 @@ impl ReflectedDescriptorRuntime {
         &self,
         set_no: u32,
         resource_containers: &[&dyn ResourceContainer],
-        descriptor_sets: &DescriptorSetGeneration,
+        descriptor_sets: &PreparedDescriptorGeneration,
     ) -> Result<()> {
-        let descriptor_set = descriptor_sets
-            .get(&set_no)
-            .ok_or_else(|| anyhow::anyhow!("missing allocated descriptor set {set_no}"))?;
         let binding_names = self
             .plan
             .bindings_for_set(set_no)?
@@ -370,10 +320,105 @@ impl ReflectedDescriptorRuntime {
                         self.plan.pipeline_name()
                     )
                 })?;
-            let mut write = self.plan.make_write(&binding_name, resource)?;
-            descriptor_set.perform_writes(std::slice::from_mut(&mut write));
+            self.write_descriptor(descriptor_sets, &binding_name, resource)?;
         }
         Ok(())
+    }
+
+    fn apply_update(
+        &self,
+        descriptor_sets: &PreparedDescriptorGeneration,
+        update: DescriptorUpdate<'_>,
+    ) -> Result<Vec<u32>> {
+        let mut touched_set_nos = Vec::new();
+        match update {
+            DescriptorUpdate::All(resource_containers) => {
+                for set_no in self.plan.set_numbers() {
+                    self.write_set_from_resources(*set_no, resource_containers, descriptor_sets)?;
+                    touched_set_nos.push(*set_no);
+                }
+            }
+            DescriptorUpdate::SetContaining { anchor, providers } => {
+                let set_no = self.plan.binding(anchor)?.set_no();
+                self.write_set_from_resources(set_no, providers, descriptor_sets)?;
+                touched_set_nos.push(set_no);
+            }
+            DescriptorUpdate::Named(writes) => {
+                for write in writes {
+                    let set_no = self.plan.binding(write.name)?.set_no();
+                    self.write_descriptor(descriptor_sets, write.name, write.resource)?;
+                    touched_set_nos.push(set_no);
+                }
+            }
+        }
+        touched_set_nos.sort_unstable();
+        touched_set_nos.dedup();
+        Ok(touched_set_nos)
+    }
+
+    fn write_descriptor(
+        &self,
+        descriptor_sets: &PreparedDescriptorGeneration,
+        name: &str,
+        resource: DescriptorResource<'_>,
+    ) -> Result<()> {
+        let set_no = self.plan.binding(name)?.set_no();
+        let mut write = self.plan.make_write(name, resource)?;
+        self.plan.validate_write(set_no, &write)?;
+        descriptor_sets
+            .get(&set_no)
+            .ok_or_else(|| anyhow::anyhow!("missing allocated descriptor set {set_no}"))?
+            .perform_writes(std::slice::from_mut(&mut write));
+        Ok(())
+    }
+
+    fn fork_generation(
+        &self,
+        active: &PreparedDescriptorGeneration,
+    ) -> Result<PreparedDescriptorGeneration> {
+        let mut pending = PreparedDescriptorGeneration::empty(self.identity.clone());
+        for set_no in self.plan.set_numbers() {
+            let set = active.get(set_no).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "descriptor generation for {} is missing reflected set {}",
+                    self.plan.pipeline_name(),
+                    set_no
+                )
+            })?;
+            let layout = self
+                .pipeline_layout
+                .get_descriptor_set_layouts()
+                .get(set_no)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("descriptor set layout {set_no} is not reflected")
+                })?;
+            pending.insert(*set_no, set.fork(&self.descriptor_pool, layout)?);
+        }
+        Ok(pending)
+    }
+
+    fn complete_set_numbers(&self, generation: &PreparedDescriptorGeneration) -> Vec<u32> {
+        self.plan
+            .set_numbers()
+            .iter()
+            .copied()
+            .filter(|set_no| {
+                let binding_numbers = self
+                    .plan
+                    .bindings_for_set(*set_no)
+                    .expect("descriptor plan set list must be internally consistent")
+                    .iter()
+                    .map(|binding| binding.binding_no())
+                    .collect::<Vec<_>>();
+                generation
+                    .get(set_no)
+                    .is_some_and(|set| set.has_bindings(&binding_numbers))
+            })
+            .collect()
+    }
+
+    fn seal_creation(&self) {
+        self.state.lock().unwrap().creation_open = false;
     }
 }
 
@@ -406,8 +451,8 @@ fn allocate_descriptor_sets(
     pipeline_layout: &PipelineLayout,
     reflected: &HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
     identity: Arc<DescriptorRuntimeIdentity>,
-) -> Result<DescriptorSetGeneration> {
-    let mut descriptor_sets = DescriptorSetGeneration::empty(identity);
+) -> Result<PreparedDescriptorGeneration> {
+    let mut descriptor_sets = PreparedDescriptorGeneration::empty(identity);
     let mut sorted_sets = reflected.keys().copied().collect::<Vec<_>>();
     sorted_sets.sort_unstable();
     for set_no in sorted_sets {

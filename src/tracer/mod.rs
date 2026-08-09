@@ -102,9 +102,10 @@ use re_flora_vkn::vk;
 use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
     ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue,
-    DescriptorPool, DescriptorResource, DescriptorSetGeneration, Extent2D, Extent3D,
+    DescriptorPool, DescriptorResource, DescriptorUpdate, DescriptorWrite, Extent2D, Extent3D,
     FrameRetirement, Framebuffer, GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage,
-    PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    PreparedDescriptorGeneration, PushConstantInfo, RenderPass, RenderTarget, Texture,
+    TextureLayout, Viewport, VulkanContext,
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -741,9 +742,9 @@ pub struct DirectSunShadowResources<'a> {
 /// volume's resource owners but are not visible to any frame until promotion publishes them.
 struct PreparedDdgiConsumerDescriptors {
     token_serial: u64,
-    tracer: DescriptorSetGeneration,
-    flora_lighting_cache: DescriptorSetGeneration,
-    graphics: Vec<DescriptorSetGeneration>,
+    tracer: PreparedDescriptorGeneration,
+    flora_lighting_cache: PreparedDescriptorGeneration,
+    graphics: Vec<PreparedDescriptorGeneration>,
 }
 
 pub struct Tracer {
@@ -1473,22 +1474,17 @@ impl Tracer {
         let irradiance_atlas = volume
             .capture_irradiance_atlas(field)
             .context("DDGI capture field has no resident irradiance atlas")?;
-        let mut draft = self
-            .compute_pipelines
+        self.compute_pipelines
             .tracer_ppl
-            .begin_descriptor_draft()
-            .context("DDGI capture descriptor draft failed")?;
-        draft
-            .write(
-                "ddgi_capture_irradiance_atlas",
-                DescriptorResource::Texture(irradiance_atlas),
+            .publish_descriptors(
+                "ddgi.capture.descriptors",
+                generation,
+                DescriptorUpdate::Named(&[DescriptorWrite {
+                    name: "ddgi_capture_irradiance_atlas",
+                    resource: DescriptorResource::Texture(irradiance_atlas),
+                }]),
             )
-            .context("DDGI capture atlas descriptor write failed")?;
-        Ok(self.compute_pipelines.tracer_ppl.publish_descriptor_draft(
-            "ddgi.capture.descriptors",
-            generation,
-            draft,
-        ))
+            .context("DDGI capture descriptor publication failed")
     }
 
     pub fn ddgi_ready(&self) -> bool {
@@ -1743,52 +1739,40 @@ impl Tracer {
         let descriptor_generation = self.next_descriptor_generation();
         let descriptor_retirements = std::cell::RefCell::new(Vec::new());
         let update_compute_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
-            let mut draft = ppl
-                .begin_descriptor_draft()
-                .expect("compute descriptor draft failed during update_sets");
-            draft
-                .write_from_resources(resources)
-                .expect("compute descriptor update failed during update_sets");
-            descriptor_retirements
-                .borrow_mut()
-                .push(ppl.publish_descriptor_draft(
+            descriptor_retirements.borrow_mut().push(
+                ppl.publish_descriptors(
                     "tracer.resize.compute.descriptors",
                     descriptor_generation,
-                    draft,
-                ));
+                    DescriptorUpdate::All(resources),
+                )
+                .expect("compute descriptor update failed during update_sets"),
+            );
         };
 
         let update_graphics_fn = |ppl: &GraphicsPipeline, resources: &[&dyn ResourceContainer]| {
-            let mut draft = ppl
-                .begin_descriptor_draft()
-                .expect("graphics descriptor draft failed during update_sets");
-            draft
-                .write_from_resources(resources)
-                .expect("graphics descriptor update failed during update_sets");
-            descriptor_retirements
-                .borrow_mut()
-                .push(ppl.publish_descriptor_draft(
+            descriptor_retirements.borrow_mut().push(
+                ppl.publish_descriptors(
                     "tracer.resize.graphics.descriptors",
                     descriptor_generation,
-                    draft,
-                ));
+                    DescriptorUpdate::All(resources),
+                )
+                .expect("graphics descriptor update failed during update_sets"),
+            );
         };
 
         let update_graphics_set_fn =
             |ppl: &GraphicsPipeline, binding_name: &str, resources: &[&dyn ResourceContainer]| {
-                let mut draft = ppl
-                    .begin_descriptor_draft()
-                    .expect("graphics descriptor draft failed during update_sets");
-                draft
-                    .write_set_from_resources(binding_name, resources)
-                    .expect("graphics descriptor set update failed during update_sets");
-                descriptor_retirements
-                    .borrow_mut()
-                    .push(ppl.publish_descriptor_draft(
+                descriptor_retirements.borrow_mut().push(
+                    ppl.publish_descriptors(
                         "tracer.resize.graphics.descriptors",
                         descriptor_generation,
-                        draft,
-                    ));
+                        DescriptorUpdate::SetContaining {
+                            anchor: binding_name,
+                            providers: resources,
+                        },
+                    )
+                    .expect("graphics descriptor set update failed during update_sets"),
+                );
             };
 
         let all_resources = self.all_descriptor_resources(
@@ -2009,64 +1993,30 @@ impl Tracer {
         ddgi_volume: &DdgiVolume,
         generation: u64,
     ) -> Vec<FrameRetirement> {
-        let mut relocate = self
-            .compute_pipelines
-            .ddgi_probe_relocate_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI relocation descriptor draft failed");
-        let mut trace = self
-            .compute_pipelines
-            .ddgi_probe_trace_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI trace descriptor draft failed");
-        let mut irradiance_filter = self
-            .compute_pipelines
-            .ddgi_irradiance_filter_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI irradiance filter descriptor draft failed");
-        let mut visibility_filter = self
-            .compute_pipelines
-            .ddgi_visibility_filter_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI visibility filter descriptor draft failed");
-        let mut atlas_reduce = self
-            .compute_pipelines
-            .ddgi_atlas_reduce_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI atlas reduction descriptor draft failed");
-        let mut global_sky_filter = self
-            .compute_pipelines
-            .ddgi_global_sky_filter_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI global sky filter descriptor draft failed");
-        let mut octahedral_gutter = self
-            .compute_pipelines
-            .ddgi_octahedral_gutter_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI octahedral gutter descriptor draft failed");
-        let mut irradiance_gutter = self
-            .compute_pipelines
-            .ddgi_irradiance_gutter_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI irradiance gutter descriptor draft failed");
-        let mut visibility_gutter = self
-            .compute_pipelines
-            .ddgi_visibility_gutter_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI visibility gutter descriptor draft failed");
+        let mut relocate = Vec::new();
+        let mut trace = Vec::new();
+        let mut irradiance_filter = Vec::new();
+        let mut visibility_filter = Vec::new();
+        let mut atlas_reduce = Vec::new();
+        let mut global_sky_filter = Vec::new();
+        let mut octahedral_gutter = Vec::new();
+        let mut irradiance_gutter = Vec::new();
+        let mut visibility_gutter = Vec::new();
 
         macro_rules! write_buffer {
-            ($draft:expr, $name:literal, $buffer:expr) => {
-                $draft
-                    .write($name, DescriptorResource::Buffer($buffer))
-                    .expect(concat!("DDGI descriptor write failed: ", $name));
+            ($writes:expr, $name:literal, $buffer:expr) => {
+                $writes.push(DescriptorWrite {
+                    name: $name,
+                    resource: DescriptorResource::Buffer($buffer),
+                });
             };
         }
         macro_rules! write_texture {
-            ($draft:expr, $name:literal, $texture:expr) => {
-                $draft
-                    .write($name, DescriptorResource::Texture($texture))
-                    .expect(concat!("DDGI descriptor write failed: ", $name));
+            ($writes:expr, $name:literal, $texture:expr) => {
+                $writes.push(DescriptorWrite {
+                    name: $name,
+                    resource: DescriptorResource::Texture($texture),
+                });
             };
         }
 
@@ -2081,21 +2031,21 @@ impl Tracer {
             &ddgi_volume.ddgi_relocation_stats
         );
 
-        for draft in [
+        for writes in [
             &mut trace,
             &mut irradiance_filter,
             &mut visibility_filter,
             &mut atlas_reduce,
         ] {
             write_buffer!(
-                draft,
+                writes,
                 "ddgi_probe_metadata",
                 &ddgi_volume.ddgi_probe_metadata
             );
         }
-        for draft in [&mut trace, &mut irradiance_filter, &mut visibility_filter] {
+        for writes in [&mut trace, &mut irradiance_filter, &mut visibility_filter] {
             write_buffer!(
-                draft,
+                writes,
                 "ddgi_transient_ray_data",
                 &ddgi_volume.ddgi_transient_ray_data
             );
@@ -2153,25 +2103,25 @@ impl Tracer {
             "ddgi_global_sky_irradiance",
             ddgi_volume.building_global_sky_irradiance()
         );
-        for draft in [
+        for writes in [
             &mut irradiance_filter,
             &mut irradiance_gutter,
             &mut atlas_reduce,
         ] {
             write_texture!(
-                draft,
+                writes,
                 "ddgi_irradiance_atlas",
                 &ddgi_volume.ddgi_irradiance_atlas
             );
             write_texture!(
-                draft,
+                writes,
                 "ddgi_transport_source_irradiance_atlas",
                 &ddgi_volume.ddgi_transport_source_irradiance_atlas
             );
         }
-        for draft in [&mut visibility_filter, &mut visibility_gutter] {
+        for writes in [&mut visibility_filter, &mut visibility_gutter] {
             write_texture!(
-                draft,
+                writes,
                 "ddgi_visibility_atlas",
                 &ddgi_volume.ddgi_visibility_atlas
             );
@@ -2180,55 +2130,76 @@ impl Tracer {
         vec![
             self.compute_pipelines
                 .ddgi_probe_relocate_ppl
-                .publish_descriptor_draft("ddgi.builder.descriptors", generation, relocate),
+                .publish_descriptors(
+                    "ddgi.builder.descriptors",
+                    generation,
+                    DescriptorUpdate::Named(&relocate),
+                )
+                .expect("DDGI relocation descriptor update failed"),
             self.compute_pipelines
                 .ddgi_probe_trace_ppl
-                .publish_descriptor_draft("ddgi.builder.descriptors", generation, trace),
+                .publish_descriptors(
+                    "ddgi.builder.descriptors",
+                    generation,
+                    DescriptorUpdate::Named(&trace),
+                )
+                .expect("DDGI trace descriptor update failed"),
             self.compute_pipelines
                 .ddgi_irradiance_filter_ppl
-                .publish_descriptor_draft(
+                .publish_descriptors(
                     "ddgi.builder.descriptors",
                     generation,
-                    irradiance_filter,
-                ),
+                    DescriptorUpdate::Named(&irradiance_filter),
+                )
+                .expect("DDGI irradiance filter descriptor update failed"),
             self.compute_pipelines
                 .ddgi_visibility_filter_ppl
-                .publish_descriptor_draft(
+                .publish_descriptors(
                     "ddgi.builder.descriptors",
                     generation,
-                    visibility_filter,
-                ),
+                    DescriptorUpdate::Named(&visibility_filter),
+                )
+                .expect("DDGI visibility filter descriptor update failed"),
             self.compute_pipelines
                 .ddgi_atlas_reduce_ppl
-                .publish_descriptor_draft("ddgi.builder.descriptors", generation, atlas_reduce),
+                .publish_descriptors(
+                    "ddgi.builder.descriptors",
+                    generation,
+                    DescriptorUpdate::Named(&atlas_reduce),
+                )
+                .expect("DDGI atlas reduction descriptor update failed"),
             self.compute_pipelines
                 .ddgi_global_sky_filter_ppl
-                .publish_descriptor_draft(
+                .publish_descriptors(
                     "ddgi.builder.descriptors",
                     generation,
-                    global_sky_filter,
-                ),
+                    DescriptorUpdate::Named(&global_sky_filter),
+                )
+                .expect("DDGI global sky filter descriptor update failed"),
             self.compute_pipelines
                 .ddgi_octahedral_gutter_ppl
-                .publish_descriptor_draft(
+                .publish_descriptors(
                     "ddgi.builder.descriptors",
                     generation,
-                    octahedral_gutter,
-                ),
+                    DescriptorUpdate::Named(&octahedral_gutter),
+                )
+                .expect("DDGI octahedral gutter descriptor update failed"),
             self.compute_pipelines
                 .ddgi_irradiance_gutter_ppl
-                .publish_descriptor_draft(
+                .publish_descriptors(
                     "ddgi.builder.descriptors",
                     generation,
-                    irradiance_gutter,
-                ),
+                    DescriptorUpdate::Named(&irradiance_gutter),
+                )
+                .expect("DDGI irradiance gutter descriptor update failed"),
             self.compute_pipelines
                 .ddgi_visibility_gutter_ppl
-                .publish_descriptor_draft(
+                .publish_descriptors(
                     "ddgi.builder.descriptors",
                     generation,
-                    visibility_gutter,
-                ),
+                    DescriptorUpdate::Named(&visibility_gutter),
+                )
+                .expect("DDGI visibility gutter descriptor update failed"),
         ]
     }
 
@@ -2252,53 +2223,27 @@ impl Tracer {
                 .graphics_pipelines
                 .environment_probe_visualization_overlay_ppl,
         ];
-        let mut tracer = self
-            .compute_pipelines
-            .tracer_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI consumer tracer descriptor draft failed");
-        let mut flora_lighting_cache = self
-            .compute_pipelines
-            .flora_lighting_cache_ppl
-            .begin_descriptor_draft()
-            .expect("DDGI consumer flora cache descriptor draft failed");
-        let mut graphics_drafts = graphics_pipelines
-            .iter()
-            .map(|pipeline| {
-                pipeline
-                    .begin_descriptor_draft()
-                    .expect("DDGI consumer graphics descriptor draft failed")
-            })
-            .collect::<Vec<_>>();
         let irradiance_atlas = ddgi_volume
             .published_irradiance_atlas()
             .unwrap_or(&ddgi_volume.ddgi_irradiance_atlas);
-        tracer
-            .write(
-                "ddgi_probe_metadata",
-                DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-            )
-            .expect("DDGI consumer tracer metadata descriptor write failed");
-        flora_lighting_cache
-            .write(
-                "ddgi_probe_metadata",
-                DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-            )
-            .expect("DDGI consumer flora cache metadata descriptor write failed");
-        tracer
-            .write(
-                "ddgi_capture_irradiance_atlas",
-                DescriptorResource::Texture(irradiance_atlas),
-            )
-            .expect("DDGI capture atlas descriptor write failed");
-        for draft in &mut graphics_drafts {
-            draft
-                .write(
-                    "ddgi_probe_metadata",
-                    DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-                )
-                .expect("DDGI consumer graphics metadata descriptor write failed");
-        }
+        let mut tracer_writes = vec![
+            DescriptorWrite {
+                name: "ddgi_probe_metadata",
+                resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
+            },
+            DescriptorWrite {
+                name: "ddgi_capture_irradiance_atlas",
+                resource: DescriptorResource::Texture(irradiance_atlas),
+            },
+        ];
+        let mut flora_lighting_cache_writes = vec![DescriptorWrite {
+            name: "ddgi_probe_metadata",
+            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
+        }];
+        let mut graphics_writes = vec![DescriptorWrite {
+            name: "ddgi_probe_metadata",
+            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
+        }];
         for (binding, texture) in [
             (
                 "ddgi_global_sky_irradiance",
@@ -2307,17 +2252,13 @@ impl Tracer {
             ("ddgi_irradiance_atlas", irradiance_atlas),
             ("ddgi_visibility_atlas", &ddgi_volume.ddgi_visibility_atlas),
         ] {
-            tracer
-                .write(binding, DescriptorResource::Texture(texture))
-                .expect("DDGI consumer tracer atlas descriptor write failed");
-            flora_lighting_cache
-                .write(binding, DescriptorResource::Texture(texture))
-                .expect("DDGI consumer flora cache atlas descriptor write failed");
-            for draft in &mut graphics_drafts {
-                draft
-                    .write(binding, DescriptorResource::Texture(texture))
-                    .expect("DDGI consumer graphics atlas descriptor write failed");
-            }
+            let write = DescriptorWrite {
+                name: binding,
+                resource: DescriptorResource::Texture(texture),
+            };
+            tracer_writes.push(write);
+            flora_lighting_cache_writes.push(write);
+            graphics_writes.push(write);
         }
 
         PreparedDdgiConsumerDescriptors {
@@ -2326,11 +2267,23 @@ impl Tracer {
                 .build_token
                 .expect("staged DDGI consumer descriptors require a build token")
                 .serial(),
-            tracer: tracer.into_generation(),
-            flora_lighting_cache: flora_lighting_cache.into_generation(),
-            graphics: graphics_drafts
-                .into_iter()
-                .map(|draft| draft.into_generation())
+            tracer: self
+                .compute_pipelines
+                .tracer_ppl
+                .prepare_descriptors(DescriptorUpdate::Named(&tracer_writes))
+                .expect("DDGI consumer tracer descriptor preparation failed"),
+            flora_lighting_cache: self
+                .compute_pipelines
+                .flora_lighting_cache_ppl
+                .prepare_descriptors(DescriptorUpdate::Named(&flora_lighting_cache_writes))
+                .expect("DDGI consumer flora cache descriptor preparation failed"),
+            graphics: graphics_pipelines
+                .iter()
+                .map(|pipeline| {
+                    pipeline
+                        .prepare_descriptors(DescriptorUpdate::Named(&graphics_writes))
+                        .expect("DDGI consumer graphics descriptor preparation failed")
+                })
                 .collect(),
         }
     }
@@ -2362,22 +2315,26 @@ impl Tracer {
             "DDGI consumer descriptor preparation pipeline order changed"
         );
         let mut retirements = Vec::with_capacity(2 + graphics_pipelines.len());
-        retirements.push(self.compute_pipelines.tracer_ppl.publish_descriptor_sets(
-            "ddgi.consumer.descriptors",
-            generation,
-            prepared.tracer,
-        ));
+        retirements.push(
+            self.compute_pipelines
+                .tracer_ppl
+                .publish_prepared_descriptors(
+                    "ddgi.consumer.descriptors",
+                    generation,
+                    prepared.tracer,
+                ),
+        );
         retirements.push(
             self.compute_pipelines
                 .flora_lighting_cache_ppl
-                .publish_descriptor_sets(
+                .publish_prepared_descriptors(
                     "ddgi.consumer.descriptors",
                     generation,
                     prepared.flora_lighting_cache,
                 ),
         );
         for (pipeline, descriptor_sets) in graphics_pipelines.into_iter().zip(prepared.graphics) {
-            retirements.push(pipeline.publish_descriptor_sets(
+            retirements.push(pipeline.publish_prepared_descriptors(
                 "ddgi.consumer.descriptors",
                 generation,
                 descriptor_sets,
@@ -2525,15 +2482,12 @@ impl Tracer {
         self.wind_source_buffer_capacity = new_capacity;
         let descriptor_generation = self.next_descriptor_generation();
         let tracer_resources = self.tracer_descriptor_resources();
-        let mut draft = self
-            .compute_pipelines
-            .wind_volume_ppl
-            .begin_descriptor_draft()?;
-        draft.write_from_resources(&tracer_resources)?;
         self.pending_frame_retirements.push(
-            self.compute_pipelines
-                .wind_volume_ppl
-                .publish_descriptor_draft("tracer.wind.descriptors", descriptor_generation, draft),
+            self.compute_pipelines.wind_volume_ppl.publish_descriptors(
+                "tracer.wind.descriptors",
+                descriptor_generation,
+                DescriptorUpdate::All(&tracer_resources),
+            )?,
         );
         Ok(())
     }
