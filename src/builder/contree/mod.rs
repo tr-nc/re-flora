@@ -715,9 +715,11 @@ impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
         rays: &[AcousticRay],
         min_distances: &[f32],
         max_distances: &[f32],
-    ) -> Vec<bool> {
+        hits: &mut [bool],
+    ) {
+        hits.fill(false);
         if !self.enabled.load(Ordering::Relaxed) {
-            return vec![false; rays.len()];
+            return;
         }
 
         let trace_start = Instant::now();
@@ -725,40 +727,42 @@ impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
             self.runtime_stats
                 .update_failures
                 .fetch_add(1, Ordering::Relaxed);
-            return vec![false; rays.len()];
+            return;
         };
         let shared_state = shared_state.clone();
 
-        let results = rays
+        for (((ray, min_distance), max_distance), hit) in rays
             .iter()
             .zip(min_distances.iter().copied())
             .zip(max_distances.iter().copied())
-            .map(|((ray, min_distance), max_distance)| {
-                query_terrain_any_hit(
-                    &shared_state,
-                    Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
-                    Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
-                    min_distance,
-                    max_distance,
-                )
-            })
-            .collect::<Vec<_>>();
+            .zip(hits.iter_mut())
+        {
+            *hit = query_terrain_any_hit(
+                &shared_state,
+                Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
+                Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
+                min_distance,
+                max_distance,
+            );
+        }
 
-        let occluded_sources = results.iter().filter(|is_occluded| **is_occluded).count();
+        let processed = rays.len().min(hits.len());
+        let occluded_sources = hits[..processed]
+            .iter()
+            .filter(|is_occluded| **is_occluded)
+            .count();
         self.runtime_stats
             .update_count
             .fetch_add(1, Ordering::Relaxed);
         self.runtime_stats
             .updated_sources
-            .fetch_add(results.len(), Ordering::Relaxed);
+            .fetch_add(processed, Ordering::Relaxed);
         self.runtime_stats
             .occluded_sources
             .fetch_add(occluded_sources, Ordering::Relaxed);
         self.runtime_stats
             .total_update_time_us
             .fetch_add(trace_start.elapsed().as_micros() as u64, Ordering::Relaxed);
-
-        results
     }
 }
 
@@ -768,9 +772,11 @@ impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
         rays: &[AcousticRay],
         min_distances: &[f32],
         max_distances: &[f32],
-    ) -> Vec<Option<AcousticHit>> {
+        hits: &mut [Option<AcousticHit>],
+    ) {
+        hits.fill(None);
         if !self.enabled.load(Ordering::Relaxed) {
-            return vec![None; rays.len()];
+            return;
         }
 
         let trace_start = Instant::now();
@@ -778,40 +784,39 @@ impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
             self.runtime_stats
                 .update_failures
                 .fetch_add(1, Ordering::Relaxed);
-            return vec![None; rays.len()];
+            return;
         };
         let shared_state = shared_state.clone();
 
-        let results = rays
+        for (((ray, min_distance), max_distance), hit) in rays
             .iter()
             .zip(min_distances.iter().copied())
             .zip(max_distances.iter().copied())
-            .map(|((ray, min_distance), max_distance)| {
-                query_terrain_closest_hit(
-                    &shared_state,
-                    Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
-                    Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
-                    min_distance,
-                    max_distance,
-                )
-            })
-            .collect::<Vec<_>>();
+            .zip(hits.iter_mut())
+        {
+            *hit = query_terrain_closest_hit(
+                &shared_state,
+                Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
+                Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
+                min_distance,
+                max_distance,
+            );
+        }
 
-        let hit_count = results.iter().filter(|hit| hit.is_some()).count();
+        let processed = rays.len().min(hits.len());
+        let hit_count = hits[..processed].iter().filter(|hit| hit.is_some()).count();
         self.runtime_stats
             .update_count
             .fetch_add(1, Ordering::Relaxed);
         self.runtime_stats
             .updated_sources
-            .fetch_add(results.len(), Ordering::Relaxed);
+            .fetch_add(processed, Ordering::Relaxed);
         self.runtime_stats
             .occluded_sources
             .fetch_add(hit_count, Ordering::Relaxed);
         self.runtime_stats
             .total_update_time_us
             .fetch_add(trace_start.elapsed().as_micros() as u64, Ordering::Relaxed);
-
-        results
     }
 }
 

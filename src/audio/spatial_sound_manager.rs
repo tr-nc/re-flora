@@ -6,8 +6,8 @@ use glam::Vec3;
 use petalsonic::{
     AcousticSceneSnapshot, BatchedAnyHitRayTracer, BatchedClosestHitRayTracer, BusParams, Emitter,
     EmitterDesc, EmitterSpatialState, LatencyProfile, OutputDevicePolicy, PetalSonicWorld,
-    PetalSonicWorldDesc, PlayOptions, Pose, Quat as PetalQuat, ResidentClip, SpatialFrame,
-    SpatialQuality, Vec3 as PetalVec3,
+    PetalSonicWorldDesc, PlayOptions, Pose, Quat as PetalQuat, ResidentClip, RuntimeState,
+    SpatialFrame, SpatialQuality, Vec3 as PetalVec3,
 };
 use rand::RngExt;
 use std::collections::HashMap;
@@ -35,6 +35,16 @@ pub struct SpatialSoundManager {
     one_shot_emitters: Arc<Mutex<HashMap<String, OneShotEmitter>>>,
     listener_state: Arc<Mutex<ListenerState>>,
     global_volume_gain_db: Arc<Mutex<f32>>,
+    health_log_state: Arc<Mutex<AudioHealthLogState>>,
+}
+
+#[derive(Default)]
+struct AudioHealthLogState {
+    runtime_state: Option<RuntimeState>,
+    device_generation: u64,
+    underruns: usize,
+    rejected_commands: u64,
+    dropped_events: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -98,6 +108,7 @@ impl SpatialSoundManager {
             one_shot_emitters: Arc::new(Mutex::new(HashMap::new())),
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
             global_volume_gain_db: Arc::new(Mutex::new(0.0)),
+            health_log_state: Arc::new(Mutex::new(AudioHealthLogState::default())),
         })
     }
 
@@ -248,6 +259,38 @@ impl SpatialSoundManager {
         for event in self.world.drain_events() {
             log::debug!("PetalSonic event: {event:?}");
         }
+        let status = self.world.runtime_status();
+        let diagnostics = self.world.diagnostics();
+        let mut previous = self.health_log_state.lock().unwrap();
+        if previous.runtime_state != Some(status.state)
+            || previous.device_generation != diagnostics.device_generation
+        {
+            log::info!(
+                "PetalSonic runtime: state={:?}, device={:?}, generation={}, sample_rate={}, channels={}",
+                status.state,
+                status.active_output_device,
+                diagnostics.device_generation,
+                diagnostics.output_sample_rate,
+                diagnostics.output_channels,
+            );
+        }
+        if diagnostics.underrun_count > previous.underruns
+            || diagnostics.rejected_commands > previous.rejected_commands
+            || diagnostics.dropped_events > previous.dropped_events
+        {
+            log::warn!(
+                "PetalSonic pressure: underruns={}, rejected_commands={}, dropped_events={}, render_p99_us={}",
+                diagnostics.underrun_count,
+                diagnostics.rejected_commands,
+                diagnostics.dropped_events,
+                diagnostics.render_time_p99_us,
+            );
+        }
+        previous.runtime_state = Some(status.state);
+        previous.device_generation = diagnostics.device_generation;
+        previous.underruns = diagnostics.underrun_count;
+        previous.rejected_commands = diagnostics.rejected_commands;
+        previous.dropped_events = diagnostics.dropped_events;
         Ok(())
     }
 
