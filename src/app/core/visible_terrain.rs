@@ -119,7 +119,7 @@ impl App {
                 });
         }
 
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
         let revision =
             next_visible_terrain_revision(self.visible_terrain_revision, change.terrain_changed);
         if let Some(revision) = revision {

@@ -27,6 +27,10 @@ use flora_lighting_cache::FloraLightingCache;
 mod flora_frame_plan;
 use flora_frame_plan::{FloraFramePlan, FloraFramePlanConfig};
 
+mod direct_sun_shadow_runtime;
+use direct_sun_shadow_runtime::DirectSunShadowRuntime;
+pub use direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_ALL;
+
 mod terrain_lighting_cache;
 use terrain_lighting_cache::{TerrainLightingCache, TerrainLightingCacheIdentity};
 
@@ -725,13 +729,6 @@ pub enum LodState {
     Lod1,
 }
 
-pub const DIRECT_SUN_SHADOW_SOURCE_TERRAIN: u32 = 1 << 0;
-pub const DIRECT_SUN_SHADOW_SOURCE_LEAF: u32 = 1 << 1;
-pub const DIRECT_SUN_SHADOW_SOURCE_CLOUD: u32 = 1 << 2;
-pub const DIRECT_SUN_SHADOW_SOURCE_ALL: u32 = DIRECT_SUN_SHADOW_SOURCE_TERRAIN
-    | DIRECT_SUN_SHADOW_SOURCE_LEAF
-    | DIRECT_SUN_SHADOW_SOURCE_CLOUD;
-
 pub struct DirectSunShadowResources<'a> {
     pub gui_input: &'a Buffer,
     pub shadow_camera_info: &'a Buffer,
@@ -769,11 +766,8 @@ pub struct Tracer {
     camera_view_mat_prev_frame: Mat4,
     camera_proj_mat_prev_frame: Mat4,
     current_view_proj_mat: Mat4,
-    shadow_camera_initialized: bool,
-    shadow_map_history_valid: bool,
-    leaf_shadow_history_valid: bool,
+    direct_sun_shadows: DirectSunShadowRuntime,
     cloud_history_valid: bool,
-    cloud_shadow_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
     flora_lighting_cache: FloraLightingCache,
     contree_node_data: Buffer,
@@ -865,21 +859,11 @@ impl Tracer {
     }
 
     pub fn direct_sun_shadow_available_mask(&self) -> u32 {
-        let mut mask = 0;
-        if self.terrain_shadow_vsm_ready() {
-            mask |= DIRECT_SUN_SHADOW_SOURCE_TERRAIN;
-        }
-        if self.leaf_shadow_history_valid {
-            mask |= DIRECT_SUN_SHADOW_SOURCE_LEAF;
-        }
-        if self.cloud_shadow_history_valid {
-            mask |= DIRECT_SUN_SHADOW_SOURCE_CLOUD;
-        }
-        mask
+        self.direct_sun_shadows.available_mask()
     }
 
-    pub fn terrain_shadow_vsm_ready(&self) -> bool {
-        self.shadow_camera_initialized && self.shadow_map_history_valid
+    pub fn invalidate_local_direct_sun_shadow_histories(&mut self) {
+        self.direct_sun_shadows.invalidate_local_histories();
     }
 
     fn default_camera_pose_for_bound(
@@ -1103,11 +1087,8 @@ impl Tracer {
             camera_view_mat_prev_frame: Mat4::IDENTITY,
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
             current_view_proj_mat: Mat4::IDENTITY,
-            shadow_camera_initialized: false,
-            shadow_map_history_valid: false,
-            leaf_shadow_history_valid: false,
+            direct_sun_shadows: DirectSunShadowRuntime::default(),
             cloud_history_valid: false,
-            cloud_shadow_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             contree_node_data: (*contree_builder_resources.contree_node_data).clone(),
@@ -1724,7 +1705,7 @@ impl Tracer {
         ));
 
         self.cloud_history_valid = false;
-        self.cloud_shadow_history_valid = false;
+        self.direct_sun_shadows.invalidate_cloud_history();
         self.update_sets(
             contree_builder_resources,
             scene_accel_resources,
@@ -2604,7 +2585,10 @@ impl Tracer {
 
         // Shadow camera info. Shadow maps are rendered every frame while shadows
         // are enabled, so PCSS and VSM both use the latest light-space matrix.
-        if update_shadow_map || !self.shadow_camera_initialized {
+        if self
+            .direct_sun_shadows
+            .camera_update_required(update_shadow_map)
+        {
             let world_bound = self.chunk_bound.into();
             let shadow_map_extent = self
                 .resources
@@ -2616,12 +2600,12 @@ impl Tracer {
             let shadow_map_resolution = shadow_map_extent.width.min(shadow_map_extent.height);
             let (shadow_view_mat, shadow_proj_mat) =
                 calculate_directional_light_matrices(world_bound, sun_dir, shadow_map_resolution);
-            self.shadow_camera_initialized = true;
             BufferUpdater::update_camera_info(
                 &mut self.resources.shadow.shadow_camera_info,
                 shadow_view_mat,
                 shadow_proj_mat,
             )?;
+            self.direct_sun_shadows.mark_camera_updated();
         }
 
         // camera info prev frame
@@ -2912,7 +2896,6 @@ impl Tracer {
         vsm_blur_radius: u32,
         vsm_temporal_alpha: f32,
         leaf_shadow_temporal_alpha: f32,
-        reset_vsm_history: bool,
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
@@ -3471,14 +3454,6 @@ impl Tracer {
             BufferUse::ShaderRead,
         );
 
-        let has_graphics_pass = render_flags.enable_flora
-            || render_flags.enable_particles
-            || self.sprinkler_resources.instance_count > 0
-            || self.irrigation_pipe_resources.instance_count > 0
-            || self.geometry_preview_resources.has_visible_mesh()
-            || self.environment_probe_visualization.enabled
-            || self.dynamic_fruit_resources.instance_count > 0;
-
         if render_flags.enable_flora {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -3488,6 +3463,14 @@ impl Tracer {
                 || self.record_wind_volume_pass(cmdbuf, time),
             );
         }
+
+        let direct_sun_update_plan =
+            (render_flags.enable_shadows && update_shadow_map).then(|| {
+                let dynamic_fruit_shadow_changed =
+                    self.dynamic_fruit_resources.take_shadow_changed();
+                self.direct_sun_shadows
+                    .plan_update(dynamic_fruit_shadow_changed)
+            });
 
         if render_flags.enable_flora
             && render_flags.enable_leaves
@@ -3517,7 +3500,9 @@ impl Tracer {
                     self.record_leaf_shadow_temporal_pass(
                         cmdbuf,
                         leaf_shadow_temporal_alpha,
-                        reset_vsm_history,
+                        direct_sun_update_plan
+                            .expect("enabled shadow update must have a history plan")
+                            .reset_leaf_history(),
                     )
                 },
             );
@@ -3529,11 +3514,9 @@ impl Tracer {
                 || self.record_leaf_shadow_mask_pass(cmdbuf),
             );
             self.record_store_leaf_shadow_history(cmdbuf);
+            self.direct_sun_shadows.mark_leaf_history_recorded();
         }
-        if has_graphics_pass || (render_flags.enable_shadows && update_shadow_map) {}
-
         if render_flags.enable_shadows && update_shadow_map {
-            let dynamic_fruit_shadow_changed = self.dynamic_fruit_resources.take_shadow_changed();
             if self.dynamic_fruit_resources.instance_count > 0 {
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
@@ -3567,21 +3550,26 @@ impl Tracer {
                         cmdbuf,
                         vsm_blur_radius,
                         vsm_temporal_alpha,
-                        reset_vsm_history || dynamic_fruit_shadow_changed,
+                        direct_sun_update_plan
+                            .expect("enabled shadow update must have a history plan")
+                            .reset_terrain_history(),
                     )
                 },
             );
+            self.direct_sun_shadows.mark_terrain_history_recorded();
             if render_flags.enable_clouds {
+                let reset_cloud_history = self.direct_sun_shadows.cloud_history_reset_required();
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
                     cmdbuf,
                     "cloud_shadow.pass",
-                    || self.record_cloud_shadow_pass(cmdbuf),
+                    || self.record_cloud_shadow_pass(cmdbuf, reset_cloud_history),
                 );
                 self.record_store_cloud_shadow_history(cmdbuf);
+                self.direct_sun_shadows.mark_cloud_history_recorded();
             } else {
-                self.cloud_shadow_history_valid = false;
+                self.direct_sun_shadows.invalidate_cloud_history();
             }
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -5340,15 +5328,14 @@ impl Tracer {
     }
 
     fn record_leaf_shadow_temporal_pass(
-        &mut self,
+        &self,
         cmdbuf: &CommandBuffer,
         temporal_alpha: f32,
         reset_leaf_shadow_history: bool,
     ) {
-        let reset_history = reset_leaf_shadow_history || !self.leaf_shadow_history_valid;
         let push_constants = PushConstantLeafShadowTemporal {
             temporal_alpha: temporal_alpha.clamp(0.0, 1.0),
-            reset_history: u32::from(reset_history),
+            reset_history: u32::from(reset_leaf_shadow_history),
             ..bytemuck::Zeroable::zeroed()
         };
         let push_constants_bytes = bytemuck::bytes_of(&push_constants);
@@ -5362,7 +5349,6 @@ impl Tracer {
                 .extent,
             Some(push_constants_bytes),
         );
-        self.leaf_shadow_history_valid = true;
     }
 
     fn record_leaf_shadow_mask_pass(&self, cmdbuf: &CommandBuffer) {
@@ -5468,7 +5454,7 @@ impl Tracer {
     }
 
     fn record_vsm_filtering_pass(
-        &mut self,
+        &self,
         cmdbuf: &CommandBuffer,
         vsm_blur_radius: u32,
         vsm_temporal_alpha: f32,
@@ -5485,11 +5471,10 @@ impl Tracer {
             .vsm_creation_ppl
             .record(cmdbuf, extent, None);
 
-        let reset_history = reset_vsm_history || !self.shadow_map_history_valid;
         let push_constants = VsmFilterPushConstants {
             blur_radius: vsm_blur_radius,
             temporal_alpha: vsm_temporal_alpha.clamp(0.0, 1.0),
-            reset_history: u32::from(reset_history),
+            reset_history: u32::from(reset_vsm_history),
             _pad0: 0,
         };
         let push_constants_bytes = bytemuck::bytes_of(&push_constants);
@@ -5502,7 +5487,6 @@ impl Tracer {
             .record(cmdbuf, extent, Some(push_constants_bytes));
 
         self.record_store_vsm_history(cmdbuf);
-        self.shadow_map_history_valid = true;
     }
 
     fn record_tracer_pass(&self, cmdbuf: &CommandBuffer) {
@@ -5554,7 +5538,7 @@ impl Tracer {
         );
     }
 
-    fn record_cloud_shadow_pass(&mut self, cmdbuf: &CommandBuffer) {
+    fn record_cloud_shadow_pass(&self, cmdbuf: &CommandBuffer, reset_cloud_history: bool) {
         let extent = self
             .resources
             .shadow
@@ -5568,14 +5552,13 @@ impl Tracer {
             .record(cmdbuf, extent, None);
 
         let push_constants = CloudShadowTemporalPushConstants {
-            reset_history: u32::from(!self.cloud_shadow_history_valid),
+            reset_history: u32::from(reset_cloud_history),
         };
         self.compute_pipelines.cloud_shadow_temporal_ppl.record(
             cmdbuf,
             extent,
             Some(bytemuck::bytes_of(&push_constants)),
         );
-        self.cloud_shadow_history_valid = true;
     }
 
     fn record_cloud_pass(&mut self, cmdbuf: &CommandBuffer) {
@@ -5604,7 +5587,7 @@ impl Tracer {
 
     fn clear_cloud_output(&mut self, cmdbuf: &CommandBuffer) {
         self.cloud_history_valid = false;
-        self.cloud_shadow_history_valid = false;
+        self.direct_sun_shadows.invalidate_cloud_history();
         for tex in [
             &self.resources.extent_dependent_resources.cloud_raw_tex,
             &self.resources.extent_dependent_resources.cloud_output_tex,
@@ -5722,7 +5705,7 @@ impl Tracer {
         self.camera_view_mat_prev_frame = view_mat;
         self.camera_proj_mat_prev_frame = proj_mat;
         self.current_view_proj_mat = proj_mat * view_mat;
-        self.shadow_map_history_valid = false;
+        self.direct_sun_shadows.invalidate_local_histories();
         self.cloud_history_valid = false;
         if let Err(err) = self
             .spatial_sound_manager
@@ -5751,6 +5734,7 @@ impl Tracer {
     pub fn set_camera_pose_looking_at(&mut self, position: Vec3, target: Vec3) -> bool {
         let changed = self.camera.set_pose_looking_at(position, target);
         if changed {
+            self.direct_sun_shadows.invalidate_local_histories();
             if let Err(err) = self
                 .spatial_sound_manager
                 .update_player_pos(self.camera.position(), self.camera.vectors())

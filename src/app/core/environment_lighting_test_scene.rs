@@ -788,7 +788,6 @@ impl App {
             .tracer
             .set_camera_pose_looking_at(camera_position, camera_target)
         {
-            self.request_vsm_history_reset();
             log::info!(
                 "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} latitude={:.3} season={:.3} sun_luminance={:.3} auto_cycle=false voxel_color_variance={:.3}",
                 case.label(),
@@ -862,7 +861,7 @@ impl App {
         self.debug_settings.adjustables.sun_color.value = sun_color;
         self.debug_settings.adjustables.sun_luminance.value = sun_luminance;
         self.debug_settings.adjustables.voxel_rock_color.value = rock_color;
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
     }
 
     pub(super) fn process_radiance_test_mutation_after_render(&mut self) {

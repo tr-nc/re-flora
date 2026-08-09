@@ -138,7 +138,7 @@ impl App {
 
         self.tracer
             .upload_debug_geometry_preview(&sentinel_mesh(), Vec3::ZERO, Vec4::ONE)?;
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
         log::info!(
             "[HYBRID_ALPHA_TEST] camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) left=control_no_terrain right=rock_occlusion sentinel=opaque_red_blue_stripes probes=valid_depth_tested",
             CAMERA_POSITION.x,

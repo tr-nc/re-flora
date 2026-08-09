@@ -55,7 +55,6 @@ impl App {
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
         self.tracer.apply_camera_pose(snapshot.pose());
-        self.request_vsm_history_reset();
     }
 }
 

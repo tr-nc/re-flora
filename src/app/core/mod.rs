@@ -348,7 +348,6 @@ pub struct App {
     moisture_spread_chunk_cursor: u32,
     growing_flora_chunks: GrowingFloraQueue,
     sun_position_update_tick_accumulator: u32,
-    vsm_history_reset_pending: bool,
 
     #[allow(dead_code)]
     tree_variation_config: TreeVariationConfig,
@@ -623,7 +622,7 @@ impl App {
         let (block_min, block_max) = Self::debug_startup_block_bounds();
         self.apply_debug_cuboid(block_min, block_max, VOXEL_TYPE_DIRT)?;
 
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
         Ok(())
     }
 
@@ -1142,7 +1141,6 @@ impl App {
             moisture_spread_chunk_cursor: 0,
             growing_flora_chunks: GrowingFloraQueue::default(),
             sun_position_update_tick_accumulator: 0,
-            vsm_history_reset_pending: true,
 
             // multi-tree management
             next_tree_id: 1, // Start from 1, use 0 for GUI single tree
@@ -1630,10 +1628,6 @@ impl App {
 
         let frame_scale = delta_seconds.max(0.0) * 60.0;
         1.0 - (1.0 - alpha_60fps).powf(frame_scale)
-    }
-
-    fn request_vsm_history_reset(&mut self) {
-        self.vsm_history_reset_pending = true;
     }
 
     fn execute_edit_plan(&mut self, plan: WorldEditPlan) -> Result<()> {
@@ -2982,7 +2976,7 @@ impl App {
                     self.current_time_of_day = self.debug_settings.adjustables.time_of_day.value;
                 }
                 if time_of_day_changed_by_gui || vsm_blur_radius_changed_by_gui {
-                    self.request_vsm_history_reset();
+                    self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }
 
                 // update sun position if auto day/night cycle is enabled
@@ -3714,7 +3708,6 @@ impl App {
                     color_to_vec3(self.debug_settings.adjustables.leaves_bottom_color.value),
                     color_to_vec3(self.debug_settings.adjustables.leaves_tip_color.value),
                 );
-                let reset_vsm_history = self.vsm_history_reset_pending;
                 let vsm_temporal_alpha = Self::frame_rate_adjusted_vsm_temporal_alpha(
                     self.debug_settings.adjustables.vsm_temporal_alpha.value,
                     frame_delta_time,
@@ -3747,7 +3740,6 @@ impl App {
                         self.debug_settings.adjustables.vsm_blur_radius.value,
                         vsm_temporal_alpha,
                         leaf_shadow_temporal_alpha,
-                        reset_vsm_history,
                         gpu_profiler_for_shadow.as_mut(),
                         frame_slot,
                     )
@@ -3758,9 +3750,6 @@ impl App {
                     }
                 }
                 self.gpu_profiler = gpu_profiler_for_shadow;
-                if update_shadow_map {
-                    self.vsm_history_reset_pending = false;
-                }
 
                 if self.has_terrain_moisture_dry_chunks() {
                     let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {

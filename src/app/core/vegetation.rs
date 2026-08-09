@@ -825,7 +825,7 @@ impl App {
                 .add_tree_apples(&mut self.surface_builder.resources, tree_id, &apples)?;
         }
         if !tree_ids.is_empty() {
-            self.request_vsm_history_reset();
+            self.tracer.invalidate_local_direct_sun_shadow_histories();
         }
         Ok(())
     }
@@ -904,7 +904,7 @@ impl App {
             .remove_tree_leaves(&mut self.surface_builder.resources, tree_id)?;
         self.terrain_physics
             .unregister_tree_fruits(tree_id, &mut self.tracer)?;
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
         self.tree_audio_manager.remove_tree(tree_id);
         self.remove_leaf_emitter(tree_id);
         match self.tree_records.remove(&tree_id) {
@@ -1930,7 +1930,7 @@ impl App {
             tree_id,
             &attached_fruits,
         )?;
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
         let add_leaves_elapsed = add_leaves_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH
