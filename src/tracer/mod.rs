@@ -1775,12 +1775,12 @@ impl Tracer {
         };
 
         let update_graphics_set_fn =
-            |ppl: &GraphicsPipeline, set_no: u32, resources: &[&dyn ResourceContainer]| {
+            |ppl: &GraphicsPipeline, binding_name: &str, resources: &[&dyn ResourceContainer]| {
                 let mut draft = ppl
                     .begin_descriptor_draft()
                     .expect("graphics descriptor draft failed during update_sets");
                 draft
-                    .write_set_from_resources(set_no, resources)
+                    .write_set_from_resources(binding_name, resources)
                     .expect("graphics descriptor set update failed during update_sets");
                 descriptor_retirements
                     .borrow_mut()
@@ -1848,21 +1848,29 @@ impl Tracer {
             &self.graphics_pipelines.terrain_depth_prefill_ppl,
             &tracer_resources,
         );
-        update_graphics_set_fn(&self.graphics_pipelines.flora_ppl, 0, &all_resources);
-        update_graphics_set_fn(&self.graphics_pipelines.flora_lod_ppl, 0, &all_resources);
+        update_graphics_set_fn(
+            &self.graphics_pipelines.flora_ppl,
+            "gui_input",
+            &all_resources,
+        );
+        update_graphics_set_fn(
+            &self.graphics_pipelines.flora_lod_ppl,
+            "gui_input",
+            &all_resources,
+        );
         update_graphics_set_fn(
             &self.graphics_pipelines.leaves_ppl,
-            0,
+            "gui_input",
             &environment_lighting_resources,
         );
         update_graphics_set_fn(
             &self.graphics_pipelines.leaves_lod_ppl,
-            0,
+            "gui_input",
             &environment_lighting_resources,
         );
         update_graphics_set_fn(
             &self.graphics_pipelines.leaves_shadow_lod_ppl,
-            0,
+            "gui_input",
             &tracer_resources,
         );
         update_graphics_fn(

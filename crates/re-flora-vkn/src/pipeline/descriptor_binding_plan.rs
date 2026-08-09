@@ -6,22 +6,34 @@ use anyhow::{anyhow, ensure, Result};
 use ash::vk;
 use std::{
     collections::HashMap,
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
+
+#[derive(Debug)]
+pub(crate) struct DescriptorRuntimeIdentity;
 
 /// An opaque, prepared descriptor generation owned by a pipeline.
 ///
 /// The numeric set locations stay inside VKN. Application code may move a prepared generation
 /// across a transaction boundary, but cannot construct or mutate its numeric bindings directly.
 pub struct DescriptorSetGeneration {
+    identity: Arc<DescriptorRuntimeIdentity>,
     sets: HashMap<u32, crate::DescriptorSet>,
 }
 
 impl DescriptorSetGeneration {
-    pub(crate) fn empty() -> Self {
+    pub(crate) fn empty(identity: Arc<DescriptorRuntimeIdentity>) -> Self {
         Self {
+            identity,
             sets: HashMap::new(),
         }
+    }
+
+    pub(crate) fn belongs_to(&self, identity: &Arc<DescriptorRuntimeIdentity>) -> bool {
+        Arc::ptr_eq(&self.identity, identity)
     }
 
     pub(crate) fn insert(&mut self, set_no: u32, descriptor_set: crate::DescriptorSet) {
@@ -38,10 +50,6 @@ impl DescriptorSetGeneration {
 
     pub(crate) fn values(&self) -> impl Iterator<Item = &crate::DescriptorSet> {
         self.sets.values()
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.sets.is_empty()
     }
 }
 
@@ -62,7 +70,7 @@ pub enum DescriptorResource<'a> {
 /// The owner pipeline supplies a lease so only one draft can exist at a time. Dropping the
 /// draft releases the lease and drops its descriptor sets without changing the active generation.
 pub struct DescriptorGenerationDraft {
-    sets: DescriptorSetGeneration,
+    sets: Option<DescriptorSetGeneration>,
     plan: DescriptorBindingPlan,
     lease: Arc<AtomicBool>,
     required_set_nos: Vec<u32>,
@@ -82,6 +90,8 @@ impl DescriptorGenerationDraft {
     ) -> Result<()> {
         self.plan.validate_write(set_no, &write)?;
         self.sets
+            .as_ref()
+            .expect("descriptor draft generation was already consumed")
             .get(&set_no)
             .ok_or_else(|| anyhow!("descriptor set {set_no} is not reflected"))?
             .perform_writes(std::slice::from_mut(&mut write));
@@ -94,7 +104,7 @@ impl DescriptorGenerationDraft {
     pub fn write_from_resources(&mut self, containers: &[&dyn ResourceContainer]) -> Result<()> {
         let set_nos = self.plan.set_numbers().to_vec();
         for set_no in set_nos {
-            self.write_set_from_resources(set_no, containers)?;
+            self.write_set_from_resources_by_number(set_no, containers)?;
         }
         Ok(())
     }
@@ -104,6 +114,15 @@ impl DescriptorGenerationDraft {
     /// This is the runtime resize/update seam for pipelines that keep a late-bound set (for
     /// example, per-draw flora buffers) separate from their static resource set.
     pub fn write_set_from_resources(
+        &mut self,
+        binding_name: &str,
+        containers: &[&dyn ResourceContainer],
+    ) -> Result<()> {
+        let set_no = self.plan.binding(binding_name)?.set_no();
+        self.write_set_from_resources_by_number(set_no, containers)
+    }
+
+    fn write_set_from_resources_by_number(
         &mut self,
         set_no: u32,
         containers: &[&dyn ResourceContainer],
@@ -115,29 +134,8 @@ impl DescriptorGenerationDraft {
             .map(|binding| binding.name().to_owned())
             .collect::<Vec<_>>();
         for name in names {
-            let mut buffers = Vec::new();
-            let mut textures = Vec::new();
-            for container in containers {
-                if let Some(buffer) = container.get_buffer(&name) {
-                    buffers.push(buffer);
-                }
-                if let Some(texture) = container.get_texture(&name) {
-                    textures.push(texture);
-                }
-            }
-            ensure!(
-                buffers.len() + textures.len() == 1,
-                "descriptor resource '{}' must have exactly one provider in draft for {} (found {} buffers and {} textures)",
-                name,
-                self.plan.pipeline_name(),
-                buffers.len(),
-                textures.len(),
-            );
-            if let Some(buffer) = buffers.first() {
-                self.write(&name, DescriptorResource::Buffer(buffer))?;
-            } else if let Some(texture) = textures.first() {
-                self.write(&name, DescriptorResource::Texture(texture))?;
-            }
+            let resource = self.plan.resolve_resource(&name, containers)?;
+            self.write(&name, resource)?;
         }
         Ok(())
     }
@@ -153,7 +151,7 @@ impl DescriptorGenerationDraft {
         required_set_nos: Vec<u32>,
     ) -> Self {
         Self {
-            sets,
+            sets: Some(sets),
             plan,
             lease,
             required_set_nos,
@@ -162,9 +160,13 @@ impl DescriptorGenerationDraft {
 
     pub fn into_generation(self) -> DescriptorSetGeneration {
         let mut this = self;
+        let sets = this
+            .sets
+            .take()
+            .expect("descriptor draft generation was already consumed");
         this.plan
-            .assert_generation_complete_for_sets(&this.sets, &this.required_set_nos);
-        std::mem::replace(&mut this.sets, DescriptorSetGeneration::empty())
+            .assert_generation_complete_for_sets(&sets, &this.required_set_nos);
+        sets
     }
 }
 
@@ -209,7 +211,6 @@ impl DescriptorBinding {
     pub(crate) fn binding_no(&self) -> u32 {
         self.binding_no
     }
-
 }
 
 /// The semantic descriptor interface for one compute or graphics pipeline.
@@ -359,14 +360,16 @@ impl DescriptorBindingPlan {
     }
 
     pub(crate) fn binding_at(&self, set_no: u32, binding_no: u32) -> Result<&DescriptorBinding> {
-        self.bindings_by_location.get(&(set_no, binding_no)).ok_or_else(|| {
-            anyhow!(
-                "descriptor location {}:{} is not reflected by {}",
-                set_no,
-                binding_no,
-                self.pipeline_name
-            )
-        })
+        self.bindings_by_location
+            .get(&(set_no, binding_no))
+            .ok_or_else(|| {
+                anyhow!(
+                    "descriptor location {}:{} is not reflected by {}",
+                    set_no,
+                    binding_no,
+                    self.pipeline_name
+                )
+            })
     }
 
     pub(crate) fn bindings_for_set(&self, set_no: u32) -> Result<&[DescriptorBinding]> {
@@ -384,10 +387,6 @@ impl DescriptorBindingPlan {
 
     pub(crate) fn set_numbers(&self) -> &[u32] {
         &self.set_numbers
-    }
-
-    pub(crate) fn assert_generation_complete(&self, generation: &DescriptorSetGeneration) {
-        self.assert_generation_complete_except(generation, None);
     }
 
     pub(crate) fn assert_generation_complete_except(
@@ -410,9 +409,12 @@ impl DescriptorBindingPlan {
         set_nos: &[u32],
     ) {
         for set_no in set_nos {
-            let set = generation
-                .get(set_no)
-                .unwrap_or_else(|| panic!("descriptor generation for {} is missing reflected set {set_no}", self.pipeline_name));
+            let set = generation.get(set_no).unwrap_or_else(|| {
+                panic!(
+                    "descriptor generation for {} is missing reflected set {set_no}",
+                    self.pipeline_name
+                )
+            });
             let binding_numbers = self
                 .bindings_for_set(*set_no)
                 .expect("descriptor plan set list must be internally consistent")
@@ -427,11 +429,7 @@ impl DescriptorBindingPlan {
         }
     }
 
-    pub(crate) fn validate_write(
-        &self,
-        set_no: u32,
-        write: &WriteDescriptorSet<'_>,
-    ) -> Result<()> {
+    pub(crate) fn validate_write(&self, set_no: u32, write: &WriteDescriptorSet<'_>) -> Result<()> {
         let binding = self.binding_at(set_no, write.binding())?;
         ensure!(
             write.array_element() < binding.descriptor_count,
@@ -503,6 +501,35 @@ impl DescriptorBindingPlan {
             }
         }
     }
+
+    pub(crate) fn resolve_resource<'a>(
+        &self,
+        name: &str,
+        containers: &[&'a dyn ResourceContainer],
+    ) -> Result<DescriptorResource<'a>> {
+        let mut resource = None;
+        let mut buffer_count = 0;
+        let mut texture_count = 0;
+        for container in containers {
+            if let Some(buffer) = container.get_buffer(name) {
+                buffer_count += 1;
+                resource = Some(DescriptorResource::Buffer(buffer));
+            }
+            if let Some(texture) = container.get_texture(name) {
+                texture_count += 1;
+                resource = Some(DescriptorResource::Texture(texture));
+            }
+        }
+        ensure!(
+            buffer_count + texture_count == 1,
+            "descriptor resource '{}' must have exactly one provider for {} (found {} buffers and {} textures)",
+            name,
+            self.pipeline_name,
+            buffer_count,
+            texture_count,
+        );
+        Ok(resource.expect("descriptor provider count was validated above"))
+    }
 }
 
 pub(crate) fn image_layout(descriptor_type: vk::DescriptorType) -> TextureLayout {
@@ -571,7 +598,10 @@ mod tests {
         reflected.insert(
             1,
             HashMap::from([
-                (0, binding(0, "instances", vk::DescriptorType::STORAGE_BUFFER)),
+                (
+                    0,
+                    binding(0, "instances", vk::DescriptorType::STORAGE_BUFFER),
+                ),
                 (1, binding(1, "growth", vk::DescriptorType::STORAGE_BUFFER)),
             ]),
         );
@@ -582,7 +612,10 @@ mod tests {
         assert_eq!(plan.binding("growth").unwrap().binding_no(), 1);
 
         let mut sparse = HashMap::new();
-        sparse.insert(3, HashMap::from([(7, binding(7, "sparse", vk::DescriptorType::STORAGE_BUFFER))]));
+        sparse.insert(
+            3,
+            HashMap::from([(7, binding(7, "sparse", vk::DescriptorType::STORAGE_BUFFER))]),
+        );
         let sparse_plan = DescriptorBindingPlan::from_reflection("sparse", &sparse).unwrap();
         assert_eq!(sparse_plan.set_numbers(), &[3]);
         assert_eq!(sparse_plan.binding("sparse").unwrap().set_no(), 3);
@@ -630,9 +663,28 @@ mod tests {
     }
 
     #[test]
+    fn prepared_generation_identity_is_pipeline_local() {
+        let owner = Arc::new(DescriptorRuntimeIdentity);
+        let other = Arc::new(DescriptorRuntimeIdentity);
+        let generation = DescriptorSetGeneration::empty(owner.clone());
+
+        assert!(generation.belongs_to(&owner));
+        assert!(!generation.belongs_to(&other));
+    }
+
+    #[test]
     fn chooses_image_layout_from_reflection_type() {
-        assert_eq!(image_layout(vk::DescriptorType::SAMPLED_IMAGE), TextureLayout::SHADER_READ_ONLY);
-        assert_eq!(image_layout(vk::DescriptorType::COMBINED_IMAGE_SAMPLER), TextureLayout::SHADER_READ_ONLY);
-        assert_eq!(image_layout(vk::DescriptorType::STORAGE_IMAGE), TextureLayout::GENERAL);
+        assert_eq!(
+            image_layout(vk::DescriptorType::SAMPLED_IMAGE),
+            TextureLayout::SHADER_READ_ONLY
+        );
+        assert_eq!(
+            image_layout(vk::DescriptorType::COMBINED_IMAGE_SAMPLER),
+            TextureLayout::SHADER_READ_ONLY
+        );
+        assert_eq!(
+            image_layout(vk::DescriptorType::STORAGE_IMAGE),
+            TextureLayout::GENERAL
+        );
     }
 }
