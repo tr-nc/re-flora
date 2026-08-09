@@ -611,7 +611,6 @@ impl PlainBuilder {
                 vulkan_context.command_pool(),
                 &vulkan_context.get_general_queue(),
                 |cmdbuf| {
-                    cmdbuf.begin_resource_state_transaction();
                     resources.chunk_atlas.get_image().record_clear(
                         cmdbuf,
                         Some(TextureLayout::GENERAL),
@@ -648,7 +647,6 @@ impl PlainBuilder {
     ) -> CommandBuffer {
         let cmdbuf = CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool());
         cmdbuf.begin(false);
-        cmdbuf.begin_resource_state_transaction();
 
         cmdbuf.use_buffer(region_info, BufferUse::HostWrite);
         cmdbuf.use_buffer(region_info, BufferUse::ComputeRead);
@@ -821,7 +819,6 @@ impl PlainBuilder {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                cmdbuf.begin_resource_state_transaction();
                 self.resources.solid_workgroup_flags.record_fill(
                     cmdbuf,
                     0,
@@ -1393,7 +1390,6 @@ impl PlainBuilder {
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         command_buffer.begin(true);
-        command_buffer.begin_resource_state_transaction();
         command_buffer.use_buffer(
             &self.resources.voxel_property_sample_info,
             BufferUse::HostWrite,
@@ -1548,7 +1544,6 @@ impl PlainBuilder {
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         let submit_start = Instant::now();
         command_buffer.begin(true);
-        command_buffer.begin_resource_state_transaction();
         command_buffer.use_buffer(
             &self.resources.chunk_solid_sample_info,
             BufferUse::HostWrite,
@@ -1802,7 +1797,6 @@ impl PlainBuilder {
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         command_buffer.begin(true);
-        command_buffer.begin_resource_state_transaction();
         command_buffer.use_buffer(
             &self.resources.terrain_smooth_mbo_info,
             BufferUse::HostWrite,
@@ -1939,7 +1933,6 @@ impl PlainBuilder {
         let command_buffer =
             CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
         command_buffer.begin(true);
-        command_buffer.begin_resource_state_transaction();
         command_buffer.use_buffer(
             &self.resources.terrain_smooth_mbo_info,
             BufferUse::HostWrite,
@@ -2421,7 +2414,6 @@ impl PlainBuilder {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                cmdbuf.begin_resource_state_transaction();
                 cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
                 cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::ComputeRead);
                 cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
@@ -2557,7 +2549,6 @@ impl PlainBuilder {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                cmdbuf.begin_resource_state_transaction();
                 cmdbuf.use_buffer(&self.resources.model_voxelize_info, BufferUse::HostWrite);
                 cmdbuf.use_buffer(&self.resources.model_voxelize_info, BufferUse::ComputeRead);
                 cmdbuf.use_buffer(&self.resources.model_triangles, BufferUse::HostWrite);
@@ -2622,7 +2613,6 @@ impl PlainBuilder {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                cmdbuf.begin_resource_state_transaction();
                 cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
                 cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::ComputeRead);
                 cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
@@ -2681,7 +2671,6 @@ impl PlainBuilder {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                cmdbuf.begin_resource_state_transaction();
                 cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
                 cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::ComputeRead);
                 cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);

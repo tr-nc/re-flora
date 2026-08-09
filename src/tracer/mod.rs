@@ -1283,7 +1283,6 @@ impl Tracer {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                cmdbuf.begin_resource_state_transaction();
                 cmdbuf.use_buffer(
                     &self.ddgi_voxel_visibility.ddgi_voxel_visibility_info,
                     BufferUse::HostWrite,
@@ -6371,7 +6370,6 @@ impl Tracer {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
-                cmdbuf.begin_resource_state_transaction();
                 cmdbuf.use_buffer(
                     &self.resources.terrain_query.terrain_query_count,
                     BufferUse::HostWrite,

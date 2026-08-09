@@ -135,7 +135,6 @@ impl Image {
         region: TextureRegion,
     ) {
         execute_one_time_command(&self.0.device, command_pool, queue, |cmdbuf| {
-            cmdbuf.begin_resource_state_transaction();
             self.record_transition_barrier(cmdbuf, array_layer, TextureLayout::TRANSFER_SRC);
             cmdbuf.use_buffer(buffer, BufferUse::TransferWrite);
             let region = vk::BufferImageCopy::default()
@@ -443,23 +442,7 @@ impl Image {
         layer_count: u32,
         target_state: ResourceState,
     ) {
-        if cmdbuf.record_state_transition(
-            self,
-            base_array_layer,
-            layer_count,
-            target_state,
-        ) {
-            return;
-        }
-
-        let mut states = self.0.current_state.lock().unwrap();
-        self.record_state_transition_from_states(
-            cmdbuf,
-            base_array_layer,
-            layer_count,
-            target_state,
-            &mut states,
-        );
+        cmdbuf.record_state_transition(self, base_array_layer, layer_count, target_state);
     }
 
     pub(crate) fn record_state_transition_from_states(

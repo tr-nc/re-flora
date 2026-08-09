@@ -619,7 +619,6 @@ impl SurfaceBuilder {
         let record_start = Instant::now();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
-        cmdbuf.begin_resource_state_transaction();
 
         let gpu_scope = self.gpu_job_profiler.as_mut().and_then(|profiler| {
             profiler.begin_scope(
@@ -1460,7 +1459,6 @@ impl SurfaceBuilder {
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
-        cmdbuf.begin_resource_state_transaction();
 
         cmdbuf.use_buffer(&self.resources.clear_occupancy_info, BufferUse::HostWrite);
         cmdbuf.use_buffer(&self.resources.clear_occupancy_info, BufferUse::ComputeRead);
@@ -1661,7 +1659,6 @@ impl SurfaceBuilder {
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
         cmdbuf.begin(true);
-        cmdbuf.begin_resource_state_transaction();
         cmdbuf.use_buffer(
             &self.resources.instances_to_occupancy_info,
             BufferUse::HostWrite,

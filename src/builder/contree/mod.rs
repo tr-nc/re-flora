@@ -1082,7 +1082,6 @@ impl ContreeBuilder {
         let device = vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
         cmdbuf.begin(false);
-        cmdbuf.begin_resource_state_transaction();
 
         let dispatch_1x1x1 = Extent3D {
             width: 1,
@@ -1842,7 +1841,6 @@ impl ContreeBuilder {
 
         let gpu_copy_start = Instant::now();
         command_buffer.begin(true);
-        command_buffer.begin_resource_state_transaction();
         self.resources.contree_node_data.record_copy_to_buffer(
             &command_buffer,
             &readback_buffers.node_readback,

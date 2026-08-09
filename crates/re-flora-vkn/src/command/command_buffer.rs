@@ -49,7 +49,11 @@ impl CommandBuffer {
         self.0.command_buffer
     }
 
-    /// Begin recording command buffer, if the command buffer is in not in initial state (being recorded before), begin will reset the command buffer implicitly
+    /// Begins recording with a fresh Image-and-Buffer state transaction.
+    ///
+    /// Re-recording abandons any unsubmitted transaction. A successful queue submission commits
+    /// the resulting resource state; failed or abandoned recordings leave committed state
+    /// unchanged.
     pub fn begin(&self, is_onetime: bool) {
         self.0.resource_state_transaction.lock().unwrap().take();
         let flags = if is_onetime {
@@ -65,14 +69,6 @@ impl CommandBuffer {
                 .begin_command_buffer(self.0.command_buffer, &begin_info)
                 .unwrap()
         };
-    }
-
-    /// Starts an opt-in Image-and-Buffer state transaction for a cached recording path.
-    ///
-    /// Normal recordings retain their established immediate state behavior until they migrate to
-    /// this seam. A transaction is committed by the successful queue submission that accepts the
-    /// command buffer; resetting or abandoning the recording drops it unchanged.
-    pub fn begin_resource_state_transaction(&self) {
         *self.0.resource_state_transaction.lock().unwrap() =
             Some(ResourceStateTransaction::new());
     }
@@ -95,19 +91,7 @@ impl CommandBuffer {
         layer_count: u32,
         usage: ImageUse,
     ) {
-        if !self.record_state_transition(
-            image,
-            base_array_layer,
-            layer_count,
-            usage.state(),
-        ) {
-            image.record_state_transition(
-                self,
-                base_array_layer,
-                layer_count,
-                usage.state(),
-            );
-        }
+        self.record_state_transition(image, base_array_layer, layer_count, usage.state());
     }
 
     pub fn end(&self) {
@@ -125,21 +109,18 @@ impl CommandBuffer {
         base_array_layer: u32,
         layer_count: u32,
         target_state: ResourceState,
-    ) -> bool {
+    ) {
         let mut transaction = self.0.resource_state_transaction.lock().unwrap();
-        let Some(transaction) = transaction.as_mut() else {
-            return false;
-        };
-        if !transaction.transition_image(
+        let transaction = transaction
+            .as_mut()
+            .expect("Image use requires an active CommandBuffer recording");
+        transaction.transition_image(
             self,
             image,
             base_array_layer,
             layer_count,
             target_state,
-        ) {
-            return false;
-        }
-        true
+        );
     }
 
     pub(crate) fn assume_image_state(
@@ -150,22 +131,18 @@ impl CommandBuffer {
         state: ResourceState,
     ) {
         let mut transaction = self.0.resource_state_transaction.lock().unwrap();
-        if let Some(transaction) = transaction.as_mut() {
-            transaction.assume_image_state(image, base_array_layer, layer_count, state);
-            return;
-        }
-        for layer in base_array_layer..base_array_layer + layer_count {
-            image.set_state(layer, state);
-        }
+        let transaction = transaction
+            .as_mut()
+            .expect("Image state assumption requires an active CommandBuffer recording");
+        transaction.assume_image_state(image, base_array_layer, layer_count, state);
     }
 
-    pub(crate) fn record_buffer_use(&self, buffer: &Buffer, usage: BufferUse) -> bool {
+    pub(crate) fn record_buffer_use(&self, buffer: &Buffer, usage: BufferUse) {
         let mut transaction = self.0.resource_state_transaction.lock().unwrap();
-        let Some(transaction) = transaction.as_mut() else {
-            return false;
-        };
+        let transaction = transaction
+            .as_mut()
+            .expect("Buffer use requires an active CommandBuffer recording");
         transaction.use_buffer(self, buffer, usage);
-        true
     }
 
     pub(crate) fn commit_state_transaction(&self) {
