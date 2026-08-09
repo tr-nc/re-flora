@@ -2,14 +2,110 @@
 
 ## 状态
 
-本文记录 saved-terrain 场景中 DDGI 探针层亮度接缝的实施计划。当前状态为**诊断阶段进行中，
-生产修复待实施**；
-本文不包含渲染器修复，也不把现有诊断结果表述成已经确认的最终根因。
+本文记录 saved-terrain 场景中 DDGI 探针层亮度接缝的诊断与实施。当前状态为**生产修复已完成
+并通过验收**。最终 Shader/Rust 修复提交为 `41a89a6f`；太阳摄入路径的一手资料研究提交为
+`d8d96931`。
 
-计划基于分支 `agent/ddgi-seam-repro` 在提交 `38cc5dda` 时的证据。复现输入、相机、
-光照和截图流程由 [saved-terrain 复现文档](ddgi_saved_terrain_probe_seam_repro.md) 固定，
-背景研究和已完成的隔离实验见
-[DDGI 探针接缝研究](references/ddgi/ddgi_probe_seam_research.md)。
+最初计划基于分支 `agent/ddgi-seam-repro` 在提交 `38cc5dda` 时的证据。复现输入、相机、
+光照和截图流程由 [saved-terrain 复现文档](ddgi_saved_terrain_probe_seam_repro.md) 固定；
+背景研究见 [DDGI 探针接缝研究](references/ddgi/ddgi_probe_seam_research.md)，太阳路径的
+源码与官方算法对照见
+[DDGI Probe 直接太阳光摄入路径研究](references/ddgi/ddgi_probe_direct_sun_path.md)。
+
+## 2026-08-09 最终结论与实施结果
+
+### 最终根因
+
+用户提出的“蓝天采样是否偶然踩到太阳”假设已经被源码和 matched A/B 否定。DDGI miss
+只读取 authored sky 渐变与宽 halo，不读取太阳盘、`sun_luminance` 或太阳贴图。太阳能量
+来自 Probe ray 命中表面后显式发出的 exact sun shadow ray；它表示
+`Sun -> surface A -> receiver B` 的 diffuse bounce，是 DDGI/RTXGI 要求的间接光种子。
+
+把 `sun_luminance` 从 `1.65` 单独改成 `0`、同时保持 sun direction 与 sky model 不变后，
+`exact-irradiance` 从高对比 RED 变为 `contrast=2.762, bands=0`。因此 direct-sun bounce 是
+该 fixture 的必要高对比激励源，但不是应删除的错误路径。把 Probe-hit sun shadow origin
+改成精确 hit position 仍为 RED；增加 Probe ray rotation、改 spacing 或只换某一个旧空间
+权重也没有解决问题。
+
+决定性现场证据来自 S2 irradiance capture：固定墙面列上的每一个亮度台阶都与一个 terrain
+voxel Y row 切换一一重合。旧 terrain consumer 把同一 voxel 的所有像素锁到同一个
+canonical surface receiver，并把这个量化坐标同时用于 Probe position 与 surface-side
+spatial weight。一个本来连续的、由强太阳反弹形成的竖直 irradiance 梯度因此被重建为
+“每个 voxel 一个常数”的水平楼梯。旧 relocation-aware position formula 还存在已确认的
+nominal cell-face 不连续，令这个楼梯更明显；但只换 nominal trilinear、仍使用 voxel-center
+坐标并不能消除条带。
+
+最终因果链为：
+
+```text
+Probe hit 上合法的 direct-sun bounce
+  -> 墙边相邻 Probe 中形成高对比但可连续重建的 irradiance 梯度
+  -> terrain consumer 把 spatial basis 量化到 canonical voxel receiver
+  -> 旧 relocation-aware basis 又在 nominal cell face 不连续
+  -> 连续梯度变成每个 terrain voxel 一阶的水平亮度台阶
+```
+
+### 修复边界
+
+修复把 terrain DDGI query 的一个位置拆成两个职责明确的坐标：
+
+- `receiverWorldPosition` 仍是 canonical voxel surface；moment visibility、exact voxel
+  visibility、support distance、terrain invalidation、probe state 与 canonical zero/nonzero
+  分类继续使用它，保持原有防漏光边界；
+- `positionWeightWorldPosition` 使用 camera ray 的连续 `result.position`；只有 nominal
+  trilinear position weight 和 surface-side spatial weight 使用它，从而连续重建 Probe 场；
+- 若连续 spatial basis 在某个像素得到零贡献，仍回退到同一 voxel 的 canonical result，
+  防止一个 voxel 内出现黑/亮三角裂缝；
+- Probe trace、direct-sun transport、atlas、材质、默认 spacing 和最终 direct VSM 均未改变。
+
+为了保留原 terrain cache 的性能，缓存现在为八个 cage corners 保存 canonical
+`hard * moment` visibility，并以 8 个 UNORM16 打包进一个 `uint4`。缓存命中时只重采八个
+Probe irradiance 并用精确 surface position 重建连续 spatial weight。没有启用 Vulkan
+Float16/Int16 capability。
+
+### 症状与正确性验收
+
+analyzer 同时增加了“窄台阶”判定：局部 gradient 必须足够集中且 half-max width 不超过
+20 px。这样宽而连续的合法光照坡度不再被当成条带；新的 synthetic sine-gradient 测试保护
+该边界。旧 baseline 在新指标下仍为 RED（14 个窄台阶），所以这不是通过放宽指标隐藏问题。
+
+| 验收项 | 修复前 | 修复后 |
+| --- | ---: | ---: |
+| saved `exact-irradiance` | RED，14 个窄台阶 | 连续两次 GREEN，0 个窄台阶 |
+| 两次 exact contrast | `33.584` 左右 | 两次均 `34.384` |
+| 两次 exact 主边缘 | 保留 | 两次均 row `544`、gradient `0.129721` |
+| cached normal view | RED，10 个窄台阶，contrast `20.772` | GREEN，1 个孤立峰，contrast `21.107` |
+| walls spacing 32 canonical mixed-zero receiver voxels | `0` | `0` |
+| walls spacing 32 combined mixed-zero receiver voxels | `0` | `0` |
+
+完成的自动验证：
+
+- `cargo fmt --check`、`cargo check`、`cargo test`：413 passed，1 ignored；
+- `python3 -m unittest scripts.tests.test_analyze_saved_ddgi_seam`：3 passed；
+- hidden muted release：成功退出，无 ERROR、panic、Vulkan validation 或 non-finite；
+- `scripts/check_ddgi_correctness.sh`：sealed/portal/walls × spacing 32/16，6/6 PASS；
+- `scripts/check_ddgi_transport_acceptance.sh`：S0/S1/S2/converged、forward/reverse、
+  donor/dogleg、内嵌 correctness、runtime terrain edits、sky normalization 与 lifecycle
+  全部通过，最终 `failures=0`；
+- 真实 final/cached normal screenshot 由当前 release binary 重新捕获并得到 GREEN。
+
+历史 `scripts/check_patt_ddgi_seam_repro.sh` 没有进入渲染：它仍要求相机 snapshot `patt`，
+而提交 `db0a2b76` 已把配置替换为当前唯一的 `snapshot`。这是现存 fixture 漂移，不是本修复
+产生的图像失败；本次没有擅自恢复或覆盖用户的相机配置。
+
+### 性能与资源
+
+同一 saved terrain、自动 present mode、2880x1620 hidden release、只统计 frame >= 1000：
+
+| GPU scope | baseline median / p95 | fixed median / p95 | median delta |
+| --- | ---: | ---: | ---: |
+| `frame.render` | `1894 / 3432.2 us` | `1932 / 2422.3 us` | `+38 us` (`+2.0%`) |
+| `tracer.render` | `663 / 1364.6 us` | `699 / 723.6 us` | `+36 us` |
+| `tracer.pass` | `334 / 390.4 us` | `371 / 395.6 us` | `+37 us` |
+
+整帧 mean 从 `2023.0 us` 到 `2015.5 us`；P95 的下降属于该场景调度噪声，不作为性能收益
+宣称。可归因的稳定成本是 main tracer 约 `37 us`。terrain DDGI cache 从 32 MiB 增至
+48 MiB，即额外 16 MiB GPU memory。生成文件和 `config/gui.toml` 均未变化。
 
 ## 2026-08-07 诊断进展
 
@@ -380,7 +476,7 @@ terrain snapshot 和 `target/` 捕获是本地 ignored artifact，不进入 comm
 | 通过模糊或降低对比得到假 GREEN | 明确保留主边缘、主光束与 baseline gradient 门槛 |
 | 调试改动污染生产路径 | 每个诊断入口默认关闭；最终阶段删除一次性 readback |
 
-## Definition of Done
+## Definition of Done（历史计划与最终记录）
 
 只有同时满足以下条件才能宣告修复完成：
 
@@ -395,8 +491,13 @@ terrain snapshot 和 `target/` 捕获是本地 ignored artifact，不进入 comm
 - 临时 instrumentation 已删除，研究与计划文档已记录最终结论；
 - 每个 validated step 已独立提交，工作区没有与本任务相关的未提交改动。
 
-## 实施前仍需确认的信息
+最终除历史 patt camera gate 外均已满足。`patt` runner 的阻塞发生在渲染前，原因是现有
+camera config 不再包含该脚本要求的 snapshot；当前 saved-terrain 症状门槛、通用 correctness、
+完整 transport、runtime edits 与 lifecycle 均已通过。该 fixture 漂移被明确保留为后续维护项，
+没有用临时相机替代品把它伪造成 PASS。
 
-唯一会阻塞实施、但不阻塞本计划落稿的信息是：权威
-`saves/terrain_snapshot.rflterrain` 的可恢复来源。开始阶段 0 时，需要先定位原始文件、
-备份或能够产生相同 SHA-256 的保存流程。
+## 历史输入阻塞已解除
+
+权威 `saves/terrain_snapshot.rflterrain` 已恢复并用于全部最终捕获：大小 `134,218,112`
+bytes，SHA-256 为
+`c1994a9bb602a2d172545c85ae17ba5e72346aedb340f31575b60cf8170ece72`。

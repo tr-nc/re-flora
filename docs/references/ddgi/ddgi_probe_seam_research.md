@@ -1,6 +1,25 @@
 # DDGI probe-layer seam research
 
-Status: diagnosis only; no renderer change is proposed or implemented by this note
+Status: historical diagnosis; resolved by `41a89a6f`
+
+## Resolution addendum (2026-08-09)
+
+Subsequent matched captures found that every narrow wall-lighting step coincided with one
+terrain-voxel row transition. The final defect was therefore not a solar sample in the sky and
+not an already-banded probe atlas. The terrain consumer used its canonical voxel-surface
+receiver for both visibility geometry and spatial interpolation, quantizing a continuous,
+sun-driven probe gradient into one value per voxel. The old relocation-aware position basis
+also had a confirmed nominal-cell-face discontinuity.
+
+The production fix keeps canonical geometry for moment/exact visibility, support, invalidation,
+and the zero/nonzero safety class, but uses the exact surface hit only for nominal trilinear and
+surface-side spatial weights. Two clean-start exact-irradiance captures report zero narrow
+steps; the real cached Final view changed from ten steps to one isolated peak and is GREEN.
+Full transport, correctness, runtime-edit, and lifecycle acceptance completed with zero
+failures. See [`ddgi_probe_seam_fix_plan.md`](../../ddgi_probe_seam_fix_plan.md) for the final
+metrics, performance cost, and validation record, and
+[`ddgi_probe_direct_sun_path.md`](ddgi_probe_direct_sun_path.md) for why explicit sun lighting
+on a Probe hit is intended bounced indirect lighting.
 
 ## Question and short answer
 

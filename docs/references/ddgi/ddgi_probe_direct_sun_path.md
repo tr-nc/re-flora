@@ -4,7 +4,8 @@
 
 源码基线：`f9d783d8`（`agent/ddgi-sun-research`）
 
-状态：根因分层诊断；本文不修改 Shader 或 Rust 实现
+状态：研究完成；生产修复与最终验收见 `41a89a6f` 和
+[`ddgi_probe_seam_fix_plan.md`](../../ddgi_probe_seam_fix_plan.md)
 
 ## 结论先行
 
@@ -27,9 +28,29 @@
    以及“raw atlas 自身已经带状”都已被现有证据排除为必要条件。
 5. 已确认一个相关的项目缺陷：当前 relocation-aware position weight 在 nominal cell face
    两侧不连续。但是临时切换 ordinary nominal trilinear 后真实截图仍为 RED，所以它不是完整
-   根因。**现在还缺一个干净的 `sun_luminance 1.65 -> 0` matched `exact-irradiance` A/B**；这项
-   实验在不改变 sky model 的情况下能直接判断 Probe hit 的 direct-sun 项是不是层带的必要
-   激励源。
+   根因。后续 `sun_luminance 1.65 -> 0` matched `exact-irradiance` A/B 已完成：保持 sky model
+   不变时，zero-sun 变为 `contrast=2.762, bands=0`。这确认 explicit direct term 是该场景的
+   必要高对比激励源，不代表应删除这条合法的 bounced-indirect 路径。
+
+## 后续现场验证与最终判断
+
+研究提出的关键 A/B 后来在权威 saved terrain、固定 camera、固定 sun direction 和收敛场上
+执行完毕：
+
+- 只把 `sun_luminance` 从 `1.65` 设为 `0` 后，sky miss 输出不变，内部层带消失；
+- 把 Probe-hit sun shadow origin 改为精确 `result.position` 后仍为 RED，说明 canonical sun
+  origin 不是完整根因；
+- 给每个 Probe 加确定性 SO(3) ray rotation 没有改善；spacing 16 反而更糟，密度或角采样
+  不是可单独成立的修复；
+- S2 capture 中，固定墙列上的每个亮度台阶与 terrain voxel Y row 切换精确重合；
+- 让 spatial position 与 surface-side weight 使用连续 hit position，同时把 visibility、
+  support、invalidation 和 zero class 留在 canonical receiver 后，重复 exact capture 从 RED
+  变成两次 `bands=0`，真实 cached Final view 也变为 GREEN。
+
+因此最终分层判断是：**太阳是合法能量源和必要放大器；形成可见规则层带的项目缺陷，是
+terrain consumer 把连续 Probe spatial reconstruction 量化到 canonical voxel receiver，
+并叠加旧 relocation-aware cell-face 不连续。** 修复保留 Probe-hit direct sun，只拆分
+visibility receiver 与 spatial-weight position 的职责。完整证据与性能代价见上述修复计划。
 
 ## 需要先区分的两个问题
 
@@ -120,7 +141,8 @@ shadow。
 [`terrain_ray_origin.slang`](../../../shader/slang/terrain_ray_origin.slang)，
 `terrainRayOriginAlongNormal()`。
 
-这条实现有两个与墙边高对比直接相关、但尚未被证明有错的项目特性：
+研究阶段把两个 Re: Flora 特有行为列为候选；后续实验已表明它们能增加离散性，但不是本次
+层带的充分根因：
 
 - shadow ray 从 canonical `center_position` 派生点出发，而不是 Probe ray 的精确
   `result.position`；
@@ -272,22 +294,21 @@ CPU 一维 oracle 也确认 shared-probe weight 在相邻 cell 两侧为 `1.0` �
 - binary central-direction sun visibility、canonical hit receiver、256-ray sparse angular
   sampling 和 32-voxel spacing 共同让墙边开口成为很强的压力测试。
 
-### 仍待验证的假设
+### 假设的最终状态
 
-- H-SUN-NECESSARY：把 Probe-hit `directIrradiance` 归零后，内部层带是否消失；
-- H-SUN-ORIGIN：`center_position` 派生的 sun shadow origin 是否在墙/屋顶边缘把本应遮挡的
-  hit 分类为 lit；
-- H-SPATIAL-REMAINING：修复已知 position continuity 后，是否仍需要更平滑且连续的空间
-  reconstruction 才能混合高对比 Probe 值；
-- H-RESOLUTION：若连续 reconstruction 仍失败，层带是否随 spacing 32/16/8 缩放，从而属于
-  稀疏场质量上限。
+- H-SUN-NECESSARY：**确认是必要激励源**。Probe-hit `directIrradiance` 归零后内部层带消失，
+  但该项仍是正确的 bounced indirect；
+- H-SUN-ORIGIN：**不是充分根因**。精确 `result.position` sun origin 对照仍为 RED；
+- H-SPATIAL-REMAINING：**确认**。必须让 spatial reconstruction 使用连续 hit position，同时
+  保留 canonical visibility 与 fail-closed 分类；
+- H-RESOLUTION：**否定为单独修复**。spacing 16 没有消除症状，部分对照反而更差。
 
-## 最小、判别力最高的下一步实验
+## 判别实验协议与已执行结果
 
 ### A/B 1：只把 `sun_luminance` 从 1.65 改为 0
 
 保持 terrain、camera、sun direction、sky source、spacing、ray count 和 debug view 全部不变，
-重新 build 到 converged，然后比较 `exact-irradiance`：
+重新 build 到 converged，然后比较 `exact-irradiance`。该实验后来已按此协议执行：
 
 - A：`sun_luminance=1.65`；
 - B：`sun_luminance=0`。
@@ -303,10 +324,10 @@ CPU 一维 oracle 也确认 shared-probe weight 在相邻 cell 两侧为 `1.0` �
   per-Probe transport 和 shadow-origin 诊断；
 - B 只降低 contrast、不消除 band count：太阳是放大器，空间查询仍是形成层带的机制。
 
-该 A/B 尚未在本文工作树执行；权威 `saves/terrain_snapshot.rflterrain` 和历史 capture
-artifact 都不在该独立研究 worktree 中，本文不以历史截图代替新的 matched run。
+现场结果为：A 稳定复现高对比层带；B 为 `contrast=2.762, bands=0`。这确认太阳是必要
+激励源。它没有改变 sky miss，也没有提供删除 direct-sun transport 的依据。
 
-### A/B 2：如果太阳是必要条件，拆开 hit direct 的三个中间量
+### A/B 2：原计划中的 per-Probe transport 拆分
 
 对层带上下最相关的 Probe 记录，不做逐像素全量日志，只记录：
 
@@ -316,18 +337,21 @@ artifact 都不在该独立研究 worktree 中，本文不以历史截图代替�
 - sky、direct-sun、previous-DDGI 三项各自的 RGB 能量和；
 - sun-visible hits 的 `result.position`、`center_position` 派生 origin 与第一遮挡 voxel。
 
-这会区分：
+该拆分原本用于区分：
 
 1. 合法的 aperture sampling 差异；
 2. canonical shadow origin 的遮挡误判；
 3. angular undersampling；
 4. 后续 spatial weighting 对正常 Probe 差异的放大。
 
-### A/B 3：只有观察到 origin 误判后，才比较 receiver
+后续 S2 receiver/voxel-row 对齐证据和 spatial-position matched A/B 已直接确认第 4 条；因此
+生产修复没有继续增加全量 per-ray instrumentation。
 
-比较 `center_position` canonical origin 与精确 `result.position + normal * offset` 时，必须同时
-记录 self-hit、漏光和 repeated-run stability。不能因为精确 hit position 让当前截图变平滑，就
-忽略它可能重新引入同一体素内变化或薄墙漏光。
+### A/B 3：sun shadow receiver 对照
+
+比较 `center_position` canonical origin 与精确 `result.position + normal * offset` 后，
+`exact-irradiance` 仍为 RED，因此没有把 exact hit 用于 sun transport，也避免重新引入
+self-hit、薄墙漏光和同一体素内不稳定。
 
 ## 修复决策边界
 
@@ -335,11 +359,8 @@ artifact 都不在该独立研究 worktree 中，本文不以历史截图代替�
   与 DDGI 论文、RTXGI 官方集成和本仓库 indirect-transport spec 都相违背。
 - **不要用降低 sun luminance、提高 albedo 暗部、模糊 Irradiance Map 或提高默认 Probe 密度
   作为修复。** 这些只能降低症状对比，不能建立连续性契约。
-- 如果 zero-sun A/B 仍 RED，优先完成 spatial reconstruction 的连续性修复与真实截图门槛；
-  不再追 sky disk。
-- 如果 zero-sun A/B GREEN，保留 direct-sun transport 的物理角色，先修被证实的 sun-shadow
-  origin/visibility 错误；若所有 hit 分类都正确，则把问题定性为高频 lighting 对低频稀疏 DDGI
-  的压力场景，并为 query reconstruction 或可负担 density 建立明确质量界限。
+- zero-sun A/B 最终为 GREEN，但 sun-shadow origin 对照仍为 RED；因此保留 direct-sun
+  transport，并修复已被 receiver-row 证据确认的 spatial reconstruction 量化。
 - 任一修复必须让 `exact-irradiance` 与 normal view 的内部 band metric 共同 GREEN，同时保留
   真实 elongated beam，且 sealed/thin-wall/terrain-edit gates 不回归。
 
