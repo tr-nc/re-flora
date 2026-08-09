@@ -183,24 +183,6 @@ impl SceneAccelBuilder {
         })
     }
 
-    pub fn update_scene_tex_ready(&self, job: &SceneTexUpdateJob) -> Result<bool> {
-        job.gpu_job
-            .is_complete()
-            .map_err(|err| anyhow::anyhow!("failed to poll scene tex update GPU job: {err}"))
-    }
-
-    pub fn wait_update_scene_tex(&self, job: &SceneTexUpdateJob) -> Result<()> {
-        job.gpu_job.wait()?;
-        Ok(())
-    }
-
-    /// Consumes a submitted scene-texture update without publishing a logical
-    /// result.  Shutdown must not advance the terrain rebuild pipeline.
-    pub fn discard_update_scene_tex(&mut self, job: SceneTexUpdateJob) -> Result<()> {
-        let _completed_gpu_job = job.gpu_job.wait_complete()?;
-        Ok(())
-    }
-
     pub fn finish_update_scene_tex(
         &mut self,
         job: SceneTexUpdateJob,

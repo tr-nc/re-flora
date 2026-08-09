@@ -41,8 +41,6 @@ impl App {
         log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
         self.discard_terrain_sdf_source_refresh_for_shutdown()
             .context("discard terrain SDF source refresh")?;
-        self.discard_deferred_chunk_rebuild_for_shutdown()
-            .context("discard deferred terrain rebuild")?;
         self.contree_builder
             .discard_active_cpu_chunk_cache_job()
             .context("discard active Contree CPU-cache GPU readback")?;

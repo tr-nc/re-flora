@@ -234,8 +234,6 @@ pub struct AppOptions {
     pub tree_bench: bool,
     /// Number of tree benchmark samples.
     pub tree_bench_samples: u32,
-    /// Do not wait for deferred rebuilds between tree benchmark samples.
-    pub tree_bench_rapid: bool,
     /// Run the authored special-flora paint benchmark and exit after completion.
     pub authored_flora_bench: bool,
     /// Number of authored flora benchmark paint samples.
@@ -543,7 +541,6 @@ impl AppOptions {
                 .any(|a| a == "--environment-probe-visualization"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
-            tree_bench_rapid: args.iter().any(|a| a == "--tree-bench-rapid"),
             authored_flora_bench: args.iter().any(|a| a == "--authored-flora-bench"),
             authored_flora_bench_samples: parse_u32_after("--authored-flora-bench-samples")
                 .unwrap_or(25),
@@ -839,7 +836,6 @@ Options:
                               Visualize the environment probe grid (debug; default: off)
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
-  --tree-bench-rapid          Do not wait for deferred rebuilds between samples
   --authored-flora-bench      Run authored special-flora paint benchmark and exit
   --authored-flora-bench-samples <N>
                               Authored flora benchmark paint samples (default: 25)

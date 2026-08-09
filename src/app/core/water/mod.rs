@@ -792,8 +792,7 @@ impl App {
     }
 
     fn water_terrain_work_active(&self) -> bool {
-        !self.deferred_chunk_rebuilds_idle()
-            || !self.deferred_terrain_sdf_source_refreshes.is_idle()
+        !self.deferred_terrain_sdf_source_refreshes.is_idle()
             || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
             || !self.deferred_water_terrain_cache_rebuilds.is_idle()
     }
@@ -813,7 +812,6 @@ impl App {
             return;
         }
         if !self.water_terrain_initialized
-            || !self.deferred_chunk_rebuilds_idle()
             || !self.deferred_terrain_sdf_source_refreshes.is_idle()
             || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
             || !self.deferred_water_terrain_cache_rebuilds.is_idle()

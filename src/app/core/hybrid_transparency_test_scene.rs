@@ -34,7 +34,7 @@ pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.26, 0.2, 0.54);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TestScenePhase {
     Pending,
-    WaitingForRebuild,
+    TerrainPublished,
     Settling { frames: u8, terrain_revision: u32 },
     WaitingForProbeField { terrain_revision: u32 },
     Ready,
@@ -165,9 +165,7 @@ impl App {
                 let Some(render_start) = self.render_start_time else {
                     return;
                 };
-                if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS
-                    || !self.deferred_chunk_rebuilds_idle()
-                {
+                if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS {
                     return;
                 }
 
@@ -178,24 +176,21 @@ impl App {
                     .context("compile deterministic hybrid transparency test scene")
                     .and_then(|plan| self.execute_edit_plan(plan))
                 {
-                    Ok(()) => TestScenePhase::WaitingForRebuild,
+                    Ok(()) => TestScenePhase::TerrainPublished,
                     Err(err) => {
                         log::error!("[HYBRID_ALPHA_TEST] construction failed: {err:#}");
                         TestScenePhase::Failed
                     }
                 }
             }
-            TestScenePhase::WaitingForRebuild => {
-                if !self.deferred_chunk_rebuilds_idle() {
-                    return;
-                }
+            TestScenePhase::TerrainPublished => {
                 let terrain_revision = self
                     .observe_initial_published_terrain_for_ddgi()
                     .unwrap_or_else(|err| {
                         panic!("[HYBRID_ALPHA_TEST] DDGI visibility publication failed: {err:#}")
                     });
                 log::info!(
-                    "[HYBRID_ALPHA_TEST] terrain rebuild complete revision={}; settling {} frames",
+                    "[HYBRID_ALPHA_TEST] visible terrain publication complete revision={}; settling {} frames",
                     terrain_revision,
                     SETTLE_FRAMES,
                 );

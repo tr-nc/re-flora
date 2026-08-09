@@ -91,10 +91,6 @@ impl App {
         self.water_sim.pause_and_wait()?;
         self.terrain_persistence_water_paused = true;
         self.vulkan_ctx.device().wait_idle();
-        anyhow::ensure!(
-            self.finish_visible_rebuilds_for_persistence(),
-            "visible terrain publication did not reach Ready before snapshot access"
-        );
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         anyhow::ensure!(
             self.contree_builder.cpu_chunk_cache_jobs_idle(),
@@ -147,7 +143,6 @@ impl App {
         change: VisibleTerrainChange,
     ) -> Result<PublishedTerrain> {
         let chunk_ids = change.affected_chunks()?;
-        self.prepare_visible_terrain_publication(&chunk_ids)?;
         let started_at = Instant::now();
 
         match change.rebuild {
@@ -196,19 +191,6 @@ impl App {
             revision,
             rebuilt_chunks: chunk_ids.len(),
         })
-    }
-
-    fn prepare_visible_terrain_publication(&mut self, chunk_ids: &[UVec3]) -> Result<()> {
-        if self.terrain_chunk_rebuild_inflight.is_some() {
-            anyhow::ensure!(
-                self.finish_deferred_chunk_rebuild_blocking(),
-                "failed to finish the previous visible terrain publication"
-            );
-        }
-        for &chunk_id in chunk_ids {
-            self.deferred_chunk_rebuilds.clear(chunk_id);
-        }
-        Ok(())
     }
 }
 

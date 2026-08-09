@@ -107,7 +107,7 @@ const TEST_REBUILD_MAX: UVec3 = UVec3::new(440, 244, 416);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TestScenePhase {
     Pending,
-    WaitingForRebuild,
+    TerrainPublished,
     Settling {
         frames: u8,
         terrain_revision: u32,
@@ -186,7 +186,7 @@ enum TestScenePhase {
         density_token_serial: u64,
         density_field: DdgiFieldIdentity,
     },
-    WaitingForEditedTerrain {
+    TerrainEditPublished {
         edit: TerrainEdit,
         target_revision: u32,
     },
@@ -411,7 +411,7 @@ impl EnvironmentLightingTestScene {
             return None;
         }
         match self.phase {
-            TestScenePhase::WaitingForEditedTerrain {
+            TestScenePhase::TerrainEditPublished {
                 target_revision, ..
             }
             | TestScenePhase::WaitingForEditedProbeField {
@@ -456,7 +456,7 @@ impl EnvironmentLightingTestScene {
     pub(super) fn phase_label(&self) -> &'static str {
         match self.phase {
             TestScenePhase::Pending => "pending",
-            TestScenePhase::WaitingForRebuild => "waiting-for-initial-terrain",
+            TestScenePhase::TerrainPublished => "terrain-published",
             TestScenePhase::Settling { .. } => "settling-initial-terrain",
             TestScenePhase::WaitingForProbeField { .. } => "waiting-for-initial-probe-field",
             TestScenePhase::WaitingForRadianceBaseline { .. } => "waiting-for-radiance-baseline",
@@ -497,7 +497,7 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForDensityFinalPublished { .. } => {
                 "waiting-for-density-final-published"
             }
-            TestScenePhase::WaitingForEditedTerrain { .. } => "waiting-for-edited-terrain",
+            TestScenePhase::TerrainEditPublished { .. } => "terrain-edit-published",
             TestScenePhase::WaitingForEditedProbeField { .. } => "waiting-for-edited-probe-field",
             TestScenePhase::WaitingForDensityRebuild { .. } => "waiting-for-density-rebuild",
             TestScenePhase::CapturingInflightFailClosed { .. } => "capturing-inflight-fail-closed",
@@ -921,9 +921,7 @@ impl App {
                 let Some(render_start) = self.render_start_time else {
                     return;
                 };
-                if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS
-                    || !self.deferred_chunk_rebuilds_idle()
-                {
+                if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS {
                     return;
                 }
 
@@ -944,7 +942,7 @@ impl App {
                             rebuild_bound.min(),
                             rebuild_bound.max(),
                         );
-                        TestScenePhase::WaitingForRebuild
+                        TestScenePhase::TerrainPublished
                     }
                     Err(err) => {
                         log::error!("[ENV_LIGHT_TEST] construction failed: {err:#}");
@@ -952,10 +950,7 @@ impl App {
                     }
                 }
             }
-            TestScenePhase::WaitingForRebuild => {
-                if !self.deferred_chunk_rebuilds_idle() {
-                    return;
-                }
+            TestScenePhase::TerrainPublished => {
                 let terrain_revision = self
                     .observe_initial_published_terrain_for_ddgi()
                     .unwrap_or_else(|err| {
@@ -1014,7 +1009,7 @@ impl App {
                         TerrainEdit::CloseSkylight,
                         terrain_revision,
                     ) {
-                        Ok(target_revision) => TestScenePhase::WaitingForEditedTerrain {
+                        Ok(target_revision) => TestScenePhase::TerrainEditPublished {
                             edit: TerrainEdit::CloseSkylight,
                             target_revision,
                         },
@@ -1543,15 +1538,12 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
-            TestScenePhase::WaitingForEditedTerrain {
+            TestScenePhase::TerrainEditPublished {
                 edit,
                 target_revision,
             } => {
-                if !self.deferred_chunk_rebuilds_idle() {
-                    return;
-                }
                 log::info!(
-                    "[ENV_LIGHT_EDIT_CYCLE] edited terrain ready edit={} target_revision={}",
+                    "[ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit={} target_revision={}",
                     edit.label(),
                     target_revision,
                 );
@@ -1586,7 +1578,7 @@ impl App {
                         TerrainEdit::ReopenSkylight,
                         target_revision,
                     ) {
-                        Ok(reopen_revision) => TestScenePhase::WaitingForEditedTerrain {
+                        Ok(reopen_revision) => TestScenePhase::TerrainEditPublished {
                             edit: TerrainEdit::ReopenSkylight,
                             target_revision: reopen_revision,
                         },
@@ -1657,7 +1649,7 @@ impl App {
                                 TerrainEdit::ReopenSkylight,
                                 target_revision,
                             ) {
-                                Ok(reopen_revision) => TestScenePhase::WaitingForEditedTerrain {
+                                Ok(reopen_revision) => TestScenePhase::TerrainEditPublished {
                                     edit: TerrainEdit::ReopenSkylight,
                                     target_revision: reopen_revision,
                                 },

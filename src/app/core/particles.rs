@@ -381,9 +381,6 @@ impl App {
         if self.butterfly_spawn_source_refresh_elapsed < BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS {
             return;
         }
-        if self.deferred_surface_rebuild_inflight() {
-            return;
-        }
         self.butterfly_spawn_source_refresh_elapsed = 0.0;
 
         let ground_voxels = match self.surface_builder.flora_base_world_voxels() {

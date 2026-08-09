@@ -19,7 +19,6 @@ mod placeables;
 mod planting;
 mod player_tools;
 mod screenshot;
-mod terrain_rebuild;
 mod tree_bench;
 mod ui_style;
 mod vegetation;
@@ -40,7 +39,6 @@ use self::particles::TreeLeafEmitter;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerEmitter, SprinklerRecord};
 use self::player_tools::PlayerToolState;
-use self::terrain_rebuild::{ChunkRebuildRequest, TerrainChunkRebuildInFlight};
 use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRecord, TreeVariationConfig};
 use self::visible_terrain::VisibleTerrainChange;
@@ -52,8 +50,8 @@ use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
-    ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
-    SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
+    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
+    VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
 use crate::ddgi::{
     DdgiBuildToken, DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid, DdgiVolumeStage,
@@ -433,8 +431,6 @@ pub struct App {
     hybrid_transparency_test_scene:
         Option<hybrid_transparency_test_scene::HybridTransparencyTestScene>,
     visible_terrain_revision: u32,
-    deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
-    terrain_chunk_rebuild_inflight: Option<TerrainChunkRebuildInFlight>,
     shutdown_started: bool,
 
     // note: always keep the context to end, as it has to be destroyed last
@@ -708,10 +704,6 @@ impl App {
     }
 
     fn update_growing_flora_chunk(&mut self) {
-        if self.deferred_surface_rebuild_inflight() {
-            return;
-        }
-
         let Some(GrowingFloraChunk {
             chunk_id,
             last_flora_tick,
@@ -1530,7 +1522,7 @@ impl App {
             auto_exit_delay: options.auto_exit_delay,
             tree_bench: options
                 .tree_bench
-                .then(|| TreeBench::new(options.tree_bench_samples, options.tree_bench_rapid)),
+                .then(|| TreeBench::new(options.tree_bench_samples)),
             authored_flora_bench: options
                 .authored_flora_bench
                 .then(|| AuthoredFloraBench::new(options.authored_flora_bench_samples)),
@@ -1542,8 +1534,6 @@ impl App {
                 .hybrid_transparency_test_scene
                 .then(hybrid_transparency_test_scene::HybridTransparencyTestScene::new),
             visible_terrain_revision: 0,
-            deferred_chunk_rebuilds: LatestChunkQueue::default(),
-            terrain_chunk_rebuild_inflight: None,
             shutdown_started: false,
 
             spatial_sound_manager,
@@ -3333,9 +3323,6 @@ impl App {
                 cpu_timings.time(FrameCpuScope::TerrainSource, || {
                     self.process_terrain_sdf_source_updates();
                 });
-                cpu_timings.time(FrameCpuScope::DeferredRebuild, || {
-                    self.process_deferred_chunk_rebuild();
-                });
                 cpu_timings.time(FrameCpuScope::WaterCache, || {
                     self.process_deferred_water_terrain_cache_rebuild();
                 });
@@ -3348,9 +3335,7 @@ impl App {
                 });
                 self.process_environment_lighting_test_scene();
                 self.process_hybrid_transparency_test_scene();
-                if self.deferred_chunk_rebuilds_idle() {
-                    self.tracer.drive_pending_ddgi_rebuild();
-                }
+                self.tracer.drive_pending_ddgi_rebuild();
 
                 if self.render_start_time.is_some() {
                     if let Some(spacing_voxels) =
@@ -4540,14 +4525,13 @@ impl App {
                     let queue_work_ms = cpu_timings.queue_work_ms();
                     if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
                         log::info!(
-                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms deferred_rebuild {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues deferred_pending={} deferred_active={} deferred_inflight={} source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
+                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
                             frame_count,
                             total_ms,
                             egui_ms,
                             gpu_ms,
                             frame_timing_snapshot.contree_poll_ms,
                             frame_timing_snapshot.terrain_source_ms,
-                            frame_timing_snapshot.deferred_rebuild_ms,
                             frame_timing_snapshot.water_cache_ms,
                             frame_timing_snapshot.collider_queue_ms,
                             frame_timing_snapshot.water_edit_soak_ms,
@@ -4555,9 +4539,6 @@ impl App {
                             frame_timing_snapshot.particles_ms,
                             frame_timing_snapshot.tracked_cpu_ms,
                             frame_timing_snapshot.untracked_cpu_ms,
-                            self.deferred_chunk_rebuilds.len(),
-                            self.deferred_chunk_rebuilds.active_len(),
-                            self.terrain_chunk_rebuild_inflight.is_some(),
                             self.deferred_terrain_sdf_source_refreshes.len(),
                             self.deferred_terrain_sdf_source_refreshes.active_len(),
                             self.deferred_terrain_sdf_collider_rebuilds.len(),

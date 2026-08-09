@@ -1634,12 +1634,6 @@ impl ContreeBuilder {
         })
     }
 
-    pub fn build_and_alloc_ready(&self, job: &ContreeBuildJob) -> Result<bool> {
-        job.gpu_job
-            .is_complete()
-            .map_err(|err| anyhow::anyhow!("failed to poll contree build GPU job: {err}"))
-    }
-
     pub fn wait_build_and_alloc(&self, job: &ContreeBuildJob) -> Result<()> {
         job.gpu_job.wait()?;
         Ok(())
@@ -1658,19 +1652,6 @@ impl ContreeBuilder {
             job.node_alloc_id,
             job.leaf_alloc_id,
         );
-    }
-
-    /// Shutdown variant of stale-build discard. It preserves the normal
-    /// runtime helper's best-effort logging contract while allowing the
-    /// application shutdown coordinator to fail fast if completion cannot be
-    /// observed.
-    pub fn discard_build_and_alloc_for_shutdown(&mut self, job: ContreeBuildJob) -> Result<()> {
-        let chunk_idx = job.chunk_idx;
-        let node_alloc_id = job.node_alloc_id;
-        let leaf_alloc_id = job.leaf_alloc_id;
-        let _completed_gpu_job = job.gpu_job.wait_complete()?;
-        self.deallocate_stale_build_allocations(chunk_idx, node_alloc_id, leaf_alloc_id);
-        Ok(())
     }
 
     fn deallocate_stale_build_allocations(
