@@ -42,14 +42,13 @@ use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
 use self::loading::{LoadingPhase, LoadingState};
-use self::particles::TreeLeafEmitterRuntime;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
-use self::vegetation::{TreeRecord, TreeVariationConfig};
+use self::vegetation::{TreeRuntime, TreeVariationConfig};
 use self::visible_terrain::VisibleTerrainChange;
 use self::voxel_backpack::VoxelBackpack;
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
@@ -94,8 +93,6 @@ use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText,
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 use rand::RngExt;
-use std::collections::HashMap;
-
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
     SwapchainFrameError, SwapchainFrameManager,
@@ -341,17 +338,9 @@ pub struct App {
     tree_variation_config: TreeVariationConfig,
     #[allow(dead_code)]
     regenerate_trees_requested: bool,
-    prev_bound: UAabb3,
-    tree_records: HashMap<u32, TreeRecord>,
-
-    // multi-tree management
-    #[allow(dead_code)]
-    next_tree_id: u32,
-    #[allow(dead_code)]
-    single_tree_id: u32, // ID for GUI single tree mode
+    trees: TreeRuntime,
 
     particle_system: ParticleSystem,
-    tree_leaf_emitters: TreeLeafEmitterRuntime,
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     butterfly_spawn_source_refresh_elapsed: f32,
@@ -967,7 +956,7 @@ impl App {
             color_high: color_to_vec4(debug_settings.adjustables.leaves_tip_color.value),
             ..LeafEmitterDesc::default()
         };
-        let tree_leaf_emitters = TreeLeafEmitterRuntime::new(leaf_emitter_desc);
+        let trees = TreeRuntime::new(leaf_emitter_desc);
         let tree_audio_manager = TreeAudioManager::new(
             spatial_sound_manager.clone(),
             Self::tree_audio_wind_response_curve(&debug_settings.adjustables),
@@ -1100,8 +1089,7 @@ impl App {
             tree_placement_preview_desc,
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
-            prev_bound: Default::default(),
-            tree_records: HashMap::new(),
+            trees,
             config_panel_visible: false,
             environment_probe_spacing_draft: options.environment_probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels: options
@@ -1131,12 +1119,7 @@ impl App {
             moisture_spread_chunk_cursor: 0,
             growing_flora_chunks: GrowingFloraQueue::default(),
 
-            // multi-tree management
-            next_tree_id: 1, // Start from 1, use 0 for GUI single tree
-            single_tree_id: 0,
-
             particle_system,
-            tree_leaf_emitters,
             butterfly_emitters,
             butterfly_emitter_desc,
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,

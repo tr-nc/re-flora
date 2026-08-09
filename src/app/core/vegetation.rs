@@ -1,3 +1,4 @@
+use super::particles::TreeLeafEmitterRuntime;
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
 use super::visible_terrain::VisibleTerrainChange;
@@ -12,13 +13,14 @@ use crate::builder::{
 };
 use crate::flora::species;
 use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
+use crate::particles::{LeafEmitterDesc, ParticleSystem};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tree_gen::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
-use crate::util::cluster_positions;
+use crate::util::{cluster_positions, ClusterResult};
 use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
@@ -801,18 +803,134 @@ fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct TreeRecord {
+struct TreeRecord {
     position: Vec3,
     bound: UAabb3,
     mature_desc: TreeDesc,
     trunk_geometry: TreeTrunkGeometry,
-    pub(super) butterfly_spawn_positions_ws: Vec<Vec3>,
+    butterfly_spawn_positions_ws: Vec<Vec3>,
+}
+
+pub(super) struct TreeRuntime {
+    records: HashMap<u32, TreeRecord>,
+    next_tree_id: u32,
+    tuned_tree_id: u32,
+    previous_bound: UAabb3,
+    leaf_emitters: TreeLeafEmitterRuntime,
+}
+
+impl TreeRuntime {
+    pub(super) fn new(leaf_emitter_desc: LeafEmitterDesc) -> Self {
+        Self {
+            records: HashMap::new(),
+            next_tree_id: 1,
+            tuned_tree_id: 0,
+            previous_bound: UAabb3::default(),
+            leaf_emitters: TreeLeafEmitterRuntime::new(leaf_emitter_desc),
+        }
+    }
+
+    fn placement_id(&self, assign_new_id: bool) -> u32 {
+        if assign_new_id {
+            self.next_tree_id
+        } else {
+            self.tuned_tree_id
+        }
+    }
+
+    fn tuned_tree_id(&self) -> u32 {
+        self.tuned_tree_id
+    }
+
+    fn contains(&self, tree_id: u32) -> bool {
+        self.records.contains_key(&tree_id)
+    }
+
+    fn tuned_record(&self) -> Option<TreeRecord> {
+        self.records.get(&self.tuned_tree_id).cloned()
+    }
+
+    fn age_rebuild_sources(&self) -> Vec<(u32, TreeRecord)> {
+        self.records
+            .iter()
+            .map(|(&tree_id, record)| (tree_id, record.clone()))
+            .collect()
+    }
+
+    fn procedural_tree_ids(&self) -> Vec<u32> {
+        self.records
+            .keys()
+            .copied()
+            .filter(|&tree_id| tree_id != self.tuned_tree_id)
+            .collect()
+    }
+
+    fn stage_tuned_description(&mut self, mature_desc: TreeDesc) -> bool {
+        let Some(record) = self.records.get_mut(&self.tuned_tree_id) else {
+            return false;
+        };
+        record.mature_desc = mature_desc;
+        true
+    }
+
+    fn commit_placement(
+        &mut self,
+        tree_id: u32,
+        record: TreeRecord,
+        leaf_clusters: &[ClusterResult],
+    ) {
+        if tree_id == self.next_tree_id {
+            self.next_tree_id += 1;
+        }
+        self.previous_bound = self.previous_bound.union_with(&record.bound);
+        self.records.insert(tree_id, record);
+        self.leaf_emitters.upsert(tree_id, leaf_clusters);
+    }
+
+    fn commit_removal(&mut self, tree_id: u32) -> Option<TreeRecord> {
+        self.leaf_emitters.remove(tree_id);
+        self.records.remove(&tree_id)
+    }
+
+    fn observe_previous_bound(&mut self, bound: UAabb3) {
+        self.previous_bound = self.previous_bound.union_with(&bound);
+    }
+
+    fn previous_bound(&self) -> UAabb3 {
+        self.previous_bound
+    }
+
+    fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    pub(super) fn butterfly_spawn_positions(&self) -> Vec<Vec3> {
+        self.records
+            .values()
+            .flat_map(|record| record.butterfly_spawn_positions_ws.iter().copied())
+            .collect()
+    }
+
+    pub(super) fn advance_leaf_emitters(
+        &mut self,
+        particle_system: &mut ParticleSystem,
+        dt: f32,
+        time: f32,
+        enabled: bool,
+    ) {
+        self.leaf_emitters
+            .advance(particle_system, dt, time, enabled);
+    }
+
+    pub(super) fn leaf_emitter_count(&self) -> usize {
+        self.leaf_emitters.len()
+    }
 }
 
 impl App {
     pub(super) fn refresh_attached_tree_fruits(&mut self, tree_ids: &[u32]) -> Result<()> {
         for &tree_id in tree_ids {
-            if !self.tree_records.contains_key(&tree_id) {
+            if !self.trees.contains(tree_id) {
                 continue;
             }
             let apples = self
@@ -833,9 +951,9 @@ impl App {
     #[allow(dead_code)]
     pub(super) fn generate_procedural_trees(&mut self) -> Result<()> {
         self.clear_procedural_trees()?;
-        self.remove_tree(self.single_tree_id)?;
+        self.remove_tree(self.trees.tuned_tree_id())?;
 
-        let prev_bound = self.prev_bound;
+        let prev_bound = self.trees.previous_bound();
         self.execute_edit_plan(WorldEditPlan::with_voxel(VoxelEdit::ClearVoxelRegion(
             ClearVoxelRegionEdit {
                 offset: prev_bound.min(),
@@ -883,12 +1001,7 @@ impl App {
 
     #[allow(dead_code)]
     pub(super) fn clear_procedural_trees(&mut self) -> Result<()> {
-        let tree_ids_to_remove: Vec<u32> = self
-            .tree_records
-            .keys()
-            .copied()
-            .filter(|&id| id >= 1)
-            .collect();
+        let tree_ids_to_remove = self.trees.procedural_tree_ids();
 
         for tree_id in tree_ids_to_remove {
             self.remove_tree(tree_id)?;
@@ -906,8 +1019,7 @@ impl App {
             .unregister_tree_fruits(tree_id, &mut self.tracer)?;
         self.tracer.invalidate_local_direct_sun_shadow_histories();
         self.tree_audio_manager.remove_tree(tree_id);
-        self.tree_leaf_emitters.remove(tree_id);
-        match self.tree_records.remove(&tree_id) {
+        match self.trees.commit_removal(tree_id) {
             Some(record) => {
                 log::debug!(
                     "Removed tree {} at position {:?}, bound {:?}",
@@ -953,20 +1065,12 @@ impl App {
     }
 
     pub(super) fn stage_tuned_tree_desc_from_gui(&mut self) -> bool {
-        if let Some(record) = self.tree_records.get_mut(&self.single_tree_id) {
-            record.mature_desc = self.debug_settings.tree.desc.clone();
-            true
-        } else {
-            false
-        }
+        self.trees
+            .stage_tuned_description(self.debug_settings.tree.desc.clone())
     }
 
     pub(super) fn update_all_tree_ages_from_gui(&mut self) -> Result<()> {
-        let records = self
-            .tree_records
-            .iter()
-            .map(|(&tree_id, record)| (tree_id, record.clone()))
-            .collect::<Vec<_>>();
+        let records = self.trees.age_rebuild_sources();
         if records.is_empty() {
             return Ok(());
         }
@@ -978,7 +1082,6 @@ impl App {
             self.tracer
                 .remove_tree_leaves(&mut self.surface_builder.resources, *tree_id)?;
             self.tree_audio_manager.remove_tree(*tree_id);
-            self.tree_leaf_emitters.remove(*tree_id);
             self.plain_builder.chunk_replace_voxel_type_in_round_cones(
                 &record.trunk_geometry.bvh_nodes,
                 &record.trunk_geometry.round_cones,
@@ -1060,7 +1163,7 @@ impl App {
 
         log::info!(
             "Rebuilt {} trees at global age {:.3} across {} chunks",
-            self.tree_records.len(),
+            self.trees.len(),
             tree_age,
             rebuild_chunk_ids.len(),
         );
@@ -1076,14 +1179,14 @@ impl App {
         let total_start = Instant::now();
         let mut old_remove_ms = 0.0;
         let mut old_clear_ms = 0.0;
+        let tuned_tree_id = self.trees.tuned_tree_id();
 
-        let old_record = self.tree_records.remove(&self.single_tree_id);
+        let old_record = self.trees.tuned_record();
         let old_bound = if let Some(record) = old_record.as_ref() {
             let old_remove_start = Instant::now();
             self.tracer
-                .remove_tree_leaves(&mut self.surface_builder.resources, self.single_tree_id)?;
-            self.tree_audio_manager.remove_tree(self.single_tree_id);
-            self.tree_leaf_emitters.remove(self.single_tree_id);
+                .remove_tree_leaves(&mut self.surface_builder.resources, tuned_tree_id)?;
+            self.tree_audio_manager.remove_tree(tuned_tree_id);
             old_remove_ms = old_remove_start.elapsed().as_secs_f32() * 1000.0;
             record.bound
         } else {
@@ -1141,7 +1244,7 @@ impl App {
             .record("tree_gui_rebuild", rebuild_elapsed);
 
         self.finish_tree_placement(
-            self.single_tree_id,
+            tuned_tree_id,
             compiled.tree_pos,
             compiled.this_bound,
             compiled.rebuild_bound,
@@ -1160,7 +1263,7 @@ impl App {
             mature_tree_desc,
             trunk_geometry,
         )?;
-        self.prev_bound = self.prev_bound.union_with(&old_bound);
+        self.trees.observe_previous_bound(old_bound);
 
         log::info!(
             "[PERF][TREE_GUI] replace_total {:.2}ms old_remove {:.2}ms old_clear {:.2}ms",
@@ -1307,7 +1410,7 @@ impl App {
     pub(super) fn clean_up_prev_tree(&mut self) -> Result<()> {
         self.tree_audio_manager.remove_all();
 
-        let prev_bound = self.prev_bound;
+        let prev_bound = self.trees.previous_bound();
         self.execute_edit_plan(WorldEditPlan {
             voxel_edits: vec![VoxelEdit::ClearVoxelRegion(ClearVoxelRegionEdit {
                 offset: prev_bound.min(),
@@ -1942,8 +2045,6 @@ impl App {
                 .record("tree_gui_add_leaves", add_leaves_elapsed);
         }
 
-        self.prev_bound = self.prev_bound.union_with(&this_bound);
-
         let cluster_start = Instant::now();
         let leaf_clusters = cluster_positions(world_leaf_positions, super::LEAF_CLUSTER_DISTANCE);
         let cluster_elapsed = cluster_start.elapsed();
@@ -1970,25 +2071,21 @@ impl App {
                 .record("tree_gui_audio_sources", audio_elapsed);
         }
 
-        self.tree_records.insert(
-            tree_id,
-            TreeRecord {
-                position: tree_pos,
-                bound: this_bound,
-                mature_desc,
-                trunk_geometry,
-                butterfly_spawn_positions_ws: quantized_leaf_render_positions
-                    .iter()
-                    .map(|position| {
-                        (position.as_vec3() + Vec3::splat(0.5))
-                            / super::VOXEL_DIM_PER_CHUNK.as_vec3()
-                    })
-                    .collect(),
-            },
-        );
+        let record = TreeRecord {
+            position: tree_pos,
+            bound: this_bound,
+            mature_desc,
+            trunk_geometry,
+            butterfly_spawn_positions_ws: quantized_leaf_render_positions
+                .iter()
+                .map(|position| {
+                    (position.as_vec3() + Vec3::splat(0.5)) / super::VOXEL_DIM_PER_CHUNK.as_vec3()
+                })
+                .collect(),
+        };
 
         let emitter_start = Instant::now();
-        self.tree_leaf_emitters.upsert(tree_id, &leaf_clusters);
+        self.trees.commit_placement(tree_id, record, &leaf_clusters);
         let emitter_elapsed = emitter_start.elapsed();
         if benchmark_gui_tree {
             crate::util::BENCH
@@ -2035,13 +2132,7 @@ impl App {
 
         let TreePlacement::World(tree_pos) = placement;
 
-        let tree_id = if options.assign_new_id {
-            let current_id = self.next_tree_id;
-            self.next_tree_id += 1;
-            current_id
-        } else {
-            self.single_tree_id
-        };
+        let tree_id = self.trees.placement_id(options.assign_new_id);
 
         let mature_tree_desc = tree_desc.clone();
         let compile_start = Instant::now();
@@ -2117,6 +2208,51 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tree_record(bound: UAabb3, spawn_x: f32) -> TreeRecord {
+        TreeRecord {
+            position: Vec3::new(1.0, 2.0, 3.0),
+            bound,
+            mature_desc: TreeDesc::default(),
+            trunk_geometry: TreeTrunkGeometry {
+                bvh_nodes: Vec::new(),
+                round_cones: Vec::new(),
+            },
+            butterfly_spawn_positions_ws: vec![Vec3::new(spawn_x, 0.5, 0.5)],
+        }
+    }
+
+    #[test]
+    fn tree_runtime_commits_identity_records_bounds_and_leaf_sources_together() {
+        let mut runtime = TreeRuntime::new(LeafEmitterDesc::default());
+        let first_bound = UAabb3::new(UVec3::new(1, 2, 3), UVec3::new(4, 5, 6));
+
+        assert_eq!(runtime.placement_id(false), 0);
+        assert_eq!(runtime.placement_id(true), 1);
+        assert_eq!(runtime.placement_id(true), 1);
+        runtime.commit_placement(1, tree_record(first_bound, 0.25), &[]);
+
+        assert_eq!(runtime.placement_id(true), 2);
+        assert_eq!(runtime.len(), 1);
+        assert_eq!(runtime.procedural_tree_ids(), vec![1]);
+        assert_eq!(runtime.previous_bound(), first_bound);
+        assert_eq!(
+            runtime.butterfly_spawn_positions(),
+            vec![Vec3::new(0.25, 0.5, 0.5)]
+        );
+
+        runtime.commit_placement(
+            runtime.tuned_tree_id(),
+            tree_record(UAabb3::default(), 0.75),
+            &[],
+        );
+        assert_eq!(runtime.placement_id(true), 2);
+        assert_eq!(runtime.len(), 2);
+
+        assert!(runtime.commit_removal(1).is_some());
+        assert_eq!(runtime.procedural_tree_ids(), Vec::<u32>::new());
+        assert_eq!(runtime.len(), 1);
+    }
 
     #[test]
     fn fruit_down_offset_variation_is_centered_on_configured_offset() {

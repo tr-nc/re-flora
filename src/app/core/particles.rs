@@ -394,11 +394,8 @@ impl App {
             }
         };
         let ground_source_count = ground_voxels.len();
-        let tree_source_count = self
-            .tree_records
-            .values()
-            .map(|record| record.butterfly_spawn_positions_ws.len())
-            .sum::<usize>();
+        let tree_spawn_positions = self.trees.butterfly_spawn_positions();
+        let tree_source_count = tree_spawn_positions.len();
         let mut sources = Vec::with_capacity(ground_source_count + tree_source_count);
         let voxel_scale = super::VOXEL_DIM_PER_CHUNK.as_vec3();
         sources.extend(ground_voxels.into_iter().map(|position| {
@@ -407,9 +404,8 @@ impl App {
             )
         }));
         sources.extend(
-            self.tree_records
-                .values()
-                .flat_map(|record| record.butterfly_spawn_positions_ws.iter().copied())
+            tree_spawn_positions
+                .into_iter()
                 .map(ButterflySpawnSource::tree_leaf),
         );
 
@@ -458,7 +454,7 @@ impl App {
             dt,
             wind_time,
         );
-        self.tree_leaf_emitters.advance(
+        self.trees.advance_leaf_emitters(
             &mut self.particle_system,
             dt,
             wind_time,
@@ -510,7 +506,7 @@ impl App {
                 self.particle_snapshots.len(),
                 self.particle_snapshots.len().saturating_sub(sim_snapshot_count),
                 self.butterfly_emitters.len(),
-                self.tree_leaf_emitters.len(),
+                self.trees.leaf_emitter_count(),
                 self.sprinklers.len(),
                 tick_step.did_step,
                 dt,
