@@ -1,4 +1,4 @@
-from fractions import Fraction
+import math
 from pathlib import Path
 import unittest
 
@@ -18,29 +18,34 @@ class PostProcessingDitherTests(unittest.TestCase):
             dither_source,
         )
         self.assertIn(
-            "static const float2 DITHER_GRID = float2(1.0 / 16.0, 10.0 / 36.0);",
+            "static const float2 DITHER_HASH_SCALE = float2(0.06711056, 0.00583715);",
             dither_source,
         )
         self.assertIn(
-            "static const float DITHER_PHASE = 0.25 + 1.0 / 288.0;",
+            "static const float DITHER_HASH_MULTIPLIER = 52.9829189;",
             dither_source,
         )
-        self.assertIn("return (gridPosition - 0.5) * OUTPUT_QUANTIZATION_STEP;", dither_source)
+        self.assertIn(
+            "static const float DITHER_HASH_PHASE = 0.125;",
+            dither_source,
+        )
+        self.assertIn("float hashInput = frac(dot(float2(screenSpaceUv), DITHER_HASH_SCALE)", dither_source)
+        self.assertIn("float noise = frac(DITHER_HASH_MULTIPLIER * hashInput);", dither_source)
+        self.assertIn("return (noise - 0.5) * OUTPUT_QUANTIZATION_STEP;", dither_source)
         self.assertIn("float ditherOffset = getDitherOffset(uvi);", post_processing_source)
         self.assertIn("finalColor += ditherOffset.xxx;", post_processing_source)
 
-    def test_declared_period_is_zero_mean_and_below_half_an_output_step(self) -> None:
-        normalized_offsets = [
-            (Fraction(x, 16) + Fraction(5 * y, 18) + Fraction(73, 288)) % 1
-            - Fraction(1, 2)
-            for y in range(18)
-            for x in range(16)
-        ]
+    def test_hash_sample_is_centered_and_bounded_to_half_an_output_step(self) -> None:
+        normalized_offsets = []
+        for y in range(162):
+            for x in range(288):
+                hash_input = (0.06711056 * x + 0.00583715 * y + 0.125) % 1.0
+                noise = (52.9829189 * hash_input) % 1.0
+                normalized_offsets.append(noise - 0.5)
 
-        self.assertEqual(sum(normalized_offsets), 0)
-        self.assertEqual(min(normalized_offsets), -Fraction(143, 288))
-        self.assertEqual(max(normalized_offsets), Fraction(143, 288))
-        self.assertLess(max(abs(offset) for offset in normalized_offsets), Fraction(1, 2))
+        self.assertLess(abs(math.fsum(normalized_offsets) / len(normalized_offsets)), 0.001)
+        self.assertGreaterEqual(min(normalized_offsets), -0.5)
+        self.assertLessEqual(max(normalized_offsets), 0.5)
 
 
 if __name__ == "__main__":

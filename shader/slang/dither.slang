@@ -1,15 +1,17 @@
 module dither;
 
 static const float OUTPUT_QUANTIZATION_STEP = 1.0 / 255.0;
-static const float2 DITHER_GRID = float2(1.0 / 16.0, 10.0 / 36.0);
-// Half a cell centers the 16x18 period exactly around zero.
-static const float DITHER_PHASE = 0.25 + 1.0 / 288.0;
+static const float2 DITHER_HASH_SCALE = float2(0.06711056, 0.00583715);
+static const float DITHER_HASH_MULTIPLIER = 52.9829189;
+static const float DITHER_HASH_PHASE = 0.125;
 
 // The postprocess target is R8G8B8A8_UNORM. Keep this spatial offset at the
 // final linear 8-bit quantization stage; the later swapchain blit converts to
-// the sRGB display encoding.
+// the sRGB display encoding. This deterministic interleaved hash avoids a
+// short repeating tile without introducing a temporal crawl or shimmer.
 public float getDitherOffset(int2 screenSpaceUv)
 {
-    float gridPosition = frac(dot(float2(screenSpaceUv), DITHER_GRID) + DITHER_PHASE);
-    return (gridPosition - 0.5) * OUTPUT_QUANTIZATION_STEP;
+    float hashInput = frac(dot(float2(screenSpaceUv), DITHER_HASH_SCALE) + DITHER_HASH_PHASE);
+    float noise = frac(DITHER_HASH_MULTIPLIER * hashInput);
+    return (noise - 0.5) * OUTPUT_QUANTIZATION_STEP;
 }
