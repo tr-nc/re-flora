@@ -44,7 +44,7 @@ use self::frame_timing::{
 use self::loading::{LoadingPhase, LoadingState};
 use self::particles::TreeLeafEmitter;
 use self::physics::TerrainPhysics;
-use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerRuntime};
+use self::placeables::{IrrigationNetwork, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
 use self::terrain_persistence::TerrainPersistenceRuntime;
@@ -372,7 +372,6 @@ pub struct App {
     butterfly_spawn_source_refresh_elapsed: f32,
     sprinklers: SprinklerRuntime,
     irrigation_network: IrrigationNetwork,
-    active_pipe_drag: Option<PipeDrag>,
     particle_animation_time_sec: f32,
     water_sim: water::AsyncWaterSim,
     water_runtime_overrides: water::WaterRuntimeOverrides,
@@ -1158,7 +1157,6 @@ impl App {
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
             sprinklers: SprinklerRuntime::new(),
             irrigation_network: IrrigationNetwork::default(),
-            active_pipe_drag: None,
             particle_animation_time_sec: 0.0,
             water_sim,
             water_runtime_overrides,

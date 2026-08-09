@@ -40,22 +40,22 @@ const SPRINKLER_GRASS_INFLUENCE_ID_PREFIX: u64 = 0x5350_524B_0000_0000;
 const PIPE_START_MAX_DISTANCE_VOXELS: f32 = 8.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum IrrigationNodeKind {
+enum IrrigationNodeKind {
     Source,
     Junction,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct IrrigationNode {
-    pub id: u32,
-    pub position_voxels: IVec3,
-    pub kind: IrrigationNodeKind,
+struct IrrigationNode {
+    id: u32,
+    position_voxels: IVec3,
+    kind: IrrigationNodeKind,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct PipeSegment {
-    pub start_node: u32,
-    pub end_node: u32,
+struct PipeSegment {
+    start_node: u32,
+    end_node: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -85,18 +85,49 @@ impl SprinklerPlacementTarget {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct PipeDrag {
-    pub start_voxels: IVec3,
-    pub end_voxels: IVec3,
+struct PipeDrag {
+    start_voxels: IVec3,
+    end_voxels: IVec3,
 }
 
-#[derive(Debug, Default)]
+struct PipeRoutePreviewPlan {
+    expected_revision: u64,
+    next_drag: PipeDrag,
+    render_data: IrrigationPipeRenderData,
+}
+
+impl PipeRoutePreviewPlan {
+    fn render_data(&self) -> &IrrigationPipeRenderData {
+        &self.render_data
+    }
+}
+
+struct PipeRouteCommitPlan {
+    expected_revision: u64,
+    start_voxels: IVec3,
+    next_network: IrrigationNetwork,
+    render_data: IrrigationPipeRenderData,
+}
+
+impl PipeRouteCommitPlan {
+    fn render_data(&self) -> &IrrigationPipeRenderData {
+        &self.render_data
+    }
+
+    fn start_voxels(&self) -> IVec3 {
+        self.start_voxels
+    }
+}
+
+#[derive(Clone, Debug, Default)]
 pub(super) struct IrrigationNetwork {
     source_node: Option<u32>,
     nodes: Vec<IrrigationNode>,
     segments: Vec<PipeSegment>,
     next_node_id: u32,
     powered_nodes: HashSet<u32>,
+    active_drag: Option<PipeDrag>,
+    revision: u64,
 }
 
 impl IrrigationNetwork {
@@ -181,7 +212,7 @@ impl IrrigationNetwork {
             .map(|(_, id)| id)
     }
 
-    pub(super) fn begin_drag(&self, world_position: Vec3) -> Option<PipeDrag> {
+    fn drag_from(&self, world_position: Vec3) -> Option<PipeDrag> {
         let snapped = Self::snap_surface_position(world_position);
         if self.source_node.is_none() {
             return Some(PipeDrag {
@@ -197,7 +228,7 @@ impl IrrigationNetwork {
             })
     }
 
-    pub(super) fn commit_drag(&mut self, drag: PipeDrag, world_end: Vec3) -> Result<()> {
+    fn commit_drag_topology(&mut self, drag: PipeDrag, world_end: Vec3) -> Result<()> {
         let end = Self::snap_surface_position(world_end);
         let source_id = if let Some(source) = self.source_node {
             source
@@ -230,6 +261,83 @@ impl IrrigationNetwork {
         }
         self.refresh_connectivity();
         Ok(())
+    }
+
+    pub(super) fn route_active(&self) -> bool {
+        self.active_drag.is_some()
+    }
+
+    fn plan_begin_route(&self, world_position: Vec3) -> Option<PipeRoutePreviewPlan> {
+        if self.active_drag.is_some() {
+            return None;
+        }
+        let next_drag = self.drag_from(world_position)?;
+        Some(PipeRoutePreviewPlan {
+            expected_revision: self.revision,
+            render_data: self.preview_render_data(next_drag),
+            next_drag,
+        })
+    }
+
+    fn plan_update_route(&self, world_position: Vec3) -> Option<PipeRoutePreviewPlan> {
+        let mut next_drag = self.active_drag?;
+        let end_voxels = Self::snap_surface_position(world_position);
+        if next_drag.end_voxels == end_voxels {
+            return None;
+        }
+        next_drag.end_voxels = end_voxels;
+        Some(PipeRoutePreviewPlan {
+            expected_revision: self.revision,
+            render_data: self.preview_render_data(next_drag),
+            next_drag,
+        })
+    }
+
+    fn commit_route_preview(&mut self, plan: PipeRoutePreviewPlan) {
+        assert_eq!(
+            self.revision, plan.expected_revision,
+            "pipe route preview must commit against its source revision"
+        );
+        self.active_drag = Some(plan.next_drag);
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    fn plan_finish_route(&self, world_end: Vec3) -> Result<Option<PipeRouteCommitPlan>> {
+        let Some(active_drag) = self.active_drag else {
+            return Ok(None);
+        };
+        let mut next_network = self.clone();
+        next_network.active_drag = None;
+        next_network.commit_drag_topology(active_drag, world_end)?;
+        next_network.revision = self.revision.wrapping_add(1);
+        let render_data = next_network.render_data();
+        Ok(Some(PipeRouteCommitPlan {
+            expected_revision: self.revision,
+            start_voxels: active_drag.start_voxels,
+            next_network,
+            render_data,
+        }))
+    }
+
+    fn commit_route(&mut self, plan: PipeRouteCommitPlan) {
+        assert_eq!(
+            self.revision, plan.expected_revision,
+            "pipe route must commit against its source revision"
+        );
+        debug_assert_eq!(
+            plan.next_network.revision,
+            self.revision.wrapping_add(1),
+            "committed pipe route must advance the network revision"
+        );
+        *self = plan.next_network;
+    }
+
+    fn cancel_route(&mut self) -> bool {
+        if self.active_drag.take().is_none() {
+            return false;
+        }
+        self.revision = self.revision.wrapping_add(1);
+        true
     }
 
     pub(super) fn ray_attachment(
@@ -286,7 +394,7 @@ impl IrrigationNetwork {
             .min_by(|left, right| left.distance.total_cmp(&right.distance))
     }
 
-    pub(super) fn preview_render_data(&self, drag: PipeDrag) -> IrrigationPipeRenderData {
+    fn preview_render_data(&self, drag: PipeDrag) -> IrrigationPipeRenderData {
         IrrigationPipeRenderData {
             source_position: self
                 .source_node
@@ -302,7 +410,7 @@ impl IrrigationNetwork {
         }
     }
 
-    pub(super) fn render_data(&self) -> IrrigationPipeRenderData {
+    fn render_data(&self) -> IrrigationPipeRenderData {
         IrrigationPipeRenderData {
             source_position: self
                 .source_node
@@ -820,57 +928,45 @@ impl App {
         self.current_placeable_kind().label()
     }
 
-    fn upload_irrigation_network(&mut self) -> Result<()> {
-        self.tracer
-            .upload_irrigation_pipes(&self.irrigation_network.render_data())
-    }
-
     pub(super) fn begin_pipe_drag(&mut self, world_position: Vec3) {
-        self.active_pipe_drag = self.irrigation_network.begin_drag(world_position);
-        if let Some(drag) = self.active_pipe_drag {
-            if let Err(err) = self
-                .tracer
-                .upload_irrigation_pipe_preview(&self.irrigation_network.preview_render_data(drag))
-            {
-                log::error!("Failed to show irrigation pipe preview: {err}");
-            }
-        } else {
+        let Some(plan) = self.irrigation_network.plan_begin_route(world_position) else {
             log::info!("Pipe drag must start near the source or an existing junction");
+            return;
+        };
+        if let Err(err) = self
+            .tracer
+            .upload_irrigation_pipe_preview(plan.render_data())
+        {
+            log::error!("Failed to show irrigation pipe preview: {err}");
+            return;
         }
+        self.irrigation_network.commit_route_preview(plan);
     }
 
     pub(super) fn update_pipe_drag_preview(&mut self, world_position: Vec3) -> Result<()> {
-        let Some(drag) = self.active_pipe_drag.as_mut() else {
+        let Some(plan) = self.irrigation_network.plan_update_route(world_position) else {
             return Ok(());
         };
-        let end_voxels = IrrigationNetwork::snap_surface_position(world_position);
-        if drag.end_voxels == end_voxels {
-            return Ok(());
-        }
-        drag.end_voxels = end_voxels;
         self.tracer
-            .upload_irrigation_pipe_preview(&self.irrigation_network.preview_render_data(*drag))
+            .upload_irrigation_pipe_preview(plan.render_data())?;
+        self.irrigation_network.commit_route_preview(plan);
+        Ok(())
     }
 
     pub(super) fn finish_pipe_drag(&mut self, world_position: Vec3) -> Result<()> {
-        let Some(drag) = self.active_pipe_drag.take() else {
+        let Some(plan) = self.irrigation_network.plan_finish_route(world_position)? else {
             return Ok(());
         };
-        let result = self
-            .irrigation_network
-            .commit_drag(drag, world_position)
-            .and_then(|()| self.upload_irrigation_network());
+        self.tracer.upload_irrigation_pipes(plan.render_data())?;
+        let start_voxels = plan.start_voxels();
+        self.irrigation_network.commit_route(plan);
         self.tracer.clear_irrigation_pipe_preview();
-        result?;
-        log::info!(
-            "Committed irrigation pipe route from {:?}",
-            drag.start_voxels
-        );
+        log::info!("Committed irrigation pipe route from {:?}", start_voxels);
         Ok(())
     }
 
     pub(super) fn cancel_pipe_drag(&mut self) {
-        if self.active_pipe_drag.take().is_some() {
+        if self.irrigation_network.cancel_route() {
             self.tracer.clear_irrigation_pipe_preview();
         }
     }
@@ -937,6 +1033,18 @@ impl App {
 mod tests {
     use super::*;
     use glam::UVec3;
+
+    fn commit_test_route(network: &mut IrrigationNetwork, start: Vec3, end: Vec3) {
+        let begin = network
+            .plan_begin_route(start)
+            .expect("route should begin at a valid network position");
+        network.commit_route_preview(begin);
+        let finish = network
+            .plan_finish_route(end)
+            .expect("route planning should succeed")
+            .expect("active route should produce a commit plan");
+        network.commit_route(finish);
+    }
 
     #[test]
     fn digging_brush_overlap_uses_capsule_distance() {
@@ -1063,45 +1171,81 @@ mod tests {
 
     #[test]
     fn pipe_preview_does_not_commit_topology() {
-        let network = IrrigationNetwork::default();
-        let mut drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
-        drag.end_voxels = IrrigationNetwork::snap_surface_position(Vec3::new(0.75, 0.25, 0.5));
-        let preview = network.preview_render_data(drag);
+        let mut network = IrrigationNetwork::default();
+        let begin = network.plan_begin_route(Vec3::new(0.5, 0.25, 0.5)).unwrap();
+        assert!(
+            !network.route_active(),
+            "planning must not mutate route state"
+        );
+        network.commit_route_preview(begin);
+        let update = network
+            .plan_update_route(Vec3::new(0.75, 0.25, 0.5))
+            .unwrap();
+        let preview = update.render_data();
 
         assert!(preview.source_position.is_some());
         assert_eq!(preview.segments.len(), 1);
+        assert_eq!(
+            network.active_drag.unwrap().end_voxels,
+            IrrigationNetwork::snap_surface_position(Vec3::new(0.5, 0.25, 0.5)),
+            "planning a preview update must preserve the committed endpoint"
+        );
         assert!(network.source_node.is_none());
         assert!(network.segments.is_empty());
     }
 
     #[test]
+    fn pipe_finish_plan_preserves_topology_until_committed() {
+        let mut network = IrrigationNetwork::default();
+        let begin = network.plan_begin_route(Vec3::new(0.5, 0.25, 0.5)).unwrap();
+        network.commit_route_preview(begin);
+
+        let finish = network
+            .plan_finish_route(Vec3::new(0.75, 0.25, 0.5))
+            .unwrap()
+            .unwrap();
+
+        assert!(network.route_active());
+        assert!(network.source_node.is_none());
+        assert!(network.segments.is_empty());
+        assert!(finish.render_data().source_position.is_some());
+        assert_eq!(finish.render_data().segments.len(), 1);
+
+        network.commit_route(finish);
+        assert!(!network.route_active());
+        assert!(network.source_node.is_some());
+        assert_eq!(network.segments.len(), 1);
+    }
+
+    #[test]
     fn pipe_preview_excludes_the_committed_network() {
         let mut network = IrrigationNetwork::default();
-        let first_drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
-        network
-            .commit_drag(first_drag, Vec3::new(0.75, 0.25, 0.5))
-            .unwrap();
+        commit_test_route(
+            &mut network,
+            Vec3::new(0.5, 0.25, 0.5),
+            Vec3::new(0.75, 0.25, 0.5),
+        );
         let committed_segment_count = network.segments.len();
         let start = network.nodes.last().unwrap().position_voxels;
-        let drag = PipeDrag {
-            start_voxels: start,
-            end_voxels: start + IVec3::new(4, 3, 2),
-        };
+        let begin_world = (start - IVec3::Y).as_vec3() / VOXELS_PER_WORLD_UNIT;
+        let end_world = (start + IVec3::new(4, 3, 2) - IVec3::Y).as_vec3() / VOXELS_PER_WORLD_UNIT;
+        let begin = network.plan_begin_route(begin_world).unwrap();
+        network.commit_route_preview(begin);
+        let preview = network.plan_update_route(end_world).unwrap();
 
-        let preview = network.preview_render_data(drag);
-
-        assert_eq!(preview.source_position, None);
-        assert_eq!(preview.segments.len(), 3);
+        assert_eq!(preview.render_data().source_position, None);
+        assert_eq!(preview.render_data().segments.len(), 3);
         assert!(committed_segment_count > 0);
     }
 
     #[test]
     fn pipe_route_is_axis_aligned_and_connected_to_source() {
         let mut network = IrrigationNetwork::default();
-        let drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
-        network
-            .commit_drag(drag, Vec3::new(0.75, 0.5, 0.9))
-            .unwrap();
+        commit_test_route(
+            &mut network,
+            Vec3::new(0.5, 0.25, 0.5),
+            Vec3::new(0.75, 0.5, 0.9),
+        );
 
         assert!(network.source_node.is_some());
         assert!(!network.segments.is_empty());
@@ -1121,10 +1265,11 @@ mod tests {
     #[test]
     fn sprinkler_ray_attaches_to_middle_of_pipe() {
         let mut network = IrrigationNetwork::default();
-        let drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
-        network
-            .commit_drag(drag, Vec3::new(0.75, 0.25, 0.5))
-            .unwrap();
+        commit_test_route(
+            &mut network,
+            Vec3::new(0.5, 0.25, 0.5),
+            Vec3::new(0.75, 0.25, 0.5),
+        );
         let pipe_y = network
             .node(network.segments[0].start_node)
             .unwrap()
@@ -1184,10 +1329,11 @@ mod tests {
     #[test]
     fn sprinkler_ray_does_not_snap_from_a_nearby_miss() {
         let mut network = IrrigationNetwork::default();
-        let drag = network.begin_drag(Vec3::new(0.5, 0.25, 0.5)).unwrap();
-        network
-            .commit_drag(drag, Vec3::new(0.75, 0.25, 0.5))
-            .unwrap();
+        commit_test_route(
+            &mut network,
+            Vec3::new(0.5, 0.25, 0.5),
+            Vec3::new(0.75, 0.25, 0.5),
+        );
         let segment = network.segments[0];
         let pipe_y = network.node(segment.start_node).unwrap().position_voxels.y as f32
             / VOXELS_PER_WORLD_UNIT;

@@ -1198,7 +1198,7 @@ impl App {
     }
 
     pub(super) fn try_update_pipe_drag_preview(&mut self) {
-        if self.active_pipe_drag.is_none() {
+        if !self.irrigation_network.route_active() {
             return;
         }
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
@@ -1213,7 +1213,7 @@ impl App {
     }
 
     pub(super) fn try_finish_pipe_drag(&mut self) {
-        if self.active_pipe_drag.is_none() {
+        if !self.irrigation_network.route_active() {
             return;
         }
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
