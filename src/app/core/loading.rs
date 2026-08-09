@@ -440,10 +440,6 @@ impl App {
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));
         }
 
-        if let Err(err) = self.spatial_sound_manager.start() {
-            log::error!("Failed to start audio engine: {}", err);
-        }
-
         self.enqueue_startup_water_terrain_collider_rebuilds();
         if self.environment_lighting_test_scene.is_none()
             && self.hybrid_transparency_test_scene.is_none()

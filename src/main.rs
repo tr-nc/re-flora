@@ -144,7 +144,7 @@ fn handle_audio_output_device_query_options(options: &AppOptions) -> bool {
         return false;
     }
 
-    match petalsonic::PetalSonicEngine::available_output_devices() {
+    match petalsonic::PetalSonicWorld::available_output_devices() {
         Ok(devices) => {
             for device in devices {
                 let default_marker = if device.is_default { " (default)" } else { "" };

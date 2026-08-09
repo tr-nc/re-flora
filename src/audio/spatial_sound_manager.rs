@@ -4,45 +4,37 @@ use crate::gameplay::camera::vectors::CameraVectors;
 use anyhow::Result;
 use glam::Vec3;
 use petalsonic::{
-    config::{AmbisonicsBackend, DirectPathBackend, HrtfBackend, PetalSonicWorldDesc},
-    engine::PetalSonicEngine,
-    math::{Pose, Quat as PetalQuat, Vec3 as PetalVec3},
-    playback::LoopMode,
-    world::PetalSonicWorld,
-    ProceduralAudioFactory, SourceConfig, SourceId,
+    AcousticSceneSnapshot, BatchedAnyHitRayTracer, BatchedClosestHitRayTracer, BusParams, Emitter,
+    EmitterDesc, EmitterSpatialState, LatencyProfile, OutputDevicePolicy, PetalSonicWorld,
+    PetalSonicWorldDesc, PlayOptions, Pose, Quat as PetalQuat, ResidentClip, SpatialFrame,
+    SpatialQuality, Vec3 as PetalVec3,
 };
 use rand::RngExt;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-/// Source tracking information
 struct SourceInfo {
-    source_id: SourceId,
-    volume: f32,
+    emitter: Emitter,
+    volume_db: f32,
     position: Option<Vec3>,
-    loop_mode: LoopMode,
 }
 
-/// Spatial sound manager using PetalSonic
+struct OneShotEmitter {
+    emitter: Emitter,
+    volume_db: f32,
+}
+
+/// Re:Flora's narrow adapter around the world-owned PetalSonic runtime.
+#[derive(Clone)]
 pub struct SpatialSoundManager {
     world: Arc<PetalSonicWorld>,
-    engine: Arc<Mutex<PetalSonicEngine>>,
     audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
-
-    // Audio clip cache for efficient audio data loading
     clip_cache: Arc<AudioClipCache>,
-
-    // Map UUIDs to PetalSonic SourceIds and their metadata
     uuid_to_source: Arc<Mutex<HashMap<Uuid, SourceInfo>>>,
-
-    // Cache listener state to avoid unnecessary updates
+    one_shot_emitters: Arc<Mutex<HashMap<String, OneShotEmitter>>>,
     listener_state: Arc<Mutex<ListenerState>>,
-
-    // Global master gain (dB) applied to all sources.
     global_volume_gain_db: Arc<Mutex<f32>>,
-    engine_started: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Debug)]
@@ -72,112 +64,99 @@ impl SpatialSoundManager {
         audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
         audio_output_device: Option<String>,
     ) -> Result<Self> {
-        let sample_rate = 48000;
-
-        // Initialize audio clip cache first
-        let clip_cache = Arc::new(AudioClipCache::new()?);
-
-        // Use the same NH172 HRTF dataset for native and Steam Audio HRTF comparisons.
         let project_root = crate::util::get_project_root();
         let native_hrtf_path = format!("{}assets/hrtf/hrtf_b_nh172.petalhrtf", project_root);
         let steam_hrtf_path = format!("{}assets/hrtf/hrtf_b_nh172.sofa", project_root);
+        let any_hit: Arc<dyn BatchedAnyHitRayTracer> = audio_ray_tracer.clone();
+        let closest_hit: Arc<dyn BatchedClosestHitRayTracer> = audio_ray_tracer.clone();
+        let acoustic_scene = AcousticSceneSnapshot::new(1, Some(any_hit), Some(closest_hit));
 
-        // Create PetalSonic world configuration
-        let world_desc = PetalSonicWorldDesc {
-            sample_rate,
+        let world = PetalSonicWorld::new(PetalSonicWorldDesc {
+            sample_rate: 48_000,
             block_size: frame_window_size,
-            output_device_name_contains: audio_output_device,
-            hrtf_path: Some(native_hrtf_path.clone()),
+            max_emitters: 8_192,
+            max_voices: 8_192,
+            output_device: audio_output_device.map_or(
+                OutputDevicePolicy::FollowSystemDefault,
+                OutputDevicePolicy::PinnedNameContains,
+            ),
+            spatial_quality: SpatialQuality::LowLatency,
+            latency_profile: LatencyProfile::Balanced,
             steam_hrtf_path: Some(steam_hrtf_path),
             native_hrtf_path: Some(native_hrtf_path),
-            hrtf_backend: HrtfBackend::Native,
-            use_ambisonics: false,
-            ambisonics_backend: AmbisonicsBackend::Native,
             hrtf_gain: 0.0,
             distance_scaler: 15.0,
-            direct_path_backend: DirectPathBackend::Native,
-            // Keep direct occlusion disabled for now so native direct + HRTF matches
-            // the previous no-occlusion baseline while HRTF quality is validated.
-            batched_any_hit_ray_tracer: None,
-            ..Default::default()
-        };
+            acoustic_scene: Some(acoustic_scene),
+            ..PetalSonicWorldDesc::default()
+        })?;
 
-        // Create world and engine
-        let world = PetalSonicWorld::new(world_desc.clone())?;
-        let world_arc = Arc::new(world);
-        let engine = PetalSonicEngine::new(world_desc, world_arc.clone())?;
-
-        // Initialize with default listener position and orientation
-        let listener_pose = Pose::new(PetalVec3::new(0.0, 0.0, 0.0), PetalQuat::IDENTITY);
-        world_arc.set_listener_pose(listener_pose);
-
-        #[allow(clippy::arc_with_non_send_sync)]
         Ok(Self {
-            world: world_arc,
-            engine: Arc::new(Mutex::new(engine)),
+            world: Arc::new(world),
             audio_ray_tracer,
-            clip_cache,
+            clip_cache: Arc::new(AudioClipCache::new()?),
             uuid_to_source: Arc::new(Mutex::new(HashMap::new())),
+            one_shot_emitters: Arc::new(Mutex::new(HashMap::new())),
             listener_state: Arc::new(Mutex::new(ListenerState::default())),
             global_volume_gain_db: Arc::new(Mutex::new(0.0)),
-            engine_started: Arc::new(AtomicBool::new(false)),
         })
     }
 
-    fn global_gain_db(&self) -> f32 {
-        *self.global_volume_gain_db.lock().unwrap()
+    fn emitter_desc(position: Option<Vec3>, volume_db: f32) -> EmitterDesc {
+        match position {
+            Some(position) => EmitterDesc::spatial(Self::pose(position)).with_gain_db(volume_db),
+            None => EmitterDesc::non_spatial().with_gain_db(volume_db),
+        }
     }
 
-    fn add_source(
-        &self,
-        path: &str,
-        volume: f32,
-        position: Vec3,
-        loop_mode: LoopMode,
-    ) -> Result<Uuid> {
-        // Get audio data from cache instead of loading from disk
-        let audio_data = self
-            .clip_cache
-            .get(path)
-            .ok_or_else(|| anyhow::anyhow!("Audio clip not found in cache: {}", path))?;
-
-        // Convert glam::Vec3 to PetalVec3 for PetalSonic API
-        let petal_pose = Pose::new(
+    fn pose(position: Vec3) -> Pose {
+        Pose::new(
             PetalVec3::new(position.x, position.y, position.z),
             PetalQuat::IDENTITY,
-        );
+        )
+    }
 
-        let effective_volume_db = volume + self.global_gain_db();
+    fn add_looping_clip_source(
+        &self,
+        clip: ResidentClip,
+        volume_db: f32,
+        position: Option<Vec3>,
+        shuffle_phase: bool,
+    ) -> Result<Uuid> {
+        let emitter = self
+            .world
+            .create_emitter(clip, Self::emitter_desc(position, volume_db))?;
+        if let Err(error) = self.world.play(emitter, PlayOptions::looping()) {
+            let _ = self.world.destroy_emitter(emitter);
+            return Err(error.into());
+        }
+        if shuffle_phase {
+            if let Err(error) = self
+                .world
+                .seek_emitter(emitter, rand::rng().random_range(0.0..1.0))
+            {
+                let _ = self.world.destroy_emitter(emitter);
+                return Err(error.into());
+            }
+        }
 
-        // Register in PetalSonic world with spatial configuration
-        let source_id = self.world.register_audio(
-            audio_data,
-            SourceConfig::spatial_with_volume_db(petal_pose, effective_volume_db),
-        )?;
-
-        // Start playback
-        self.world.play(source_id, loop_mode)?;
-
-        // Generate UUID and map to SourceId with metadata
         let uuid = Uuid::new_v4();
         self.uuid_to_source.lock().unwrap().insert(
             uuid,
             SourceInfo {
-                source_id,
-                volume,
-                position: Some(position),
-                loop_mode,
+                emitter,
+                volume_db,
+                position,
             },
         );
-
         Ok(uuid)
     }
 
-    /// Add a looping spatial source at the given position.
-    ///
-    /// If `shuffle_phase` is true, the source starts at a random phase in
-    /// the clip. This is useful when spawning many identical looping sounds
-    /// (e.g. ambience beds) to avoid them being perfectly phase-aligned.
+    fn cached_clip(&self, path: &str) -> Result<ResidentClip> {
+        self.clip_cache
+            .get(path)
+            .ok_or_else(|| anyhow::anyhow!("Audio clip not found in cache: {path}"))
+    }
+
     pub fn add_looping_spatial_source(
         &self,
         path: &str,
@@ -185,153 +164,45 @@ impl SpatialSoundManager {
         position: Vec3,
         shuffle_phase: bool,
     ) -> Result<Uuid> {
-        let uuid = self.add_source(path, volume_db, position, LoopMode::Infinite)?;
-
-        // Apply random phase offset if shuffle_phase is enabled
-        if shuffle_phase {
-            let uuid_map = self.uuid_to_source.lock().unwrap();
-            if let Some(source_info) = uuid_map.get(&uuid) {
-                let random_phase = rand::rng().random_range(0.0..1.0);
-                self.world
-                    .seek(source_info.source_id, random_phase)
-                    .map_err(|e| anyhow::anyhow!("Failed to seek to random phase: {}", e))?;
-            }
-        }
-
-        Ok(uuid)
+        self.add_looping_clip_source(
+            self.cached_clip(path)?,
+            volume_db,
+            Some(position),
+            shuffle_phase,
+        )
     }
 
-    /// Add a one-shot spatial source at the given position.
-    #[allow(dead_code)]
-    pub fn add_spatial_source(&self, path: &str, volume_db: f32, position: Vec3) -> Result<Uuid> {
-        self.add_source(path, volume_db, position, LoopMode::Once)
-    }
-
-    /// Add a looping procedural spatial source at the given position.
-    pub fn add_procedural_looping_spatial_source(
+    pub fn add_looping_spatial_clip(
         &self,
-        factory: Arc<dyn ProceduralAudioFactory>,
+        clip: ResidentClip,
         volume_db: f32,
         position: Vec3,
-    ) -> Result<Uuid> {
-        let petal_pose = Pose::new(
-            PetalVec3::new(position.x, position.y, position.z),
-            PetalQuat::IDENTITY,
-        );
-        let effective_volume_db = volume_db + self.global_gain_db();
-        let source_id = self.world.register_procedural(
-            factory,
-            SourceConfig::spatial_with_volume_db(petal_pose, effective_volume_db),
-        )?;
-
-        self.world.play(source_id, LoopMode::Infinite)?;
-
-        let uuid = Uuid::new_v4();
-        self.uuid_to_source.lock().unwrap().insert(
-            uuid,
-            SourceInfo {
-                source_id,
-                volume: volume_db,
-                position: Some(position),
-                loop_mode: LoopMode::Infinite,
-            },
-        );
-
-        Ok(uuid)
-    }
-
-    /// Compute a volume (in dB) for a clustered source.
-    ///
-    /// Uses a sublinear scaling so that many clustered emitters do not
-    /// increase volume too aggressively. The effective amplitude grows
-    /// ~sqrt(n), which in dB corresponds to +10 * log10(n).
-    #[allow(dead_code)]
-    fn clustered_volume_db(base_volume_db: f32, clustered_amount: u32) -> f32 {
-        let n = clustered_amount.max(1) as f32;
-        if n <= 1.0 {
-            return base_volume_db;
-        }
-
-        // amplitude ~ n^0.5 → gain_db = 10 * log10(n)
-        let gain_db = 10.0 * n.log10();
-        base_volume_db + gain_db
-    }
-
-    /// Add a non-spatial audio source (e.g., for UI sounds or player footsteps)
-    pub fn add_non_spatial_source(&self, path: &str, volume: f32) -> Result<Uuid> {
-        // Get audio data from cache instead of loading from disk
-        let audio_data = self
-            .clip_cache
-            .get(path)
-            .ok_or_else(|| anyhow::anyhow!("Audio clip not found in cache: {}", path))?;
-
-        let effective_volume_db = volume + self.global_gain_db();
-
-        // Register in PetalSonic world with non-spatial configuration and volume
-        let source_id = self.world.register_audio(
-            audio_data,
-            SourceConfig::non_spatial_with_volume_db(effective_volume_db),
-        )?;
-
-        // Start playback with one-shot mode
-        self.world.play(source_id, LoopMode::Once)?;
-
-        // Generate UUID and map to SourceId with metadata
-        let uuid = Uuid::new_v4();
-        self.uuid_to_source.lock().unwrap().insert(
-            uuid,
-            SourceInfo {
-                source_id,
-                volume,
-                position: None,
-                loop_mode: LoopMode::Once,
-            },
-        );
-
-        Ok(uuid)
-    }
-
-    /// Add a looping non-spatial audio source (e.g., for continuous UI/interaction sounds)
-    #[allow(dead_code)]
-    pub fn add_looping_non_spatial_source(
-        &self,
-        path: &str,
-        volume: f32,
         shuffle_phase: bool,
     ) -> Result<Uuid> {
-        let audio_data = self
-            .clip_cache
-            .get(path)
-            .ok_or_else(|| anyhow::anyhow!("Audio clip not found in cache: {}", path))?;
+        self.add_looping_clip_source(clip, volume_db, Some(position), shuffle_phase)
+    }
 
-        let effective_volume_db = volume + self.global_gain_db();
-
-        let source_id = self.world.register_audio(
-            audio_data,
-            SourceConfig::non_spatial_with_volume_db(effective_volume_db),
-        )?;
-
-        self.world.play(source_id, LoopMode::Infinite)?;
-
-        if shuffle_phase {
-            let random_phase = rand::rng().random_range(0.0..1.0);
-            self.world
-                .seek(source_id, random_phase)
-                .map_err(|e| anyhow::anyhow!("Failed to seek to random phase: {}", e))?;
-        }
-
-        let uuid = Uuid::new_v4();
-        self.uuid_to_source.lock().unwrap().insert(
-            uuid,
-            SourceInfo {
-                source_id,
-                volume,
-                position: None,
-                loop_mode: LoopMode::Infinite,
-            },
-        );
-
-        Ok(uuid)
+    pub fn add_non_spatial_source(&self, path: &str, volume_db: f32) -> Result<()> {
+        let mut emitters = self.one_shot_emitters.lock().unwrap();
+        let emitter = if let Some(source) = emitters.get_mut(path) {
+            if (source.volume_db - volume_db).abs() > f32::EPSILON {
+                self.world.update_emitter(
+                    source.emitter,
+                    EmitterDesc::non_spatial().with_gain_db(volume_db),
+                )?;
+                source.volume_db = volume_db;
+            }
+            source.emitter
+        } else {
+            let emitter = self.world.create_emitter(
+                self.cached_clip(path)?,
+                EmitterDesc::non_spatial().with_gain_db(volume_db),
+            )?;
+            emitters.insert(path.to_owned(), OneShotEmitter { emitter, volume_db });
+            emitter
+        };
+        self.world.play(emitter, PlayOptions::once())?;
+        Ok(())
     }
 
     pub fn update_player_pos(
@@ -339,239 +210,125 @@ impl SpatialSoundManager {
         player_pos: Vec3,
         camera_vectors: &CameraVectors,
     ) -> Result<()> {
-        let mut listener_state = self.listener_state.lock().unwrap();
+        let mut listener = self.listener_state.lock().unwrap();
+        listener.position = player_pos;
+        listener.up = camera_vectors.up;
+        listener.front = camera_vectors.front;
+        listener.right = camera_vectors.right;
+        Ok(())
+    }
 
-        // Check if anything changed
-        if listener_state.position == player_pos
-            && listener_state.up == camera_vectors.up
-            && listener_state.front == camera_vectors.front
-            && listener_state.right == camera_vectors.right
-        {
-            return Ok(());
-        }
-
-        // Update cached state
-        listener_state.position = player_pos;
-        listener_state.up = camera_vectors.up;
-        listener_state.front = camera_vectors.front;
-        listener_state.right = camera_vectors.right;
-
-        // Convert camera vectors to quaternion rotation using the full camera basis
-        // Build a rotation matrix from the camera's right, up, and front vectors
-        // glam uses right-handed coordinates where +X=right, +Y=up, +Z=backward (so -Z=forward)
-        let rotation_matrix = glam::Mat3::from_cols(
-            camera_vectors.right,
-            camera_vectors.up,
-            -camera_vectors.front, // Negate because glam's +Z points backward
+    /// Publish one complete listener + spatial Emitter generation for this game frame.
+    pub fn publish_spatial_frame(&self) -> Result<()> {
+        let listener = self.listener_state.lock().unwrap().clone();
+        let rotation_matrix = glam::Mat3::from_cols(listener.right, listener.up, -listener.front);
+        let rotation = glam::Quat::from_mat3(&rotation_matrix);
+        let listener_pose = Pose::new(
+            PetalVec3::new(
+                listener.position.x,
+                listener.position.y,
+                listener.position.z,
+            ),
+            PetalQuat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w),
         );
-        let rotation_glam = glam::Quat::from_mat3(&rotation_matrix);
-
-        // Convert to PetalQuat
-        let rotation = PetalQuat::from_xyzw(
-            rotation_glam.x,
-            rotation_glam.y,
-            rotation_glam.z,
-            rotation_glam.w,
-        );
-
-        // Convert position to PetalVec3
-        let petal_pos = PetalVec3::new(player_pos.x, player_pos.y, player_pos.z);
-
-        // Update listener pose in PetalSonic
-        let pose = Pose::new(petal_pos, rotation);
-        self.world.set_listener_pose(pose);
-
-        Ok(())
-    }
-
-    pub fn set_audio_ray_tracing_enabled(&self, enabled: bool) {
-        // The ray tracer is kept alive for future occlusion/reflection work, but it is
-        // intentionally not wired into PetalSonic while we validate the no-occlusion baseline.
-        self.audio_ray_tracer.set_enabled(enabled);
-    }
-
-    pub fn set_spatial_audio_rendering(
-        &self,
-        hrtf_backend: HrtfBackend,
-        use_ambisonics: bool,
-        ambisonics_backend: AmbisonicsBackend,
-    ) -> Result<()> {
-        self.engine.lock().unwrap().set_spatial_rendering(
-            hrtf_backend,
-            DirectPathBackend::Native,
-            use_ambisonics,
-            ambisonics_backend,
-        )?;
-        Ok(())
-    }
-
-    pub fn pump_audio(&self) -> Result<()> {
-        if !self.engine_started.load(Ordering::Acquire) {
-            return Ok(());
-        }
-
-        let mut engine = self.engine.lock().unwrap();
-        engine
-            .pump_audio()
-            .map_err(|err| anyhow::anyhow!("Failed to pump audio: {}", err))?;
-        drop(engine);
-        Ok(())
-    }
-
-    pub fn start(&self) -> Result<()> {
-        if self.engine_started.load(Ordering::Acquire) {
-            return Ok(());
-        }
-
-        let mut engine = self.engine.lock().unwrap();
-        if self.engine_started.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        engine.start()?;
-        self.engine_started.store(true, Ordering::Release);
-        Ok(())
-    }
-
-    pub fn stop(&self) -> Result<()> {
-        if !self.engine_started.swap(false, Ordering::AcqRel) {
-            return Ok(());
-        }
-
-        let mut engine = self.engine.lock().unwrap();
-        engine.stop()?;
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub fn update_source_pos(&self, source_uuid: Uuid, target_pos: Vec3) -> Result<()> {
-        let global_gain_db = self.global_gain_db();
-        let (source_id, volume) = {
-            let mut uuid_map = self.uuid_to_source.lock().unwrap();
-            if let Some(source_info) = uuid_map.get_mut(&source_uuid) {
-                source_info.position = Some(target_pos);
-                (source_info.source_id, source_info.volume)
-            } else {
-                return Ok(());
-            }
-        };
-
-        // Convert position to PetalVec3
-        let petal_pose = Pose::new(
-            PetalVec3::new(target_pos.x, target_pos.y, target_pos.z),
-            PetalQuat::IDENTITY,
-        );
-
-        // Update the source configuration with new position, preserving volume
-        self.world.update_source_config(
-            source_id,
-            SourceConfig::spatial_with_volume_db(petal_pose, volume + global_gain_db),
-        )?;
-
-        Ok(())
-    }
-
-    pub fn update_source_volume(&self, source_uuid: Uuid, volume_db: f32) -> Result<()> {
-        let global_gain_db = self.global_gain_db();
-        let (source_id, position_opt) = {
-            let mut uuid_map = self.uuid_to_source.lock().unwrap();
-            if let Some(source_info) = uuid_map.get_mut(&source_uuid) {
-                source_info.volume = volume_db;
-                (source_info.source_id, source_info.position)
-            } else {
-                return Ok(());
-            }
-        };
-
-        if let Some(position) = position_opt {
-            let petal_pose = Pose::new(
-                PetalVec3::new(position.x, position.y, position.z),
-                PetalQuat::IDENTITY,
-            );
-            self.world.update_source_config(
-                source_id,
-                SourceConfig::spatial_with_volume_db(petal_pose, volume_db + global_gain_db),
-            )?;
-        } else {
-            self.world.update_source_config(
-                source_id,
-                SourceConfig::non_spatial_with_volume_db(volume_db + global_gain_db),
-            )?;
-        }
-
-        Ok(())
-    }
-
-    pub fn set_global_volume_gain_db(&self, gain_db: f32) -> Result<()> {
-        {
-            let mut global_gain = self.global_volume_gain_db.lock().unwrap();
-            if (*global_gain - gain_db).abs() < f32::EPSILON {
-                return Ok(());
-            }
-            *global_gain = gain_db;
-        }
-
-        let sources_to_update: Vec<(SourceId, Option<Vec3>, f32)> = self
+        let emitters = self
             .uuid_to_source
             .lock()
             .unwrap()
             .values()
-            .map(|source_info| {
-                (
-                    source_info.source_id,
-                    source_info.position,
-                    source_info.volume,
-                )
+            .filter_map(|source| {
+                source
+                    .position
+                    .map(|position| EmitterSpatialState::new(source.emitter, Self::pose(position)))
             })
             .collect();
+        self.world
+            .publish_spatial_frame(SpatialFrame::new(listener_pose, emitters))?;
 
-        for (source_id, position_opt, base_volume_db) in sources_to_update {
-            let effective_volume_db = base_volume_db + gain_db;
-            if let Some(position) = position_opt {
-                let pose = Pose::new(
-                    PetalVec3::new(position.x, position.y, position.z),
-                    PetalQuat::IDENTITY,
-                );
-                self.world.update_source_config(
-                    source_id,
-                    SourceConfig::spatial_with_volume_db(pose, effective_volume_db),
-                )?;
-            } else {
-                self.world.update_source_config(
-                    source_id,
-                    SourceConfig::non_spatial_with_volume_db(effective_volume_db),
-                )?;
-            }
+        for event in self.world.drain_events() {
+            log::debug!("PetalSonic event: {event:?}");
         }
+        Ok(())
+    }
 
+    pub fn set_audio_ray_tracing_enabled(&self, enabled: bool) {
+        self.audio_ray_tracer.set_enabled(enabled);
+    }
+
+    #[allow(dead_code)]
+    pub fn update_source_pos(&self, source_uuid: Uuid, target_pos: Vec3) -> Result<()> {
+        if let Some(source) = self.uuid_to_source.lock().unwrap().get_mut(&source_uuid) {
+            source.position = Some(target_pos);
+        }
+        Ok(())
+    }
+
+    pub fn update_source_volume(&self, source_uuid: Uuid, volume_db: f32) -> Result<()> {
+        let mut sources = self.uuid_to_source.lock().unwrap();
+        let Some(source) = sources.get_mut(&source_uuid) else {
+            return Ok(());
+        };
+        source.volume_db = volume_db;
+        self.world.update_emitter(
+            source.emitter,
+            Self::emitter_desc(source.position, source.volume_db),
+        )?;
+        Ok(())
+    }
+
+    pub fn replace_looping_clip(&self, source_uuid: Uuid, clip: ResidentClip) -> Result<()> {
+        let mut sources = self.uuid_to_source.lock().unwrap();
+        let Some(source) = sources.get_mut(&source_uuid) else {
+            return Ok(());
+        };
+        let old_emitter = source.emitter;
+        let new_emitter = self
+            .world
+            .create_emitter(clip, Self::emitter_desc(source.position, source.volume_db))?;
+        if let Err(error) = self.world.play(new_emitter, PlayOptions::looping()) {
+            let _ = self.world.destroy_emitter(new_emitter);
+            return Err(error.into());
+        }
+        if let Err(error) = self
+            .world
+            .seek_emitter(new_emitter, rand::rng().random_range(0.0..1.0))
+        {
+            let _ = self.world.destroy_emitter(new_emitter);
+            return Err(error.into());
+        }
+        if let Err(error) = self.world.destroy_emitter(old_emitter) {
+            let _ = self.world.destroy_emitter(new_emitter);
+            return Err(error.into());
+        }
+        source.emitter = new_emitter;
+        Ok(())
+    }
+
+    pub fn set_global_volume_gain_db(&self, gain_db: f32) -> Result<()> {
+        let mut current = self.global_volume_gain_db.lock().unwrap();
+        if (*current - gain_db).abs() <= f32::EPSILON {
+            return Ok(());
+        }
+        self.world.set_bus_params(
+            self.world.master_bus(),
+            BusParams {
+                gain_db,
+                ..BusParams::default()
+            },
+        )?;
+        *current = gain_db;
         Ok(())
     }
 
     #[allow(dead_code)]
     pub fn remove_source(&self, id: Uuid) {
-        if let Some(source_info) = self.uuid_to_source.lock().unwrap().remove(&id) {
-            // One-shot sources are often already cleaned up by the mixer.
-            // Avoid issuing Stop for them to prevent noisy "not in active playback" warnings.
-            if matches!(source_info.loop_mode, LoopMode::Infinite) {
-                let _ = self.world.stop(source_info.source_id);
-            }
-            let _ = self.world.remove_source(source_info.source_id);
+        if let Some(source) = self.uuid_to_source.lock().unwrap().remove(&id) {
+            let _ = self.world.destroy_emitter(source.emitter);
         }
     }
-}
 
-// Make SpatialSoundManager cloneable
-impl Clone for SpatialSoundManager {
-    fn clone(&self) -> Self {
-        Self {
-            world: self.world.clone(),
-            engine: self.engine.clone(),
-            audio_ray_tracer: self.audio_ray_tracer.clone(),
-            clip_cache: self.clip_cache.clone(),
-            uuid_to_source: self.uuid_to_source.clone(),
-            listener_state: self.listener_state.clone(),
-            global_volume_gain_db: self.global_volume_gain_db.clone(),
-            engine_started: self.engine_started.clone(),
-        }
+    pub fn stop(&self) -> Result<()> {
+        self.world.close()?;
+        Ok(())
     }
 }

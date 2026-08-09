@@ -6,6 +6,7 @@ use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
 use glam::Vec3;
 use log::{debug, warn};
+use petalsonic::ResidentClip;
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -17,6 +18,9 @@ const TREE_SILENT_VOLUME_DB: f32 = -80.0;
 // volume and cluster controls are applied.
 const PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB: f32 = 36.0;
 const MAX_TREE_AUDIO_CLUSTER_SOURCES: usize = 8;
+const TREE_RUSTLE_SAMPLE_RATE: u32 = 48_000;
+const TREE_RUSTLE_LOOP_SECONDS: f32 = 12.0;
+const TREE_RUSTLE_CLIP_SEED: u64 = 0x94d0_49bb_1331_11eb;
 
 /// Keeps track of all looping tree ambience sources so we can later
 /// drive them with wind simulations, recluster them, etc.
@@ -25,6 +29,7 @@ pub struct TreeAudioManager {
     wind_volume_db: f32,
     wind_response_curve: WindResponseCurve,
     rustle_params: TreeRustleParams,
+    rustle_clip: ResidentClip,
     sources_by_tree: HashMap<u32, Vec<Uuid>>,
     sources: HashMap<Uuid, TreeAudioSource>,
     wind: Wind,
@@ -36,16 +41,18 @@ impl TreeAudioManager {
         wind_response_curve: WindResponseCurve,
         wind_volume_db: f32,
         rustle_params: TreeRustleParams,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let rustle_clip = Self::render_rustle_clip(rustle_params)?;
+        Ok(Self {
             spatial_sound_manager,
             wind_volume_db,
             wind_response_curve,
             rustle_params,
+            rustle_clip,
             sources_by_tree: HashMap::new(),
             sources: HashMap::new(),
             wind: Wind::new(),
-        }
+        })
     }
 
     /// Add audio emitters for the given tree and store their metadata.
@@ -240,15 +247,20 @@ impl TreeAudioManager {
         }
     }
 
-    pub fn set_rustle_params(&mut self, rustle_params: TreeRustleParams) {
+    pub fn set_rustle_params(&mut self, rustle_params: TreeRustleParams) -> Result<()> {
         if rustle_params == self.rustle_params {
-            return;
+            return Ok(());
         }
 
-        self.rustle_params = rustle_params;
-        for source in self.sources.values() {
-            source.set_rustle_params(self.rustle_params);
+        let rustle_clip = Self::render_rustle_clip(rustle_params)?;
+        for source in self.sources.values_mut() {
+            self.spatial_sound_manager
+                .replace_looping_clip(source.uuid, rustle_clip.clone())?;
+            source.set_base_wind(rustle_params.base_wind);
         }
+        self.rustle_params = rustle_params;
+        self.rustle_clip = rustle_clip;
+        Ok(())
     }
 
     pub fn update(
@@ -287,30 +299,17 @@ impl TreeAudioManager {
         tree_id: u32,
         position: Vec3,
         cluster_size: u32,
-        _shuffle_phase: bool,
+        shuffle_phase: bool,
     ) -> Result<Uuid> {
         let wind_volume_db = Self::clustered_volume_db(self.wind_volume_db, cluster_size);
-        let rustle_control = Arc::new(TreeRustleControl::with_params(self.rustle_params));
-        let rustle_factory = Arc::new(TreeRustleFactory::new(
-            Self::source_seed(tree_id, position, cluster_size),
-            rustle_control.clone(),
-        ));
-        let uuid = self
-            .spatial_sound_manager
-            .add_procedural_looping_spatial_source(
-                rustle_factory,
-                TREE_SILENT_VOLUME_DB,
-                position,
-            )?;
-
-        self.register_source(
-            tree_id,
-            uuid,
+        let uuid = self.spatial_sound_manager.add_looping_spatial_clip(
+            self.rustle_clip.clone(),
+            TREE_SILENT_VOLUME_DB,
             position,
-            cluster_size,
-            wind_volume_db,
-            rustle_control,
-        );
+            shuffle_phase,
+        )?;
+
+        self.register_source(tree_id, uuid, position, cluster_size, wind_volume_db);
         Ok(uuid)
     }
 
@@ -321,7 +320,6 @@ impl TreeAudioManager {
         position: Vec3,
         cluster_size: u32,
         wind_volume_db: f32,
-        rustle_control: Arc<TreeRustleControl>,
     ) {
         let entry = TreeAudioSource::new(
             uuid,
@@ -330,19 +328,17 @@ impl TreeAudioManager {
             cluster_size,
             wind_volume_db,
             self.wind_response_curve,
-            rustle_control,
+            self.rustle_params.base_wind,
         );
         self.sources_by_tree.entry(tree_id).or_default().push(uuid);
         self.sources.insert(uuid, entry);
     }
 
-    fn source_seed(tree_id: u32, position: Vec3, cluster_size: u32) -> u64 {
-        let mut seed = 0x9e37_79b9_7f4a_7c15u64 ^ tree_id as u64;
-        for value in [position.x, position.y, position.z] {
-            seed ^= (value.to_bits() as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            seed = seed.rotate_left(27).wrapping_mul(0x94d0_49bb_1331_11eb);
-        }
-        seed ^ (cluster_size as u64).wrapping_mul(0x2545_f491_4f6c_dd1d)
+    fn render_rustle_clip(params: TreeRustleParams) -> Result<ResidentClip> {
+        let control = Arc::new(TreeRustleControl::with_params(params));
+        TreeRustleFactory::new(TREE_RUSTLE_CLIP_SEED, control)
+            .render_resident_clip(TREE_RUSTLE_SAMPLE_RATE, TREE_RUSTLE_LOOP_SECONDS)
+            .map_err(Into::into)
     }
 
     fn clustered_volume_db(volume_db: f32, clustered_amount: u32) -> f32 {
