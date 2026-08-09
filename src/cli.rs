@@ -38,6 +38,7 @@ pub enum MonitorScorePreference {
 pub enum EnvironmentLightingTestCase {
     #[default]
     Sealed,
+    PattSeam,
     Portal,
     Walls,
     Donor,
@@ -54,6 +55,7 @@ impl EnvironmentLightingTestCase {
     fn from_cli_value(value: &str) -> Option<Self> {
         match value {
             "sealed" => Some(Self::Sealed),
+            "patt-seam" => Some(Self::PattSeam),
             "portal" => Some(Self::Portal),
             "walls" => Some(Self::Walls),
             "donor" => Some(Self::Donor),
@@ -71,6 +73,7 @@ impl EnvironmentLightingTestCase {
     pub fn label(self) -> &'static str {
         match self {
             Self::Sealed => "sealed",
+            Self::PattSeam => "patt-seam",
             Self::Portal => "portal",
             Self::Walls => "walls",
             Self::Donor => "donor",
@@ -212,6 +215,8 @@ pub struct AppOptions {
     pub environment_lighting_test_scene: Option<EnvironmentLightingTestCase>,
     /// Save one pre-albedo linear environment-irradiance capture when the backend is ready.
     pub environment_irradiance_capture_path: Option<String>,
+    /// Save fixed saved-terrain DDGI probe-contribution readback as human-readable text.
+    pub ddgi_spatial_weight_readback_path: Option<String>,
     /// Select the complete DDGI field recorded by the one-shot irradiance capture.
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     /// Select deterministic forward or reverse DDGI probe-batch traversal.
@@ -361,6 +366,8 @@ impl AppOptions {
             "--environment-irradiance-capture",
             "an output .rfirr path",
         )?;
+        let ddgi_spatial_weight_readback_path =
+            parse_required_string_after("--ddgi-spatial-weight-readback", "an output text path")?;
         let environment_irradiance_capture_target_value = parse_required_string_after(
             "--environment-irradiance-capture-target",
             "s0, s1, sN, converged, non-converged, or published",
@@ -393,15 +400,31 @@ impl AppOptions {
             };
         let ddgi_debug_view = match parse_required_string_after(
             "--ddgi-debug-view",
-            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
+            "one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas",
         )? {
             Some(value) => DdgiDebugView::from_cli_value(&value).ok_or_else(|| {
                 format!(
-                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
+                    "Invalid --ddgi-debug-view '{value}'. Expected one of: final, moment-visibility, exact-visibility, visibility-error, exact-irradiance, unoccluded-irradiance, equal-weight-irradiance, raw-cage-irradiance, spatial-weight-current, spatial-weight-nominal, spatial-weight-wrap, spatial-weight-nominal-wrap, spatial-weight-readback, spatial-weight-current-no-surface, spatial-weight-nominal-no-surface, irradiance-error, weight-sum, dominant-probe, probe-state, relocation, irradiance-atlas, visibility-atlas."
                 )
             })?,
             None => DdgiDebugView::Final,
         };
+        if ddgi_spatial_weight_readback_path.is_some()
+            && ddgi_debug_view != DdgiDebugView::SpatialWeightReadback
+        {
+            return Err(
+                "--ddgi-spatial-weight-readback requires --ddgi-debug-view spatial-weight-readback"
+                    .to_owned(),
+            );
+        }
+        if ddgi_debug_view == DdgiDebugView::SpatialWeightReadback
+            && ddgi_spatial_weight_readback_path.is_none()
+        {
+            return Err(
+                "--ddgi-debug-view spatial-weight-readback requires --ddgi-spatial-weight-readback"
+                    .to_owned(),
+            );
+        }
         let ddgi_consumer_visibility = match parse_required_string_after(
             "--ddgi-consumer-visibility",
             "one of: full, moment-only, exact-only, none",
@@ -528,6 +551,7 @@ impl AppOptions {
             water_edit_soak: args.iter().any(|a| a == "--water-edit-soak"),
             environment_lighting_test_scene,
             environment_irradiance_capture_path,
+            ddgi_spatial_weight_readback_path,
             environment_irradiance_capture_target,
             ddgi_batch_order,
             ddgi_debug_view,
@@ -619,7 +643,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
                 )
             }),
     }
@@ -812,17 +836,19 @@ Options:
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J
   --water-edit-soak           Run deterministic pond terrain edits for water validation
   --environment-lighting-test-scene [case]
-                              Build a lighting case: sealed (default), portal, walls, donor, dogleg,
+                              Build a lighting case: sealed (default), patt-seam, portal, walls, donor, dogleg,
                               radiance-changes, density-changes, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
   --environment-irradiance-capture <path>
                               Save DDGI metadata, pre-albedo irradiance/hit mask, world hit, and exact sun visibility
+  --ddgi-spatial-weight-readback <path>
+                              Save the fixed saved-terrain eight-probe contribution readback (requires spatial-weight-readback)
   --environment-irradiance-capture-target <target>
                               Capture s0, s1, a specified sN, converged, or non-converged (default: s1)
   --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
-                              or atlas DDGI diagnostics (default: final)
+                              spatial-weight, readback, or atlas DDGI diagnostics (default: final)
   --ddgi-consumer-visibility <mode>
                               Select full, moment-only, exact-only, or none for consumer perf A/B
                               (default: full; probe transport remains full)
@@ -936,6 +962,7 @@ mod tests {
         assert!(!options.resize_lifecycle_test);
         assert!(options.environment_lighting_test_scene.is_none());
         assert!(options.environment_irradiance_capture_path.is_none());
+        assert!(options.ddgi_spatial_weight_readback_path.is_none());
         assert_eq!(
             options.environment_irradiance_capture_target,
             DdgiCaptureTarget::Iteration(1)
@@ -1001,6 +1028,7 @@ mod tests {
     fn parses_named_environment_lighting_test_scenes() {
         for (name, expected) in [
             ("sealed", EnvironmentLightingTestCase::Sealed),
+            ("patt-seam", EnvironmentLightingTestCase::PattSeam),
             ("portal", EnvironmentLightingTestCase::Portal),
             ("walls", EnvironmentLightingTestCase::Walls),
             ("donor", EnvironmentLightingTestCase::Donor),
@@ -1042,7 +1070,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
         ));
     }
 
@@ -1114,6 +1142,59 @@ mod tests {
     fn parses_ddgi_debug_view() {
         let options = parse(&["re-flora", "--ddgi-debug-view", "exact-visibility"]);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::ExactVisibility);
+
+        let options = parse(&["re-flora", "--ddgi-debug-view", "unoccluded-irradiance"]);
+        assert_eq!(options.ddgi_debug_view, DdgiDebugView::UnoccludedIrradiance);
+
+        let options = parse(&["re-flora", "--ddgi-debug-view", "equal-weight-irradiance"]);
+        assert_eq!(
+            options.ddgi_debug_view,
+            DdgiDebugView::EqualWeightIrradiance
+        );
+
+        let options = parse(&["re-flora", "--ddgi-debug-view", "raw-cage-irradiance"]);
+        assert_eq!(options.ddgi_debug_view, DdgiDebugView::RawCageIrradiance);
+
+        for (value, expected) in [
+            (
+                "spatial-weight-current",
+                DdgiDebugView::SpatialWeightCurrent,
+            ),
+            (
+                "spatial-weight-nominal",
+                DdgiDebugView::SpatialWeightNominal,
+            ),
+            ("spatial-weight-wrap", DdgiDebugView::SpatialWeightWrap),
+            (
+                "spatial-weight-nominal-wrap",
+                DdgiDebugView::SpatialWeightNominalWrap,
+            ),
+            (
+                "spatial-weight-readback",
+                DdgiDebugView::SpatialWeightReadback,
+            ),
+            (
+                "spatial-weight-current-no-surface",
+                DdgiDebugView::SpatialWeightCurrentNoSurface,
+            ),
+            (
+                "spatial-weight-nominal-no-surface",
+                DdgiDebugView::SpatialWeightNominalNoSurface,
+            ),
+        ] {
+            let options = if expected == DdgiDebugView::SpatialWeightReadback {
+                parse(&[
+                    "re-flora",
+                    "--ddgi-debug-view",
+                    value,
+                    "--ddgi-spatial-weight-readback",
+                    "target/readback.txt",
+                ])
+            } else {
+                parse(&["re-flora", "--ddgi-debug-view", value])
+            };
+            assert_eq!(options.ddgi_debug_view, expected);
+        }
     }
 
     #[test]

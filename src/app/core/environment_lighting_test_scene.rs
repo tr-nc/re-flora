@@ -1,5 +1,5 @@
 use super::App;
-use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldEditPlan};
+use crate::app::world_edits::{BuildEdit, TerrainRemovalEdit, VoxelEdit, WorldEditPlan};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
     DdgiBuildKind, DdgiFieldIdentity, DdgiFieldStage, DdgiRefreshState, DdgiScheduledWorkKind,
@@ -16,6 +16,9 @@ const SETTLE_FRAMES: u8 = 2;
 const TEST_TIME_OF_DAY: f32 = 0.455_705;
 const TEST_LATITUDE: f32 = -0.24;
 const TEST_SEASON: f32 = 0.25;
+const PATT_SEAM_TIME_OF_DAY: f32 = 0.49;
+const PATT_SEAM_LATITUDE: f32 = -0.07;
+const PATT_SEAM_SEASON: f32 = 0.29;
 const TEST_VOXEL_COLOR_VARIANCE: f32 = 0.0;
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 const RADIANCE_R1_SUN_COLOR: Color32 = Color32::from_rgb(255, 241, 224);
@@ -41,6 +44,11 @@ const INTERIOR_MIN: Vec3 = Vec3::new(112.0, 100.0, 242.0);
 const INTERIOR_MAX: Vec3 = Vec3::new(222.0, 216.0, 376.0);
 const SKYLIGHT_MIN: Vec3 = Vec3::new(144.0, 216.0, 270.0);
 const SKYLIGHT_MAX: Vec3 = Vec3::new(192.0, 244.0, 334.0);
+const PATT_SEAM_DIG_CENTERS: [Vec3; 2] = [
+    Vec3::new(0.58, 226.0 / 256.0, 1.10),
+    Vec3::new(0.52, 226.0 / 256.0, 1.20),
+];
+const PATT_SEAM_DIG_PASSES: usize = 24;
 
 const WALLS_FLOOR_MIN: Vec3 = Vec3::new(80.0, 84.0, 208.0);
 const WALLS_FLOOR_MAX: Vec3 = Vec3::new(432.0, 100.0, 408.0);
@@ -114,6 +122,12 @@ enum TestScenePhase {
     },
     WaitingForProbeField {
         terrain_revision: u32,
+    },
+    WaitingForPattSeamTerrain {
+        target_revision: u32,
+    },
+    WaitingForPattSeamProbeField {
+        target_revision: u32,
     },
     WaitingForRadianceBaseline {
         terrain_revision: u32,
@@ -332,6 +346,10 @@ impl EnvironmentLightingTestScene {
         self.phase == TestScenePhase::Ready
     }
 
+    pub(super) fn hides_terrain_edit_preview(&self) -> bool {
+        self.case == EnvironmentLightingTestCase::PattSeam
+    }
+
     pub(super) fn is_capture_ready(&self) -> bool {
         self.is_ready()
             || matches!(
@@ -405,7 +423,8 @@ impl EnvironmentLightingTestScene {
 
     pub(super) fn edit_cycle_target_revision(&self) -> Option<u32> {
         if !(is_terrain_edit_case(self.case)
-            || self.case == EnvironmentLightingTestCase::RadianceChanges)
+            || self.case == EnvironmentLightingTestCase::RadianceChanges
+            || self.case == EnvironmentLightingTestCase::PattSeam)
             || self.is_ready()
         {
             return None;
@@ -417,6 +436,8 @@ impl EnvironmentLightingTestScene {
             | TestScenePhase::WaitingForEditedProbeField {
                 target_revision, ..
             }
+            | TestScenePhase::WaitingForPattSeamTerrain { target_revision }
+            | TestScenePhase::WaitingForPattSeamProbeField { target_revision }
             | TestScenePhase::CapturingInflightFailClosed { target_revision } => {
                 Some(target_revision)
             }
@@ -459,6 +480,10 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForRebuild => "waiting-for-initial-terrain",
             TestScenePhase::Settling { .. } => "settling-initial-terrain",
             TestScenePhase::WaitingForProbeField { .. } => "waiting-for-initial-probe-field",
+            TestScenePhase::WaitingForPattSeamTerrain { .. } => "waiting-for-patt-seam-terrain",
+            TestScenePhase::WaitingForPattSeamProbeField { .. } => {
+                "waiting-for-patt-seam-probe-field"
+            }
             TestScenePhase::WaitingForRadianceBaseline { .. } => "waiting-for-radiance-baseline",
             TestScenePhase::CapturingRadianceBaseline { .. } => "capturing-radiance-baseline",
             TestScenePhase::MutatingRadianceR2 { .. } => "mutating-radiance-r2",
@@ -533,7 +558,7 @@ impl TestSceneGeometry {
 
         let test_rebuild_bound = test_rebuild_bound(case);
         let (cleared_test_scene, rock, carved_empty, sand) = match case {
-            EnvironmentLightingTestCase::Sealed => (
+            EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => (
                 Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX)],
@@ -665,7 +690,7 @@ fn skylight_edit_plan(edit: TerrainEdit) -> Result<WorldEditPlan> {
 
 fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
     match case {
-        EnvironmentLightingTestCase::Sealed => {
+        EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => {
             (Vec3::new(0.65, 0.58, 1.38), Vec3::new(0.65, 0.64, 1.02))
         }
         EnvironmentLightingTestCase::Portal
@@ -715,6 +740,15 @@ fn voxel_palette(case: EnvironmentLightingTestCase) -> TestVoxelPalette {
     }
 }
 
+fn test_lighting(case: EnvironmentLightingTestCase) -> (f32, f32, f32) {
+    match case {
+        EnvironmentLightingTestCase::PattSeam => {
+            (PATT_SEAM_TIME_OF_DAY, PATT_SEAM_LATITUDE, PATT_SEAM_SEASON)
+        }
+        _ => (TEST_TIME_OF_DAY, TEST_LATITUDE, TEST_SEASON),
+    }
+}
+
 fn voxel_roi_to_world(min_voxel: Vec3, max_voxel: Vec3) -> (Vec3, Vec3) {
     (
         min_voxel / VOXELS_PER_WORLD_UNIT,
@@ -731,13 +765,15 @@ impl App {
             .case;
         let (camera_position, camera_target) = camera_pose(case);
         let palette = voxel_palette(case);
-        self.current_time_of_day = TEST_TIME_OF_DAY;
-        self.debug_settings.adjustables.time_of_day.value = TEST_TIME_OF_DAY;
-        self.debug_settings.adjustables.latitude.value = TEST_LATITUDE;
-        self.debug_settings.adjustables.season.value = TEST_SEASON;
+        let (time_of_day, latitude, season) = test_lighting(case);
+        let sun_luminance = RADIANCE_R1_SUN_LUMINANCE;
+        self.current_time_of_day = time_of_day;
+        self.debug_settings.adjustables.time_of_day.value = time_of_day;
+        self.debug_settings.adjustables.latitude.value = latitude;
+        self.debug_settings.adjustables.season.value = season;
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
         self.debug_settings.adjustables.sun_color.value = RADIANCE_R1_SUN_COLOR;
-        self.debug_settings.adjustables.sun_luminance.value = RADIANCE_R1_SUN_LUMINANCE;
+        self.debug_settings.adjustables.sun_luminance.value = sun_luminance;
         self.debug_settings.adjustables.voxel_dirt_color.value = palette.dirt;
         self.debug_settings.adjustables.voxel_sand_color.value = palette.sand;
         self.debug_settings
@@ -754,7 +790,7 @@ impl App {
         {
             self.request_vsm_history_reset();
             log::info!(
-                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} latitude={:.3} season={:.3} auto_cycle=false voxel_color_variance={:.3}",
+                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} latitude={:.3} season={:.3} sun_luminance={:.3} auto_cycle=false voxel_color_variance={:.3}",
                 case.label(),
                 camera_position.x,
                 camera_position.y,
@@ -762,9 +798,10 @@ impl App {
                 camera_target.x,
                 camera_target.y,
                 camera_target.z,
-                TEST_TIME_OF_DAY,
-                TEST_LATITUDE,
-                TEST_SEASON,
+                time_of_day,
+                latitude,
+                season,
+                sun_luminance,
                 TEST_VOXEL_COLOR_VARIANCE,
             );
             if case == EnvironmentLightingTestCase::Donor {
@@ -1005,6 +1042,20 @@ impl App {
                     assert!(!runtime.full_domain_invalidation_is_fail_closed());
                     log_acceptance_field("DENSITY", "baseline", baseline);
                     TestScenePhase::WaitingForDensityMidflight { baseline }
+                } else if case == EnvironmentLightingTestCase::PattSeam {
+                    log::info!(
+                        "[DDGI_SEAM_REPRO] initial probe field ready terrain_revision={}",
+                        terrain_revision,
+                    );
+                    match self.apply_patt_seam_dig(terrain_revision) {
+                        Ok(target_revision) => {
+                            TestScenePhase::WaitingForPattSeamTerrain { target_revision }
+                        }
+                        Err(err) => {
+                            log::error!("[DDGI_SEAM_REPRO] shovel replay failed: {err:#}");
+                            TestScenePhase::Failed
+                        }
+                    }
                 } else if is_terrain_edit_case(case) {
                     log::info!(
                         "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision={}",
@@ -1543,6 +1594,38 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
+            TestScenePhase::WaitingForPattSeamTerrain { target_revision } => {
+                if !self.deferred_chunk_rebuilds_idle() {
+                    return;
+                }
+                log::info!(
+                    "[DDGI_SEAM_REPRO] edited terrain ready target_revision={}",
+                    target_revision,
+                );
+                TestScenePhase::WaitingForPattSeamProbeField { target_revision }
+            }
+            TestScenePhase::WaitingForPattSeamProbeField { target_revision } => {
+                let runtime = self.tracer.ddgi_runtime_status();
+                let active = runtime.active();
+                let Some(field) = active.published_field else {
+                    return;
+                };
+                if field.field().geometry_revision() != target_revision
+                    || !is_terminal_field(field)
+                    || active.stage != DdgiVolumeStage::Ready
+                    || active.building_field.is_some()
+                    || runtime.staging().is_some()
+                {
+                    return;
+                }
+                log::info!(
+                    "[DDGI_SEAM_REPRO] ready target_revision={} transport={:?} iteration={} opening=shovel-sphere",
+                    target_revision,
+                    field.field().stage(),
+                    field.field().iteration(),
+                );
+                TestScenePhase::Ready
+            }
             TestScenePhase::WaitingForEditedTerrain {
                 edit,
                 target_revision,
@@ -1744,6 +1827,60 @@ impl App {
         );
         Ok(target_revision)
     }
+
+    fn apply_patt_seam_dig(&mut self, source_revision: u32) -> Result<u32> {
+        let radius = super::TERRAIN_EDIT_DEFAULT_RADIUS;
+        let mut removed_voxels = 0_u32;
+        let mut productive_strokes = 0_usize;
+        for _pass in 0..PATT_SEAM_DIG_PASSES {
+            for center in PATT_SEAM_DIG_CENTERS {
+                let readback = self.apply_surface_terrain_removal(
+                    TerrainRemovalEdit { center, radius },
+                    Some(VOXEL_TYPE_ROCK),
+                    None,
+                    None,
+                )?;
+                let stroke_removed: u32 = readback.stats.removed_counts.iter().sum();
+                productive_strokes += usize::from(stroke_removed > 0);
+                removed_voxels += stroke_removed;
+            }
+        }
+        anyhow::ensure!(
+            productive_strokes >= PATT_SEAM_DIG_CENTERS.len(),
+            "patt seam shovel replay did not produce a complete pass",
+        );
+        let target_revision = self.visible_terrain_revision;
+        anyhow::ensure!(
+            target_revision != source_revision,
+            "patt seam shovel replay did not advance terrain revision from {}",
+            source_revision,
+        );
+        let center_min = PATT_SEAM_DIG_CENTERS
+            .into_iter()
+            .reduce(Vec3::min)
+            .expect("patt seam replay must contain strokes");
+        let center_max = PATT_SEAM_DIG_CENTERS
+            .into_iter()
+            .reduce(Vec3::max)
+            .expect("patt seam replay must contain strokes");
+        log::info!(
+            "[DDGI_SEAM_REPRO] applied operation=apply_surface_terrain_removal target_voxel=rock passes={} strokes={} productive_strokes={} center_bounds=({:.3},{:.6},{:.3})..({:.3},{:.6},{:.3}) radius={:.6} removed_voxels={} source_revision={} target_revision={}",
+            PATT_SEAM_DIG_PASSES,
+            PATT_SEAM_DIG_PASSES * PATT_SEAM_DIG_CENTERS.len(),
+            productive_strokes,
+            center_min.x,
+            center_min.y,
+            center_min.z,
+            center_max.x,
+            center_max.y,
+            center_max.z,
+            radius,
+            removed_voxels,
+            source_revision,
+            target_revision,
+        );
+        Ok(target_revision)
+    }
 }
 
 fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
@@ -1830,6 +1967,91 @@ mod tests {
     }
 
     #[test]
+    fn patt_seam_replay_uses_the_saved_snapshot_and_only_punches_the_roof() {
+        let snapshots = crate::app::camera_snapshots::CameraSnapshotLibrary::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config/camera_snapshots.toml"),
+        )
+        .unwrap();
+        assert_eq!(snapshots.snapshots().len(), 1);
+        let snapshot = snapshots
+            .find("snapshot")
+            .expect("saved snapshot must exist");
+        let camera_position = Vec3::from_array(snapshot.position);
+        assert_eq!(
+            PATT_SEAM_DIG_CENTERS,
+            [
+                Vec3::new(0.58, 226.0 / 256.0, 1.10),
+                Vec3::new(0.52, 226.0 / 256.0, 1.20),
+            ]
+        );
+        assert_eq!(
+            test_lighting(EnvironmentLightingTestCase::PattSeam),
+            (0.49, -0.07, 0.29)
+        );
+        assert_eq!(RADIANCE_R1_SUN_LUMINANCE, 1.65);
+        assert!(
+            PATT_SEAM_DIG_PASSES > (SHELL_MAX.y - INTERIOR_MAX.y) as usize,
+            "surface-only shovel replay needs more passes than roof voxel layers",
+        );
+        let radius = super::super::TERRAIN_EDIT_DEFAULT_RADIUS;
+        for center in PATT_SEAM_DIG_CENTERS {
+            let camera_to_dig = center - camera_position;
+            assert!(camera_to_dig.y > 0.0);
+
+            let dig_min = center - Vec3::splat(radius);
+            let dig_max = center + Vec3::splat(radius);
+            assert!(dig_min.y * VOXELS_PER_WORLD_UNIT < INTERIOR_MAX.y);
+            assert!(dig_max.y * VOXELS_PER_WORLD_UNIT > SHELL_MAX.y);
+            assert!(dig_min.x * VOXELS_PER_WORLD_UNIT >= INTERIOR_MIN.x);
+            assert!(dig_max.x * VOXELS_PER_WORLD_UNIT <= INTERIOR_MAX.x);
+            assert!(dig_min.z * VOXELS_PER_WORLD_UNIT >= INTERIOR_MIN.z);
+            assert!(dig_max.z * VOXELS_PER_WORLD_UNIT <= INTERIOR_MAX.z);
+        }
+    }
+
+    #[test]
+    fn patt_seam_sun_projects_through_the_opening_into_the_visible_interior() {
+        let (time_of_day, latitude, season) = test_lighting(EnvironmentLightingTestCase::PattSeam);
+        let (sun_altitude, sun_azimuth) =
+            crate::app::environment::calculate_sun_position(time_of_day, latitude, season);
+        let incoming =
+            -crate::util::get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
+        let floor_y = INTERIOR_MIN.y / VOXELS_PER_WORLD_UNIT;
+        let floor_hits = PATT_SEAM_DIG_CENTERS.map(|center| {
+            let distance = (floor_y - center.y) / incoming.y;
+            let floor_hit = center + incoming * distance;
+
+            assert!(distance > 0.0);
+            assert!((floor_hit.y - floor_y).abs() < 1.0e-5);
+            assert!(floor_hit.x * VOXELS_PER_WORLD_UNIT >= INTERIOR_MIN.x);
+            assert!(floor_hit.x * VOXELS_PER_WORLD_UNIT <= INTERIOR_MAX.x);
+            assert!(floor_hit.z * VOXELS_PER_WORLD_UNIT >= INTERIOR_MIN.z);
+            assert!(floor_hit.z * VOXELS_PER_WORLD_UNIT <= INTERIOR_MAX.z);
+            floor_hit
+        });
+        assert!(floor_hits[0].x > floor_hits[1].x);
+        assert!(floor_hits[0].z < floor_hits[1].z);
+
+        let sun_direction = -incoming;
+        let radius = super::super::TERRAIN_EDIT_DEFAULT_RADIUS;
+        for ray_anchor in PATT_SEAM_DIG_CENTERS {
+            for step in 0..=256 {
+                let roof_y = (INTERIOR_MAX.y
+                    + (SHELL_MAX.y - INTERIOR_MAX.y) * step as f32 / 256.0)
+                    / VOXELS_PER_WORLD_UNIT;
+                let distance = (roof_y - ray_anchor.y) / sun_direction.y;
+                let roof_point = ray_anchor + sun_direction * distance;
+                assert!(
+                    PATT_SEAM_DIG_CENTERS
+                        .iter()
+                        .any(|center| roof_point.distance(*center) <= radius + 1.0e-5),
+                    "sun ray leaves the carved roof tunnel at {roof_point:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn thin_wall_cases_have_exact_voxel_thicknesses() {
         assert_eq!(ONE_VOXEL_WALL_MAX.z - ONE_VOXEL_WALL_MIN.z, 1.0);
         assert_eq!(TWO_VOXEL_WALL_MAX.z - TWO_VOXEL_WALL_MIN.z, 2.0);
@@ -1839,6 +2061,7 @@ mod tests {
     fn all_test_scene_plans_are_static_and_bounded() {
         for case in [
             EnvironmentLightingTestCase::Sealed,
+            EnvironmentLightingTestCase::PattSeam,
             EnvironmentLightingTestCase::Portal,
             EnvironmentLightingTestCase::Walls,
             EnvironmentLightingTestCase::Donor,

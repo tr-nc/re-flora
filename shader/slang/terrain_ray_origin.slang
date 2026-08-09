@@ -38,3 +38,11 @@ public float3 terrainRayOriginAlongNormal(float3 voxelCenter, float3 normal,
     return terrainRayOriginAlongNormal(
         voxelCenter, normal, TERRAIN_RAY_ORIGIN_VOXEL_SIZE, offsetWorld);
 }
+
+public float3 terrainRayOriginFromSurface(float3 surfacePosition, float3 normal,
+                                           float offsetWorld)
+{
+    float3 normalDirection = normalize(normal);
+    return surfacePosition +
+        normalDirection * max(0.0, offsetWorld);
+}
