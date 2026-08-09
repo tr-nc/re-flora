@@ -30,6 +30,11 @@ _Avoid_: ambient constant, local fallback
 
 ## Rendering Roles
 
+**Visible Terrain Publication**:
+A coherent visible result for an authoritative voxel-terrain change; it exists only when every
+affected terrain chunk is ready for observation.
+_Avoid_: partial rebuild, mesh update
+
 **Raster Consumer**:
 A raster-rendered object that reads the environment-lighting field for shading without contributing
 geometry to that field.

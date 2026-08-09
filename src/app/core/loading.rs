@@ -589,12 +589,17 @@ impl App {
         }
 
         let chunk_ids = terrain_chunk_ids();
-        if !self.enqueue_deferred_chunk_rebuilds(&chunk_ids) {
-            return Err((
-                true,
-                anyhow::anyhow!("visible terrain rebuild failed after snapshot upload"),
-            ));
-        }
+        let change =
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunks(chunk_ids)])
+                .map_err(|err| (true, err))?
+                .ok_or_else(|| {
+                    (
+                        true,
+                        anyhow::anyhow!("snapshot replacement has no visible terrain chunks"),
+                    )
+                })?;
+        self.publish_visible_terrain(change)
+            .map_err(|err| (true, err))?;
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         if !self.contree_builder.cpu_chunk_cache_jobs_idle() {
             return Err((
@@ -602,11 +607,6 @@ impl App {
                 anyhow::anyhow!("Contree CPU cache did not reach Ready after snapshot rebuild"),
             ));
         }
-        self.observe_published_terrain_edit_for_ddgi(UAabb3::new(
-            UVec3::ZERO,
-            CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
-        ))
-        .map_err(|err| (true, err))?;
         self.terrain_physics
             .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
             .map_err(|err| (true, err))?;

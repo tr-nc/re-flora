@@ -23,6 +23,7 @@ mod terrain_rebuild;
 mod tree_bench;
 mod ui_style;
 mod vegetation;
+mod visible_terrain;
 mod water;
 
 use self::authored_flora_bench::AuthoredFloraBench;
@@ -42,10 +43,11 @@ use self::player_tools::PlayerToolState;
 use self::terrain_rebuild::{ChunkRebuildRequest, TerrainChunkRebuildInFlight};
 use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRecord, TreeVariationConfig};
+use self::visible_terrain::VisibleTerrainChange;
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::environment;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
-use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldBuildBackend, WorldEditPlan};
+use crate::app::world_edits::{BuildEdit, WorldEditPlan};
 use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
@@ -747,68 +749,6 @@ impl App {
                 self.growing_flora_chunks.push(chunk_id, last_flora_tick);
             }
         }
-    }
-}
-
-impl WorldBuildBackend for App {
-    fn apply_voxel_edit(&mut self, edit: VoxelEdit) -> Result<()> {
-        anyhow::ensure!(
-            !self.terrain_persistence_fatal,
-            "terrain persistence is in fatal Error; restart is required"
-        );
-        let result = world_ops::apply_voxel_edit(&mut self.plain_builder, edit);
-        if result.is_ok() {
-            self.request_vsm_history_reset();
-        }
-        result
-    }
-
-    fn apply_build_edit(&mut self, edit: BuildEdit) -> Result<()> {
-        anyhow::ensure!(
-            !self.terrain_persistence_fatal,
-            "terrain persistence is in fatal Error; restart is required"
-        );
-        match edit {
-            BuildEdit::RebuildMesh(bound) => {
-                let chunk_ids =
-                    world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
-                anyhow::ensure!(
-                    self.enqueue_deferred_chunk_rebuilds(&chunk_ids),
-                    "failed to publish visible terrain for RebuildMesh {:?}",
-                    bound,
-                );
-                self.terrain_physics.mark_terrain_voxel_bound_dirty(bound);
-            }
-            BuildEdit::RebuildMeshWithoutFlora(bound) => {
-                let chunk_ids =
-                    world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
-                anyhow::ensure!(
-                    self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids),
-                    "failed to publish visible terrain for RebuildMeshWithoutFlora {:?}",
-                    bound,
-                );
-                self.terrain_physics.mark_terrain_voxel_bound_dirty(bound);
-            }
-            BuildEdit::RebuildChunks(chunk_ids) => {
-                anyhow::ensure!(
-                    self.enqueue_deferred_chunk_rebuilds(&chunk_ids),
-                    "failed to publish visible terrain for RebuildChunks {:?}",
-                    chunk_ids,
-                );
-                self.terrain_physics
-                    .mark_terrain_chunks_dirty(&chunk_ids, VOXEL_DIM_PER_CHUNK);
-            }
-            BuildEdit::RebuildChunksWithoutFlora(chunk_ids) => {
-                anyhow::ensure!(
-                    self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids),
-                    "failed to publish visible terrain for RebuildChunksWithoutFlora {:?}",
-                    chunk_ids,
-                );
-                self.terrain_physics
-                    .mark_terrain_chunks_dirty(&chunk_ids, VOXEL_DIM_PER_CHUNK);
-            }
-        }
-        Ok(())
     }
 }
 
@@ -2050,38 +1990,16 @@ impl App {
         self.vsm_history_reset_pending = true;
     }
 
-    fn finish_player_terrain_edit_publication(
-        &mut self,
-        terrain_changed: bool,
-        visible_rebuild_succeeded: bool,
-        rebuild_bound: UAabb3,
-        operation: &'static str,
-    ) -> Result<()> {
-        let Some(refresh_bound) = terrain_refresh_bound_after_publication(
-            terrain_changed,
-            visible_rebuild_succeeded,
-            rebuild_bound,
-            operation,
-        )?
-        else {
-            return Ok(());
-        };
-        self.terrain_physics
-            .mark_terrain_voxel_bound_dirty(refresh_bound);
-        self.observe_published_terrain_edit_for_ddgi(refresh_bound)?;
-        Ok(())
-    }
-
     fn execute_edit_plan(&mut self, plan: WorldEditPlan) -> Result<()> {
-        let affects_shadow_history = !plan.voxel_edits.is_empty() || !plan.build_edits.is_empty();
-        let environment_probe_edit_bound =
-            Self::environment_probe_edit_bound(&plan, VOXEL_DIM_PER_CHUNK);
-        world_ops::execute_edit_plan_on_backend(self, plan)?;
-        if affects_shadow_history {
-            self.request_vsm_history_reset();
+        anyhow::ensure!(
+            !self.terrain_persistence_fatal,
+            "terrain persistence is in fatal Error; restart is required"
+        );
+        for edit in plan.voxel_edits {
+            world_ops::apply_voxel_edit(&mut self.plain_builder, edit)?;
         }
-        if let Some(edit_bound) = environment_probe_edit_bound {
-            self.observe_published_terrain_edit_for_ddgi(edit_bound)?;
+        if let Some(change) = VisibleTerrainChange::from_build_edits(plan.build_edits)? {
+            self.publish_visible_terrain(change)?;
         }
         Ok(())
     }
@@ -2093,40 +2011,6 @@ impl App {
             UAabb3::new(UVec3::ZERO, CHUNK_DIM * VOXEL_DIM_PER_CHUNK),
         )?;
         Ok(revision)
-    }
-
-    fn observe_published_terrain_edit_for_ddgi(
-        &mut self,
-        edited_voxel_bound: UAabb3,
-    ) -> Result<u32> {
-        let revision = self.visible_terrain_revision.wrapping_add(1).max(1);
-        self.tracer
-            .observe_published_environment_probe_terrain(revision, edited_voxel_bound)?;
-        self.visible_terrain_revision = revision;
-        Ok(revision)
-    }
-
-    fn environment_probe_edit_bound(
-        plan: &WorldEditPlan,
-        voxel_dim_per_chunk: UVec3,
-    ) -> Option<UAabb3> {
-        plan.build_edits
-            .iter()
-            .filter_map(|edit| match edit {
-                BuildEdit::RebuildMesh(bound) | BuildEdit::RebuildMeshWithoutFlora(bound) => {
-                    Some(*bound)
-                }
-                BuildEdit::RebuildChunks(chunk_ids)
-                | BuildEdit::RebuildChunksWithoutFlora(chunk_ids) => {
-                    let min_chunk = chunk_ids.iter().copied().reduce(UVec3::min)?;
-                    let max_chunk = chunk_ids.iter().copied().reduce(UVec3::max)?;
-                    Some(UAabb3::new(
-                        min_chunk * voxel_dim_per_chunk,
-                        (max_chunk + UVec3::ONE) * voxel_dim_per_chunk,
-                    ))
-                }
-            })
-            .reduce(|combined, bound| combined.union_with(&bound))
     }
 
     fn gui_wants_keyboard_input(&self) -> bool {
@@ -4739,30 +4623,13 @@ impl App {
     }
 }
 
-fn terrain_refresh_bound_after_publication(
-    terrain_changed: bool,
-    visible_rebuild_succeeded: bool,
-    rebuild_bound: UAabb3,
-    operation: &'static str,
-) -> Result<Option<UAabb3>> {
-    if !terrain_changed {
-        return Ok(None);
-    }
-    anyhow::ensure!(
-        visible_rebuild_succeeded,
-        "{operation} changed voxel terrain but failed to publish its visible terrain rebuild"
-    );
-    Ok(terrain_changed.then_some(rebuild_bound))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        advance_time_of_day, terrain_refresh_bound_after_publication, App, CameraControlMode,
-        MouseWheelDollySmoother, OrbitDeltaSmoother, OrbitKeyboardPanInput,
+        advance_time_of_day, App, CameraControlMode, MouseWheelDollySmoother, OrbitDeltaSmoother,
+        OrbitKeyboardPanInput,
     };
-    use crate::geom::UAabb3;
-    use glam::{UVec3, Vec3};
+    use glam::Vec3;
     use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
     use winit::keyboard::KeyCode;
 
@@ -4824,51 +4691,6 @@ mod tests {
         let (min, max) = App::debug_startup_block_bounds();
         assert!(max.y > min.y);
         assert_eq!(max.y, super::VOXEL_DIM_PER_CHUNK.y as f32);
-    }
-
-    #[test]
-    fn changed_player_terrain_requests_refresh_only_after_visible_publication() {
-        let bound = UAabb3::new(UVec3::splat(10), UVec3::splat(20));
-        let mut requested = Vec::new();
-        let mut terrain_revision = 7u32;
-
-        if let Some(refresh_bound) =
-            terrain_refresh_bound_after_publication(true, true, bound, "test edit").unwrap()
-        {
-            requested.push(refresh_bound);
-            terrain_revision = terrain_revision.wrapping_add(1).max(1);
-        }
-        assert_eq!(requested, vec![bound]);
-        assert_eq!(terrain_revision, 8);
-
-        assert!(
-            terrain_refresh_bound_after_publication(false, true, bound, "test edit")
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            terrain_refresh_bound_after_publication(false, false, bound, "test edit")
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(requested, vec![bound]);
-        assert_eq!(terrain_revision, 8);
-    }
-
-    #[test]
-    fn failed_visible_publication_returns_error_before_requesting_ddgi_refresh() {
-        let bound = UAabb3::new(UVec3::splat(10), UVec3::splat(20));
-        let mut requested = Vec::new();
-        let terrain_revision = 7u32;
-
-        let result = terrain_refresh_bound_after_publication(true, false, bound, "test edit");
-        if let Ok(Some(refresh_bound)) = result.as_ref() {
-            requested.push(*refresh_bound);
-        }
-
-        assert!(result.is_err());
-        assert!(requested.is_empty());
-        assert_eq!(terrain_revision, 7);
     }
 
     #[test]

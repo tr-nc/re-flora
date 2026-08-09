@@ -1,5 +1,6 @@
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
+use super::visible_terrain::VisibleTerrainChange;
 use super::App;
 use crate::app::world_edits::{
     BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
@@ -14,7 +15,7 @@ use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tree_gen::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
 use crate::util::cluster_positions;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
 use std::collections::HashSet;
@@ -25,7 +26,11 @@ const AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT: u32 = 48;
 
 pub(super) enum SurfaceOccupantClearPath {
     Standalone,
-    TerrainRebuild { chunk_ids: Vec<UVec3> },
+    TerrainRebuild {
+        chunk_ids: Vec<UVec3>,
+        bound: UAabb3,
+        terrain_changed: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1017,7 +1022,9 @@ impl App {
         let mut seen = HashSet::new();
         rebuild_chunk_ids.retain(|chunk_id| seen.insert(*chunk_id));
         let rebuild_start = Instant::now();
-        self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
+        self.publish_visible_terrain(VisibleTerrainChange::tree_chunks(
+            rebuild_chunk_ids.clone(),
+        )?)?;
         let rebuild_elapsed = rebuild_start.elapsed();
 
         for (
@@ -1091,7 +1098,7 @@ impl App {
         &mut self,
         tree_desc: TreeDesc,
         tree_pos: Vec3,
-        defer_rebuild: bool,
+        _defer_rebuild: bool,
     ) -> Result<()> {
         let total_start = Instant::now();
         let mut old_remove_ms = 0.0;
@@ -1151,17 +1158,9 @@ impl App {
 
         let rebuild_chunk_ids = self.tree_rebuild_chunk_ids(old_bound, compiled.this_bound);
         let rebuild_start = Instant::now();
-        if defer_rebuild {
-            self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
-        } else {
-            world_ops::mesh_generate_chunks_without_flora(
-                &mut self.surface_builder,
-                &mut self.contree_builder,
-                &mut self.scene_accel_builder,
-                super::VOXEL_DIM_PER_CHUNK,
-                rebuild_chunk_ids.clone(),
-            )?;
-        }
+        self.publish_visible_terrain(VisibleTerrainChange::tree_chunks(
+            rebuild_chunk_ids.clone(),
+        )?)?;
         let rebuild_elapsed = rebuild_start.elapsed();
         crate::util::BENCH
             .lock()
@@ -1479,9 +1478,6 @@ impl App {
             };
             let terrain_changed = stats.stats.removed_counts.iter().any(|&count| count > 0)
                 || stats.stats.added_counts.iter().any(|&count| count > 0);
-            if terrain_changed {
-                self.request_vsm_history_reset();
-            }
             let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
                 rebuild_bound,
                 super::VOXEL_DIM_PER_CHUNK,
@@ -1494,14 +1490,9 @@ impl App {
                 },
                 SurfaceOccupantClearPath::TerrainRebuild {
                     chunk_ids: rebuild_chunk_ids,
+                    bound: rebuild_bound,
+                    terrain_changed,
                 },
-            )?;
-            // TerrainRebuild returns only after its flora-preserving visible rebuild succeeds.
-            self.finish_player_terrain_edit_publication(
-                terrain_changed,
-                true,
-                rebuild_bound,
-                "terrain removal",
             )?;
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
@@ -1545,17 +1536,10 @@ impl App {
             };
             let terrain_changed = stats.stats.removed_counts.iter().any(|&count| count > 0)
                 || stats.stats.added_counts.iter().any(|&count| count > 0);
-            if terrain_changed {
-                self.request_vsm_history_reset();
-            }
             let _modify_elapsed = modify_start.elapsed();
             let mesh_start = Instant::now();
-            let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
+            self.publish_visible_terrain(VisibleTerrainChange::preserving_flora(
                 rebuild_bound,
-                super::VOXEL_DIM_PER_CHUNK,
-            );
-            let rebuilt = self.enqueue_deferred_flora_preserving_chunk_rebuilds(
-                &rebuild_chunk_ids,
                 world_ops::FloraBrushEdit {
                     start: edit.center,
                     end: edit.center,
@@ -1563,13 +1547,8 @@ impl App {
                     tick: self.flora_tick,
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },
-            );
-            self.finish_player_terrain_edit_publication(
                 terrain_changed,
-                rebuilt,
-                rebuild_bound,
-                "terrain placement",
-            )?;
+            ))?;
             let _mesh_elapsed = mesh_start.elapsed();
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
@@ -1609,10 +1588,19 @@ impl App {
                     flora_edit,
                 )?;
             }
-            SurfaceOccupantClearPath::TerrainRebuild { chunk_ids } => {
+            SurfaceOccupantClearPath::TerrainRebuild {
+                chunk_ids,
+                bound,
+                terrain_changed,
+            } => {
+                let change =
+                    VisibleTerrainChange::preserving_flora(bound, flora_edit, terrain_changed);
+                let published = self.publish_visible_terrain(change)?;
                 anyhow::ensure!(
-                    self.enqueue_deferred_flora_preserving_chunk_rebuilds(&chunk_ids, flora_edit),
-                    "terrain rebuild failed while clearing surface occupants"
+                    published.rebuilt_chunks == chunk_ids.len(),
+                    "visible terrain publication rebuilt {} of {} affected chunks",
+                    published.rebuilt_chunks,
+                    chunk_ids.len(),
                 );
             }
         }
@@ -1664,15 +1652,13 @@ impl App {
             return Ok(());
         };
 
-        self.request_vsm_history_reset();
         let rebuild_chunk_ids =
             world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
-        let rebuilt = self.enqueue_deferred_chunk_rebuilds_without_flora(&rebuild_chunk_ids);
-        self.finish_player_terrain_edit_publication(
-            true,
-            rebuilt,
-            rebuild_bound,
-            "terrain smoothing",
+        self.publish_visible_terrain(
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunksWithoutFlora(
+                rebuild_chunk_ids,
+            )])?
+            .context("terrain smoothing requires an affected visible terrain region")?,
         )?;
         Ok(())
     }
