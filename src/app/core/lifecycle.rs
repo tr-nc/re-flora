@@ -57,15 +57,15 @@ impl App {
     }
 
     fn stop_terrain_worker_threads(&mut self) {
-        self.terrain_sdf_collider_job_tx.take();
-        if let Some(worker) = self.terrain_sdf_collider_worker.take() {
+        self.water_terrain.collider_job_tx.take();
+        if let Some(worker) = self.water_terrain.collider_worker.take() {
             if worker.join().is_err() {
                 log::warn!("[SHUTDOWN][TERRAIN] collider worker panicked during shutdown");
             }
         }
 
-        self.water_terrain_cache_job_tx.take();
-        if let Some(worker) = self.water_terrain_cache_worker.take() {
+        self.water_terrain.cache_job_tx.take();
+        if let Some(worker) = self.water_terrain.cache_worker.take() {
             if worker.join().is_err() {
                 log::warn!("[SHUTDOWN][TERRAIN_CACHE] worker panicked during shutdown");
             }

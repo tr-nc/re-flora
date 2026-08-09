@@ -524,7 +524,7 @@ impl App {
     }
 
     fn append_water_debug_snapshots(&mut self) {
-        if !self.water_terrain_initialized {
+        if !self.water_terrain.initialized {
             return;
         }
 

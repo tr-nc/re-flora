@@ -564,10 +564,10 @@ impl App {
 
     pub(super) fn maybe_resume_terrain_persistence_water(&mut self) {
         if !self.terrain_persistence_water_paused
-            || !self.water_terrain_initialized
-            || !self.deferred_terrain_sdf_source_refreshes.is_idle()
-            || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
-            || !self.deferred_water_terrain_cache_rebuilds.is_idle()
+            || !self.water_terrain.initialized
+            || !self.water_terrain.source_refreshes.is_idle()
+            || !self.water_terrain.collider_rebuilds.is_idle()
+            || !self.water_terrain.cache_rebuilds.is_idle()
         {
             return;
         }

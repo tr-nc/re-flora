@@ -1,8 +1,9 @@
-use super::{App, WaterTerrainCacheRebuildRequest, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+use super::{App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::app::GuiAdjustables;
 use crate::builder::{ChunkSolidSampleJob, ContreeCpuVoxelSourceDependency, VOXEL_TYPE_ROCK};
 use crate::util::ChunkPopMode;
+use crate::util::LatestChunkQueue;
 use crate::AppOptions;
 use anyhow::Result;
 use glam::{IVec3, UVec3, Vec2, Vec3};
@@ -12,6 +13,7 @@ use re_flora_water::{
     WaterTerrainCachePatch, WaterTerrainColliderChunk,
 };
 use std::{
+    collections::HashMap,
     sync::mpsc,
     thread,
     time::{Duration, Instant},
@@ -247,9 +249,57 @@ pub(super) struct WaterTerrainCacheWorkerResult {
     patch: WaterTerrainCachePatch,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct WaterTerrainCacheRebuildRequest;
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct TerrainSdfSourceRefreshRequest {
     ready_at: Instant,
+}
+
+pub(super) struct WaterTerrainRuntime {
+    pub(super) initialized: bool,
+    pub(super) collider_cache_rebuild_pending: bool,
+    pub(super) source_refreshes: LatestChunkQueue<TerrainSdfSourceRefreshRequest>,
+    pub(super) collider_rebuilds: LatestChunkQueue<TerrainSdfColliderRebuildRequest>,
+    pub(super) cache_rebuilds: LatestChunkQueue<WaterTerrainCacheRebuildRequest>,
+    pub(super) built_source_revisions: HashMap<UVec3, TerrainSdfSourceRevision>,
+    pub(super) source_refresh_inflight: Option<TerrainSdfSourceRefreshInFlight>,
+    pub(super) collider_build_inflight: bool,
+    pub(super) collider_job_tx: Option<mpsc::Sender<TerrainSdfColliderWorkerJob>>,
+    pub(super) collider_result_rx: mpsc::Receiver<TerrainSdfColliderWorkerResult>,
+    pub(super) collider_worker: Option<thread::JoinHandle<()>>,
+    pub(super) cache_rebuild_inflight: bool,
+    pub(super) cache_job_tx: Option<mpsc::Sender<WaterTerrainCacheWorkerJob>>,
+    pub(super) cache_result_rx: mpsc::Receiver<WaterTerrainCacheWorkerResult>,
+    pub(super) cache_worker: Option<thread::JoinHandle<()>>,
+}
+
+impl WaterTerrainRuntime {
+    pub(super) fn new() -> Self {
+        let (collider_job_tx, collider_result_rx, collider_worker) =
+            Self::spawn_terrain_sdf_collider_worker();
+        let (cache_job_tx, cache_result_rx, cache_worker) =
+            Self::spawn_water_terrain_cache_worker();
+
+        Self {
+            initialized: false,
+            collider_cache_rebuild_pending: false,
+            source_refreshes: LatestChunkQueue::default(),
+            collider_rebuilds: LatestChunkQueue::default(),
+            cache_rebuilds: LatestChunkQueue::default(),
+            built_source_revisions: HashMap::new(),
+            source_refresh_inflight: None,
+            collider_build_inflight: false,
+            collider_job_tx: Some(collider_job_tx),
+            collider_result_rx,
+            collider_worker: Some(collider_worker),
+            cache_rebuild_inflight: false,
+            cache_job_tx: Some(cache_job_tx),
+            cache_result_rx,
+            cache_worker: Some(cache_worker),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -306,15 +356,13 @@ impl App {
         chunk_id: UVec3,
         request: TerrainSdfColliderRebuildRequest,
     ) {
-        let revision = self
-            .deferred_terrain_sdf_collider_rebuilds
-            .push(chunk_id, request);
+        let revision = self.water_terrain.collider_rebuilds.push(chunk_id, request);
         log::debug!(
             "[QUEUE][TERRAIN_SDF_COLLIDER] enqueue chunk {:?} revision {} pending={} active={}",
             chunk_id,
             revision,
-            self.deferred_terrain_sdf_collider_rebuilds.len(),
-            self.deferred_terrain_sdf_collider_rebuilds.active_len(),
+            self.water_terrain.collider_rebuilds.len(),
+            self.water_terrain.collider_rebuilds.active_len(),
         );
     }
 
@@ -327,14 +375,15 @@ impl App {
             return;
         };
         let revision = self
-            .deferred_water_terrain_cache_rebuilds
+            .water_terrain
+            .cache_rebuilds
             .push(chunk_key, WaterTerrainCacheRebuildRequest);
         log::debug!(
             "[QUEUE][WATER_TERRAIN_CACHE] enqueue chunk {:?} revision {} pending={} active={}",
             chunk_id,
             revision,
-            self.deferred_water_terrain_cache_rebuilds.len(),
-            self.deferred_water_terrain_cache_rebuilds.active_len(),
+            self.water_terrain.cache_rebuilds.len(),
+            self.water_terrain.cache_rebuilds.active_len(),
         );
     }
 
@@ -347,7 +396,7 @@ impl App {
         // latest revision, but must not slide ready_at forever while the user
         // holds a terrain-edit tool. Preserve the earliest ready time so the
         // budgeted queue can keep publishing intermediate collider updates.
-        let revision = self.deferred_terrain_sdf_source_refreshes.push_coalesced(
+        let revision = self.water_terrain.source_refreshes.push_coalesced(
             chunk_id,
             request,
             |existing, pending| existing.coalesce_keep_earliest_ready(pending),
@@ -357,8 +406,8 @@ impl App {
             chunk_id,
             revision,
             delay.as_secs_f32() * 1000.0,
-            self.deferred_terrain_sdf_source_refreshes.len(),
-            self.deferred_terrain_sdf_source_refreshes.active_len(),
+            self.water_terrain.source_refreshes.len(),
+            self.water_terrain.source_refreshes.active_len(),
         );
     }
 
@@ -412,14 +461,15 @@ impl App {
     /// result into a collider source. Pending source refreshes remain queued
     /// but are never submitted once shutdown begins.
     pub(super) fn discard_terrain_sdf_source_refresh_for_shutdown(&mut self) -> Result<()> {
-        let Some(active) = self.terrain_sdf_source_refresh_inflight.take() else {
+        let Some(active) = self.water_terrain.source_refresh_inflight.take() else {
             return Ok(());
         };
         let chunk_id = active.chunk_id;
         let revision = active.revision;
         self.plain_builder
             .discard_chunk_atlas_solid_grid_sample(active.job)?;
-        self.deferred_terrain_sdf_source_refreshes
+        self.water_terrain
+            .source_refreshes
             .complete(chunk_id, revision);
         log::info!(
             "[SHUTDOWN][TERRAIN_SDF_SOURCE] discarded active solid sample chunk {:?} revision {} without readback/publication",
@@ -430,14 +480,14 @@ impl App {
     }
 
     fn try_submit_next_terrain_sdf_source_refresh(&mut self) {
-        if self.terrain_sdf_source_refresh_inflight.is_some() {
+        if self.water_terrain.source_refresh_inflight.is_some() {
             return;
         }
 
         let focus = self.water_terrain_focus_ws();
         let now = Instant::now();
         let contree_builder = &self.contree_builder;
-        let Some(work) = self.deferred_terrain_sdf_source_refreshes.pop_if_payload(
+        let Some(work) = self.water_terrain.source_refreshes.pop_if_payload(
             ChunkPopMode::NearestWithAging {
                 focus,
                 chunk_extent: UVec3::ONE,
@@ -458,7 +508,8 @@ impl App {
                 chunk_id,
                 revision,
             );
-            self.deferred_terrain_sdf_source_refreshes
+            self.water_terrain
+                .source_refreshes
                 .complete(chunk_id, revision);
             return;
         };
@@ -472,13 +523,14 @@ impl App {
                 let atlas_offset = job.atlas_offset();
                 let atlas_dim = job.atlas_dim();
                 let sample_dim = job.sample_dim();
-                self.terrain_sdf_source_refresh_inflight = Some(TerrainSdfSourceRefreshInFlight {
-                    chunk_id,
-                    revision,
-                    source_revision: source_revision.clone(),
-                    submitted_at: Instant::now(),
-                    job,
-                });
+                self.water_terrain.source_refresh_inflight =
+                    Some(TerrainSdfSourceRefreshInFlight {
+                        chunk_id,
+                        revision,
+                        source_revision: source_revision.clone(),
+                        submitted_at: Instant::now(),
+                        job,
+                    });
                 log::debug!(
                     "[QUEUE][TERRAIN_SDF_SOURCE] submit async chunk {:?} revision {} source={:?} atlas_offset={:?} source_dim={:?} sample_dim={:?} samples={} readback_bytes={} pending={} active={}",
                     chunk_id,
@@ -489,8 +541,8 @@ impl App {
                     sample_dim,
                     sample_count,
                     byte_count,
-                    self.deferred_terrain_sdf_source_refreshes.len(),
-                    self.deferred_terrain_sdf_source_refreshes.active_len(),
+                    self.water_terrain.source_refreshes.len(),
+                    self.water_terrain.source_refreshes.active_len(),
                 );
             }
             Ok(None) => {
@@ -499,7 +551,8 @@ impl App {
                     chunk_id,
                     revision,
                 );
-                self.deferred_terrain_sdf_source_refreshes
+                self.water_terrain
+                    .source_refreshes
                     .complete(chunk_id, revision);
             }
             Err(err) => {
@@ -509,14 +562,15 @@ impl App {
                     revision,
                     err,
                 );
-                self.deferred_terrain_sdf_source_refreshes
+                self.water_terrain
+                    .source_refreshes
                     .complete(chunk_id, revision);
             }
         }
     }
 
     fn publish_completed_terrain_sdf_source_refresh(&mut self) {
-        let Some(active) = self.terrain_sdf_source_refresh_inflight.as_ref() else {
+        let Some(active) = self.water_terrain.source_refresh_inflight.as_ref() else {
             return;
         };
         let ready = match self
@@ -539,14 +593,16 @@ impl App {
         }
 
         let active = self
-            .terrain_sdf_source_refresh_inflight
+            .water_terrain
+            .source_refresh_inflight
             .take()
             .expect("terrain SDF source refresh disappeared after readiness poll");
         let chunk_id = active.chunk_id;
         let revision = active.revision;
         let age_ms = active.submitted_at.elapsed().as_secs_f64() * 1000.0;
         let is_latest = self
-            .deferred_terrain_sdf_source_refreshes
+            .water_terrain
+            .source_refreshes
             .is_latest_revision(chunk_id, revision);
         if !is_latest {
             log::debug!(
@@ -554,10 +610,11 @@ impl App {
                 chunk_id,
                 revision,
                 age_ms,
-                self.deferred_terrain_sdf_source_refreshes.len(),
-                self.deferred_terrain_sdf_source_refreshes.active_len(),
+                self.water_terrain.source_refreshes.len(),
+                self.water_terrain.source_refreshes.active_len(),
             );
-            self.deferred_terrain_sdf_source_refreshes
+            self.water_terrain
+                .source_refreshes
                 .complete(chunk_id, revision);
             return;
         }
@@ -577,7 +634,8 @@ impl App {
                 current_source_revision,
                 age_ms,
             );
-            self.deferred_terrain_sdf_source_refreshes
+            self.water_terrain
+                .source_refreshes
                 .complete(chunk_id, revision);
             self.schedule_terrain_sdf_source_refresh(chunk_id);
             return;
@@ -586,7 +644,7 @@ impl App {
         match self.finish_terrain_sdf_solid_sample_chunk(chunk_id, active.job) {
             Ok(source) => {
                 let source_revision = active.source_revision;
-                let already_built = self.terrain_sdf_built_source_revisions.get(&chunk_id)
+                let already_built = self.water_terrain.built_source_revisions.get(&chunk_id)
                     == Some(&source_revision);
                 if !already_built {
                     log::debug!(
@@ -611,8 +669,8 @@ impl App {
                         chunk_id,
                         revision,
                         source_revision,
-                        self.deferred_terrain_sdf_source_refreshes.len(),
-                        self.deferred_terrain_sdf_source_refreshes.active_len(),
+                        self.water_terrain.source_refreshes.len(),
+                        self.water_terrain.source_refreshes.active_len(),
                     );
                 }
             }
@@ -625,7 +683,8 @@ impl App {
                 );
             }
         }
-        self.deferred_terrain_sdf_source_refreshes
+        self.water_terrain
+            .source_refreshes
             .complete(chunk_id, revision);
     }
 
@@ -635,17 +694,18 @@ impl App {
     }
 
     fn try_submit_next_water_terrain_cache_rebuild(&mut self) {
-        if self.water_terrain_cache_rebuild_inflight {
+        if self.water_terrain.cache_rebuild_inflight {
             return;
         }
 
         let focus = self.water_terrain_focus_ws();
-        let Some(work) =
-            self.deferred_water_terrain_cache_rebuilds
-                .pop(ChunkPopMode::NearestWithAging {
-                    focus,
-                    chunk_extent: UVec3::ONE,
-                })
+        let Some(work) = self
+            .water_terrain
+            .cache_rebuilds
+            .pop(ChunkPopMode::NearestWithAging {
+                focus,
+                chunk_extent: UVec3::ONE,
+            })
         else {
             return;
         };
@@ -657,7 +717,8 @@ impl App {
                 chunk_key,
                 revision,
             );
-            self.deferred_water_terrain_cache_rebuilds
+            self.water_terrain
+                .cache_rebuilds
                 .complete(chunk_key, revision);
             return;
         };
@@ -670,7 +731,8 @@ impl App {
                 "[WATER][TERRAIN_CACHE] skipped worker grid cache region chunk={:?} outside=true",
                 chunk_id,
             );
-            self.deferred_water_terrain_cache_rebuilds
+            self.water_terrain
+                .cache_rebuilds
                 .complete(chunk_key, revision);
             return;
         };
@@ -688,15 +750,16 @@ impl App {
             revision,
             request,
         };
-        self.water_terrain_cache_rebuild_inflight = true;
-        let Some(job_tx) = self.water_terrain_cache_job_tx.as_ref() else {
+        self.water_terrain.cache_rebuild_inflight = true;
+        let Some(job_tx) = self.water_terrain.cache_job_tx.as_ref() else {
             log::error!(
                 "[WATER][TERRAIN_CACHE] worker input unavailable during shutdown chunk {:?} rev {}",
                 chunk_id,
                 revision,
             );
-            self.water_terrain_cache_rebuild_inflight = false;
-            self.deferred_water_terrain_cache_rebuilds
+            self.water_terrain.cache_rebuild_inflight = false;
+            self.water_terrain
+                .cache_rebuilds
                 .complete(chunk_key, revision);
             return;
         };
@@ -707,8 +770,9 @@ impl App {
                 revision,
                 err,
             );
-            self.water_terrain_cache_rebuild_inflight = false;
-            self.deferred_water_terrain_cache_rebuilds
+            self.water_terrain.cache_rebuild_inflight = false;
+            self.water_terrain
+                .cache_rebuilds
                 .complete(chunk_key, revision);
             return;
         }
@@ -724,16 +788,17 @@ impl App {
             node_count,
             near_surface_band,
             dx,
-            self.deferred_water_terrain_cache_rebuilds.len(),
-            self.deferred_water_terrain_cache_rebuilds.active_len(),
+            self.water_terrain.cache_rebuilds.len(),
+            self.water_terrain.cache_rebuilds.active_len(),
         );
     }
 
     fn publish_completed_water_terrain_cache_rebuilds(&mut self) {
-        while let Ok(result) = self.water_terrain_cache_result_rx.try_recv() {
-            self.water_terrain_cache_rebuild_inflight = false;
+        while let Ok(result) = self.water_terrain.cache_result_rx.try_recv() {
+            self.water_terrain.cache_rebuild_inflight = false;
             let is_latest = self
-                .deferred_water_terrain_cache_rebuilds
+                .water_terrain
+                .cache_rebuilds
                 .is_latest_revision(result.chunk_key, result.revision);
 
             if !is_latest {
@@ -743,14 +808,16 @@ impl App {
                     result.revision,
                     result.patch.build_ms(),
                 );
-                self.deferred_water_terrain_cache_rebuilds
+                self.water_terrain
+                    .cache_rebuilds
                     .complete(result.chunk_key, result.revision);
                 continue;
             }
 
             self.water_sim.submit_terrain_grid_cache_patch(result.patch);
 
-            self.deferred_water_terrain_cache_rebuilds
+            self.water_terrain
+                .cache_rebuilds
                 .complete(result.chunk_key, result.revision);
         }
     }
@@ -792,9 +859,9 @@ impl App {
     }
 
     fn water_terrain_work_active(&self) -> bool {
-        !self.deferred_terrain_sdf_source_refreshes.is_idle()
-            || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
-            || !self.deferred_water_terrain_cache_rebuilds.is_idle()
+        !self.water_terrain.source_refreshes.is_idle()
+            || !self.water_terrain.collider_rebuilds.is_idle()
+            || !self.water_terrain.cache_rebuilds.is_idle()
     }
 
     pub(super) fn process_water_edit_soak(&mut self) {
@@ -811,10 +878,10 @@ impl App {
         if render_start.elapsed().as_secs_f32() < step.delay_sec {
             return;
         }
-        if !self.water_terrain_initialized
-            || !self.deferred_terrain_sdf_source_refreshes.is_idle()
-            || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
-            || !self.deferred_water_terrain_cache_rebuilds.is_idle()
+        if !self.water_terrain.initialized
+            || !self.water_terrain.source_refreshes.is_idle()
+            || !self.water_terrain.collider_rebuilds.is_idle()
+            || !self.water_terrain.cache_rebuilds.is_idle()
         {
             return;
         }
@@ -886,7 +953,9 @@ impl App {
         }
         Ok(())
     }
+}
 
+impl WaterTerrainRuntime {
     pub(super) fn spawn_terrain_sdf_collider_worker() -> (
         mpsc::Sender<TerrainSdfColliderWorkerJob>,
         mpsc::Receiver<TerrainSdfColliderWorkerResult>,
@@ -938,19 +1007,22 @@ impl App {
 
         (job_tx, result_rx, worker)
     }
+}
 
+impl App {
     fn try_submit_next_terrain_sdf_collider_rebuild(&mut self) {
-        if self.terrain_sdf_collider_build_inflight {
+        if self.water_terrain.collider_build_inflight {
             return;
         }
 
         let focus = self.water_terrain_focus_ws();
-        let Some(work) =
-            self.deferred_terrain_sdf_collider_rebuilds
-                .pop(ChunkPopMode::NearestWithAging {
-                    focus,
-                    chunk_extent: UVec3::ONE,
-                })
+        let Some(work) = self
+            .water_terrain
+            .collider_rebuilds
+            .pop(ChunkPopMode::NearestWithAging {
+                focus,
+                chunk_extent: UVec3::ONE,
+            })
         else {
             return;
         };
@@ -967,19 +1039,21 @@ impl App {
                 chunk_key,
                 revision,
             );
-            self.deferred_terrain_sdf_collider_rebuilds
+            self.water_terrain
+                .collider_rebuilds
                 .complete(chunk_key, revision);
             return;
         };
 
-        if self.terrain_sdf_built_source_revisions.get(&chunk_key) == Some(&source_revision) {
+        if self.water_terrain.built_source_revisions.get(&chunk_key) == Some(&source_revision) {
             log::debug!(
                 "[QUEUE][TERRAIN_SDF_COLLIDER] skip unchanged solid source chunk {:?} revision {} source={:?}",
                 chunk_id,
                 revision,
                 source_revision,
             );
-            self.deferred_terrain_sdf_collider_rebuilds
+            self.water_terrain
+                .collider_rebuilds
                 .complete(chunk_key, revision);
             return;
         }
@@ -993,9 +1067,11 @@ impl App {
                 chunk_key,
                 removed,
             );
-            self.terrain_sdf_built_source_revisions
+            self.water_terrain
+                .built_source_revisions
                 .insert(chunk_key, source_revision);
-            self.deferred_terrain_sdf_collider_rebuilds
+            self.water_terrain
+                .collider_rebuilds
                 .complete(chunk_key, revision);
             self.finish_startup_water_terrain_collider_batch_if_ready();
             return;
@@ -1008,15 +1084,16 @@ impl App {
             source_revision,
             source,
         };
-        self.terrain_sdf_collider_build_inflight = true;
-        let Some(job_tx) = self.terrain_sdf_collider_job_tx.as_ref() else {
+        self.water_terrain.collider_build_inflight = true;
+        let Some(job_tx) = self.water_terrain.collider_job_tx.as_ref() else {
             log::error!(
                 "[WATER][TERRAIN] collider worker input unavailable during shutdown chunk {:?} rev {}",
                 chunk_id,
                 revision,
             );
-            self.terrain_sdf_collider_build_inflight = false;
-            self.deferred_terrain_sdf_collider_rebuilds
+            self.water_terrain.collider_build_inflight = false;
+            self.water_terrain
+                .collider_rebuilds
                 .complete(chunk_key, revision);
             return;
         };
@@ -1027,8 +1104,9 @@ impl App {
                 revision,
                 err,
             );
-            self.terrain_sdf_collider_build_inflight = false;
-            self.deferred_terrain_sdf_collider_rebuilds
+            self.water_terrain.collider_build_inflight = false;
+            self.water_terrain
+                .collider_rebuilds
                 .complete(chunk_key, revision);
             return;
         }
@@ -1037,16 +1115,17 @@ impl App {
             "[QUEUE][TERRAIN_SDF_COLLIDER] submit chunk {:?} revision {} pending={} active={}",
             chunk_id,
             revision,
-            self.deferred_terrain_sdf_collider_rebuilds.len(),
-            self.deferred_terrain_sdf_collider_rebuilds.active_len(),
+            self.water_terrain.collider_rebuilds.len(),
+            self.water_terrain.collider_rebuilds.active_len(),
         );
     }
 
     fn publish_completed_terrain_sdf_collider_rebuilds(&mut self) {
-        while let Ok(result) = self.terrain_sdf_collider_result_rx.try_recv() {
-            self.terrain_sdf_collider_build_inflight = false;
+        while let Ok(result) = self.water_terrain.collider_result_rx.try_recv() {
+            self.water_terrain.collider_build_inflight = false;
             let is_latest = self
-                .deferred_terrain_sdf_collider_rebuilds
+                .water_terrain
+                .collider_rebuilds
                 .is_latest_revision(result.chunk_key, result.revision);
 
             if !is_latest {
@@ -1055,7 +1134,8 @@ impl App {
                     result.chunk_id,
                     result.revision,
                 );
-                self.deferred_terrain_sdf_collider_rebuilds
+                self.water_terrain
+                    .collider_rebuilds
                     .complete(result.chunk_key, result.revision);
                 continue;
             }
@@ -1068,7 +1148,7 @@ impl App {
                     stats,
                 } = build;
                 let center_probe = (bounds_min_ws + bounds_max_ws) * 0.5;
-                if self.water_terrain_initialized {
+                if self.water_terrain.initialized {
                     self.publish_water_terrain_collider_chunk(chunk);
                 } else {
                     self.publish_startup_water_terrain_collider_chunk_deferred(chunk);
@@ -1100,13 +1180,15 @@ impl App {
                     stats.count_ms,
                     stats.sdf_ms,
                     stats.stats_ms,
-                    self.deferred_terrain_sdf_collider_rebuilds.len(),
+                    self.water_terrain.collider_rebuilds.len(),
                 );
             }
 
-            self.terrain_sdf_built_source_revisions
+            self.water_terrain
+                .built_source_revisions
                 .insert(result.chunk_key, result.source_revision);
-            self.deferred_terrain_sdf_collider_rebuilds
+            self.water_terrain
+                .collider_rebuilds
                 .complete(result.chunk_key, result.revision);
             self.finish_startup_water_terrain_collider_batch_if_ready();
         }
@@ -1117,12 +1199,12 @@ impl App {
             .water_sim
             .remove_terrain_collider_chunk_deferred(chunk_id);
         if removed {
-            if self.water_terrain_initialized {
+            if self.water_terrain.initialized {
                 self.water_sim
                     .invalidate_terrain_grid_cache_for_chunk(chunk_id);
                 self.enqueue_deferred_water_terrain_cache_rebuild(chunk_id);
             } else {
-                self.water_terrain_collider_cache_rebuild_pending = true;
+                self.water_terrain.collider_cache_rebuild_pending = true;
             }
         }
         removed
@@ -1161,20 +1243,20 @@ impl App {
             self.water_sim.config.collider.min_ws,
             self.water_sim.config.collider.max_ws,
         ) {
-            self.water_terrain_collider_cache_rebuild_pending = true;
+            self.water_terrain.collider_cache_rebuild_pending = true;
         }
     }
 
     fn finish_startup_water_terrain_collider_batch_if_ready(&mut self) {
-        if self.water_terrain_initialized || !self.water_terrain_has_startup_collider() {
+        if self.water_terrain.initialized || !self.water_terrain_has_startup_collider() {
             return;
         }
 
-        if self.water_terrain_collider_cache_rebuild_pending {
+        if self.water_terrain.collider_cache_rebuild_pending {
             self.water_sim.finish_terrain_collider_chunk_batch(true);
-            self.water_terrain_collider_cache_rebuild_pending = false;
+            self.water_terrain.collider_cache_rebuild_pending = false;
         }
-        self.water_terrain_initialized = true;
+        self.water_terrain.initialized = true;
         log::info!("[WATER][TERRAIN] initialized startup collider batch");
     }
 
@@ -1187,10 +1269,10 @@ impl App {
     }
 
     fn water_terrain_has_startup_collider(&self) -> bool {
-        if self.terrain_sdf_collider_build_inflight
-            || !self.deferred_terrain_sdf_source_refreshes.is_idle()
-            || !self.deferred_terrain_sdf_collider_rebuilds.is_idle()
-            || !self.deferred_water_terrain_cache_rebuilds.is_idle()
+        if self.water_terrain.collider_build_inflight
+            || !self.water_terrain.source_refreshes.is_idle()
+            || !self.water_terrain.collider_rebuilds.is_idle()
+            || !self.water_terrain.cache_rebuilds.is_idle()
         {
             return false;
         }

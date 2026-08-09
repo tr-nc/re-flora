@@ -81,7 +81,7 @@ use crate::tracer::{
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
-use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, BENCH};
+use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
 use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
@@ -90,7 +90,7 @@ use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText,
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use petalsonic::config::{AmbisonicsBackend, HrtfBackend};
 use rand::RngExt;
-use std::{collections::HashMap, sync::mpsc, thread::JoinHandle};
+use std::collections::HashMap;
 
 use re_flora_vkn::{
     Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
@@ -281,9 +281,6 @@ fn advance_time_of_day(
     (current_time_of_day + elapsed_ticks as f32 * world_tick_seconds * time_speed) % 1.0
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-struct WaterTerrainCacheRebuildRequest;
-
 pub struct App {
     egui_renderer: EguiRenderer,
     loading_state: Option<LoadingState>,
@@ -389,22 +386,7 @@ pub struct App {
     particle_animation_time_sec: f32,
     water_sim: water::AsyncWaterSim,
     water_runtime_overrides: water::WaterRuntimeOverrides,
-    water_terrain_initialized: bool,
-    water_terrain_collider_cache_rebuild_pending: bool,
-    deferred_terrain_sdf_source_refreshes: LatestChunkQueue<water::TerrainSdfSourceRefreshRequest>,
-    deferred_terrain_sdf_collider_rebuilds:
-        LatestChunkQueue<water::TerrainSdfColliderRebuildRequest>,
-    deferred_water_terrain_cache_rebuilds: LatestChunkQueue<WaterTerrainCacheRebuildRequest>,
-    terrain_sdf_built_source_revisions: HashMap<UVec3, water::TerrainSdfSourceRevision>,
-    terrain_sdf_source_refresh_inflight: Option<water::TerrainSdfSourceRefreshInFlight>,
-    terrain_sdf_collider_build_inflight: bool,
-    terrain_sdf_collider_job_tx: Option<mpsc::Sender<water::TerrainSdfColliderWorkerJob>>,
-    terrain_sdf_collider_result_rx: mpsc::Receiver<water::TerrainSdfColliderWorkerResult>,
-    terrain_sdf_collider_worker: Option<JoinHandle<()>>,
-    water_terrain_cache_rebuild_inflight: bool,
-    water_terrain_cache_job_tx: Option<mpsc::Sender<water::WaterTerrainCacheWorkerJob>>,
-    water_terrain_cache_result_rx: mpsc::Receiver<water::WaterTerrainCacheWorkerResult>,
-    water_terrain_cache_worker: Option<JoinHandle<()>>,
+    water_terrain: water::WaterTerrainRuntime,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -1360,13 +1342,7 @@ impl App {
             cells_per_unit,
         );
         let water_sim = water::AsyncWaterSim::new(water_config);
-        let (
-            terrain_sdf_collider_job_tx,
-            terrain_sdf_collider_result_rx,
-            terrain_sdf_collider_worker,
-        ) = Self::spawn_terrain_sdf_collider_worker();
-        let (water_terrain_cache_job_tx, water_terrain_cache_result_rx, water_terrain_cache_worker) =
-            Self::spawn_water_terrain_cache_worker();
+        let water_terrain = water::WaterTerrainRuntime::new();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
         let particle_forces = ParticleForces {
             linear_damping: 0.08,
@@ -1494,21 +1470,7 @@ impl App {
             particle_animation_time_sec: 0.0,
             water_sim,
             water_runtime_overrides,
-            water_terrain_initialized: false,
-            water_terrain_collider_cache_rebuild_pending: false,
-            deferred_terrain_sdf_source_refreshes: LatestChunkQueue::default(),
-            deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue::default(),
-            deferred_water_terrain_cache_rebuilds: LatestChunkQueue::default(),
-            terrain_sdf_built_source_revisions: HashMap::new(),
-            terrain_sdf_source_refresh_inflight: None,
-            terrain_sdf_collider_build_inflight: false,
-            terrain_sdf_collider_job_tx: Some(terrain_sdf_collider_job_tx),
-            terrain_sdf_collider_result_rx,
-            terrain_sdf_collider_worker: Some(terrain_sdf_collider_worker),
-            water_terrain_cache_rebuild_inflight: false,
-            water_terrain_cache_job_tx: Some(water_terrain_cache_job_tx),
-            water_terrain_cache_result_rx,
-            water_terrain_cache_worker: Some(water_terrain_cache_worker),
+            water_terrain,
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,
@@ -3413,7 +3375,7 @@ impl App {
                 }
 
                 if self.render_flags.enable_particles {
-                    if self.water_terrain_initialized
+                    if self.water_terrain.initialized
                         && !self.terrain_persistence_water_paused
                         && !self.terrain_persistence_fatal
                     {
@@ -4622,14 +4584,14 @@ impl App {
                             frame_timing_snapshot.particles_ms,
                             frame_timing_snapshot.tracked_cpu_ms,
                             frame_timing_snapshot.untracked_cpu_ms,
-                            self.deferred_terrain_sdf_source_refreshes.len(),
-                            self.deferred_terrain_sdf_source_refreshes.active_len(),
-                            self.deferred_terrain_sdf_collider_rebuilds.len(),
-                            self.deferred_terrain_sdf_collider_rebuilds.active_len(),
-                            self.terrain_sdf_collider_build_inflight,
-                            self.deferred_water_terrain_cache_rebuilds.len(),
-                            self.deferred_water_terrain_cache_rebuilds.active_len(),
-                            self.water_terrain_cache_rebuild_inflight,
+                            self.water_terrain.source_refreshes.len(),
+                            self.water_terrain.source_refreshes.active_len(),
+                            self.water_terrain.collider_rebuilds.len(),
+                            self.water_terrain.collider_rebuilds.active_len(),
+                            self.water_terrain.collider_build_inflight,
+                            self.water_terrain.cache_rebuilds.len(),
+                            self.water_terrain.cache_rebuilds.active_len(),
+                            self.water_terrain.cache_rebuild_inflight,
                         );
                     }
                 }
