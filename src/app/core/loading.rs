@@ -1,30 +1,6 @@
 use super::*;
 use crate::terrain_persistence::TerrainSnapshotReader;
-use crate::terrain_persistence::{TerrainSnapshotMetadata, TerrainSnapshotWriter};
 use std::path::Path;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum TerrainPersistenceStatus {
-    Ready,
-    Saving,
-    Loading,
-    Error(String),
-}
-
-impl TerrainPersistenceStatus {
-    pub(super) fn label(&self) -> String {
-        match self {
-            Self::Ready => "Ready".to_owned(),
-            Self::Saving => "Saving".to_owned(),
-            Self::Loading => "Loading".to_owned(),
-            Self::Error(error) => format!("Error: {error}"),
-        }
-    }
-
-    pub(super) fn is_ready(&self) -> bool {
-        matches!(self, Self::Ready)
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoadingPhase {
@@ -401,7 +377,7 @@ impl App {
 
         self.ensure_butterfly_emitter();
 
-        if self.terrain_load_path.is_none() {
+        if !self.terrain_persistence.startup_load_requested() {
             if let Err(err) = self.plant_startup_tuned_tree() {
                 log::error!("Failed to plant startup tuning tree: {}", err);
             }
@@ -411,14 +387,9 @@ impl App {
             );
         }
 
-        if let Some(path) = self.terrain_save_path.clone() {
-            self.quiesce_visible_terrain_for_snapshot()
-                .unwrap_or_else(|err| {
-                    panic!("[TERRAIN_PERSISTENCE] CLI save quiescence failed: {err:#}")
-                });
-            self.save_terrain_snapshot(Path::new(&path))
+        if let Some(path) = self.terrain_persistence.take_startup_save_path() {
+            self.perform_startup_terrain_save(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));
-            self.resume_terrain_after_snapshot_read();
         }
 
         if let Err(err) = self.spatial_sound_manager.start() {
@@ -436,138 +407,6 @@ impl App {
         }
         self.time_info.reset_frame_delta();
         self.render_start_time = Some(Instant::now());
-    }
-
-    pub(super) fn save_terrain_snapshot(&mut self, path: &Path) -> Result<()> {
-        let start = Instant::now();
-        let metadata =
-            TerrainSnapshotMetadata::new(CHUNK_DIM.to_array(), VOXEL_DIM_PER_CHUNK.to_array());
-        log::info!(
-            "[TERRAIN_PERSISTENCE] Saving path={} chunks={} chunk_bytes={} total_bytes={}",
-            path.display(),
-            metadata.chunk_count()?,
-            metadata.chunk_byte_len()?,
-            metadata.chunk_count()? * metadata.chunk_byte_len()?
-        );
-        let mut writer = TerrainSnapshotWriter::create(path, metadata)?;
-        for x in 0..CHUNK_DIM.x {
-            for y in 0..CHUNK_DIM.y {
-                for z in 0..CHUNK_DIM.z {
-                    let coordinate = UVec3::new(x, y, z);
-                    let bytes = self.plain_builder.read_chunk_atlas_region(
-                        coordinate * VOXEL_DIM_PER_CHUNK,
-                        VOXEL_DIM_PER_CHUNK,
-                    )?;
-                    writer.write_chunk(coordinate.to_array(), &bytes)?;
-                }
-            }
-        }
-        let summary = writer.finish()?;
-        log::info!(
-            "[TERRAIN_PERSISTENCE] Save complete path={} chunks={} payload_bytes={} elapsed_ms={:.2}",
-            path.display(),
-            summary.chunk_count,
-            summary.payload_bytes,
-            start.elapsed().as_secs_f64() * 1000.0
-        );
-        Ok(())
-    }
-
-    pub(super) fn perform_runtime_terrain_save(&mut self) {
-        if !self.terrain_persistence_status.is_ready() {
-            return;
-        }
-        self.terrain_persistence_status = TerrainPersistenceStatus::Saving;
-        let path = self.terrain_snapshot_path.clone();
-        let result = (|| {
-            self.quiesce_visible_terrain_for_snapshot()?;
-            self.save_terrain_snapshot(Path::new(&path))
-        })();
-        self.resume_terrain_after_snapshot_read();
-        match result {
-            Ok(()) => {
-                self.terrain_persistence_status = TerrainPersistenceStatus::Ready;
-            }
-            Err(err) => {
-                log::error!(
-                    "[TERRAIN_PERSISTENCE] runtime save failed path={}: {err:#}",
-                    path
-                );
-                self.terrain_persistence_status =
-                    TerrainPersistenceStatus::Error(format!("save failed: {err}"));
-            }
-        }
-    }
-
-    pub(super) fn perform_runtime_terrain_load(&mut self) {
-        if !self.terrain_persistence_status.is_ready() {
-            return;
-        }
-        self.terrain_persistence_status = TerrainPersistenceStatus::Loading;
-        let path = self.terrain_snapshot_path.clone();
-        let result = self.load_terrain_snapshot(Path::new(&path));
-        match result {
-            Ok(()) => {
-                self.terrain_persistence_status = TerrainPersistenceStatus::Ready;
-                log::info!(
-                    "[TERRAIN_PERSISTENCE] runtime load complete path={}; non-terrain state retained",
-                    path
-                );
-            }
-            Err((mutated, err)) => {
-                log::error!(
-                    "[TERRAIN_PERSISTENCE] runtime load failed path={} mutated={} error={err:#}",
-                    path,
-                    mutated
-                );
-                if mutated {
-                    self.terrain_persistence_fatal = true;
-                } else {
-                    self.resume_terrain_after_snapshot_read();
-                }
-                self.terrain_persistence_status =
-                    TerrainPersistenceStatus::Error(format!("load failed: {err}"));
-            }
-        }
-    }
-
-    fn load_terrain_snapshot(&mut self, path: &Path) -> Result<(), (bool, anyhow::Error)> {
-        let metadata =
-            TerrainSnapshotMetadata::new(CHUNK_DIM.to_array(), VOXEL_DIM_PER_CHUNK.to_array());
-        TerrainSnapshotReader::validate(path, metadata).map_err(|err| (false, err))?;
-        let mut reader = TerrainSnapshotReader::open(path).map_err(|err| (false, err))?;
-        self.quiesce_visible_terrain_for_snapshot()
-            .map_err(|err| (false, err))?;
-
-        let mut mutated = false;
-        let upload_result = (|| -> Result<()> {
-            while let Some(chunk) = reader.read_next_chunk()? {
-                mutated = true;
-                let chunk_id = UVec3::from_array(chunk.coordinate);
-                self.plain_builder.write_chunk_atlas_region(
-                    chunk_id * VOXEL_DIM_PER_CHUNK,
-                    VOXEL_DIM_PER_CHUNK,
-                    &chunk.bytes,
-                )?;
-            }
-            reader.finish()?;
-            Ok(())
-        })();
-        if let Err(err) = upload_result {
-            return Err((mutated, err));
-        }
-
-        self.publish_snapshot_replacement()
-            .map_err(|err| (true, err))?;
-        Ok(())
-    }
-
-    pub(super) fn maybe_resume_terrain_persistence_water(&mut self) {
-        if !self.terrain_persistence_water_paused || !self.water_terrain_status().is_ready() {
-            return;
-        }
-        self.terrain_persistence_water_paused = false;
-        log::info!("[TERRAIN_PERSISTENCE] water terrain cache Ready; water simulation resumed");
     }
 
     #[allow(dead_code)]

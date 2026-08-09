@@ -20,6 +20,7 @@ mod placeables;
 mod planting;
 mod player_tools;
 mod screenshot;
+mod terrain_persistence;
 mod tree_bench;
 mod ui_style;
 mod vegetation;
@@ -35,11 +36,12 @@ use self::denoiser_bench::{
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
-use self::loading::{LoadingPhase, LoadingState, TerrainPersistenceStatus};
+use self::loading::{LoadingPhase, LoadingState};
 use self::particles::TreeLeafEmitter;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerEmitter, SprinklerRecord};
 use self::player_tools::PlayerToolState;
+use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRecord, TreeVariationConfig};
 use self::visible_terrain::VisibleTerrainChange;
@@ -67,9 +69,6 @@ use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
-};
-use crate::terrain_persistence::{
-    TerrainSnapshotMetadata, TerrainSnapshotReader, DEFAULT_TERRAIN_SNAPSHOT_PATH,
 };
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
@@ -395,12 +394,7 @@ pub struct App {
     render_start_time: Option<Instant>,
     screenshot_path: Option<String>,
     screenshot_delay: Option<f32>,
-    terrain_load_path: Option<String>,
-    terrain_save_path: Option<String>,
-    terrain_snapshot_path: String,
-    terrain_persistence_status: TerrainPersistenceStatus,
-    terrain_persistence_fatal: bool,
-    terrain_persistence_water_paused: bool,
+    terrain_persistence: TerrainPersistenceRuntime,
     screenshot_taken: bool,
     screenshot_to_clipboard_requested: bool,
     environment_irradiance_capture_path: Option<String>,
@@ -1042,26 +1036,8 @@ impl App {
 
         let allocator = Allocator::new_for_context(&vulkan_ctx);
 
-        let terrain_snapshot_metadata =
-            TerrainSnapshotMetadata::new(CHUNK_DIM.to_array(), VOXEL_DIM_PER_CHUNK.to_array());
-        let terrain_snapshot_reader = options
-            .terrain_load_path
-            .as_deref()
-            .map(|path| -> Result<TerrainSnapshotReader> {
-                TerrainSnapshotReader::validate(path, terrain_snapshot_metadata)
-                    .with_context(|| format!("validate terrain snapshot {}", path))?;
-                let reader = TerrainSnapshotReader::open(path)
-                    .with_context(|| format!("open terrain snapshot {}", path))?;
-                log::info!(
-                    "[TERRAIN_PERSISTENCE] startup load validated path={} chunks={} bytes={}",
-                    path,
-                    terrain_snapshot_metadata.chunk_count()?,
-                    terrain_snapshot_metadata.chunk_count()?
-                        * terrain_snapshot_metadata.chunk_byte_len()?
-                );
-                Ok(reader)
-            })
-            .transpose()?;
+        let mut terrain_persistence = TerrainPersistenceRuntime::from_options(options)?;
+        let terrain_snapshot_reader = terrain_persistence.take_startup_reader();
 
         let swapchain = Swapchain::new(
             vulkan_ctx.clone(),
@@ -1478,16 +1454,7 @@ impl App {
             render_start_time: None,
             screenshot_path: options.screenshot_path.clone(),
             screenshot_delay: options.screenshot_delay,
-            terrain_load_path: options.terrain_load_path.clone(),
-            terrain_save_path: options.terrain_save_path.clone(),
-            terrain_snapshot_path: options
-                .terrain_load_path
-                .clone()
-                .or_else(|| options.terrain_save_path.clone())
-                .unwrap_or_else(|| DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned()),
-            terrain_persistence_status: TerrainPersistenceStatus::Ready,
-            terrain_persistence_fatal: false,
-            terrain_persistence_water_paused: false,
+            terrain_persistence,
             screenshot_taken: false,
             screenshot_to_clipboard_requested: false,
             environment_irradiance_capture_path: options
@@ -1961,7 +1928,7 @@ impl App {
 
     fn execute_edit_plan(&mut self, plan: WorldEditPlan) -> Result<()> {
         anyhow::ensure!(
-            !self.terrain_persistence_fatal,
+            self.terrain_persistence.allows_world_updates(),
             "terrain persistence is in fatal Error; restart is required"
         );
         for edit in plan.voxel_edits {
@@ -2277,7 +2244,9 @@ impl App {
                     return;
                 }
 
-                if !self.terrain_persistence_fatal && self.player_tools.shovel_dig_held {
+                if self.terrain_persistence.allows_world_updates()
+                    && self.player_tools.shovel_dig_held
+                {
                     let now = Instant::now();
                     if self.is_shovel_selected() && self.player_tools.left_mouse_held {
                         self.try_shovel_dig(now);
@@ -2302,7 +2271,7 @@ impl App {
                     }
                 }
                 let frame_delta_time = self.time_info.delta_time();
-                if !self.terrain_persistence_fatal {
+                if self.terrain_persistence.allows_world_updates() {
                     if let Err(err) = self
                         .terrain_physics
                         .advance_dynamic_bodies(frame_delta_time, &mut self.tracer)
@@ -2319,7 +2288,7 @@ impl App {
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
                 );
-                if !self.terrain_persistence_fatal {
+                if self.terrain_persistence.allows_world_updates() {
                     self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
                 }
                 let mut world_tick_steps = 0u32;
@@ -2328,7 +2297,7 @@ impl App {
                     self.flora_tick_accumulator -= 1.0;
                     world_tick_steps += 1;
                 }
-                if !self.terrain_persistence_fatal && world_tick_steps > 0 {
+                if self.terrain_persistence.allows_world_updates() && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
                 let active_wind_sources =
@@ -2635,10 +2604,13 @@ impl App {
                                     ui.label("Terrain-only; trees, entities, water, and time are retained.");
                                     ui.horizontal(|ui| {
                                         ui.label("Path");
-                                        ui.text_edit_singleline(&mut self.terrain_snapshot_path);
+                                        ui.text_edit_singleline(
+                                            self.terrain_persistence.snapshot_path_mut(),
+                                        );
                                     });
                                     ui.horizontal(|ui| {
-                                        let ready = self.terrain_persistence_status.is_ready();
+                                        let ready =
+                                            self.terrain_persistence.can_start_operation();
                                         if ui
                                             .add_enabled(ready, egui::Button::new("Save terrain"))
                                             .clicked()
@@ -2651,7 +2623,7 @@ impl App {
                                         {
                                             terrain_load_requested = true;
                                         }
-                                        ui.label(self.terrain_persistence_status.label());
+                                        ui.label(self.terrain_persistence.status_label());
                                     });
 
                                     ui.add_space(4.0);
@@ -3371,8 +3343,7 @@ impl App {
 
                 if self.render_flags.enable_particles {
                     if self.water_terrain_status().is_initialized()
-                        && !self.terrain_persistence_water_paused
-                        && !self.terrain_persistence_fatal
+                        && self.terrain_persistence.allows_water_simulation()
                     {
                         let water_handoff_start = Instant::now();
                         self.update_water_sim(frame_delta_time, world_tick_seconds);

@@ -81,57 +81,6 @@ impl VisibleTerrainChange {
 }
 
 impl App {
-    pub(super) fn quiesce_visible_terrain_for_snapshot(&mut self) -> Result<()> {
-        self.water_sim.pause_and_wait()?;
-        self.terrain_persistence_water_paused = true;
-        self.vulkan_ctx.device().wait_idle();
-        self.contree_builder.flush_cpu_chunk_cache_jobs();
-        anyhow::ensure!(
-            self.contree_builder.cpu_chunk_cache_jobs_idle(),
-            "Contree CPU cache did not reach Ready before snapshot access"
-        );
-        log::info!(
-            "[TERRAIN_PERSISTENCE] visible terrain quiesced; water worker pause acknowledged"
-        );
-        Ok(())
-    }
-
-    pub(super) fn resume_terrain_after_snapshot_read(&mut self) {
-        self.terrain_persistence_water_paused = false;
-    }
-
-    pub(super) fn publish_snapshot_replacement(&mut self) -> Result<()> {
-        anyhow::ensure!(
-            self.terrain_persistence_water_paused,
-            "snapshot replacement requires quiesced water simulation"
-        );
-        self.plain_builder.mark_all_solid_workgroups_dirty();
-        let change = VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunks(
-            terrain_chunk_ids(),
-        )])?
-        .context("snapshot replacement has no visible terrain chunks")?;
-        self.publish_visible_terrain(change)?;
-
-        self.contree_builder.flush_cpu_chunk_cache_jobs();
-        anyhow::ensure!(
-            self.contree_builder.cpu_chunk_cache_jobs_idle(),
-            "Contree CPU cache did not reach Ready after snapshot publication"
-        );
-        self.terrain_physics
-            .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
-        loop {
-            let (completed, total) = self
-                .terrain_physics
-                .process_world_terrain_collider_import(&self.contree_builder)?;
-            if completed >= total {
-                break;
-            }
-        }
-        self.enqueue_startup_water_terrain_collider_rebuilds();
-        self.player_tools.shovel_dig_held = false;
-        Ok(())
-    }
-
     pub(super) fn publish_visible_terrain(&mut self, change: VisibleTerrainChange) -> Result<()> {
         let chunk_ids = change.affected_chunks()?;
         let started_at = Instant::now();
@@ -195,18 +144,6 @@ impl App {
         );
         Ok(())
     }
-}
-
-fn terrain_chunk_ids() -> Vec<UVec3> {
-    let mut chunk_ids = Vec::new();
-    for x in 0..CHUNK_DIM.x {
-        for y in 0..CHUNK_DIM.y {
-            for z in 0..CHUNK_DIM.z {
-                chunk_ids.push(UVec3::new(x, y, z));
-            }
-        }
-    }
-    chunk_ids
 }
 
 fn build_edit_chunks(edit: &BuildEdit) -> Result<Vec<UVec3>> {
