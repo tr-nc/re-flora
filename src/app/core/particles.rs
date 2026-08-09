@@ -83,19 +83,29 @@ impl App {
             }
         }
 
-        let color32 = match voxel_type {
-            crate::builder::VOXEL_TYPE_DIRT => super::ActiveVoxelType::Dirt.color(),
-            crate::builder::VOXEL_TYPE_CHERRY_WOOD => super::ActiveVoxelType::CherryWood.color(),
-            crate::builder::VOXEL_TYPE_OAK_WOOD => super::ActiveVoxelType::OakWood.color(),
-            crate::builder::VOXEL_TYPE_SAND => super::ActiveVoxelType::Sand.color(),
-            crate::builder::VOXEL_TYPE_ROCK => super::ActiveVoxelType::Rock.color(),
-            _ => egui::Color32::from_rgb(210, 190, 140),
+        let color_rgb = match voxel_type {
+            crate::builder::VOXEL_TYPE_DIRT => {
+                super::voxel_backpack::BackpackVoxel::Dirt.color_rgb()
+            }
+            crate::builder::VOXEL_TYPE_CHERRY_WOOD => {
+                super::voxel_backpack::BackpackVoxel::CherryWood.color_rgb()
+            }
+            crate::builder::VOXEL_TYPE_OAK_WOOD => {
+                super::voxel_backpack::BackpackVoxel::OakWood.color_rgb()
+            }
+            crate::builder::VOXEL_TYPE_SAND => {
+                super::voxel_backpack::BackpackVoxel::Sand.color_rgb()
+            }
+            crate::builder::VOXEL_TYPE_ROCK => {
+                super::voxel_backpack::BackpackVoxel::Rock.color_rgb()
+            }
+            _ => [210, 190, 140],
         };
 
         Vec4::new(
-            srgb_to_linear(color32.r()),
-            srgb_to_linear(color32.g()),
-            srgb_to_linear(color32.b()),
+            srgb_to_linear(color_rgb[0]),
+            srgb_to_linear(color_rgb[1]),
+            srgb_to_linear(color_rgb[2]),
             1.0,
         )
     }

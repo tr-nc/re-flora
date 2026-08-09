@@ -5,7 +5,6 @@ use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{
     TerrainBrushEdit, TerrainRemovalEdit, TreeAddOptions, TreePlacement,
 };
-use crate::builder::ChunkModifyStats;
 use crate::flora::species;
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
@@ -521,101 +520,6 @@ impl App {
         self.player_tools.selected_tool() == PlayerTool::Tiller
     }
 
-    fn active_voxel_type_id(&self) -> Option<u32> {
-        // No selected backpack voxel means terrain removal accepts every concrete voxel type.
-        super::ActiveVoxelType::All.voxel_type()
-    }
-
-    pub(super) fn voxel_count(&self, voxel_type: super::ActiveVoxelType) -> u32 {
-        match voxel_type {
-            super::ActiveVoxelType::All => super::BACKPACK_VOXEL_TYPES
-                .iter()
-                .map(|voxel_type| self.voxel_count(*voxel_type))
-                .sum(),
-            super::ActiveVoxelType::Dirt => self.player_tools.backpack_dirt_count,
-            super::ActiveVoxelType::Sand => self.player_tools.backpack_sand_count,
-            super::ActiveVoxelType::CherryWood => self.player_tools.backpack_cherry_wood_count,
-            super::ActiveVoxelType::OakWood => self.player_tools.backpack_oak_wood_count,
-            super::ActiveVoxelType::Rock => self.player_tools.backpack_rock_count,
-        }
-    }
-
-    fn add_voxel_to_backpack(&mut self, voxel_type: super::ActiveVoxelType, amount: u32) {
-        match voxel_type {
-            super::ActiveVoxelType::All => unreachable!("All is not a concrete backpack voxel"),
-            super::ActiveVoxelType::Dirt => {
-                self.player_tools.backpack_dirt_count =
-                    self.player_tools.backpack_dirt_count.saturating_add(amount)
-            }
-            super::ActiveVoxelType::Sand => {
-                self.player_tools.backpack_sand_count =
-                    self.player_tools.backpack_sand_count.saturating_add(amount)
-            }
-            super::ActiveVoxelType::CherryWood => {
-                self.player_tools.backpack_cherry_wood_count = self
-                    .player_tools
-                    .backpack_cherry_wood_count
-                    .saturating_add(amount)
-            }
-            super::ActiveVoxelType::OakWood => {
-                self.player_tools.backpack_oak_wood_count = self
-                    .player_tools
-                    .backpack_oak_wood_count
-                    .saturating_add(amount)
-            }
-            super::ActiveVoxelType::Rock => {
-                self.player_tools.backpack_rock_count =
-                    self.player_tools.backpack_rock_count.saturating_add(amount)
-            }
-        }
-    }
-
-    fn add_removed_voxels_to_backpack(&mut self, stats: &ChunkModifyStats) {
-        for voxel_type in super::BACKPACK_VOXEL_TYPES {
-            if let Some(voxel_type_id) = voxel_type.voxel_type() {
-                self.add_voxel_to_backpack(voxel_type, stats.count_removed(voxel_type_id));
-            }
-        }
-    }
-
-    fn remove_voxel_from_backpack(&mut self, voxel_type: super::ActiveVoxelType, amount: u32) {
-        match voxel_type {
-            super::ActiveVoxelType::All => unreachable!("All is not a concrete backpack voxel"),
-            super::ActiveVoxelType::Dirt => {
-                self.player_tools.backpack_dirt_count =
-                    self.player_tools.backpack_dirt_count.saturating_sub(amount)
-            }
-            super::ActiveVoxelType::Sand => {
-                self.player_tools.backpack_sand_count =
-                    self.player_tools.backpack_sand_count.saturating_sub(amount)
-            }
-            super::ActiveVoxelType::CherryWood => {
-                self.player_tools.backpack_cherry_wood_count = self
-                    .player_tools
-                    .backpack_cherry_wood_count
-                    .saturating_sub(amount)
-            }
-            super::ActiveVoxelType::OakWood => {
-                self.player_tools.backpack_oak_wood_count = self
-                    .player_tools
-                    .backpack_oak_wood_count
-                    .saturating_sub(amount)
-            }
-            super::ActiveVoxelType::Rock => {
-                self.player_tools.backpack_rock_count =
-                    self.player_tools.backpack_rock_count.saturating_sub(amount)
-            }
-        }
-    }
-
-    fn first_placeable_voxel_type(&self) -> Option<super::ActiveVoxelType> {
-        // Placement also ignores material selection: use any available stored voxel.
-        super::BACKPACK_VOXEL_TYPES
-            .iter()
-            .copied()
-            .find(|voxel_type| self.voxel_count(*voxel_type) > 0)
-    }
-
     pub(super) fn start_terrain_edit_loop_sound(&mut self, position: Vec3) {
         if let Some(uuid) = self.player_tools.terrain_edit_loop_sound {
             if self.player_tools.terrain_edit_loop_sound_muted {
@@ -779,7 +683,9 @@ impl App {
                             center,
                             radius: self.player_tools.terrain_edit_radius,
                         },
-                        self.active_voxel_type_id(),
+                        // Backpack material selection is status-only, so removal accepts every
+                        // concrete voxel type.
+                        None,
                         None,
                         None,
                     )
@@ -790,7 +696,7 @@ impl App {
                             return;
                         }
 
-                        self.add_removed_voxels_to_backpack(&readback.stats);
+                        self.voxel_backpack.deposit_removed(&readback.stats);
                         self.spawn_terrain_harvest_particles(
                             center,
                             &readback.stats,
@@ -1033,15 +939,13 @@ impl App {
         }
         let action = ContinuousTerrainToolAction::ShovelPlace;
 
-        let Some(place_voxel_type) = self.first_placeable_voxel_type() else {
+        // Placement ignores material selection and uses the first stored voxel type.
+        let Some((place_voxel, place_voxel_count)) = self.voxel_backpack.first_available() else {
             self.stop_terrain_edit_loop_sound();
             return;
         };
 
-        let place_voxel_type_id = place_voxel_type
-            .voxel_type()
-            .expect("placeable voxel type should be concrete");
-        let place_voxel_count = self.voxel_count(place_voxel_type);
+        let place_voxel_type_id = place_voxel.voxel_type();
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
@@ -1069,10 +973,8 @@ impl App {
                         place_voxel_count,
                     )
                     .map(|readback| {
-                        self.remove_voxel_from_backpack(
-                            place_voxel_type,
-                            readback.stats.count_added(place_voxel_type_id),
-                        );
+                        self.voxel_backpack
+                            .withdraw(place_voxel, readback.stats.count_added(place_voxel_type_id));
                     })
                 {
                     log::error!("Failed to apply terrain placement: {}", err);

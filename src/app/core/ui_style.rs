@@ -1,4 +1,4 @@
-use super::ActiveVoxelType;
+use super::voxel_backpack::BackpackVoxel;
 use egui::style::WidgetVisuals;
 use egui::{Color32, TextureHandle};
 
@@ -929,7 +929,7 @@ fn draw_tool_panel_slot(
 }
 
 pub(crate) struct VoxelPaletteEntry {
-    pub voxel_type: ActiveVoxelType,
+    pub voxel: BackpackVoxel,
     pub label: &'static str,
     pub count: u32,
     pub color: Color32,
@@ -938,7 +938,7 @@ pub(crate) struct VoxelPaletteEntry {
 
 #[derive(Default)]
 pub(crate) struct VoxelPaletteResponse {
-    pub clicked_voxel_type: Option<ActiveVoxelType>,
+    pub clicked_voxel: Option<BackpackVoxel>,
     pub panel_center: Option<egui::Pos2>,
 }
 
@@ -1005,7 +1005,7 @@ pub(crate) fn draw_voxel_palette(
 
                 for entry in entries {
                     if draw_voxel_palette_entry(ui, entry, interaction_enabled) {
-                        response.clicked_voxel_type = Some(entry.voxel_type);
+                        response.clicked_voxel = Some(entry.voxel);
                     }
                     ui.add_space(4.0);
                 }

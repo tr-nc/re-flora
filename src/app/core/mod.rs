@@ -26,6 +26,7 @@ mod tree_bench;
 mod ui_style;
 mod vegetation;
 mod visible_terrain;
+mod voxel_backpack;
 mod water;
 
 use self::authored_flora_bench::AuthoredFloraBench;
@@ -50,6 +51,7 @@ use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRecord, TreeVariationConfig};
 use self::visible_terrain::VisibleTerrainChange;
+use self::voxel_backpack::VoxelBackpack;
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::environment;
 use crate::app::physical_visible_terrain;
@@ -337,6 +339,7 @@ pub struct App {
     item_panel_fertilizer_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
+    voxel_backpack: VoxelBackpack,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
     flora_tick: u32,
@@ -559,59 +562,6 @@ const FLORA_GROWTH_SPEED_DIVISOR: u32 = 10;
 // height trim makes low growth values collapse short grass to one voxel.
 const FLORA_TRIM_MAX_GROWTH_PROGRESS: u32 = 160;
 const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ActiveVoxelType {
-    All,
-    Dirt,
-    Sand,
-    CherryWood,
-    OakWood,
-    Rock,
-}
-
-const BACKPACK_VOXEL_TYPES: [ActiveVoxelType; 5] = [
-    ActiveVoxelType::Dirt,
-    ActiveVoxelType::Sand,
-    ActiveVoxelType::CherryWood,
-    ActiveVoxelType::OakWood,
-    ActiveVoxelType::Rock,
-];
-
-impl ActiveVoxelType {
-    pub(super) fn voxel_type(self) -> Option<u32> {
-        match self {
-            ActiveVoxelType::All => None,
-            ActiveVoxelType::Dirt => Some(crate::builder::VOXEL_TYPE_DIRT),
-            ActiveVoxelType::Sand => Some(crate::builder::VOXEL_TYPE_SAND),
-            ActiveVoxelType::CherryWood => Some(crate::builder::VOXEL_TYPE_CHERRY_WOOD),
-            ActiveVoxelType::OakWood => Some(crate::builder::VOXEL_TYPE_OAK_WOOD),
-            ActiveVoxelType::Rock => Some(crate::builder::VOXEL_TYPE_ROCK),
-        }
-    }
-
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            ActiveVoxelType::All => "All",
-            ActiveVoxelType::Dirt => "Dirt",
-            ActiveVoxelType::Sand => "Sand",
-            ActiveVoxelType::CherryWood => "Cherry wood",
-            ActiveVoxelType::OakWood => "Oak wood",
-            ActiveVoxelType::Rock => "Rock",
-        }
-    }
-
-    pub(super) fn color(self) -> Color32 {
-        match self {
-            ActiveVoxelType::All => Color32::from_rgb(235, 230, 215),
-            ActiveVoxelType::Dirt => Color32::from_rgb(178, 124, 80),
-            ActiveVoxelType::Sand => Color32::from_rgb(229, 204, 126),
-            ActiveVoxelType::CherryWood => Color32::from_rgb(219, 128, 152),
-            ActiveVoxelType::OakWood => Color32::from_rgb(159, 110, 70),
-            ActiveVoxelType::Rock => Color32::from_rgb(168, 176, 190),
-        }
-    }
-}
 
 fn draw_center_cross_mark(ctx: &egui::Context) {
     let center = ctx.content_rect().center();
@@ -1190,6 +1140,7 @@ impl App {
             item_panel_fertilizer_icon: None,
             item_panel_tiller_icon: None,
             player_tools: PlayerToolRuntime::default(),
+            voxel_backpack: VoxelBackpack::default(),
             water_particle_handoff_main_thread_ms: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
@@ -2072,15 +2023,20 @@ impl App {
                 let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
                 let selected_item_panel_display_slot =
                     self.player_tools.selected_item_panel_display_slot();
-                let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
-                    .iter()
-                    .copied()
-                    .map(|voxel_type| VoxelPaletteEntry {
-                        voxel_type,
-                        label: voxel_type.label(),
-                        count: self.voxel_count(voxel_type),
-                        color: voxel_type.color(),
-                        selected: false,
+                let voxel_palette_entries: Vec<VoxelPaletteEntry> = self
+                    .voxel_backpack
+                    .snapshot()
+                    .into_iter()
+                    .map(|entry| {
+                        let voxel = entry.voxel;
+                        let [red, green, blue] = voxel.color_rgb();
+                        VoxelPaletteEntry {
+                            voxel,
+                            label: voxel.label(),
+                            count: entry.count,
+                            color: Color32::from_rgb(red, green, blue),
+                            selected: false,
+                        }
                     })
                     .collect();
                 let flora_paint_selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
