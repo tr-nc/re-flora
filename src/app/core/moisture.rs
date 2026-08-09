@@ -1,7 +1,4 @@
-use super::{
-    placeables::sprinkler_sprays_along_x, vegetation::SurfaceOccupantClearPath, App, CHUNK_DIM,
-    VOXEL_DIM_PER_CHUNK,
-};
+use super::{vegetation::SurfaceOccupantClearPath, App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
 use crate::app::world_edits::TerrainBrushEdit;
 use crate::util::BENCH;
 use anyhow::Result;
@@ -195,31 +192,22 @@ impl App {
     }
 
     pub(super) fn record_sprinkler_moisture(&mut self, cmdbuf: &CommandBuffer, dt: f32) -> usize {
-        if dt <= 0.0 || self.sprinkler_records.is_empty() {
+        if dt <= 0.0 || self.sprinklers.is_empty() {
             return 0;
         }
 
         let record_start = self.perf_logging.then(Instant::now);
         let amount = SPRINKLER_MOISTURE_PER_SECOND * dt;
-        let sprinkler_states = self
-            .sprinkler_records
-            .iter()
-            .map(|sprinkler| (sprinkler.base_position, sprinkler.animation_phase))
-            .collect::<Vec<_>>();
+        let sprinkler_sources = self.sprinklers.moisture_sources();
         let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
         let mut recorded_count = 0;
-        for (base_position, animation_phase) in sprinkler_states {
-            let spray_axis =
-                if sprinkler_sprays_along_x(self.flora_tick, tick_seconds, animation_phase) {
-                    Vec3::X
-                } else {
-                    Vec3::Z
-                };
+        for source in sprinkler_sources {
+            let spray_axis = source.spray_axis(self.flora_tick, tick_seconds);
             if self
                 .plain_builder
                 .record_directional_pair_moisture_brush(
                     cmdbuf,
-                    base_position,
+                    source.base_position,
                     spray_axis,
                     SPRINKLER_MOISTURE_RADIUS,
                     amount,
@@ -238,7 +226,7 @@ impl App {
                 .record("sprinkler_moisture_record", record_elapsed);
             log::info!(
                 "[PERF][SPRINKLER_MOISTURE] sprinklers={} recorded={} amount={:.4} record_ms={:.3}",
-                self.sprinkler_records.len(),
+                self.sprinklers.len(),
                 recorded_count,
                 amount,
                 record_elapsed.as_secs_f64() * 1000.0,

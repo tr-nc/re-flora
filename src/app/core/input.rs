@@ -1312,7 +1312,6 @@ mod tests {
         let pipe_hit = PipeRayHit {
             distance: 1.0,
             attachment: PipeAttachment {
-                segment_id: 7,
                 position_voxels: Vec3::new(10.0, 20.0, 30.0),
             },
         };
@@ -1326,7 +1325,7 @@ mod tests {
         let SprinklerPlacementTarget::Pipe(attachment) = target else {
             panic!("frontmost pipe should win");
         };
-        assert_eq!(attachment.segment_id, 7);
+        assert_eq!(attachment.position_voxels, Vec3::new(10.0, 20.0, 30.0));
     }
 
     #[test]
@@ -1335,7 +1334,6 @@ mod tests {
         let pipe_hit = PipeRayHit {
             distance: 2.0,
             attachment: PipeAttachment {
-                segment_id: 7,
                 position_voxels: Vec3::new(10.0, 20.0, 30.0),
             },
         };

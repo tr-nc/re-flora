@@ -44,7 +44,7 @@ use self::frame_timing::{
 use self::loading::{LoadingPhase, LoadingState};
 use self::particles::TreeLeafEmitter;
 use self::physics::TerrainPhysics;
-use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerEmitter, SprinklerRecord};
+use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
 use self::terrain_persistence::TerrainPersistenceRuntime;
@@ -370,9 +370,7 @@ pub struct App {
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     butterfly_spawn_source_refresh_elapsed: f32,
-    sprinkler_records: Vec<SprinklerRecord>,
-    sprinkler_emitters: Vec<SprinklerEmitter>,
-    next_sprinkler_id: u32,
+    sprinklers: SprinklerRuntime,
     irrigation_network: IrrigationNetwork,
     active_pipe_drag: Option<PipeDrag>,
     particle_animation_time_sec: f32,
@@ -989,9 +987,6 @@ impl App {
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
-        let sprinkler_records = Vec::new();
-        let sprinkler_emitters = Vec::new();
-        let next_sprinkler_id = 1;
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
         // Start with the chosen profile and proportional world grid. For the implicit
         // default run, apply persisted GUI water sliders, then let explicit CLI
@@ -1161,9 +1156,7 @@ impl App {
             butterfly_emitters,
             butterfly_emitter_desc,
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
-            sprinkler_records,
-            sprinkler_emitters,
-            next_sprinkler_id,
+            sprinklers: SprinklerRuntime::new(),
             irrigation_network: IrrigationNetwork::default(),
             active_pipe_drag: None,
             particle_animation_time_sec: 0.0,
@@ -2109,7 +2102,7 @@ impl App {
                 let placeable_hint = format!(
                     "Place: {} (Z/X or bottom bar) · Water: 6 + LMB · Inspector: 7 · Fert: 8 + LMB · Till: 9 + LMB · sprinklers {}",
                     self.current_placeable_label(),
-                    self.sprinkler_records.len()
+                    self.sprinklers.len()
                 );
                 let soil_inspector_panel_text = if self.is_soil_inspector_selected() {
                     Some(match terrain_edit_hover {
@@ -3059,7 +3052,7 @@ impl App {
                 );
                 let sun_dir = get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
 
-                if !self.sprinkler_records.is_empty() {
+                if !self.sprinklers.is_empty() {
                     let sprinkler_moisture_gpu_scope =
                         self.gpu_profiler.as_mut().and_then(|profiler| {
                             profiler.begin_scope(

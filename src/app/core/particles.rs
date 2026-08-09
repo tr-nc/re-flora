@@ -475,10 +475,13 @@ impl App {
             wind_time,
         );
         let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
-        for emitter in &mut self.sprinkler_emitters {
-            emitter.set_animation_clock(self.flora_tick, world_tick_seconds);
-            emitter.update(&mut self.particle_system, dt, wind_time);
-        }
+        self.sprinklers.advance_particles(
+            &mut self.particle_system,
+            dt,
+            wind_time,
+            self.flora_tick,
+            world_tick_seconds,
+        );
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
         let sim_start = Instant::now();
@@ -518,7 +521,7 @@ impl App {
                 self.particle_snapshots.len().saturating_sub(sim_snapshot_count),
                 self.butterfly_emitters.len(),
                 self.leaf_emitters.len(),
-                self.sprinkler_emitters.len(),
+                self.sprinklers.len(),
                 tick_step.did_step,
                 dt,
                 total_start.elapsed().as_secs_f32() * 1000.0,
