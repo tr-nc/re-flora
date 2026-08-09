@@ -1,11 +1,51 @@
-use crate::{Buffer, Texture};
-use std::any::Any;
+use crate::{AccelStruct, Buffer, Texture};
 use std::ops::{Deref, DerefMut};
 
+/// A resource kind that can be supplied to a reflected descriptor binding.
+///
+/// Numeric descriptor locations remain inside the reflected descriptor runtime.
+#[derive(Clone, Copy)]
+pub enum DescriptorResource<'a> {
+    Buffer(&'a Buffer),
+    Texture(&'a Texture),
+    AccelerationStructure(&'a AccelStruct),
+}
+
+/// The result of resolving one semantic resource name within a container tree.
+#[derive(Clone, Copy)]
+pub enum ResourceLookup<'a> {
+    Missing,
+    Unique(DescriptorResource<'a>),
+    Ambiguous { providers: usize },
+}
+
+impl<'a> ResourceLookup<'a> {
+    /// Merges independent provider trees without introducing first-match priority.
+    #[doc(hidden)]
+    pub fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Missing, lookup) | (lookup, Self::Missing) => lookup,
+            (Self::Unique(_), Self::Unique(_)) => Self::Ambiguous { providers: 2 },
+            (Self::Unique(_), Self::Ambiguous { providers })
+            | (Self::Ambiguous { providers }, Self::Unique(_)) => Self::Ambiguous {
+                providers: providers + 1,
+            },
+            (
+                Self::Ambiguous {
+                    providers: left,
+                },
+                Self::Ambiguous {
+                    providers: right,
+                },
+            ) => Self::Ambiguous {
+                providers: left + right,
+            },
+        }
+    }
+}
+
 pub trait ResourceContainer {
-    fn get_buffer(&self, name: &str) -> Option<&Buffer>;
-    fn get_texture(&self, name: &str) -> Option<&Texture>;
-    fn get_resource_names(&self) -> Vec<&'static str>;
+    fn resolve_resource(&self, name: &str) -> ResourceLookup<'_>;
 }
 
 pub struct Resource<T> {
@@ -15,12 +55,6 @@ pub struct Resource<T> {
 impl<T> Resource<T> {
     pub fn new(resource: T) -> Self {
         Self { inner: resource }
-    }
-}
-
-impl<T: 'static> Resource<T> {
-    pub fn as_any(&self) -> &dyn Any {
-        &self.inner
     }
 }
 
@@ -35,6 +69,34 @@ impl<T> Deref for Resource<T> {
 impl<T> DerefMut for Resource<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
+    }
+}
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::ResourceLookup;
+
+    #[test]
+    fn missing_lookup_is_the_merge_identity() {
+        let ambiguous = ResourceLookup::Ambiguous { providers: 2 };
+        assert!(matches!(
+            ResourceLookup::Missing.merge(ResourceLookup::Missing),
+            ResourceLookup::Missing
+        ));
+        assert!(matches!(
+            ResourceLookup::Missing.merge(ambiguous),
+            ResourceLookup::Ambiguous { providers: 2 }
+        ));
+    }
+
+    #[test]
+    fn ambiguous_lookup_counts_nested_provider_trees() {
+        let left = ResourceLookup::Ambiguous { providers: 2 };
+        let right = ResourceLookup::Ambiguous { providers: 3 };
+        assert!(matches!(
+            left.merge(right),
+            ResourceLookup::Ambiguous { providers: 5 }
+        ));
     }
 }
 

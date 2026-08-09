@@ -5,7 +5,7 @@
 //! optical-boundary, revision, and fail-closed behavior can be tested without a Vulkan device.
 
 use crate::generated::gpu_structs::DdgiVoxelVisibilityInfo;
-use crate::resource::{Resource, ResourceContainer};
+use crate::resource::{DescriptorResource, Resource, ResourceContainer, ResourceLookup};
 use anyhow::{ensure, Result};
 use glam::UVec3;
 #[cfg(test)]
@@ -194,24 +194,19 @@ impl DdgiVoxelVisibility {
 }
 
 impl ResourceContainer for DdgiVoxelVisibility {
-    fn get_buffer(&self, name: &str) -> Option<&Buffer> {
-        (name == "ddgi_voxel_visibility_info").then_some(&self.ddgi_voxel_visibility_info)
-    }
-
-    fn get_texture(&self, name: &str) -> Option<&Texture> {
+    fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
         match name {
-            "ddgi_voxel_visibility_bits" => Some(&self.ddgi_voxel_visibility_bits),
-            "ddgi_voxel_visibility_blocks" => Some(&self.ddgi_voxel_visibility_blocks),
-            _ => None,
+            "ddgi_voxel_visibility_bits" => ResourceLookup::Unique(DescriptorResource::Texture(
+                &self.ddgi_voxel_visibility_bits,
+            )),
+            "ddgi_voxel_visibility_blocks" => ResourceLookup::Unique(DescriptorResource::Texture(
+                &self.ddgi_voxel_visibility_blocks,
+            )),
+            "ddgi_voxel_visibility_info" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_voxel_visibility_info))
+            }
+            _ => ResourceLookup::Missing,
         }
-    }
-
-    fn get_resource_names(&self) -> Vec<&'static str> {
-        vec![
-            "ddgi_voxel_visibility_bits",
-            "ddgi_voxel_visibility_blocks",
-            "ddgi_voxel_visibility_info",
-        ]
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::{
-    AccelStruct, Buffer, DescriptorSetLayoutBinding, ResourceContainer, Texture, TextureLayout,
-    WriteDescriptorSet,
+    DescriptorResource, DescriptorSetLayoutBinding, ResourceContainer, ResourceLookup,
+    TextureLayout, WriteDescriptorSet,
 };
 use anyhow::{anyhow, ensure, Result};
 use ash::vk;
@@ -45,18 +45,6 @@ impl PreparedDescriptorGeneration {
     pub(crate) fn values(&self) -> impl Iterator<Item = &crate::DescriptorSet> {
         self.sets.values()
     }
-}
-
-/// A resource kind that can be supplied to a reflected descriptor binding.
-///
-/// The descriptor set number and binding number are deliberately not part of this
-/// application-facing value.  They are resolved from the shader resource name by
-/// [`DescriptorBindingPlan`].
-#[derive(Clone, Copy)]
-pub enum DescriptorResource<'a> {
-    Buffer(&'a Buffer),
-    Texture(&'a Texture),
-    AccelerationStructure(&'a AccelStruct),
 }
 
 /// One semantic resource write in a descriptor update.
@@ -390,28 +378,23 @@ impl DescriptorBindingPlan {
         name: &str,
         containers: &[&'a dyn ResourceContainer],
     ) -> Result<DescriptorResource<'a>> {
-        let mut resource = None;
-        let mut buffer_count = 0;
-        let mut texture_count = 0;
-        for container in containers {
-            if let Some(buffer) = container.get_buffer(name) {
-                buffer_count += 1;
-                resource = Some(DescriptorResource::Buffer(buffer));
-            }
-            if let Some(texture) = container.get_texture(name) {
-                texture_count += 1;
-                resource = Some(DescriptorResource::Texture(texture));
-            }
+        let lookup = containers.iter().fold(ResourceLookup::Missing, |lookup, container| {
+            lookup.merge(container.resolve_resource(name))
+        });
+        match lookup {
+            ResourceLookup::Unique(resource) => Ok(resource),
+            ResourceLookup::Missing => Err(anyhow!(
+                "descriptor resource '{}' must have exactly one provider for {} (found 0)",
+                name,
+                self.pipeline_name,
+            )),
+            ResourceLookup::Ambiguous { providers } => Err(anyhow!(
+                "descriptor resource '{}' must have exactly one provider for {} (found {})",
+                name,
+                self.pipeline_name,
+                providers,
+            )),
         }
-        ensure!(
-            buffer_count + texture_count == 1,
-            "descriptor resource '{}' must have exactly one provider for {} (found {} buffers and {} textures)",
-            name,
-            self.pipeline_name,
-            buffer_count,
-            texture_count,
-        );
-        Ok(resource.expect("descriptor provider count was validated above"))
     }
 }
 

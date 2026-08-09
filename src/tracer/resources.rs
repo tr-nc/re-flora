@@ -34,7 +34,6 @@ type MeshGenerator = fn(bool) -> anyhow::Result<FloraMeshData>;
 
 pub const WIND_VOLUME_TEXELS_PER_CHUNK: UVec3 = UVec3::splat(10);
 
-#[derive(ResourceContainer)]
 pub struct FloraMeshResources {
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
@@ -302,7 +301,6 @@ fn flora_lookup_hash(key: u32) -> u32 {
     x ^ (x >> 16)
 }
 
-#[derive(ResourceContainer)]
 pub struct LeafMeshResources {
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
@@ -916,20 +914,6 @@ pub struct TracerMeshResources {
     pub glass: GlassMeshResources,
 }
 
-impl re_flora_vkn::ResourceContainer for TracerMeshResources {
-    fn get_buffer(&self, _name: &str) -> Option<&re_flora_vkn::Buffer> {
-        None
-    }
-
-    fn get_texture(&self, _name: &str) -> Option<&re_flora_vkn::Texture> {
-        None
-    }
-
-    fn get_resource_names(&self) -> Vec<&'static str> {
-        Vec::new()
-    }
-}
-
 impl TracerUniformResources {
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -1309,14 +1293,22 @@ impl TracerMeshResources {
 
 #[derive(ResourceContainer)]
 pub struct TracerResources {
+    #[resource(nested)]
     pub uniforms: TracerUniformResources,
+    #[resource(nested)]
     pub shadow: ShadowResources,
+    #[resource(nested)]
     pub wind: WindResources,
+    #[resource(nested)]
     pub flora_voxel_lookup: FloraVoxelLookupResources,
+    #[resource(nested)]
     pub terrain_query: TerrainQueryResources,
+    #[resource(nested)]
     pub terrain_lighting_cache: TerrainLightingCache,
+    #[resource(nested)]
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,
+    #[resource(nested)]
     pub extent_dependent_resources: ExtentDependentResources,
 }
 

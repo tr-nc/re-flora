@@ -7,7 +7,7 @@ use crate::environment_lighting::DdgiRadianceSnapshot;
 use crate::generated::gpu_structs::{
     DdgiProbeMetadata, DdgiRadianceSun, DdgiRadianceVoxelPalette, DdgiTransportQueryInfo,
 };
-use crate::resource::{Resource, ResourceContainer};
+use crate::resource::{DescriptorResource, Resource, ResourceContainer, ResourceLookup};
 use anyhow::{ensure, Context, Result};
 use bytemuck::Zeroable;
 use glam::UVec3;
@@ -686,53 +686,54 @@ impl DdgiVolumes {
 }
 
 impl ResourceContainer for DdgiVolume {
-    fn get_buffer(&self, name: &str) -> Option<&Buffer> {
+    fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
         match name {
-            "ddgi_probe_metadata" => Some(&self.ddgi_probe_metadata),
-            "ddgi_transient_ray_data" => Some(&self.ddgi_transient_ray_data),
-            "ddgi_trace_stats" => Some(&self.ddgi_trace_stats),
-            "ddgi_relocation_stats" => Some(&self.ddgi_relocation_stats),
-            "ddgi_atlas_reduction" => Some(&self.ddgi_atlas_reduction),
-            "ddgi_radiance_sun" => Some(&self.ddgi_radiance_sun),
-            "ddgi_radiance_voxel_palette" => Some(&self.ddgi_radiance_voxel_palette),
-            "ddgi_transport_query_info" => Some(&self.ddgi_transport_query_info),
-            _ => None,
-        }
-    }
-
-    fn get_texture(&self, name: &str) -> Option<&Texture> {
-        match name {
-            "ddgi_irradiance_atlas" => Some(&self.ddgi_irradiance_atlas),
+            "ddgi_probe_metadata" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_probe_metadata))
+            }
+            "ddgi_transient_ray_data" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_transient_ray_data))
+            }
+            "ddgi_trace_stats" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_trace_stats))
+            }
+            "ddgi_relocation_stats" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_relocation_stats))
+            }
+            "ddgi_atlas_reduction" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_atlas_reduction))
+            }
+            "ddgi_radiance_sun" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_radiance_sun))
+            }
+            "ddgi_radiance_voxel_palette" => ResourceLookup::Unique(DescriptorResource::Buffer(
+                &self.ddgi_radiance_voxel_palette,
+            )),
+            "ddgi_transport_query_info" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_transport_query_info))
+            }
+            "ddgi_irradiance_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_irradiance_atlas))
+            }
             // Descriptor bootstrap only. The capture adapter replaces this alias with the
             // requested logical field after validation; no physical slot identity escapes.
-            "ddgi_capture_irradiance_atlas" => Some(&self.ddgi_irradiance_atlas),
-            "ddgi_transport_source_irradiance_atlas" => {
-                Some(&self.ddgi_transport_source_irradiance_atlas)
+            "ddgi_capture_irradiance_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_irradiance_atlas))
             }
-            "ddgi_visibility_atlas" => Some(&self.ddgi_visibility_atlas),
-            "ddgi_global_sky_irradiance" => Some(&self.ddgi_global_sky_irradiance),
-            "ddgi_global_sky_irradiance_alt" => Some(&self.ddgi_global_sky_irradiance_alt),
-            _ => None,
+            "ddgi_transport_source_irradiance_atlas" => ResourceLookup::Unique(
+                DescriptorResource::Texture(&self.ddgi_transport_source_irradiance_atlas),
+            ),
+            "ddgi_visibility_atlas" => {
+                ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_visibility_atlas))
+            }
+            "ddgi_global_sky_irradiance" => ResourceLookup::Unique(DescriptorResource::Texture(
+                &self.ddgi_global_sky_irradiance,
+            )),
+            "ddgi_global_sky_irradiance_alt" => ResourceLookup::Unique(
+                DescriptorResource::Texture(&self.ddgi_global_sky_irradiance_alt),
+            ),
+            _ => ResourceLookup::Missing,
         }
-    }
-
-    fn get_resource_names(&self) -> Vec<&'static str> {
-        vec![
-            "ddgi_probe_metadata",
-            "ddgi_transient_ray_data",
-            "ddgi_trace_stats",
-            "ddgi_relocation_stats",
-            "ddgi_atlas_reduction",
-            "ddgi_radiance_sun",
-            "ddgi_radiance_voxel_palette",
-            "ddgi_transport_query_info",
-            "ddgi_irradiance_atlas",
-            "ddgi_capture_irradiance_atlas",
-            "ddgi_transport_source_irradiance_atlas",
-            "ddgi_visibility_atlas",
-            "ddgi_global_sky_irradiance",
-            "ddgi_global_sky_irradiance_alt",
-        ]
     }
 }
 
