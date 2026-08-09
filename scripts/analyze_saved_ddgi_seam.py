@@ -20,6 +20,9 @@ PEAK_RADIUS = 10
 EDGE_EXCLUSION = 50
 PEAK_SEPARATION = 20
 MIN_INTERNAL_GRADIENT = 0.03
+STEP_CONTEXT_RADIUS = 12
+MIN_STEP_CONCENTRATION = 1.30
+MAX_STEP_HALF_WIDTH = 20
 MIN_PROFILE_CONTRAST = 10.0
 MIN_INTERNAL_BANDS = 2
 MIN_INTERNAL_PRIMARY_RATIO = 0.20
@@ -58,6 +61,17 @@ def _smooth(values: list[float]) -> list[float]:
         end = min(len(values), index + SMOOTH_RADIUS + 1)
         result.append(sum(values[start:end]) / (end - start))
     return result
+
+
+def _peak_half_max_width(gradients: list[float], index: int) -> int:
+    threshold = abs(gradients[index]) * 0.5
+    left = index
+    while left > 0 and abs(gradients[left]) >= threshold:
+        left -= 1
+    right = index
+    while right + 1 < len(gradients) and abs(gradients[right]) >= threshold:
+        right += 1
+    return max(0, right - left - 1)
 
 
 def measure(path: Path) -> SavedDdgiSeamMetric:
@@ -107,7 +121,21 @@ def measure(path: Path) -> SavedDdgiSeamMetric:
             continue
         neighborhood = gradients[index - PEAK_RADIUS : index + PEAK_RADIUS + 1]
         if gradient >= max(abs(value) for value in neighborhood):
-            candidates.append((gradient, index))
+            context = gradients[
+                max(0, index - STEP_CONTEXT_RADIUS) :
+                min(len(gradients), index + STEP_CONTEXT_RADIUS + 1)
+            ]
+            context_mean = sum(abs(value) for value in context) / len(context)
+            concentration = gradient / max(context_mean, 1.0e-8)
+            half_max_width = _peak_half_max_width(gradients, index)
+            # A quantized lighting band is a narrow step. Broad slopes are
+            # valid irradiance gradients and must not become false positives
+            # merely because their first derivative has a local maximum.
+            if (
+                concentration >= MIN_STEP_CONCENTRATION
+                and half_max_width <= MAX_STEP_HALF_WIDTH
+            ):
+                candidates.append((gradient, index))
 
     separated: list[tuple[float, int]] = []
     for candidate in sorted(candidates, reverse=True):
@@ -149,7 +177,9 @@ def main() -> int:
         f"edge_excluded=true internal_bands={metric.internal_band_count} "
         f"internal_primary_ratio={metric.internal_primary_ratio:.6f} "
         f"thresholds=contrast:{MIN_PROFILE_CONTRAST:.1f},bands:{MIN_INTERNAL_BANDS},"
-        f"ratio:{MIN_INTERNAL_PRIMARY_RATIO:.2f}"
+        f"ratio:{MIN_INTERNAL_PRIMARY_RATIO:.2f},"
+        f"step_concentration:{MIN_STEP_CONCENTRATION:.2f},"
+        f"step_half_width:{MAX_STEP_HALF_WIDTH}"
     )
     return 1 if metric.is_red else 0
 

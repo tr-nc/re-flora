@@ -324,8 +324,9 @@ public DdgiQueryResult makeEmptyDdgiQueryResult()
     return result;
 }
 
-public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
-    DdgiQueryInfo query, float3 worldPosition, float3 surfaceNormal,
+public DdgiProbeContribution getDdgiSpatialWeightProbeContributionAt(
+    DdgiQueryInfo query, float3 worldPosition,
+    float3 positionWeightWorldPosition, float3 surfaceNormal,
     float3 hardVisibilityWorldPosition, uint3 cageCorner,
     uint spatialWeightMode, Sampler2D irradianceAtlas)
 {
@@ -352,7 +353,10 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
     float3 gridScale = query.world_to_grid_scale;
     float3 gridPosition = worldPosition * gridScale;
     uint3 base = min(uint3(floor(gridPosition)), dimensions - uint3(2u));
-    float3 fragmentInCell = saturate(gridPosition - float3(base));
+    float3 positionWeightGridPosition =
+        positionWeightWorldPosition * gridScale;
+    float3 fragmentInCell =
+        saturate(positionWeightGridPosition - float3(base));
     float3 spacingWorld = rcp(gridScale);
     uint3 cornerCoordinate = base + cageCorner;
     uint probeIndex = cornerCoordinate.x +
@@ -384,7 +388,7 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
         return contribution;
     }
 
-    float3 surfaceToProbe = actualPosition - worldPosition;
+    float3 surfaceToProbe = actualPosition - positionWeightWorldPosition;
     float distanceSquared = dot(surfaceToProbe, surfaceToProbe);
     float3 surfaceToProbeDirection = distanceSquared > 1.0e-10
         ? surfaceToProbe * rsqrt(distanceSquared)
@@ -462,6 +466,17 @@ public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
     return contribution;
 }
 
+public DdgiProbeContribution getDdgiSpatialWeightProbeContribution(
+    DdgiQueryInfo query, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition, uint3 cageCorner,
+    uint spatialWeightMode, Sampler2D irradianceAtlas)
+{
+    return getDdgiSpatialWeightProbeContributionAt(
+        query, worldPosition, worldPosition, surfaceNormal,
+        hardVisibilityWorldPosition, cageCorner, spatialWeightMode,
+        irradianceAtlas);
+}
+
 public DdgiProbeContribution getDdgiProbeContribution(
     DdgiQueryInfo query, float3 worldPosition, float3 surfaceNormal,
     float3 hardVisibilityWorldPosition, uint3 cageCorner,
@@ -502,6 +517,19 @@ public DdgiProbeContribution getDdgiFullVisibilitySpatialWeightProbeContribution
     return getDdgiSpatialWeightProbeContribution(
         query, worldPosition, surfaceNormal, hardVisibilityWorldPosition,
         cageCorner, spatialWeightMode, ddgi_irradiance_atlas);
+}
+
+public DdgiProbeContribution getDdgiTerrainSmoothFullVisibilityProbeContribution(
+    U_ShadingInfo lighting, float3 receiverWorldPosition,
+    float3 positionWeightWorldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition, uint3 cageCorner)
+{
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_FULL;
+    return getDdgiSpatialWeightProbeContributionAt(
+        query, receiverWorldPosition, positionWeightWorldPosition,
+        surfaceNormal, hardVisibilityWorldPosition, cageCorner,
+        DDGI_SPATIAL_WEIGHT_NOMINAL_HARD, ddgi_irradiance_atlas);
 }
 
 public DdgiProbeContribution getDdgiProbeContribution(
@@ -621,6 +649,298 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
                 accumulateDdgiContribution(
                     result, contribution,
                     contribution.hard_visibility * contribution.moment_visibility);
+            }
+        }
+    }
+    finalizeDdgiQueryResult(result);
+    return result;
+}
+
+DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
+    DdgiQueryInfo query, Sampler2D irradianceAtlas,
+    float3 receiverWorldPosition, float3 positionWeightWorldPosition,
+    float3 surfaceNormal, float3 hardVisibilityWorldPosition)
+{
+    DdgiQueryResult result = makeEmptyDdgiQueryResult();
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    if (ddgiQueryIsTerrainInvalidated(query, receiverWorldPosition))
+        return result;
+    if (ddgiQueryUsesGlobalSky(query, receiverWorldPosition))
+    {
+        result.irradiance = sampleDdgiGlobalSky(normal);
+        result.mean_visibility = 1.0;
+        return result;
+    }
+
+    DdgiQueryResult canonicalResult = sampleDdgiDiffuseEnvironmentFromAtlas(
+        query, irradianceAtlas, receiverWorldPosition, normal,
+        hardVisibilityWorldPosition);
+    if (all(canonicalResult.irradiance <=
+            float3(DDGI_QUERY_WEIGHT_EPSILON)))
+        return canonicalResult;
+
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                DdgiProbeContribution contribution =
+                    getDdgiSpatialWeightProbeContributionAt(
+                        query, receiverWorldPosition,
+                        positionWeightWorldPosition, normal,
+                        hardVisibilityWorldPosition, uint3(x, y, z),
+                        DDGI_SPATIAL_WEIGHT_NOMINAL_HARD,
+                        irradianceAtlas);
+                accumulateDdgiContribution(
+                    result, contribution,
+                    contribution.hard_visibility *
+                        contribution.moment_visibility);
+            }
+        }
+    }
+    finalizeDdgiQueryResult(result);
+    if (result.accumulated_weight <= DDGI_QUERY_WEIGHT_EPSILON ||
+        all(result.irradiance <= float3(DDGI_QUERY_WEIGHT_EPSILON)))
+    {
+        // The continuous spatial basis must not split one voxel into lit and
+        // zero-weight pixels. Retry the same visibility-safe receiver at its
+        // canonical coordinate; this remains fail-closed if that query also
+        // has no trustworthy contribution.
+        return canonicalResult;
+    }
+    return result;
+}
+
+public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(
+    U_ShadingInfo lighting, float3 receiverWorldPosition,
+    float3 positionWeightWorldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
+{
+    return sampleDdgiTerrainSmoothEnvironmentFromAtlas(
+        ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
+        receiverWorldPosition, positionWeightWorldPosition,
+        surfaceNormal, hardVisibilityWorldPosition);
+}
+
+public DdgiQueryResult sampleDdgiUnpublishedTerrainSmoothEnvironment(
+    U_ShadingInfo lighting, float3 receiverWorldPosition,
+    float3 positionWeightWorldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
+{
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    query.ready = 1u;
+    query.invalidation_enabled = 0u;
+    return sampleDdgiTerrainSmoothEnvironmentFromAtlas(
+        query, ddgi_capture_irradiance_atlas,
+        receiverWorldPosition, positionWeightWorldPosition,
+        surfaceNormal, hardVisibilityWorldPosition);
+}
+
+public struct DdgiTerrainSmoothCacheData
+{
+    public DdgiQueryResult result;
+    public float3 canonical_irradiance;
+    public uint4 packed_visibility;
+};
+
+void ddgiPackTerrainVisibility(inout uint4 packed, uint cornerIndex,
+                               float visibility)
+{
+    uint lane = cornerIndex >> 1u;
+    uint shift = (cornerIndex & 1u) * 16u;
+    uint encoded = uint(round(saturate(visibility) * 65535.0));
+    packed[lane] |= encoded << shift;
+}
+
+float ddgiUnpackTerrainVisibility(uint4 packed, uint cornerIndex)
+{
+    uint lane = cornerIndex >> 1u;
+    uint shift = (cornerIndex & 1u) * 16u;
+    return float((packed[lane] >> shift) & 0xffffu) * (1.0 / 65535.0);
+}
+
+float ddgiTerrainSurfaceSideWeight(float3 actualProbePosition,
+                                   float3 receiverWorldPosition,
+                                   float3 normal)
+{
+    float3 surfaceToProbe = actualProbePosition - receiverWorldPosition;
+    float distanceSquared = dot(surfaceToProbe, surfaceToProbe);
+    float3 direction = distanceSquared > 1.0e-10
+        ? surfaceToProbe * rsqrt(distanceSquared)
+        : normal;
+    float alignment = max(0.0, dot(normal, direction));
+    return alignment * alignment;
+}
+
+DdgiTerrainSmoothCacheData buildDdgiTerrainSmoothCacheDataFromAtlas(
+    DdgiQueryInfo query, Sampler2D irradianceAtlas,
+    float3 receiverWorldPosition, float3 positionWeightWorldPosition,
+    float3 surfaceNormal, float3 hardVisibilityWorldPosition)
+{
+    DdgiTerrainSmoothCacheData data;
+    data.result = makeEmptyDdgiQueryResult();
+    data.canonical_irradiance = float3(0.0);
+    data.packed_visibility = uint4(0u);
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    if (ddgiQueryIsTerrainInvalidated(query, receiverWorldPosition))
+        return data;
+    if (ddgiQueryUsesGlobalSky(query, receiverWorldPosition))
+    {
+        data.result.irradiance = sampleDdgiGlobalSky(normal);
+        data.result.mean_visibility = 1.0;
+        data.canonical_irradiance = data.result.irradiance;
+        return data;
+    }
+
+    float3 gridScale = query.world_to_grid_scale;
+    float3 spacingWorld = rcp(gridScale);
+    float3 receiverGridPosition = receiverWorldPosition * gridScale;
+    uint3 base = min(uint3(floor(receiverGridPosition)),
+                     query.grid_dimensions - uint3(2u));
+    float3 canonicalFragment =
+        saturate(receiverGridPosition - float3(base));
+    float3 smoothFragment = saturate(
+        positionWeightWorldPosition * gridScale - float3(base));
+    float3 cageCenterWorldPosition =
+        (float3(base) + float3(0.5)) / gridScale;
+    DdgiQueryResult canonicalResult = makeEmptyDdgiQueryResult();
+
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                uint3 corner = uint3(x, y, z);
+                uint cornerIndex = x + 2u * (y + 2u * z);
+                DdgiProbeContribution contribution =
+                    getDdgiSpatialWeightProbeContributionAt(
+                        query, receiverWorldPosition,
+                        cageCenterWorldPosition, normal,
+                        hardVisibilityWorldPosition, corner,
+                        DDGI_SPATIAL_WEIGHT_NOMINAL_NO_SURFACE,
+                        irradianceAtlas);
+                float visibility = contribution.trustworthy
+                    ? contribution.hard_visibility *
+                        contribution.moment_visibility
+                    : 0.0;
+                ddgiPackTerrainVisibility(
+                    data.packed_visibility, cornerIndex, visibility);
+                if (!contribution.trustworthy) continue;
+
+                DdgiProbeContribution canonicalContribution = contribution;
+                canonicalContribution.base_weight =
+                    ddgiRelocationAwarePositionWeight(
+                        canonicalFragment, float3(corner),
+                        contribution.nominal_position,
+                        contribution.actual_position, spacingWorld) *
+                    ddgiTerrainSurfaceSideWeight(
+                        contribution.actual_position,
+                        receiverWorldPosition, normal);
+                accumulateDdgiContribution(
+                    canonicalResult, canonicalContribution, visibility);
+
+                DdgiProbeContribution smoothContribution = contribution;
+                smoothContribution.base_weight =
+                    ddgiNominalTrilinearPositionWeight(
+                        smoothFragment, float3(corner)) *
+                    ddgiTerrainSurfaceSideWeight(
+                        contribution.actual_position,
+                        positionWeightWorldPosition, normal);
+                accumulateDdgiContribution(
+                    data.result, smoothContribution, visibility);
+            }
+        }
+    }
+    finalizeDdgiQueryResult(canonicalResult);
+    finalizeDdgiQueryResult(data.result);
+    data.canonical_irradiance = canonicalResult.irradiance;
+    if (all(data.canonical_irradiance <=
+            float3(DDGI_QUERY_WEIGHT_EPSILON)) ||
+        all(data.result.irradiance <=
+            float3(DDGI_QUERY_WEIGHT_EPSILON)))
+    {
+        data.result = canonicalResult;
+    }
+    return data;
+}
+
+public DdgiTerrainSmoothCacheData buildDdgiTerrainSmoothCacheData(
+    U_ShadingInfo lighting, float3 receiverWorldPosition,
+    float3 positionWeightWorldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
+{
+    return buildDdgiTerrainSmoothCacheDataFromAtlas(
+        ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
+        receiverWorldPosition, positionWeightWorldPosition,
+        surfaceNormal, hardVisibilityWorldPosition);
+}
+
+public DdgiQueryResult sampleDdgiTerrainSmoothFromCachedVisibility(
+    U_ShadingInfo lighting, float3 receiverWorldPosition,
+    float3 positionWeightWorldPosition, float3 surfaceNormal,
+    uint4 packedVisibility)
+{
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    DdgiQueryResult result = makeEmptyDdgiQueryResult();
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    if (ddgiQueryIsTerrainInvalidated(query, receiverWorldPosition))
+        return result;
+    if (ddgiQueryUsesGlobalSky(query, receiverWorldPosition))
+    {
+        result.irradiance = sampleDdgiGlobalSky(normal);
+        result.mean_visibility = 1.0;
+        return result;
+    }
+
+    float3 gridPosition = receiverWorldPosition * query.world_to_grid_scale;
+    uint3 base = min(uint3(floor(gridPosition)),
+                     query.grid_dimensions - uint3(2u));
+    float3 smoothFragment = saturate(
+        positionWeightWorldPosition * query.world_to_grid_scale -
+        float3(base));
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                uint3 corner = uint3(x, y, z);
+                uint cornerIndex = x + 2u * (y + 2u * z);
+                float visibility = ddgiUnpackTerrainVisibility(
+                    packedVisibility, cornerIndex);
+                if (visibility <= DDGI_QUERY_WEIGHT_EPSILON) continue;
+                uint3 coordinate = base + corner;
+                uint probeIndex = coordinate.x + query.grid_dimensions.x *
+                    (coordinate.y + query.grid_dimensions.y * coordinate.z);
+                DdgiProbeMetadata metadata =
+                    ddgi_probe_metadata.data[probeIndex];
+                if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID)
+                    continue;
+                DdgiProbeContribution contribution;
+                contribution.trustworthy = true;
+                contribution.probe_index = probeIndex;
+                contribution.irradiance = sampleDdgiProbeIrradiance(
+                    probeIndex, normal, query.irradiance_tile_columns,
+                    ddgi_irradiance_atlas);
+                contribution.base_weight =
+                    ddgiNominalTrilinearPositionWeight(
+                        smoothFragment, float3(corner)) *
+                    ddgiTerrainSurfaceSideWeight(
+                        metadata.actual_position_and_clearance.xyz,
+                        positionWeightWorldPosition, normal);
+                accumulateDdgiContribution(
+                    result, contribution, visibility);
             }
         }
     }

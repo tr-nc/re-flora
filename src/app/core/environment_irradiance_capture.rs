@@ -655,17 +655,17 @@ mod tests {
         let tracer = include_str!("../../../shader/slang/tracer.slang");
         let query = include_str!("../../../shader/slang/ddgi_query.slang");
 
-        assert!(tracer.contains("sampleDdgiUnpublishedCaptureEnvironment("));
+        assert!(tracer.contains("sampleDdgiUnpublishedTerrainSmoothEnvironment("));
         assert!(tracer.contains("environmentCaptureIrradiance = captureResult.irradiance"));
         assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
         assert!(tracer.contains("color = environmentIrradiance * albedo"));
         assert!(query.contains("[[vk::binding(27, 0)]]\nSampler2D ddgi_irradiance_atlas"));
         assert!(query.contains("[[vk::binding(34, 0)]]\nSampler2D ddgi_capture_irradiance_atlas"));
         let capture_query = query
-            .split_once("public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(")
+            .split_once("public DdgiQueryResult sampleDdgiUnpublishedTerrainSmoothEnvironment(")
             .expect("capture-only DDGI query must exist")
             .1
-            .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
+            .split_once("public struct DdgiTerrainSmoothCacheData")
             .expect("capture-only query must remain isolated")
             .0;
         assert!(capture_query.contains("query.ready = 1u"));

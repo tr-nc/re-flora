@@ -48,6 +48,8 @@ struct TerrainDdgiCacheMetadata
 RWStructuredBuffer<TerrainDdgiCacheMetadata> terrain_ddgi_cache_metadata;
 [[vk::binding(40, 0)]]
 RWStructuredBuffer<float4> terrain_ddgi_cache_irradiance;
+[[vk::binding(42, 0)]]
+RWStructuredBuffer<uint4> terrain_ddgi_cache_visibility;
 
 [[vk::binding(0, 1)]] [[vk::image_format("r32ui")]]
 RWTexture2D<uint> compute_output_tex;
@@ -189,17 +191,19 @@ bool terrainDdgiCacheSlot(uint key, out uint slot)
     return false;
 }
 
-float3 sampleTerrainDdgiEnvironmentCached(
-    float3 voxelCenter, float3 worldPosition, float3 surfaceNormal,
+float3 sampleTerrainDdgiEnvironmentSmoothCached(
+    float3 voxelCenter, float3 receiverWorldPosition,
+    float3 positionWeightWorldPosition, float3 surfaceNormal,
     float3 hardVisibilityWorldPosition)
 {
     uint slot;
     uint key = terrainDdgiCacheKey(voxelCenter);
     if (!terrainDdgiCacheSlot(key, slot))
     {
-        return sampleDdgiDiffuseEnvironment(
-            shading_info, worldPosition, surfaceNormal,
-            hardVisibilityWorldPosition).irradiance;
+        return buildDdgiTerrainSmoothCacheData(
+            shading_info, receiverWorldPosition,
+            positionWeightWorldPosition, surfaceNormal,
+            hardVisibilityWorldPosition).result.irradiance;
     }
 
     uint targetRevision = shading_info.ddgi_query_revision;
@@ -207,7 +211,18 @@ float3 sampleTerrainDdgiEnvironmentCached(
     if (metadata.revision == targetRevision &&
         metadata.ready_frame != env_info.frame_serial_idx)
     {
-        return terrain_ddgi_cache_irradiance[slot].xyz;
+        float3 canonicalIrradiance =
+            terrain_ddgi_cache_irradiance[slot].xyz;
+        if (all(canonicalIrradiance <= float3(1.0e-6)))
+            return canonicalIrradiance;
+        DdgiQueryResult cachedResult =
+            sampleDdgiTerrainSmoothFromCachedVisibility(
+                shading_info, receiverWorldPosition,
+                positionWeightWorldPosition, surfaceNormal,
+                terrain_ddgi_cache_visibility[slot]);
+        return all(cachedResult.irradiance <= float3(1.0e-6))
+            ? canonicalIrradiance
+            : cachedResult.irradiance;
     }
 
     uint observedRevision = metadata.revision;
@@ -222,18 +237,23 @@ float3 sampleTerrainDdgiEnvironmentCached(
         canPublish = observedRevision == metadata.revision;
     }
 
-    float3 irradiance = sampleDdgiDiffuseEnvironment(
-        shading_info, worldPosition, surfaceNormal,
-        hardVisibilityWorldPosition).irradiance;
+    DdgiTerrainSmoothCacheData cacheData =
+        buildDdgiTerrainSmoothCacheData(
+            shading_info, receiverWorldPosition,
+            positionWeightWorldPosition, surfaceNormal,
+            hardVisibilityWorldPosition);
     if (canPublish)
     {
-        terrain_ddgi_cache_irradiance[slot] = float4(irradiance, 1.0);
+        terrain_ddgi_cache_irradiance[slot] =
+            float4(cacheData.canonical_irradiance, 1.0);
+        terrain_ddgi_cache_visibility[slot] =
+            cacheData.packed_visibility;
         terrain_ddgi_cache_metadata[slot].ready_frame = env_info.frame_serial_idx;
         DeviceMemoryBarrier();
         InterlockedExchange(
             terrain_ddgi_cache_metadata[slot].revision, targetRevision);
     }
-    return irradiance;
+    return cacheData.result.irradiance;
 }
 
 float3 shadowRayColor(Ray ray, float3 receiverNormal)
@@ -386,7 +406,8 @@ float depthFromWorldPosition(float3 worldPosition)
 }
 
 DdgiQueryResult sampleDdgiExactTerrainReference(
-    float3 worldPosition, float3 surfaceNormal,
+    float3 worldPosition, float3 positionWeightWorldPosition,
+    float3 surfaceNormal,
     float3 hardVisibilityWorldPosition)
 {
     DdgiQueryResult result = makeEmptyDdgiQueryResult();
@@ -408,8 +429,9 @@ DdgiQueryResult sampleDdgiExactTerrainReference(
             for (uint x = 0u; x < 2u; ++x)
             {
                 DdgiProbeContribution contribution =
-                    getDdgiFullVisibilityProbeContribution(
-                        shading_info, worldPosition, normal,
+                    getDdgiTerrainSmoothFullVisibilityProbeContribution(
+                        shading_info, worldPosition,
+                        positionWeightWorldPosition, normal,
                         hardVisibilityWorldPosition, uint3(x, y, z));
                 float visibility = contribution.trustworthy
                     ? contribution.hard_visibility
@@ -666,6 +688,7 @@ void writeDdgiSpatialWeightReadback(Ray ray, uint2 pixel,
 }
 
 float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
+                             float3 positionWeightWorldPosition,
                              float3 surfaceNormal,
                              float3 hardVisibilityWorldPosition,
                              DdgiQueryResult momentResult)
@@ -728,7 +751,8 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
         return ddgiRelocationDebugColor(shading_info, worldPosition);
 
     DdgiQueryResult exactResult = sampleDdgiExactTerrainReference(
-        worldPosition, surfaceNormal, hardVisibilityWorldPosition);
+        worldPosition, positionWeightWorldPosition, surfaceNormal,
+        hardVisibilityWorldPosition);
     if (view == DDGI_DEBUG_EXACT_VISIBILITY)
         return float3(exactResult.mean_visibility);
     if (view == DDGI_DEBUG_VISIBILITY_ERROR)
@@ -814,9 +838,9 @@ void getPixelColor(out float3 color, out float depth,
     {
         directLight = directLighting(albedo, result.normal, result.position);
     }
-    // DDGI is part of the flat voxel material contract. Every pixel that hits
-    // this voxel must query from the same receiver, independent of the camera
-    // ray's exact intersection point on the visible face.
+    // Geometry-facing visibility remains fixed for every pixel of the voxel.
+    // Only the nominal-grid position basis follows the exact surface hit so a
+    // smooth probe field is not quantized into one irradiance step per voxel.
     float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, result.normal);
     float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(
@@ -828,32 +852,32 @@ void getPixelColor(out float3 color, out float depth,
         shading_info.environment_irradiance_capture_unpublished == 0u;
     if (canUseTerrainCache)
     {
-        consumerResult.irradiance = sampleTerrainDdgiEnvironmentCached(
-            result.center_position, ddgiReceiverPosition, result.normal,
-            ddgiHardVisibilityOrigin);
+        consumerResult.irradiance = sampleTerrainDdgiEnvironmentSmoothCached(
+            result.center_position, ddgiReceiverPosition, result.position,
+            result.normal, ddgiHardVisibilityOrigin);
     }
     else
     {
-        consumerResult = sampleDdgiDiffuseEnvironment(
-            shading_info, ddgiReceiverPosition, result.normal,
-            ddgiHardVisibilityOrigin);
+        consumerResult = sampleDdgiTerrainSmoothEnvironment(
+            shading_info, ddgiReceiverPosition, result.position,
+            result.normal, ddgiHardVisibilityOrigin);
     }
     DdgiQueryResult captureResult = consumerResult;
     if (shading_info.environment_irradiance_capture_unpublished != 0u)
     {
-        captureResult = sampleDdgiUnpublishedCaptureEnvironment(
-            shading_info, ddgiReceiverPosition, result.normal,
-            ddgiHardVisibilityOrigin);
+        captureResult = sampleDdgiUnpublishedTerrainSmoothEnvironment(
+            shading_info, ddgiReceiverPosition, result.position,
+            result.normal, ddgiHardVisibilityOrigin);
     }
     environmentIrradiance = consumerResult.irradiance;
     environmentCaptureIrradiance = captureResult.irradiance;
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {
         environmentIrradiance = ddgiTerrainDebugValue(
-            screenUv, ddgiReceiverPosition, result.normal,
+            screenUv, ddgiReceiverPosition, result.position, result.normal,
             ddgiHardVisibilityOrigin, consumerResult);
         environmentCaptureIrradiance = ddgiTerrainDebugValue(
-            screenUv, ddgiReceiverPosition, result.normal,
+            screenUv, ddgiReceiverPosition, result.position, result.normal,
             ddgiHardVisibilityOrigin, captureResult);
     }
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)

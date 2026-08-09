@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import binascii
+import math
 import struct
 import sys
 import tempfile
@@ -62,6 +63,18 @@ def horizontal_image(*, banded: bool) -> list[list[int]]:
     return pixels
 
 
+def smooth_horizontal_gradient_image() -> list[list[int]]:
+    width = 400
+    height = 300
+    pixels: list[list[int]] = []
+    for y in range(height):
+        value = 70 + round(25 * math.sin(y * 2.0 * math.pi / 90.0))
+        if y >= 240:
+            value += 110
+        pixels.append([value] * width)
+    return pixels
+
+
 class SavedDdgiSeamAnalyzerTests(unittest.TestCase):
     def test_single_hard_edge_is_green(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -83,6 +96,15 @@ class SavedDdgiSeamAnalyzerTests(unittest.TestCase):
         self.assertGreaterEqual(
             metric.internal_primary_ratio, analyzer.MIN_INTERNAL_PRIMARY_RATIO
         )
+
+    def test_broad_continuous_gradients_are_not_counted_as_step_bands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "smooth-gradient.png"
+            write_png(path, smooth_horizontal_gradient_image())
+            metric = analyzer.measure(path)
+
+        self.assertFalse(metric.is_red)
+        self.assertEqual(metric.internal_band_count, 0)
 
 
 if __name__ == "__main__":
