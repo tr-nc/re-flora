@@ -29,6 +29,7 @@ mod water;
 
 use self::authored_flora_bench::AuthoredFloraBench;
 use self::camera_snapshot_ui::draw_camera_snapshots_ui;
+use self::ddgi_spatial_weight_readback::DdgiSpatialWeightReadbackRuntime;
 use self::denoiser_bench::{
     DenoiserBench, CAMERA_FORWARD_PER_FRAME_WORLD, CAMERA_STRAFE_PER_FRAME_WORLD,
     CAMERA_YAW_PER_FRAME_RADIANS,
@@ -58,8 +59,8 @@ use crate::builder::{
     VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
 use crate::ddgi::{
-    DdgiBuildToken, DdgiFieldStage, DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid,
-    DdgiVolumeStage, SUPPORTED_DDGI_SPACINGS_VOXELS,
+    DdgiBuildToken, DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid, DdgiVolumeStage,
+    SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
@@ -399,9 +400,7 @@ pub struct App {
     screenshot_to_clipboard_requested: bool,
     environment_irradiance_capture_path: Option<String>,
     environment_irradiance_capture_taken: bool,
-    ddgi_spatial_weight_readback_path: Option<String>,
-    ddgi_spatial_weight_readback_taken: bool,
-    ddgi_spatial_weight_readback_ready: bool,
+    ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     denoiser_bench: Option<DenoiserBench>,
     auto_exit_delay: Option<f32>,
     tree_bench: Option<TreeBench>,
@@ -1461,9 +1460,9 @@ impl App {
                 .environment_irradiance_capture_path
                 .clone(),
             environment_irradiance_capture_taken: false,
-            ddgi_spatial_weight_readback_path: options.ddgi_spatial_weight_readback_path.clone(),
-            ddgi_spatial_weight_readback_taken: false,
-            ddgi_spatial_weight_readback_ready: false,
+            ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
+                options.ddgi_spatial_weight_readback_path.clone(),
+            ),
             denoiser_bench: options.denoiser_bench.clone().map(DenoiserBench::new),
             auto_exit_delay: options.auto_exit_delay,
             tree_bench: options
@@ -4245,50 +4244,16 @@ impl App {
                     }
                 }
 
-                let mut ddgi_spatial_weight_readback = None;
-                if !self.ddgi_spatial_weight_readback_taken {
-                    if let Some(path) = self.ddgi_spatial_weight_readback_path.clone() {
-                        let terminal_field = self
-                            .tracer
-                            .ddgi_runtime_status()
-                            .active()
-                            .complete_field
-                            .filter(|field| {
-                                matches!(
-                                    field.field().stage(),
-                                    DdgiFieldStage::Converged | DdgiFieldStage::NonConverged
-                                )
-                            });
-                        if terminal_field.is_some() {
-                            if self.ddgi_spatial_weight_readback_ready {
-                                match self.prepare_ddgi_spatial_weight_readback(path.clone()) {
-                                    Ok(readback) => {
-                                        self.record_ddgi_spatial_weight_readback(cmdbuf, &readback);
-                                        self.ddgi_spatial_weight_readback_taken = true;
-                                        log::info!(
-                                            "[DDGI_SPATIAL_WEIGHT_READBACK] recording path={}",
-                                            readback.path(),
-                                        );
-                                        ddgi_spatial_weight_readback = Some(readback);
-                                    }
-                                    Err(err) => log::error!(
-                                        "[DDGI_SPATIAL_WEIGHT_READBACK] failed to prepare {}: {err:#}",
-                                        path,
-                                    ),
-                                }
-                            } else {
-                                // DDGI can become ready during the tracer pass. Arm here and
-                                // record on the next frame, after shading_info carries ready=true.
-                                self.ddgi_spatial_weight_readback_ready = true;
-                                log::info!(
-                                    "[DDGI_SPATIAL_WEIGHT_READBACK] armed; waiting one frame for shading_info ready"
-                                );
-                            }
-                        } else {
-                            self.ddgi_spatial_weight_readback_ready = false;
-                        }
+                let mut ddgi_spatial_weight_readback = match self
+                    .ddgi_spatial_weight_readback
+                    .record_if_ready(&self.tracer, &self.vulkan_ctx, cmdbuf)
+                {
+                    Ok(readback) => readback,
+                    Err(err) => {
+                        log::error!("[DDGI_SPATIAL_WEIGHT_READBACK] failed to prepare: {err:#}");
+                        None
                     }
-                }
+                };
 
                 let render_area = self.window_state.window_extent();
                 let tracer_screen_extent = self.tracer.extent_resource_screen_extent();
@@ -4456,7 +4421,7 @@ impl App {
                                 }
                             }
                             if let Some(readback) = ddgi_spatial_weight_readback.take() {
-                                match Self::write_ddgi_spatial_weight_readback(readback) {
+                                match self.ddgi_spatial_weight_readback.complete(readback) {
                                     Ok(()) => {
                                         ddgi_spatial_weight_readback_complete = true;
                                     }
