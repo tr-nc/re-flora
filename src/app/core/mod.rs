@@ -3683,6 +3683,7 @@ impl App {
                             .flora_growth_override_enabled
                             .value,
                         self.debug_settings.adjustables.flora_growth_override.value,
+                        self.debug_settings.adjustables.dither_strength_lsb.value,
                         self.debug_settings
                             .adjustables
                             .raster_flora_ddgi_lighting

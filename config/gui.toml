@@ -183,6 +183,20 @@ min = 0
 max = 0.1
 
 [[section]]
+name = "Post Processing"
+
+[[section.param]]
+id = "dither_strength_lsb"
+kind = "float"
+label = "Dither Strength (Max 8-bit LSB)"
+type = "Float"
+
+[section.param.data]
+value = 1.5
+min = 0
+max = 4
+
+[[section]]
 name = "Wind"
 
 [[section.param]]

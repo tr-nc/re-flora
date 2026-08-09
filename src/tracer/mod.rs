@@ -2536,6 +2536,7 @@ impl Tracer {
         time_info: &TimeInfo,
         flora_growth_override_enabled: bool,
         flora_growth_override: f32,
+        dither_strength_lsb: f32,
         raster_flora_ddgi_lighting: bool,
         path_tracing_reference: bool,
         path_tracing_max_bounces: u32,
@@ -2675,7 +2676,11 @@ impl Tracer {
             god_ray_color,
         )?;
 
-        BufferUpdater::update_post_processing_info(&self.resources, self.desc.scaling_factor)?;
+        BufferUpdater::update_post_processing_info(
+            &self.resources,
+            self.desc.scaling_factor,
+            dither_strength_lsb,
+        )?;
 
         BufferUpdater::update_voxel_colors(
             &self.resources,

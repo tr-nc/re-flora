@@ -7,7 +7,7 @@ static const uint DITHER_HASH_SEED = 0x12345678u;
 // final linear 8-bit quantization stage; the later swapchain blit converts to
 // the sRGB display encoding. This deterministic integer hash avoids a short
 // repeating tile without introducing a temporal crawl or shimmer.
-public float getDitherOffset(int2 screenSpaceUv)
+public float getDitherOffset(int2 screenSpaceUv, float strengthLsb)
 {
     uint2 pixel = uint2(screenSpaceUv);
     uint hash = pixel.x * 0x9E3779B9u + pixel.y * 0x85EBCA6Bu + DITHER_HASH_SEED;
@@ -15,5 +15,5 @@ public float getDitherOffset(int2 screenSpaceUv)
     hash *= 0x7FEB352Du;
     hash ^= hash >> 15;
     float noise = float(hash & 0xFFFFu) / 65535.0;
-    return (noise - 0.5) * OUTPUT_QUANTIZATION_STEP;
+    return (noise - 0.5) * (2.0 * strengthLsb * OUTPUT_QUANTIZATION_STEP);
 }
