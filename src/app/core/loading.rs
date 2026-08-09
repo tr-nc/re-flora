@@ -36,6 +36,7 @@ pub(super) enum LoadingPhase {
 pub(super) struct LoadingState {
     pub(super) chunk_indices: Vec<UVec3>,
     pub(super) terrain_snapshot_reader: Option<TerrainSnapshotReader>,
+    pub(super) physical_terrain_publication: physical_visible_terrain::PhysicalTerrainPublication,
     pub(super) current: usize,
     pub(super) step_label: String,
     pub(super) phase: LoadingPhase,
@@ -137,68 +138,51 @@ impl App {
                 }
             }
             LoadingPhase::Building => {
-                let chunk_id = loading.chunk_indices[loading.current];
-                let atlas_offset = chunk_id * VOXEL_DIM_PER_CHUNK;
                 loading.step_label = format!("Building {}/{}", current, total);
 
-                let active_voxel_len = match self.surface_builder.build_surface(chunk_id, false) {
-                    Ok(active_voxel_len) => active_voxel_len,
-                    Err(err) => {
-                        log::error!("build_surface failed for {chunk_id:?}: {err}");
-                        loading.current += 1;
-                        return;
-                    }
-                };
+                let progress = loading
+                    .physical_terrain_publication
+                    .advance(physical_visible_terrain::PhysicalTerrainBuilders::new(
+                        &mut self.surface_builder,
+                        &mut self.contree_builder,
+                        &mut self.scene_accel_builder,
+                    ))
+                    .unwrap_or_else(|err| {
+                        panic!("startup visible terrain publication failed: {err:#}")
+                    });
 
-                let scene_offsets = if active_voxel_len == 0 {
-                    self.contree_builder
-                        .clear_empty_surface_chunk(atlas_offset)
-                        .scene_offsets
-                } else {
-                    match self.contree_builder.build_and_alloc(atlas_offset) {
-                        Ok(scene_offsets) => scene_offsets,
-                        Err(err) => {
-                            log::error!("build_and_alloc failed for {chunk_id:?}: {err}");
-                            loading.current += 1;
-                            return;
-                        }
+                match progress {
+                    physical_visible_terrain::PhysicalTerrainPublicationProgress::Preparing {
+                        prepared_chunks,
+                        total_chunks,
+                    } => {
+                        debug_assert_eq!(total_chunks, total);
+                        loading.current = prepared_chunks;
+                        loading.step_label = format!("Building {prepared_chunks}/{total_chunks}");
                     }
-                };
-
-                match scene_offsets {
-                    Some((node_buffer_offset, leaf_buffer_offset)) => {
-                        if let Err(err) = self.scene_accel_builder.update_scene_tex(
-                            chunk_id,
-                            Some((node_buffer_offset, leaf_buffer_offset)),
-                        ) {
-                            log::error!("update_scene_tex failed for {chunk_id:?}: {err}");
-                        }
-                    }
-                    None => {
-                        if let Err(err) = self.scene_accel_builder.update_scene_tex(chunk_id, None)
+                    physical_visible_terrain::PhysicalTerrainPublicationProgress::Published {
+                        chunks,
+                    } => {
+                        debug_assert_eq!(chunks, total);
+                        loading.current = chunks;
+                        match self
+                            .terrain_physics
+                            .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
                         {
-                            log::error!("clear_scene_tex failed for {chunk_id:?}: {err}");
-                        }
-                    }
-                }
-
-                loading.current += 1;
-                if loading.current >= total {
-                    match self
-                        .terrain_physics
-                        .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
-                    {
-                        Ok(collider_total) => {
-                            loading.current = 0;
-                            loading.collider_total = collider_total;
-                            loading.phase = LoadingPhase::Colliders;
-                            loading.step_label = format!("Colliders 0/{collider_total}");
-                        }
-                        Err(err) => {
-                            log::error!("Failed to start global terrain collider import: {err:#}");
-                            loading.current = 1;
-                            loading.collider_total = 1;
-                            loading.phase = LoadingPhase::Colliders;
+                            Ok(collider_total) => {
+                                loading.current = 0;
+                                loading.collider_total = collider_total;
+                                loading.phase = LoadingPhase::Colliders;
+                                loading.step_label = format!("Colliders 0/{collider_total}");
+                            }
+                            Err(err) => {
+                                log::error!(
+                                    "Failed to start global terrain collider import: {err:#}"
+                                );
+                                loading.current = 1;
+                                loading.collider_total = 1;
+                                loading.phase = LoadingPhase::Colliders;
+                            }
                         }
                     }
                 }
@@ -396,6 +380,14 @@ impl App {
         if is_done {
             self.loading_state = None;
             self.finalize_loading();
+        }
+    }
+
+    pub(super) fn abort_loading_physical_publication(&mut self) {
+        if let Some(loading) = self.loading_state.as_mut() {
+            loading
+                .physical_terrain_publication
+                .abort(&mut self.contree_builder);
         }
     }
 

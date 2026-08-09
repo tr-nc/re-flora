@@ -45,6 +45,7 @@ use self::vegetation::{TreeRecord, TreeVariationConfig};
 use self::visible_terrain::VisibleTerrainChange;
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::environment;
+use crate::app::physical_visible_terrain;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{BuildEdit, WorldEditPlan};
 use crate::app::world_ops;
@@ -1371,6 +1372,11 @@ impl App {
             linear_damping: 0.08,
             ..ParticleForces::default()
         };
+        let physical_terrain_publication =
+            physical_visible_terrain::PhysicalTerrainPublication::loading(
+                chunk_indices.clone(),
+                VOXEL_DIM_PER_CHUNK,
+            )?;
 
         let mut app = Self {
             vulkan_ctx,
@@ -1379,6 +1385,7 @@ impl App {
             loading_state: Some(LoadingState {
                 chunk_indices,
                 terrain_snapshot_reader,
+                physical_terrain_publication,
                 current: 0,
                 step_label: "Initializing...".to_owned(),
                 phase: LoadingPhase::Terrain,

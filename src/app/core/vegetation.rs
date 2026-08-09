@@ -27,7 +27,6 @@ const AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT: u32 = 48;
 pub(super) enum SurfaceOccupantClearPath {
     Standalone,
     TerrainRebuild {
-        chunk_ids: Vec<UVec3>,
         bound: UAabb3,
         terrain_changed: bool,
     },
@@ -1452,10 +1451,6 @@ impl App {
             };
             let terrain_changed = stats.stats.removed_counts.iter().any(|&count| count > 0)
                 || stats.stats.added_counts.iter().any(|&count| count > 0);
-            let rebuild_chunk_ids = world_ops::affected_chunk_indices_for_bound(
-                rebuild_bound,
-                super::VOXEL_DIM_PER_CHUNK,
-            );
             self.clear_surface_occupants_in_brush(
                 TerrainBrushEdit {
                     start: edit.center,
@@ -1463,7 +1458,6 @@ impl App {
                     radius: edit.radius,
                 },
                 SurfaceOccupantClearPath::TerrainRebuild {
-                    chunk_ids: rebuild_chunk_ids,
                     bound: rebuild_bound,
                     terrain_changed,
                 },
@@ -1563,19 +1557,12 @@ impl App {
                 )?;
             }
             SurfaceOccupantClearPath::TerrainRebuild {
-                chunk_ids,
                 bound,
                 terrain_changed,
             } => {
                 let change =
                     VisibleTerrainChange::preserving_flora(bound, flora_edit, terrain_changed);
-                let published = self.publish_visible_terrain(change)?;
-                anyhow::ensure!(
-                    published.rebuilt_chunks == chunk_ids.len(),
-                    "visible terrain publication rebuilt {} of {} affected chunks",
-                    published.rebuilt_chunks,
-                    chunk_ids.len(),
-                );
+                self.publish_visible_terrain(change)?;
             }
         }
 

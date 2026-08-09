@@ -20,12 +20,6 @@ pub(super) struct VisibleTerrainChange {
     terrain_changed: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct PublishedTerrain {
-    pub(super) revision: Option<u32>,
-    pub(super) rebuilt_chunks: usize,
-}
-
 impl VisibleTerrainChange {
     pub(super) fn from_build_edits(build_edits: Vec<BuildEdit>) -> Result<Option<Self>> {
         let mut affected_voxels: Option<UAabb3> = None;
@@ -106,7 +100,7 @@ impl App {
         self.terrain_persistence_water_paused = false;
     }
 
-    pub(super) fn publish_snapshot_replacement(&mut self) -> Result<PublishedTerrain> {
+    pub(super) fn publish_snapshot_replacement(&mut self) -> Result<()> {
         anyhow::ensure!(
             self.terrain_persistence_water_paused,
             "snapshot replacement requires quiesced water simulation"
@@ -116,7 +110,7 @@ impl App {
             terrain_chunk_ids(),
         )])?
         .context("snapshot replacement has no visible terrain chunks")?;
-        let published = self.publish_visible_terrain(change)?;
+        self.publish_visible_terrain(change)?;
 
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         anyhow::ensure!(
@@ -135,38 +129,45 @@ impl App {
         }
         self.enqueue_startup_water_terrain_collider_rebuilds();
         self.player_tools.shovel_dig_held = false;
-        Ok(published)
+        Ok(())
     }
 
-    pub(super) fn publish_visible_terrain(
-        &mut self,
-        change: VisibleTerrainChange,
-    ) -> Result<PublishedTerrain> {
+    pub(super) fn publish_visible_terrain(&mut self, change: VisibleTerrainChange) -> Result<()> {
         let chunk_ids = change.affected_chunks()?;
         let started_at = Instant::now();
-
-        match change.rebuild {
-            VisibleTerrainRebuild::BuildEdits(build_edits) => {
-                for edit in build_edits {
-                    world_ops::apply_build_edit(
-                        &mut self.surface_builder,
-                        &mut self.contree_builder,
-                        &mut self.scene_accel_builder,
-                        VOXEL_DIM_PER_CHUNK,
+        let mut physical_publications = match change.rebuild {
+            VisibleTerrainRebuild::BuildEdits(build_edits) => build_edits
+                .into_iter()
+                .map(|edit| {
+                    physical_visible_terrain::PhysicalTerrainPublication::from_build_edit(
                         edit,
-                    )?;
-                }
-            }
+                        VOXEL_DIM_PER_CHUNK,
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?,
             VisibleTerrainRebuild::PreserveFlora { bound, flora_edit } => {
-                world_ops::mesh_generate_preserve_flora_for_brush_edit(
+                vec![
+                    physical_visible_terrain::PhysicalTerrainPublication::preserving_flora(
+                        bound,
+                        flora_edit,
+                        VOXEL_DIM_PER_CHUNK,
+                    )?,
+                ]
+            }
+        };
+
+        for publication in &mut physical_publications {
+            publication
+                .run_to_completion(physical_visible_terrain::PhysicalTerrainBuilders::new(
                     &mut self.surface_builder,
                     &mut self.contree_builder,
                     &mut self.scene_accel_builder,
-                    VOXEL_DIM_PER_CHUNK,
-                    bound,
-                    flora_edit,
-                )?;
-            }
+                ))
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "physical visible terrain publication failed after entering non-rollbackable builder state: {err:#}"
+                    )
+                });
         }
 
         self.request_vsm_history_reset();
@@ -176,7 +177,12 @@ impl App {
             self.terrain_physics
                 .mark_terrain_chunks_dirty(&chunk_ids, VOXEL_DIM_PER_CHUNK);
             self.tracer
-                .observe_published_environment_probe_terrain(revision, change.affected_voxels)?;
+                .observe_published_environment_probe_terrain(revision, change.affected_voxels)
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "visible terrain downstream observation failed after physical publication: {err:#}"
+                    )
+                });
             self.visible_terrain_revision = revision;
         }
 
@@ -187,10 +193,7 @@ impl App {
             revision,
             started_at.elapsed().as_secs_f64() * 1000.0,
         );
-        Ok(PublishedTerrain {
-            revision,
-            rebuilt_chunks: chunk_ids.len(),
-        })
+        Ok(())
     }
 }
 

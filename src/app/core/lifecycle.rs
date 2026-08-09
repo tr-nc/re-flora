@@ -39,6 +39,7 @@ impl App {
         self.water_sim.shutdown();
 
         log::info!("[SHUTDOWN] phase=consume_managed_gpu_jobs");
+        self.abort_loading_physical_publication();
         self.discard_terrain_sdf_source_refresh_for_shutdown()
             .context("discard terrain SDF source refresh")?;
         self.contree_builder
