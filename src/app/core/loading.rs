@@ -26,18 +26,6 @@ impl TerrainPersistenceStatus {
     }
 }
 
-fn terrain_chunk_ids() -> Vec<UVec3> {
-    let mut chunk_ids = Vec::new();
-    for x in 0..CHUNK_DIM.x {
-        for y in 0..CHUNK_DIM.y {
-            for z in 0..CHUNK_DIM.z {
-                chunk_ids.push(UVec3::new(x, y, z));
-            }
-        }
-    }
-    chunk_ids
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoadingPhase {
     Terrain,
@@ -433,11 +421,13 @@ impl App {
         }
 
         if let Some(path) = self.terrain_save_path.clone() {
-            if !self.finish_visible_rebuilds_for_persistence() {
-                panic!("[TERRAIN_PERSISTENCE] visible terrain rebuild was not ready at CLI save");
-            }
+            self.quiesce_visible_terrain_for_snapshot()
+                .unwrap_or_else(|err| {
+                    panic!("[TERRAIN_PERSISTENCE] CLI save quiescence failed: {err:#}")
+                });
             self.save_terrain_snapshot(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));
+            self.resume_terrain_after_snapshot_read();
         }
 
         if let Err(err) = self.spatial_sound_manager.start() {
@@ -499,18 +489,10 @@ impl App {
         self.terrain_persistence_status = TerrainPersistenceStatus::Saving;
         let path = self.terrain_snapshot_path.clone();
         let result = (|| {
-            self.vulkan_ctx.device().wait_idle();
-            anyhow::ensure!(
-                self.finish_visible_rebuilds_for_persistence(),
-                "visible terrain rebuild did not reach Ready before save"
-            );
-            self.contree_builder.flush_cpu_chunk_cache_jobs();
-            anyhow::ensure!(
-                self.contree_builder.cpu_chunk_cache_jobs_idle(),
-                "Contree CPU cache did not reach Ready before save"
-            );
+            self.quiesce_visible_terrain_for_snapshot()?;
             self.save_terrain_snapshot(Path::new(&path))
         })();
+        self.resume_terrain_after_snapshot_read();
         match result {
             Ok(()) => {
                 self.terrain_persistence_status = TerrainPersistenceStatus::Ready;
@@ -549,6 +531,8 @@ impl App {
                 );
                 if mutated {
                     self.terrain_persistence_fatal = true;
+                } else {
+                    self.resume_terrain_after_snapshot_read();
                 }
                 self.terrain_persistence_status =
                     TerrainPersistenceStatus::Error(format!("load failed: {err}"));
@@ -561,13 +545,8 @@ impl App {
             TerrainSnapshotMetadata::new(CHUNK_DIM.to_array(), VOXEL_DIM_PER_CHUNK.to_array());
         TerrainSnapshotReader::validate(path, metadata).map_err(|err| (false, err))?;
         let mut reader = TerrainSnapshotReader::open(path).map_err(|err| (false, err))?;
-        self.vulkan_ctx.device().wait_idle();
-        if !self.finish_visible_rebuilds_for_persistence() {
-            return Err((
-                false,
-                anyhow::anyhow!("visible terrain rebuild did not reach Ready before load"),
-            ));
-        }
+        self.quiesce_visible_terrain_for_snapshot()
+            .map_err(|err| (false, err))?;
 
         let mut mutated = false;
         let upload_result = (|| -> Result<()> {
@@ -581,48 +560,14 @@ impl App {
                 )?;
             }
             reader.finish()?;
-            self.plain_builder.mark_all_solid_workgroups_dirty();
             Ok(())
         })();
         if let Err(err) = upload_result {
             return Err((mutated, err));
         }
 
-        let chunk_ids = terrain_chunk_ids();
-        let change =
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunks(chunk_ids)])
-                .map_err(|err| (true, err))?
-                .ok_or_else(|| {
-                    (
-                        true,
-                        anyhow::anyhow!("snapshot replacement has no visible terrain chunks"),
-                    )
-                })?;
-        self.publish_visible_terrain(change)
+        self.publish_snapshot_replacement()
             .map_err(|err| (true, err))?;
-        self.contree_builder.flush_cpu_chunk_cache_jobs();
-        if !self.contree_builder.cpu_chunk_cache_jobs_idle() {
-            return Err((
-                true,
-                anyhow::anyhow!("Contree CPU cache did not reach Ready after snapshot rebuild"),
-            ));
-        }
-        self.terrain_physics
-            .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
-            .map_err(|err| (true, err))?;
-        loop {
-            let (completed, total) = self
-                .terrain_physics
-                .process_world_terrain_collider_import(&self.contree_builder)
-                .map_err(|err| (true, err))?;
-            if completed >= total {
-                break;
-            }
-        }
-        self.terrain_persistence_water_paused = true;
-        self.enqueue_startup_water_terrain_collider_rebuilds();
-        self.request_vsm_history_reset();
-        self.player_tools.shovel_dig_held = false;
         Ok(())
     }
 
