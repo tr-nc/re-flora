@@ -380,7 +380,7 @@ impl App {
             }
         }
         self.enqueue_startup_water_terrain_collider_rebuilds();
-        self.player_tools.shovel_dig_held = false;
+        self.player_tools.cancel_continuous_hold();
         Ok(())
     }
 }

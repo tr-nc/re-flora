@@ -52,7 +52,7 @@ impl App {
     pub(super) fn apply_camera_snapshot(&mut self, snapshot: &CameraSnapshot) {
         self.camera_control.apply_snapshot_mode(snapshot.fly_mode);
         self.sync_cursor_with_panels();
-        self.player_tools.shovel_dig_held = false;
+        self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
         self.tracer.apply_camera_pose(snapshot.pose());
         self.request_vsm_history_reset();

@@ -44,7 +44,7 @@ use self::loading::{LoadingPhase, LoadingState};
 use self::particles::TreeLeafEmitter;
 use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerEmitter, SprinklerRecord};
-use self::player_tools::PlayerToolState;
+use self::player_tools::{PlayerToolPointerAction, PlayerToolRuntime};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
@@ -336,7 +336,7 @@ pub struct App {
     item_panel_soil_inspector_icon: Option<TextureHandle>,
     item_panel_fertilizer_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
-    player_tools: PlayerToolState,
+    player_tools: PlayerToolRuntime,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
     flora_tick: u32,
@@ -1190,7 +1190,7 @@ impl App {
             item_panel_soil_inspector_icon: None,
             item_panel_fertilizer_icon: None,
             item_panel_tiller_icon: None,
-            player_tools: PlayerToolState::default(),
+            player_tools: PlayerToolRuntime::default(),
             water_particle_handoff_main_thread_ms: None,
             flora_tick: FLORA_FULL_GROWTH_TICKS,
             flora_tick_accumulator: 0.0,
@@ -1916,44 +1916,19 @@ impl App {
                 {
                     match state {
                         ElementState::Pressed => {
-                            self.player_tools.shovel_dig_held = false;
                             let now = Instant::now();
-                            if self.is_shovel_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_shovel_dig(now);
-                            } else if self.is_shovel_selected() && button == MouseButton::Right {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_shovel_place(now);
-                            } else if self.is_smooth_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_terrain_smooth(now);
-                            } else if self.is_staff_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_staff_regenerate(now);
-                            } else if self.is_staff_selected() && button == MouseButton::Right {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_staff_remove_flora(now);
-                            } else if self.is_hoe_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_hoe_trim(now);
-                            } else if self.is_watering_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.player_tools.last_watering_time = None;
-                                self.try_watering_brush(now);
-                            } else if self.is_fertilizer_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.player_tools.last_fertilizing_time = None;
-                                self.try_fertilizer_brush(now);
-                            } else if self.is_tiller_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.player_tools.last_tilling_time = None;
-                                self.try_tiller_brush(now);
-                            } else if self.is_place_tool_selected() && button == MouseButton::Left {
-                                self.stop_terrain_edit_loop_sound();
-                                self.try_placeable_placement();
-                            } else if self.is_place_tool_selected() && button == MouseButton::Right
-                            {
-                                self.cancel_pipe_drag();
+                            match self.player_tools.begin_pointer_action(button) {
+                                Some(PlayerToolPointerAction::Continuous(action)) => {
+                                    self.execute_continuous_terrain_tool_action(action, now);
+                                }
+                                Some(PlayerToolPointerAction::PlaceablePlacement) => {
+                                    self.stop_terrain_edit_loop_sound();
+                                    self.try_placeable_placement();
+                                }
+                                Some(PlayerToolPointerAction::CancelPlaceable) => {
+                                    self.cancel_pipe_drag();
+                                }
+                                None => {}
                             }
                         }
                         ElementState::Released => {
@@ -2014,27 +1989,11 @@ impl App {
                 }
 
                 if self.terrain_persistence.allows_world_updates()
-                    && self.player_tools.shovel_dig_held
+                    && self.player_tools.continuous_hold_active()
                 {
                     let now = Instant::now();
-                    if self.is_shovel_selected() && self.player_tools.left_mouse_held {
-                        self.try_shovel_dig(now);
-                    } else if self.is_shovel_selected() && self.player_tools.right_mouse_held {
-                        self.try_shovel_place(now);
-                    } else if self.is_smooth_selected() && self.player_tools.left_mouse_held {
-                        self.try_terrain_smooth(now);
-                    } else if self.is_staff_selected() && self.player_tools.left_mouse_held {
-                        self.try_staff_regenerate(now);
-                    } else if self.is_staff_selected() && self.player_tools.right_mouse_held {
-                        self.try_staff_remove_flora(now);
-                    } else if self.is_hoe_selected() && self.player_tools.left_mouse_held {
-                        self.try_hoe_trim(now);
-                    } else if self.is_watering_selected() && self.player_tools.left_mouse_held {
-                        self.try_watering_brush(now);
-                    } else if self.is_fertilizer_selected() && self.player_tools.left_mouse_held {
-                        self.try_fertilizer_brush(now);
-                    } else if self.is_tiller_selected() && self.player_tools.left_mouse_held {
-                        self.try_tiller_brush(now);
+                    if let Some(action) = self.player_tools.active_continuous_action() {
+                        self.execute_continuous_terrain_tool_action(action, now);
                     } else {
                         self.stop_terrain_edit_loop_sound();
                     }
