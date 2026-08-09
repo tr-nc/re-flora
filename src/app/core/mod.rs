@@ -34,6 +34,7 @@ use self::denoiser_bench::{
     DenoiserBench, CAMERA_FORWARD_PER_FRAME_WORLD, CAMERA_STRAFE_PER_FRAME_WORLD,
     CAMERA_YAW_PER_FRAME_RADIANS,
 };
+use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
@@ -58,10 +59,7 @@ use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
     VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
-use crate::ddgi::{
-    DdgiBuildToken, DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid, DdgiVolumeStage,
-    SUPPORTED_DDGI_SPACINGS_VOXELS,
-};
+use crate::ddgi::{DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
 };
@@ -398,8 +396,7 @@ pub struct App {
     terrain_persistence: TerrainPersistenceRuntime,
     screenshot_taken: bool,
     screenshot_to_clipboard_requested: bool,
-    environment_irradiance_capture_path: Option<String>,
-    environment_irradiance_capture_taken: bool,
+    environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
     ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     denoiser_bench: Option<DenoiserBench>,
     auto_exit_delay: Option<f32>,
@@ -1456,10 +1453,9 @@ impl App {
             terrain_persistence,
             screenshot_taken: false,
             screenshot_to_clipboard_requested: false,
-            environment_irradiance_capture_path: options
-                .environment_irradiance_capture_path
-                .clone(),
-            environment_irradiance_capture_taken: false,
+            environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
+                options.environment_irradiance_capture_path.clone(),
+            ),
             ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
                 options.ddgi_spatial_weight_readback_path.clone(),
             ),
@@ -4164,85 +4160,20 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_trace;
 
-                let mut environment_irradiance_readback = None;
-                if !self.environment_irradiance_capture_taken {
-                    if let Some(path) = self.environment_irradiance_capture_path.clone() {
-                        let test_scene_ready = self
-                            .environment_lighting_test_scene
-                            .as_ref()
-                            .is_none_or(
-                            environment_lighting_test_scene::EnvironmentLightingTestScene::is_capture_ready,
-                        );
-                        let target_scene_ready = self
-                            .tracer
-                            .ddgi_capture_target()
-                            .iteration()
-                            .is_some_and(|iteration| iteration == 0)
-                            || test_scene_ready;
-                        let inflight_target_revision = self
-                            .environment_lighting_test_scene
-                            .as_ref()
-                            .and_then(environment_lighting_test_scene::EnvironmentLightingTestScene::inflight_capture_target_revision);
-                        let inflight_checkpoint_ready =
-                            inflight_target_revision.is_none_or(|target_revision| {
-                                let runtime = self.tracer.ddgi_runtime_status();
-                                matches!(
-                                    runtime.coordinator(),
-                                    DdgiRefreshState::BuildingTerrain {
-                                        candidate,
-                                        latest_terrain_revision,
-                                    } if candidate.terrain_revision() == target_revision
-                                        && latest_terrain_revision == target_revision
-                                ) && runtime.target_terrain_revision() == Some(target_revision)
-                                    && runtime.active().relocated_terrain_revision == Some(1)
-                                    && runtime.staging().is_some_and(|staging| {
-                                        staging.build_token.is_some()
-                                            && staging.stage != DdgiVolumeStage::Ready
-                                    })
-                                    && runtime.full_domain_invalidation_is_fail_closed()
-                            });
-                        if target_scene_ready
-                            && inflight_checkpoint_ready
-                            && self.tracer.ddgi_capture_checkpoint().is_some()
-                        {
-                            if let Some(target_revision) = inflight_target_revision {
-                                let runtime = self.tracer.ddgi_runtime_status();
-                                let staging = runtime
-                                    .staging()
-                                    .expect("ready in-flight checkpoint must retain staging work");
-                                log::info!(target: "re_flora::app::core::environment_irradiance_capture",
-                                    "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision={:?} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=full-domain-fail-closed",
-                                    runtime.active().relocated_terrain_revision,
-                                    target_revision,
-                                    runtime.staging_token().map(DdgiBuildToken::serial),
-                                    staging.stage,
-                                    staging.filtered_probe_count,
-                                    staging.grid.probe_count(),
-                                    runtime.coordinator(),
-                                );
-                            }
-                            match self.prepare_environment_irradiance_capture_readback(path.clone())
-                            {
-                                Ok(readback) => {
-                                    self.record_environment_irradiance_capture_readback(
-                                        cmdbuf, &readback,
-                                    );
-                                    self.environment_irradiance_capture_taken = true;
-                                    log::info!(
-                                        "[ENV_IRRADIANCE_CAPTURE] recording backend={} path={}",
-                                        "ddgi",
-                                        readback.path(),
-                                    );
-                                    environment_irradiance_readback = Some(readback);
-                                }
-                                Err(err) => log::error!(
-                                    "[ENV_IRRADIANCE_CAPTURE] failed to prepare {}: {err:#}",
-                                    path,
-                                ),
-                            }
+                let mut environment_irradiance_readback =
+                    match self.environment_irradiance_capture.record_if_ready(
+                        &self.tracer,
+                        &self.vulkan_ctx,
+                        cmdbuf,
+                        self.environment_lighting_test_scene.as_ref(),
+                        self.time_info.total_frame_count(),
+                    ) {
+                        Ok(readback) => readback,
+                        Err(err) => {
+                            log::error!("[ENV_IRRADIANCE_CAPTURE] failed to prepare: {err:#}");
+                            None
                         }
-                    }
-                }
+                    };
 
                 let mut ddgi_spatial_weight_readback = match self
                     .ddgi_spatial_weight_readback
@@ -4398,20 +4329,12 @@ impl App {
                     match frame.wait_until_complete() {
                         Ok(()) => {
                             if let Some(readback) = environment_irradiance_readback.take() {
-                                let radiance_checkpoint = readback.radiance_checkpoint();
-                                match Self::write_environment_irradiance_capture_readback(readback)
-                                {
-                                    Ok(()) => {
-                                        environment_irradiance_capture_complete =
-                                            if let Some(checkpoint) = radiance_checkpoint {
-                                                self.environment_irradiance_capture_taken = false;
-                                                self.environment_lighting_test_scene
-                                                    .as_mut()
-                                                    .expect("radiance capture lost test scene")
-                                                    .complete_radiance_capture(checkpoint)
-                                            } else {
-                                                true
-                                            };
+                                match self.environment_irradiance_capture.complete(
+                                    readback,
+                                    self.environment_lighting_test_scene.as_mut(),
+                                ) {
+                                    Ok(sequence_complete) => {
+                                        environment_irradiance_capture_complete = sequence_complete;
                                     }
                                     Err(err) => {
                                         log::error!(

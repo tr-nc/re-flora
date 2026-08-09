@@ -1098,7 +1098,7 @@ impl App {
                     Some(r1.field().radiance_revision())
                 );
                 log_acceptance_field("RADIANCE", "r1-terminal", r1);
-                if self.environment_irradiance_capture_path.is_some() {
+                if self.environment_irradiance_capture.is_enabled() {
                     assert_eq!(
                         self.tracer.ddgi_capture_target(),
                         crate::ddgi::DdgiCaptureTarget::Published,
@@ -1271,7 +1271,7 @@ impl App {
                 log::info!(
                     "[DDGI_ACCEPT][RADIANCE] complete r3_coalesced=true field_serial_gap_r2_to_r4=1 geometry_unchanged=true spacing_unchanged=true"
                 );
-                if self.environment_irradiance_capture_path.is_some() {
+                if self.environment_irradiance_capture.is_enabled() {
                     TestScenePhase::CapturingRadianceR4Published { r1, r2, r4 }
                 } else {
                     TestScenePhase::Ready
