@@ -2848,11 +2848,10 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "petalsonic"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ec771831306e6db33b989308e1dc18c1660ca1e6fdfd2c59dd7df5a8539fd9c"
+checksum = "255c58f69eddbc4b5a1cdb76fa3e1c3787b6eaf52c7439983d61a7a2eba51863"
 dependencies = [
- "anyhow",
  "audionimbus",
  "cpal",
  "crossbeam-channel",

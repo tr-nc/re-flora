@@ -12,8 +12,8 @@ use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use glam::{UVec3, Vec2, Vec3};
 use petalsonic::{
-    math::Vec3 as PetalVec3, AcousticHit, AcousticMaterial, AcousticRay, BatchedAnyHitRayTracer,
-    BatchedClosestHitRayTracer,
+    AcousticHit, AcousticMaterial, AcousticRay, BatchedAnyHitRayTracer, BatchedClosestHitRayTracer,
+    Vec3 as PetalVec3,
 };
 use re_flora_terrain_collider::{
     export_contree_voxel_types, ContreeCpuChunkCache as CpuChunkCache,
@@ -106,13 +106,14 @@ pub struct ContreeBuilder {
     cpu_chunk_cache_job_tx: mpsc::Sender<CpuChunkCacheWorkerJob>,
     cpu_chunk_cache_result_rx: mpsc::Receiver<CpuChunkCacheWorkerResult>,
     cpu_chunk_cache_worker: Option<thread::JoinHandle<()>>,
-    shared_ray_query_state: Arc<RwLock<ContreeRayQueryState>>,
+    shared_ray_query_state: Arc<RwLock<Arc<ContreeRayQueryState>>>,
+    retired_ray_query_states: Vec<Arc<ContreeRayQueryState>>,
     audio_ray_tracer: Arc<ContreeAnyHitRayTracer>,
 }
 
 pub struct ContreeAnyHitRayTracer {
     enabled: Arc<AtomicBool>,
-    shared_state: Arc<RwLock<ContreeRayQueryState>>,
+    shared_state: Arc<RwLock<Arc<ContreeRayQueryState>>>,
     runtime_stats: Arc<ContreeRayTracingRuntimeStats>,
 }
 
@@ -714,9 +715,11 @@ impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
         rays: &[AcousticRay],
         min_distances: &[f32],
         max_distances: &[f32],
-    ) -> Vec<bool> {
+        hits: &mut [bool],
+    ) {
+        hits.fill(false);
         if !self.enabled.load(Ordering::Relaxed) {
-            return vec![false; rays.len()];
+            return;
         }
 
         let trace_start = Instant::now();
@@ -724,39 +727,42 @@ impl BatchedAnyHitRayTracer for ContreeAnyHitRayTracer {
             self.runtime_stats
                 .update_failures
                 .fetch_add(1, Ordering::Relaxed);
-            return vec![false; rays.len()];
+            return;
         };
+        let shared_state = shared_state.clone();
 
-        let results = rays
+        for (((ray, min_distance), max_distance), hit) in rays
             .iter()
             .zip(min_distances.iter().copied())
             .zip(max_distances.iter().copied())
-            .map(|((ray, min_distance), max_distance)| {
-                query_terrain_any_hit(
-                    &shared_state,
-                    Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
-                    Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
-                    min_distance,
-                    max_distance,
-                )
-            })
-            .collect::<Vec<_>>();
+            .zip(hits.iter_mut())
+        {
+            *hit = query_terrain_any_hit(
+                &shared_state,
+                Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
+                Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
+                min_distance,
+                max_distance,
+            );
+        }
 
-        let occluded_sources = results.iter().filter(|is_occluded| **is_occluded).count();
+        let processed = rays.len().min(hits.len());
+        let occluded_sources = hits[..processed]
+            .iter()
+            .filter(|is_occluded| **is_occluded)
+            .count();
         self.runtime_stats
             .update_count
             .fetch_add(1, Ordering::Relaxed);
         self.runtime_stats
             .updated_sources
-            .fetch_add(results.len(), Ordering::Relaxed);
+            .fetch_add(processed, Ordering::Relaxed);
         self.runtime_stats
             .occluded_sources
             .fetch_add(occluded_sources, Ordering::Relaxed);
         self.runtime_stats
             .total_update_time_us
             .fetch_add(trace_start.elapsed().as_micros() as u64, Ordering::Relaxed);
-
-        results
     }
 }
 
@@ -766,9 +772,11 @@ impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
         rays: &[AcousticRay],
         min_distances: &[f32],
         max_distances: &[f32],
-    ) -> Vec<Option<AcousticHit>> {
+        hits: &mut [Option<AcousticHit>],
+    ) {
+        hits.fill(None);
         if !self.enabled.load(Ordering::Relaxed) {
-            return vec![None; rays.len()];
+            return;
         }
 
         let trace_start = Instant::now();
@@ -776,39 +784,39 @@ impl BatchedClosestHitRayTracer for ContreeAnyHitRayTracer {
             self.runtime_stats
                 .update_failures
                 .fetch_add(1, Ordering::Relaxed);
-            return vec![None; rays.len()];
+            return;
         };
+        let shared_state = shared_state.clone();
 
-        let results = rays
+        for (((ray, min_distance), max_distance), hit) in rays
             .iter()
             .zip(min_distances.iter().copied())
             .zip(max_distances.iter().copied())
-            .map(|((ray, min_distance), max_distance)| {
-                query_terrain_closest_hit(
-                    &shared_state,
-                    Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
-                    Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
-                    min_distance,
-                    max_distance,
-                )
-            })
-            .collect::<Vec<_>>();
+            .zip(hits.iter_mut())
+        {
+            *hit = query_terrain_closest_hit(
+                &shared_state,
+                Vec3::new(ray.origin.x, ray.origin.y, ray.origin.z),
+                Vec3::new(ray.direction.x, ray.direction.y, ray.direction.z),
+                min_distance,
+                max_distance,
+            );
+        }
 
-        let hit_count = results.iter().filter(|hit| hit.is_some()).count();
+        let processed = rays.len().min(hits.len());
+        let hit_count = hits[..processed].iter().filter(|hit| hit.is_some()).count();
         self.runtime_stats
             .update_count
             .fetch_add(1, Ordering::Relaxed);
         self.runtime_stats
             .updated_sources
-            .fetch_add(results.len(), Ordering::Relaxed);
+            .fetch_add(processed, Ordering::Relaxed);
         self.runtime_stats
             .occluded_sources
             .fetch_add(hit_count, Ordering::Relaxed);
         self.runtime_stats
             .total_update_time_us
             .fetch_add(trace_start.elapsed().as_micros() as u64, Ordering::Relaxed);
-
-        results
     }
 }
 
@@ -1013,11 +1021,11 @@ impl ContreeBuilder {
             max_node_buffer_size_in_bytes,
         ));
 
-        let shared_ray_query_state = Arc::new(RwLock::new(ContreeRayQueryState {
+        let shared_ray_query_state = Arc::new(RwLock::new(Arc::new(ContreeRayQueryState {
             chunk_dim,
             cpu_scene_chunks: vec![None; (chunk_dim.x * chunk_dim.y * chunk_dim.z) as usize],
             cpu_chunk_caches: HashMap::new(),
-        }));
+        })));
         let audio_ray_tracer = Arc::new(ContreeAnyHitRayTracer {
             enabled: Arc::new(AtomicBool::new(true)),
             shared_state: shared_ray_query_state.clone(),
@@ -1060,6 +1068,7 @@ impl ContreeBuilder {
             cpu_chunk_cache_result_rx,
             cpu_chunk_cache_worker: Some(cpu_chunk_cache_worker),
             shared_ray_query_state,
+            retired_ray_query_states: Vec::new(),
             audio_ray_tracer,
         }
     }
@@ -1981,7 +1990,6 @@ impl ContreeBuilder {
             let source_revision = if should_publish {
                 self.cpu_chunk_caches
                     .insert(result.chunk_idx, result.cache.clone());
-                self.publish_shared_chunk_cache(result.chunk_idx, result.cache);
                 self.set_scene_chunk(result.chunk_idx, Some(result.chunk_idx));
                 Some(self.record_cpu_chunk_source_update(result.chunk_idx, true))
             } else {
@@ -2005,7 +2013,6 @@ impl ContreeBuilder {
 
     fn clear_empty_chunk_state(&mut self, atlas_offset: UVec3, chunk_idx: UVec3) -> u64 {
         self.cpu_chunk_caches.remove(&chunk_idx);
-        self.remove_shared_chunk_cache(chunk_idx);
         self.cpu_chunk_cache_queue.clear(chunk_idx);
         self.set_scene_chunk(chunk_idx, None);
         self.set_surface_leaf_chunk_info(chunk_idx, SurfaceLeafChunkInfo::default());
@@ -2026,10 +2033,23 @@ impl ContreeBuilder {
     fn set_scene_chunk(&mut self, chunk_idx: UVec3, chunk: Option<UVec3>) {
         let index = self.scene_chunk_flat_index(chunk_idx);
         self.cpu_scene_chunks[index] = chunk;
+        self.publish_ray_query_snapshot();
+    }
 
+    /// Publish an immutable, shallow scene version. Chunk BVHs remain shared by Arc;
+    /// only the small scene index and cache map are copied on the builder thread.
+    fn publish_ray_query_snapshot(&mut self) {
+        let next = Arc::new(ContreeRayQueryState {
+            chunk_dim: self.chunk_dim,
+            cpu_scene_chunks: self.cpu_scene_chunks.clone(),
+            cpu_chunk_caches: self.cpu_chunk_caches.clone(),
+        });
         if let Ok(mut shared_state) = self.shared_ray_query_state.write() {
-            shared_state.cpu_scene_chunks[index] = chunk;
+            self.retired_ray_query_states
+                .push(std::mem::replace(&mut *shared_state, next));
         }
+        self.retired_ray_query_states
+            .retain(|state| Arc::strong_count(state) > 1);
     }
 
     fn record_cpu_chunk_source_update(&mut self, chunk_idx: UVec3, is_present: bool) -> u64 {
@@ -2047,18 +2067,6 @@ impl ContreeBuilder {
                 is_present,
             });
         revision
-    }
-
-    fn publish_shared_chunk_cache(&self, chunk_idx: UVec3, cache: Arc<CpuChunkCache>) {
-        if let Ok(mut shared_state) = self.shared_ray_query_state.write() {
-            shared_state.cpu_chunk_caches.insert(chunk_idx, cache);
-        }
-    }
-
-    fn remove_shared_chunk_cache(&self, chunk_idx: UVec3) {
-        if let Ok(mut shared_state) = self.shared_ray_query_state.write() {
-            shared_state.cpu_chunk_caches.remove(&chunk_idx);
-        }
     }
 
     fn scene_chunk_flat_index(&self, chunk_idx: UVec3) -> usize {
