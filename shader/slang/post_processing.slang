@@ -37,6 +37,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     int2 mappedUvi = int2(float2(uvi) * scalingFactor);
     float3 finalColor = composited_tex[mappedUvi].rgb;
 
-    finalColor += getDitherMask(uvi) * 3.0;
+    float ditherOffset = getDitherOffset(uvi);
+    finalColor += ditherOffset.xxx;
     screen_output_tex.Store(uvi, float4(finalColor, 1.0));
 }
