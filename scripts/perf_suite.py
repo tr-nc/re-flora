@@ -36,6 +36,13 @@ PASS_VALUE_PATTERN = re.compile(r"([A-Za-z0-9_.-]+)=([0-9]+(?:\.[0-9]+)?)ms")
 TREE_BENCH_PATTERN = re.compile(
     r"\[PERF\]\[TREE_BENCH\].*\s([A-Za-z0-9_.-]+)\s+([0-9]+(?:\.[0-9]+)?)ms"
 )
+VISIBLE_PUBLICATION_PATTERN = re.compile(
+    r"\[PERF\]\[VISIBLE_TERRAIN_PUBLICATION\].*elapsed_ms=([0-9]+(?:\.[0-9]+)?)"
+)
+MESH_REBUILD_PATTERN = re.compile(r"\[PERF\]\[MESH_REBUILD\](.*)")
+MESH_REBUILD_VALUE_PATTERN = re.compile(
+    r"\b(total|surface|contree|scene_tex)\s+([0-9]+(?:\.[0-9]+)?)ms"
+)
 SURFACE_WORKLOAD_PATTERN = re.compile(
     r"\[PERF\]\[SURFACE_BUILD\] chunk (UVec3\([^)]*\)).*"
     r"active_voxels (\d+) active_bricks (\d+) solid_workgroups (\d+)"
@@ -173,6 +180,13 @@ def parse_samples(log_text: str, scenario: Scenario) -> dict[str, list[float]]:
         if "[PERF][TREE_BENCH]" in line:
             for key, value in TREE_BENCH_PATTERN.findall(line):
                 add("tree_bench", key, float(value) * 1000.0)
+
+        if publication_match := VISIBLE_PUBLICATION_PATTERN.search(line):
+            add("visible_publication", "elapsed", float(publication_match.group(1)) * 1000.0)
+
+        if mesh_match := MESH_REBUILD_PATTERN.search(line):
+            for key, value in MESH_REBUILD_VALUE_PATTERN.findall(mesh_match.group(1)):
+                add("mesh_rebuild", key, float(value) * 1000.0)
 
     return {
         metric.name: by_source_key.get((metric.source, metric.key), [])
