@@ -1,89 +1,133 @@
 # Product Roadmap
 
-This roadmap captures planned improvements for gameplay, visuals, and performance.
-Items are ordered by priority and intended implementation sequence.
-
-The canonical product direction lives in [docs/game_direction.md](./docs/game_direction.md). Keep this roadmap as an implementation plan that follows that direction rather than a second source of truth.
+This roadmap defines implementation order. The canonical product identity lives in
+[Game Direction](./docs/game_direction.md), and the current milestone is specified by
+[First Garden Moment](./docs/first_garden_moment.md). When this roadmap conflicts with either, those
+documents take priority.
 
 ## Guiding Goals
 
-Goals matter - even for a small cozy game that could keep evolving forever. They help guide decisions, keep development focused, and make it easier to measure progress.
+- Complete a small, honest player experience before broadening the world or technology stack.
+- Make Re: Flora understandable and desirable to players without requiring technical context.
+- Keep the garden active, tactile, and low-pressure.
+- Preserve the author's visual and systemic taste without turning the project into a feature list.
+- Release a friction-light packaged prototype, learn from player behavior, then expand toward itch.io
+  and Steam.
 
-- **Long-term goals**
-  - Share development updates regularly on Reddit and YouTube.
-  - Prioritize players first, while also creating value for other developers.
-  - Release a playable version on itch.io first, then expand to Steam.
+## Current Milestone: First Garden Moment
 
-- **Short-term goals**
-  - Build a minimum viable product first and make it playable.
-  - Test market interest and gather feedback through Reddit and YouTube.
+Work is ordered by its contribution to one 30-45 second video and one 10-15 minute playable slice.
+Do not start a new rendering, simulation, world-generation, spatial-audio, voxel, automation, or
+infrastructure subsystem unless it directly blocks or materially improves these artifacts.
 
-## 1) Critical Fixes
+### 1. Curated Entry and Garden Area
 
-- No critical bugfixes are currently tracked.
+- Start borderless full-screen and reach the playable garden with minimal menu friction.
+- Build one deliberately composed area rather than expanding procedural world breadth.
+- Remove or hide debug-only UI from the player path.
+- Support safe exit and a truthful return experience for the current persistence capability.
 
-## 2) High-Priority Features
+### 2. Free-form Planting
 
-- **Third-person garden loop vertical slice**
-  - Turn the current terrarium feel into a small player-managed garden plot.
-  - Support a short loop: buy or receive seed packet -> plant -> adjust soil/moisture -> observe response -> harvest -> sell or fulfill order -> unlock one new item.
-  - Keep the first slice small enough to prove fun within 2-3 minutes.
+- Let the player choose natural plant positions without a visible grid.
+- Give planting tactile animation, particles, and spatial sound.
+- Explain substrate and spacing rejection clearly through player-facing feedback.
+- Make one recognizable plant lifecycle excellent before adding a larger catalog.
 
-- **Local soil state and plant response**
-  - Track simple per-area soil state such as moisture and fertility.
-  - Let grass/plants visibly respond through greenness, density, growth speed, yield, or particles.
-  - Prioritize readable feedback over deep simulation.
+### 3. Local Care and Visible Response
 
-- **First utility device chain**
-  - Prototype a tiny sprinkler or drip irrigator that can be placed on/into soil.
-  - Feed it through a simple water pipe/hose and optional power cable.
-  - Show obvious activation feedback: spray, wet soil, sound, plant response.
+- Use moisture as the primary local cause-and-effect factor.
+- Provide one direct watering interaction.
+- Make wet soil and plant response visible and understandable without a debug inspector.
+- Add at most one secondary factor when it improves the slice without increasing cognitive load.
 
-- **Surface object layer behavior**
-  - Treat grass, devices, pipes, cables, generators, decor, shops, and house pieces as non-voxel surface objects above editable terrain.
-  - When terrain below them changes, resample support and let objects settle, fall, tilt, or become invalid rather than making every prop destructible.
+### 4. Growth and Harvest
 
-- **Terrain harvesting feedback**
-  - Add particle effects at terrain-edit positions.
-  - Emit particles matching voxel color.
-  - Animate particles toward the player camera to indicate collection into backpack storage.
+- Create readable growth stages with a visible response within 30 seconds of care.
+- Preserve enough anticipation that the full lifecycle does not feel instantaneous or disposable.
+- Make harvest physical, legible, and connected to the plant the player tended.
+- Retain strong visual and spatial-audio feedback throughout the interaction.
 
-- **MacOS adaption**
-  - Make sure everything works properly in a reasonable framerate in macOS
-  - Make sure bootstrap_macos.sh work properly
+### 5. Minimal Seed Circulation
 
-## 3) Visual & World Expansion
+- Return enough basic seed to prevent a soft lock.
+- Let surplus harvest open exactly one new plant possibility in the first slice.
+- Keep prices stable and the transaction lightweight.
+- Exclude mandatory orders, deadlines, upkeep, debt, and market simulation.
 
-- **Cozy garden economy objects**
-  - Add a tiny shop, trading platform, or order board for seeds, devices, pipes, cables, and plant/fruit sales.
-  - Keep commerce lightweight and directly tied to plant experimentation.
+### 6. Player-Facing Artifacts
 
-- **Home base / shed direction**
-  - Add a small player house or garden shed as a long-term upgrade anchor.
-  - Prefer cosmetic and gentle utility upgrades over survival pressure.
+- Capture the honest Garden Moment video from the playable slice.
+- Publish packaged builds for the advertised platforms.
+- Keep the README player-facing with a stable latest-release link.
+- Maintain a separate playing guide and development guide.
+- Put technical breakdowns after, not before, the player experience.
 
-- **Playful generators**
-  - Explore toy-like power sources such as a rattling diesel generator, kite/wind generator, tiny windmill, or solar mirror.
-  - Make each generator strongly animated and readable before adding many variants.
+### 7. Validation and Feedback
 
-- **Reflective pond biome element**
-  - Add a small pond with SSR reflections for terrain and flora.
+- Validate the release-mode loop from launch through planting, care, response, harvest, Seed
+  Circulation, exit, and return.
+- Test packaged launches on every advertised platform.
+- Ask players what they thought the game wanted them to do, what they enjoyed, and what felt like
+  work or obligation.
+- Track whether feedback increasingly includes desire to play and download alongside implementation
+  questions.
 
-- **Ocean presentation pass**
-  - Create a more pixelized ocean look.
-  - Continue visual research and prototyping.
+## After the First Garden Moment Is Proven
 
-- **Additional flora types**
-  - Expand flora variety to improve biome richness.
+### Sustainable Return
 
-- **Stylized cloud system**
-  - Add clouds with a strong pixel-art aesthetic.
+- Preserve garden authorship across sessions.
+- Let the garden remain healthy and become slightly wilder during absence without permanent loss.
+- Make return motivated by curiosity rather than a rescue checklist.
 
-## 4) Performance Work
+### Plant and Ecological Breadth
 
-## 5) Low-Priority Tooling
+- Add flora only when species differ visibly in care, form, harvest, or ecological response.
+- Explore companion planting, pollinators, shade, fertility, substrate, and local microclimates as
+  bonus layers rather than chores.
+- Add collection or journal support only when it encourages observation without checklist pressure.
 
-- **Formatter enforcement**
-  - Add PR formatting checks so formatting is enforced even when contributors forget to run local tools.
-  - Pin formatter versions in CI for reproducible results.
-  - Consider a single repo-managed formatting entrypoint so Rust and shader formatting are easier to run consistently.
+### Optional Garden Tools
+
+- Explore sprinklers and pipes as expressive, understandable care tools after direct watering is
+  satisfying.
+- Keep automation optional and subordinate to the pleasure of inhabiting and tending the garden.
+- Add sensors, cables, generators, or larger networks only after playtests show they support active
+  restoration rather than engineering work.
+
+### Atmosphere and Place
+
+- Expand weather, time of day, ponds, insects, wind, pollen, leaves, and spatial ambience around
+  player-authored garden moments.
+- Add quiet environmental history without quests or mandatory exposition.
+- Consider a modest home or shed only as an atmospheric anchor, not a required upgrade ladder.
+
+## Continuing Engineering Work
+
+### Critical Correctness
+
+- Fix crashes, data loss, severe visual errors, broken input, and packaged-launch failures when found.
+- Preserve correctness across terrain, water, flora, audio, and renderer interactions used by the
+  player-facing slice.
+
+### Performance
+
+- Measure before changing performance-sensitive systems.
+- Use release-mode app benchmarks as authoritative evidence.
+- Prioritize regressions that prevent the Garden Moment from running well on advertised hardware.
+- Defer speculative optimization that does not affect the current player experience.
+
+### Platform Support
+
+- Keep packaged Windows, macOS, and Fedora builds launchable.
+- Improve platform coverage only with an explicit validation and support plan.
+
+## Deferred Direction
+
+- Factory-scale automation and power logistics.
+- Large shops, broad order boards, market simulation, debt, and upkeep.
+- Long crafting chains and inventory-management pressure.
+- Authored campaigns, relationship schedules, and mandatory quests.
+- Combat, survival threats, hunger, stamina pressure, and multiplayer.
+- Broad open-world scope before the small Restorative Garden is compelling.
