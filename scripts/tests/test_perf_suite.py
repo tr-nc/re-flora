@@ -31,6 +31,13 @@ min_samples = 2
 budget_percent = 2.0
 
 [[scenario.test.metric]]
+name = "render.record"
+source = "cpu_scope"
+key = "render.record"
+min_samples = 2
+budget_percent = 2.0
+
+[[scenario.test.metric]]
 name = "surface.make_sparse"
 source = "surface_pass"
 key = "make_surface_sparse"
@@ -57,6 +64,9 @@ LOG_TEXT = """
 [INFO] [PERF][GPU_FRAME_SCOPE] frame 1 scopes=1 dropped=0 frame.render=999us
 [INFO] [PERF][GPU_FRAME_SCOPE] frame 2 scopes=2 dropped=0 frame.render=100us tracer.render=60us
 [INFO] [PERF][GPU_FRAME_SCOPE] frame 3 scopes=2 dropped=0 frame.render=110us tracer.render=65us
+[INFO] [PERF][CPU_FRAME_SCOPE] frame 1 render.record=999us
+[INFO] [PERF][CPU_FRAME_SCOPE] frame 2 render.record=40us
+[INFO] [PERF][CPU_FRAME_SCOPE] frame 3 render.record=45us
 [DEBUG] [PERF][SURFACE_BUILD_PASS_TIMING] chunk UVec3(0, 0, 0) pass_total=0.220ms make_surface_sparse=0.125ms write_instances=0.095ms
 [INFO] [PERF][GPU_JOB_SCOPE] name=surface.build queue=Compute chunk UVec3(0, 0, 0) duration=240us
 [INFO] [PERF][SURFACE_BUILD] chunk UVec3(0, 0, 0) total 1.0ms active_voxels 12 active_bricks 4 solid_workgroups 8 place_flora true flora_rebuilt true
@@ -77,6 +87,7 @@ class PerfSuiteTests(unittest.TestCase):
         samples = perf_suite.parse_samples(LOG_TEXT, self.scenario())
 
         self.assertEqual(samples["frame.render"], [100.0, 110.0])
+        self.assertEqual(samples["render.record"], [40.0, 45.0])
         self.assertEqual(samples["surface.make_sparse"], [125.0])
         self.assertEqual(samples["surface.build"], [240.0])
         self.assertEqual(samples["tree.replace_deferred_total"], [2500.0])
@@ -98,6 +109,8 @@ class PerfSuiteTests(unittest.TestCase):
         summary = perf_suite.summarize([100.0, 110.0])
         self.assertEqual(summary.median_us, 105.0)
         self.assertEqual(summary.p95_us, 109.5)
+        self.assertEqual(summary.stddev_us, 5.0)
+        self.assertEqual(summary.variance_us2, 25.0)
 
     def test_comparison_pools_order_reversed_reports_and_flags_budget(self) -> None:
         def report(samples: list[float]) -> dict[str, object]:

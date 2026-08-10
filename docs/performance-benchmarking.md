@@ -20,7 +20,7 @@ Available initial scenarios:
 - `surface-rebuild`: deterministic tree replacement with detailed surface timing;
 - `tree-replace`: deterministic end-to-end construction timing.
 
-Each run creates `<name>.json` and `<name>.log`. The report includes commit/dirty state, host, selected GPU, binary, command, raw samples, median, p95, range, and matched construction workload where applicable. A run fails if required markers are absent, a configured metric has too few samples, or fatal/validation diagnostics appear.
+Each run creates `<name>.json` and `<name>.log`. The report includes commit/dirty state, host, selected GPU, binary, command, raw samples, median, p95, standard deviation, variance, range, and matched construction workload where applicable. A run fails if required markers are absent, a configured metric has too few samples, or fatal/validation diagnostics appear.
 
 ## Compare reports
 
@@ -58,6 +58,7 @@ python scripts/perf_suite.py run-ab render-steady \
 Keep workload ownership in `config/perf_scenarios.toml`. Supported metric sources are:
 
 - `gpu_scope`: `name=valueus` fields from `[PERF][GPU_FRAME_SCOPE]`;
+- `cpu_scope`: `name=valueus` fields from `[PERF][CPU_FRAME_SCOPE]`;
 - `gpu_job_scope`: `[PERF][GPU_JOB_SCOPE]` durations;
 - `surface_pass`: named millisecond fields from `[PERF][SURFACE_BUILD_PASS_TIMING]`;
 - `tree_bench`: named millisecond fields from `[PERF][TREE_BENCH]`.
