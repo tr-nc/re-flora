@@ -1,6 +1,6 @@
 use crate::{
-    CommandBuffer, CommandPool, Device, Fence, FrameCompletion, FrameRetirement,
-    FrameRetirementClock, FrameSubmissionId, Semaphore, Swapchain, SwapchainFrameError,
+    CommandBuffer, CommandPool, Device, Fence, FrameCompletion, FrameRetirementClock,
+    FrameRetirementSink, FrameSubmissionId, Semaphore, Swapchain, SwapchainFrameError,
     VulkanContext,
 };
 
@@ -121,6 +121,7 @@ impl SwapchainFrameManager {
     /// queue order. This is the resize/shutdown quiescence seam; it deliberately avoids a
     /// device-wide idle wait so unrelated one-time work remains outside the frame lifecycle.
     pub fn wait_for_all_submissions(&mut self) {
+        self.retirement_clock.schedule_pending_retirements();
         let mut completed = Vec::with_capacity(self.frames.len());
         for (frame_slot, sync) in self.frames.iter_mut().enumerate() {
             sync.fence().wait().unwrap();
@@ -139,6 +140,7 @@ impl SwapchainFrameManager {
         &mut self,
         swapchain: &mut Swapchain,
     ) -> Result<AcquiredFrame, SwapchainFrameError> {
+        self.retirement_clock.schedule_pending_retirements();
         let frame_slot = self.current_frame;
         let completed_submission = {
             let sync = &mut self.frames[frame_slot];
@@ -206,15 +208,13 @@ impl SwapchainFrameManager {
         self.frames.len()
     }
 
-    /// Keep a replaced resource generation resident until every frame submitted
-    /// before this call has completed.
+    /// Obtain a same-thread publisher for frame-scoped resource generations.
     ///
-    /// Call this at the frame-update/recording seam, after publishing the new
-    /// generation and before recording the next frame. No recorded-but-unsubmitted
-    /// command buffer may still reference the retired generation.
-    pub fn retire_after_last_submission(&mut self, retirement: FrameRetirement) {
-        self.retirement_clock
-            .retire_after_last_submission(retirement);
+    /// Published generations are bound by `begin_frame` or
+    /// `wait_for_all_submissions`, so callers do not need to know the current
+    /// submission identity or coordinate a producer-specific drain.
+    pub fn retirement_sink(&self) -> FrameRetirementSink {
+        self.retirement_clock.retirement_sink()
     }
 
     fn create_present_semaphores(device: &Device, image_count: usize) -> Vec<Semaphore> {

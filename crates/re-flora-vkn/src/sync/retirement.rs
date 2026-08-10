@@ -1,4 +1,9 @@
-use std::{any::Any, collections::VecDeque};
+use std::{
+    any::Any,
+    cell::RefCell,
+    collections::VecDeque,
+    rc::{Rc, Weak},
+};
 
 /// Semantic identity for one ordered frame submission.
 ///
@@ -91,6 +96,27 @@ impl FrameRetirement {
     }
 }
 
+/// Same-thread publisher for resource generations owned by a frame manager.
+///
+/// Publication is deferred until the manager reaches its next frame or
+/// quiescence seam, at which point the manager binds the generation to the
+/// latest submitted frame. The weak owner link makes use after manager
+/// teardown fail fast instead of silently accumulating an unconsumed queue.
+#[derive(Clone)]
+pub struct FrameRetirementSink {
+    pending: Weak<RefCell<VecDeque<FrameRetirement>>>,
+}
+
+impl FrameRetirementSink {
+    pub fn retire(&self, retirement: FrameRetirement) {
+        let pending = self
+            .pending
+            .upgrade()
+            .expect("frame retirement owner dropped");
+        pending.borrow_mut().push_back(retirement);
+    }
+}
+
 struct PendingFrameRetirement {
     retire_after: FrameSubmissionId,
     retirement: FrameRetirement,
@@ -114,6 +140,7 @@ pub(crate) struct FrameRetirementClock {
     next_submission_serial: u64,
     last_submission: Option<FrameSubmissionId>,
     retirements: FrameRetirementQueue,
+    pending: Rc<RefCell<VecDeque<FrameRetirement>>>,
 }
 
 impl FrameRetirementClock {
@@ -122,6 +149,23 @@ impl FrameRetirementClock {
             next_submission_serial: 1,
             last_submission: None,
             retirements: FrameRetirementQueue::new(),
+            pending: Rc::new(RefCell::new(VecDeque::new())),
+        }
+    }
+
+    pub(crate) fn retirement_sink(&self) -> FrameRetirementSink {
+        FrameRetirementSink {
+            pending: Rc::downgrade(&self.pending),
+        }
+    }
+
+    pub(crate) fn schedule_pending_retirements(&mut self) {
+        loop {
+            let retirement = self.pending.borrow_mut().pop_front();
+            let Some(retirement) = retirement else {
+                break;
+            };
+            self.retire_after_last_submission(retirement);
         }
     }
 
@@ -230,9 +274,7 @@ impl FrameRetirementQueue {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        FrameCompletion, FrameRetirement, FrameRetirementClock,
-    };
+    use super::{FrameCompletion, FrameRetirement, FrameRetirementClock};
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -290,10 +332,7 @@ mod tests {
         assert_eq!(dropped.load(Ordering::Relaxed), 1 << 1);
 
         clock.observe_completion(FrameCompletion::new(adjacent_submission, 1));
-        assert_eq!(
-            dropped.load(Ordering::Relaxed),
-            (1 << 1) | (1 << 2)
-        );
+        assert_eq!(dropped.load(Ordering::Relaxed), (1 << 1) | (1 << 2));
     }
 
     #[test]
@@ -304,5 +343,89 @@ mod tests {
         clock.retire_after_last_submission(retirement(3, &dropped));
 
         assert_eq!(dropped.load(Ordering::Relaxed), 1 << 3);
+    }
+
+    #[test]
+    fn published_without_prior_submission_releases_only_at_boundary() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let mut clock = FrameRetirementClock::new();
+        let sink = clock.retirement_sink();
+
+        sink.retire(retirement(4, &dropped));
+        assert_eq!(dropped.load(Ordering::Relaxed), 0);
+
+        clock.schedule_pending_retirements();
+
+        assert_eq!(dropped.load(Ordering::Relaxed), 1 << 4);
+    }
+
+    #[test]
+    fn recording_publication_waits_for_next_boundary_and_submission() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let mut clock = FrameRetirementClock::new();
+        let sink = clock.retirement_sink();
+
+        clock.schedule_pending_retirements();
+        sink.retire(retirement(5, &dropped));
+        let submission = clock.record_submission();
+
+        assert_eq!(dropped.load(Ordering::Relaxed), 0);
+
+        clock.schedule_pending_retirements();
+        assert_eq!(dropped.load(Ordering::Relaxed), 0);
+
+        clock.observe_completion(FrameCompletion::new(submission, 0));
+        assert_eq!(dropped.load(Ordering::Relaxed), 1 << 5);
+    }
+
+    #[test]
+    fn adjacent_publications_retire_at_their_own_completions() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let mut clock = FrameRetirementClock::new();
+        let sink = clock.retirement_sink();
+
+        clock.schedule_pending_retirements();
+
+        sink.retire(retirement(6, &dropped));
+        let first_submission = clock.record_submission();
+        clock.schedule_pending_retirements();
+
+        sink.retire(retirement(7, &dropped));
+        let second_submission = clock.record_submission();
+        clock.schedule_pending_retirements();
+
+        clock.observe_completion(FrameCompletion::new(first_submission, 0));
+        assert_eq!(dropped.load(Ordering::Relaxed), 1 << 6);
+
+        clock.observe_completion(FrameCompletion::new(second_submission, 1));
+        assert_eq!(dropped.load(Ordering::Relaxed), (1 << 6) | (1 << 7));
+    }
+
+    #[test]
+    fn boundary_schedules_without_requiring_a_following_submission() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let mut clock = FrameRetirementClock::new();
+        let sink = clock.retirement_sink();
+        let submission = clock.record_submission();
+
+        sink.retire(retirement(8, &dropped));
+        clock.schedule_pending_retirements();
+
+        assert_eq!(dropped.load(Ordering::Relaxed), 0);
+
+        clock.observe_completion(FrameCompletion::new(submission, 0));
+        assert_eq!(dropped.load(Ordering::Relaxed), 1 << 8);
+    }
+
+    #[test]
+    #[should_panic(expected = "frame retirement owner dropped")]
+    fn sink_fails_fast_after_owner_drop() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let sink = {
+            let clock = FrameRetirementClock::new();
+            clock.retirement_sink()
+        };
+
+        sink.retire(retirement(9, &dropped));
     }
 }

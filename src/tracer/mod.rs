@@ -110,9 +110,9 @@ use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
     ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue,
     DescriptorPool, DescriptorResource, DescriptorUpdate, DescriptorWrite, Extent2D, Extent3D,
-    FrameRetirement, Framebuffer, GpuProfiler, GraphicsPipeline, PipelineBarrier, PipelineStage,
-    PreparedDescriptorGeneration, PushConstantInfo, RenderPass, RenderTarget, Texture,
-    TextureLayout, Viewport, VulkanContext,
+    FrameRetirement, FrameRetirementSink, Framebuffer, GpuProfiler, GraphicsPipeline,
+    PipelineBarrier, PipelineStage, PreparedDescriptorGeneration, PushConstantInfo, RenderPass,
+    RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -784,7 +784,7 @@ pub struct Tracer {
     render_target_depth_only: RenderTarget,
     render_target_leaf_shadow_opacity: RenderTarget,
     render_target_gui: RenderTarget,
-    pending_frame_retirements: Vec<FrameRetirement>,
+    frame_retirement_sink: FrameRetirementSink,
     extent_resource_generation: u64,
     descriptor_generation: u64,
     tree_instance_generation: u64,
@@ -879,6 +879,7 @@ impl Tracer {
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
+        frame_retirement_sink: FrameRetirementSink,
         chunk_bound: UAabb3,
         screen_extent: Extent2D,
         contree_builder_resources: &ContreeBuilderResources,
@@ -937,8 +938,11 @@ impl Tracer {
             IrrigationPipeRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let geometry_preview_resources =
             GeometryPreviewRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
-        let dynamic_fruit_resources =
-            DynamicFruitRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
+        let dynamic_fruit_resources = DynamicFruitRendererResources::new(
+            vulkan_ctx.device().clone(),
+            allocator.clone(),
+            frame_retirement_sink.clone(),
+        );
         let ddgi_volume = DdgiVolume::new(
             &vulkan_ctx,
             allocator.clone(),
@@ -1094,7 +1098,7 @@ impl Tracer {
             render_target_depth_only,
             render_target_leaf_shadow_opacity,
             render_target_gui,
-            pending_frame_retirements: Vec::new(),
+            frame_retirement_sink,
             extent_resource_generation: 1,
             descriptor_generation: 1,
             tree_instance_generation: 1,
@@ -1164,8 +1168,9 @@ impl Tracer {
         let descriptor_generation = self.next_descriptor_generation();
         let descriptor_retirements =
             self.update_ddgi_builder_descriptors(&staging, descriptor_generation);
-        self.pending_frame_retirements
-            .extend(descriptor_retirements);
+        for retirement in descriptor_retirements {
+            self.frame_retirement_sink.retire(retirement);
+        }
         // Prepare the consumer generation while this volume is still private. The descriptor
         // writes and owner copies are paid during staging setup; promotion only swaps the already
         // complete sets into the active pipelines and schedules the old generation for retirement.
@@ -1218,8 +1223,9 @@ impl Tracer {
             let builder = self.ddgi_runtime.volumes().builder();
             self.update_ddgi_builder_descriptors(builder, descriptor_generation)
         };
-        self.pending_frame_retirements
-            .extend(descriptor_retirements);
+        for retirement in descriptor_retirements {
+            self.frame_retirement_sink.retire(retirement);
+        }
         log::info!(
             "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} stage={:?} iteration={} source={:?}",
             work.kind(),
@@ -1673,7 +1679,7 @@ impl Tracer {
             .extent_resource_generation
             .checked_add(1)
             .expect("tracer extent resource generation overflow");
-        self.pending_frame_retirements.push(FrameRetirement::new(
+        self.frame_retirement_sink.retire(FrameRetirement::new(
             "tracer.extent_dependent",
             generation,
             (
@@ -1701,9 +1707,9 @@ impl Tracer {
         plain_builder_resources: &PlainBuilderResources,
     ) {
         let descriptor_generation = self.next_descriptor_generation();
-        let descriptor_retirements = std::cell::RefCell::new(Vec::new());
+        let frame_retirement_sink = self.frame_retirement_sink.clone();
         let update_compute_fn = |ppl: &ComputePipeline, resources: &[&dyn ResourceContainer]| {
-            descriptor_retirements.borrow_mut().push(
+            frame_retirement_sink.retire(
                 ppl.publish_descriptors(
                     "tracer.resize.compute.descriptors",
                     descriptor_generation,
@@ -1714,7 +1720,7 @@ impl Tracer {
         };
 
         let update_graphics_fn = |ppl: &GraphicsPipeline, resources: &[&dyn ResourceContainer]| {
-            descriptor_retirements.borrow_mut().push(
+            frame_retirement_sink.retire(
                 ppl.publish_descriptors(
                     "tracer.resize.graphics.descriptors",
                     descriptor_generation,
@@ -1726,7 +1732,7 @@ impl Tracer {
 
         let update_graphics_set_fn =
             |ppl: &GraphicsPipeline, binding_name: &str, resources: &[&dyn ResourceContainer]| {
-                descriptor_retirements.borrow_mut().push(
+                frame_retirement_sink.retire(
                     ppl.publish_descriptors(
                         "tracer.resize.graphics.descriptors",
                         descriptor_generation,
@@ -1894,8 +1900,6 @@ impl Tracer {
         ] {
             update_compute_fn(pipeline, &[ddgi_builder]);
         }
-        self.pending_frame_retirements
-            .extend(descriptor_retirements.into_inner());
     }
 
     fn next_descriptor_generation(&mut self) -> u64 {
@@ -1913,7 +1917,7 @@ impl Tracer {
             .tree_instance_generation
             .checked_add(1)
             .expect("tracer tree instance generation overflow");
-        self.pending_frame_retirements.push(FrameRetirement::new(
+        self.frame_retirement_sink.retire(FrameRetirement::new(
             "tracer.tree_instances",
             generation,
             resident,
@@ -2353,8 +2357,9 @@ impl Tracer {
             self.update_ddgi_consumer_descriptors(builder, descriptor_generation)
         };
         let descriptor_rebind_ms = publication_started.elapsed().as_secs_f64() * 1_000.0;
-        self.pending_frame_retirements
-            .extend(descriptor_retirements);
+        for retirement in descriptor_retirements {
+            self.frame_retirement_sink.retire(retirement);
+        }
         // DdgiRuntime::promote_ready_volume performs promote_staging(build_token) and the
         // coordinator token promotion as one fail-fast transaction.
         self.resources
@@ -2446,13 +2451,12 @@ impl Tracer {
         self.wind_source_buffer_capacity = new_capacity;
         let descriptor_generation = self.next_descriptor_generation();
         let tracer_resources = self.tracer_descriptor_resources();
-        self.pending_frame_retirements.push(
-            self.compute_pipelines.wind_volume_ppl.publish_descriptors(
-                "tracer.wind.descriptors",
-                descriptor_generation,
-                DescriptorUpdate::All(&tracer_resources),
-            )?,
-        );
+        let descriptor_retirement = self.compute_pipelines.wind_volume_ppl.publish_descriptors(
+            "tracer.wind.descriptors",
+            descriptor_generation,
+            DescriptorUpdate::All(&tracer_resources),
+        )?;
+        self.frame_retirement_sink.retire(descriptor_retirement);
         Ok(())
     }
 
@@ -3079,7 +3083,7 @@ impl Tracer {
                                             descriptor_generation,
                                         )?
                                     };
-                                    self.pending_frame_retirements.push(descriptor_retirement);
+                                    self.frame_retirement_sink.retire(descriptor_retirement);
                                     let build_token = build_token
                                         .context("validated DDGI S0 has no volume build token")?;
                                     self.observe_ddgi_capture_checkpoint(
@@ -3156,8 +3160,9 @@ impl Tracer {
                                         descriptor_generation,
                                     )
                                 };
-                                self.pending_frame_retirements
-                                    .extend(descriptor_retirements);
+                                for retirement in descriptor_retirements {
+                                    self.frame_retirement_sink.retire(retirement);
+                                }
                                 self.resources
                                     .terrain_lighting_cache
                                     .force_clear_before_next_trace();
@@ -5908,12 +5913,6 @@ impl Tracer {
         instances: &[DynamicFruitRenderInstance],
     ) -> Result<()> {
         self.dynamic_fruit_resources.show(instances)
-    }
-
-    pub fn take_frame_retirements(&mut self) -> Vec<FrameRetirement> {
-        let mut retirements = self.dynamic_fruit_resources.take_frame_retirements();
-        retirements.append(&mut self.pending_frame_retirements);
-        retirements
     }
 
     pub fn clear_collision_probe_geometry(&mut self) {

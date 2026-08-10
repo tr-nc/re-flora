@@ -434,15 +434,6 @@ impl App {
         }
     }
 
-    fn schedule_tracer_frame_retirements(&mut self) {
-        for retirement in self.tracer.take_frame_retirements() {
-            self.frame_manager.retire_after_last_submission(retirement);
-        }
-        for retirement in self.egui_renderer.take_frame_retirements() {
-            self.frame_manager.retire_after_last_submission(retirement);
-        }
-    }
-
     fn log_gpu_profiler_frame(&self, frame_count: u64) {
         let Some(results) = self.gpu_profiler_latest_results.as_ref() else {
             return;
@@ -711,6 +702,7 @@ impl App {
             MAX_FRAMES_IN_FLIGHT,
             swapchain.image_count(),
         );
+        let frame_retirement_sink = frame_manager.retirement_sink();
         let gpu_profiler = options
             .perf
             .then(|| {
@@ -728,6 +720,7 @@ impl App {
             &window_state.window(),
             allocator.clone(),
             swapchain.get_render_pass(),
+            frame_retirement_sink.clone(),
         );
         let egui_texture_lifecycle_test = options
             .egui_texture_lifecycle_test
@@ -797,6 +790,7 @@ impl App {
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
+            frame_retirement_sink,
             chunk_bound,
             window_state.window_extent(),
             contree_builder.get_resources(),
@@ -2907,7 +2901,6 @@ impl App {
                 self.apply_denoiser_benchmark_camera_motion();
 
                 let gpu_record_start = Instant::now();
-                self.schedule_tracer_frame_retirements();
                 let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
                     Ok(frame) => frame,
                     Err(SwapchainFrameError::OutOfDate) => {

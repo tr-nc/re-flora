@@ -2,7 +2,9 @@ use anyhow::{anyhow, ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{Quat, Vec3, Vec4};
 use re_flora_vkn::vk;
-use re_flora_vkn::{Allocator, Buffer, BufferUsage, Device, FrameRetirement, MemoryLocation};
+use re_flora_vkn::{
+    Allocator, Buffer, BufferUsage, Device, FrameRetirement, FrameRetirementSink, MemoryLocation,
+};
 
 use crate::{
     resource::Resource,
@@ -73,7 +75,7 @@ pub struct DynamicFruitRendererResources {
     allocator: Allocator,
     instance_capacity: usize,
     instance_generation: u64,
-    pending_frame_retirements: Vec<FrameRetirement>,
+    frame_retirement_sink: FrameRetirementSink,
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
     pub indices_len: u32,
@@ -84,7 +86,11 @@ pub struct DynamicFruitRendererResources {
 }
 
 impl DynamicFruitRendererResources {
-    pub fn new(device: Device, allocator: Allocator) -> Self {
+    pub fn new(
+        device: Device,
+        allocator: Allocator,
+        frame_retirement_sink: FrameRetirementSink,
+    ) -> Self {
         let (vertices_data, indices_data) = build_dynamic_apple_mesh();
         let vertices = Buffer::new_sized(
             device.clone(),
@@ -117,7 +123,7 @@ impl DynamicFruitRendererResources {
             allocator,
             instance_capacity: 1,
             instance_generation: 1,
-            pending_frame_retirements: Vec::new(),
+            frame_retirement_sink,
             vertices: Resource::new(vertices),
             indices: Resource::new(indices),
             indices_len: indices_data.len() as u32,
@@ -182,10 +188,6 @@ impl DynamicFruitRendererResources {
         std::mem::take(&mut self.shadow_changed)
     }
 
-    pub fn take_frame_retirements(&mut self) -> Vec<FrameRetirement> {
-        std::mem::take(&mut self.pending_frame_retirements)
-    }
-
     fn ensure_instance_capacity(&mut self, required: usize) -> Result<()> {
         let required = required.max(1);
         if required <= self.instance_capacity {
@@ -208,7 +210,7 @@ impl DynamicFruitRendererResources {
             .expect("dynamic fruit instance generation overflow");
         self.instance_capacity = new_capacity;
         let retired_buffer = std::mem::replace(&mut *self.instances, new_buffer);
-        self.pending_frame_retirements.push(FrameRetirement::new(
+        self.frame_retirement_sink.retire(FrameRetirement::new(
             "dynamic_fruit.instances",
             retired_generation,
             retired_buffer,
