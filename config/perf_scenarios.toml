@@ -40,7 +40,7 @@ description = "Deterministic tree replacement with surface construction pass tim
 args = ["--hidden", "--mute", "--perf", "--tree-bench", "--tree-bench-samples", "10"]
 env = { RUST_LOG = "info,re_flora::builder::surface=debug,re_flora::app::physical_visible_terrain=debug" }
 warmup_frame = 0
-required_markers = ["[PERF][SURFACE_BUILD]", "[PERF][MESH_REBUILD]", "[PERF][VISIBLE_TERRAIN_PUBLICATION]", "[PERF][TREE_BENCH_SUMMARY]"]
+required_markers = ["[PERF][SURFACE_BUILD]", "[PERF][MESH_REBUILD]", "[PERF][VISIBLE_TERRAIN_PUBLICATION]", "[DDGI][VOXEL_VISIBILITY]", "[PERF][TREE_BENCH_SUMMARY]"]
 match_surface_workload = true
 
 [[scenario.surface-rebuild.metric]]
@@ -48,6 +48,27 @@ name = "terrain.visible_publication"
 source = "visible_publication"
 key = "elapsed"
 min_samples = 8
+budget_percent = 5.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.voxel_visibility_publication"
+source = "voxel_visibility"
+key = "elapsed"
+min_samples = 8
+budget_percent = 5.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.voxel_visibility_publication_4_chunks"
+source = "voxel_visibility_chunks"
+key = "4"
+min_samples = 5
+budget_percent = 5.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.voxel_visibility_publication_8_chunks"
+source = "voxel_visibility_chunks"
+key = "8"
+min_samples = 5
 budget_percent = 5.0
 
 [[scenario.surface-rebuild.metric]]

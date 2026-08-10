@@ -37,7 +37,12 @@ TREE_BENCH_PATTERN = re.compile(
     r"\[PERF\]\[TREE_BENCH\].*\s([A-Za-z0-9_.-]+)\s+([0-9]+(?:\.[0-9]+)?)ms"
 )
 VISIBLE_PUBLICATION_PATTERN = re.compile(
-    r"\[PERF\]\[VISIBLE_TERRAIN_PUBLICATION\].*elapsed_ms=([0-9]+(?:\.[0-9]+)?)"
+    r"\[PERF\]\[VISIBLE_TERRAIN_PUBLICATION\].*chunks=(\d+).*"
+    r"elapsed_ms=([0-9]+(?:\.[0-9]+)?)"
+)
+VOXEL_VISIBILITY_PATTERN = re.compile(
+    r"\[DDGI\]\[VOXEL_VISIBILITY\]\s+published\b.*"
+    r"\belapsed_ms=([0-9]+(?:\.[0-9]+)?)"
 )
 MESH_REBUILD_PATTERN = re.compile(r"\[PERF\]\[MESH_REBUILD\](.*)")
 MESH_REBUILD_VALUE_PATTERN = re.compile(
@@ -160,6 +165,7 @@ def load_config(path: Path) -> tuple[int, dict[str, Scenario]]:
 
 def parse_samples(log_text: str, scenario: Scenario) -> dict[str, list[float]]:
     by_source_key: dict[tuple[str, str], list[float]] = {}
+    pending_voxel_visibility_us: float | None = None
 
     def add(source: str, key: str, value_us: float) -> None:
         by_source_key.setdefault((source, key), []).append(value_us)
@@ -181,8 +187,16 @@ def parse_samples(log_text: str, scenario: Scenario) -> dict[str, list[float]]:
             for key, value in TREE_BENCH_PATTERN.findall(line):
                 add("tree_bench", key, float(value) * 1000.0)
 
+        if visibility_match := VOXEL_VISIBILITY_PATTERN.search(line):
+            pending_voxel_visibility_us = float(visibility_match.group(1)) * 1000.0
+            add("voxel_visibility", "elapsed", pending_voxel_visibility_us)
+
         if publication_match := VISIBLE_PUBLICATION_PATTERN.search(line):
-            add("visible_publication", "elapsed", float(publication_match.group(1)) * 1000.0)
+            chunks, elapsed_ms = publication_match.groups()
+            add("visible_publication", "elapsed", float(elapsed_ms) * 1000.0)
+            if pending_voxel_visibility_us is not None:
+                add("voxel_visibility_chunks", chunks, pending_voxel_visibility_us)
+                pending_voxel_visibility_us = None
 
         if mesh_match := MESH_REBUILD_PATTERN.search(line):
             for key, value in MESH_REBUILD_VALUE_PATTERN.findall(mesh_match.group(1)):
