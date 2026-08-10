@@ -25,7 +25,10 @@ mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
 
 mod flora_frame_plan;
-use flora_frame_plan::{FloraFramePlan, FloraFramePlanConfig};
+use flora_frame_plan::{
+    FloraFramePlan, FloraFramePlanConfig, TreeFoliageBatch, TreeFoliageFramePlan, TreeFoliageInput,
+    TreeFoliageKind, TreeFoliageMainConfig,
+};
 
 mod direct_sun_shadow_runtime;
 use direct_sun_shadow_runtime::DirectSunShadowRuntime;
@@ -112,9 +115,9 @@ use re_flora_vkn::{
     DescriptorPool, DescriptorResource, DescriptorUpdate, DescriptorWrite, Extent2D, Extent3D,
     FrameExtentGeneration, FrameRetirement, FrameRetirementSink, Framebuffer, GpuProfiler,
     GraphicsPipeline, PipelineBarrier, PipelineStage, PreparedDescriptorGeneration,
-    PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    PreparedDrawDescriptors, PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout,
+    Viewport, VulkanContext,
 };
-use std::collections::HashMap;
 use std::time::Instant;
 
 fn ddgi_shading_geometry_revision(
@@ -744,6 +747,37 @@ struct PreparedDdgiConsumerDescriptors {
     tracer: PreparedDescriptorGeneration,
     flora_lighting_cache: PreparedDescriptorGeneration,
     graphics: Vec<PreparedDescriptorGeneration>,
+}
+
+struct PreparedTreeFoliageBatch<'a> {
+    batch: TreeFoliageBatch,
+    instance: &'a TreeLeavesInstance,
+    descriptors: PreparedDrawDescriptors,
+}
+
+fn tree_foliage_instance<'a>(
+    surface_resources: &'a SurfaceResources,
+    batch: TreeFoliageBatch,
+) -> &'a TreeLeavesInstance {
+    let instances = match batch.kind() {
+        TreeFoliageKind::Leaves => &surface_resources.instances.leaves_instances,
+        TreeFoliageKind::Apples => &surface_resources.instances.apple_instances,
+    };
+    let instance = instances.get(&batch.tree_id()).unwrap_or_else(|| {
+        panic!(
+            "tree foliage frame batch {:?} tree {} must resolve to its snapshotted resource",
+            batch.kind(),
+            batch.tree_id(),
+        )
+    });
+    assert_eq!(
+        instance.resources.instances_len,
+        batch.instance_count(),
+        "tree foliage frame batch {:?} tree {} instance count changed after planning",
+        batch.kind(),
+        batch.tree_id(),
+    );
+    instance
 }
 
 pub struct Tracer {
@@ -2808,46 +2842,6 @@ impl Tracer {
         Ok(())
     }
 
-    fn trees_needs_to_draw_this_frame<'a>(
-        &self,
-        tree_instances: &'a HashMap<u32, TreeLeavesInstance>,
-        lod_distance: f32,
-        flora_draw_distance: f32,
-    ) -> HashMap<LodState, Vec<&'a TreeLeavesInstance>> {
-        let mut lod0_instances = Vec::new();
-        let mut lod1_instances = Vec::new();
-        let camera_pos = self.camera.position();
-
-        for tree_instance in tree_instances.values() {
-            // perform frustum culling
-            if !tree_instance
-                .aabb
-                .is_inside_frustum(self.current_view_proj_mat)
-            {
-                continue;
-            }
-
-            // calculate distance from camera to tree center
-            let tree_center = tree_instance.aabb.center();
-            let distance = (camera_pos - tree_center).length();
-
-            if distance > flora_draw_distance {
-                continue;
-            }
-
-            if distance <= lod_distance {
-                lod0_instances.push(tree_instance);
-            } else {
-                lod1_instances.push(tree_instance);
-            }
-        }
-
-        let mut result = HashMap::new();
-        result.insert(LodState::Lod0, lod0_instances);
-        result.insert(LodState::Lod1, lod1_instances);
-        result
-    }
-
     fn with_gpu_scope<T>(
         gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
@@ -4261,71 +4255,70 @@ impl Tracer {
             })
             .collect::<Vec<_>>();
 
-        let leaves_by_lod = (enable_flora && enable_leaves).then(|| {
-            self.trees_needs_to_draw_this_frame(
-                &surface_resources.instances.leaves_instances,
+        let tree_foliage_frame_plan = TreeFoliageFramePlan::for_main(
+            TreeFoliageMainConfig {
+                camera_position: self.camera.position(),
+                view_projection: self.current_view_proj_mat,
                 lod_distance,
-                flora_draw_distance,
-            )
-        });
-        let mut prepared_leaf_descriptors = Vec::new();
-        if let Some(trees_by_lod) = leaves_by_lod.as_ref() {
-            for lod_state in [LodState::Lod0, LodState::Lod1] {
-                let pipeline = match lod_state {
+                draw_distance: flora_draw_distance,
+                render_leaves: enable_flora && enable_leaves,
+                render_apples: enable_flora,
+            },
+            surface_resources
+                .instances
+                .leaves_instances
+                .iter()
+                .map(|(&tree_id, instance)| TreeFoliageInput {
+                    tree_id,
+                    bounds: instance.aabb.clone(),
+                    instance_count: instance.resources.instances_len,
+                }),
+            surface_resources
+                .instances
+                .apple_instances
+                .iter()
+                .map(|(&tree_id, instance)| TreeFoliageInput {
+                    tree_id,
+                    bounds: instance.aabb.clone(),
+                    instance_count: instance.resources.instances_len,
+                }),
+        );
+        let prepared_tree_foliage_batches = tree_foliage_frame_plan
+            .batches()
+            .iter()
+            .copied()
+            .map(|batch| {
+                let instance = tree_foliage_instance(surface_resources, batch);
+                let pipeline = match batch.lod_state() {
                     LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
                     LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
                 };
-                for tree in trees_by_lod[&lod_state]
-                    .iter()
-                    .filter(|tree| tree.resources.instances_len > 0)
-                {
-                    prepared_leaf_descriptors.push(
-                        pipeline
-                            .prepare_draw_descriptors(
-                                cmdbuf,
-                                &[(
-                                    "tree_leaf_instances",
-                                    DescriptorResource::Buffer(&tree.resources.instances_buf),
-                                )],
-                            )
-                            .expect("leaf draw descriptors must match reflection"),
-                    );
+                let descriptors = pipeline
+                    .prepare_draw_descriptors(
+                        cmdbuf,
+                        &[(
+                            "tree_leaf_instances",
+                            DescriptorResource::Buffer(&instance.resources.instances_buf),
+                        )],
+                    )
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "{:?} draw descriptors must match reflection: {error}",
+                            batch.kind(),
+                        )
+                    });
+                PreparedTreeFoliageBatch {
+                    batch,
+                    instance,
+                    descriptors,
                 }
-            }
-        }
-
-        let apples_by_lod = enable_flora.then(|| {
-            self.trees_needs_to_draw_this_frame(
-                &surface_resources.instances.apple_instances,
-                lod_distance,
-                flora_draw_distance,
-            )
-        });
-        let mut prepared_apple_descriptors = Vec::new();
-        if let Some(trees_by_lod) = apples_by_lod.as_ref() {
-            for lod_state in [LodState::Lod0, LodState::Lod1] {
-                let pipeline = match lod_state {
-                    LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
-                    LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
-                };
-                for tree in trees_by_lod[&lod_state]
-                    .iter()
-                    .filter(|tree| tree.resources.instances_len > 0)
-                {
-                    prepared_apple_descriptors.push(
-                        pipeline
-                            .prepare_draw_descriptors(
-                                cmdbuf,
-                                &[(
-                                    "tree_leaf_instances",
-                                    DescriptorResource::Buffer(&tree.resources.instances_buf),
-                                )],
-                            )
-                            .expect("apple draw descriptors must match reflection"),
-                    );
-                }
-            }
-        }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            prepared_tree_foliage_batches.len(),
+            tree_foliage_frame_plan.batches().len(),
+            "every tree foliage frame batch must have one paired prepared batch",
+        );
 
         self.graphics_pipelines
             .terrain_depth_prefill_ppl
@@ -4504,11 +4497,12 @@ impl Tracer {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
-                let trees_by_lod = leaves_by_lod
-                    .as_ref()
-                    .expect("enabled leaf rendering must have a frame plan");
-                let mut prepared_leaf_descriptors = prepared_leaf_descriptors.iter();
-                for &lod_state in &[LodState::Lod0, LodState::Lod1] {
+                for group in tree_foliage_frame_plan
+                    .groups()
+                    .iter()
+                    .filter(|group| group.kind() == TreeFoliageKind::Leaves)
+                {
+                    let lod_state = group.lod_state();
                     let pipeline = match lod_state {
                         LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
                         LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
@@ -4525,35 +4519,36 @@ impl Tracer {
                             self.resources.meshes.leaves_resources_lod.indices_len,
                         ),
                     };
-
-                    let leaves_instances = &trees_by_lod[&lod_state];
-                    if leaves_instances.is_empty() {
-                        continue;
-                    }
-
                     pipeline.record_bind(cmdbuf);
                     pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-
                     cmdbuf.bind_index_buffer_u32(indices_buf);
 
-                    for tree_instance in leaves_instances.iter() {
-                        if tree_instance.resources.instances_len == 0 {
-                            continue;
-                        }
+                    let planned_batches = &tree_foliage_frame_plan.batches()[group.batch_range()];
+                    let prepared_batches = &prepared_tree_foliage_batches[group.batch_range()];
+                    debug_assert!(planned_batches
+                        .iter()
+                        .zip(prepared_batches)
+                        .all(|(batch, prepared)| *batch == prepared.batch));
+                    for prepared in prepared_batches {
+                        let batch = prepared.batch;
+                        assert_eq!(
+                            prepared.instance.resources.instances_len,
+                            batch.instance_count(),
+                            "leaf frame batch tree {} instance count changed before draw",
+                            batch.tree_id(),
+                        );
                         let leaf_push = flora_push_constant(
                             time,
                             LEAF_INSTANCE_TYPE,
-                            tree_instance.chunk_world_offset,
+                            prepared.instance.chunk_world_offset,
                             leaf_color_tables,
                         );
                         cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
                         pipeline.record_indexed_with_prepared_descriptors(
                             cmdbuf,
-                            prepared_leaf_descriptors
-                                .next()
-                                .expect("every visible leaf tree must have prepared descriptors"),
+                            &prepared.descriptors,
                             indices_len,
-                            tree_instance.resources.instances_len,
+                            batch.instance_count(),
                             0,
                             0,
                             0,
@@ -4564,7 +4559,6 @@ impl Tracer {
                         );
                     }
                 }
-                debug_assert!(prepared_leaf_descriptors.next().is_none());
                 if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
                     profiler.end_scope(
                         gpu_profiler_frame_slot,
@@ -4586,11 +4580,12 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 )
             });
-            let apples_by_lod = apples_by_lod
-                .as_ref()
-                .expect("enabled flora rendering must have an apple frame plan");
-            let mut prepared_apple_descriptors = prepared_apple_descriptors.iter();
-            for &lod_state in &[LodState::Lod0, LodState::Lod1] {
+            for group in tree_foliage_frame_plan
+                .groups()
+                .iter()
+                .filter(|group| group.kind() == TreeFoliageKind::Apples)
+            {
+                let lod_state = group.lod_state();
                 let pipeline = match lod_state {
                     LodState::Lod0 => &self.graphics_pipelines.leaves_ppl,
                     LodState::Lod1 => &self.graphics_pipelines.leaves_lod_ppl,
@@ -4607,34 +4602,36 @@ impl Tracer {
                         self.resources.meshes.apple_resources_lod.indices_len,
                     ),
                 };
-
-                let apple_instances = &apples_by_lod[&lod_state];
-                if apple_instances.is_empty() {
-                    continue;
-                }
-
                 pipeline.record_bind(cmdbuf);
                 pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
                 cmdbuf.bind_index_buffer_u32(indices_buf);
 
-                for tree_instance in apple_instances.iter() {
-                    if tree_instance.resources.instances_len == 0 {
-                        continue;
-                    }
+                let planned_batches = &tree_foliage_frame_plan.batches()[group.batch_range()];
+                let prepared_batches = &prepared_tree_foliage_batches[group.batch_range()];
+                debug_assert!(planned_batches
+                    .iter()
+                    .zip(prepared_batches)
+                    .all(|(batch, prepared)| *batch == prepared.batch));
+                for prepared in prepared_batches {
+                    let batch = prepared.batch;
+                    assert_eq!(
+                        prepared.instance.resources.instances_len,
+                        batch.instance_count(),
+                        "apple frame batch tree {} instance count changed before draw",
+                        batch.tree_id(),
+                    );
                     let apple_push = flora_push_constant(
                         time,
                         APPLE_INSTANCE_TYPE,
-                        tree_instance.chunk_world_offset,
+                        prepared.instance.chunk_world_offset,
                         solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
                     );
                     cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
                     pipeline.record_indexed_with_prepared_descriptors(
                         cmdbuf,
-                        prepared_apple_descriptors
-                            .next()
-                            .expect("every visible apple tree must have prepared descriptors"),
+                        &prepared.descriptors,
                         indices_len,
-                        tree_instance.resources.instances_len,
+                        batch.instance_count(),
                         0,
                         0,
                         0,
@@ -4645,7 +4642,6 @@ impl Tracer {
                     );
                 }
             }
-            debug_assert!(prepared_apple_descriptors.next().is_none());
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), apples_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
@@ -5027,42 +5023,58 @@ impl Tracer {
             .leaves_shadow_lod_ppl
             .prepare_descriptor_resources(cmdbuf);
         let pipeline = &self.graphics_pipelines.leaves_shadow_lod_ppl;
-        let prepared_leaves = surface_resources
-            .instances
-            .leaves_instances
-            .values()
-            .filter(|tree| tree.resources.instances_len > 0)
-            .map(|tree| {
+        let tree_foliage_frame_plan = TreeFoliageFramePlan::for_shadow(
+            surface_resources
+                .instances
+                .leaves_instances
+                .iter()
+                .map(|(&tree_id, instance)| TreeFoliageInput {
+                    tree_id,
+                    bounds: instance.aabb.clone(),
+                    instance_count: instance.resources.instances_len,
+                }),
+            surface_resources
+                .instances
+                .apple_instances
+                .iter()
+                .map(|(&tree_id, instance)| TreeFoliageInput {
+                    tree_id,
+                    bounds: instance.aabb.clone(),
+                    instance_count: instance.resources.instances_len,
+                }),
+        );
+        let prepared_tree_foliage_batches = tree_foliage_frame_plan
+            .batches()
+            .iter()
+            .copied()
+            .map(|batch| {
+                let instance = tree_foliage_instance(surface_resources, batch);
                 let descriptors = pipeline
                     .prepare_draw_descriptors(
                         cmdbuf,
                         &[(
                             "tree_leaf_instances",
-                            DescriptorResource::Buffer(&tree.resources.instances_buf),
+                            DescriptorResource::Buffer(&instance.resources.instances_buf),
                         )],
                     )
-                    .expect("leaf shadow draw descriptors must match reflection");
-                (tree, descriptors)
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "{:?} shadow draw descriptors must match reflection: {error}",
+                            batch.kind(),
+                        )
+                    });
+                PreparedTreeFoliageBatch {
+                    batch,
+                    instance,
+                    descriptors,
+                }
             })
             .collect::<Vec<_>>();
-        let prepared_apples = surface_resources
-            .instances
-            .apple_instances
-            .values()
-            .filter(|tree| tree.resources.instances_len > 0)
-            .map(|tree| {
-                let descriptors = pipeline
-                    .prepare_draw_descriptors(
-                        cmdbuf,
-                        &[(
-                            "tree_leaf_instances",
-                            DescriptorResource::Buffer(&tree.resources.instances_buf),
-                        )],
-                    )
-                    .expect("apple shadow draw descriptors must match reflection");
-                (tree, descriptors)
-            })
-            .collect::<Vec<_>>();
+        assert_eq!(
+            prepared_tree_foliage_batches.len(),
+            tree_foliage_frame_plan.batches().len(),
+            "every foliage shadow frame batch must have one paired prepared batch",
+        );
         pipeline.record_bind(cmdbuf);
 
         let clear_values: [vk::ClearValue; 0] = [];
@@ -5090,57 +5102,63 @@ impl Tracer {
             .leaves_shadow_lod_ppl
             .record_viewport_scissor(cmdbuf, viewport, scissor);
 
-        cmdbuf.bind_index_buffer_u32(&self.resources.meshes.leaves_resources_lod.indices);
+        for group in tree_foliage_frame_plan.groups() {
+            debug_assert_eq!(group.lod_state(), LodState::Lod1);
+            let (indices, vertices, indices_len, instance_type, color_tables) = match group.kind() {
+                TreeFoliageKind::Leaves => (
+                    &self.resources.meshes.leaves_resources_lod.indices,
+                    &self.resources.meshes.leaves_resources_lod.vertices,
+                    self.resources.meshes.leaves_resources_lod.indices_len,
+                    LEAF_INSTANCE_TYPE,
+                    leaf_color_tables,
+                ),
+                TreeFoliageKind::Apples => (
+                    &self.resources.meshes.apple_resources_lod.indices,
+                    &self.resources.meshes.apple_resources_lod.vertices,
+                    self.resources.meshes.apple_resources_lod.indices_len,
+                    APPLE_INSTANCE_TYPE,
+                    solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
+                ),
+            };
+            cmdbuf.bind_index_buffer_u32(indices);
 
-        // loop through all tree leaves instances
-        for (tree_instance, descriptors) in &prepared_leaves {
-            let push_constant = flora_push_constant(
-                time,
-                LEAF_INSTANCE_TYPE,
-                tree_instance.chunk_world_offset,
-                leaf_color_tables,
-            );
+            let planned_batches = &tree_foliage_frame_plan.batches()[group.batch_range()];
+            let prepared_batches = &prepared_tree_foliage_batches[group.batch_range()];
+            debug_assert!(planned_batches
+                .iter()
+                .zip(prepared_batches)
+                .all(|(batch, prepared)| *batch == prepared.batch));
+            for prepared in prepared_batches {
+                let batch = prepared.batch;
+                assert_eq!(
+                    prepared.instance.resources.instances_len,
+                    batch.instance_count(),
+                    "foliage shadow batch {:?} tree {} instance count changed before draw",
+                    batch.kind(),
+                    batch.tree_id(),
+                );
+                let push_constant = flora_push_constant(
+                    time,
+                    instance_type,
+                    prepared.instance.chunk_world_offset,
+                    color_tables,
+                );
 
-            cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.leaves_resources_lod.vertices]);
-            // render this instance for shadow map
-            pipeline.record_indexed_with_prepared_descriptors(
-                cmdbuf,
-                descriptors,
-                self.resources.meshes.leaves_resources_lod.indices_len,
-                tree_instance.resources.instances_len,
-                0,
-                0,
-                0,
-                Some(&PushConstantInfo {
-                    shader_stage: vk::ShaderStageFlags::VERTEX,
-                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
-                }),
-            );
-        }
-
-        cmdbuf.bind_index_buffer_u32(&self.resources.meshes.apple_resources_lod.indices);
-        for (tree_instance, descriptors) in &prepared_apples {
-            let push_constant = flora_push_constant(
-                time,
-                APPLE_INSTANCE_TYPE,
-                tree_instance.chunk_world_offset,
-                solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
-            );
-
-            cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.apple_resources_lod.vertices]);
-            pipeline.record_indexed_with_prepared_descriptors(
-                cmdbuf,
-                descriptors,
-                self.resources.meshes.apple_resources_lod.indices_len,
-                tree_instance.resources.instances_len,
-                0,
-                0,
-                0,
-                Some(&PushConstantInfo {
-                    shader_stage: vk::ShaderStageFlags::VERTEX,
-                    push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
-                }),
-            );
+                cmdbuf.bind_vertex_buffers(0, &[vertices]);
+                pipeline.record_indexed_with_prepared_descriptors(
+                    cmdbuf,
+                    &prepared.descriptors,
+                    indices_len,
+                    batch.instance_count(),
+                    0,
+                    0,
+                    0,
+                    Some(&PushConstantInfo {
+                        shader_stage: vk::ShaderStageFlags::VERTEX,
+                        push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
+                    }),
+                );
+            }
         }
 
         self.render_target_leaf_shadow_opacity.record_end(cmdbuf);

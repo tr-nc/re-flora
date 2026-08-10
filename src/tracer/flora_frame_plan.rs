@@ -191,12 +191,466 @@ impl FloraFramePlan {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TreeFoliageKind {
+    Leaves,
+    Apples,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct TreeFoliageInput {
+    pub(super) tree_id: u32,
+    pub(super) bounds: Aabb3,
+    pub(super) instance_count: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct TreeFoliageMainConfig {
+    pub(super) camera_position: Vec3,
+    pub(super) view_projection: Mat4,
+    pub(super) lod_distance: f32,
+    pub(super) draw_distance: f32,
+    pub(super) render_leaves: bool,
+    pub(super) render_apples: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct TreeFoliageBatch {
+    kind: TreeFoliageKind,
+    tree_id: u32,
+    lod_state: LodState,
+    instance_count: u32,
+}
+
+impl TreeFoliageBatch {
+    pub(super) fn kind(self) -> TreeFoliageKind {
+        self.kind
+    }
+
+    pub(super) fn tree_id(self) -> u32 {
+        self.tree_id
+    }
+
+    pub(super) fn lod_state(self) -> LodState {
+        self.lod_state
+    }
+
+    pub(super) fn instance_count(self) -> u32 {
+        self.instance_count
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct TreeFoliageBatchGroup {
+    kind: TreeFoliageKind,
+    lod_state: LodState,
+    batch_range: Range<usize>,
+}
+
+impl TreeFoliageBatchGroup {
+    pub(super) fn kind(&self) -> TreeFoliageKind {
+        self.kind
+    }
+
+    pub(super) fn lod_state(&self) -> LodState {
+        self.lod_state
+    }
+
+    pub(super) fn batch_range(&self) -> Range<usize> {
+        self.batch_range.clone()
+    }
+}
+
+#[derive(Debug, Default)]
+pub(super) struct TreeFoliageFramePlan {
+    batches: Vec<TreeFoliageBatch>,
+    groups: Vec<TreeFoliageBatchGroup>,
+}
+
+impl TreeFoliageFramePlan {
+    pub(super) fn for_main<Leaves, Apples>(
+        config: TreeFoliageMainConfig,
+        leaves: Leaves,
+        apples: Apples,
+    ) -> Self
+    where
+        Leaves: IntoIterator<Item = TreeFoliageInput>,
+        Apples: IntoIterator<Item = TreeFoliageInput>,
+    {
+        let mut plan = Self::default();
+        plan.append_main_kind(
+            TreeFoliageKind::Leaves,
+            config.render_leaves,
+            config,
+            leaves,
+        );
+        plan.append_main_kind(
+            TreeFoliageKind::Apples,
+            config.render_apples,
+            config,
+            apples,
+        );
+        plan
+    }
+
+    pub(super) fn for_shadow<Leaves, Apples>(leaves: Leaves, apples: Apples) -> Self
+    where
+        Leaves: IntoIterator<Item = TreeFoliageInput>,
+        Apples: IntoIterator<Item = TreeFoliageInput>,
+    {
+        let mut plan = Self::default();
+        plan.append_shadow_kind(TreeFoliageKind::Leaves, leaves);
+        plan.append_shadow_kind(TreeFoliageKind::Apples, apples);
+        plan
+    }
+
+    fn append_main_kind(
+        &mut self,
+        kind: TreeFoliageKind,
+        enabled: bool,
+        config: TreeFoliageMainConfig,
+        inputs: impl IntoIterator<Item = TreeFoliageInput>,
+    ) {
+        if !enabled {
+            return;
+        }
+
+        let mut lod0_batches = Vec::new();
+        let mut lod1_batches = Vec::new();
+        for input in inputs {
+            if input.instance_count == 0 {
+                continue;
+            }
+            if !input.bounds.is_inside_frustum(config.view_projection) {
+                continue;
+            }
+            let distance = config.camera_position.distance(input.bounds.center());
+            if distance > config.draw_distance {
+                continue;
+            }
+            let lod_state = if distance <= config.lod_distance {
+                LodState::Lod0
+            } else {
+                LodState::Lod1
+            };
+            let batch = TreeFoliageBatch {
+                kind,
+                tree_id: input.tree_id,
+                lod_state,
+                instance_count: input.instance_count,
+            };
+            match lod_state {
+                LodState::Lod0 => lod0_batches.push(batch),
+                LodState::Lod1 => lod1_batches.push(batch),
+            }
+        }
+
+        self.append_group(kind, LodState::Lod0, lod0_batches);
+        self.append_group(kind, LodState::Lod1, lod1_batches);
+    }
+
+    fn append_shadow_kind(
+        &mut self,
+        kind: TreeFoliageKind,
+        inputs: impl IntoIterator<Item = TreeFoliageInput>,
+    ) {
+        let batches = inputs
+            .into_iter()
+            .filter(|input| input.instance_count > 0)
+            .map(|input| TreeFoliageBatch {
+                kind,
+                tree_id: input.tree_id,
+                lod_state: LodState::Lod1,
+                instance_count: input.instance_count,
+            })
+            .collect();
+        self.append_group(kind, LodState::Lod1, batches);
+    }
+
+    fn append_group(
+        &mut self,
+        kind: TreeFoliageKind,
+        lod_state: LodState,
+        batches: Vec<TreeFoliageBatch>,
+    ) {
+        if batches.is_empty() {
+            return;
+        }
+        let batch_start = self.batches.len();
+        self.batches.extend(batches);
+        self.groups.push(TreeFoliageBatchGroup {
+            kind,
+            lod_state,
+            batch_range: batch_start..self.batches.len(),
+        });
+    }
+
+    pub(super) fn batches(&self) -> &[TreeFoliageBatch] {
+        &self.batches
+    }
+
+    pub(super) fn groups(&self) -> &[TreeFoliageBatchGroup] {
+        &self.groups
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn bounds_at(center: Vec3) -> Aabb3 {
         Aabb3::new(center - Vec3::splat(0.05), center + Vec3::splat(0.05))
+    }
+
+    fn tree_input(tree_id: u32, center: Vec3, instance_count: u32) -> TreeFoliageInput {
+        TreeFoliageInput {
+            tree_id,
+            bounds: bounds_at(center),
+            instance_count,
+        }
+    }
+
+    #[test]
+    fn main_tree_foliage_frame_plan_culls_draw_distance_and_assigns_lod_at_the_boundary() {
+        let plan = TreeFoliageFramePlan::for_main(
+            TreeFoliageMainConfig {
+                camera_position: Vec3::ZERO,
+                view_projection: Mat4::IDENTITY,
+                lod_distance: 0.5,
+                draw_distance: 0.9,
+                render_leaves: true,
+                render_apples: false,
+            },
+            [
+                tree_input(10, Vec3::new(0.2, 0.0, 0.0), 3),
+                tree_input(11, Vec3::new(0.5, 0.0, 0.0), 4),
+                tree_input(12, Vec3::new(0.8, 0.0, 0.0), 5),
+                tree_input(13, Vec3::new(0.9, 0.0, 0.0), 6),
+                tree_input(14, Vec3::new(0.95, 0.0, 0.0), 7),
+            ],
+            [],
+        );
+
+        assert_eq!(
+            plan.batches(),
+            &[
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Leaves,
+                    tree_id: 10,
+                    lod_state: LodState::Lod0,
+                    instance_count: 3,
+                },
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Leaves,
+                    tree_id: 11,
+                    lod_state: LodState::Lod0,
+                    instance_count: 4,
+                },
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Leaves,
+                    tree_id: 12,
+                    lod_state: LodState::Lod1,
+                    instance_count: 5,
+                },
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Leaves,
+                    tree_id: 13,
+                    lod_state: LodState::Lod1,
+                    instance_count: 6,
+                },
+            ]
+        );
+        assert_eq!(
+            plan.groups(),
+            &[
+                TreeFoliageBatchGroup {
+                    kind: TreeFoliageKind::Leaves,
+                    lod_state: LodState::Lod0,
+                    batch_range: 0..2,
+                },
+                TreeFoliageBatchGroup {
+                    kind: TreeFoliageKind::Leaves,
+                    lod_state: LodState::Lod1,
+                    batch_range: 2..4,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn main_tree_foliage_frame_plan_honors_enablement_zero_filtering_and_stable_group_order() {
+        let plan = TreeFoliageFramePlan::for_main(
+            TreeFoliageMainConfig {
+                camera_position: Vec3::ZERO,
+                view_projection: Mat4::IDENTITY,
+                lod_distance: 0.5,
+                draw_distance: 2.0,
+                render_leaves: false,
+                render_apples: true,
+            },
+            [tree_input(10, Vec3::new(0.2, 0.0, 0.0), 9)],
+            [
+                tree_input(20, Vec3::new(0.8, 0.0, 0.0), 2),
+                tree_input(21, Vec3::new(0.2, 0.0, 0.0), 0),
+                tree_input(22, Vec3::new(0.3, 0.0, 0.0), 3),
+                tree_input(23, Vec3::new(1.2, 0.0, 0.0), 4),
+                tree_input(24, Vec3::new(0.7, 0.0, 0.0), 5),
+            ],
+        );
+
+        assert_eq!(
+            plan.batches(),
+            &[
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Apples,
+                    tree_id: 22,
+                    lod_state: LodState::Lod0,
+                    instance_count: 3,
+                },
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Apples,
+                    tree_id: 20,
+                    lod_state: LodState::Lod1,
+                    instance_count: 2,
+                },
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Apples,
+                    tree_id: 24,
+                    lod_state: LodState::Lod1,
+                    instance_count: 5,
+                },
+            ]
+        );
+        assert_eq!(
+            plan.groups(),
+            &[
+                TreeFoliageBatchGroup {
+                    kind: TreeFoliageKind::Apples,
+                    lod_state: LodState::Lod0,
+                    batch_range: 0..1,
+                },
+                TreeFoliageBatchGroup {
+                    kind: TreeFoliageKind::Apples,
+                    lod_state: LodState::Lod1,
+                    batch_range: 1..3,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn main_tree_foliage_frame_plan_snapshots_identity_and_orders_all_kind_lod_groups() {
+        let mut leaves = vec![
+            tree_input(10, Vec3::new(0.8, 0.0, 0.0), 2),
+            tree_input(11, Vec3::new(0.2, 0.0, 0.0), 3),
+        ];
+        let apples = vec![
+            tree_input(20, Vec3::new(0.7, 0.0, 0.0), 4),
+            tree_input(21, Vec3::new(0.3, 0.0, 0.0), 5),
+        ];
+        let plan = TreeFoliageFramePlan::for_main(
+            TreeFoliageMainConfig {
+                camera_position: Vec3::ZERO,
+                view_projection: Mat4::IDENTITY,
+                lod_distance: 0.5,
+                draw_distance: 1.0,
+                render_leaves: true,
+                render_apples: true,
+            },
+            leaves.clone(),
+            apples,
+        );
+        leaves[0].tree_id = 99;
+        leaves[0].instance_count = 99;
+
+        let expected = [
+            TreeFoliageBatch {
+                kind: TreeFoliageKind::Leaves,
+                tree_id: 11,
+                lod_state: LodState::Lod0,
+                instance_count: 3,
+            },
+            TreeFoliageBatch {
+                kind: TreeFoliageKind::Leaves,
+                tree_id: 10,
+                lod_state: LodState::Lod1,
+                instance_count: 2,
+            },
+            TreeFoliageBatch {
+                kind: TreeFoliageKind::Apples,
+                tree_id: 21,
+                lod_state: LodState::Lod0,
+                instance_count: 5,
+            },
+            TreeFoliageBatch {
+                kind: TreeFoliageKind::Apples,
+                tree_id: 20,
+                lod_state: LodState::Lod1,
+                instance_count: 4,
+            },
+        ];
+        assert_eq!(plan.batches(), &expected);
+        assert_eq!(plan.groups().len(), 4);
+        for (index, group) in plan.groups().iter().enumerate() {
+            assert_eq!(
+                &plan.batches()[group.batch_range()],
+                &expected[index..index + 1],
+            );
+        }
+    }
+
+    #[test]
+    fn shadow_tree_foliage_frame_plan_is_unculled_zero_filtered_and_fixed_to_lod1() {
+        let plan = TreeFoliageFramePlan::for_shadow(
+            [
+                tree_input(10, Vec3::splat(99.0), 2),
+                tree_input(11, Vec3::ZERO, 0),
+                tree_input(12, Vec3::splat(-99.0), 3),
+            ],
+            [
+                tree_input(20, Vec3::splat(123.0), 4),
+                tree_input(21, Vec3::ZERO, 0),
+            ],
+        );
+
+        assert_eq!(
+            plan.batches(),
+            &[
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Leaves,
+                    tree_id: 10,
+                    lod_state: LodState::Lod1,
+                    instance_count: 2,
+                },
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Leaves,
+                    tree_id: 12,
+                    lod_state: LodState::Lod1,
+                    instance_count: 3,
+                },
+                TreeFoliageBatch {
+                    kind: TreeFoliageKind::Apples,
+                    tree_id: 20,
+                    lod_state: LodState::Lod1,
+                    instance_count: 4,
+                },
+            ]
+        );
+        assert_eq!(
+            plan.groups(),
+            &[
+                TreeFoliageBatchGroup {
+                    kind: TreeFoliageKind::Leaves,
+                    lod_state: LodState::Lod1,
+                    batch_range: 0..2,
+                },
+                TreeFoliageBatchGroup {
+                    kind: TreeFoliageKind::Apples,
+                    lod_state: LodState::Lod1,
+                    batch_range: 2..3,
+                },
+            ]
+        );
     }
 
     #[test]
