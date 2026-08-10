@@ -1281,9 +1281,13 @@ impl Tracer {
         edited_voxel_bound: UAabb3,
     ) -> Result<()> {
         let started = std::time::Instant::now();
-        let update = self
+        let Some(update) = self
             .ddgi_voxel_visibility
-            .begin_pack(geometry_revision, edited_voxel_bound)?;
+            .begin_pack(geometry_revision, edited_voxel_bound)?
+        else {
+            log::info!("[DDGI][VOXEL_VISIBILITY] reused geometry_revision={geometry_revision}");
+            return Ok(());
+        };
         let dispatch = update.word_dimensions;
         let block_dispatch = update.block_dimensions;
         let pack_to_blocks = PipelineBarrier::shader_access(

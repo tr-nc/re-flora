@@ -28,6 +28,10 @@ pub(crate) struct DdgiVoxelVisibilityUpdate {
     pub block_dimensions: UVec3,
 }
 
+fn visibility_pack_required(published_revision: Option<u32>, geometry_revision: u32) -> bool {
+    published_revision != Some(geometry_revision)
+}
+
 fn plan_visibility_update(
     dimensions: UVec3,
     edited_voxel_bound: UAabb3,
@@ -219,7 +223,10 @@ impl DdgiVoxelVisibility {
         &mut self,
         geometry_revision: u32,
         edited_voxel_bound: UAabb3,
-    ) -> Result<DdgiVoxelVisibilityUpdate> {
+    ) -> Result<Option<DdgiVoxelVisibilityUpdate>> {
+        if !visibility_pack_required(self.published_revision, geometry_revision) {
+            return Ok(None);
+        }
         let update = plan_visibility_update(
             UVec3::from_array(self.info_snapshot.voxel_dimensions),
             edited_voxel_bound,
@@ -254,7 +261,7 @@ impl DdgiVoxelVisibility {
         self.published_revision = None;
         self.ddgi_voxel_visibility_info
             .fill_uniform(&self.info_snapshot)?;
-        Ok(update)
+        Ok(Some(update))
     }
 
     pub fn publish_pack(&mut self, geometry_revision: u32) -> Result<()> {
@@ -755,6 +762,13 @@ mod tests {
         assert_eq!(initial.word_dimensions, UVec3::new(16, 512, 512));
         assert_eq!(initial.block_offset, UVec3::ZERO);
         assert_eq!(initial.block_dimensions, UVec3::splat(64));
+    }
+
+    #[test]
+    fn published_visibility_revision_is_reused_but_a_new_revision_rebuilds() {
+        assert!(visibility_pack_required(None, REVISION));
+        assert!(!visibility_pack_required(Some(REVISION), REVISION));
+        assert!(visibility_pack_required(Some(REVISION), REVISION + 1));
     }
 
     #[test]
