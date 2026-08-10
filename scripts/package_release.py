@@ -18,7 +18,13 @@ from pathlib import Path
 
 APP_NAME = "re-flora"
 PACKAGE_DIRS = ["assets", "config"]
-PACKAGE_FILES = ["README.md", "LICENSE", "LICENSE-ASSETS"]
+PACKAGE_FILES = [
+    "README.md",
+    "LICENSE",
+    "LICENSE-ASSETS",
+    "docs/playing.md",
+    "demo/img/splash.png",
+]
 
 
 @dataclass(frozen=True)
@@ -90,7 +96,9 @@ def copy_runtime_tree(root: Path, stage_root: Path) -> None:
     for filename in PACKAGE_FILES:
         src = root / filename
         if src.exists():
-            shutil.copy2(src, stage_root / filename)
+            dst = stage_root / filename
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
 
 
 def copy_binary(root: Path, stage_root: Path, target_dir: Path) -> Path:

@@ -1,119 +1,141 @@
 # Steam Direction
 
-The canonical global game direction lives in [Game Direction](./game_direction.md). This document is a Steam/storefront positioning companion and should not redefine the game's core identity.
-
-This project should stay author-led: it should follow the creator's taste, curiosity, and constraints before trying to satisfy every player request. The goal is not to build a generic feature checklist. The goal is to make a small, coherent, memorable work that strangers can understand, want to wishlist, and want to spend time inside.
+The canonical global direction lives in [Game Direction](./game_direction.md). This document governs
+storefront positioning and player-facing presentation; it must not redefine the game's identity or
+elevate a technical system above the current product milestone.
 
 ## Core Positioning
 
-**A living low-resolution voxel terrarium.**
+**A beautiful full-screen voxel garden that responds to your care without becoming another job.**
 
-A real-time simulated miniature nature world with voxel terrain, low-resolution rendering, intentional animation stepping, wind, grass, water, insects, particles, weather, and quiet mystery.
+Re: Flora is an active Restorative Garden. Players enter a small living place, plant freely, shape
+soil, tend local conditions, harvest, and gradually make the garden sustainable and personal.
 
-The appeal should be immediate:
+The storefront promise is:
 
-> I want to enter this little world, watch it live, gently disturb it, and see how it responds.
+> Enter your garden, change one small thing, and watch the living world respond.
 
-## Author-First, Not Self-Indulgent
+Low-resolution rendering, voxel terrain, water, procedural plants, wind, insects, particles,
+lighting, and spatial sound make that response unusually tangible. They support the promise; they
+are not the pitch by themselves.
 
-The project should not blindly chase player requests. Feedback is useful when it reveals whether the intended feeling is reaching people.
+## Intended Player
+
+The initial audience is PC-playing adults who want a deliberate break after work and appreciate
+beautiful systemic worlds without schedules, relationship obligations, survival pressure, or
+efficiency management.
+
+Working men aged 20 and above are the initial communication persona, not an exclusion rule. Store
+copy should lead with the shared need for active restoration rather than gender-coded features.
+
+## Author-Led and Player-Legible
+
+The project remains author-led: it follows the creator's taste, curiosity, and constraints instead
+of accumulating a generic feature checklist. Player feedback is most useful when it reveals whether
+the intended feeling reached strangers.
 
 Listen for:
 
-- Whether people stop at the first screenshot or GIF.
-- Which moments make them say the atmosphere is special.
-- Whether the first 30 seconds communicate what the world is.
-- Where curiosity turns into boredom.
-- Whether people want to share clips, screenshots, or wishlist the game.
+- whether viewers understand what the player does in the first few seconds;
+- whether they describe the garden as a place they want to enter;
+- whether action and environmental response are legible without technical explanation;
+- where calm concentration turns into boredom or task pressure;
+- whether people ask how to play or download, not only how the renderer works;
+- which moments they want to share as clips or screenshots.
 
-Do not automatically follow requests like:
+Do not automatically follow requests for combat, multiplayer, survival, large crafting systems,
+relationship campaigns, or generic progression. They may fit other games but dilute the Restorative
+Garden.
 
-- Add combat.
-- Add multiplayer.
-- Add a full survival loop.
-- Add equipment progression.
-- Add generic trading or shop systems unrelated to plant care.
-- Add generic quest, inventory, or crafting complexity.
+## Separate Audience Artifacts
 
-Those features may be valid in other games, but they can dilute this project's strongest identity.
+Re: Flora serves three related audiences with different artifacts:
+
+| Audience | Primary artifact | First question answered |
+| --- | --- | --- |
+| Viewer | 30-45 second Garden Moment video | Why do I want to enter this place? |
+| Player | 10-15 minute packaged vertical slice | What can I do, and how does it feel? |
+| Developer | Source repository and technical breakdowns | How was it built? |
+
+The player-facing video and build come first in storefront presentation. Technical material remains
+valuable follow-up content but should not require the viewer to understand Vulkan, path tracing,
+voxel structures, or simulation architecture before wanting the game.
 
 ## Experience Pillars
 
-### 1. Low-Resolution Real-Time Nature
+### 1. Immediate Garden Causality
 
-The downsampled render texture, voxel terrain, and pixelated upscale are not compromises; they are the visual identity. The world should feel like a real simulation captured through an old low-resolution machine.
+Show a complete Garden Moment: plant, water or reshape, observe a visible response, harvest, and open
+one new possibility. A feature that cannot contribute to a clear action-and-response chain is not a
+current storefront priority.
 
-### 2. Intentional Temporal Stepping
+### 2. Free-form Spatial Authorship
 
-Grass, particles, butterflies, water highlights, fireflies, clouds, and other animated elements can update in visible steps. The slight dropped-frame feeling should become a consistent aesthetic, not an accident.
+Show plants arranged in natural curves and personal compositions without visible grid slots. The
+garden should look authored by its player rather than solved for efficiency.
 
-### 3. Visible Simulation
+### 3. Calm Concentration
 
-Every system should be readable on screen. Wind should be heard and seen through grass waves, drifting pollen, moving leaves, butterfly paths, and changing ambience. If a system is complex but invisible, it does little for the Steam pitch.
+The player is active, not idle. Tactile planting, watering, shaping, and harvesting hold attention
+without timers, daily chores, narrative demands, or fear of absence.
 
-### 4. Gentle Player Disturbance
+### 4. Low-Resolution Living Nature
 
-The player does not need to dominate the world. Small actions are enough:
+Voxel terrain, downsampled presentation, intentional temporal stepping, wind, water, grass,
+particles, creatures, and changing light form a coherent visual identity. The slight old-machine
+feeling is intentional, not a compromise.
 
-- Walk through grass and make it bend or release particles.
-- Scatter seeds or spores.
-- Disturb butterflies.
-- Ripple water.
-- Influence wind, weather, local growth, moisture, or fertility with simple objects.
+### 5. Peaceful, Natural, Slightly Mysterious
 
-The world should respond visibly.
+Avoid making the tone purely cute. Wind, loneliness, old stones, fog, fireflies, a quiet bell, or a
+greenhouse fragment may create atmosphere without starting an authored story or quest chain.
 
-### 5. Cozy, Natural, Slightly Mysterious
+## Current Storefront Proof
 
-Avoid making the tone purely cute. The stronger vibe is: peaceful nature, wind, loneliness, hidden history, and small uncanny details.
+The current proof target is [First Garden Moment](./first_garden_moment.md), produced as honest video
+and playable artifacts from the same slice.
 
-Examples:
+The video should form one causal arc:
 
-- Old stones half-buried in grass.
-- A quiet shrine or wind bell.
-- Glowing mushrooms at night.
-- Symbols that light up when wind passes.
-- Fireflies around ruins.
+1. reveal a small garden patch;
+2. plant a natural composition;
+3. water directly or activate one simple watering tool;
+4. show water, soil, plant motion, light, and spatial sound respond together;
+5. progress to a readable bloom or fruit;
+6. harvest and open one new seed possibility;
+7. finish on a quiet wide view long enough for the garden to breathe.
 
-## Strong Steam Moments
+Do not lead this video with implementation text, debug UI, performance counters, or a technology
+montage. A separate breakdown can explain the engineering after desire is established.
 
-Design additions around scenes that work as screenshots, short GIFs, or trailer beats:
+## Strong Storefront Moments
 
-- A stepped wind wave crossing a grass field.
-- Butterflies rising when the player enters a flower patch.
-- Pixel rain hitting a pond with chunky ripples.
-- Dusk turning into a firefly-filled night.
-- A glowing mushroom patch in blue fog.
-- Pollen and leaves drifting with audible wind.
-- A small ruin briefly glowing during strong wind.
+- A freely planted curve becoming visible as it sprouts.
+- Water following shaped terrain and darkening nearby soil.
+- A plant changing form or color as local conditions improve.
+- A harvest that remains physically connected to the cared-for plant.
+- Wind moving through a garden the player personally arranged.
+- Butterflies rising from a newly flowering patch.
+- Dusk settling over an intact garden as the player stops working.
 
-If a feature cannot create a stronger image, GIF, or emotional beat, question whether it belongs in the first Steam version.
+Atmospheric weather, creatures, and mystery are valuable when they strengthen one of these player
+moments rather than compete as isolated features.
 
-## Preferred Feature Direction
+## Storefront Conversion
 
-Prioritize small, high-impact additions:
+The public repository and store entry should provide:
 
-1. More ground-level flora: flowers, moss, mushrooms, reeds, fallen leaves.
-2. Visible wind: pollen, drifting seeds, leaves, grass waves, butterfly drift.
-3. Water as atmosphere: ponds, shallow streams, pixel reflections, ripples.
-4. Time and weather: dawn, dusk, night, rain, fog, stronger wind states.
-5. Small creatures: fireflies, bees, dragonflies, frogs, fish shadows, beetles.
-6. Mysterious environmental anchors: stones, ruins, bells, shrine-like objects.
-7. A few expressive garden tools and devices, such as sprinklers, pipes, cables, and toy-like generators.
-8. Screenshot or camera support once the world is visually rich enough.
+- a player-facing description before build or technology details;
+- the Garden Moment video near the first screen;
+- a stable link to the latest packaged release rather than a version-specific asset;
+- a short playing guide and honest statement of prototype scope;
+- source-build and engineering material in separate contributor documentation.
 
-## Product Shape
-
-A good first Steam target is a small but complete vertical slice:
-
-- One compact area with grass, flowers, water, insects, wind, and day/night changes.
-- A few ways for the player to disturb, nurture, plant, irrigate, and lightly automate the area.
-- At least one memorable mystery or landmark.
-- Enough variation to make players want to return.
-- No heavy systems that require months of content production before they feel good.
-
-The game can be light and still feel complete if the world is reactive, beautiful, and coherent.
+The relevant success signal is not views alone. The presentation should increasingly produce player
+language such as "I want to play," "this feels peaceful," and "where can I download it," alongside
+technical praise.
 
 ## One-Line Pitch
 
-> A living low-resolution voxel garden about wind, grass, water, insects, and time.
+> A full-screen voxel garden where you plant freely, shape a living world, and return without
+> obligation.
