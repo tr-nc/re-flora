@@ -110,9 +110,9 @@ use re_flora_vkn::{
     execute_one_time_gpu_job, Allocator, AttachmentDescOuter, AttachmentType, Buffer, BufferUse,
     ClearValue, ColorClearValue, CommandBuffer, ComputePipeline, DepthOrStencilClearValue,
     DescriptorPool, DescriptorResource, DescriptorUpdate, DescriptorWrite, Extent2D, Extent3D,
-    FrameRetirement, FrameRetirementSink, Framebuffer, GpuProfiler, GraphicsPipeline,
-    PipelineBarrier, PipelineStage, PreparedDescriptorGeneration, PushConstantInfo, RenderPass,
-    RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
+    FrameExtentGeneration, FrameRetirement, FrameRetirementSink, Framebuffer, GpuProfiler,
+    GraphicsPipeline, PipelineBarrier, PipelineStage, PreparedDescriptorGeneration,
+    PushConstantInfo, RenderPass, RenderTarget, Texture, TextureLayout, Viewport, VulkanContext,
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -785,7 +785,7 @@ pub struct Tracer {
     render_target_leaf_shadow_opacity: RenderTarget,
     render_target_gui: RenderTarget,
     frame_retirement_sink: FrameRetirementSink,
-    extent_resource_generation: u64,
+    frame_extent_generation: FrameExtentGeneration,
     descriptor_generation: u64,
     tree_instance_generation: u64,
 
@@ -881,13 +881,14 @@ impl Tracer {
         allocator: Allocator,
         frame_retirement_sink: FrameRetirementSink,
         chunk_bound: UAabb3,
-        screen_extent: Extent2D,
+        frame_extent_generation: FrameExtentGeneration,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
         desc: TracerDesc,
         spatial_sound_manager: SpatialSoundManager,
     ) -> Result<Self> {
+        let screen_extent = frame_extent_generation.extent();
         let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
         let (camera_position, camera_yaw_deg, camera_pitch_deg) =
             Self::default_camera_pose_for_bound(chunk_bound, desc.default_camera_look_at);
@@ -1099,7 +1100,7 @@ impl Tracer {
             render_target_leaf_shadow_opacity,
             render_target_gui,
             frame_retirement_sink,
-            extent_resource_generation: 1,
+            frame_extent_generation,
             descriptor_generation: 1,
             tree_instance_generation: 1,
             pool,
@@ -1477,21 +1478,15 @@ impl Tracer {
             .expect("terrain output must be two-dimensional")
     }
 
-    /// Identifies the complete extent-dependent resource/framebuffer/descriptor generation that
-    /// all passes in the next frame must consume after a resize publication.
-    pub fn extent_resource_generation(&self) -> u64 {
-        self.extent_resource_generation
+    pub fn frame_extent_generation(&self) -> FrameExtentGeneration {
+        self.frame_extent_generation
     }
 
-    pub fn extent_resource_screen_extent(&self) -> Extent2D {
-        self.resources
-            .extent_dependent_resources
-            .screen_output_tex
-            .get_image()
-            .get_desc()
-            .extent
-            .as_extent_2d()
-            .expect("screen output must be two-dimensional")
+    pub fn assert_frame_extent_generation(&self, generation: FrameExtentGeneration) {
+        assert_eq!(
+            generation, self.frame_extent_generation,
+            "tracer extent resources are not bound to the acquired frame generation"
+        );
     }
 
     pub fn record_environment_irradiance_capture_readback(
@@ -1597,11 +1592,22 @@ impl Tracer {
 
     pub fn on_resize(
         &mut self,
-        screen_extent: Extent2D,
+        frame_extent_generation: FrameExtentGeneration,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
     ) {
+        let expected_serial = self
+            .frame_extent_generation
+            .serial()
+            .checked_add(1)
+            .expect("tracer frame extent generation overflow");
+        assert_eq!(
+            frame_extent_generation.serial(),
+            expected_serial,
+            "tracer frame extent generation must advance exactly once"
+        );
+        let screen_extent = frame_extent_generation.extent();
         let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
 
         self.camera.on_resize(render_extent);
@@ -1674,14 +1680,11 @@ impl Tracer {
         let retired_render_target_gui =
             std::mem::replace(&mut self.render_target_gui, new_render_target_gui);
 
-        let generation = self.extent_resource_generation;
-        self.extent_resource_generation = self
-            .extent_resource_generation
-            .checked_add(1)
-            .expect("tracer extent resource generation overflow");
+        let retired_generation = self.frame_extent_generation.serial();
+        self.frame_extent_generation = frame_extent_generation;
         self.frame_retirement_sink.retire(FrameRetirement::new(
             "tracer.extent_dependent",
-            generation,
+            retired_generation,
             (
                 retired_extent_resources,
                 retired_render_target_color_and_depth,

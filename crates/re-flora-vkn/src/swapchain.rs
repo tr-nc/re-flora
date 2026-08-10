@@ -5,8 +5,8 @@ use ash::{
 };
 
 use crate::{
-    AttachmentDesc, AttachmentReference, Extent2D, ExternalImage, Framebuffer, ImageView,
-    ImageViewDesc, RenderPass, RenderPassDesc, RenderTarget, SubpassDesc, TextureLayout,
+    AcquiredFrame, AttachmentDesc, AttachmentReference, Extent2D, ExternalImage, Framebuffer,
+    ImageView, ImageViewDesc, RenderPass, RenderPassDesc, RenderTarget, SubpassDesc, TextureLayout,
     TextureTransition,
 };
 
@@ -115,6 +115,36 @@ impl Default for SwapchainDesc {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FrameExtentGeneration {
+    serial: u64,
+    extent: Extent2D,
+}
+
+impl FrameExtentGeneration {
+    fn initial(extent: Extent2D) -> Self {
+        Self { serial: 1, extent }
+    }
+
+    fn successor(self, extent: Extent2D) -> Self {
+        Self {
+            serial: self
+                .serial
+                .checked_add(1)
+                .expect("frame extent generation overflow"),
+            extent,
+        }
+    }
+
+    pub fn serial(self) -> u64 {
+        self.serial
+    }
+
+    pub fn extent(self) -> Extent2D {
+        self.extent
+    }
+}
+
 pub struct Swapchain {
     vulkan_context: VulkanContext,
 
@@ -123,6 +153,7 @@ pub struct Swapchain {
     render_target: Option<RenderTarget>,
     image_views: Vec<ImageView>,
     swapchain_khr: vk::SwapchainKHR,
+    frame_extent_generation: FrameExtentGeneration,
 
     desc: SwapchainDesc,
 }
@@ -135,7 +166,7 @@ impl Drop for Swapchain {
 
 impl Swapchain {
     pub fn new(context: VulkanContext, window_extent: Extent2D, desc: SwapchainDesc) -> Self {
-        let (swapchain_device, swapchain_khr, image_views, render_target) =
+        let (swapchain_device, swapchain_khr, image_views, render_target, extent) =
             create_vulkan_swapchain(&context, window_extent, &desc);
 
         Self {
@@ -144,24 +175,43 @@ impl Swapchain {
             image_views,
             swapchain_khr,
             swapchain_device,
+            frame_extent_generation: FrameExtentGeneration::initial(extent),
             desc,
         }
     }
 
-    pub fn on_resize(&mut self, window_extent: Extent2D) {
+    pub fn on_resize(&mut self, requested_extent: Extent2D) -> FrameExtentGeneration {
         self.clean_up();
 
-        let (swapchain_device, swapchain_khr, image_views, render_target) =
-            create_vulkan_swapchain(&self.vulkan_context, window_extent, &self.desc);
+        let (swapchain_device, swapchain_khr, image_views, render_target, extent) =
+            create_vulkan_swapchain(&self.vulkan_context, requested_extent, &self.desc);
 
         self.swapchain_device = swapchain_device;
         self.swapchain_khr = swapchain_khr;
         self.render_target = Some(render_target);
         self.image_views = image_views;
+        self.frame_extent_generation = self.frame_extent_generation.successor(extent);
+        self.frame_extent_generation
     }
 
-    pub fn get_image(&self, index: u32) -> vk::Image {
+    fn get_image(&self, index: u32) -> vk::Image {
         self.image_views[index as usize].source_image_raw()
+    }
+
+    pub fn frame_extent_generation(&self) -> FrameExtentGeneration {
+        self.frame_extent_generation
+    }
+
+    pub(crate) fn assert_frame_extent_generation(&self, generation: FrameExtentGeneration) {
+        assert_eq!(
+            generation, self.frame_extent_generation,
+            "acquired frame extent generation is not the active swapchain generation"
+        );
+    }
+
+    fn image_for_frame(&self, frame: &AcquiredFrame) -> vk::Image {
+        self.assert_frame_extent_generation(frame.frame_extent_generation());
+        self.get_image(frame.image_index())
     }
 
     pub fn image_count(&self) -> usize {
@@ -223,15 +273,10 @@ impl Swapchain {
 
     /// Blits the source image to the destination image.
     /// The layout of src_img is transferred to GENERAL.
-    pub fn record_blit(
-        &self,
-        src_img: &Image,
-        cmdbuf: &CommandBuffer,
-        image_idx: u32,
-        dst_extent: Extent2D,
-    ) {
+    pub fn record_blit(&self, src_img: &Image, cmdbuf: &CommandBuffer, frame: &AcquiredFrame) {
         // the swapchain image is not wrapped because it is handled by the swapchain
-        let dst_raw_img = self.get_image(image_idx);
+        let dst_raw_img = self.image_for_frame(frame);
+        let dst_extent = frame.extent();
         let device = self.vulkan_context.device();
 
         src_img.record_transition_barrier(cmdbuf, 0, TextureLayout::TRANSFER_SRC);
@@ -309,7 +354,7 @@ impl Swapchain {
         }
     }
 
-    pub fn present_desc(&mut self, desc: PresentDesc<'_>) -> VkResult<bool> {
+    fn present_desc(&mut self, desc: PresentDesc<'_>) -> VkResult<bool> {
         desc.assert_supported_sizes();
         crate::sync::diagnostics::record_present(&desc);
 
@@ -320,31 +365,36 @@ impl Swapchain {
 
     pub(crate) fn present_after(
         &mut self,
-        waiting_for_semaphore: &Semaphore,
-        image_index: u32,
+        frame: &AcquiredFrame,
     ) -> Result<bool, SwapchainFrameError> {
-        let waits = [PresentWait::new("frame.render_finished", waiting_for_semaphore)];
-        let desc = PresentDesc::new("swapchain.present", image_index, &waits);
+        self.assert_frame_extent_generation(frame.frame_extent_generation());
+        let waits = [PresentWait::new(
+            "frame.render_finished",
+            frame.render_finished(),
+        )];
+        let desc = PresentDesc::new("swapchain.present", frame.image_index(), &waits);
         self.present_desc(desc).map_err(SwapchainFrameError::from)
     }
 
     pub fn record_downscaled_image_readback(
         &self,
         cmdbuf: &CommandBuffer,
-        image_idx: u32,
+        frame: &AcquiredFrame,
         dst_image: &Image,
         readback_buffer: &Buffer,
-        source_width: u32,
-        source_height: u32,
     ) {
         let device = self.vulkan_context.device();
-        let swapchain_image = self.get_image(image_idx);
+        let swapchain_image = self.image_for_frame(frame);
+        let source_extent = frame.extent();
         let dst_extent = dst_image.get_desc().extent;
 
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            TextureTransition::from_layouts(TextureLayout::PRESENT_SRC, TextureLayout::TRANSFER_SRC),
+            TextureTransition::from_layouts(
+                TextureLayout::PRESENT_SRC,
+                TextureLayout::TRANSFER_SRC,
+            ),
             swapchain_image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -362,8 +412,8 @@ impl Swapchain {
             .src_offsets([
                 vk::Offset3D::default(),
                 vk::Offset3D {
-                    x: source_width as i32,
-                    y: source_height as i32,
+                    x: source_extent.width as i32,
+                    y: source_extent.height as i32,
                     z: 1,
                 },
             ])
@@ -393,15 +443,14 @@ impl Swapchain {
             );
         }
 
-        dst_image.record_copy_to_buffer(
-            cmdbuf,
-            readback_buffer,
-            TextureLayout::GENERAL,
-        );
+        dst_image.record_copy_to_buffer(cmdbuf, readback_buffer, TextureLayout::GENERAL);
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            TextureTransition::from_layouts(TextureLayout::TRANSFER_SRC, TextureLayout::PRESENT_SRC),
+            TextureTransition::from_layouts(
+                TextureLayout::TRANSFER_SRC,
+                TextureLayout::PRESENT_SRC,
+            ),
             swapchain_image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -412,18 +461,20 @@ impl Swapchain {
     pub fn record_image_readback(
         &self,
         cmdbuf: &CommandBuffer,
-        image_idx: u32,
+        frame: &AcquiredFrame,
         readback_buffer: &Buffer,
-        width: u32,
-        height: u32,
     ) {
         let device = self.vulkan_context.device();
-        let swapchain_image = self.get_image(image_idx);
+        let swapchain_image = self.image_for_frame(frame);
+        let extent = frame.extent();
 
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            TextureTransition::from_layouts(TextureLayout::PRESENT_SRC, TextureLayout::TRANSFER_SRC),
+            TextureTransition::from_layouts(
+                TextureLayout::PRESENT_SRC,
+                TextureLayout::TRANSFER_SRC,
+            ),
             swapchain_image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -442,8 +493,8 @@ impl Swapchain {
             })
             .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
             .image_extent(vk::Extent3D {
-                width,
-                height,
+                width: extent.width,
+                height: extent.height,
                 depth: 1,
             });
 
@@ -462,7 +513,10 @@ impl Swapchain {
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            TextureTransition::from_layouts(TextureLayout::TRANSFER_SRC, TextureLayout::PRESENT_SRC),
+            TextureTransition::from_layouts(
+                TextureLayout::TRANSFER_SRC,
+                TextureLayout::PRESENT_SRC,
+            ),
             swapchain_image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -474,28 +528,34 @@ impl Swapchain {
         self.render_target().get_render_pass()
     }
 
-    pub fn record_begin_render_pass_cmdbuf(
-        &self,
-        cmdbuf: &CommandBuffer,
-        image_index: u32,
-        _render_area: Extent2D,
-    ) {
+    pub fn record_begin_render_pass_cmdbuf(&self, cmdbuf: &CommandBuffer, frame: &AcquiredFrame) {
+        self.assert_frame_extent_generation(frame.frame_extent_generation());
         let clear_values = [vk::ClearValue {
             color: vk::ClearColorValue {
                 float32: [0.0, 0.0, 0.0, 0.0],
             },
         }];
 
-        self.render_target()
-            .record_begin_with_index(cmdbuf, image_index as usize, &clear_values);
+        self.render_target().record_begin_with_index(
+            cmdbuf,
+            frame.image_index() as usize,
+            &clear_values,
+        );
     }
 
-    pub fn record_prepare_image_for_render_pass(&self, cmdbuf: &CommandBuffer, image_index: u32) {
-        let image = self.get_image(image_index);
+    pub fn record_prepare_image_for_render_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        frame: &AcquiredFrame,
+    ) {
+        let image = self.image_for_frame(frame);
         record_image_transition_barrier(
             self.vulkan_context.device().as_raw(),
             cmdbuf.as_raw(),
-            TextureTransition::from_layouts(TextureLayout::UNDEFINED, TextureLayout::COLOR_ATTACHMENT),
+            TextureTransition::from_layouts(
+                TextureLayout::UNDEFINED,
+                TextureLayout::COLOR_ATTACHMENT,
+            ),
             image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -664,6 +724,31 @@ fn create_swapchain_device_khr(
     (swapchain_device, swapchain_khr)
 }
 
+fn choose_swapchain_extent(
+    capabilities: SurfaceCapabilitiesKHR,
+    requested_extent: Extent2D,
+) -> Extent2D {
+    if capabilities.current_extent.width != u32::MAX
+        && capabilities.current_extent.height != u32::MAX
+    {
+        Extent2D::new(
+            capabilities.current_extent.width,
+            capabilities.current_extent.height,
+        )
+    } else {
+        Extent2D::new(
+            requested_extent.width.clamp(
+                capabilities.min_image_extent.width,
+                capabilities.max_image_extent.width,
+            ),
+            requested_extent.height.clamp(
+                capabilities.min_image_extent.height,
+                capabilities.max_image_extent.height,
+            ),
+        )
+    }
+}
+
 fn create_vulkan_swapchain(
     vulkan_context: &VulkanContext,
     window_extent: Extent2D,
@@ -673,6 +758,7 @@ fn create_vulkan_swapchain(
     vk::SwapchainKHR,
     Vec<ImageView>,
     RenderTarget,
+    Extent2D,
 ) {
     let format = choose_surface_format(
         vulkan_context,
@@ -680,11 +766,6 @@ fn create_vulkan_swapchain(
         swapchain_preference.color_space,
     );
     let present_mode = choose_present_mode(vulkan_context, swapchain_preference.present_mode);
-
-    let extent = Extent2D {
-        width: window_extent.width,
-        height: window_extent.height,
-    };
 
     let capabilities: SurfaceCapabilitiesKHR = unsafe {
         vulkan_context
@@ -696,6 +777,7 @@ fn create_vulkan_swapchain(
             )
             .expect("Failed to get physical device surface capabilities")
     };
+    let extent = choose_swapchain_extent(capabilities, window_extent);
 
     let mut image_count = if let Some(override_count) = swapchain_preference.image_count_override {
         override_count.max(capabilities.min_image_count)
@@ -752,16 +834,18 @@ fn create_vulkan_swapchain(
 
     let render_pass = create_vulkan_render_pass(vulkan_context.device().clone(), format.format);
 
-    let framebuffers = create_vulkan_framebuffers(
-        vulkan_context.clone(),
-        &render_pass,
-        &image_views,
-        window_extent,
-    );
+    let framebuffers =
+        create_vulkan_framebuffers(vulkan_context.clone(), &render_pass, &image_views, extent);
 
     let render_target = RenderTarget::new(render_pass, framebuffers);
 
-    (swapchain_device, swapchain_khr, image_views, render_target)
+    (
+        swapchain_device,
+        swapchain_khr,
+        image_views,
+        render_target,
+        extent,
+    )
 }
 
 fn create_vulkan_render_pass(device: Device, format: vk::Format) -> RenderPass {
@@ -821,4 +905,76 @@ fn create_vulkan_framebuffers(
             .expect("Failed to create framebuffer")
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{choose_swapchain_extent, FrameExtentGeneration};
+    use crate::Extent2D;
+    use ash::vk;
+
+    #[test]
+    fn frame_extent_uses_surface_current_extent() {
+        let capabilities = vk::SurfaceCapabilitiesKHR::default()
+            .current_extent(vk::Extent2D {
+                width: 1600,
+                height: 900,
+            })
+            .min_image_extent(vk::Extent2D {
+                width: 320,
+                height: 240,
+            })
+            .max_image_extent(vk::Extent2D {
+                width: 3840,
+                height: 2160,
+            });
+
+        assert_eq!(
+            choose_swapchain_extent(capabilities, Extent2D::new(1280, 720)),
+            Extent2D::new(1600, 900),
+        );
+    }
+
+    #[test]
+    fn frame_extent_clamps_variable_surface_request() {
+        let capabilities = vk::SurfaceCapabilitiesKHR::default()
+            .current_extent(vk::Extent2D {
+                width: u32::MAX,
+                height: u32::MAX,
+            })
+            .min_image_extent(vk::Extent2D {
+                width: 640,
+                height: 480,
+            })
+            .max_image_extent(vk::Extent2D {
+                width: 1920,
+                height: 1080,
+            });
+
+        assert_eq!(
+            choose_swapchain_extent(capabilities, Extent2D::new(320, 1440)),
+            Extent2D::new(640, 1080),
+        );
+    }
+
+    #[test]
+    fn frame_extent_generation_publishes_successor_extent() {
+        let first = FrameExtentGeneration::initial(Extent2D::new(1280, 720));
+        let second = first.successor(Extent2D::new(1600, 900));
+
+        assert_eq!(first.serial(), 1);
+        assert_eq!(first.extent(), Extent2D::new(1280, 720));
+        assert_eq!(second.serial(), 2);
+        assert_eq!(second.extent(), Extent2D::new(1600, 900));
+    }
+
+    #[test]
+    #[should_panic(expected = "frame extent generation overflow")]
+    fn frame_extent_generation_fails_fast_on_overflow() {
+        FrameExtentGeneration {
+            serial: u64::MAX,
+            extent: Extent2D::new(1280, 720),
+        }
+        .successor(Extent2D::new(1600, 900));
+    }
 }

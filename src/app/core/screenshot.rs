@@ -2,7 +2,7 @@ use super::denoiser_bench::DenoiserBench;
 use crate::{tracer::Tracer, ScreenshotOptions};
 use anyhow::{Context, Result};
 use re_flora_vkn::{
-    Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, MemoryLocation, Swapchain,
+    AcquiredFrame, Buffer, BufferUsage, ColorReadbackFormat, Extent2D, MemoryLocation, Swapchain,
     VulkanContext,
 };
 use std::{borrow::Cow, path::Path, time::Instant};
@@ -224,9 +224,7 @@ impl ScreenshotRuntime {
         tracer: &Tracer,
         vulkan_ctx: &VulkanContext,
         swapchain: &Swapchain,
-        cmdbuf: &CommandBuffer,
-        image_idx: u32,
-        render_area: Extent2D,
+        frame: &AcquiredFrame,
         readiness: ScreenshotFrameReadiness,
     ) -> Option<PendingScreenshot> {
         let destination = self.claim_destination(readiness)?;
@@ -234,7 +232,7 @@ impl ScreenshotRuntime {
             tracer,
             vulkan_ctx,
             swapchain,
-            render_area,
+            frame.extent(),
             Some(&destination),
         ) {
             Ok(readback) => readback,
@@ -250,7 +248,7 @@ impl ScreenshotRuntime {
                 return None;
             }
         };
-        record_swapchain_readback(swapchain, cmdbuf, image_idx, &readback);
+        record_swapchain_readback(swapchain, frame, &readback);
         Some(PendingScreenshot {
             destination,
             readback,
@@ -274,13 +272,11 @@ impl PendingDenoiserFrame {
         tracer: &Tracer,
         vulkan_ctx: &VulkanContext,
         swapchain: &Swapchain,
-        cmdbuf: &CommandBuffer,
-        image_idx: u32,
-        render_area: Extent2D,
+        frame: &AcquiredFrame,
     ) -> Result<Self> {
         let readback =
-            prepare_swapchain_readback(tracer, vulkan_ctx, swapchain, render_area, None)?;
-        record_swapchain_readback(swapchain, cmdbuf, image_idx, &readback);
+            prepare_swapchain_readback(tracer, vulkan_ctx, swapchain, frame.extent(), None)?;
+        record_swapchain_readback(swapchain, frame, &readback);
         Ok(Self { readback })
     }
 
@@ -336,17 +332,10 @@ fn prepare_swapchain_readback(
 
 fn record_swapchain_readback(
     swapchain: &Swapchain,
-    cmdbuf: &CommandBuffer,
-    image_idx: u32,
+    frame: &AcquiredFrame,
     readback: &SwapchainReadback,
 ) {
-    swapchain.record_image_readback(
-        cmdbuf,
-        image_idx,
-        &readback.buffer,
-        readback.width,
-        readback.height,
-    );
+    swapchain.record_image_readback(frame.command_buffer(), frame, &readback.buffer);
 }
 
 fn read_swapchain_rgba(readback: &SwapchainReadback) -> Result<Vec<u8>> {

@@ -94,7 +94,7 @@ use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText,
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use rand::RngExt;
 use re_flora_vkn::{
-    Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
+    Allocator, Extent2D, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
     SwapchainFrameError, SwapchainFrameManager,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
@@ -209,6 +209,7 @@ struct ResizeLifecycleTest {
     next_request_frame: u64,
     observed: Vec<re_flora_vkn::Extent2D>,
     complete: bool,
+    publication_count_at_requests_complete: Option<usize>,
 }
 
 impl ResizeLifecycleTest {
@@ -220,17 +221,21 @@ impl ResizeLifecycleTest {
         PhysicalSize::new(1280, 720),
     ];
 
-    fn request_next(&mut self, window: &winit::window::Window, frame: u64) {
+    fn request_next(&mut self, window: &winit::window::Window, frame: u64) -> Option<Extent2D> {
         if self.complete || frame < self.next_request_frame {
-            return;
+            return None;
         }
         let burst = usize::from(self.requested == 0) * 2 + 1;
+        let mut latest_accepted_extent = None;
         for _ in 0..burst {
             let Some(size) = Self::SIZES.get(self.requested).copied() else {
                 break;
             };
             self.requested += 1;
             let accepted = window.request_inner_size(size);
+            if let Some(accepted) = accepted {
+                latest_accepted_extent = Some(Extent2D::new(accepted.width, accepted.height));
+            }
             log::info!(
                 "[RESIZE_LIFECYCLE] phase=request index={} requested={}x{} accepted={:?} burst={}",
                 self.requested - 1,
@@ -242,14 +247,16 @@ impl ResizeLifecycleTest {
         }
         if self.requested >= Self::SIZES.len() {
             self.complete = true;
+            self.publication_count_at_requests_complete = Some(self.observed.len());
             log::info!(
                 "[RESIZE_LIFECYCLE] phase=requests_complete count={} observed={}",
                 self.requested,
                 self.observed.len(),
             );
-            return;
+            return latest_accepted_extent;
         }
         self.next_request_frame = frame + 2;
+        latest_accepted_extent
     }
 
     fn observe(&mut self, size: re_flora_vkn::Extent2D, generation: u64) {
@@ -263,20 +270,18 @@ impl ResizeLifecycleTest {
         );
     }
 
-    fn converged_on_latest_extent(&self) -> bool {
+    fn published_after_latest_request(&self) -> bool {
         self.complete
-            && self.observed.last().is_some_and(|extent| {
-                extent.width == Self::SIZES.last().unwrap().width
-                    && extent.height == Self::SIZES.last().unwrap().height
-            })
+            && self
+                .publication_count_at_requests_complete
+                .is_some_and(|count| self.observed.len() > count)
     }
 }
 
 pub struct App {
     egui_renderer: EguiRenderer,
     loading_state: Option<LoadingState>,
-    is_resize_pending: bool,
-    resize_generation: u64,
+    pending_frame_extent: Option<Extent2D>,
     resize_lifecycle_test: Option<ResizeLifecycleTest>,
     egui_texture_lifecycle_test: Option<EguiTextureLifecycleTest>,
     swapchain: Swapchain,
@@ -702,6 +707,7 @@ impl App {
             MAX_FRAMES_IN_FLIGHT,
             swapchain.image_count(),
         );
+        let frame_extent_generation = swapchain.frame_extent_generation();
         let frame_retirement_sink = frame_manager.retirement_sink();
         let gpu_profiler = options
             .perf
@@ -792,7 +798,7 @@ impl App {
             allocator.clone(),
             frame_retirement_sink,
             chunk_bound,
-            window_state.window_extent(),
+            frame_extent_generation,
             contree_builder.get_resources(),
             scene_accel_builder.get_resources(),
             plain_builder.get_resources(),
@@ -1009,13 +1015,13 @@ impl App {
             scene_accel_builder,
             terrain_physics,
 
-            is_resize_pending: false,
-            resize_generation: 1,
+            pending_frame_extent: None,
             resize_lifecycle_test: options.resize_lifecycle_test.then(|| ResizeLifecycleTest {
                 requested: 0,
                 next_request_frame: 2,
                 observed: Vec::new(),
                 complete: false,
+                publication_count_at_requests_complete: None,
             }),
             egui_texture_lifecycle_test,
             time_info: TimeInfo::default(),
@@ -1682,12 +1688,12 @@ impl App {
                 scale_factor: _scale_factor,
                 inner_size_writer: _inner_size_writer,
             } => {
-                self.is_resize_pending = true;
+                self.queue_current_frame_extent();
             }
 
             // resize the window
-            WindowEvent::Resized(_) => {
-                self.is_resize_pending = true;
+            WindowEvent::Resized(size) => {
+                self.queue_frame_extent(Extent2D::new(size.width, size.height));
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
@@ -1802,7 +1808,7 @@ impl App {
                 let mut cpu_timings = FrameCpuTimings::new(frame_timing_enabled);
 
                 // resize the window if needed
-                if self.is_resize_pending {
+                if self.pending_frame_extent.is_some() {
                     self.on_resize();
                 }
 
@@ -2904,7 +2910,7 @@ impl App {
                 let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
                     Ok(frame) => frame,
                     Err(SwapchainFrameError::OutOfDate) => {
-                        self.is_resize_pending = true;
+                        self.queue_current_frame_extent();
                         return;
                     }
                     Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
@@ -2912,7 +2918,15 @@ impl App {
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
                 let cmdbuf = frame.command_buffer();
-                let image_idx = frame.image_index();
+                let frame_extent_generation = frame.frame_extent_generation();
+                assert_eq!(
+                    frame_extent_generation,
+                    self.swapchain.frame_extent_generation(),
+                    "acquired frame extent generation is not the active swapchain generation"
+                );
+                self.tracer
+                    .assert_frame_extent_generation(frame_extent_generation);
+                let render_area = frame.extent();
 
                 cmdbuf.begin(false);
                 if let Some(profiler) = self.gpu_profiler.as_mut() {
@@ -3735,17 +3749,12 @@ impl App {
                     }
                 };
 
-                let render_area = self.window_state.window_extent();
-                let tracer_screen_extent = self.tracer.extent_resource_screen_extent();
-                assert_eq!(
-                    tracer_screen_extent, render_area,
-                    "extent-dependent tracer resources and the swapchain frame extent diverged"
-                );
                 if self.resize_lifecycle_test.is_some() {
                     log::info!(
-                        "[RESIZE_LIFECYCLE] phase=frame generation={} tracer_extent_generation={} extent={}x{}",
-                        self.resize_generation,
-                        self.tracer.extent_resource_generation(),
+                        "[RESIZE_LIFECYCLE] phase=frame frame_generation={} swapchain_generation={} tracer_generation={} extent={}x{}",
+                        frame_extent_generation.serial(),
+                        self.swapchain.frame_extent_generation().serial(),
+                        self.tracer.frame_extent_generation().serial(),
                         render_area.width,
                         render_area.height,
                     );
@@ -3754,13 +3763,12 @@ impl App {
                 self.swapchain.record_blit(
                     self.tracer.get_screen_output_tex().get_image(),
                     cmdbuf,
-                    image_idx,
-                    render_area,
+                    &frame,
                 );
                 let device = self.vulkan_ctx.device();
                 self.egui_renderer.prepare_command_buffer(device, cmdbuf);
                 self.swapchain
-                    .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
+                    .record_begin_render_pass_cmdbuf(cmdbuf, &frame);
 
                 let egui_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                     profiler.begin_scope(
@@ -3794,9 +3802,7 @@ impl App {
                     &self.tracer,
                     &self.vulkan_ctx,
                     &self.swapchain,
-                    cmdbuf,
-                    image_idx,
-                    render_area,
+                    &frame,
                     screenshot_readiness,
                 );
                 let mut denoiser_frame_readback = if screenshot_readback.is_none()
@@ -3810,9 +3816,7 @@ impl App {
                             &self.tracer,
                             &self.vulkan_ctx,
                             &self.swapchain,
-                            cmdbuf,
-                            image_idx,
-                            render_area,
+                            &frame,
                         )
                         .unwrap_or_else(|err| {
                             panic!("[DENOISER_BENCH] Failed to prepare readback: {err:#}")
@@ -3839,10 +3843,10 @@ impl App {
 
                 match present_result {
                     Ok(is_suboptimal) if is_suboptimal => {
-                        self.is_resize_pending = true;
+                        self.queue_current_frame_extent();
                     }
                     Err(SwapchainFrameError::OutOfDate) => {
-                        self.is_resize_pending = true;
+                        self.queue_current_frame_extent();
                     }
                     Err(error) => panic!("Failed to present queue. Cause: {}", error),
                     _ => {}
@@ -3975,9 +3979,9 @@ impl App {
                                 }
                             }
                             if let Some(test) = self.resize_lifecycle_test.as_ref() {
-                                if !test.converged_on_latest_extent() {
+                                if !test.published_after_latest_request() {
                                     panic!(
-                                        "[RESIZE_LIFECYCLE] timed out before latest extent was observed requested={} observed={:?}",
+                                        "[RESIZE_LIFECYCLE] timed out before a coherent publication followed the latest request requested={} observed={:?}",
                                         test.requested,
                                         test.observed,
                                     );

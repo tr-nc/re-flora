@@ -1,7 +1,7 @@
 use crate::{
-    CommandBuffer, CommandPool, Device, Fence, FrameCompletion, FrameRetirementClock,
-    FrameRetirementSink, FrameSubmissionId, Semaphore, Swapchain, SwapchainFrameError,
-    VulkanContext,
+    CommandBuffer, CommandPool, Device, Fence, FrameCompletion, FrameExtentGeneration,
+    FrameRetirementClock, FrameRetirementSink, FrameSubmissionId, Semaphore, Swapchain,
+    SwapchainFrameError, VulkanContext,
 };
 
 /// Per-frame synchronization and command recording resources.
@@ -59,6 +59,7 @@ pub struct AcquiredFrame {
     render_finished: Semaphore,
     fence: Fence,
     acquire_suboptimal: bool,
+    frame_extent_generation: FrameExtentGeneration,
 }
 
 impl AcquiredFrame {
@@ -66,8 +67,16 @@ impl AcquiredFrame {
         self.frame_slot
     }
 
-    pub fn image_index(&self) -> u32 {
+    pub(crate) fn image_index(&self) -> u32 {
         self.image_index
+    }
+
+    pub fn frame_extent_generation(&self) -> FrameExtentGeneration {
+        self.frame_extent_generation
+    }
+
+    pub fn extent(&self) -> crate::Extent2D {
+        self.frame_extent_generation.extent()
     }
 
     pub fn command_buffer(&self) -> &CommandBuffer {
@@ -80,6 +89,10 @@ impl AcquiredFrame {
 
     pub fn acquire_suboptimal(&self) -> bool {
         self.acquire_suboptimal
+    }
+
+    pub(crate) fn render_finished(&self) -> &Semaphore {
+        &self.render_finished
     }
 }
 
@@ -155,6 +168,7 @@ impl SwapchainFrameManager {
         let sync = &self.frames[frame_slot];
         let (image_index, acquire_suboptimal) =
             swapchain.acquire_next_image(sync.image_available())?;
+        let frame_extent_generation = swapchain.frame_extent_generation();
         let image_slot = image_index as usize;
         if let Some(image_in_flight_fence) = &self.images_in_flight[image_slot] {
             image_in_flight_fence.wait().unwrap();
@@ -171,6 +185,7 @@ impl SwapchainFrameManager {
             render_finished: self.image_render_finished_semaphores[image_slot].clone(),
             fence: sync.fence().clone(),
             acquire_suboptimal,
+            frame_extent_generation,
         })
     }
 
@@ -180,6 +195,7 @@ impl SwapchainFrameManager {
         swapchain: &mut Swapchain,
         frame: &AcquiredFrame,
     ) -> Result<bool, SwapchainFrameError> {
+        swapchain.assert_frame_extent_generation(frame.frame_extent_generation());
         vulkan_ctx
             .submit_render_commands(
                 &frame.command_buffer,
@@ -195,7 +211,7 @@ impl SwapchainFrameManager {
             replaced.is_none(),
             "frame slot submitted again before its previous completion was observed"
         );
-        let present_result = swapchain.present_after(&frame.render_finished, frame.image_index);
+        let present_result = swapchain.present_after(frame);
         self.advance_frame();
         present_result.map(|present_suboptimal| frame.acquire_suboptimal() || present_suboptimal)
     }
