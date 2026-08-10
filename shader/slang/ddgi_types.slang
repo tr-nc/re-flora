@@ -84,4 +84,8 @@ public struct U_DdgiVoxelVisibilityInfo
     public uint ready;
     public float3 world_to_voxel_scale;
     public uint max_steps;
+    public uint4 update_word_offset;
+    public uint4 update_word_dimensions;
+    public uint4 update_block_offset;
+    public uint4 update_block_dimensions;
 };

@@ -5,6 +5,7 @@
 //! optical-boundary, revision, and fail-closed behavior can be tested without a Vulkan device.
 
 use crate::generated::gpu_structs::DdgiVoxelVisibilityInfo;
+use crate::geom::UAabb3;
 use crate::resource::{DescriptorResource, Resource, ResourceContainer, ResourceLookup};
 use anyhow::{ensure, Result};
 use glam::UVec3;
@@ -19,14 +20,62 @@ use re_flora_vkn::{
 pub const DDGI_VOXEL_VISIBILITY_MAX_STEPS: u32 = 2048;
 pub const DDGI_VOXEL_VISIBILITY_BLOCK_SIZE: u32 = 8;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DdgiVoxelVisibilityUpdate {
+    pub word_offset: UVec3,
+    pub word_dimensions: UVec3,
+    pub block_offset: UVec3,
+    pub block_dimensions: UVec3,
+}
+
+fn plan_visibility_update(
+    dimensions: UVec3,
+    edited_voxel_bound: UAabb3,
+    can_reuse_existing_pack: bool,
+) -> Result<DdgiVoxelVisibilityUpdate> {
+    ensure!(
+        dimensions.min_element() > 0 && edited_voxel_bound.has_size(),
+        "DDGI voxel visibility update requires nonempty dimensions and edit bounds",
+    );
+    if can_reuse_existing_pack {
+        let update_min = edited_voxel_bound.min().min(dimensions);
+        let update_max = edited_voxel_bound.max().min(dimensions);
+        ensure!(
+            update_min.cmplt(update_max).all(),
+            "DDGI voxel visibility edit bound {:?}..{:?} does not overlap dimensions {dimensions}",
+            edited_voxel_bound.min(),
+            edited_voxel_bound.max(),
+        );
+        let word_offset = UVec3::new(update_min.x / u32::BITS, update_min.y, update_min.z);
+        let word_max = UVec3::new(update_max.x.div_ceil(u32::BITS), update_max.y, update_max.z);
+        let block_offset = update_min / DDGI_VOXEL_VISIBILITY_BLOCK_SIZE;
+        let block_max = UVec3::new(
+            update_max.x.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
+            update_max.y.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
+            update_max.z.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
+        );
+        return Ok(DdgiVoxelVisibilityUpdate {
+            word_offset,
+            word_dimensions: word_max - word_offset,
+            block_offset,
+            block_dimensions: block_max - block_offset,
+        });
+    }
+
+    Ok(DdgiVoxelVisibilityUpdate {
+        word_offset: UVec3::ZERO,
+        word_dimensions: packed_word_dimensions(dimensions),
+        block_offset: UVec3::ZERO,
+        block_dimensions: visibility_block_dimensions(dimensions),
+    })
+}
+
 /// Deep owner of the exact voxel-occupancy publication consumed by every production DDGI query.
 ///
 /// A single fixed-size bit volume is safe because rebuilding is synchronous. `ready` is cleared
 /// before packing, and is only republished with the exact geometry revision after the GPU job has
 /// completed.
 pub struct DdgiVoxelVisibility {
-    word_dimensions: UVec3,
-    block_dimensions: UVec3,
     info_snapshot: DdgiVoxelVisibilityInfo,
     published_revision: Option<u32>,
     pub ddgi_voxel_visibility_bits: Resource<Texture>,
@@ -51,11 +100,7 @@ impl DdgiVoxelVisibility {
             "DDGI voxel visibility world scale must be nonzero",
         );
         let word_dimensions = packed_word_dimensions(dimensions);
-        let block_dimensions = UVec3::new(
-            dimensions.x.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
-            dimensions.y.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
-            dimensions.z.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
-        );
+        let block_dimensions = visibility_block_dimensions(dimensions);
         let max_steps = dimensions.element_sum().saturating_add(3);
         ensure!(
             max_steps <= DDGI_VOXEL_VISIBILITY_MAX_STEPS,
@@ -125,6 +170,15 @@ impl DdgiVoxelVisibility {
             ready: 0,
             world_to_voxel_scale: voxels_per_world_unit.as_vec3().to_array(),
             max_steps,
+            update_word_offset: [0; 4],
+            update_word_dimensions: [word_dimensions.x, word_dimensions.y, word_dimensions.z, 0],
+            update_block_offset: [0; 4],
+            update_block_dimensions: [
+                block_dimensions.x,
+                block_dimensions.y,
+                block_dimensions.z,
+                0,
+            ],
         };
         info.fill_uniform(&info_snapshot)?;
 
@@ -149,8 +203,6 @@ impl DdgiVoxelVisibility {
         );
 
         Ok(Self {
-            word_dimensions,
-            block_dimensions,
             info_snapshot,
             published_revision: None,
             ddgi_voxel_visibility_bits: Resource::new(texture),
@@ -159,24 +211,50 @@ impl DdgiVoxelVisibility {
         })
     }
 
-    pub fn word_dimensions(&self) -> UVec3 {
-        self.word_dimensions
-    }
-
-    pub fn block_dimensions(&self) -> UVec3 {
-        self.block_dimensions
-    }
-
     pub fn published_revision(&self) -> Option<u32> {
         self.published_revision
     }
 
-    pub fn begin_pack(&mut self, geometry_revision: u32) -> Result<()> {
+    pub fn begin_pack(
+        &mut self,
+        geometry_revision: u32,
+        edited_voxel_bound: UAabb3,
+    ) -> Result<DdgiVoxelVisibilityUpdate> {
+        let update = plan_visibility_update(
+            UVec3::from_array(self.info_snapshot.voxel_dimensions),
+            edited_voxel_bound,
+            self.published_revision.is_some(),
+        )?;
         self.info_snapshot.geometry_revision = geometry_revision;
         self.info_snapshot.ready = 0;
+        self.info_snapshot.update_word_offset = [
+            update.word_offset.x,
+            update.word_offset.y,
+            update.word_offset.z,
+            0,
+        ];
+        self.info_snapshot.update_word_dimensions = [
+            update.word_dimensions.x,
+            update.word_dimensions.y,
+            update.word_dimensions.z,
+            0,
+        ];
+        self.info_snapshot.update_block_offset = [
+            update.block_offset.x,
+            update.block_offset.y,
+            update.block_offset.z,
+            0,
+        ];
+        self.info_snapshot.update_block_dimensions = [
+            update.block_dimensions.x,
+            update.block_dimensions.y,
+            update.block_dimensions.z,
+            0,
+        ];
         self.published_revision = None;
         self.ddgi_voxel_visibility_info
-            .fill_uniform(&self.info_snapshot)
+            .fill_uniform(&self.info_snapshot)?;
+        Ok(update)
     }
 
     pub fn publish_pack(&mut self, geometry_revision: u32) -> Result<()> {
@@ -280,7 +358,15 @@ impl CpuVisibilityVolume {
 }
 
 fn packed_word_dimensions(dimensions: UVec3) -> UVec3 {
-    UVec3::new(dimensions.x.div_ceil(32), dimensions.y, dimensions.z)
+    UVec3::new(dimensions.x.div_ceil(u32::BITS), dimensions.y, dimensions.z)
+}
+
+fn visibility_block_dimensions(dimensions: UVec3) -> UVec3 {
+    UVec3::new(
+        dimensions.x.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
+        dimensions.y.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
+        dimensions.z.div_ceil(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE),
+    )
 }
 
 #[cfg(test)]
@@ -542,11 +628,179 @@ fn axis_next(origin: f32, direction: f32, cell: i32, step: i32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     const REVISION: u32 = 7;
 
     fn volume(dimensions: UVec3, occupied: &[UVec3]) -> CpuVisibilityVolume {
         CpuVisibilityVolume::from_occupancy(dimensions, REVISION, true, occupied.iter().copied())
+    }
+
+    fn update_words(
+        volume: &mut CpuVisibilityVolume,
+        occupied: &HashSet<UVec3>,
+        update: DdgiVoxelVisibilityUpdate,
+    ) {
+        let words = packed_word_dimensions(volume.dimensions);
+        for z in update.word_offset.z..update.word_offset.z + update.word_dimensions.z {
+            for y in update.word_offset.y..update.word_offset.y + update.word_dimensions.y {
+                for word_x in update.word_offset.x..update.word_offset.x + update.word_dimensions.x
+                {
+                    let first_x = word_x * u32::BITS;
+                    let mut packed = 0_u32;
+                    for bit in 0..u32::BITS {
+                        let coordinate = UVec3::new(first_x + bit, y, z);
+                        if coordinate.x < volume.dimensions.x && occupied.contains(&coordinate) {
+                            packed |= 1 << bit;
+                        }
+                    }
+                    let index = word_x + words.x * (y + words.y * z);
+                    volume.words[index as usize] = packed;
+                }
+            }
+        }
+    }
+
+    fn blocks_from_words(volume: &CpuVisibilityVolume) -> Vec<u8> {
+        let block_dimensions = visibility_block_dimensions(volume.dimensions);
+        let mut blocks = vec![0; block_dimensions.element_product() as usize];
+        update_blocks(
+            volume,
+            &mut blocks,
+            DdgiVoxelVisibilityUpdate {
+                word_offset: UVec3::ZERO,
+                word_dimensions: packed_word_dimensions(volume.dimensions),
+                block_offset: UVec3::ZERO,
+                block_dimensions,
+            },
+        );
+        blocks
+    }
+
+    fn update_blocks(
+        volume: &CpuVisibilityVolume,
+        blocks: &mut [u8],
+        update: DdgiVoxelVisibilityUpdate,
+    ) {
+        let block_dimensions = visibility_block_dimensions(volume.dimensions);
+        for block_z in update.block_offset.z..update.block_offset.z + update.block_dimensions.z {
+            for block_y in update.block_offset.y..update.block_offset.y + update.block_dimensions.y
+            {
+                for block_x in
+                    update.block_offset.x..update.block_offset.x + update.block_dimensions.x
+                {
+                    let block = UVec3::new(block_x, block_y, block_z);
+                    let first = block * DDGI_VOXEL_VISIBILITY_BLOCK_SIZE;
+                    let last = (first + UVec3::splat(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE))
+                        .min(volume.dimensions);
+                    let mut occupied = false;
+                    'voxels: for z in first.z..last.z {
+                        for y in first.y..last.y {
+                            for x in first.x..last.x {
+                                if volume.occupied(UVec3::new(x, y, z)) {
+                                    occupied = true;
+                                    break 'voxels;
+                                }
+                            }
+                        }
+                    }
+                    let index =
+                        block.x + block_dimensions.x * (block.y + block_dimensions.y * block.z);
+                    blocks[index as usize] = u8::from(occupied);
+                }
+            }
+        }
+    }
+
+    fn assert_incremental_matches_full(
+        dimensions: UVec3,
+        old_occupied: &[UVec3],
+        final_occupied: &[UVec3],
+        edited: UAabb3,
+    ) -> DdgiVoxelVisibilityUpdate {
+        let update = plan_visibility_update(dimensions, edited, true).unwrap();
+        let mut incremental = volume(dimensions, old_occupied);
+        let mut incremental_blocks = blocks_from_words(&incremental);
+        let occupied = final_occupied.iter().copied().collect::<HashSet<_>>();
+
+        update_words(&mut incremental, &occupied, update);
+        update_blocks(&incremental, &mut incremental_blocks, update);
+
+        let rebuilt = volume(dimensions, final_occupied);
+        assert_eq!(incremental.words, rebuilt.words);
+        assert_eq!(incremental_blocks, blocks_from_words(&rebuilt));
+        update
+    }
+
+    #[test]
+    fn reusable_visibility_pack_updates_only_rounded_edit_words_and_blocks() {
+        let dimensions = UVec3::new(512, 512, 512);
+        let edited = UAabb3::new(UVec3::new(31, 7, 8), UVec3::new(33, 9, 17));
+
+        let update = plan_visibility_update(dimensions, edited, true).unwrap();
+
+        assert_eq!(update.word_offset, UVec3::new(0, 7, 8));
+        assert_eq!(update.word_dimensions, UVec3::new(2, 2, 9));
+        assert_eq!(update.block_offset, UVec3::new(3, 0, 1));
+        assert_eq!(update.block_dimensions, UVec3::new(2, 2, 2));
+    }
+
+    #[test]
+    fn first_visibility_publication_rebuilds_the_full_volume() {
+        let dimensions = UVec3::new(512, 512, 512);
+        let edited = UAabb3::new(UVec3::new(31, 7, 8), UVec3::new(33, 9, 17));
+
+        let initial = plan_visibility_update(dimensions, edited, false).unwrap();
+        assert_eq!(initial.word_offset, UVec3::ZERO);
+        assert_eq!(initial.word_dimensions, UVec3::new(16, 512, 512));
+        assert_eq!(initial.block_offset, UVec3::ZERO);
+        assert_eq!(initial.block_dimensions, UVec3::splat(64));
+    }
+
+    #[test]
+    fn incremental_repack_matches_full_words_and_blocks_across_boundaries() {
+        let dimensions = UVec3::new(65, 17, 17);
+        let old_occupied = [
+            UVec3::new(2, 2, 2),
+            UVec3::new(7, 7, 7),
+            UVec3::new(31, 7, 8),
+            UVec3::new(50, 16, 16),
+        ];
+        let final_occupied = [
+            UVec3::new(2, 2, 2),
+            UVec3::new(8, 8, 8),
+            UVec3::new(32, 8, 8),
+            UVec3::new(50, 16, 16),
+        ];
+        let update = assert_incremental_matches_full(
+            dimensions,
+            &old_occupied,
+            &final_occupied,
+            UAabb3::new(UVec3::new(7, 7, 7), UVec3::new(33, 9, 9)),
+        );
+
+        assert_eq!(update.word_offset, UVec3::new(0, 7, 7));
+        assert_eq!(update.word_dimensions, UVec3::new(2, 2, 2));
+        assert_eq!(update.block_offset, UVec3::ZERO);
+        assert_eq!(update.block_dimensions, UVec3::new(5, 2, 2));
+    }
+
+    #[test]
+    fn incremental_repack_clamps_edge_edit_and_matches_full_words_and_blocks() {
+        let dimensions = UVec3::new(65, 17, 17);
+        let old_occupied = [UVec3::new(2, 2, 2), UVec3::new(64, 16, 16)];
+        let final_occupied = [UVec3::new(2, 2, 2), UVec3::new(63, 15, 15)];
+        let update = assert_incremental_matches_full(
+            dimensions,
+            &old_occupied,
+            &final_occupied,
+            UAabb3::new(UVec3::new(63, 15, 15), UVec3::new(80, 24, 24)),
+        );
+
+        assert_eq!(update.word_offset, UVec3::new(1, 15, 15));
+        assert_eq!(update.word_dimensions, UVec3::new(2, 2, 2));
+        assert_eq!(update.block_offset, UVec3::new(7, 1, 1));
+        assert_eq!(update.block_dimensions, UVec3::new(2, 2, 2));
     }
 
     #[test]
