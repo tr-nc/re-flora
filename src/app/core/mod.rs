@@ -2925,7 +2925,11 @@ impl App {
                 self.apply_denoiser_benchmark_camera_motion();
 
                 let gpu_record_start = Instant::now();
-                let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
+                let frame = match cpu_timings.time_if(
+                    frame_perf_enabled,
+                    FrameCpuScope::RenderAcquire,
+                    || self.frame_manager.begin_frame(&mut self.swapchain),
+                ) {
                     Ok(frame) => frame,
                     Err(SwapchainFrameError::OutOfDate) => {
                         self.queue_current_frame_extent();
@@ -2946,6 +2950,7 @@ impl App {
                     .assert_frame_extent_generation(frame_extent_generation);
                 let render_area = frame.extent();
 
+                let render_record_start = frame_perf_enabled.then(Instant::now);
                 cmdbuf.begin(false);
                 if let Some(profiler) = self.gpu_profiler.as_mut() {
                     profiler.begin_frame(frame_slot, cmdbuf);
@@ -3656,19 +3661,25 @@ impl App {
                             PipelineStage::ALL_COMMANDS,
                         )
                     });
-                self.tracer
-                    .record_shadow_prepass(
-                        cmdbuf,
-                        self.surface_builder.get_resources(),
-                        self.time_info.time_since_start(),
-                        leaf_color_tables,
-                        &self.render_flags,
-                        update_shadow_map,
-                        self.debug_settings.adjustables.vsm_blur_radius.value,
-                        vsm_temporal_alpha,
-                        leaf_shadow_temporal_alpha,
-                        gpu_profiler_for_shadow.as_mut(),
-                        frame_slot,
+                cpu_timings
+                    .time_if(
+                        frame_perf_enabled,
+                        FrameCpuScope::RenderShadowPrepassRecord,
+                        || {
+                            self.tracer.record_shadow_prepass(
+                                cmdbuf,
+                                self.surface_builder.get_resources(),
+                                self.time_info.time_since_start(),
+                                leaf_color_tables,
+                                &self.render_flags,
+                                update_shadow_map,
+                                self.debug_settings.adjustables.vsm_blur_radius.value,
+                                vsm_temporal_alpha,
+                                leaf_shadow_temporal_alpha,
+                                gpu_profiler_for_shadow.as_mut(),
+                                frame_slot,
+                            )
+                        },
                     )
                     .unwrap();
                 if let Some(scope) = shadow_prepass_gpu_scope {
@@ -3719,20 +3730,22 @@ impl App {
                     )
                 });
                 let mut gpu_profiler_for_trace = self.gpu_profiler.take();
-                self.tracer
-                    .record_trace_after_shadow_prepass(
-                        cmdbuf,
-                        self.surface_builder.get_resources(),
-                        self.debug_settings.adjustables.lod_distance.value,
-                        self.debug_settings.adjustables.flora_draw_distance.value,
-                        self.debug_settings.adjustables.grass_render_mode.value,
-                        self.time_info.time_since_start(),
-                        flora_color_tables,
-                        leaf_color_tables,
-                        &self.render_flags,
-                        gpu_profiler_for_trace.as_mut(),
-                        frame_slot,
-                    )
+                cpu_timings
+                    .time_if(frame_perf_enabled, FrameCpuScope::RenderTraceRecord, || {
+                        self.tracer.record_trace_after_shadow_prepass(
+                            cmdbuf,
+                            self.surface_builder.get_resources(),
+                            self.debug_settings.adjustables.lod_distance.value,
+                            self.debug_settings.adjustables.flora_draw_distance.value,
+                            self.debug_settings.adjustables.grass_render_mode.value,
+                            self.time_info.time_since_start(),
+                            flora_color_tables,
+                            leaf_color_tables,
+                            &self.render_flags,
+                            gpu_profiler_for_trace.as_mut(),
+                            frame_slot,
+                        )
+                    })
                     .unwrap();
                 if let Some(scope) = tracer_gpu_scope {
                     if let Some(profiler) = gpu_profiler_for_trace.as_mut() {
@@ -3851,11 +3864,23 @@ impl App {
                 }
 
                 cmdbuf.end();
+                if let Some(start) = render_record_start {
+                    cpu_timings.add_ms(
+                        FrameCpuScope::RenderRecord,
+                        start.elapsed().as_secs_f32() * 1000.0,
+                    );
+                }
 
-                let present_result = self.frame_manager.submit_and_present(
-                    &self.vulkan_ctx,
-                    &mut self.swapchain,
-                    &frame,
+                let present_result = cpu_timings.time_if(
+                    frame_perf_enabled,
+                    FrameCpuScope::RenderSubmitPresent,
+                    || {
+                        self.frame_manager.submit_and_present(
+                            &self.vulkan_ctx,
+                            &mut self.swapchain,
+                            &frame,
+                        )
+                    },
                 );
                 let gpu_ms = gpu_record_start.elapsed().as_secs_f32() * 1000.0;
 
@@ -3952,6 +3977,20 @@ impl App {
                         gpu_ms
                     );
                     self.log_gpu_profiler_frame(frame_count);
+                    log::info!(
+                        "[PERF][CPU_FRAME_SCOPE] frame {} frame.cpu_total={:.0}us frame.egui={:.0}us render.path={:.0}us render.acquire={:.0}us render.record={:.0}us render.shadow_prepass_record={:.0}us render.trace_record={:.0}us render.submit_present={:.0}us frame.tracked_cpu={:.0}us frame.untracked_cpu={:.0}us",
+                        frame_count,
+                        total_ms * 1000.0,
+                        egui_ms * 1000.0,
+                        gpu_ms * 1000.0,
+                        frame_timing_snapshot.render_acquire_ms * 1000.0,
+                        frame_timing_snapshot.render_record_ms * 1000.0,
+                        frame_timing_snapshot.render_shadow_prepass_record_ms * 1000.0,
+                        frame_timing_snapshot.render_trace_record_ms * 1000.0,
+                        frame_timing_snapshot.render_submit_present_ms * 1000.0,
+                        frame_timing_snapshot.tracked_cpu_ms * 1000.0,
+                        frame_timing_snapshot.untracked_cpu_ms * 1000.0,
+                    );
                 }
                 if frame_perf_enabled {
                     let queue_work_ms = cpu_timings.queue_work_ms();

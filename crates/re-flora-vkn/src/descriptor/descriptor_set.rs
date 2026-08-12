@@ -1,7 +1,7 @@
 use crate::{
     AccelStruct, Buffer, BufferState, CommandBuffer, DescriptorAccess, DescriptorPool,
-    DescriptorSetLayout, Device, MemoryAccess, PipelineStage, ResourceState, Texture,
-    TextureLayout,
+    DescriptorResource, DescriptorSetLayout, Device, MemoryAccess, PipelineStage, ResourceState,
+    Texture, TextureLayout,
 };
 use anyhow::Result;
 use ash::vk;
@@ -16,6 +16,53 @@ enum DescriptorResourceOwner {
     Buffer(Buffer),
     Texture(Texture),
     AccelStruct(AccelStruct),
+}
+
+impl DescriptorResourceOwner {
+    fn identity(&self) -> DescriptorResourceIdentity {
+        match self {
+            Self::Buffer(buffer) => DescriptorResourceIdentity::Buffer(buffer.as_raw()),
+            Self::Texture(texture) => DescriptorResourceIdentity::Texture {
+                image_view: texture.get_image_view().as_raw(),
+                sampler: texture.get_sampler().as_raw(),
+            },
+            Self::AccelStruct(accel_struct) => {
+                DescriptorResourceIdentity::AccelerationStructure(accel_struct.as_raw())
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DescriptorResourceIdentity {
+    Buffer(vk::Buffer),
+    Texture {
+        image_view: vk::ImageView,
+        sampler: vk::Sampler,
+    },
+    AccelerationStructure(vk::AccelerationStructureKHR),
+}
+
+impl DescriptorResourceIdentity {
+    fn from_resource(resource: DescriptorResource<'_>) -> Self {
+        match resource {
+            DescriptorResource::Buffer(buffer) => Self::Buffer(buffer.as_raw()),
+            DescriptorResource::Texture(texture) => Self::Texture {
+                image_view: texture.get_image_view().as_raw(),
+                sampler: texture.get_sampler().as_raw(),
+            },
+            DescriptorResource::AccelerationStructure(accel_struct) => {
+                Self::AccelerationStructure(accel_struct.as_raw())
+            }
+        }
+    }
+}
+
+fn descriptor_resource_requires_write(
+    current: Option<DescriptorResourceIdentity>,
+    requested: DescriptorResourceIdentity,
+) -> bool {
+    current != Some(requested)
 }
 
 #[derive(Clone)]
@@ -207,6 +254,21 @@ impl DescriptorSet {
                 }
             }
         }
+    }
+
+    pub(crate) fn resources_match<'a>(
+        &self,
+        resources: impl IntoIterator<Item = (u32, DescriptorResource<'a>)>,
+    ) -> bool {
+        let owners = self.0.owners.lock().unwrap();
+        resources.into_iter().all(|(binding, resource)| {
+            !descriptor_resource_requires_write(
+                owners
+                    .get(&(binding, 0))
+                    .map(|owner| owner.owner.identity()),
+                DescriptorResourceIdentity::from_resource(resource),
+            )
+        })
     }
 
     pub(crate) fn image_owner_count(&self) -> usize {
@@ -433,9 +495,13 @@ impl<'a> WriteDescriptorSet<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{descriptor_type_accesses_image, ReflectedShaderUse};
+    use super::{
+        descriptor_resource_requires_write, descriptor_type_accesses_image,
+        DescriptorResourceIdentity, ReflectedShaderUse,
+    };
     use crate::{DescriptorAccess, MemoryAccess, PipelineStage, TextureLayout};
     use ash::vk;
+    use ash::vk::Handle;
 
     #[test]
     fn reflected_shader_use_preserves_exact_stage_and_access() {
@@ -470,6 +536,72 @@ mod tests {
         ));
         assert!(!descriptor_type_accesses_image(
             vk::DescriptorType::STORAGE_BUFFER
+        ));
+    }
+
+    #[test]
+    fn identical_descriptor_resource_identities_skip_writes() {
+        let identities = [
+            DescriptorResourceIdentity::Buffer(vk::Buffer::from_raw(11)),
+            DescriptorResourceIdentity::Texture {
+                image_view: vk::ImageView::from_raw(12),
+                sampler: vk::Sampler::from_raw(13),
+            },
+            DescriptorResourceIdentity::AccelerationStructure(
+                vk::AccelerationStructureKHR::from_raw(14),
+            ),
+        ];
+
+        for identity in identities {
+            assert!(!descriptor_resource_requires_write(
+                Some(identity),
+                identity
+            ));
+        }
+    }
+
+    #[test]
+    fn changed_or_missing_descriptor_resources_force_writes() {
+        let buffer = DescriptorResourceIdentity::Buffer(vk::Buffer::from_raw(21));
+        assert!(descriptor_resource_requires_write(None, buffer));
+        assert!(descriptor_resource_requires_write(
+            Some(buffer),
+            DescriptorResourceIdentity::Buffer(vk::Buffer::from_raw(22)),
+        ));
+        assert!(descriptor_resource_requires_write(
+            Some(buffer),
+            DescriptorResourceIdentity::AccelerationStructure(
+                vk::AccelerationStructureKHR::from_raw(21),
+            ),
+        ));
+
+        let texture = DescriptorResourceIdentity::Texture {
+            image_view: vk::ImageView::from_raw(23),
+            sampler: vk::Sampler::from_raw(24),
+        };
+        assert!(descriptor_resource_requires_write(
+            Some(texture),
+            DescriptorResourceIdentity::Texture {
+                image_view: vk::ImageView::from_raw(25),
+                sampler: vk::Sampler::from_raw(24),
+            },
+        ));
+        assert!(descriptor_resource_requires_write(
+            Some(texture),
+            DescriptorResourceIdentity::Texture {
+                image_view: vk::ImageView::from_raw(23),
+                sampler: vk::Sampler::from_raw(26),
+            },
+        ));
+
+        let acceleration_structure = DescriptorResourceIdentity::AccelerationStructure(
+            vk::AccelerationStructureKHR::from_raw(27),
+        );
+        assert!(descriptor_resource_requires_write(
+            Some(acceleration_structure),
+            DescriptorResourceIdentity::AccelerationStructure(
+                vk::AccelerationStructureKHR::from_raw(28),
+            ),
         ));
     }
 }
