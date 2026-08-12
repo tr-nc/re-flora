@@ -256,6 +256,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/foliage/tree_leaf_lighting_cache.comp",
+        source_path: "shader/slang/tree_leaf_lighting_cache.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/foliage/flora_lod.vert",
         source_path: "shader/slang/flora_lod.vert.slang",
         module_path: "shader/slang",

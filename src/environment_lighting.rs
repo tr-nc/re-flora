@@ -406,17 +406,15 @@ mod tests {
         let shared = include_str!("../shader/slang/flora_vertex.slang");
         let flora = include_str!("../shader/slang/flora.vert.slang");
         let flora_lod = include_str!("../shader/slang/flora_lod.vert.slang");
+        let tree_leaf_cache = include_str!("../shader/slang/tree_leaf_lighting_cache.comp.slang");
+        let leaves = include_str!("../shader/slang/leaves.vert.slang");
+        let leaves_lod = include_str!("../shader/slang/leaves_lod.vert.slang");
 
         assert_eq!(switch["kind"].as_str(), Some("bool"));
         assert_eq!(switch["data"]["value"].as_bool(), Some(true));
         assert!(lighting.contains("float3(24.0 / 255.0)"));
         assert!(lighting.contains("sunLight * shadowWeight + LEGACY_RASTER_FLORA_AMBIENT_LIGHT"));
         assert!(shared.contains("applyLegacyRasterFloraLighting("));
-        let leaf_lighting = shared
-            .split_once("public float3 shadeTreeLeafVertex(")
-            .expect("tree-leaf lighting helper must exist")
-            .1;
-        assert!(leaf_lighting.contains("if (rasterFloraUsesDdgiLighting())"));
         for shader in [flora, flora_lod] {
             let lighting_branch = shader
                 .split_once("if (rasterFloraUsesDdgiLighting())")
@@ -425,6 +423,30 @@ mod tests {
             assert!(lighting_branch.contains("flora_lighting_cache.irradiance["));
             assert!(lighting_branch.contains("shadeLegacyRasterFloraVertex("));
         }
+        assert_eq!(
+            tree_leaf_cache.matches("sampleFloraEnvironment(").count(),
+            1
+        );
+        assert!(
+            tree_leaf_cache.contains("floraLightingCacheIndex(floraPc, localInstanceIndex, 0u)")
+        );
+        assert!(!tree_leaf_cache.contains("vertexOffset"));
+        for shader in [leaves, leaves_lod] {
+            let lighting_branch = shader
+                .split_once("if (rasterFloraUsesDdgiLighting())")
+                .expect("tree-leaf shader must branch before cache access")
+                .1;
+            assert!(lighting_branch.contains("flora_lighting_cache.irradiance["));
+            assert!(lighting_branch.contains("shadeTreeLeafVertexWithEnvironment("));
+            assert!(lighting_branch.contains("shadeLegacyTreeLeafVertex("));
+            assert!(!shader.contains("sampleFloraEnvironment("));
+        }
+        let tree_leaf_finish = shared
+            .split_once("float3 finishTreeLeafShading(")
+            .expect("tree-leaf view-dependent finishing helper must exist")
+            .1;
+        assert!(tree_leaf_finish.contains("backlightVisibility"));
+        assert!(tree_leaf_finish.contains("applyTerrainEditPreviewTint("));
     }
 
     #[test]

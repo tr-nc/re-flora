@@ -262,6 +262,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let tree_leaf_lighting_cache_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/tree_leaf_lighting_cache.comp",
+            "main",
+        )
+        .unwrap();
 
         let leaves_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -406,6 +412,7 @@ impl PipelineBuilder {
             flora_frag_sm,
             flora_lod_vert_sm,
             flora_lighting_cache_sm,
+            tree_leaf_lighting_cache_sm,
             leaves_vert_sm,
             leaves_lod_vert_sm,
             leaves_shadow_vert_sm,
@@ -526,6 +533,22 @@ impl PipelineBuilder {
                 ],
             })
             .expect("flora lighting cache static descriptors must resolve");
+        let tree_leaf_lighting_cache_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.tree_leaf_lighting_cache_sm,
+            pool,
+        );
+        tree_leaf_lighting_cache_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[
+                    resources,
+                    plain_builder_resources,
+                    ddgi_volume,
+                    ddgi_voxel_visibility,
+                ],
+            })
+            .expect("tree-leaf lighting cache static descriptors must resolve");
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,
@@ -645,6 +668,7 @@ impl PipelineBuilder {
             ddgi_voxel_visibility_pack_ppl,
             ddgi_voxel_visibility_blocks_ppl,
             flora_lighting_cache_ppl,
+            tree_leaf_lighting_cache_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
             shadow_depth_copy_ppl,
@@ -1173,6 +1197,7 @@ pub struct ShaderModules {
     pub flora_frag_sm: ShaderModule,
     pub flora_lod_vert_sm: ShaderModule,
     pub flora_lighting_cache_sm: ShaderModule,
+    pub tree_leaf_lighting_cache_sm: ShaderModule,
     pub leaves_vert_sm: ShaderModule,
     pub leaves_lod_vert_sm: ShaderModule,
     pub leaves_shadow_vert_sm: ShaderModule,
@@ -1204,6 +1229,7 @@ pub struct ComputePipelines {
     pub ddgi_voxel_visibility_pack_ppl: ComputePipeline,
     pub ddgi_voxel_visibility_blocks_ppl: ComputePipeline,
     pub flora_lighting_cache_ppl: ComputePipeline,
+    pub tree_leaf_lighting_cache_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
     pub shadow_depth_copy_ppl: ComputePipeline,

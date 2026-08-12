@@ -518,25 +518,11 @@ public float3 shadeFloraVertexWithEnvironment(
         terrain_edit_preview, litColor, voxelPosition);
 }
 
-public float3 shadeTreeLeafVertex(float3 baseColor, float shadowWeight,
-                                  float sunTransmittance,
-                                  float canopyGradient,
-                                  float3 voxelPosition,
-                                  float3 shadingNormal)
+float3 finishTreeLeafShading(float3 litColor, float3 baseColor,
+                             float sunTransmittance,
+                             float canopyGradient,
+                             float3 voxelPosition)
 {
-    float3 litColor;
-    if (rasterFloraUsesDdgiLighting())
-    {
-        litColor = applyStylizedVoxelLighting(
-            gui_input, sun_info, shading_info, baseColor, shadowWeight,
-            voxelPosition, shadingNormal);
-    }
-    else
-    {
-        litColor = applyLegacyRasterFloraLighting(
-            sun_info, baseColor, shadowWeight);
-    }
-
     float3 toCamera = camera_info.pos.xyz - voxelPosition;
     float toCameraLengthSquared = dot(toCamera, toCamera);
     float3 viewDirection = toCameraLengthSquared > 1.0e-8
@@ -563,4 +549,26 @@ public float3 shadeTreeLeafVertex(float3 baseColor, float shadowWeight,
 
     return applyTerrainEditPreviewTint(
         terrain_edit_preview, litColor, voxelPosition);
+}
+
+public float3 shadeTreeLeafVertexWithEnvironment(
+    float3 baseColor, float shadowWeight, float3 environmentLight,
+    float sunTransmittance, float canopyGradient, float3 voxelPosition)
+{
+    float3 litColor = applyStylizedVoxelLightingWithEnvironment(
+        sun_info, baseColor, shadowWeight, environmentLight);
+    return finishTreeLeafShading(
+        litColor, baseColor, sunTransmittance, canopyGradient,
+        voxelPosition);
+}
+
+public float3 shadeLegacyTreeLeafVertex(
+    float3 baseColor, float shadowWeight, float sunTransmittance,
+    float canopyGradient, float3 voxelPosition)
+{
+    float3 litColor = applyLegacyRasterFloraLighting(
+        sun_info, baseColor, shadowWeight);
+    return finishTreeLeafShading(
+        litColor, baseColor, sunTransmittance, canopyGradient,
+        voxelPosition);
 }

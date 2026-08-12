@@ -212,6 +212,8 @@ pub(super) struct TreeFoliageMainConfig {
     pub(super) draw_distance: f32,
     pub(super) render_leaves: bool,
     pub(super) render_apples: bool,
+    pub(super) lighting_cache_start: u32,
+    pub(super) max_cache_entries: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,6 +222,7 @@ pub(super) struct TreeFoliageBatch {
     tree_id: u32,
     lod_state: LodState,
     instance_count: u32,
+    lighting_cache_offset: Option<u32>,
 }
 
 impl TreeFoliageBatch {
@@ -237,6 +240,10 @@ impl TreeFoliageBatch {
 
     pub(super) fn instance_count(self) -> u32 {
         self.instance_count
+    }
+
+    pub(super) fn lighting_cache_offset(self) -> Option<u32> {
+        self.lighting_cache_offset
     }
 }
 
@@ -265,6 +272,7 @@ impl TreeFoliageBatchGroup {
 pub(super) struct TreeFoliageFramePlan {
     batches: Vec<TreeFoliageBatch>,
     groups: Vec<TreeFoliageBatchGroup>,
+    required_lighting_cache_entries: u32,
 }
 
 impl TreeFoliageFramePlan {
@@ -338,10 +346,30 @@ impl TreeFoliageFramePlan {
                 tree_id: input.tree_id,
                 lod_state,
                 instance_count: input.instance_count,
+                lighting_cache_offset: None,
             };
             match lod_state {
                 LodState::Lod0 => lod0_batches.push(batch),
                 LodState::Lod1 => lod1_batches.push(batch),
+            }
+        }
+
+        if kind == TreeFoliageKind::Leaves {
+            for batch in lod0_batches.iter_mut().chain(&mut lod1_batches) {
+                let cache_offset = config
+                    .lighting_cache_start
+                    .checked_add(self.required_lighting_cache_entries)
+                    .expect("tree-leaf lighting cache offset must fit u32");
+                let next_cache_offset = cache_offset
+                    .checked_add(batch.instance_count)
+                    .expect("tree-leaf lighting cache plan size must fit u32");
+                assert!(
+                    next_cache_offset <= config.max_cache_entries,
+                    "visible raster flora need {next_cache_offset} lighting cache entries, max is {}",
+                    config.max_cache_entries,
+                );
+                batch.lighting_cache_offset = Some(cache_offset);
+                self.required_lighting_cache_entries += batch.instance_count;
             }
         }
 
@@ -362,6 +390,7 @@ impl TreeFoliageFramePlan {
                 tree_id: input.tree_id,
                 lod_state: LodState::Lod1,
                 instance_count: input.instance_count,
+                lighting_cache_offset: None,
             })
             .collect();
         self.append_group(kind, LodState::Lod1, batches);
@@ -392,6 +421,10 @@ impl TreeFoliageFramePlan {
     pub(super) fn groups(&self) -> &[TreeFoliageBatchGroup] {
         &self.groups
     }
+
+    pub(super) fn required_lighting_cache_entries(&self) -> u32 {
+        self.required_lighting_cache_entries
+    }
 }
 
 #[cfg(test)]
@@ -420,6 +453,8 @@ mod tests {
                 draw_distance: 0.9,
                 render_leaves: true,
                 render_apples: false,
+                lighting_cache_start: 100,
+                max_cache_entries: u32::MAX,
             },
             [
                 tree_input(10, Vec3::new(0.2, 0.0, 0.0), 3),
@@ -439,24 +474,28 @@ mod tests {
                     tree_id: 10,
                     lod_state: LodState::Lod0,
                     instance_count: 3,
+                    lighting_cache_offset: Some(100),
                 },
                 TreeFoliageBatch {
                     kind: TreeFoliageKind::Leaves,
                     tree_id: 11,
                     lod_state: LodState::Lod0,
                     instance_count: 4,
+                    lighting_cache_offset: Some(103),
                 },
                 TreeFoliageBatch {
                     kind: TreeFoliageKind::Leaves,
                     tree_id: 12,
                     lod_state: LodState::Lod1,
                     instance_count: 5,
+                    lighting_cache_offset: Some(107),
                 },
                 TreeFoliageBatch {
                     kind: TreeFoliageKind::Leaves,
                     tree_id: 13,
                     lod_state: LodState::Lod1,
                     instance_count: 6,
+                    lighting_cache_offset: Some(112),
                 },
             ]
         );
@@ -475,6 +514,26 @@ mod tests {
                 },
             ]
         );
+        assert_eq!(plan.required_lighting_cache_entries(), 18);
+    }
+
+    #[test]
+    #[should_panic(expected = "visible raster flora need 11 lighting cache entries, max is 10")]
+    fn main_tree_foliage_frame_plan_enforces_combined_flora_cache_capacity() {
+        let _plan = TreeFoliageFramePlan::for_main(
+            TreeFoliageMainConfig {
+                camera_position: Vec3::ZERO,
+                view_projection: Mat4::IDENTITY,
+                lod_distance: 0.5,
+                draw_distance: 1.0,
+                render_leaves: true,
+                render_apples: false,
+                lighting_cache_start: 8,
+                max_cache_entries: 10,
+            },
+            [tree_input(10, Vec3::new(0.2, 0.0, 0.0), 3)],
+            [],
+        );
     }
 
     #[test]
@@ -487,6 +546,8 @@ mod tests {
                 draw_distance: 2.0,
                 render_leaves: false,
                 render_apples: true,
+                lighting_cache_start: 0,
+                max_cache_entries: u32::MAX,
             },
             [tree_input(10, Vec3::new(0.2, 0.0, 0.0), 9)],
             [
@@ -506,18 +567,21 @@ mod tests {
                     tree_id: 22,
                     lod_state: LodState::Lod0,
                     instance_count: 3,
+                    lighting_cache_offset: None,
                 },
                 TreeFoliageBatch {
                     kind: TreeFoliageKind::Apples,
                     tree_id: 20,
                     lod_state: LodState::Lod1,
                     instance_count: 2,
+                    lighting_cache_offset: None,
                 },
                 TreeFoliageBatch {
                     kind: TreeFoliageKind::Apples,
                     tree_id: 24,
                     lod_state: LodState::Lod1,
                     instance_count: 5,
+                    lighting_cache_offset: None,
                 },
             ]
         );
@@ -556,6 +620,8 @@ mod tests {
                 draw_distance: 1.0,
                 render_leaves: true,
                 render_apples: true,
+                lighting_cache_start: 0,
+                max_cache_entries: u32::MAX,
             },
             leaves.clone(),
             apples,
@@ -569,24 +635,28 @@ mod tests {
                 tree_id: 11,
                 lod_state: LodState::Lod0,
                 instance_count: 3,
+                lighting_cache_offset: Some(0),
             },
             TreeFoliageBatch {
                 kind: TreeFoliageKind::Leaves,
                 tree_id: 10,
                 lod_state: LodState::Lod1,
                 instance_count: 2,
+                lighting_cache_offset: Some(3),
             },
             TreeFoliageBatch {
                 kind: TreeFoliageKind::Apples,
                 tree_id: 21,
                 lod_state: LodState::Lod0,
                 instance_count: 5,
+                lighting_cache_offset: None,
             },
             TreeFoliageBatch {
                 kind: TreeFoliageKind::Apples,
                 tree_id: 20,
                 lod_state: LodState::Lod1,
                 instance_count: 4,
+                lighting_cache_offset: None,
             },
         ];
         assert_eq!(plan.batches(), &expected);
@@ -621,18 +691,21 @@ mod tests {
                     tree_id: 10,
                     lod_state: LodState::Lod1,
                     instance_count: 2,
+                    lighting_cache_offset: None,
                 },
                 TreeFoliageBatch {
                     kind: TreeFoliageKind::Leaves,
                     tree_id: 12,
                     lod_state: LodState::Lod1,
                     instance_count: 3,
+                    lighting_cache_offset: None,
                 },
                 TreeFoliageBatch {
                     kind: TreeFoliageKind::Apples,
                     tree_id: 20,
                     lod_state: LodState::Lod1,
                     instance_count: 4,
+                    lighting_cache_offset: None,
                 },
             ]
         );

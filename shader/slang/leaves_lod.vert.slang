@@ -1,4 +1,5 @@
 import flora_types;
+import flora_lighting_cache;
 import flora_vertex;
 
 struct B_TreeLeafInstances
@@ -9,6 +10,15 @@ struct B_TreeLeafInstances
 [[vk::binding(0, 1)]]
 readonly GLSLShaderStorageBuffer<B_TreeLeafInstances, Std430DataLayout>
     tree_leaf_instances;
+
+struct B_TreeLeafLightingCache
+{
+    float4 irradiance[];
+};
+
+[[vk::binding(2, 1)]]
+readonly GLSLShaderStorageBuffer<B_TreeLeafLightingCache, Std430DataLayout>
+    flora_lighting_cache;
 
 struct VertexInput
 {
@@ -69,13 +79,32 @@ VertexOutput main(VertexInput input)
     float3 baseColor = sampleFloraBaseColor(
         prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,
         instancePosition, prepared.color_gradient, voxelInfo);
-    output.color = isTreeLeaf
-        ? shadeTreeLeafVertex(
-            baseColor, prepared.shadow_weight, prepared.sun_transmittance,
-            prepared.color_gradient, prepared.voxel_position,
-            prepared.shading_normal)
-        : shadeFloraVertex(
+    if (isTreeLeaf)
+    {
+        if (rasterFloraUsesDdgiLighting())
+        {
+            PushConstantFlora floraPc = floraPushConstants();
+            float3 environmentLight = flora_lighting_cache.irradiance[
+                floraLightingCacheIndex(
+                    floraPc, input.instance_index, 0u)].xyz;
+            output.color = shadeTreeLeafVertexWithEnvironment(
+                baseColor, prepared.shadow_weight, environmentLight,
+                prepared.sun_transmittance, prepared.color_gradient,
+                prepared.voxel_position);
+        }
+        else
+        {
+            output.color = shadeLegacyTreeLeafVertex(
+                baseColor, prepared.shadow_weight,
+                prepared.sun_transmittance, prepared.color_gradient,
+                prepared.voxel_position);
+        }
+    }
+    else
+    {
+        output.color = shadeFloraVertex(
             baseColor, prepared.shadow_weight, prepared.voxel_position,
             prepared.shading_normal);
+    }
     return output;
 }

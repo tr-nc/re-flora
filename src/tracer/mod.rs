@@ -746,6 +746,7 @@ struct PreparedDdgiConsumerDescriptors {
     token_serial: u64,
     tracer: PreparedDescriptorGeneration,
     flora_lighting_cache: PreparedDescriptorGeneration,
+    tree_leaf_lighting_cache: PreparedDescriptorGeneration,
     graphics: Vec<PreparedDescriptorGeneration>,
 }
 
@@ -2257,6 +2258,10 @@ impl Tracer {
             name: "ddgi_probe_metadata",
             resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
         }];
+        let mut tree_leaf_lighting_cache_writes = vec![DescriptorWrite {
+            name: "ddgi_probe_metadata",
+            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
+        }];
         let mut graphics_writes = vec![DescriptorWrite {
             name: "ddgi_probe_metadata",
             resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
@@ -2275,6 +2280,7 @@ impl Tracer {
             };
             tracer_writes.push(write);
             flora_lighting_cache_writes.push(write);
+            tree_leaf_lighting_cache_writes.push(write);
             graphics_writes.push(write);
         }
 
@@ -2294,6 +2300,11 @@ impl Tracer {
                 .flora_lighting_cache_ppl
                 .prepare_descriptors(DescriptorUpdate::Named(&flora_lighting_cache_writes))
                 .expect("DDGI consumer flora cache descriptor preparation failed"),
+            tree_leaf_lighting_cache: self
+                .compute_pipelines
+                .tree_leaf_lighting_cache_ppl
+                .prepare_descriptors(DescriptorUpdate::Named(&tree_leaf_lighting_cache_writes))
+                .expect("DDGI consumer tree-leaf cache descriptor preparation failed"),
             graphics: graphics_pipelines
                 .iter()
                 .map(|pipeline| {
@@ -2331,7 +2342,7 @@ impl Tracer {
             graphics_pipelines.len(),
             "DDGI consumer descriptor preparation pipeline order changed"
         );
-        let mut retirements = Vec::with_capacity(2 + graphics_pipelines.len());
+        let mut retirements = Vec::with_capacity(3 + graphics_pipelines.len());
         retirements.push(
             self.compute_pipelines
                 .tracer_ppl
@@ -2348,6 +2359,15 @@ impl Tracer {
                     "ddgi.consumer.descriptors",
                     generation,
                     prepared.flora_lighting_cache,
+                ),
+        );
+        retirements.push(
+            self.compute_pipelines
+                .tree_leaf_lighting_cache_ppl
+                .publish_prepared_descriptors(
+                    "ddgi.consumer.descriptors",
+                    generation,
+                    prepared.tree_leaf_lighting_cache,
                 ),
         );
         for (pipeline, descriptor_sets) in graphics_pipelines.into_iter().zip(prepared.graphics) {
@@ -4144,16 +4164,51 @@ impl Tracer {
             FloraFramePlan::default()
         };
         let required_flora_cache_entries = flora_frame_plan.required_cache_entries();
+        let tree_foliage_frame_plan = TreeFoliageFramePlan::for_main(
+            TreeFoliageMainConfig {
+                camera_position: self.camera.position(),
+                view_projection: self.current_view_proj_mat,
+                lod_distance,
+                draw_distance: flora_draw_distance,
+                render_leaves: enable_flora && enable_leaves,
+                render_apples: enable_flora,
+                lighting_cache_start: required_flora_cache_entries,
+                max_cache_entries: FLORA_LIGHTING_CACHE_OFFSET_MASK + 1,
+            },
+            surface_resources
+                .instances
+                .leaves_instances
+                .iter()
+                .map(|(&tree_id, instance)| TreeFoliageInput {
+                    tree_id,
+                    bounds: instance.aabb.clone(),
+                    instance_count: instance.resources.instances_len,
+                }),
+            surface_resources
+                .instances
+                .apple_instances
+                .iter()
+                .map(|(&tree_id, instance)| TreeFoliageInput {
+                    tree_id,
+                    bounds: instance.aabb.clone(),
+                    instance_count: instance.resources.instances_len,
+                }),
+        );
+        let required_tree_leaf_cache_entries =
+            tree_foliage_frame_plan.required_lighting_cache_entries();
+        let required_lighting_cache_entries = required_flora_cache_entries
+            .checked_add(required_tree_leaf_cache_entries)
+            .expect("visible raster flora lighting cache entry count overflow");
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
             self.raster_flora_ddgi_lighting,
-            required_flora_cache_entries,
+            required_lighting_cache_entries,
         ) {
             self.flora_lighting_cache.ensure_capacity(
                 self.vulkan_ctx.device().clone(),
                 self.allocator.clone(),
                 gpu_profiler_frame_slot,
-                required_flora_cache_entries,
+                required_lighting_cache_entries,
             );
             let cache_buffer = self.flora_lighting_cache.buffer(gpu_profiler_frame_slot);
             self.compute_pipelines
@@ -4225,6 +4280,77 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 );
             }
+            if required_tree_leaf_cache_entries > 0 {
+                self.compute_pipelines
+                    .tree_leaf_lighting_cache_ppl
+                    .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+                let leaf_cache_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                    profiler.begin_scope(
+                        gpu_profiler_frame_slot,
+                        cmdbuf,
+                        "graphics.leaf_lighting_cache",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                });
+                for &batch in tree_foliage_frame_plan
+                    .batches()
+                    .iter()
+                    .filter(|batch| batch.kind() == TreeFoliageKind::Leaves)
+                {
+                    let tree_instance = tree_foliage_instance(surface_resources, batch);
+                    let instance_count = batch.instance_count();
+                    let mut push_constant = flora_push_constant(
+                        time,
+                        LEAF_INSTANCE_TYPE,
+                        tree_instance.chunk_world_offset,
+                        leaf_color_tables,
+                    );
+                    push_constant.lighting_cache_location = flora_lighting_cache_location(
+                        batch
+                            .lighting_cache_offset()
+                            .expect("every visible leaf batch must reserve cache entries"),
+                        1,
+                        false,
+                    );
+                    push_constant.instance_ty =
+                        flora_lighting_cache_instance_ty(LEAF_INSTANCE_TYPE, instance_count);
+                    self.compute_pipelines
+                        .tree_leaf_lighting_cache_ppl
+                        .record_with_descriptors(
+                            cmdbuf,
+                            &[
+                                (
+                                    "tree_leaf_instances",
+                                    DescriptorResource::Buffer(
+                                        &tree_instance.resources.instances_buf,
+                                    ),
+                                ),
+                                (
+                                    "flora_lighting_cache",
+                                    DescriptorResource::Buffer(&cache_buffer),
+                                ),
+                            ],
+                            Extent3D::new(instance_count, 1, 1),
+                            Some(bytemuck::bytes_of(&push_constant)),
+                        )
+                        .expect("tree-leaf lighting transient descriptors must match reflection");
+                }
+                if let (Some(profiler), Some(scope)) =
+                    (gpu_profiler.as_deref_mut(), leaf_cache_scope)
+                {
+                    profiler.end_scope(
+                        gpu_profiler_frame_slot,
+                        cmdbuf,
+                        scope,
+                        PipelineStage::ALL_COMMANDS,
+                    );
+                }
+            }
+            PipelineBarrier::shader_access(
+                PipelineStage::COMPUTE_SHADER,
+                PipelineStage::VERTEX_SHADER,
+            )
+            .record_insert(self.vulkan_ctx.device(), cmdbuf);
             Some(cache_buffer)
         } else {
             None
@@ -4267,34 +4393,6 @@ impl Tracer {
             })
             .collect::<Vec<_>>();
 
-        let tree_foliage_frame_plan = TreeFoliageFramePlan::for_main(
-            TreeFoliageMainConfig {
-                camera_position: self.camera.position(),
-                view_projection: self.current_view_proj_mat,
-                lod_distance,
-                draw_distance: flora_draw_distance,
-                render_leaves: enable_flora && enable_leaves,
-                render_apples: enable_flora,
-            },
-            surface_resources
-                .instances
-                .leaves_instances
-                .iter()
-                .map(|(&tree_id, instance)| TreeFoliageInput {
-                    tree_id,
-                    bounds: instance.aabb.clone(),
-                    instance_count: instance.resources.instances_len,
-                }),
-            surface_resources
-                .instances
-                .apple_instances
-                .iter()
-                .map(|(&tree_id, instance)| TreeFoliageInput {
-                    tree_id,
-                    bounds: instance.aabb.clone(),
-                    instance_count: instance.resources.instances_len,
-                }),
-        );
         let prepared_tree_foliage_batches = tree_foliage_frame_plan
             .batches()
             .iter()
@@ -4308,10 +4406,19 @@ impl Tracer {
                 let descriptors = pipeline
                     .prepare_draw_descriptors(
                         cmdbuf,
-                        &[(
-                            "tree_leaf_instances",
-                            DescriptorResource::Buffer(&instance.resources.instances_buf),
-                        )],
+                        &[
+                            (
+                                "tree_leaf_instances",
+                                DescriptorResource::Buffer(&instance.resources.instances_buf),
+                            ),
+                            (
+                                "flora_lighting_cache",
+                                DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
+                                    Some(buffer) => buffer.as_ref(),
+                                    None => &*instance.resources.instances_buf,
+                                }),
+                            ),
+                        ],
                     )
                     .unwrap_or_else(|error| {
                         panic!(
@@ -4549,11 +4656,18 @@ impl Tracer {
                             "leaf frame batch tree {} instance count changed before draw",
                             batch.tree_id(),
                         );
-                        let leaf_push = flora_push_constant(
+                        let mut leaf_push = flora_push_constant(
                             time,
                             LEAF_INSTANCE_TYPE,
                             prepared.instance.chunk_world_offset,
                             leaf_color_tables,
+                        );
+                        leaf_push.lighting_cache_location = flora_lighting_cache_location(
+                            batch
+                                .lighting_cache_offset()
+                                .expect("every visible leaf batch must reserve cache entries"),
+                            1,
+                            false,
                         );
                         cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
                         pipeline.record_indexed_with_prepared_descriptors(
