@@ -61,6 +61,8 @@ Keep workload ownership in `config/perf_scenarios.toml`. Supported metric source
 - `cpu_scope`: `name=valueus` fields from `[PERF][CPU_FRAME_SCOPE]`;
 - `gpu_job_scope`: `[PERF][GPU_JOB_SCOPE]` durations;
 - `surface_pass`: named millisecond fields from `[PERF][SURFACE_BUILD_PASS_TIMING]`;
+- `visible_publication`: complete `[PERF][VISIBLE_TERRAIN_PUBLICATION]` duration;
+- `mesh_rebuild`: named millisecond fields from `[PERF][MESH_REBUILD]`;
 - `tree_bench`: named millisecond fields from `[PERF][TREE_BENCH]`.
 
 All values are normalized to microseconds in reports. Add parser tests when introducing a new log shape. Do not silently compare construction runs with different workload signatures.

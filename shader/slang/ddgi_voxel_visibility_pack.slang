@@ -16,9 +16,12 @@ ConstantBuffer<U_DdgiVoxelVisibilityInfo> ddgi_voxel_visibility_info;
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     U_DdgiVoxelVisibilityInfo info = ddgi_voxel_visibility_info;
-    if (any(dispatchThreadId >= info.packed_word_dimensions)) return;
+    uint3 updateDimensions = info.update_word_dimensions.xyz;
+    if (any(dispatchThreadId >= updateDimensions)) return;
+    uint3 wordCoordinate = info.update_word_offset.xyz + dispatchThreadId;
+    if (any(wordCoordinate >= info.packed_word_dimensions)) return;
 
-    uint firstX = dispatchThreadId.x << 5u;
+    uint firstX = wordCoordinate.x << 5u;
     uint packed = 0u;
     [unroll]
     for (uint bit = 0u; bit < 32u; ++bit)
@@ -26,10 +29,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         uint x = firstX + bit;
         if (x < info.voxel_dimensions.x &&
             voxelTypeFromAtlasData(chunk_atlas[
-                uint3(x, dispatchThreadId.y, dispatchThreadId.z)]) != VOXEL_TYPE_EMPTY)
+                uint3(x, wordCoordinate.y, wordCoordinate.z)]) != VOXEL_TYPE_EMPTY)
         {
             packed |= 1u << bit;
         }
     }
-    ddgi_voxel_visibility_bits[dispatchThreadId] = packed;
+    ddgi_voxel_visibility_bits[wordCoordinate] = packed;
 }
