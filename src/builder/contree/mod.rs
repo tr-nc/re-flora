@@ -76,9 +76,6 @@ pub struct ContreeBuilder {
     #[allow(dead_code)]
     contree_concat_ppl: ComputePipeline,
 
-    contree_make_surface_result: Buffer,
-    contree_surface_active_brick_indices: Buffer,
-
     #[allow(dead_code)]
     fixed_pool: DescriptorPool,
 
@@ -670,12 +667,6 @@ fn record_clear_sparse_leaf_nodes(
     sparse_nodes.record_fill(cmdbuf, offset_bytes, size_bytes, 0);
 }
 
-fn declare_buffer_uses(cmdbuf: &CommandBuffer, uses: &[(&Buffer, BufferUse)]) {
-    for &(buffer, usage) in uses {
-        cmdbuf.use_buffer(buffer, usage);
-    }
-}
-
 struct CpuChunkReadbackBuffers {
     node_readback: Buffer,
     leaf_readback: Buffer,
@@ -1007,10 +998,6 @@ impl ContreeBuilder {
         // command will consume on every later submission.
         let total_levels = get_level(voxel_dim_per_chunk);
         let pass_timing = ContreePassTiming::maybe_new(&vulkan_ctx, total_levels);
-        let contree_make_surface_result = surfacer_resources.make_surface_result.clone();
-        let contree_surface_active_brick_indices =
-            surfacer_resources.surface_active_brick_indices.clone();
-
         let node_allocator = FirstFitAllocator::new(node_pool_size_in_bytes);
         let leaf_allocator = FirstFitAllocator::new(leaf_pool_size_in_bytes);
         let (cpu_chunk_cache_job_tx, cpu_chunk_cache_result_rx, cpu_chunk_cache_worker) =
@@ -1041,8 +1028,6 @@ impl ContreeBuilder {
             contree_buffer_update_ppl,
             contree_last_buffer_update_ppl,
             contree_concat_ppl,
-            contree_make_surface_result,
-            contree_surface_active_brick_indices,
             fixed_pool,
             chunk_offset_allocation_table: HashMap::new(),
             pass_timing,
@@ -1084,14 +1069,11 @@ impl ContreeBuilder {
         contree_buffer_update_ppl: &ComputePipeline,
         contree_last_buffer_update_ppl: &ComputePipeline,
         contree_concat_ppl: &ComputePipeline,
-        make_surface_result: &Buffer,
-        surface_active_brick_indices: &Buffer,
         pass_timing: Option<&ContreePassTiming>,
     ) -> CommandBuffer {
         let device = vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, vulkan_ctx.command_pool());
         cmdbuf.begin(false);
-        cmdbuf.begin_resource_state_transaction();
 
         let dispatch_1x1x1 = Extent3D {
             width: 1,
@@ -1117,39 +1099,11 @@ impl ContreeBuilder {
             }};
         }
 
-        declare_buffer_uses(
-            &cmdbuf,
-            &[
-                (&resources.contree_build_info, BufferUse::ComputeRead),
-                (&resources.contree_build_state, BufferUse::ComputeWrite),
-                (&resources.level_dispatch_indirect, BufferUse::ComputeWrite),
-                (&resources.counter_for_levels, BufferUse::ComputeWrite),
-                (&resources.node_offset_for_levels, BufferUse::ComputeWrite),
-                (&resources.contree_build_result, BufferUse::ComputeWrite),
-                (make_surface_result, BufferUse::ComputeRead),
-            ],
-        );
         record_timed_pass!({
             contree_buffer_setup_ppl.record(&cmdbuf, dispatch_1x1x1, None);
         });
 
         record_clear_sparse_leaf_nodes(&cmdbuf, &resources.sparse_nodes, total_levels);
-
-        declare_buffer_uses(
-            &cmdbuf,
-            &[
-                (&resources.contree_build_info, BufferUse::ComputeRead),
-                (&resources.contree_build_state, BufferUse::ComputeRead),
-                (&resources.level_dispatch_indirect, BufferUse::IndirectRead),
-                (&resources.node_offset_for_levels, BufferUse::ComputeRead),
-                (&resources.sparse_nodes, BufferUse::ComputeWrite),
-                (&resources.contree_leaf_data, BufferUse::ComputeWrite),
-                (&resources.contree_build_result, BufferUse::ComputeReadWrite),
-                (make_surface_result, BufferUse::ComputeRead),
-                (surface_active_brick_indices, BufferUse::ComputeRead),
-                (&resources.surface_leaf_coords, BufferUse::ComputeWrite),
-            ],
-        );
 
         record_timed_pass!({
             contree_leaf_write_ppl.record_indirect(
@@ -1159,30 +1113,11 @@ impl ContreeBuilder {
             );
         });
 
-        declare_buffer_uses(
-            &cmdbuf,
-            &[
-                (&resources.contree_build_state, BufferUse::ComputeReadWrite),
-                (&resources.level_dispatch_indirect, BufferUse::ComputeWrite),
-            ],
-        );
         record_timed_pass!({
             contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
         });
 
         for i in 0..(total_levels - 2) {
-            declare_buffer_uses(
-                &cmdbuf,
-                &[
-                    (&resources.level_dispatch_indirect, BufferUse::IndirectRead),
-                    (&resources.contree_build_state, BufferUse::ComputeRead),
-                    (&resources.node_offset_for_levels, BufferUse::ComputeRead),
-                    (&resources.sparse_nodes, BufferUse::ComputeReadWrite),
-                    (&resources.dense_nodes, BufferUse::ComputeWrite),
-                    (&resources.counter_for_levels, BufferUse::ComputeReadWrite),
-                    (&resources.contree_build_result, BufferUse::ComputeReadWrite),
-                ],
-            );
             record_timed_pass!({
                 contree_tree_write_ppl.record_indirect(
                     &cmdbuf,
@@ -1192,45 +1127,16 @@ impl ContreeBuilder {
             });
 
             if i != total_levels - 3 {
-                declare_buffer_uses(
-                    &cmdbuf,
-                    &[
-                        (&resources.contree_build_state, BufferUse::ComputeReadWrite),
-                        (&resources.level_dispatch_indirect, BufferUse::ComputeWrite),
-                    ],
-                );
                 record_timed_pass!({
                     contree_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
                 });
             } else {
-                declare_buffer_uses(
-                    &cmdbuf,
-                    &[
-                        (&resources.contree_build_result, BufferUse::ComputeReadWrite),
-                        (&resources.concat_dispatch_indirect, BufferUse::ComputeWrite),
-                        (&resources.sparse_nodes, BufferUse::ComputeRead),
-                        (&resources.dense_nodes, BufferUse::ComputeWrite),
-                        (&resources.counter_for_levels, BufferUse::ComputeWrite),
-                    ],
-                );
                 record_timed_pass!({
                     contree_last_buffer_update_ppl.record(&cmdbuf, dispatch_1x1x1, None);
                 });
             }
         }
 
-        declare_buffer_uses(
-            &cmdbuf,
-            &[
-                (&resources.concat_dispatch_indirect, BufferUse::IndirectRead),
-                (&resources.contree_build_info, BufferUse::ComputeRead),
-                (&resources.node_offset_for_levels, BufferUse::ComputeRead),
-                (&resources.dense_nodes, BufferUse::ComputeRead),
-                (&resources.counter_for_levels, BufferUse::ComputeRead),
-                (&resources.contree_node_data, BufferUse::ComputeWrite),
-                (&resources.contree_build_result, BufferUse::ComputeRead),
-            ],
-        );
         record_timed_pass!({
             contree_concat_ppl.record_indirect(&cmdbuf, &resources.concat_dispatch_indirect, None);
         });
@@ -1454,8 +1360,6 @@ impl ContreeBuilder {
                 &self.contree_buffer_update_ppl,
                 &self.contree_last_buffer_update_ppl,
                 &self.contree_concat_ppl,
-                &self.contree_make_surface_result,
-                &self.contree_surface_active_brick_indices,
                 self.pass_timing.as_ref(),
             );
             self.contree_cmdbuf = Some(cmdbuf);
@@ -1643,12 +1547,6 @@ impl ContreeBuilder {
         })
     }
 
-    pub fn build_and_alloc_ready(&self, job: &ContreeBuildJob) -> Result<bool> {
-        job.gpu_job
-            .is_complete()
-            .map_err(|err| anyhow::anyhow!("failed to poll contree build GPU job: {err}"))
-    }
-
     pub fn wait_build_and_alloc(&self, job: &ContreeBuildJob) -> Result<()> {
         job.gpu_job.wait()?;
         Ok(())
@@ -1667,19 +1565,6 @@ impl ContreeBuilder {
             job.node_alloc_id,
             job.leaf_alloc_id,
         );
-    }
-
-    /// Shutdown variant of stale-build discard. It preserves the normal
-    /// runtime helper's best-effort logging contract while allowing the
-    /// application shutdown coordinator to fail fast if completion cannot be
-    /// observed.
-    pub fn discard_build_and_alloc_for_shutdown(&mut self, job: ContreeBuildJob) -> Result<()> {
-        let chunk_idx = job.chunk_idx;
-        let node_alloc_id = job.node_alloc_id;
-        let leaf_alloc_id = job.leaf_alloc_id;
-        let _completed_gpu_job = job.gpu_job.wait_complete()?;
-        self.deallocate_stale_build_allocations(chunk_idx, node_alloc_id, leaf_alloc_id);
-        Ok(())
     }
 
     fn deallocate_stale_build_allocations(
@@ -1870,7 +1755,6 @@ impl ContreeBuilder {
 
         let gpu_copy_start = Instant::now();
         command_buffer.begin(true);
-        command_buffer.begin_resource_state_transaction();
         self.resources.contree_node_data.record_copy_to_buffer(
             &command_buffer,
             &readback_buffers.node_readback,

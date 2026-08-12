@@ -117,14 +117,15 @@ check_radiance() {
 
     local complete
     complete="$(grep -F '[DDGI_ACCEPT][RADIANCE] checkpoint=complete' "$console" | tail -n 1)"
-    local field_serial source_field_serial
+    local field_serial source_field_serial geometry_revision
     field_serial="$(field_value "$complete" field_serial)"
     source_field_serial="$(field_value "$complete" source_field_serial)"
+    geometry_revision="$(field_value "$complete" geometry_revision)"
     local checkpoint
     checkpoint="$(grep -F "[ENV_IRRADIANCE_CAPTURE] checkpoint target=published" "$console" | grep -F "field_serial=$field_serial" | tail -n 1)"
     local build_token_serial
     build_token_serial="$(field_value "$checkpoint" build_token_serial)"
-    [[ -n "$field_serial" && -n "$source_field_serial" && -n "$build_token_serial" ]] || {
+    [[ -n "$field_serial" && -n "$source_field_serial" && -n "$geometry_revision" && -n "$build_token_serial" ]] || {
         echo "[DDGI_LIFECYCLE] FAIL group=RADIANCE could not extract final canonical identity" >&2
         return 1
     }
@@ -132,7 +133,7 @@ check_radiance() {
     "$analyzer" "$capture" \
         --expect-version 5 \
         --expect-spacing-voxels "$spacing_voxels" \
-        --expect-geometry-revision 1 \
+        --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 4 \
         --expect-build-token-serial "$build_token_serial" \
         --expect-field-serial "$field_serial" \
@@ -144,12 +145,12 @@ check_radiance() {
         --expect-source-radiance-revision 2 \
         --expect-publication-state published \
         --expect-batch-order forward \
-        --require-nonnegative-rgb >"$run_dir/radiance-changes-spacing-${spacing_voxels}.analysis.json"
+        --require-nonnegative-rgb >"$run_dir/radiance-changes-spacing-${spacing_voxels}.analysis.json" || return 1
     "$radiance_validator" "$capture" \
         --expect-spacing-voxels "$spacing_voxels" \
         --direct-light-sunlit-roi 0.85 0.60 1.025 0.875 0.675 1.125 \
         --min-direct-light-roi-delta 0.02 \
-        >"$run_dir/radiance-changes-spacing-${spacing_voxels}.lifecycle.json"
+        >"$run_dir/radiance-changes-spacing-${spacing_voxels}.lifecycle.json" || return 1
     echo "[DDGI_LIFECYCLE] PASS group=RADIANCE spacing_voxels=$spacing_voxels field_serial=$field_serial source_field_serial=$source_field_serial"
 }
 
@@ -176,14 +177,15 @@ check_density() {
     local preemption complete
     preemption="$(grep -F '[DDGI_ACCEPT][DENSITY] checkpoint=geometry-preempted-density' "$console" | tail -n 1)"
     complete="$(grep -F '[DDGI_ACCEPT][DENSITY] checkpoint=complete' "$console" | tail -n 1)"
-    local obsolete_token field_serial source_field_serial
+    local obsolete_token field_serial source_field_serial geometry_revision
     obsolete_token="$(field_value "$preemption" obsolete_density_token_serial)"
     field_serial="$(field_value "$complete" field_serial)"
     source_field_serial="$(field_value "$complete" source_field_serial)"
+    geometry_revision="$(field_value "$complete" geometry_revision)"
     local checkpoint build_token_serial
     checkpoint="$(grep -F "[ENV_IRRADIANCE_CAPTURE] checkpoint target=s1" "$console" | grep -F "field_serial=$field_serial" | tail -n 1)"
     build_token_serial="$(field_value "$checkpoint" build_token_serial)"
-    [[ -n "$obsolete_token" && -n "$field_serial" && -n "$source_field_serial" && -n "$build_token_serial" ]] || {
+    [[ -n "$obsolete_token" && -n "$field_serial" && -n "$source_field_serial" && -n "$geometry_revision" && -n "$build_token_serial" ]] || {
         echo "[DDGI_LIFECYCLE] FAIL group=DENSITY could not extract lifecycle identity" >&2
         return 1
     }
@@ -199,7 +201,7 @@ check_density() {
     "$analyzer" "$capture" \
         --expect-version 5 \
         --expect-spacing-voxels 16 \
-        --expect-geometry-revision 2 \
+        --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 1 \
         --expect-build-token-serial "$build_token_serial" \
         --expect-field-serial "$field_serial" \
@@ -211,7 +213,7 @@ check_density() {
         --expect-source-radiance-revision 1 \
         --expect-publication-state published \
         --expect-batch-order forward \
-        --require-nonnegative-rgb >"$run_dir/density-changes.analysis.json"
+        --require-nonnegative-rgb >"$run_dir/density-changes.analysis.json" || return 1
     echo "[DDGI_LIFECYCLE] PASS group=DENSITY field_serial=$field_serial source_field_serial=$source_field_serial obsolete_token=$obsolete_token"
 }
 

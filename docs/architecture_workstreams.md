@@ -255,20 +255,22 @@ the normal resize path's device-wide idle.
 
 **Status:** completed (`768b8c00`, `400e44d6`, `25854081`; resize waits and observes all frame submissions in
 queue order, retires the old extent-dependent resource/framebuffer bundle through the completion
-clock, waits only the presentation queue before destroying swapchain-owned semaphores/images, and
-propagates acquire-side suboptimal signals alongside present-side signals)
+clock, waits only the presentation queue before destroying swapchain-owned semaphores/images,
+propagates acquire-side suboptimal signals alongside present-side signals, and publishes the actual
+selected swapchain extent through one frame generation token)
 
 - [x] Normal window resize no longer calls `device.wait_idle()` before replacing extent-dependent GPU
       resources.
 - [x] Prior extent-dependent Images and Framebuffers are retained as one generation until frame
       submissions complete.
 - [x] A frame observes one internally consistent extent generation across descriptors and all passes.
-      Each frame in the resize acceptance asserts tracer screen-output extent equals the current
-      swapchain/window extent and logs matching tracer/application generations.
+      `Swapchain` canonically owns `FrameExtentGeneration`; `AcquiredFrame` snapshots it, and Tracer,
+      composition, egui, screenshot, and denoiser paths consume that same token and extent. The
+      resize acceptance logs matching frame, swapchain, and Tracer generations.
 - [x] Rapid consecutive resizes and swapchain out-of-date/suboptimal events remain safe and converge
-      on the latest window extent. The deterministic hidden run issued three same-turn requests
-      (`burst=true`), then two more, published the coalesced sequence, and converged on 1280x720;
-      acquire/present handling remains coalesced through the pending flag.
+      on a coherent publication after the latest accepted request. Exact physical resize payloads
+      coalesce through `pending_frame_extent`; acquire/present invalidation uses the same path, while
+      the selected Vulkan surface extent remains canonical when the compositor fixes or clamps it.
 - [x] Composition, post-processing, shadows, clouds, egui, swapchain presentation, and screenshot
       paths remain valid after resize. The screenshot-enabled companion run saved
       `target/resize-lifecycle-20260803.png` and logged `[SCREENSHOT] Saved 1280x720` in

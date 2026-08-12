@@ -34,7 +34,7 @@ pub(super) const STARTUP_TREE_POSITION: Vec3 = Vec3::new(1.26, 0.2, 0.54);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TestScenePhase {
     Pending,
-    WaitingForRebuild,
+    TerrainPublished,
     Settling { frames: u8, terrain_revision: u32 },
     WaitingForProbeField { terrain_revision: u32 },
     Ready,
@@ -114,10 +114,9 @@ fn sentinel_mesh() -> GeometryPreviewMesh {
 
 impl App {
     pub(super) fn configure_hybrid_transparency_test_scene(&mut self) -> Result<()> {
-        self.current_time_of_day = TEST_TIME_OF_DAY;
-        self.debug_settings.adjustables.time_of_day.value = TEST_TIME_OF_DAY;
+        self.set_manual_time_of_day(TEST_TIME_OF_DAY);
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
-        self.orbit_camera_focus = CAMERA_TARGET;
+        self.camera_control.set_orbit_focus(CAMERA_TARGET);
         if !self
             .tracer
             .set_camera_pose_looking_at(CAMERA_POSITION, CAMERA_TARGET)
@@ -138,7 +137,7 @@ impl App {
 
         self.tracer
             .upload_debug_geometry_preview(&sentinel_mesh(), Vec3::ZERO, Vec4::ONE)?;
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
         log::info!(
             "[HYBRID_ALPHA_TEST] camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) left=control_no_terrain right=rock_occlusion sentinel=opaque_red_blue_stripes probes=valid_depth_tested",
             CAMERA_POSITION.x,
@@ -165,9 +164,7 @@ impl App {
                 let Some(render_start) = self.render_start_time else {
                     return;
                 };
-                if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS
-                    || !self.deferred_chunk_rebuilds_idle()
-                {
+                if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS {
                     return;
                 }
 
@@ -178,24 +175,21 @@ impl App {
                     .context("compile deterministic hybrid transparency test scene")
                     .and_then(|plan| self.execute_edit_plan(plan))
                 {
-                    Ok(()) => TestScenePhase::WaitingForRebuild,
+                    Ok(()) => TestScenePhase::TerrainPublished,
                     Err(err) => {
                         log::error!("[HYBRID_ALPHA_TEST] construction failed: {err:#}");
                         TestScenePhase::Failed
                     }
                 }
             }
-            TestScenePhase::WaitingForRebuild => {
-                if !self.deferred_chunk_rebuilds_idle() {
-                    return;
-                }
+            TestScenePhase::TerrainPublished => {
                 let terrain_revision = self
                     .observe_initial_published_terrain_for_ddgi()
                     .unwrap_or_else(|err| {
                         panic!("[HYBRID_ALPHA_TEST] DDGI visibility publication failed: {err:#}")
                     });
                 log::info!(
-                    "[HYBRID_ALPHA_TEST] terrain rebuild complete revision={}; settling {} frames",
+                    "[HYBRID_ALPHA_TEST] visible terrain publication complete revision={}; settling {} frames",
                     terrain_revision,
                     SETTLE_FRAMES,
                 );

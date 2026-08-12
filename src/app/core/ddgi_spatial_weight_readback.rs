@@ -1,12 +1,12 @@
-use super::App;
 use crate::ddgi::{
     DdgiFieldIdentity, DDGI_SPATIAL_WEIGHT_READBACK_BYTE_COUNT,
     DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_PROBE,
     DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_RECEIVER, DDGI_SPATIAL_WEIGHT_READBACK_PIXELS,
     DDGI_SPATIAL_WEIGHT_READBACK_PROBE_COUNT, DDGI_SPATIAL_WEIGHT_READBACK_RECEIVER_COUNT,
 };
+use crate::tracer::Tracer;
 use anyhow::{ensure, Context, Result};
-use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, MemoryLocation};
+use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, MemoryLocation, VulkanContext};
 use std::io::Write;
 use std::path::Path;
 
@@ -16,16 +16,24 @@ const FLOAT4_BYTE_COUNT: usize = std::mem::size_of::<[f32; 4]>();
 const AGGREGATE_OFFSET: usize =
     1 + DDGI_SPATIAL_WEIGHT_READBACK_PROBE_COUNT * DDGI_SPATIAL_WEIGHT_READBACK_FLOAT4S_PER_PROBE;
 
-pub(super) struct DdgiSpatialWeightReadback {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ReadbackState {
+    #[default]
+    WaitingForTerminalField,
+    Armed,
+    Recording,
+    Complete,
+}
+
+pub(super) struct DdgiSpatialWeightReadbackRuntime {
+    path: Option<String>,
+    state: ReadbackState,
+}
+
+pub(super) struct PendingDdgiSpatialWeightReadback {
     path: String,
     field: DdgiFieldIdentity,
     buffer: Buffer,
-}
-
-impl DdgiSpatialWeightReadback {
-    pub(super) fn path(&self) -> &str {
-        &self.path
-    }
 }
 
 fn read_float4(raw: &[u8], float4_index: usize) -> [f32; 4] {
@@ -48,11 +56,61 @@ fn write_float4(writer: &mut impl Write, label: &str, value: [f32; 4]) -> Result
     Ok(())
 }
 
-impl App {
-    pub(super) fn prepare_ddgi_spatial_weight_readback(
-        &self,
-        path: String,
-    ) -> Result<DdgiSpatialWeightReadback> {
+impl DdgiSpatialWeightReadbackRuntime {
+    pub(super) fn new(path: Option<String>) -> Self {
+        Self {
+            path,
+            state: ReadbackState::WaitingForTerminalField,
+        }
+    }
+
+    fn should_record(&mut self, terminal_field_ready: bool) -> bool {
+        if self.path.is_none()
+            || matches!(
+                self.state,
+                ReadbackState::Recording | ReadbackState::Complete
+            )
+        {
+            return false;
+        }
+        if !terminal_field_ready {
+            self.state = ReadbackState::WaitingForTerminalField;
+            return false;
+        }
+        match self.state {
+            ReadbackState::WaitingForTerminalField => {
+                self.state = ReadbackState::Armed;
+                log::info!(
+                    "[DDGI_SPATIAL_WEIGHT_READBACK] armed; waiting one frame for shading_info ready"
+                );
+                false
+            }
+            ReadbackState::Armed => true,
+            ReadbackState::Recording | ReadbackState::Complete => false,
+        }
+    }
+
+    pub(super) fn record_if_ready(
+        &mut self,
+        tracer: &Tracer,
+        vulkan_ctx: &VulkanContext,
+        cmdbuf: &CommandBuffer,
+    ) -> Result<Option<PendingDdgiSpatialWeightReadback>> {
+        let active = tracer.ddgi_runtime_status().active();
+        let terminal_field = active.complete_field.filter(|field| {
+            matches!(
+                field.field().stage(),
+                crate::ddgi::DdgiFieldStage::Converged | crate::ddgi::DdgiFieldStage::NonConverged
+            )
+        });
+        if !self.should_record(terminal_field.is_some()) {
+            return Ok(None);
+        }
+
+        let path = self
+            .path
+            .clone()
+            .context("DDGI spatial-weight readback path disappeared after arming")?;
         let output_path = Path::new(&path);
         if let Some(parent) = output_path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
@@ -60,7 +118,7 @@ impl App {
             }
         }
 
-        let extent = self.tracer.environment_irradiance_capture_extent();
+        let extent = tracer.environment_irradiance_capture_extent();
         ensure!(
             extent.width == READBACK_WIDTH && extent.height == READBACK_HEIGHT,
             "DDGI spatial-weight readback requires {}x{} rendering extent, got {}x{}",
@@ -76,16 +134,7 @@ impl App {
                     * FLOAT4_BYTE_COUNT,
             "DDGI spatial-weight readback host layout is inconsistent"
         );
-        let active = self.tracer.ddgi_runtime_status().active();
-        let field = active
-            .complete_field
-            .filter(|field| {
-                matches!(
-                    field.field().stage(),
-                    crate::ddgi::DdgiFieldStage::Converged
-                        | crate::ddgi::DdgiFieldStage::NonConverged
-                )
-            })
+        let field = terminal_field
             .context("cannot capture DDGI spatial weights before a terminal field is complete")?;
         ensure!(
             active.published_field == Some(field),
@@ -93,38 +142,35 @@ impl App {
             active.published_field,
         );
 
-        let allocator = self
-            .tracer
+        let allocator = tracer
             .get_screen_output_tex()
             .get_image()
             .get_allocator()
             .clone();
         let buffer = Buffer::new_sized(
-            self.vulkan_ctx.device().clone(),
+            vulkan_ctx.device().clone(),
             allocator,
             BufferUsage::transfer_dst(),
             MemoryLocation::GpuToCpu,
             DDGI_SPATIAL_WEIGHT_READBACK_BYTE_COUNT as u64,
         );
-        Ok(DdgiSpatialWeightReadback {
+        let readback = PendingDdgiSpatialWeightReadback {
             path,
             field,
             buffer,
-        })
+        };
+        tracer.record_ddgi_spatial_weight_readback(cmdbuf, &readback.buffer);
+        self.state = ReadbackState::Recording;
+        log::info!(
+            "[DDGI_SPATIAL_WEIGHT_READBACK] recording path={}",
+            readback.path,
+        );
+        Ok(Some(readback))
     }
 
-    pub(super) fn record_ddgi_spatial_weight_readback(
-        &self,
-        cmdbuf: &CommandBuffer,
-        readback: &DdgiSpatialWeightReadback,
-    ) {
-        self.tracer
-            .record_ddgi_spatial_weight_readback(cmdbuf, &readback.buffer);
-    }
-
-    pub(super) fn write_ddgi_spatial_weight_readback(
-        readback: DdgiSpatialWeightReadback,
-    ) -> Result<()> {
+    pub(super) fn complete(&mut self, readback: PendingDdgiSpatialWeightReadback) -> Result<()> {
+        debug_assert_eq!(self.state, ReadbackState::Recording);
+        self.state = ReadbackState::Complete;
         let raw = readback.buffer.read_back()?;
         ensure!(
             raw.len() == DDGI_SPATIAL_WEIGHT_READBACK_BYTE_COUNT,
@@ -245,5 +291,44 @@ impl App {
             readback.path
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_field_arms_before_recording() {
+        let mut runtime = DdgiSpatialWeightReadbackRuntime::new(Some("readback.txt".to_owned()));
+
+        assert!(!runtime.should_record(false));
+        assert_eq!(runtime.state, ReadbackState::WaitingForTerminalField);
+        assert!(!runtime.should_record(true));
+        assert_eq!(runtime.state, ReadbackState::Armed);
+        assert!(runtime.should_record(true));
+    }
+
+    #[test]
+    fn losing_the_terminal_field_requires_a_fresh_arm_frame() {
+        let mut runtime = DdgiSpatialWeightReadbackRuntime::new(Some("readback.txt".to_owned()));
+
+        assert!(!runtime.should_record(true));
+        assert!(!runtime.should_record(false));
+        assert_eq!(runtime.state, ReadbackState::WaitingForTerminalField);
+        assert!(!runtime.should_record(true));
+        assert_eq!(runtime.state, ReadbackState::Armed);
+    }
+
+    #[test]
+    fn disabled_or_in_flight_runtime_cannot_record_again() {
+        let mut disabled = DdgiSpatialWeightReadbackRuntime::new(None);
+        assert!(!disabled.should_record(true));
+
+        let mut runtime = DdgiSpatialWeightReadbackRuntime::new(Some("readback.txt".to_owned()));
+        runtime.state = ReadbackState::Recording;
+        assert!(!runtime.should_record(true));
+        runtime.state = ReadbackState::Complete;
+        assert!(!runtime.should_record(true));
     }
 }

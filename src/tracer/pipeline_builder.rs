@@ -5,8 +5,9 @@ use crate::tracer::TracerResources;
 use anyhow::Result;
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    AttachmentDescOuter, AttachmentType, ComputePipeline, DescriptorPool, GraphicsPipeline,
-    GraphicsPipelineDesc, RenderPass, ShaderModule, Texture, TextureLayout, VulkanContext,
+    AttachmentDescOuter, AttachmentType, ComputePipeline, DescriptorPool, DescriptorUpdate,
+    GraphicsPipeline, GraphicsPipelineDesc, RenderPass, ShaderModule, Texture, TextureLayout,
+    VulkanContext,
 };
 
 pub struct PipelineBuilder;
@@ -522,15 +523,15 @@ impl PipelineBuilder {
             pool,
         );
         flora_lighting_cache_ppl
-            .initialize_descriptor_set_resources(
-                "gui_input",
-                &[
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[
                     resources,
                     plain_builder_resources,
                     ddgi_volume,
                     ddgi_voxel_visibility,
                 ],
-            )
+            })
             .expect("flora lighting cache static descriptors must resolve");
         let tree_leaf_lighting_cache_ppl = ComputePipeline::new_uninitialized(
             device,
@@ -538,15 +539,15 @@ impl PipelineBuilder {
             pool,
         );
         tree_leaf_lighting_cache_ppl
-            .initialize_descriptor_set_resources(
-                "gui_input",
-                &[
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[
                     resources,
                     plain_builder_resources,
                     ddgi_volume,
                     ddgi_voxel_visibility,
                 ],
-            )
+            })
             .expect("tree-leaf lighting cache static descriptors must resolve");
         let tracer_ppl = ComputePipeline::new(
             device,
@@ -763,7 +764,10 @@ impl PipelineBuilder {
             },
         );
         flora_ppl
-            .initialize_descriptor_set_resources("gui_input", &flora_resources)
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &flora_resources,
+            })
             .expect("flora static descriptors must resolve from tracer resources");
 
         let flora_lod_ppl = Self::create_gfx_pipeline_uninitialized(
@@ -781,7 +785,10 @@ impl PipelineBuilder {
             },
         );
         flora_lod_ppl
-            .initialize_descriptor_set_resources("gui_input", &flora_resources)
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &flora_resources,
+            })
             .expect("flora LOD static descriptors must resolve from tracer resources");
 
         let leaves_ppl = Self::create_gfx_pipeline_uninitialized(
@@ -799,7 +806,10 @@ impl PipelineBuilder {
             },
         );
         leaves_ppl
-            .initialize_descriptor_set_resources("gui_input", &environment_lighting_resources)
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &environment_lighting_resources,
+            })
             .expect("leaf static descriptors must resolve from tracer resources");
 
         let leaves_lod_ppl = Self::create_gfx_pipeline_uninitialized(
@@ -817,7 +827,10 @@ impl PipelineBuilder {
             },
         );
         leaves_lod_ppl
-            .initialize_descriptor_set_resources("gui_input", &environment_lighting_resources)
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &environment_lighting_resources,
+            })
             .expect("leaf LOD static descriptors must resolve from tracer resources");
 
         let leaves_shadow_lod_ppl = Self::create_gfx_pipeline_with_desc_uninitialized(
@@ -835,7 +848,10 @@ impl PipelineBuilder {
             },
         );
         leaves_shadow_lod_ppl
-            .initialize_descriptor_set_resources("gui_input", &[resources])
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[resources],
+            })
             .expect("leaf shadow static descriptors must resolve from tracer resources");
 
         let sprinkler_ppl = Self::create_gfx_pipeline(

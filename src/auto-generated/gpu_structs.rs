@@ -551,6 +551,10 @@ pub struct DdgiVoxelVisibilityInfo {
     pub ready: u32,
     pub world_to_voxel_scale: [f32; 3],
     pub max_steps: u32,
+    pub update_word_offset: [u32; 4],
+    pub update_word_dimensions: [u32; 4],
+    pub update_block_offset: [u32; 4],
+    pub update_block_dimensions: [u32; 4],
 }
 
 /// Auto-generated from `U_EditOccupancyInfo` (native Slang source of truth).

@@ -128,8 +128,7 @@ impl PipelineStage {
     pub const FRAGMENT_SHADER: Self = Self(vk::PipelineStageFlags::FRAGMENT_SHADER);
     pub const DRAW_INDIRECT: Self = Self(vk::PipelineStageFlags::DRAW_INDIRECT);
     pub const TRANSFER: Self = Self(vk::PipelineStageFlags::TRANSFER);
-    pub const COLOR_ATTACHMENT_OUTPUT: Self =
-        Self(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT);
+    pub const COLOR_ATTACHMENT_OUTPUT: Self = Self(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT);
     pub const EARLY_FRAGMENT_TESTS: Self = Self(vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS);
     pub const LATE_FRAGMENT_TESTS: Self = Self(vk::PipelineStageFlags::LATE_FRAGMENT_TESTS);
     pub const HOST: Self = Self(vk::PipelineStageFlags::HOST);
@@ -269,6 +268,20 @@ impl ResourceState {
     pub fn access(self) -> MemoryAccess {
         self.access
     }
+
+    pub(crate) fn merged_read_with(self, next: Self) -> Option<Self> {
+        if self.layout != next.layout
+            || self.access.contains_write()
+            || next.access.contains_write()
+        {
+            return None;
+        }
+        Some(Self::new(
+            self.layout,
+            self.stage | next.stage,
+            self.access | next.access,
+        ))
+    }
 }
 
 /// Semantic use of a Buffer during command recording.
@@ -322,20 +335,18 @@ impl ImageUse {
 impl BufferUse {
     pub(crate) fn state(self) -> BufferState {
         match self {
-            Self::ComputeRead => BufferState::new(
-                PipelineStage::COMPUTE_SHADER,
-                MemoryAccess::SHADER_READ,
-            ),
+            Self::ComputeRead => {
+                BufferState::new(PipelineStage::COMPUTE_SHADER, MemoryAccess::SHADER_READ)
+            }
             Self::ShaderRead => BufferState::new(
                 PipelineStage::COMPUTE_SHADER
                     | PipelineStage::VERTEX_SHADER
                     | PipelineStage::FRAGMENT_SHADER,
                 MemoryAccess::SHADER_READ,
             ),
-            Self::ComputeWrite => BufferState::new(
-                PipelineStage::COMPUTE_SHADER,
-                MemoryAccess::SHADER_WRITE,
-            ),
+            Self::ComputeWrite => {
+                BufferState::new(PipelineStage::COMPUTE_SHADER, MemoryAccess::SHADER_WRITE)
+            }
             Self::ComputeReadWrite => BufferState::new(
                 PipelineStage::COMPUTE_SHADER,
                 MemoryAccess::SHADER_READ | MemoryAccess::SHADER_WRITE,
@@ -392,6 +403,16 @@ impl BufferState {
 
     pub(crate) fn needs_ordering(self, next: Self) -> bool {
         self.access.contains_write() || next.access.contains_write()
+    }
+
+    pub(crate) fn merged_read_with(self, next: Self) -> Option<Self> {
+        if self.needs_ordering(next) {
+            return None;
+        }
+        Some(Self::new(
+            self.stage | next.stage,
+            self.access | next.access,
+        ))
     }
 }
 
@@ -638,7 +659,9 @@ impl<const MEMORY_BARRIER_COUNT: usize> PipelineBarrier<MEMORY_BARRIER_COUNT> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BufferState, BufferUse};
+    use super::{
+        BufferState, BufferUse, MemoryAccess, PipelineStage, ResourceState, TextureLayout,
+    };
 
     #[test]
     fn buffer_use_mapping_keeps_semantic_accesses_distinct() {
@@ -654,14 +677,8 @@ mod tests {
             BufferUse::ComputeWrite.state(),
             BufferUse::IndirectRead.state()
         );
-        assert_ne!(
-            BufferUse::IndexRead.state(),
-            BufferUse::VertexRead.state()
-        );
-        assert_ne!(
-            BufferUse::HostWrite.state(),
-            BufferUse::HostRead.state()
-        );
+        assert_ne!(BufferUse::IndexRead.state(), BufferUse::VertexRead.state());
+        assert_ne!(BufferUse::HostWrite.state(), BufferUse::HostRead.state());
     }
 
     #[test]
@@ -673,5 +690,41 @@ mod tests {
         assert!(write.needs_ordering(read));
         assert!(write.needs_ordering(write));
         assert!(BufferState::unknown().needs_ordering(read));
+    }
+
+    #[test]
+    fn read_only_states_accumulate_stages_without_a_barrier() {
+        let vertex_read = BufferState::new(PipelineStage::VERTEX_SHADER, MemoryAccess::SHADER_READ);
+        let fragment_read =
+            BufferState::new(PipelineStage::FRAGMENT_SHADER, MemoryAccess::SHADER_READ);
+        assert_eq!(
+            vertex_read.merged_read_with(fragment_read),
+            Some(BufferState::new(
+                PipelineStage::VERTEX_SHADER | PipelineStage::FRAGMENT_SHADER,
+                MemoryAccess::SHADER_READ,
+            ))
+        );
+
+        let vertex_image_read = ResourceState::new(
+            TextureLayout::GENERAL,
+            PipelineStage::VERTEX_SHADER,
+            MemoryAccess::SHADER_READ,
+        );
+        let fragment_image_read = ResourceState::new(
+            TextureLayout::GENERAL,
+            PipelineStage::FRAGMENT_SHADER,
+            MemoryAccess::SHADER_READ,
+        );
+        assert_eq!(
+            vertex_image_read.merged_read_with(fragment_image_read),
+            Some(ResourceState::new(
+                TextureLayout::GENERAL,
+                PipelineStage::VERTEX_SHADER | PipelineStage::FRAGMENT_SHADER,
+                MemoryAccess::SHADER_READ,
+            ))
+        );
+        assert!(vertex_image_read
+            .merged_read_with(ResourceState::storage_image_read_write())
+            .is_none());
     }
 }

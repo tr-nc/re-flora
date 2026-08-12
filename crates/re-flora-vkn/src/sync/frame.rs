@@ -1,7 +1,7 @@
 use crate::{
-    CommandBuffer, CommandPool, Device, Fence, FrameCompletion, FrameRetirement,
-    FrameRetirementClock, FrameSubmissionId, Semaphore, Swapchain, SwapchainFrameError,
-    VulkanContext,
+    CommandBuffer, CommandPool, Device, Fence, FrameCompletion, FrameExtentGeneration,
+    FrameRetirementClock, FrameRetirementSink, FrameSubmissionId, Semaphore, Swapchain,
+    SwapchainFrameError, VulkanContext,
 };
 
 /// Per-frame synchronization and command recording resources.
@@ -59,6 +59,7 @@ pub struct AcquiredFrame {
     render_finished: Semaphore,
     fence: Fence,
     acquire_suboptimal: bool,
+    frame_extent_generation: FrameExtentGeneration,
 }
 
 impl AcquiredFrame {
@@ -66,8 +67,16 @@ impl AcquiredFrame {
         self.frame_slot
     }
 
-    pub fn image_index(&self) -> u32 {
+    pub(crate) fn image_index(&self) -> u32 {
         self.image_index
+    }
+
+    pub fn frame_extent_generation(&self) -> FrameExtentGeneration {
+        self.frame_extent_generation
+    }
+
+    pub fn extent(&self) -> crate::Extent2D {
+        self.frame_extent_generation.extent()
     }
 
     pub fn command_buffer(&self) -> &CommandBuffer {
@@ -80,6 +89,10 @@ impl AcquiredFrame {
 
     pub fn acquire_suboptimal(&self) -> bool {
         self.acquire_suboptimal
+    }
+
+    pub(crate) fn render_finished(&self) -> &Semaphore {
+        &self.render_finished
     }
 }
 
@@ -121,6 +134,7 @@ impl SwapchainFrameManager {
     /// queue order. This is the resize/shutdown quiescence seam; it deliberately avoids a
     /// device-wide idle wait so unrelated one-time work remains outside the frame lifecycle.
     pub fn wait_for_all_submissions(&mut self) {
+        self.retirement_clock.schedule_pending_retirements();
         let mut completed = Vec::with_capacity(self.frames.len());
         for (frame_slot, sync) in self.frames.iter_mut().enumerate() {
             sync.fence().wait().unwrap();
@@ -139,6 +153,7 @@ impl SwapchainFrameManager {
         &mut self,
         swapchain: &mut Swapchain,
     ) -> Result<AcquiredFrame, SwapchainFrameError> {
+        self.retirement_clock.schedule_pending_retirements();
         let frame_slot = self.current_frame;
         let completed_submission = {
             let sync = &mut self.frames[frame_slot];
@@ -153,6 +168,7 @@ impl SwapchainFrameManager {
         let sync = &self.frames[frame_slot];
         let (image_index, acquire_suboptimal) =
             swapchain.acquire_next_image(sync.image_available())?;
+        let frame_extent_generation = swapchain.frame_extent_generation();
         let image_slot = image_index as usize;
         if let Some(image_in_flight_fence) = &self.images_in_flight[image_slot] {
             image_in_flight_fence.wait().unwrap();
@@ -169,6 +185,7 @@ impl SwapchainFrameManager {
             render_finished: self.image_render_finished_semaphores[image_slot].clone(),
             fence: sync.fence().clone(),
             acquire_suboptimal,
+            frame_extent_generation,
         })
     }
 
@@ -178,6 +195,7 @@ impl SwapchainFrameManager {
         swapchain: &mut Swapchain,
         frame: &AcquiredFrame,
     ) -> Result<bool, SwapchainFrameError> {
+        swapchain.assert_frame_extent_generation(frame.frame_extent_generation());
         vulkan_ctx
             .submit_render_commands(
                 &frame.command_buffer,
@@ -193,7 +211,7 @@ impl SwapchainFrameManager {
             replaced.is_none(),
             "frame slot submitted again before its previous completion was observed"
         );
-        let present_result = swapchain.present_after(&frame.render_finished, frame.image_index);
+        let present_result = swapchain.present_after(frame);
         self.advance_frame();
         present_result.map(|present_suboptimal| frame.acquire_suboptimal() || present_suboptimal)
     }
@@ -206,15 +224,13 @@ impl SwapchainFrameManager {
         self.frames.len()
     }
 
-    /// Keep a replaced resource generation resident until every frame submitted
-    /// before this call has completed.
+    /// Obtain a same-thread publisher for frame-scoped resource generations.
     ///
-    /// Call this at the frame-update/recording seam, after publishing the new
-    /// generation and before recording the next frame. No recorded-but-unsubmitted
-    /// command buffer may still reference the retired generation.
-    pub fn retire_after_last_submission(&mut self, retirement: FrameRetirement) {
-        self.retirement_clock
-            .retire_after_last_submission(retirement);
+    /// Published generations are bound by `begin_frame` or
+    /// `wait_for_all_submissions`, so callers do not need to know the current
+    /// submission identity or coordinate a producer-specific drain.
+    pub fn retirement_sink(&self) -> FrameRetirementSink {
+        self.retirement_clock.retirement_sink()
     }
 
     fn create_present_semaphores(device: &Device, image_count: usize) -> Vec<Semaphore> {

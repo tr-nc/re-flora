@@ -1,4 +1,4 @@
-use super::ActiveVoxelType;
+use super::voxel_backpack::BackpackVoxel;
 use egui::style::WidgetVisuals;
 use egui::{Color32, TextureHandle};
 
@@ -45,7 +45,6 @@ pub(crate) const ITEM_PANEL_TILLER_ICON_FALLBACK_PATH: &str =
 pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str = "assets/texture/tool_icons/tree.png";
 pub(crate) const ITEM_PANEL_TREE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/8_Wooden_Axe.PNG";
-pub(crate) const ITEM_PANEL_SLOT_COUNT: usize = 12;
 pub(crate) const HAND_SLOT_INDEX: usize = 0;
 pub(crate) const STAFF_SLOT_INDEX: usize = 1;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 2;
@@ -59,7 +58,6 @@ pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = 9;
 pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
 pub(crate) const SPRINKLER_SLOT_INDEX: usize = 10;
 pub(crate) const PIPE_SLOT_INDEX: usize = 11;
-pub(crate) const PLACEABLE_PANEL_SLOT_COUNT: usize = 3;
 pub(crate) const TREE_PLACEABLE_SLOT_INDEX: usize = 0;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 pub(crate) const PIPE_PLACEABLE_SLOT_INDEX: usize = 2;
@@ -931,7 +929,7 @@ fn draw_tool_panel_slot(
 }
 
 pub(crate) struct VoxelPaletteEntry {
-    pub voxel_type: ActiveVoxelType,
+    pub voxel: BackpackVoxel,
     pub label: &'static str,
     pub count: u32,
     pub color: Color32,
@@ -940,7 +938,7 @@ pub(crate) struct VoxelPaletteEntry {
 
 #[derive(Default)]
 pub(crate) struct VoxelPaletteResponse {
-    pub clicked_voxel_type: Option<ActiveVoxelType>,
+    pub clicked_voxel: Option<BackpackVoxel>,
     pub panel_center: Option<egui::Pos2>,
 }
 
@@ -1007,7 +1005,7 @@ pub(crate) fn draw_voxel_palette(
 
                 for entry in entries {
                     if draw_voxel_palette_entry(ui, entry, interaction_enabled) {
-                        response.clicked_voxel_type = Some(entry.voxel_type);
+                        response.clicked_voxel = Some(entry.voxel);
                     }
                     ui.add_space(4.0);
                 }

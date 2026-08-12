@@ -8,7 +8,7 @@ The irrigation MVP uses a rigid, grid-snapped pipe network. It intentionally doe
 - On an empty network, press the left mouse button on terrain to place the source connector, drag, and release to commit the first route.
 - For later routes, begin near the source or an existing junction. The preview and committed route use deterministic X, Z, then Y orthogonal segments.
 - Right-click or change tools while dragging to cancel the preview.
-- Select **Spray** or press `X`, then click within eight voxels of any powered pipe segment. The sprinkler snaps to the nearest point on that segment.
+- Select **Spray** or press `X`, then click directly on any pipe segment. The sprinkler snaps to the nearest point on that segment.
 
 The first source is a small visible connector. It is the stable interface for a future well/pump implementation; it is not a simulated water volume.
 
@@ -17,12 +17,15 @@ The first source is a small visible connector. It is the stable interface for a 
 `IrrigationNetwork` is the source of truth for:
 
 - grid-snapped `IrrigationNode` source and junction positions;
-- stable `PipeSegment` IDs and endpoint node IDs;
+- pipe endpoint relationships;
 - the source node that defines the powered graph component;
-- nearest powered mid-segment attachment queries;
-- render data for committed routes and non-mutating previews.
+- the active route gesture and deterministic preview geometry;
+- nearest mid-segment attachment queries;
+- transactional preview and commit plans consumed by the renderer.
 
-A sprinkler stores its attached pipe segment ID. Placement is rejected when there is no source-connected segment nearby. Particle emission and terrain-moisture writes independently check that segment's current source connectivity, so losing the source or graph connection means no flow.
+Route plans are immutable. `App` uploads their render payload before committing the corresponding canonical route state, so a failed Vulkan upload leaves both the active preview endpoint and committed topology unchanged.
+
+A sprinkler stores its snapped position rather than a pipe identity. Once placed, particle emission and terrain-moisture writes are independent of later pipe connectivity; the MVP does not model hydraulic flow or pressure.
 
 ## Rendering
 
@@ -36,4 +39,4 @@ A sprinkler stores its attached pipe segment ID. Placement is rejected when ther
 
 ## Validation
 
-Pure tests cover orthogonal routing, preview non-mutation, source connectivity, source removal gating, powered mid-segment attachment, disconnected-segment rejection, and pipe mesh shape. End-to-end validation uses the standard hidden muted release run and log inspection.
+Pure tests cover orthogonal routing, transactional preview and topology commits, source connectivity, direct mid-segment attachment, frontmost-segment selection, and pipe mesh shape. End-to-end validation uses the standard hidden muted release run and log inspection.

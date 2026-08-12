@@ -3,6 +3,7 @@ use crate::util::Timer;
 
 mod authored_flora_bench;
 mod boot;
+mod camera_control;
 mod camera_snapshot_ui;
 mod ddgi_spatial_weight_readback;
 mod denoiser_bench;
@@ -20,55 +21,59 @@ mod placeables;
 mod planting;
 mod player_tools;
 mod screenshot;
-mod terrain_rebuild;
+mod terrain_persistence;
 mod tree_bench;
 mod ui_style;
 mod vegetation;
+mod visible_terrain;
+mod voxel_backpack;
 mod water;
 
 use self::authored_flora_bench::AuthoredFloraBench;
+use self::camera_control::{CameraControlRuntime, ORBIT_CAMERA_DEFAULT_FOCUS};
 use self::camera_snapshot_ui::draw_camera_snapshots_ui;
+use self::ddgi_spatial_weight_readback::DdgiSpatialWeightReadbackRuntime;
 use self::denoiser_bench::{
     DenoiserBench, CAMERA_FORWARD_PER_FRAME_WORLD, CAMERA_STRAFE_PER_FRAME_WORLD,
     CAMERA_YAW_PER_FRAME_RADIANS,
 };
+use self::environment_irradiance_capture::EnvironmentIrradianceCaptureRuntime;
 use self::frame_timing::{
     draw_frame_timing_panel, FrameCpuScope, FrameCpuTimings, FrameTimingSnapshot,
 };
-use self::loading::{LoadingPhase, LoadingState, TerrainPersistenceStatus};
-use self::particles::TreeLeafEmitter;
+use self::loading::{LoadingPhase, LoadingState};
+use self::moisture::TerrainMoistureRuntime;
 use self::physics::TerrainPhysics;
-use self::placeables::{IrrigationNetwork, PipeDrag, SprinklerEmitter, SprinklerRecord};
-use self::player_tools::PlayerToolState;
-use self::terrain_rebuild::{ChunkRebuildRequest, TerrainChunkRebuildInFlight};
+use self::placeables::{IrrigationNetwork, SprinklerRuntime};
+use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
+use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
+use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
-use self::vegetation::{TreeRecord, TreeVariationConfig};
+use self::vegetation::{TreeRuntime, TreeVariationConfig};
+use self::visible_terrain::VisibleTerrainChange;
+use self::voxel_backpack::VoxelBackpack;
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::environment;
+use crate::app::physical_visible_terrain;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
-use crate::app::world_edits::{BuildEdit, VoxelEdit, WorldBuildBackend, WorldEditPlan};
+use crate::app::world_edits::{BuildEdit, WorldEditPlan};
 use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
-    ContreeBuildJob, ContreeBuilder, PlainBuilder, SceneAccelBuilder, SceneTexUpdateJob,
-    SurfaceBuildJob, SurfaceBuilder, VOXEL_FERTILITY_MAX, VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
+    ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
+    VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
 };
-use crate::ddgi::{
-    DdgiBuildToken, DdgiFieldStage, DdgiRefreshState, DdgiResourceBytes, DdgiVolumeGrid,
-    DdgiVolumeStage, SUPPORTED_DDGI_SPACINGS_VOXELS,
-};
+use crate::ddgi::{DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS};
 use crate::environment_probes::{
     EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
 };
 use crate::flora::species;
+use crate::game_time::WorldClock;
 use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
-};
-use crate::terrain_persistence::{
-    TerrainSnapshotMetadata, TerrainSnapshotReader, DEFAULT_TERRAIN_SNAPSHOT_PATH,
 };
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
@@ -80,7 +85,7 @@ use crate::tracer::{
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
 use crate::util::TimeInfo;
-use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, LatestChunkQueue, BENCH};
+use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
 use crate::wind::WindResponseCurve;
 use crate::RenderFlags;
 use crate::{egui_renderer::EguiRenderer, window::WindowState, WaterProfilePreference};
@@ -88,10 +93,8 @@ use anyhow::{Context, Result};
 use egui::{Color32, ColorImage, FontData, FontDefinitions, FontFamily, RichText, TextureHandle};
 use glam::{UVec3, Vec2, Vec3, Vec4};
 use rand::RngExt;
-use std::{collections::HashMap, sync::mpsc, thread::JoinHandle};
-
 use re_flora_vkn::{
-    Allocator, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
+    Allocator, Extent2D, GpuProfiler, GpuProfilerFrameResults, PipelineStage, SwapchainDesc,
     SwapchainFrameError, SwapchainFrameManager,
 };
 use re_flora_vkn::{Swapchain, VulkanContext};
@@ -206,6 +209,7 @@ struct ResizeLifecycleTest {
     next_request_frame: u64,
     observed: Vec<re_flora_vkn::Extent2D>,
     complete: bool,
+    publication_count_at_requests_complete: Option<usize>,
 }
 
 impl ResizeLifecycleTest {
@@ -217,17 +221,21 @@ impl ResizeLifecycleTest {
         PhysicalSize::new(1280, 720),
     ];
 
-    fn request_next(&mut self, window: &winit::window::Window, frame: u64) {
+    fn request_next(&mut self, window: &winit::window::Window, frame: u64) -> Option<Extent2D> {
         if self.complete || frame < self.next_request_frame {
-            return;
+            return None;
         }
         let burst = usize::from(self.requested == 0) * 2 + 1;
+        let mut latest_accepted_extent = None;
         for _ in 0..burst {
             let Some(size) = Self::SIZES.get(self.requested).copied() else {
                 break;
             };
             self.requested += 1;
             let accepted = window.request_inner_size(size);
+            if let Some(accepted) = accepted {
+                latest_accepted_extent = Some(Extent2D::new(accepted.width, accepted.height));
+            }
             log::info!(
                 "[RESIZE_LIFECYCLE] phase=request index={} requested={}x{} accepted={:?} burst={}",
                 self.requested - 1,
@@ -239,14 +247,16 @@ impl ResizeLifecycleTest {
         }
         if self.requested >= Self::SIZES.len() {
             self.complete = true;
+            self.publication_count_at_requests_complete = Some(self.observed.len());
             log::info!(
                 "[RESIZE_LIFECYCLE] phase=requests_complete count={} observed={}",
                 self.requested,
                 self.observed.len(),
             );
-            return;
+            return latest_accepted_extent;
         }
         self.next_request_frame = frame + 2;
+        latest_accepted_extent
     }
 
     fn observe(&mut self, size: re_flora_vkn::Extent2D, generation: u64) {
@@ -260,33 +270,18 @@ impl ResizeLifecycleTest {
         );
     }
 
-    fn converged_on_latest_extent(&self) -> bool {
+    fn published_after_latest_request(&self) -> bool {
         self.complete
-            && self.observed.last().is_some_and(|extent| {
-                extent.width == Self::SIZES.last().unwrap().width
-                    && extent.height == Self::SIZES.last().unwrap().height
-            })
+            && self
+                .publication_count_at_requests_complete
+                .is_some_and(|count| self.observed.len() > count)
     }
 }
-
-fn advance_time_of_day(
-    current_time_of_day: f32,
-    elapsed_ticks: u32,
-    world_tick_seconds: f32,
-    day_cycle_minutes: f32,
-) -> f32 {
-    let time_speed = 1.0 / (day_cycle_minutes * 60.0);
-    (current_time_of_day + elapsed_ticks as f32 * world_tick_seconds * time_speed) % 1.0
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct WaterTerrainCacheRebuildRequest;
 
 pub struct App {
     egui_renderer: EguiRenderer,
     loading_state: Option<LoadingState>,
-    is_resize_pending: bool,
-    resize_generation: u64,
+    pending_frame_extent: Option<Extent2D>,
     resize_lifecycle_test: Option<ResizeLifecycleTest>,
     egui_texture_lifecycle_test: Option<EguiTextureLifecycleTest>,
     swapchain: Swapchain,
@@ -295,21 +290,10 @@ pub struct App {
     gpu_profiler: Option<GpuProfiler>,
     gpu_profiler_latest_results: Option<GpuProfilerFrameResults>,
     time_info: TimeInfo,
-    current_time_of_day: f32,
+    world_clock: WorldClock,
     render_flags: RenderFlags,
-    accumulated_mouse_delta: Vec2,
-    smoothed_mouse_delta: Vec2,
     cursor_position_physical: Option<Vec2>,
-    camera_control_mode: CameraControlMode,
-    orbit_camera_focus: Vec3,
-    orbit_keyboard_pan_input: OrbitKeyboardPanInput,
-    orbit_mouse_drag_held: bool,
-    orbit_mouse_drag_button: Option<MouseButton>,
-    orbit_mouse_drag_pan_active: bool,
-    orbit_mouse_drag_last_position_physical: Option<Vec2>,
-    orbit_pan_smoother: OrbitDeltaSmoother,
-    orbit_rotation_smoother: OrbitDeltaSmoother,
-    mouse_wheel_dolly: MouseWheelDollySmoother,
+    camera_control: CameraControlRuntime,
     modifiers: ModifiersState,
     perf_logging: bool,
     mute_audio_output: bool,
@@ -347,83 +331,39 @@ pub struct App {
     item_panel_soil_inspector_icon: Option<TextureHandle>,
     item_panel_fertilizer_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
-    player_tools: PlayerToolState,
+    player_tools: PlayerToolRuntime,
+    voxel_backpack: VoxelBackpack,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
-    flora_tick: u32,
-    flora_tick_accumulator: f32,
-    moisture_dry_chunk_cursor: u32,
-    moisture_spread_chunk_cursor: u32,
-    flora_paint_dab_serial: u32,
+    terrain_moisture: TerrainMoistureRuntime,
     growing_flora_chunks: GrowingFloraQueue,
-    sun_position_update_tick_accumulator: u32,
-    vsm_history_reset_pending: bool,
 
     #[allow(dead_code)]
     tree_variation_config: TreeVariationConfig,
     #[allow(dead_code)]
     regenerate_trees_requested: bool,
-    prev_bound: UAabb3,
-    tree_records: HashMap<u32, TreeRecord>,
-
-    // multi-tree management
-    #[allow(dead_code)]
-    next_tree_id: u32,
-    #[allow(dead_code)]
-    single_tree_id: u32, // ID for GUI single tree mode
+    trees: TreeRuntime,
 
     particle_system: ParticleSystem,
-    leaf_emitters: Vec<TreeLeafEmitter>,
-    tree_leaf_emitter_indices: HashMap<u32, Vec<usize>>,
-    leaf_emitter_desc: LeafEmitterDesc,
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     butterfly_spawn_source_refresh_elapsed: f32,
-    sprinkler_records: Vec<SprinklerRecord>,
-    sprinkler_emitters: Vec<SprinklerEmitter>,
-    next_sprinkler_id: u32,
+    sprinklers: SprinklerRuntime,
     irrigation_network: IrrigationNetwork,
-    active_pipe_drag: Option<PipeDrag>,
     particle_animation_time_sec: f32,
     water_sim: water::AsyncWaterSim,
     water_runtime_overrides: water::WaterRuntimeOverrides,
-    water_terrain_initialized: bool,
-    water_terrain_collider_cache_rebuild_pending: bool,
-    deferred_terrain_sdf_source_refreshes: LatestChunkQueue<water::TerrainSdfSourceRefreshRequest>,
-    deferred_terrain_sdf_collider_rebuilds:
-        LatestChunkQueue<water::TerrainSdfColliderRebuildRequest>,
-    deferred_water_terrain_cache_rebuilds: LatestChunkQueue<WaterTerrainCacheRebuildRequest>,
-    terrain_sdf_built_source_revisions: HashMap<UVec3, water::TerrainSdfSourceRevision>,
-    terrain_sdf_source_refresh_inflight: Option<water::TerrainSdfSourceRefreshInFlight>,
-    terrain_sdf_collider_build_inflight: bool,
-    terrain_sdf_collider_job_tx: Option<mpsc::Sender<water::TerrainSdfColliderWorkerJob>>,
-    terrain_sdf_collider_result_rx: mpsc::Receiver<water::TerrainSdfColliderWorkerResult>,
-    terrain_sdf_collider_worker: Option<JoinHandle<()>>,
-    water_terrain_cache_rebuild_inflight: bool,
-    water_terrain_cache_job_tx: Option<mpsc::Sender<water::WaterTerrainCacheWorkerJob>>,
-    water_terrain_cache_result_rx: mpsc::Receiver<water::WaterTerrainCacheWorkerResult>,
-    water_terrain_cache_worker: Option<JoinHandle<()>>,
+    water_terrain: water::WaterTerrainRuntime,
     particle_snapshots: Vec<ParticleSnapshot>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
     particle_forces: ParticleForces,
 
     render_start_time: Option<Instant>,
-    screenshot_path: Option<String>,
-    screenshot_delay: Option<f32>,
-    terrain_load_path: Option<String>,
-    terrain_save_path: Option<String>,
-    terrain_snapshot_path: String,
-    terrain_persistence_status: TerrainPersistenceStatus,
-    terrain_persistence_fatal: bool,
-    terrain_persistence_water_paused: bool,
-    screenshot_taken: bool,
-    screenshot_to_clipboard_requested: bool,
-    environment_irradiance_capture_path: Option<String>,
-    environment_irradiance_capture_taken: bool,
-    ddgi_spatial_weight_readback_path: Option<String>,
-    ddgi_spatial_weight_readback_taken: bool,
-    ddgi_spatial_weight_readback_ready: bool,
+    terrain_persistence: TerrainPersistenceRuntime,
+    screenshot_capture: ScreenshotRuntime,
+    environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
+    ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime,
     denoiser_bench: Option<DenoiserBench>,
     auto_exit_delay: Option<f32>,
     tree_bench: Option<TreeBench>,
@@ -434,8 +374,6 @@ pub struct App {
     hybrid_transparency_test_scene:
         Option<hybrid_transparency_test_scene::HybridTransparencyTestScene>,
     visible_terrain_revision: u32,
-    deferred_chunk_rebuilds: LatestChunkQueue<ChunkRebuildRequest>,
-    terrain_chunk_rebuild_inflight: Option<TerrainChunkRebuildInFlight>,
     shutdown_started: bool,
 
     // note: always keep the context to end, as it has to be destroyed last
@@ -445,187 +383,6 @@ pub struct App {
     #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
     tree_audio_manager: TreeAudioManager,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-enum CameraControlMode {
-    FreeFly,
-    Walk,
-    #[default]
-    OrbitEdit,
-}
-
-impl CameraControlMode {
-    fn is_free_look(self) -> bool {
-        matches!(self, Self::FreeFly | Self::Walk)
-    }
-
-    fn is_free_fly(self) -> bool {
-        matches!(self, Self::FreeFly)
-    }
-
-    fn is_walk(self) -> bool {
-        matches!(self, Self::Walk)
-    }
-
-    fn is_orbit_edit(self) -> bool {
-        matches!(self, Self::OrbitEdit)
-    }
-
-    fn next(self) -> Self {
-        match self {
-            Self::OrbitEdit => Self::FreeFly,
-            Self::FreeFly => Self::Walk,
-            Self::Walk => Self::OrbitEdit,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct OrbitKeyboardPanInput {
-    forward: bool,
-    backward: bool,
-    left: bool,
-    right: bool,
-    up: bool,
-    down: bool,
-}
-
-impl OrbitKeyboardPanInput {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn handle_key(&mut self, code: KeyCode, pressed: bool) {
-        match code {
-            KeyCode::KeyW | KeyCode::ArrowUp => self.forward = pressed,
-            KeyCode::KeyS | KeyCode::ArrowDown => self.backward = pressed,
-            KeyCode::KeyA | KeyCode::ArrowLeft => self.left = pressed,
-            KeyCode::KeyD | KeyCode::ArrowRight => self.right = pressed,
-            KeyCode::KeyE => self.up = pressed,
-            KeyCode::KeyQ => self.down = pressed,
-            _ => {}
-        }
-    }
-
-    fn input_vector(self) -> Vec3 {
-        let mut input = Vec3::ZERO;
-        if self.forward {
-            input.z += 1.0;
-        }
-        if self.backward {
-            input.z -= 1.0;
-        }
-        if self.left {
-            input.x -= 1.0;
-        }
-        if self.right {
-            input.x += 1.0;
-        }
-        if self.up {
-            input.y += 1.0;
-        }
-        if self.down {
-            input.y -= 1.0;
-        }
-        input.normalize_or_zero()
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct OrbitDeltaSmoother {
-    current_delta: Vec3,
-    target_delta: Vec3,
-}
-
-impl OrbitDeltaSmoother {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn add_delta(&mut self, delta: Vec3) {
-        if delta.is_finite() {
-            self.target_delta += delta;
-        }
-    }
-
-    fn pending_delta(&self) -> Vec3 {
-        self.target_delta - self.current_delta
-    }
-
-    fn advance(&mut self, frame_delta_time: f32) -> Vec3 {
-        if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
-            return Vec3::ZERO;
-        }
-
-        let remaining_delta = self.pending_delta();
-        if remaining_delta.length_squared() <= ORBIT_CAMERA_DELTA_SNAP_DISTANCE.powi(2) {
-            self.reset();
-            return remaining_delta;
-        }
-
-        let alpha = (1.0 - (-ORBIT_CAMERA_DELTA_INTERPOLATION_RATE * frame_delta_time).exp())
-            .clamp(0.0, 1.0);
-        let mut advanced_delta = remaining_delta * alpha;
-        self.current_delta += advanced_delta;
-
-        let remaining_after_advance = self.target_delta - self.current_delta;
-        if remaining_after_advance.length_squared() <= ORBIT_CAMERA_DELTA_SNAP_DISTANCE.powi(2) {
-            advanced_delta += remaining_after_advance;
-            self.reset();
-        }
-
-        advanced_delta
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct MouseWheelDollySmoother {
-    current_lines: f32,
-    target_lines: f32,
-}
-
-impl MouseWheelDollySmoother {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn add_scroll_lines(&mut self, scroll_lines: f32) {
-        if scroll_lines.abs() <= f32::EPSILON || !scroll_lines.is_finite() {
-            return;
-        }
-
-        let pending_lines = (self.target_lines - self.current_lines + scroll_lines).clamp(
-            -MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES,
-            MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES,
-        );
-        self.target_lines = self.current_lines + pending_lines;
-    }
-
-    fn advance(&mut self, frame_delta_time: f32) -> f32 {
-        if frame_delta_time <= f32::EPSILON || !frame_delta_time.is_finite() {
-            return 0.0;
-        }
-
-        let remaining_lines = self.target_lines - self.current_lines;
-        if remaining_lines.abs() <= MOUSE_WHEEL_DOLLY_SNAP_LINES {
-            self.reset();
-            return 0.0;
-        }
-
-        let alpha = (1.0 - (-MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE * frame_delta_time).exp())
-            .clamp(0.0, 1.0);
-        let mut advanced_lines = remaining_lines * alpha;
-        self.current_lines += advanced_lines;
-
-        let remaining_after_advance = self.target_lines - self.current_lines;
-        if remaining_after_advance.abs() <= MOUSE_WHEEL_DOLLY_SNAP_LINES {
-            advanced_lines += remaining_after_advance;
-            self.reset();
-        }
-
-        advanced_lines
-    }
 }
 
 impl Drop for App {
@@ -643,8 +400,14 @@ impl Drop for App {
 }
 
 impl App {
+    pub(super) fn set_manual_time_of_day(&mut self, time_of_day: f32) {
+        self.debug_settings.adjustables.time_of_day.value = time_of_day;
+        self.world_clock.set_live_time_of_day(time_of_day);
+    }
+
     pub(super) fn track_growing_flora_chunk(&mut self, chunk_id: UVec3) {
-        self.growing_flora_chunks.push(chunk_id, self.flora_tick);
+        self.growing_flora_chunks
+            .push(chunk_id, self.world_clock.flora_tick());
     }
 
     fn collect_gpu_profiler_frame(&mut self, frame_slot: usize) {
@@ -676,15 +439,6 @@ impl App {
         }
     }
 
-    fn schedule_tracer_frame_retirements(&mut self) {
-        for retirement in self.tracer.take_frame_retirements() {
-            self.frame_manager.retire_after_last_submission(retirement);
-        }
-        for retirement in self.egui_renderer.take_frame_retirements() {
-            self.frame_manager.retire_after_last_submission(retirement);
-        }
-    }
-
     fn log_gpu_profiler_frame(&self, frame_count: u64) {
         let Some(results) = self.gpu_profiler_latest_results.as_ref() else {
             return;
@@ -709,10 +463,6 @@ impl App {
     }
 
     fn update_growing_flora_chunk(&mut self) {
-        if self.deferred_surface_rebuild_inflight() {
-            return;
-        }
-
         let Some(GrowingFloraChunk {
             chunk_id,
             last_flora_tick,
@@ -724,7 +474,7 @@ impl App {
             return;
         };
 
-        let tick_delta = self.flora_tick.wrapping_sub(last_flora_tick);
+        let tick_delta = self.world_clock.flora_tick().wrapping_sub(last_flora_tick);
         let growth_tick_delta = tick_delta / FLORA_GROWTH_SPEED_DIVISOR;
         if growth_tick_delta == 0 {
             self.growing_flora_chunks.push(chunk_id, last_flora_tick);
@@ -753,68 +503,6 @@ impl App {
     }
 }
 
-impl WorldBuildBackend for App {
-    fn apply_voxel_edit(&mut self, edit: VoxelEdit) -> Result<()> {
-        anyhow::ensure!(
-            !self.terrain_persistence_fatal,
-            "terrain persistence is in fatal Error; restart is required"
-        );
-        let result = world_ops::apply_voxel_edit(&mut self.plain_builder, edit);
-        if result.is_ok() {
-            self.request_vsm_history_reset();
-        }
-        result
-    }
-
-    fn apply_build_edit(&mut self, edit: BuildEdit) -> Result<()> {
-        anyhow::ensure!(
-            !self.terrain_persistence_fatal,
-            "terrain persistence is in fatal Error; restart is required"
-        );
-        match edit {
-            BuildEdit::RebuildMesh(bound) => {
-                let chunk_ids =
-                    world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
-                anyhow::ensure!(
-                    self.enqueue_deferred_chunk_rebuilds(&chunk_ids),
-                    "failed to publish visible terrain for RebuildMesh {:?}",
-                    bound,
-                );
-                self.terrain_physics.mark_terrain_voxel_bound_dirty(bound);
-            }
-            BuildEdit::RebuildMeshWithoutFlora(bound) => {
-                let chunk_ids =
-                    world_ops::affected_chunk_indices_for_bound(bound, VOXEL_DIM_PER_CHUNK);
-                anyhow::ensure!(
-                    self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids),
-                    "failed to publish visible terrain for RebuildMeshWithoutFlora {:?}",
-                    bound,
-                );
-                self.terrain_physics.mark_terrain_voxel_bound_dirty(bound);
-            }
-            BuildEdit::RebuildChunks(chunk_ids) => {
-                anyhow::ensure!(
-                    self.enqueue_deferred_chunk_rebuilds(&chunk_ids),
-                    "failed to publish visible terrain for RebuildChunks {:?}",
-                    chunk_ids,
-                );
-                self.terrain_physics
-                    .mark_terrain_chunks_dirty(&chunk_ids, VOXEL_DIM_PER_CHUNK);
-            }
-            BuildEdit::RebuildChunksWithoutFlora(chunk_ids) => {
-                anyhow::ensure!(
-                    self.enqueue_deferred_chunk_rebuilds_without_flora(&chunk_ids),
-                    "failed to publish visible terrain for RebuildChunksWithoutFlora {:?}",
-                    chunk_ids,
-                );
-                self.terrain_physics
-                    .mark_terrain_chunks_dirty(&chunk_ids, VOXEL_DIM_PER_CHUNK);
-            }
-        }
-        Ok(())
-    }
-}
-
 const VOXEL_DIM_PER_CHUNK: UVec3 = UVec3::new(256, 256, 256);
 pub(super) const CHUNK_DIM: UVec3 = UVec3::new(2, 2, 2);
 const FREE_ATLAS_DIM: UVec3 = UVec3::new(512, 512, 512);
@@ -824,28 +512,9 @@ const TERRAIN_EDIT_DEFAULT_RADIUS: f32 = 0.08;
 const TERRAIN_EDIT_RADIUS_MIN: f32 = 0.03;
 const TERRAIN_EDIT_RADIUS_MAX: f32 = 0.36;
 const TERRAIN_EDIT_RADIUS_SCROLL_STEP: f32 = 0.01;
-const ORBIT_CAMERA_DEFAULT_FOCUS_HEIGHT: f32 = 0.5;
-const ORBIT_CAMERA_DEFAULT_FOCUS: Vec3 =
-    INITIAL_EDITABLE_TERRAIN_BOUNDS.center_at_height(ORBIT_CAMERA_DEFAULT_FOCUS_HEIGHT);
-const ORBIT_CAMERA_MIN_DISTANCE: f32 = 0.2;
-const ORBIT_CAMERA_MAX_DISTANCE: f32 = 5.0;
-const ORBIT_CAMERA_DOLLY_SPEED: f32 = 0.75;
-const ORBIT_CAMERA_FOCUS_RAY_QUERY_DISTANCE: f32 = 10.0;
-const ORBIT_CAMERA_MOUSE_DRAG_RADIANS_PER_PIXEL: f32 = 0.005;
-const ORBIT_CAMERA_MOUSE_PAN_UNITS_PER_PHYSICAL_PIXEL: f32 = 0.001;
-const ORBIT_CAMERA_DELTA_INTERPOLATION_RATE: f32 = 14.0;
-const ORBIT_CAMERA_DELTA_SNAP_DISTANCE: f32 = 0.00001;
-const ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE: f32 = 0.9;
-const ORBIT_CAMERA_KEYBOARD_PAN_FAR_ZOOM_BOOST_START: f32 = 0.95;
-const ORBIT_CAMERA_KEYBOARD_PAN_FAR_ZOOM_MAX_MULTIPLIER: f32 = 1.6;
 const CENTER_CROSS_MARK_ARM_LENGTH: f32 = 8.0;
 const CENTER_CROSS_MARK_GAP: f32 = 3.0;
 const CENTER_CROSS_MARK_STROKE_WIDTH: f32 = 1.5;
-const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
-const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
-const MOUSE_WHEEL_DOLLY_SNAP_LINES: f32 = 0.001;
-const MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES: f32 = 24.0;
-const ORBIT_CAMERA_MAX_ELEVATION_RAD: f32 = std::f32::consts::FRAC_PI_2 - 0.04;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
 const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
@@ -864,61 +533,6 @@ const FLORA_GROWTH_SPEED_DIVISOR: u32 = 10;
 // Trimmed grasses should read as clipped, not newly sprouted: the shader's floor-based
 // height trim makes low growth values collapse short grass to one voxel.
 const FLORA_TRIM_MAX_GROWTH_PROGRESS: u32 = 160;
-const SUN_POSITION_UPDATE_INTERVAL_TICKS: u32 = 1;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ActiveVoxelType {
-    All,
-    Dirt,
-    Sand,
-    CherryWood,
-    OakWood,
-    Rock,
-}
-
-const BACKPACK_VOXEL_TYPES: [ActiveVoxelType; 5] = [
-    ActiveVoxelType::Dirt,
-    ActiveVoxelType::Sand,
-    ActiveVoxelType::CherryWood,
-    ActiveVoxelType::OakWood,
-    ActiveVoxelType::Rock,
-];
-
-impl ActiveVoxelType {
-    pub(super) fn voxel_type(self) -> Option<u32> {
-        match self {
-            ActiveVoxelType::All => None,
-            ActiveVoxelType::Dirt => Some(crate::builder::VOXEL_TYPE_DIRT),
-            ActiveVoxelType::Sand => Some(crate::builder::VOXEL_TYPE_SAND),
-            ActiveVoxelType::CherryWood => Some(crate::builder::VOXEL_TYPE_CHERRY_WOOD),
-            ActiveVoxelType::OakWood => Some(crate::builder::VOXEL_TYPE_OAK_WOOD),
-            ActiveVoxelType::Rock => Some(crate::builder::VOXEL_TYPE_ROCK),
-        }
-    }
-
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            ActiveVoxelType::All => "All",
-            ActiveVoxelType::Dirt => "Dirt",
-            ActiveVoxelType::Sand => "Sand",
-            ActiveVoxelType::CherryWood => "Cherry wood",
-            ActiveVoxelType::OakWood => "Oak wood",
-            ActiveVoxelType::Rock => "Rock",
-        }
-    }
-
-    pub(super) fn color(self) -> Color32 {
-        match self {
-            ActiveVoxelType::All => Color32::from_rgb(235, 230, 215),
-            ActiveVoxelType::Dirt => Color32::from_rgb(178, 124, 80),
-            ActiveVoxelType::Sand => Color32::from_rgb(229, 204, 126),
-            ActiveVoxelType::CherryWood => Color32::from_rgb(219, 128, 152),
-            ActiveVoxelType::OakWood => Color32::from_rgb(159, 110, 70),
-            ActiveVoxelType::Rock => Color32::from_rgb(168, 176, 190),
-        }
-    }
-}
-
 fn draw_center_cross_mark(ctx: &egui::Context) {
     let center = ctx.content_rect().center();
     let painter = ctx.layer_painter(egui::LayerId::new(
@@ -982,7 +596,7 @@ impl App {
         let (block_min, block_max) = Self::debug_startup_block_bounds();
         self.apply_debug_cuboid(block_min, block_max, VOXEL_TYPE_DIRT)?;
 
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
         Ok(())
     }
 
@@ -1074,26 +688,8 @@ impl App {
 
         let allocator = Allocator::new_for_context(&vulkan_ctx);
 
-        let terrain_snapshot_metadata =
-            TerrainSnapshotMetadata::new(CHUNK_DIM.to_array(), VOXEL_DIM_PER_CHUNK.to_array());
-        let terrain_snapshot_reader = options
-            .terrain_load_path
-            .as_deref()
-            .map(|path| -> Result<TerrainSnapshotReader> {
-                TerrainSnapshotReader::validate(path, terrain_snapshot_metadata)
-                    .with_context(|| format!("validate terrain snapshot {}", path))?;
-                let reader = TerrainSnapshotReader::open(path)
-                    .with_context(|| format!("open terrain snapshot {}", path))?;
-                log::info!(
-                    "[TERRAIN_PERSISTENCE] startup load validated path={} chunks={} bytes={}",
-                    path,
-                    terrain_snapshot_metadata.chunk_count()?,
-                    terrain_snapshot_metadata.chunk_count()?
-                        * terrain_snapshot_metadata.chunk_byte_len()?
-                );
-                Ok(reader)
-            })
-            .transpose()?;
+        let mut terrain_persistence = TerrainPersistenceRuntime::from_options(options)?;
+        let terrain_snapshot_reader = terrain_persistence.take_startup_reader();
 
         let swapchain = Swapchain::new(
             vulkan_ctx.clone(),
@@ -1111,6 +707,8 @@ impl App {
             MAX_FRAMES_IN_FLIGHT,
             swapchain.image_count(),
         );
+        let frame_extent_generation = swapchain.frame_extent_generation();
+        let frame_retirement_sink = frame_manager.retirement_sink();
         let gpu_profiler = options
             .perf
             .then(|| {
@@ -1128,6 +726,7 @@ impl App {
             &window_state.window(),
             allocator.clone(),
             swapchain.get_render_pass(),
+            frame_retirement_sink.clone(),
         );
         let egui_texture_lifecycle_test = options
             .egui_texture_lifecycle_test
@@ -1197,8 +796,9 @@ impl App {
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
+            frame_retirement_sink,
             chunk_bound,
-            window_state.window_extent(),
+            frame_extent_generation,
             contree_builder.get_resources(),
             scene_accel_builder.get_resources(),
             plain_builder.get_resources(),
@@ -1210,9 +810,6 @@ impl App {
                 environment_probe_visualization_enabled: options.environment_probe_visualization,
                 environment_irradiance_capture_enabled: options
                     .environment_irradiance_capture_path
-                    .is_some(),
-                ddgi_spatial_weight_readback_enabled: options
-                    .ddgi_spatial_weight_readback_path
                     .is_some(),
                 environment_irradiance_capture_target: options
                     .environment_irradiance_capture_target,
@@ -1282,7 +879,10 @@ impl App {
         if render_flags.enable_flora {
             render_flags.enable_leaves = debug_settings.tree.render_leaves;
         }
-        let current_time_of_day = debug_settings.adjustables.time_of_day.value;
+        let world_clock = WorldClock::new(
+            FLORA_FULL_GROWTH_TICKS,
+            debug_settings.adjustables.time_of_day.value,
+        );
         let terrain_physics = TerrainPhysics::new(debug_settings.adjustables.fruit_cycle.value);
 
         let color_to_vec4 = |color: Color32| -> Vec4 {
@@ -1295,13 +895,12 @@ impl App {
         };
 
         let particle_system = ParticleSystem::new(PARTICLE_CAPACITY);
-        let leaf_emitters = Vec::new();
-        let tree_leaf_emitter_indices = HashMap::new();
         let leaf_emitter_desc = LeafEmitterDesc {
             color_low: color_to_vec4(debug_settings.adjustables.leaves_bottom_color.value),
             color_high: color_to_vec4(debug_settings.adjustables.leaves_tip_color.value),
             ..LeafEmitterDesc::default()
         };
+        let trees = TreeRuntime::new(leaf_emitter_desc);
         let tree_audio_manager = TreeAudioManager::new(
             spatial_sound_manager.clone(),
             Self::tree_audio_wind_response_curve(&debug_settings.adjustables),
@@ -1311,9 +910,6 @@ impl App {
         let butterfly_emitters = Vec::new();
         let butterfly_emitter_desc =
             Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
-        let sprinkler_records = Vec::new();
-        let sprinkler_emitters = Vec::new();
-        let next_sprinkler_id = 1;
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
         // Start with the chosen profile and proportional world grid. For the implicit
         // default run, apply persisted GUI water sliders, then let explicit CLI
@@ -1374,18 +970,17 @@ impl App {
             cells_per_unit,
         );
         let water_sim = water::AsyncWaterSim::new(water_config);
-        let (
-            terrain_sdf_collider_job_tx,
-            terrain_sdf_collider_result_rx,
-            terrain_sdf_collider_worker,
-        ) = Self::spawn_terrain_sdf_collider_worker();
-        let (water_terrain_cache_job_tx, water_terrain_cache_result_rx, water_terrain_cache_worker) =
-            Self::spawn_water_terrain_cache_worker();
+        let water_terrain = water::WaterTerrainRuntime::new();
         let terrain_harvest_particle_handles = Vec::with_capacity(256);
         let particle_forces = ParticleForces {
             linear_damping: 0.08,
             ..ParticleForces::default()
         };
+        let physical_terrain_publication =
+            physical_visible_terrain::PhysicalTerrainPublication::loading(
+                chunk_indices.clone(),
+                VOXEL_DIM_PER_CHUNK,
+            )?;
 
         let mut app = Self {
             vulkan_ctx,
@@ -1394,25 +989,15 @@ impl App {
             loading_state: Some(LoadingState {
                 chunk_indices,
                 terrain_snapshot_reader,
+                physical_terrain_publication,
                 current: 0,
                 step_label: "Initializing...".to_owned(),
                 phase: LoadingPhase::Terrain,
                 collider_total: 0,
             }),
 
-            accumulated_mouse_delta: Vec2::ZERO,
-            smoothed_mouse_delta: Vec2::ZERO,
             cursor_position_physical: None,
-            camera_control_mode: CameraControlMode::default(),
-            orbit_camera_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
-            orbit_keyboard_pan_input: OrbitKeyboardPanInput::default(),
-            orbit_mouse_drag_held: false,
-            orbit_mouse_drag_button: None,
-            orbit_mouse_drag_pan_active: false,
-            orbit_mouse_drag_last_position_physical: None,
-            orbit_pan_smoother: OrbitDeltaSmoother::default(),
-            orbit_rotation_smoother: OrbitDeltaSmoother::default(),
-            mouse_wheel_dolly: MouseWheelDollySmoother::default(),
+            camera_control: CameraControlRuntime::default(),
             modifiers: ModifiersState::default(),
             perf_logging: options.perf,
             mute_audio_output: options.mute,
@@ -1430,17 +1015,17 @@ impl App {
             scene_accel_builder,
             terrain_physics,
 
-            is_resize_pending: false,
-            resize_generation: 1,
+            pending_frame_extent: None,
             resize_lifecycle_test: options.resize_lifecycle_test.then(|| ResizeLifecycleTest {
                 requested: 0,
                 next_request_frame: 2,
                 observed: Vec::new(),
                 complete: false,
+                publication_count_at_requests_complete: None,
             }),
             egui_texture_lifecycle_test,
             time_info: TimeInfo::default(),
-            current_time_of_day,
+            world_clock,
             render_flags,
 
             debug_settings,
@@ -1448,8 +1033,7 @@ impl App {
             tree_placement_preview_desc,
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
-            prev_bound: Default::default(),
-            tree_records: HashMap::new(),
+            trees,
             config_panel_visible: false,
             environment_probe_spacing_draft: options.environment_probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels: options
@@ -1472,82 +1056,40 @@ impl App {
             item_panel_soil_inspector_icon: None,
             item_panel_fertilizer_icon: None,
             item_panel_tiller_icon: None,
-            player_tools: PlayerToolState::default(),
+            player_tools: PlayerToolRuntime::default(),
+            voxel_backpack: VoxelBackpack::default(),
             water_particle_handoff_main_thread_ms: None,
-            flora_tick: FLORA_FULL_GROWTH_TICKS,
-            flora_tick_accumulator: 0.0,
-            moisture_dry_chunk_cursor: 0,
-            moisture_spread_chunk_cursor: 0,
-            flora_paint_dab_serial: 0,
+            terrain_moisture: TerrainMoistureRuntime::default(),
             growing_flora_chunks: GrowingFloraQueue::default(),
-            sun_position_update_tick_accumulator: 0,
-            vsm_history_reset_pending: true,
-
-            // multi-tree management
-            next_tree_id: 1, // Start from 1, use 0 for GUI single tree
-            single_tree_id: 0,
 
             particle_system,
-            leaf_emitters,
-            tree_leaf_emitter_indices,
-            leaf_emitter_desc,
             butterfly_emitters,
             butterfly_emitter_desc,
             butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
-            sprinkler_records,
-            sprinkler_emitters,
-            next_sprinkler_id,
+            sprinklers: SprinklerRuntime::new(),
             irrigation_network: IrrigationNetwork::default(),
-            active_pipe_drag: None,
             particle_animation_time_sec: 0.0,
             water_sim,
             water_runtime_overrides,
-            water_terrain_initialized: false,
-            water_terrain_collider_cache_rebuild_pending: false,
-            deferred_terrain_sdf_source_refreshes: LatestChunkQueue::default(),
-            deferred_terrain_sdf_collider_rebuilds: LatestChunkQueue::default(),
-            deferred_water_terrain_cache_rebuilds: LatestChunkQueue::default(),
-            terrain_sdf_built_source_revisions: HashMap::new(),
-            terrain_sdf_source_refresh_inflight: None,
-            terrain_sdf_collider_build_inflight: false,
-            terrain_sdf_collider_job_tx: Some(terrain_sdf_collider_job_tx),
-            terrain_sdf_collider_result_rx,
-            terrain_sdf_collider_worker: Some(terrain_sdf_collider_worker),
-            water_terrain_cache_rebuild_inflight: false,
-            water_terrain_cache_job_tx: Some(water_terrain_cache_job_tx),
-            water_terrain_cache_result_rx,
-            water_terrain_cache_worker: Some(water_terrain_cache_worker),
+            water_terrain,
             particle_snapshots,
             terrain_harvest_particle_handles,
             particle_forces,
 
             render_start_time: None,
-            screenshot_path: options.screenshot_path.clone(),
-            screenshot_delay: options.screenshot_delay,
-            terrain_load_path: options.terrain_load_path.clone(),
-            terrain_save_path: options.terrain_save_path.clone(),
-            terrain_snapshot_path: options
-                .terrain_load_path
-                .clone()
-                .or_else(|| options.terrain_save_path.clone())
-                .unwrap_or_else(|| DEFAULT_TERRAIN_SNAPSHOT_PATH.to_owned()),
-            terrain_persistence_status: TerrainPersistenceStatus::Ready,
-            terrain_persistence_fatal: false,
-            terrain_persistence_water_paused: false,
-            screenshot_taken: false,
-            screenshot_to_clipboard_requested: false,
-            environment_irradiance_capture_path: options
-                .environment_irradiance_capture_path
-                .clone(),
-            environment_irradiance_capture_taken: false,
-            ddgi_spatial_weight_readback_path: options.ddgi_spatial_weight_readback_path.clone(),
-            ddgi_spatial_weight_readback_taken: false,
-            ddgi_spatial_weight_readback_ready: false,
+            terrain_persistence,
+            screenshot_capture: ScreenshotRuntime::new(options.screenshot.clone()),
+            environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
+                options.environment_irradiance_capture_path.clone(),
+            ),
+            ddgi_spatial_weight_readback: DdgiSpatialWeightReadbackRuntime::new(
+                options.ddgi_spatial_weight_readback_path.clone(),
+            ),
             denoiser_bench: options.denoiser_bench.clone().map(DenoiserBench::new),
             auto_exit_delay: options.auto_exit_delay,
             tree_bench: options
                 .tree_bench
-                .then(|| TreeBench::new(options.tree_bench_samples, options.tree_bench_rapid)),
+                .then(|| TreeBench::new(options.tree_bench_samples)),
             authored_flora_bench: options
                 .authored_flora_bench
                 .then(|| AuthoredFloraBench::new(options.authored_flora_bench_samples)),
@@ -1559,8 +1101,6 @@ impl App {
                 .hybrid_transparency_test_scene
                 .then(hybrid_transparency_test_scene::HybridTransparencyTestScene::new),
             visible_terrain_revision: 0,
-            deferred_chunk_rebuilds: LatestChunkQueue::default(),
-            terrain_chunk_rebuild_inflight: None,
             shutdown_started: false,
 
             spatial_sound_manager,
@@ -2003,42 +1543,16 @@ impl App {
         1.0 - (1.0 - alpha_60fps).powf(frame_scale)
     }
 
-    fn request_vsm_history_reset(&mut self) {
-        self.vsm_history_reset_pending = true;
-    }
-
-    fn finish_player_terrain_edit_publication(
-        &mut self,
-        terrain_changed: bool,
-        visible_rebuild_succeeded: bool,
-        rebuild_bound: UAabb3,
-        operation: &'static str,
-    ) -> Result<()> {
-        let Some(refresh_bound) = terrain_refresh_bound_after_publication(
-            terrain_changed,
-            visible_rebuild_succeeded,
-            rebuild_bound,
-            operation,
-        )?
-        else {
-            return Ok(());
-        };
-        self.terrain_physics
-            .mark_terrain_voxel_bound_dirty(refresh_bound);
-        self.observe_published_terrain_edit_for_ddgi(refresh_bound)?;
-        Ok(())
-    }
-
     fn execute_edit_plan(&mut self, plan: WorldEditPlan) -> Result<()> {
-        let affects_shadow_history = !plan.voxel_edits.is_empty() || !plan.build_edits.is_empty();
-        let environment_probe_edit_bound =
-            Self::environment_probe_edit_bound(&plan, VOXEL_DIM_PER_CHUNK);
-        world_ops::execute_edit_plan_on_backend(self, plan)?;
-        if affects_shadow_history {
-            self.request_vsm_history_reset();
+        anyhow::ensure!(
+            self.terrain_persistence.allows_world_updates(),
+            "terrain persistence is in fatal Error; restart is required"
+        );
+        for edit in plan.voxel_edits {
+            world_ops::apply_voxel_edit(&mut self.plain_builder, edit)?;
         }
-        if let Some(edit_bound) = environment_probe_edit_bound {
-            self.observe_published_terrain_edit_for_ddgi(edit_bound)?;
+        if let Some(change) = VisibleTerrainChange::from_build_edits(plan.build_edits)? {
+            self.publish_visible_terrain(change)?;
         }
         Ok(())
     }
@@ -2050,40 +1564,6 @@ impl App {
             UAabb3::new(UVec3::ZERO, CHUNK_DIM * VOXEL_DIM_PER_CHUNK),
         )?;
         Ok(revision)
-    }
-
-    fn observe_published_terrain_edit_for_ddgi(
-        &mut self,
-        edited_voxel_bound: UAabb3,
-    ) -> Result<u32> {
-        let revision = self.visible_terrain_revision.wrapping_add(1).max(1);
-        self.tracer
-            .observe_published_environment_probe_terrain(revision, edited_voxel_bound)?;
-        self.visible_terrain_revision = revision;
-        Ok(revision)
-    }
-
-    fn environment_probe_edit_bound(
-        plan: &WorldEditPlan,
-        voxel_dim_per_chunk: UVec3,
-    ) -> Option<UAabb3> {
-        plan.build_edits
-            .iter()
-            .filter_map(|edit| match edit {
-                BuildEdit::RebuildMesh(bound) | BuildEdit::RebuildMeshWithoutFlora(bound) => {
-                    Some(*bound)
-                }
-                BuildEdit::RebuildChunks(chunk_ids)
-                | BuildEdit::RebuildChunksWithoutFlora(chunk_ids) => {
-                    let min_chunk = chunk_ids.iter().copied().reduce(UVec3::min)?;
-                    let max_chunk = chunk_ids.iter().copied().reduce(UVec3::max)?;
-                    Some(UAabb3::new(
-                        min_chunk * voxel_dim_per_chunk,
-                        (max_chunk + UVec3::ONE) * voxel_dim_per_chunk,
-                    ))
-                }
-            })
-            .reduce(|combined, bound| combined.union_with(&bound))
     }
 
     fn gui_wants_keyboard_input(&self) -> bool {
@@ -2178,8 +1658,7 @@ impl App {
                 && !event.repeat
                 && event.physical_key == KeyCode::KeyP
             {
-                self.screenshot_to_clipboard_requested = true;
-                log::info!("[SCREENSHOT] P pressed; capturing next frame to clipboard");
+                self.screenshot_capture.request_clipboard();
                 return;
             }
 
@@ -2209,12 +1688,12 @@ impl App {
                 scale_factor: _scale_factor,
                 inner_size_writer: _inner_size_writer,
             } => {
-                self.is_resize_pending = true;
+                self.queue_current_frame_extent();
             }
 
             // resize the window
-            WindowEvent::Resized(_) => {
-                self.is_resize_pending = true;
+            WindowEvent::Resized(size) => {
+                self.queue_frame_extent(Extent2D::new(size.width, size.height));
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
@@ -2284,44 +1763,19 @@ impl App {
                 {
                     match state {
                         ElementState::Pressed => {
-                            self.player_tools.shovel_dig_held = false;
                             let now = Instant::now();
-                            if self.is_shovel_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_shovel_dig(now);
-                            } else if self.is_shovel_selected() && button == MouseButton::Right {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_shovel_place(now);
-                            } else if self.is_smooth_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_terrain_smooth(now);
-                            } else if self.is_staff_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_staff_regenerate(now);
-                            } else if self.is_staff_selected() && button == MouseButton::Right {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_staff_remove_flora(now);
-                            } else if self.is_hoe_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.try_hoe_trim(now);
-                            } else if self.is_watering_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.player_tools.last_watering_time = None;
-                                self.try_watering_brush(now);
-                            } else if self.is_fertilizer_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.player_tools.last_fertilizing_time = None;
-                                self.try_fertilizer_brush(now);
-                            } else if self.is_tiller_selected() && button == MouseButton::Left {
-                                self.player_tools.shovel_dig_held = true;
-                                self.player_tools.last_tilling_time = None;
-                                self.try_tiller_brush(now);
-                            } else if self.is_place_tool_selected() && button == MouseButton::Left {
-                                self.stop_terrain_edit_loop_sound();
-                                self.try_placeable_placement();
-                            } else if self.is_place_tool_selected() && button == MouseButton::Right
-                            {
-                                self.cancel_pipe_drag();
+                            match self.player_tools.begin_pointer_action(button) {
+                                Some(PlayerToolPointerAction::Continuous(action)) => {
+                                    self.execute_continuous_terrain_tool_action(action, now);
+                                }
+                                Some(PlayerToolPointerAction::PlaceablePlacement) => {
+                                    self.stop_terrain_edit_loop_sound();
+                                    self.try_placeable_placement();
+                                }
+                                Some(PlayerToolPointerAction::CancelPlaceable) => {
+                                    self.cancel_pipe_drag();
+                                }
+                                None => {}
                             }
                         }
                         ElementState::Released => {
@@ -2354,7 +1808,7 @@ impl App {
                 let mut cpu_timings = FrameCpuTimings::new(frame_timing_enabled);
 
                 // resize the window if needed
-                if self.is_resize_pending {
+                if self.pending_frame_extent.is_some() {
                     self.on_resize();
                 }
 
@@ -2371,42 +1825,28 @@ impl App {
                     self.terrain_physics
                         .process_terrain_collider_updates(&self.contree_builder);
                 }
-                cpu_timings.time(FrameCpuScope::TerrainSource, || {
-                    self.process_terrain_sdf_source_updates();
-                });
-
                 if self.loading_state.is_some() {
+                    let water_terrain = self.advance_loading_water_terrain(frame_timing_enabled);
+                    cpu_timings.add_ms(FrameCpuScope::TerrainSource, water_terrain.source_ms);
+                    cpu_timings.add_ms(FrameCpuScope::WaterCache, water_terrain.cache_ms);
+                    cpu_timings.add_ms(FrameCpuScope::ColliderQueue, water_terrain.collider_ms);
                     self.process_loading_step();
                     self.render_loading_frame();
                     return;
                 }
 
-                if !self.terrain_persistence_fatal && self.player_tools.shovel_dig_held {
+                if self.terrain_persistence.allows_world_updates()
+                    && self.player_tools.continuous_hold_active()
+                {
                     let now = Instant::now();
-                    if self.is_shovel_selected() && self.player_tools.left_mouse_held {
-                        self.try_shovel_dig(now);
-                    } else if self.is_shovel_selected() && self.player_tools.right_mouse_held {
-                        self.try_shovel_place(now);
-                    } else if self.is_smooth_selected() && self.player_tools.left_mouse_held {
-                        self.try_terrain_smooth(now);
-                    } else if self.is_staff_selected() && self.player_tools.left_mouse_held {
-                        self.try_staff_regenerate(now);
-                    } else if self.is_staff_selected() && self.player_tools.right_mouse_held {
-                        self.try_staff_remove_flora(now);
-                    } else if self.is_hoe_selected() && self.player_tools.left_mouse_held {
-                        self.try_hoe_trim(now);
-                    } else if self.is_watering_selected() && self.player_tools.left_mouse_held {
-                        self.try_watering_brush(now);
-                    } else if self.is_fertilizer_selected() && self.player_tools.left_mouse_held {
-                        self.try_fertilizer_brush(now);
-                    } else if self.is_tiller_selected() && self.player_tools.left_mouse_held {
-                        self.try_tiller_brush(now);
+                    if let Some(action) = self.player_tools.active_continuous_action() {
+                        self.execute_continuous_terrain_tool_action(action, now);
                     } else {
                         self.stop_terrain_edit_loop_sound();
                     }
                 }
                 let frame_delta_time = self.time_info.delta_time();
-                if !self.terrain_persistence_fatal {
+                if self.terrain_persistence.allows_world_updates() {
                     if let Err(err) = self
                         .terrain_physics
                         .advance_dynamic_bodies(frame_delta_time, &mut self.tracer)
@@ -2423,16 +1863,13 @@ impl App {
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
                 );
-                if !self.terrain_persistence_fatal {
-                    self.flora_tick_accumulator += frame_delta_time / world_tick_seconds;
-                }
-                let mut world_tick_steps = 0u32;
-                while self.flora_tick_accumulator >= 1.0 {
-                    self.flora_tick = self.flora_tick.wrapping_add(1);
-                    self.flora_tick_accumulator -= 1.0;
-                    world_tick_steps += 1;
-                }
-                if !self.terrain_persistence_fatal && world_tick_steps > 0 {
+                let world_updates_running = self.terrain_persistence.allows_world_updates();
+                let world_tick_steps = self.world_clock.advance_simulation(
+                    frame_delta_time,
+                    world_tick_seconds,
+                    world_updates_running,
+                );
+                if world_updates_running && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
                 let active_wind_sources =
@@ -2457,15 +1894,8 @@ impl App {
                 self.update_audio_ray_tracing();
 
                 if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
-                    // grab the value and immediately reset the accumulator
-                    let mouse_delta = self.accumulated_mouse_delta;
-                    self.accumulated_mouse_delta = Vec2::ZERO;
-
-                    let alpha = 0.4; // mouse smoothing factor: 0 = no smoothing, 1 = infinite smoothing
-                    self.smoothed_mouse_delta =
-                        self.smoothed_mouse_delta * alpha + mouse_delta * (1.0 - alpha);
-
-                    self.tracer.handle_mouse(self.smoothed_mouse_delta);
+                    let mouse_delta = self.camera_control.take_smoothed_free_look_mouse_delta();
+                    self.tracer.handle_mouse(mouse_delta);
                 }
 
                 let mut tree_desc_changed = false;
@@ -2485,17 +1915,22 @@ impl App {
                 let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
                 let item_panel_fertilizer_icon = self.item_panel_fertilizer_icon.clone();
                 let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
-                let selected_item_panel_slot = self.player_tools.selected_item_panel_slot;
-                let selected_placeable_panel_slot = self.player_tools.selected_placeable_panel_slot;
-                let voxel_palette_entries: Vec<VoxelPaletteEntry> = BACKPACK_VOXEL_TYPES
-                    .iter()
-                    .copied()
-                    .map(|voxel_type| VoxelPaletteEntry {
-                        voxel_type,
-                        label: voxel_type.label(),
-                        count: self.voxel_count(voxel_type),
-                        color: voxel_type.color(),
-                        selected: false,
+                let selected_item_panel_display_slot =
+                    self.player_tools.selected_item_panel_display_slot();
+                let voxel_palette_entries: Vec<VoxelPaletteEntry> = self
+                    .voxel_backpack
+                    .snapshot()
+                    .into_iter()
+                    .map(|entry| {
+                        let voxel = entry.voxel;
+                        let [red, green, blue] = voxel.color_rgb();
+                        VoxelPaletteEntry {
+                            voxel,
+                            label: voxel.label(),
+                            count: entry.count,
+                            color: Color32::from_rgb(red, green, blue),
+                            selected: false,
+                        }
                     })
                     .collect();
                 let flora_paint_selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
@@ -2568,7 +2003,7 @@ impl App {
                 let placeable_hint = format!(
                     "Place: {} (Z/X or bottom bar) · Water: 6 + LMB · Inspector: 7 · Fert: 8 + LMB · Till: 9 + LMB · sprinklers {}",
                     self.current_placeable_label(),
-                    self.sprinkler_records.len()
+                    self.sprinklers.len()
                 );
                 let soil_inspector_panel_text = if self.is_soil_inspector_selected() {
                     Some(match terrain_edit_hover {
@@ -2629,10 +2064,11 @@ impl App {
                         .unwrap_or(true),
                 );
                 let current_camera_is_free_fly = self.is_free_fly_camera_mode();
-                let hide_ui_for_environment_test_capture =
-                    (self.environment_lighting_test_scene.is_some()
-                        || self.hybrid_transparency_test_scene.is_some())
-                        && (self.screenshot_path.is_some() || self.denoiser_bench.is_some());
+                let hide_ui_for_environment_test_capture = (self
+                    .environment_lighting_test_scene
+                    .is_some()
+                    || self.hybrid_transparency_test_scene.is_some())
+                    && (self.screenshot_capture.is_scheduled() || self.denoiser_bench.is_some());
                 if self.loading_state.is_none() {
                     if let Some(test) = self.egui_texture_lifecycle_test.as_mut() {
                         test.advance();
@@ -2738,10 +2174,13 @@ impl App {
                                     ui.label("Terrain-only; trees, entities, water, and time are retained.");
                                     ui.horizontal(|ui| {
                                         ui.label("Path");
-                                        ui.text_edit_singleline(&mut self.terrain_snapshot_path);
+                                        ui.text_edit_singleline(
+                                            self.terrain_persistence.snapshot_path_mut(),
+                                        );
                                     });
                                     ui.horizontal(|ui| {
-                                        let ready = self.terrain_persistence_status.is_ready();
+                                        let ready =
+                                            self.terrain_persistence.can_start_operation();
                                         if ui
                                             .add_enabled(ready, egui::Button::new("Save terrain"))
                                             .clicked()
@@ -2754,7 +2193,7 @@ impl App {
                                         {
                                             terrain_load_requested = true;
                                         }
-                                        ui.label(self.terrain_persistence_status.label());
+                                        ui.label(self.terrain_persistence.status_label());
                                     });
 
                                     ui.add_space(4.0);
@@ -3133,27 +2572,15 @@ impl App {
                                 enabled: true,
                             },
                         ];
-                        let selected_item_panel_display_slot = if selected_item_panel_slot
-                            == Some(TREE_SLOT_INDEX)
-                            && selected_placeable_panel_slot == SPRINKLER_PLACEABLE_SLOT_INDEX
-                        {
-                            Some(SPRINKLER_SLOT_INDEX)
-                        } else if selected_item_panel_slot == Some(TREE_SLOT_INDEX)
-                            && selected_placeable_panel_slot == PIPE_PLACEABLE_SLOT_INDEX
-                        {
-                            Some(PIPE_SLOT_INDEX)
-                        } else {
-                            selected_item_panel_slot.or(Some(HAND_SLOT_INDEX))
-                        };
                         let item_panel_response = draw_item_panel(
                             ctx,
                             &item_panel_slots,
-                            selected_item_panel_display_slot,
+                            Some(selected_item_panel_display_slot),
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
 
-                        if selected_item_panel_slot == Some(STAFF_SLOT_INDEX) {
+                        if self.player_tools.selected_tool() == PlayerTool::Staff {
                             let flora_paint_panel_response = draw_flora_paint_panel(
                                 ctx,
                                 &flora_paint_panel_entries,
@@ -3414,27 +2841,17 @@ impl App {
                     return;
                 }
 
-                cpu_timings.time(FrameCpuScope::TerrainSource, || {
-                    self.process_terrain_sdf_source_updates();
-                });
-                cpu_timings.time(FrameCpuScope::DeferredRebuild, || {
-                    self.process_deferred_chunk_rebuild();
-                });
-                cpu_timings.time(FrameCpuScope::WaterCache, || {
-                    self.process_deferred_water_terrain_cache_rebuild();
-                });
+                let water_terrain = self.advance_water_terrain(frame_timing_enabled);
+                cpu_timings.add_ms(FrameCpuScope::TerrainSource, water_terrain.source_ms);
+                cpu_timings.add_ms(FrameCpuScope::WaterCache, water_terrain.cache_ms);
+                cpu_timings.add_ms(FrameCpuScope::ColliderQueue, water_terrain.collider_ms);
                 self.maybe_resume_terrain_persistence_water();
-                cpu_timings.time(FrameCpuScope::ColliderQueue, || {
-                    self.process_deferred_terrain_sdf_collider_rebuild();
-                });
                 cpu_timings.time(FrameCpuScope::WaterEditSoak, || {
                     self.process_water_edit_soak();
                 });
                 self.process_environment_lighting_test_scene();
                 self.process_hybrid_transparency_test_scene();
-                if self.deferred_chunk_rebuilds_idle() {
-                    self.tracer.drive_pending_ddgi_rebuild();
-                }
+                self.tracer.drive_pending_ddgi_rebuild();
 
                 if self.render_start_time.is_some() {
                     if let Some(spacing_voxels) =
@@ -3450,46 +2867,29 @@ impl App {
                     }
                 }
 
-                let mut sun_update_ticks = 0;
-                if self.debug_settings.adjustables.auto_daynight_cycle.value && world_tick_steps > 0
-                {
-                    self.sun_position_update_tick_accumulator += world_tick_steps;
-                    while self.sun_position_update_tick_accumulator
-                        >= SUN_POSITION_UPDATE_INTERVAL_TICKS
-                    {
-                        self.sun_position_update_tick_accumulator -=
-                            SUN_POSITION_UPDATE_INTERVAL_TICKS;
-                        sun_update_ticks += SUN_POSITION_UPDATE_INTERVAL_TICKS;
-                    }
-                }
-
                 let time_of_day_changed_by_gui =
                     self.debug_settings.adjustables.time_of_day.value != time_of_day_before_gui;
                 let vsm_blur_radius_changed_by_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value
                         != vsm_blur_radius_before_gui;
                 if time_of_day_changed_by_gui {
-                    self.current_time_of_day = self.debug_settings.adjustables.time_of_day.value;
+                    self.world_clock
+                        .set_live_time_of_day(self.debug_settings.adjustables.time_of_day.value);
                 }
                 if time_of_day_changed_by_gui || vsm_blur_radius_changed_by_gui {
-                    self.request_vsm_history_reset();
+                    self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }
 
-                // update sun position if auto day/night cycle is enabled
-                let sun_position_updated = sun_update_ticks > 0;
-                if sun_position_updated {
-                    self.current_time_of_day = advance_time_of_day(
-                        self.current_time_of_day,
-                        sun_update_ticks,
-                        world_tick_seconds,
-                        self.debug_settings.adjustables.day_cycle_minutes.value,
-                    );
-                }
+                self.world_clock.advance_daynight(
+                    world_tick_steps,
+                    world_tick_seconds,
+                    self.debug_settings.adjustables.day_cycle_minutes.value,
+                    self.debug_settings.adjustables.auto_daynight_cycle.value,
+                );
 
                 if self.render_flags.enable_particles {
-                    if self.water_terrain_initialized
-                        && !self.terrain_persistence_water_paused
-                        && !self.terrain_persistence_fatal
+                    if self.water_terrain_status().is_initialized()
+                        && self.terrain_persistence.allows_water_simulation()
                     {
                         let water_handoff_start = Instant::now();
                         self.update_water_sim(frame_delta_time, world_tick_seconds);
@@ -3507,11 +2907,10 @@ impl App {
                 self.apply_denoiser_benchmark_camera_motion();
 
                 let gpu_record_start = Instant::now();
-                self.schedule_tracer_frame_retirements();
                 let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
                     Ok(frame) => frame,
                     Err(SwapchainFrameError::OutOfDate) => {
-                        self.is_resize_pending = true;
+                        self.queue_current_frame_extent();
                         return;
                     }
                     Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
@@ -3519,10 +2918,17 @@ impl App {
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
                 let cmdbuf = frame.command_buffer();
-                let image_idx = frame.image_index();
+                let frame_extent_generation = frame.frame_extent_generation();
+                assert_eq!(
+                    frame_extent_generation,
+                    self.swapchain.frame_extent_generation(),
+                    "acquired frame extent generation is not the active swapchain generation"
+                );
+                self.tracer
+                    .assert_frame_extent_generation(frame_extent_generation);
+                let render_area = frame.extent();
 
                 cmdbuf.begin(false);
-                cmdbuf.begin_resource_state_transaction();
                 if let Some(profiler) = self.gpu_profiler.as_mut() {
                     profiler.begin_frame(frame_slot, cmdbuf);
                 }
@@ -3536,13 +2942,13 @@ impl App {
                 });
 
                 let (sun_altitude, sun_azimuth) = Self::calculate_sun_position(
-                    self.current_time_of_day,
+                    self.world_clock.live_time_of_day(),
                     self.debug_settings.adjustables.latitude.value,
                     self.debug_settings.adjustables.season.value,
                 );
                 let sun_dir = get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
 
-                if !self.sprinkler_records.is_empty() {
+                if !self.sprinklers.is_empty() {
                     let sprinkler_moisture_gpu_scope =
                         self.gpu_profiler.as_mut().and_then(|profiler| {
                             profiler.begin_scope(
@@ -3565,7 +2971,7 @@ impl App {
                     }
                 }
 
-                if self.has_terrain_moisture_spread_chunks() {
+                if self.terrain_moisture.has_chunks() {
                     let moisture_spread_gpu_scope =
                         self.gpu_profiler.as_mut().and_then(|profiler| {
                             profiler.begin_scope(
@@ -3575,7 +2981,11 @@ impl App {
                                 PipelineStage::COMPUTE_SHADER,
                             )
                         });
-                    self.record_terrain_moisture_spread_chunks(cmdbuf);
+                    self.terrain_moisture.record_spread(
+                        &mut self.plain_builder,
+                        cmdbuf,
+                        self.perf_logging,
+                    );
                     if let Some(scope) = moisture_spread_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
                             profiler.end_scope(
@@ -3992,7 +3402,7 @@ impl App {
                             .value,
                         wind_gui_params,
                         cloud_gui_params,
-                        self.flora_tick,
+                        self.world_clock.flora_tick(),
                         FLORA_SPROUT_DELAY_TICKS,
                         FLORA_FULL_GROWTH_TICKS,
                         self.time_info.time_since_start_duration().as_millis() as u32,
@@ -4118,7 +3528,7 @@ impl App {
                         TERRAIN_EDIT_PREVIEW_ALPHA,
                     )
                     .unwrap();
-                self.tracer.record_updated_buffer_uses(cmdbuf);
+                self.tracer.record_host_buffer_writes(cmdbuf);
 
                 let color_to_vec3 = |color: Color32| -> Vec3 {
                     Vec3::new(
@@ -4207,7 +3617,6 @@ impl App {
                     color_to_vec3(self.debug_settings.adjustables.leaves_bottom_color.value),
                     color_to_vec3(self.debug_settings.adjustables.leaves_tip_color.value),
                 );
-                let reset_vsm_history = self.vsm_history_reset_pending;
                 let vsm_temporal_alpha = Self::frame_rate_adjusted_vsm_temporal_alpha(
                     self.debug_settings.adjustables.vsm_temporal_alpha.value,
                     frame_delta_time,
@@ -4240,7 +3649,6 @@ impl App {
                         self.debug_settings.adjustables.vsm_blur_radius.value,
                         vsm_temporal_alpha,
                         leaf_shadow_temporal_alpha,
-                        reset_vsm_history,
                         gpu_profiler_for_shadow.as_mut(),
                         frame_slot,
                     )
@@ -4251,11 +3659,8 @@ impl App {
                     }
                 }
                 self.gpu_profiler = gpu_profiler_for_shadow;
-                if update_shadow_map {
-                    self.vsm_history_reset_pending = false;
-                }
 
-                if self.has_terrain_moisture_dry_chunks() {
+                if self.terrain_moisture.has_chunks() {
                     let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                         profiler.begin_scope(
                             frame_slot,
@@ -4264,11 +3669,16 @@ impl App {
                             PipelineStage::COMPUTE_SHADER,
                         )
                     });
-                    self.record_terrain_moisture_dry_chunks(
+                    let direct_shadow_available_mask =
+                        self.tracer.direct_sun_shadow_available_mask();
+                    self.terrain_moisture.record_dry(
+                        &mut self.plain_builder,
+                        &self.contree_builder,
                         cmdbuf,
                         sun_dir,
                         DIRECT_SUN_SHADOW_SOURCE_ALL,
-                        self.tracer.direct_sun_shadow_available_mask(),
+                        direct_shadow_available_mask,
+                        self.perf_logging,
                     );
                     if let Some(scope) = moisture_dry_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
@@ -4313,212 +3723,52 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_trace;
 
-                let mut environment_irradiance_readback = None;
-                if !self.environment_irradiance_capture_taken {
-                    if let Some(path) = self.environment_irradiance_capture_path.clone() {
-                        let test_scene_ready = self
-                            .environment_lighting_test_scene
-                            .as_ref()
-                            .is_none_or(
-                            environment_lighting_test_scene::EnvironmentLightingTestScene::is_capture_ready,
-                        );
-                        let target_scene_ready = self
-                            .tracer
-                            .ddgi_capture_target()
-                            .iteration()
-                            .is_some_and(|iteration| iteration == 0)
-                            || test_scene_ready;
-                        let inflight_target_revision = self
-                            .environment_lighting_test_scene
-                            .as_ref()
-                            .and_then(environment_lighting_test_scene::EnvironmentLightingTestScene::inflight_capture_target_revision);
-                        let inflight_checkpoint_ready =
-                            inflight_target_revision.is_none_or(|target_revision| {
-                                let runtime = self.tracer.ddgi_runtime_status();
-                                matches!(
-                                    runtime.coordinator(),
-                                    DdgiRefreshState::BuildingTerrain {
-                                        candidate,
-                                        latest_terrain_revision,
-                                    } if candidate.terrain_revision() == target_revision
-                                        && latest_terrain_revision == target_revision
-                                ) && runtime.target_terrain_revision() == Some(target_revision)
-                                    && runtime.active().relocated_terrain_revision == Some(1)
-                                    && runtime.staging().is_some_and(|staging| {
-                                        staging.build_token.is_some()
-                                            && staging.stage != DdgiVolumeStage::Ready
-                                    })
-                                    && runtime.full_domain_invalidation_is_fail_closed()
-                            });
-                        if target_scene_ready
-                            && inflight_checkpoint_ready
-                            && self.tracer.ddgi_capture_checkpoint().is_some()
-                        {
-                            if let Some(target_revision) = inflight_target_revision {
-                                let runtime = self.tracer.ddgi_runtime_status();
-                                let staging = runtime
-                                    .staging()
-                                    .expect("ready in-flight checkpoint must retain staging work");
-                                log::info!(target: "re_flora::app::core::environment_irradiance_capture",
-                                    "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision={:?} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=full-domain-fail-closed",
-                                    runtime.active().relocated_terrain_revision,
-                                    target_revision,
-                                    runtime.staging_token().map(DdgiBuildToken::serial),
-                                    staging.stage,
-                                    staging.filtered_probe_count,
-                                    staging.grid.probe_count(),
-                                    runtime.coordinator(),
-                                );
-                            }
-                            match self.prepare_environment_irradiance_capture_readback(path.clone())
-                            {
-                                Ok(readback) => {
-                                    self.record_environment_irradiance_capture_readback(
-                                        cmdbuf, &readback,
-                                    );
-                                    self.environment_irradiance_capture_taken = true;
-                                    log::info!(
-                                        "[ENV_IRRADIANCE_CAPTURE] recording backend={} path={}",
-                                        "ddgi",
-                                        readback.path(),
-                                    );
-                                    environment_irradiance_readback = Some(readback);
-                                }
-                                Err(err) => log::error!(
-                                    "[ENV_IRRADIANCE_CAPTURE] failed to prepare {}: {err:#}",
-                                    path,
-                                ),
-                            }
+                let mut environment_irradiance_readback =
+                    match self.environment_irradiance_capture.record_if_ready(
+                        &self.tracer,
+                        &self.vulkan_ctx,
+                        cmdbuf,
+                        self.environment_lighting_test_scene.as_ref(),
+                        self.time_info.total_frame_count(),
+                    ) {
+                        Ok(readback) => readback,
+                        Err(err) => {
+                            log::error!("[ENV_IRRADIANCE_CAPTURE] failed to prepare: {err:#}");
+                            None
                         }
-                    }
-                }
+                    };
 
-                let mut ddgi_spatial_weight_readback = None;
-                if !self.ddgi_spatial_weight_readback_taken {
-                    if let Some(path) = self.ddgi_spatial_weight_readback_path.clone() {
-                        let terminal_field = self
-                            .tracer
-                            .ddgi_runtime_status()
-                            .active()
-                            .complete_field
-                            .filter(|field| {
-                                matches!(
-                                    field.field().stage(),
-                                    DdgiFieldStage::Converged | DdgiFieldStage::NonConverged
-                                )
-                            });
-                        if terminal_field.is_some() {
-                            if self.ddgi_spatial_weight_readback_ready {
-                                match self.prepare_ddgi_spatial_weight_readback(path.clone()) {
-                                    Ok(readback) => {
-                                        self.record_ddgi_spatial_weight_readback(cmdbuf, &readback);
-                                        self.ddgi_spatial_weight_readback_taken = true;
-                                        log::info!(
-                                            "[DDGI_SPATIAL_WEIGHT_READBACK] recording path={}",
-                                            readback.path(),
-                                        );
-                                        ddgi_spatial_weight_readback = Some(readback);
-                                    }
-                                    Err(err) => log::error!(
-                                        "[DDGI_SPATIAL_WEIGHT_READBACK] failed to prepare {}: {err:#}",
-                                        path,
-                                    ),
-                                }
-                            } else {
-                                // DDGI can become ready during the tracer pass. Arm here and
-                                // record on the next frame, after shading_info carries ready=true.
-                                self.ddgi_spatial_weight_readback_ready = true;
-                                log::info!(
-                                    "[DDGI_SPATIAL_WEIGHT_READBACK] armed; waiting one frame for shading_info ready"
-                                );
-                            }
-                        } else {
-                            self.ddgi_spatial_weight_readback_ready = false;
-                        }
+                let mut ddgi_spatial_weight_readback = match self
+                    .ddgi_spatial_weight_readback
+                    .record_if_ready(&self.tracer, &self.vulkan_ctx, cmdbuf)
+                {
+                    Ok(readback) => readback,
+                    Err(err) => {
+                        log::error!("[DDGI_SPATIAL_WEIGHT_READBACK] failed to prepare: {err:#}");
+                        None
                     }
-                }
+                };
 
-                let render_area = self.window_state.window_extent();
-                let tracer_screen_extent = self.tracer.extent_resource_screen_extent();
-                assert_eq!(
-                    tracer_screen_extent, render_area,
-                    "extent-dependent tracer resources and the swapchain frame extent diverged"
-                );
                 if self.resize_lifecycle_test.is_some() {
                     log::info!(
-                        "[RESIZE_LIFECYCLE] phase=frame generation={} tracer_extent_generation={} extent={}x{}",
-                        self.resize_generation,
-                        self.tracer.extent_resource_generation(),
+                        "[RESIZE_LIFECYCLE] phase=frame frame_generation={} swapchain_generation={} tracer_generation={} extent={}x{}",
+                        frame_extent_generation.serial(),
+                        self.swapchain.frame_extent_generation().serial(),
+                        self.tracer.frame_extent_generation().serial(),
                         render_area.width,
                         render_area.height,
                     );
-                }
-                let mut screenshot_readback = if self.screenshot_to_clipboard_requested {
-                    self.screenshot_to_clipboard_requested = false;
-                    match self.prepare_clipboard_screenshot_readback(render_area) {
-                        Ok(readback) => Some(readback),
-                        Err(err) => {
-                            log::error!(
-                                "[SCREENSHOT] Failed to prepare clipboard capture: {}",
-                                err
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
-                if screenshot_readback.is_none() && !self.screenshot_taken {
-                    if let (Some(render_start_time), Some(path), Some(delay)) = (
-                        self.render_start_time,
-                        self.screenshot_path.clone(),
-                        self.screenshot_delay,
-                    ) {
-                        let elapsed = render_start_time.elapsed().as_secs_f32();
-                        let test_scene_ready = self
-                            .environment_lighting_test_scene
-                            .as_ref()
-                            .is_none_or(
-                            environment_lighting_test_scene::EnvironmentLightingTestScene::is_ready,
-                        ) && self
-                            .hybrid_transparency_test_scene
-                            .as_ref()
-                            .is_none_or(
-                            hybrid_transparency_test_scene::HybridTransparencyTestScene::is_ready,
-                        );
-                        let environment_lighting_ready = self.tracer.ddgi_ready();
-                        if elapsed >= delay && test_scene_ready && environment_lighting_ready {
-                            self.screenshot_taken = true;
-                            log::info!("[SCREENSHOT] Capturing after {:.2}s to {}", elapsed, path);
-                            match self.prepare_screenshot_readback(path, render_area) {
-                                Ok(readback) => screenshot_readback = Some(readback),
-                                Err(err) => log::error!("[SCREENSHOT] Failed to prepare: {}", err),
-                            }
-                        }
-                    }
-                }
-                if screenshot_readback.is_none()
-                    && self
-                        .denoiser_bench
-                        .as_ref()
-                        .is_some_and(DenoiserBench::should_capture)
-                {
-                    match self.prepare_denoiser_benchmark_readback(render_area) {
-                        Ok(readback) => screenshot_readback = Some(readback),
-                        Err(err) => panic!("[DENOISER_BENCH] Failed to prepare readback: {err:#}"),
-                    }
                 }
 
                 self.swapchain.record_blit(
                     self.tracer.get_screen_output_tex().get_image(),
                     cmdbuf,
-                    image_idx,
-                    render_area,
+                    &frame,
                 );
                 let device = self.vulkan_ctx.device();
                 self.egui_renderer.prepare_command_buffer(device, cmdbuf);
                 self.swapchain
-                    .record_begin_render_pass_cmdbuf(cmdbuf, image_idx, render_area);
+                    .record_begin_render_pass_cmdbuf(cmdbuf, &frame);
 
                 let egui_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                     profiler.begin_scope(
@@ -4538,9 +3788,43 @@ impl App {
 
                 cmdbuf.end_render_pass();
 
-                if let Some(readback) = &screenshot_readback {
-                    self.record_screenshot_readback(cmdbuf, image_idx, readback);
-                }
+                let screenshot_readiness = ScreenshotFrameReadiness::new(
+                    self.render_start_time
+                        .map(|started| started.elapsed().as_secs_f32()),
+                    self.environment_lighting_test_scene.as_ref().is_none_or(
+                        environment_lighting_test_scene::EnvironmentLightingTestScene::is_ready,
+                    ) && self.hybrid_transparency_test_scene.as_ref().is_none_or(
+                        hybrid_transparency_test_scene::HybridTransparencyTestScene::is_ready,
+                    ),
+                    self.tracer.ddgi_ready(),
+                );
+                let mut screenshot_readback = self.screenshot_capture.record_if_ready(
+                    &self.tracer,
+                    &self.vulkan_ctx,
+                    &self.swapchain,
+                    &frame,
+                    screenshot_readiness,
+                );
+                let mut denoiser_frame_readback = if screenshot_readback.is_none()
+                    && self
+                        .denoiser_bench
+                        .as_ref()
+                        .is_some_and(DenoiserBench::should_capture)
+                {
+                    Some(
+                        PendingDenoiserFrame::record(
+                            &self.tracer,
+                            &self.vulkan_ctx,
+                            &self.swapchain,
+                            &frame,
+                        )
+                        .unwrap_or_else(|err| {
+                            panic!("[DENOISER_BENCH] Failed to prepare readback: {err:#}")
+                        }),
+                    )
+                } else {
+                    None
+                };
 
                 if let Some(scope) = frame_gpu_scope {
                     if let Some(profiler) = self.gpu_profiler.as_mut() {
@@ -4559,10 +3843,10 @@ impl App {
 
                 match present_result {
                     Ok(is_suboptimal) if is_suboptimal => {
-                        self.is_resize_pending = true;
+                        self.queue_current_frame_extent();
                     }
                     Err(SwapchainFrameError::OutOfDate) => {
-                        self.is_resize_pending = true;
+                        self.queue_current_frame_extent();
                     }
                     Err(error) => panic!("Failed to present queue. Cause: {}", error),
                     _ => {}
@@ -4572,6 +3856,7 @@ impl App {
                 let mut environment_irradiance_capture_complete = false;
                 let mut ddgi_spatial_weight_readback_complete = false;
                 if screenshot_readback.is_some()
+                    || denoiser_frame_readback.is_some()
                     || environment_irradiance_readback.is_some()
                     || ddgi_spatial_weight_readback.is_some()
                 {
@@ -4581,20 +3866,12 @@ impl App {
                     match frame.wait_until_complete() {
                         Ok(()) => {
                             if let Some(readback) = environment_irradiance_readback.take() {
-                                let radiance_checkpoint = readback.radiance_checkpoint();
-                                match Self::write_environment_irradiance_capture_readback(readback)
-                                {
-                                    Ok(()) => {
-                                        environment_irradiance_capture_complete =
-                                            if let Some(checkpoint) = radiance_checkpoint {
-                                                self.environment_irradiance_capture_taken = false;
-                                                self.environment_lighting_test_scene
-                                                    .as_mut()
-                                                    .expect("radiance capture lost test scene")
-                                                    .complete_radiance_capture(checkpoint)
-                                            } else {
-                                                true
-                                            };
+                                match self.environment_irradiance_capture.complete(
+                                    readback,
+                                    self.environment_lighting_test_scene.as_mut(),
+                                ) {
+                                    Ok(sequence_complete) => {
+                                        environment_irradiance_capture_complete = sequence_complete;
                                     }
                                     Err(err) => {
                                         log::error!(
@@ -4604,7 +3881,7 @@ impl App {
                                 }
                             }
                             if let Some(readback) = ddgi_spatial_weight_readback.take() {
-                                match Self::write_ddgi_spatial_weight_readback(readback) {
+                                match self.ddgi_spatial_weight_readback.complete(readback) {
                                     Ok(()) => {
                                         ddgi_spatial_weight_readback_complete = true;
                                     }
@@ -4614,40 +3891,18 @@ impl App {
                                 }
                             }
                             if let Some(readback) = screenshot_readback.take() {
-                                if matches!(
-                                    readback.destination,
-                                    screenshot::ScreenshotDestination::DenoiserBenchmark
-                                ) {
-                                    let width = readback.width;
-                                    let height = readback.height;
-                                    let rgba = Self::read_screenshot_rgba(&readback)
-                                        .unwrap_or_else(|err| {
-                                            panic!("[DENOISER_BENCH] Failed to read frame: {err:#}")
-                                        });
-                                    denoiser_bench_complete = self
-                                        .denoiser_bench
-                                        .as_mut()
-                                        .expect("benchmark readback requires benchmark state")
-                                        .record_frame(width, height, &rgba)
-                                        .unwrap_or_else(|err| {
-                                            panic!(
-                                                "[DENOISER_BENCH] Failed to record frame: {err:#}"
-                                            )
-                                        });
-                                } else {
-                                    std::thread::Builder::new()
-                                        .name("screenshot-readback".to_owned())
-                                        .spawn(move || Self::write_screenshot_readback(readback))
-                                        .unwrap_or_else(|err| {
-                                            log::error!(
-                                                "[SCREENSHOT] Failed to start readback thread: {}",
-                                                err
-                                            );
-                                            panic!(
-                                                "failed to start screenshot readback thread: {err}"
-                                            );
-                                        });
-                                }
+                                self.screenshot_capture.complete(readback);
+                            }
+                            if let Some(readback) = denoiser_frame_readback.take() {
+                                denoiser_bench_complete = readback
+                                    .complete(
+                                        self.denoiser_bench
+                                            .as_mut()
+                                            .expect("benchmark readback requires benchmark state"),
+                                    )
+                                    .unwrap_or_else(|err| {
+                                        panic!("[DENOISER_BENCH] Failed to record frame: {err:#}")
+                                    });
                             }
                         }
                         Err(err) => {
@@ -4683,15 +3938,15 @@ impl App {
                 if frame_perf_enabled {
                     let queue_work_ms = cpu_timings.queue_work_ms();
                     if frame_count.is_multiple_of(30) || total_ms >= 16.0 || queue_work_ms >= 2.0 {
+                        let water_terrain = self.water_terrain_status().diagnostics();
                         log::info!(
-                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms deferred_rebuild {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues deferred_pending={} deferred_active={} deferred_inflight={} source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
+                            "[PERF][FRAME] frame {} total {:.2}ms egui {:.2}ms gpu_present {:.2}ms contree_poll {:.2}ms terrain_source {:.2}ms cache_queue {:.2}ms collider_queue {:.2}ms water_edit_soak {:.2}ms water_handoff {:.2}ms particles {:.2}ms tracked_cpu {:.2}ms untracked_cpu {:.2}ms queues source_pending={} source_active={} collider_pending={} collider_active={} collider_inflight={} cache_pending={} cache_active={} cache_inflight={}",
                             frame_count,
                             total_ms,
                             egui_ms,
                             gpu_ms,
                             frame_timing_snapshot.contree_poll_ms,
                             frame_timing_snapshot.terrain_source_ms,
-                            frame_timing_snapshot.deferred_rebuild_ms,
                             frame_timing_snapshot.water_cache_ms,
                             frame_timing_snapshot.collider_queue_ms,
                             frame_timing_snapshot.water_edit_soak_ms,
@@ -4699,17 +3954,14 @@ impl App {
                             frame_timing_snapshot.particles_ms,
                             frame_timing_snapshot.tracked_cpu_ms,
                             frame_timing_snapshot.untracked_cpu_ms,
-                            self.deferred_chunk_rebuilds.len(),
-                            self.deferred_chunk_rebuilds.active_len(),
-                            self.terrain_chunk_rebuild_inflight.is_some(),
-                            self.deferred_terrain_sdf_source_refreshes.len(),
-                            self.deferred_terrain_sdf_source_refreshes.active_len(),
-                            self.deferred_terrain_sdf_collider_rebuilds.len(),
-                            self.deferred_terrain_sdf_collider_rebuilds.active_len(),
-                            self.terrain_sdf_collider_build_inflight,
-                            self.deferred_water_terrain_cache_rebuilds.len(),
-                            self.deferred_water_terrain_cache_rebuilds.active_len(),
-                            self.water_terrain_cache_rebuild_inflight,
+                            water_terrain.source_pending,
+                            water_terrain.source_active,
+                            water_terrain.collider_pending,
+                            water_terrain.collider_active,
+                            water_terrain.collider_inflight,
+                            water_terrain.cache_pending,
+                            water_terrain.cache_active,
+                            water_terrain.cache_inflight,
                         );
                     }
                 }
@@ -4727,9 +3979,9 @@ impl App {
                                 }
                             }
                             if let Some(test) = self.resize_lifecycle_test.as_ref() {
-                                if !test.converged_on_latest_extent() {
+                                if !test.published_after_latest_request() {
                                     panic!(
-                                        "[RESIZE_LIFECYCLE] timed out before latest extent was observed requested={} observed={:?}",
+                                        "[RESIZE_LIFECYCLE] timed out before a coherent publication followed the latest request requested={} observed={:?}",
                                         test.requested,
                                         test.observed,
                                     );
@@ -4774,40 +4026,9 @@ impl App {
     }
 }
 
-fn terrain_refresh_bound_after_publication(
-    terrain_changed: bool,
-    visible_rebuild_succeeded: bool,
-    rebuild_bound: UAabb3,
-    operation: &'static str,
-) -> Result<Option<UAabb3>> {
-    if !terrain_changed {
-        return Ok(None);
-    }
-    anyhow::ensure!(
-        visible_rebuild_succeeded,
-        "{operation} changed voxel terrain but failed to publish its visible terrain rebuild"
-    );
-    Ok(terrain_changed.then_some(rebuild_bound))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        advance_time_of_day, terrain_refresh_bound_after_publication, App, CameraControlMode,
-        MouseWheelDollySmoother, OrbitDeltaSmoother, OrbitKeyboardPanInput,
-    };
-    use crate::geom::UAabb3;
-    use glam::{UVec3, Vec3};
-    use winit::keyboard::KeyCode;
-
-    #[test]
-    fn day_night_clock_advances_without_mutating_its_persisted_start_value() {
-        let persisted_start = 0.25;
-        let current = advance_time_of_day(persisted_start, 600, 0.05, 1.0);
-
-        assert_eq!(persisted_start, 0.25);
-        assert!((current - 0.75).abs() < 1.0e-6);
-    }
+    use super::App;
 
     #[test]
     fn mute_state_forces_effective_master_volume_to_silence() {
@@ -4823,159 +4044,9 @@ mod tests {
     }
 
     #[test]
-    fn camera_control_mode_defaults_to_orbit_edit() {
-        assert_eq!(CameraControlMode::default(), CameraControlMode::OrbitEdit);
-    }
-
-    #[test]
-    fn camera_control_mode_cycles_through_orbit_fly_and_walk() {
-        assert_eq!(
-            CameraControlMode::OrbitEdit.next(),
-            CameraControlMode::FreeFly
-        );
-        assert_eq!(CameraControlMode::FreeFly.next(), CameraControlMode::Walk);
-        assert_eq!(CameraControlMode::Walk.next(), CameraControlMode::OrbitEdit);
-    }
-
-    #[test]
     fn debug_startup_block_top_reaches_chunk_seam() {
         let (min, max) = App::debug_startup_block_bounds();
         assert!(max.y > min.y);
         assert_eq!(max.y, super::VOXEL_DIM_PER_CHUNK.y as f32);
-    }
-
-    #[test]
-    fn changed_player_terrain_requests_refresh_only_after_visible_publication() {
-        let bound = UAabb3::new(UVec3::splat(10), UVec3::splat(20));
-        let mut requested = Vec::new();
-        let mut terrain_revision = 7u32;
-
-        if let Some(refresh_bound) =
-            terrain_refresh_bound_after_publication(true, true, bound, "test edit").unwrap()
-        {
-            requested.push(refresh_bound);
-            terrain_revision = terrain_revision.wrapping_add(1).max(1);
-        }
-        assert_eq!(requested, vec![bound]);
-        assert_eq!(terrain_revision, 8);
-
-        assert!(
-            terrain_refresh_bound_after_publication(false, true, bound, "test edit")
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            terrain_refresh_bound_after_publication(false, false, bound, "test edit")
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(requested, vec![bound]);
-        assert_eq!(terrain_revision, 8);
-    }
-
-    #[test]
-    fn failed_visible_publication_returns_error_before_requesting_ddgi_refresh() {
-        let bound = UAabb3::new(UVec3::splat(10), UVec3::splat(20));
-        let mut requested = Vec::new();
-        let terrain_revision = 7u32;
-
-        let result = terrain_refresh_bound_after_publication(true, false, bound, "test edit");
-        if let Ok(Some(refresh_bound)) = result.as_ref() {
-            requested.push(*refresh_bound);
-        }
-
-        assert!(result.is_err());
-        assert!(requested.is_empty());
-        assert_eq!(terrain_revision, 7);
-    }
-
-    #[test]
-    fn orbit_keyboard_pan_input_normalizes_diagonal_motion() {
-        let mut input = OrbitKeyboardPanInput::default();
-        input.handle_key(KeyCode::KeyW, true);
-        input.handle_key(KeyCode::KeyD, true);
-
-        let direction = input.input_vector();
-        assert!((direction.length() - 1.0).abs() <= 0.0001);
-        assert!(direction.x > 0.0);
-        assert!(direction.z > 0.0);
-    }
-
-    #[test]
-    fn orbit_delta_smoother_eases_and_preserves_full_delta() {
-        let mut smoother = OrbitDeltaSmoother::default();
-        let target_delta = Vec3::new(0.25, 0.0, -0.1);
-        smoother.add_delta(target_delta);
-
-        let first_step = smoother.advance(1.0 / 60.0);
-        assert!(first_step.length() > 0.0);
-        assert!(first_step.length() < target_delta.length());
-
-        let mut total_advanced = first_step;
-        for _ in 0..120 {
-            total_advanced += smoother.advance(1.0 / 60.0);
-        }
-
-        assert!((total_advanced - target_delta).length() <= 0.0001);
-        assert_eq!(smoother.current_delta, Vec3::ZERO);
-        assert_eq!(smoother.target_delta, Vec3::ZERO);
-    }
-
-    #[test]
-    fn orbit_delta_smoother_preserves_continuous_keyboard_distance() {
-        let mut smoother = OrbitDeltaSmoother::default();
-        let frame_delta_time = 1.0 / 60.0;
-        let velocity = Vec3::new(0.9, 0.0, -0.4);
-        let mut total_advanced = Vec3::ZERO;
-
-        for _ in 0..60 {
-            smoother.add_delta(velocity * frame_delta_time);
-            total_advanced += smoother.advance(frame_delta_time);
-        }
-        assert!(total_advanced.length() < velocity.length());
-
-        for _ in 0..120 {
-            total_advanced += smoother.advance(frame_delta_time);
-        }
-
-        assert!((total_advanced - velocity).length() <= 0.0001);
-        assert_eq!(smoother.current_delta, Vec3::ZERO);
-        assert_eq!(smoother.target_delta, Vec3::ZERO);
-    }
-
-    #[test]
-    fn mouse_wheel_dolly_smoother_interpolates_toward_target() {
-        let mut smoother = MouseWheelDollySmoother::default();
-        smoother.add_scroll_lines(1.0);
-
-        let first_step = smoother.advance(1.0 / 60.0);
-        assert!(first_step > 0.0);
-        assert!(first_step < 1.0);
-
-        let mut total_advanced = first_step;
-        for _ in 0..120 {
-            total_advanced += smoother.advance(1.0 / 60.0);
-        }
-
-        assert!((total_advanced - 1.0).abs() <= 0.0001);
-        assert_eq!(smoother.current_lines, 0.0);
-        assert_eq!(smoother.target_lines, 0.0);
-    }
-
-    #[test]
-    fn mouse_wheel_dolly_smoother_clamps_pending_scroll_lines() {
-        let mut smoother = MouseWheelDollySmoother::default();
-        smoother.add_scroll_lines(100.0);
-        assert_eq!(
-            smoother.target_lines - smoother.current_lines,
-            super::MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES
-        );
-
-        smoother.advance(1.0 / 60.0);
-        smoother.add_scroll_lines(-100.0);
-        assert_eq!(
-            smoother.target_lines - smoother.current_lines,
-            -super::MOUSE_WHEEL_DOLLY_MAX_PENDING_LINES
-        );
     }
 }
