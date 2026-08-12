@@ -2,10 +2,59 @@ version = 1
 
 [scenario.render-steady]
 description = "Settled fixed-camera rendering with Vulkan GPU frame scopes"
-args = ["--hidden", "--mute", "--perf", "--camera-snapshot", "player-default", "--auto-exit", "12"]
+args = ["--hidden", "--mute", "--perf", "--camera-snapshot", "player-default", "--auto-exit", "30"]
 env = {}
-warmup_frame = 120
-required_markers = ["[PERF][GPU_FRAME_SCOPE]"]
+warmup_frame = 600
+required_markers = ["[PERF][GPU_FRAME_SCOPE]", "[PERF][CPU_FRAME_SCOPE]"]
+
+[[scenario.render-steady.metric]]
+name = "frame.cpu_total"
+source = "cpu_scope"
+key = "frame.cpu_total"
+min_samples = 120
+budget_percent = 2.0
+
+[[scenario.render-steady.metric]]
+name = "render.path"
+source = "cpu_scope"
+key = "render.path"
+min_samples = 120
+budget_percent = 2.0
+
+[[scenario.render-steady.metric]]
+name = "render.acquire"
+source = "cpu_scope"
+key = "render.acquire"
+min_samples = 120
+budget_percent = 5.0
+
+[[scenario.render-steady.metric]]
+name = "render.record"
+source = "cpu_scope"
+key = "render.record"
+min_samples = 120
+budget_percent = 2.0
+
+[[scenario.render-steady.metric]]
+name = "render.shadow_prepass_record"
+source = "cpu_scope"
+key = "render.shadow_prepass_record"
+min_samples = 120
+budget_percent = 3.0
+
+[[scenario.render-steady.metric]]
+name = "render.trace_record"
+source = "cpu_scope"
+key = "render.trace_record"
+min_samples = 120
+budget_percent = 3.0
+
+[[scenario.render-steady.metric]]
+name = "render.submit_present"
+source = "cpu_scope"
+key = "render.submit_present"
+min_samples = 120
+budget_percent = 5.0
 
 [[scenario.render-steady.metric]]
 name = "frame.render"

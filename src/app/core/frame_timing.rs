@@ -12,6 +12,11 @@ pub(super) enum FrameCpuScope {
     WaterEditSoak,
     WaterHandoff,
     Particles,
+    RenderAcquire,
+    RenderRecord,
+    RenderShadowPrepassRecord,
+    RenderTraceRecord,
+    RenderSubmitPresent,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -24,6 +29,11 @@ pub(super) struct FrameCpuTimings {
     water_edit_soak_ms: f32,
     water_handoff_ms: f32,
     particles_ms: f32,
+    render_acquire_ms: f32,
+    render_record_ms: f32,
+    render_shadow_prepass_record_ms: f32,
+    render_trace_record_ms: f32,
+    render_submit_present_ms: f32,
 }
 
 impl FrameCpuTimings {
@@ -45,6 +55,18 @@ impl FrameCpuTimings {
         output
     }
 
+    pub(super) fn time_if<T>(
+        &mut self,
+        enabled: bool,
+        scope: FrameCpuScope,
+        f: impl FnOnce() -> T,
+    ) -> T {
+        if !enabled {
+            return f();
+        }
+        self.time(scope, f)
+    }
+
     pub(super) fn add_ms(&mut self, scope: FrameCpuScope, elapsed_ms: f32) {
         if !self.enabled {
             return;
@@ -58,6 +80,13 @@ impl FrameCpuTimings {
             FrameCpuScope::WaterEditSoak => self.water_edit_soak_ms += elapsed_ms,
             FrameCpuScope::WaterHandoff => self.water_handoff_ms += elapsed_ms,
             FrameCpuScope::Particles => self.particles_ms += elapsed_ms,
+            FrameCpuScope::RenderAcquire => self.render_acquire_ms += elapsed_ms,
+            FrameCpuScope::RenderRecord => self.render_record_ms += elapsed_ms,
+            FrameCpuScope::RenderShadowPrepassRecord => {
+                self.render_shadow_prepass_record_ms += elapsed_ms;
+            }
+            FrameCpuScope::RenderTraceRecord => self.render_trace_record_ms += elapsed_ms,
+            FrameCpuScope::RenderSubmitPresent => self.render_submit_present_ms += elapsed_ms,
         }
     }
 
@@ -95,6 +124,11 @@ impl FrameCpuTimings {
             water_edit_soak_ms: self.water_edit_soak_ms,
             water_handoff_ms: self.water_handoff_ms,
             particles_ms: self.particles_ms,
+            render_acquire_ms: self.render_acquire_ms,
+            render_record_ms: self.render_record_ms,
+            render_shadow_prepass_record_ms: self.render_shadow_prepass_record_ms,
+            render_trace_record_ms: self.render_trace_record_ms,
+            render_submit_present_ms: self.render_submit_present_ms,
             tracked_cpu_ms,
             untracked_cpu_ms,
         }
@@ -114,6 +148,11 @@ pub(super) struct FrameTimingSnapshot {
     pub(super) water_edit_soak_ms: f32,
     pub(super) water_handoff_ms: f32,
     pub(super) particles_ms: f32,
+    pub(super) render_acquire_ms: f32,
+    pub(super) render_record_ms: f32,
+    pub(super) render_shadow_prepass_record_ms: f32,
+    pub(super) render_trace_record_ms: f32,
+    pub(super) render_submit_present_ms: f32,
     pub(super) tracked_cpu_ms: f32,
     pub(super) untracked_cpu_ms: f32,
 }
@@ -279,6 +318,11 @@ mod tests {
         timings.add_ms(FrameCpuScope::WaterEditSoak, 7.0);
         timings.add_ms(FrameCpuScope::WaterHandoff, 8.0);
         timings.add_ms(FrameCpuScope::Particles, 9.0);
+        timings.add_ms(FrameCpuScope::RenderAcquire, 0.5);
+        timings.add_ms(FrameCpuScope::RenderRecord, 1.5);
+        timings.add_ms(FrameCpuScope::RenderShadowPrepassRecord, 0.25);
+        timings.add_ms(FrameCpuScope::RenderTraceRecord, 0.75);
+        timings.add_ms(FrameCpuScope::RenderSubmitPresent, 3.0);
 
         let snapshot = timings.snapshot(11, 60.0, 4.0, 5.0);
         assert_eq!(snapshot.contree_poll_ms, 1.0);
@@ -288,6 +332,11 @@ mod tests {
         assert_eq!(snapshot.water_edit_soak_ms, 7.0);
         assert_eq!(snapshot.water_handoff_ms, 8.0);
         assert_eq!(snapshot.particles_ms, 9.0);
+        assert_eq!(snapshot.render_acquire_ms, 0.5);
+        assert_eq!(snapshot.render_record_ms, 1.5);
+        assert_eq!(snapshot.render_shadow_prepass_record_ms, 0.25);
+        assert_eq!(snapshot.render_trace_record_ms, 0.75);
+        assert_eq!(snapshot.render_submit_present_ms, 3.0);
         assert_eq!(timings.queue_work_ms(), 16.0);
         assert_eq!(snapshot.tracked_cpu_ms, 41.0);
         assert_eq!(snapshot.untracked_cpu_ms, 10.0);

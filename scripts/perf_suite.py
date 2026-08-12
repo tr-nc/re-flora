@@ -25,6 +25,7 @@ ERROR_PATTERN = re.compile(
     re.IGNORECASE,
 )
 GPU_FRAME_PATTERN = re.compile(r"\[PERF\]\[GPU_FRAME_SCOPE\] frame (\d+)(.*)")
+CPU_FRAME_PATTERN = re.compile(r"\[PERF\]\[CPU_FRAME_SCOPE\] frame (\d+)(.*)")
 GPU_SCOPE_PATTERN = re.compile(r"(?:^|\s)([A-Za-z0-9_.-]+)=([0-9]+(?:\.[0-9]+)?)us")
 GPU_JOB_PATTERN = re.compile(
     r"\[PERF\]\[GPU_JOB_SCOPE\] name=([A-Za-z0-9_.-]+).*duration=([0-9]+(?:\.[0-9]+)?)us"
@@ -61,6 +62,8 @@ class Summary:
     mean_us: float
     median_us: float
     p95_us: float
+    stddev_us: float
+    variance_us2: float
     min_us: float
     max_us: float
 
@@ -117,6 +120,8 @@ def summarize(values: list[float]) -> Summary:
         mean_us=statistics.fmean(values),
         median_us=statistics.median(values),
         p95_us=percentile(values, 0.95),
+        stddev_us=statistics.pstdev(values),
+        variance_us2=statistics.pvariance(values),
         min_us=min(values),
         max_us=max(values),
     )
@@ -175,6 +180,11 @@ def parse_samples(log_text: str, scenario: Scenario) -> dict[str, list[float]]:
             if int(frame_match.group(1)) >= scenario.warmup_frame:
                 for key, value in GPU_SCOPE_PATTERN.findall(frame_match.group(2)):
                     add("gpu_scope", key, float(value))
+
+        if frame_match := CPU_FRAME_PATTERN.search(line):
+            if int(frame_match.group(1)) >= scenario.warmup_frame:
+                for key, value in GPU_SCOPE_PATTERN.findall(frame_match.group(2)):
+                    add("cpu_scope", key, float(value))
 
         if job_match := GPU_JOB_PATTERN.search(line):
             add("gpu_job_scope", job_match.group(1), float(job_match.group(2)))
@@ -371,6 +381,7 @@ def print_report(report: dict[str, Any]) -> None:
             f"{name:32} n={summary['samples']:4d} "
             f"median={summary['median_us']:9.2f}us "
             f"p95={summary['p95_us']:9.2f}us "
+            f"sd={summary['stddev_us']:9.2f}us "
             f"range={summary['min_us']:.2f}..{summary['max_us']:.2f}us"
         )
 

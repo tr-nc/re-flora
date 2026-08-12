@@ -198,8 +198,7 @@ impl ReflectedDescriptorRuntime {
             layout,
             self.plan.pipeline_name(),
         )?;
-        let mut writes = Vec::with_capacity(descriptors.len());
-        for (name, resource) in descriptors {
+        for (name, _) in descriptors {
             let binding = self.plan.binding(name)?;
             anyhow::ensure!(
                 binding.set_no() == set_no,
@@ -209,9 +208,23 @@ impl ReflectedDescriptorRuntime {
                 name,
                 binding.set_no(),
             );
-            writes.push(self.plan.make_write(name, *resource)?);
         }
-        descriptor_set.perform_writes(&mut writes);
+        let resources_match = descriptor_set.resources_match(descriptors.iter().map(
+            |(name, resource)| {
+                let binding = self
+                    .plan
+                    .binding(name)
+                    .expect("transient descriptor binding was validated");
+                (binding.binding_no(), *resource)
+            },
+        ));
+        if !resources_match {
+            let mut writes = Vec::with_capacity(descriptors.len());
+            for (name, resource) in descriptors {
+                writes.push(self.plan.make_write(name, *resource)?);
+            }
+            descriptor_set.perform_writes(&mut writes);
+        }
         descriptor_set.record_resource_uses(cmdbuf);
         Ok(PreparedTransientDescriptorSet {
             identity: self.identity.clone(),
