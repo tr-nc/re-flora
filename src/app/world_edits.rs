@@ -1,6 +1,5 @@
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::tree_gen::TreeDesc;
-use anyhow::Result;
 use glam::{UVec3, Vec2, Vec3};
 
 #[derive(Clone, Copy, Debug)]
@@ -142,9 +141,4 @@ impl WorldEditPlan {
             build_edits: vec![build_edit],
         }
     }
-}
-
-pub(crate) trait WorldBuildBackend {
-    fn apply_voxel_edit(&mut self, edit: VoxelEdit) -> Result<()>;
-    fn apply_build_edit(&mut self, edit: BuildEdit) -> Result<()>;
 }

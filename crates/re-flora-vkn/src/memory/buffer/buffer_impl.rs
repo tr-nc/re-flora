@@ -480,6 +480,10 @@ impl Buffer {
         target: BufferState,
         current: &mut BufferState,
     ) {
+        if let Some(merged) = current.merged_read_with(target) {
+            *current = merged;
+            return;
+        }
         if current.needs_ordering(target) {
             let barrier = vk::BufferMemoryBarrier::default()
                 .src_access_mask(current.access().as_raw())
@@ -498,11 +502,7 @@ impl Buffer {
                     &[],
                 );
             }
-            crate::sync::diagnostics::record_buffer_transition(
-                self.as_raw(),
-                *current,
-                target,
-            );
+            crate::sync::diagnostics::record_buffer_transition(self.as_raw(), *current, target);
         }
         *current = target;
     }

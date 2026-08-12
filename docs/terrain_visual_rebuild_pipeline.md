@@ -177,7 +177,7 @@ The remaining performance work should focus on systems that do not affect immedi
 
 ## Code simplification target
 
-The desired long-term code shape is:
+The current code shape is:
 
 ```text
 visible terrain rebuild:
@@ -187,14 +187,11 @@ terrain SDF / collider / water cache:
   queued, revision-guarded, budgeted
 ```
 
-The staged async terrain visual rebuild code can remain temporarily as fallback/legacy code, but it is no longer the preferred path for visible terrain edits.
+The unreachable staged async visual rebuild state machine has been removed. The maintained boundaries are:
 
-If we clean it up later, the simplification direction is:
-
-1. Keep `world_ops::mesh_generate_chunks(...)` as the primary visible terrain rebuild path.
-2. Keep preserve-flora visible rebuild synchronous unless it becomes visibly problematic.
-3. Remove or isolate the old async visual terrain rebuild state machine.
-4. Keep all water/collider/cache queues intact.
+1. `visible_terrain` owns complete visible publication and downstream observation.
+2. Preserve-flora visible publication remains synchronous unless measurements justify a replacement design.
+3. Terrain SDF, collider, and water-cache queues remain independent, revision-guarded follow-up work.
 
 ## Validation plan
 
@@ -207,7 +204,7 @@ Visible validation:
 Performance validation:
 
 - Continue release-mode measurements.
-- Track sync visible rebuild spikes separately with `[PERF][SYNC_VISIBLE_REBUILD]`.
+- Track visible publication spikes separately with `[PERF][VISIBLE_TERRAIN_PUBLICATION]`.
 - Do not treat sync visible rebuild cost as a correctness bug unless gameplay hitches become unacceptable.
 
 Follow-up queue validation:

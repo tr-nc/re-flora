@@ -1,4 +1,4 @@
-use super::{App, CameraControlMode};
+use super::App;
 use crate::app::world_edits::{VoxelEdit, WorldEditPlan};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK};
 use crate::geom::{build_bvh, Cuboid};
@@ -104,17 +104,15 @@ impl App {
     }
 
     pub(super) fn configure_water_experience_camera(&mut self) -> Result<()> {
-        self.current_time_of_day = EXPERIENCE_TIME_OF_DAY;
-        self.debug_settings.adjustables.time_of_day.value = EXPERIENCE_TIME_OF_DAY;
+        self.set_manual_time_of_day(EXPERIENCE_TIME_OF_DAY);
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
-        self.camera_control_mode = CameraControlMode::OrbitEdit;
-        self.orbit_camera_focus = CAMERA_TARGET_WS;
+        self.camera_control.set_orbit_focus(CAMERA_TARGET_WS);
         anyhow::ensure!(
             self.tracer
                 .set_camera_pose_looking_at(CAMERA_POSITION_WS, CAMERA_TARGET_WS),
             "failed to apply deterministic water experience camera"
         );
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
         log::info!(
             "[WATER_EXPERIENCE] configured camera={:?} target={:?} time_of_day={:.3} particle_backend_seed={} initial_fluid={:?}..{:?}",
             CAMERA_POSITION_WS,
@@ -136,7 +134,7 @@ impl App {
         else {
             return;
         };
-        if !self.water_terrain_initialized || self.water_terrain_work_active() {
+        if !self.water_terrain_status().is_ready() {
             return;
         }
         let Some(frame) = self.water_sim.latest_particle_frame() else {

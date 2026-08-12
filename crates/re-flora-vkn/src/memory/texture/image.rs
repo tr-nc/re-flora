@@ -135,7 +135,6 @@ impl Image {
         region: TextureRegion,
     ) {
         execute_one_time_command(&self.0.device, command_pool, queue, |cmdbuf| {
-            cmdbuf.begin_resource_state_transaction();
             self.record_transition_barrier(cmdbuf, array_layer, TextureLayout::TRANSFER_SRC);
             cmdbuf.use_buffer(buffer, BufferUse::TransferWrite);
             let region = vk::BufferImageCopy::default()
@@ -443,23 +442,7 @@ impl Image {
         layer_count: u32,
         target_state: ResourceState,
     ) {
-        if cmdbuf.record_state_transition(
-            self,
-            base_array_layer,
-            layer_count,
-            target_state,
-        ) {
-            return;
-        }
-
-        let mut states = self.0.current_state.lock().unwrap();
-        self.record_state_transition_from_states(
-            cmdbuf,
-            base_array_layer,
-            layer_count,
-            target_state,
-            &mut states,
-        );
+        cmdbuf.record_state_transition(self, base_array_layer, layer_count, target_state);
     }
 
     pub(crate) fn record_state_transition_from_states(
@@ -487,6 +470,22 @@ impl Image {
 
         for layer in base_array_layer..base_array_layer + layer_count {
             let old_state = states[layer as usize];
+            if let Some(merged) = old_state.merged_read_with(target_state) {
+                if let Some(old_state) = run_old_state.take() {
+                    record_image_transition_barrier(
+                        device.as_raw(),
+                        cmdbuf.as_raw(),
+                        TextureTransition::new(old_state, target_state),
+                        self.0.image,
+                        self.0.desc.get_aspect_mask(),
+                        run_start,
+                        run_len,
+                    );
+                    run_len = 0;
+                }
+                states[layer as usize] = merged;
+                continue;
+            }
             if old_state == target_state {
                 if old_state.access().contains_write() || target_state.access().contains_write() {
                     record_image_transition_barrier(
@@ -511,9 +510,11 @@ impl Image {
                     );
                     run_len = 0;
                 }
+                states[layer as usize] = target_state;
                 continue;
             }
 
+            states[layer as usize] = target_state;
             if run_old_state == Some(old_state) {
                 run_len += 1;
             } else {
@@ -544,10 +545,6 @@ impl Image {
                 run_start,
                 run_len,
             );
-        }
-
-        for state in &mut states[start..end] {
-            *state = target_state;
         }
     }
 

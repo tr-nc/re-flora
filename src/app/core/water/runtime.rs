@@ -163,6 +163,7 @@ impl WaterThreadPerfStats {
 enum WaterSimCommand {
     UpdateConfig(PondWaterConfig),
     SetRuntimeOptions(WaterSimRuntimeOptions),
+    PauseAndAcknowledge(mpsc::SyncSender<()>),
     UpsertTerrainColliderChunkDeferred(WaterTerrainColliderChunk),
     RemoveTerrainColliderChunkDeferred(IVec3),
     FinishTerrainColliderChunkBatch {
@@ -296,6 +297,23 @@ impl AsyncWaterSim {
         if self.try_send_coalescable_command(WaterSimCommand::SetRuntimeOptions(options)) {
             self.runtime_options = options;
         }
+    }
+
+    /// Establishes a worker-observed quiescence boundary before terrain replacement.
+    pub(crate) fn pause_and_wait(&mut self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.worker.is_some(),
+            "water simulation worker is not available"
+        );
+        let (ack_tx, ack_rx) = mpsc::sync_channel(0);
+        self.command_tx
+            .send(WaterSimCommand::PauseAndAcknowledge(ack_tx))
+            .map_err(|_| anyhow::anyhow!("water simulation command channel disconnected"))?;
+        ack_rx
+            .recv()
+            .map_err(|_| anyhow::anyhow!("water simulation worker stopped before pausing"))?;
+        self.runtime_options.enabled = false;
+        Ok(())
     }
 
     pub(crate) fn poll_latest_particle_frame_after_frame(
@@ -639,6 +657,10 @@ fn handle_water_sim_command(
         WaterSimCommand::SetRuntimeOptions(options) => {
             *runtime_options = options;
         }
+        WaterSimCommand::PauseAndAcknowledge(ack_tx) => {
+            runtime_options.enabled = false;
+            let _ = ack_tx.send(());
+        }
         WaterSimCommand::UpsertTerrainColliderChunkDeferred(chunk) => {
             sim.upsert_terrain_collider_chunk_deferred(chunk);
         }
@@ -964,6 +986,18 @@ mod tests {
     fn async_water_sim_shutdown_is_idempotent() {
         let mut sim = AsyncWaterSim::new(PondWaterConfig::default());
         sim.shutdown();
+        sim.shutdown();
+    }
+
+    #[test]
+    fn acknowledged_pause_disables_runtime_without_stopping_worker() {
+        let mut sim = AsyncWaterSim::new(PondWaterConfig::default());
+        sim.set_runtime_options(true, false, 4, Duration::from_millis(16));
+
+        sim.pause_and_wait().unwrap();
+
+        assert!(!sim.runtime_options.enabled);
+        assert!(sim.worker.is_some());
         sim.shutdown();
     }
 

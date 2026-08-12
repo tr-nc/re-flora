@@ -1,9 +1,14 @@
-use super::environment_lighting_test_scene::{RadianceCaptureCheckpoint, RadianceCaptureRequest};
-use super::App;
-use crate::ddgi::{DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage};
+use super::environment_lighting_test_scene::{
+    EnvironmentLightingTestScene, RadianceCaptureCheckpoint, RadianceCaptureRequest,
+};
+use crate::ddgi::{
+    DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRefreshState,
+    DdgiVolumeStage,
+};
 use crate::environment_lighting::{DdgiRadianceSnapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY};
+use crate::tracer::Tracer;
 use anyhow::{ensure, Context, Result};
-use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, Extent2D, MemoryLocation};
+use re_flora_vkn::{Buffer, BufferUsage, CommandBuffer, Extent2D, MemoryLocation, VulkanContext};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -125,7 +130,20 @@ fn encode_transport_stage(stage: DdgiFieldStage) -> u32 {
     }
 }
 
-pub(super) struct EnvironmentIrradianceCaptureReadback {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum CaptureState {
+    #[default]
+    Waiting,
+    Recording,
+    Complete,
+}
+
+pub(super) struct EnvironmentIrradianceCaptureRuntime {
+    base_path: Option<String>,
+    state: CaptureState,
+}
+
+pub(super) struct PendingEnvironmentIrradianceCapture {
     path: String,
     extent: Extent2D,
     spacing_voxels: u32,
@@ -135,12 +153,12 @@ pub(super) struct EnvironmentIrradianceCaptureReadback {
     buffer: Buffer,
 }
 
-impl EnvironmentIrradianceCaptureReadback {
-    pub(super) fn path(&self) -> &str {
+impl PendingEnvironmentIrradianceCapture {
+    fn path(&self) -> &str {
         &self.path
     }
 
-    pub(super) fn radiance_checkpoint(&self) -> Option<RadianceCaptureCheckpoint> {
+    fn radiance_checkpoint(&self) -> Option<RadianceCaptureCheckpoint> {
         self.radiance_evidence
             .map(|evidence| evidence.request.checkpoint)
     }
@@ -256,15 +274,102 @@ impl RadianceCaptureEvidence {
     }
 }
 
-impl App {
-    pub(super) fn prepare_environment_irradiance_capture_readback(
-        &self,
+impl EnvironmentIrradianceCaptureRuntime {
+    pub(super) fn new(base_path: Option<String>) -> Self {
+        Self {
+            base_path,
+            state: CaptureState::Waiting,
+        }
+    }
+
+    pub(super) fn is_enabled(&self) -> bool {
+        self.base_path.is_some()
+    }
+
+    pub(super) fn record_if_ready(
+        &mut self,
+        tracer: &Tracer,
+        vulkan_ctx: &VulkanContext,
+        cmdbuf: &CommandBuffer,
+        test_scene: Option<&EnvironmentLightingTestScene>,
+        capture_frame: u64,
+    ) -> Result<Option<PendingEnvironmentIrradianceCapture>> {
+        let Some(base_path) = self.base_path.clone() else {
+            return Ok(None);
+        };
+        if self.state != CaptureState::Waiting {
+            return Ok(None);
+        }
+
+        let test_scene_ready =
+            test_scene.is_none_or(EnvironmentLightingTestScene::is_capture_ready);
+        let target_scene_ready = tracer
+            .ddgi_capture_target()
+            .iteration()
+            .is_some_and(|iteration| iteration == 0)
+            || test_scene_ready;
+        let inflight_target_revision =
+            test_scene.and_then(EnvironmentLightingTestScene::inflight_capture_target_revision);
+        let inflight_checkpoint_ready = inflight_target_revision.is_none_or(|target_revision| {
+            let runtime = tracer.ddgi_runtime_status();
+            matches!(
+                runtime.coordinator(),
+                DdgiRefreshState::BuildingTerrain {
+                    candidate,
+                    latest_terrain_revision,
+                } if candidate.terrain_revision() == target_revision
+                    && latest_terrain_revision == target_revision
+            ) && runtime.target_terrain_revision() == Some(target_revision)
+                && runtime.active().relocated_terrain_revision == Some(1)
+                && runtime.staging().is_some_and(|staging| {
+                    staging.build_token.is_some() && staging.stage != DdgiVolumeStage::Ready
+                })
+                && runtime.full_domain_invalidation_is_fail_closed()
+        });
+        if !target_scene_ready
+            || !inflight_checkpoint_ready
+            || tracer.ddgi_capture_checkpoint().is_none()
+        {
+            return Ok(None);
+        }
+
+        if let Some(target_revision) = inflight_target_revision {
+            let runtime = tracer.ddgi_runtime_status();
+            let staging = runtime
+                .staging()
+                .expect("ready in-flight checkpoint must retain staging work");
+            log::info!(target: "re_flora::app::core::environment_irradiance_capture",
+                "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision={:?} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=full-domain-fail-closed",
+                runtime.active().relocated_terrain_revision,
+                target_revision,
+                runtime.staging_token().map(|token| token.serial()),
+                staging.stage,
+                staging.filtered_probe_count,
+                staging.grid.probe_count(),
+                runtime.coordinator(),
+            );
+        }
+
+        let readback =
+            Self::prepare_readback(base_path, tracer, vulkan_ctx, test_scene, capture_frame)?;
+        tracer.record_environment_irradiance_capture_readback(cmdbuf, &readback.buffer);
+        self.state = CaptureState::Recording;
+        log::info!(
+            "[ENV_IRRADIANCE_CAPTURE] recording backend=ddgi path={}",
+            readback.path(),
+        );
+        Ok(Some(readback))
+    }
+
+    fn prepare_readback(
         base_path: String,
-    ) -> Result<EnvironmentIrradianceCaptureReadback> {
-        let radiance_request = self
-            .environment_lighting_test_scene
-            .as_ref()
-            .and_then(|scene| scene.radiance_capture_request());
+        tracer: &Tracer,
+        vulkan_ctx: &VulkanContext,
+        test_scene: Option<&EnvironmentLightingTestScene>,
+        capture_frame: u64,
+    ) -> Result<PendingEnvironmentIrradianceCapture> {
+        let radiance_request =
+            test_scene.and_then(EnvironmentLightingTestScene::radiance_capture_request);
         let path = radiance_request.map_or_else(
             || PathBuf::from(&base_path),
             |request| radiance_capture_path(&base_path, request.checkpoint),
@@ -277,20 +382,18 @@ impl App {
             }
         }
 
-        let extent = self.tracer.environment_irradiance_capture_extent();
+        let extent = tracer.environment_irradiance_capture_extent();
         let byte_count = u64::from(extent.width)
             * u64::from(extent.height)
             * std::mem::size_of::<[f32; 4]>() as u64
             * u64::from(CAPTURE_PLANE_COUNT);
-        let checkpoint = self
-            .tracer
+        let checkpoint = tracer
             .ddgi_capture_checkpoint()
             .context("cannot capture DDGI before the requested field checkpoint is resident")?;
         let metadata =
             CaptureMetadata::from_checkpoint(checkpoint, DDGI_AUTHORED_SKY_MODEL_IDENTITY)?;
         let radiance_evidence = radiance_request
             .map(|request| {
-                let capture_frame = self.time_info.total_frame_count();
                 if let Some(mutation_frame) = request.mutation_frame {
                     ensure!(
                         capture_frame == mutation_frame + 1,
@@ -300,7 +403,7 @@ impl App {
                         mutation_frame,
                     );
                 }
-                let status = self.tracer.ddgi_runtime_status();
+                let status = tracer.ddgi_runtime_status();
                 let active = status.active();
                 let active_field = active
                     .published_field
@@ -314,16 +417,15 @@ impl App {
                 let evidence = RadianceCaptureEvidence {
                     request,
                     capture_frame,
-                    live_radiance_revision: self.tracer.ddgi_live_radiance_revision(),
-                    live_snapshot: self
-                        .tracer
+                    live_radiance_revision: tracer.ddgi_live_radiance_revision(),
+                    live_snapshot: tracer
                         .ddgi_live_radiance_snapshot()
                         .context("radiance evidence requires the live renderer snapshot")?,
-                    latest_radiance_revision: self.tracer.ddgi_latest_radiance_revision(),
+                    latest_radiance_revision: tracer.ddgi_latest_radiance_revision(),
                     active_field,
                     building_field: status.builder().building_field,
                     builder_latched_radiance_revision: status.builder().radiance_revision,
-                    builder_latched_snapshot: self.tracer.ddgi_builder_radiance_snapshot(),
+                    builder_latched_snapshot: tracer.ddgi_builder_radiance_snapshot(),
                 };
                 let active_revision = evidence.active_field.field().radiance_revision();
                 match request.checkpoint {
@@ -388,42 +490,58 @@ impl App {
                 Ok::<_, anyhow::Error>(evidence)
             })
             .transpose()?;
-        let allocator = self
-            .tracer
+        let allocator = tracer
             .get_screen_output_tex()
             .get_image()
             .get_allocator()
             .clone();
         let buffer = Buffer::new_sized(
-            self.vulkan_ctx.device().clone(),
+            vulkan_ctx.device().clone(),
             allocator,
             BufferUsage::transfer_dst(),
             MemoryLocation::GpuToCpu,
             byte_count,
         );
-        Ok(EnvironmentIrradianceCaptureReadback {
+        Ok(PendingEnvironmentIrradianceCapture {
             path,
             extent,
             spacing_voxels: checkpoint.field.field().spacing_voxels(),
-            debug_view: self.tracer.ddgi_debug_view(),
+            debug_view: tracer.ddgi_debug_view(),
             metadata,
             radiance_evidence,
             buffer,
         })
     }
 
-    pub(super) fn record_environment_irradiance_capture_readback(
-        &self,
-        cmdbuf: &CommandBuffer,
-        readback: &EnvironmentIrradianceCaptureReadback,
-    ) {
-        self.tracer
-            .record_environment_irradiance_capture_readback(cmdbuf, &readback.buffer);
+    fn transition_after_capture(&mut self, sequence_complete: bool) -> bool {
+        self.state = if sequence_complete {
+            CaptureState::Complete
+        } else {
+            CaptureState::Waiting
+        };
+        sequence_complete
     }
 
-    pub(super) fn write_environment_irradiance_capture_readback(
-        readback: EnvironmentIrradianceCaptureReadback,
-    ) -> Result<()> {
+    pub(super) fn complete(
+        &mut self,
+        readback: PendingEnvironmentIrradianceCapture,
+        test_scene: Option<&mut EnvironmentLightingTestScene>,
+    ) -> Result<bool> {
+        debug_assert_eq!(self.state, CaptureState::Recording);
+        let radiance_checkpoint = readback.radiance_checkpoint();
+        self.state = CaptureState::Complete;
+        Self::write_readback(readback)?;
+        let sequence_complete = if let Some(checkpoint) = radiance_checkpoint {
+            test_scene
+                .context("radiance capture completion lost its test scene")?
+                .complete_radiance_capture(checkpoint)
+        } else {
+            true
+        };
+        Ok(self.transition_after_capture(sequence_complete))
+    }
+
+    fn write_readback(readback: PendingEnvironmentIrradianceCapture) -> Result<()> {
         let raw = readback.buffer.read_back()?;
         let expected_bytes = readback.extent.width as usize
             * readback.extent.height as usize
@@ -506,6 +624,22 @@ mod tests {
         DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey,
         DdgiFieldStage,
     };
+
+    #[test]
+    fn capture_runtime_rearms_only_for_an_incomplete_sequence() {
+        let disabled = EnvironmentIrradianceCaptureRuntime::new(None);
+        assert!(!disabled.is_enabled());
+
+        let mut runtime =
+            EnvironmentIrradianceCaptureRuntime::new(Some("capture.rfirr".to_owned()));
+        assert!(runtime.is_enabled());
+        runtime.state = CaptureState::Recording;
+        assert!(!runtime.transition_after_capture(false));
+        assert_eq!(runtime.state, CaptureState::Waiting);
+        runtime.state = CaptureState::Recording;
+        assert!(runtime.transition_after_capture(true));
+        assert_eq!(runtime.state, CaptureState::Complete);
+    }
 
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {

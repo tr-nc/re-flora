@@ -1,7 +1,44 @@
-# Re: Flora Rendering Context
+# Re: Flora Context
 
-This glossary names the lighting-field concepts shared by Re: Flora's terrain and raster rendering
-paths. Implementation plans and GPU resource details belong in `docs/`, not in this file.
+This glossary names the player-experience and rendering concepts that define Re: Flora. Product
+plans, implementation details, and GPU resource decisions belong in `docs/`, not in this file.
+
+## Player Experience
+
+**Restorative Garden**:
+A full-screen garden space where active, low-pressure care helps a player transition away from work
+and recover attention without creating another obligation.
+_Avoid_: productivity game, background widget
+
+**Garden Moment**:
+A bounded interaction in which a small player action produces an immediate, legible, and beautiful
+response from the garden.
+_Avoid_: feature showcase, technology demo
+
+**Free-form Planting**:
+Player-directed planting without visible grid slots or a prescribed layout; environmental rules may
+still constrain what grows on a surface.
+_Avoid_: grid-free world, unrestricted spawning
+
+**Gentle Consequence**:
+A recoverable difference in growth, appearance, yield, or ecology that makes care meaningful without
+creating irreversible loss or absence pressure.
+_Avoid_: no consequence, punishment
+
+**Sustainable Garden**:
+An established garden that remains healthy while the player is away and can renew its basic plants;
+it may continue growing or become wilder without losing prior work.
+_Avoid_: maintenance loop, idle decay
+
+**Seed Circulation**:
+The small harvest-and-reinvestment loop through which surplus produce gives access to new plants,
+while basic planting remains self-sustaining.
+_Avoid_: market economy, order economy
+
+**Personal Garden Story**:
+The history expressed by the player's placement, care, growth, and return rather than an authored
+plot, quest line, or dialogue obligation.
+_Avoid_: campaign, narrative progression
 
 ## Environment Lighting
 
@@ -29,6 +66,11 @@ volume.
 _Avoid_: ambient constant, local fallback
 
 ## Rendering Roles
+
+**Visible Terrain Publication**:
+A coherent visible result for an authoritative voxel-terrain change; it exists only when every
+affected terrain chunk is ready for observation.
+_Avoid_: partial rebuild, mesh update
 
 **Raster Consumer**:
 A raster-rendered object that reads the environment-lighting field for shading without contributing

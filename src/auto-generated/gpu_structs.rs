@@ -551,6 +551,10 @@ pub struct DdgiVoxelVisibilityInfo {
     pub ready: u32,
     pub world_to_voxel_scale: [f32; 3],
     pub max_steps: u32,
+    pub update_word_offset: [u32; 4],
+    pub update_word_dimensions: [u32; 4],
+    pub update_block_offset: [u32; 4],
+    pub update_block_dimensions: [u32; 4],
 }
 
 /// Auto-generated from `U_EditOccupancyInfo` (native Slang source of truth).
@@ -776,7 +780,8 @@ pub struct PlayerColliderInfo {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PostProcessingInfo {
     pub scaling_factor: f32,
-    pub _pad0: [u8; 12],
+    pub dither_strength_lsb: f32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `U_RegionInfo` (native Slang source of truth).

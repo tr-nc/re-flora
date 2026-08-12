@@ -141,8 +141,6 @@ pub struct AppOptions {
     pub mute: bool,
     /// Select an audio output device by case-insensitive substring match.
     pub audio_output_device: Option<String>,
-    /// Print audio output devices visible to PetalSonic/CPAL and exit successfully.
-    pub list_audio_output_devices: bool,
     /// Disable shadow rendering pass.
     pub no_shadows: bool,
     /// Disable god ray pass.
@@ -163,10 +161,8 @@ pub struct AppOptions {
     pub monitor_score: MonitorScorePreference,
     /// Override swapchain image count. None = auto (max(min_image_count, 3)).
     pub swapchain_images: Option<u32>,
-    /// Path to save a screenshot after rendering starts. None = no screenshot.
-    pub screenshot_path: Option<String>,
-    /// Delay in seconds after rendering starts before taking the screenshot. Required with --screenshot.
-    pub screenshot_delay: Option<f32>,
+    /// Save one screenshot after its render-readiness delay.
+    pub screenshot: Option<ScreenshotOptions>,
     /// Load a terrain-only authoritative voxel snapshot during startup.
     pub terrain_load_path: Option<String>,
     /// Save a terrain-only authoritative voxel snapshot after startup reaches readiness.
@@ -241,8 +237,6 @@ pub struct AppOptions {
     pub tree_bench: bool,
     /// Number of tree benchmark samples.
     pub tree_bench_samples: u32,
-    /// Do not wait for deferred rebuilds between tree benchmark samples.
-    pub tree_bench_rapid: bool,
     /// Run the authored special-flora paint benchmark and exit after completion.
     pub authored_flora_bench: bool,
     /// Number of authored flora benchmark paint samples.
@@ -265,11 +259,16 @@ pub struct DenoiserBenchOptions {
     pub camera_motion: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScreenshotOptions {
+    pub path: String,
+    pub delay: f32,
+}
+
 #[derive(Clone, Debug)]
 struct ParsedScreenshot {
     preset_name: String,
-    path: String,
-    delay: f32,
+    options: ScreenshotOptions,
 }
 
 impl AppOptions {
@@ -481,10 +480,9 @@ impl AppOptions {
         } else {
             parse_required_string_after("--camera-snapshot", "a camera snapshot name")?
         };
-        let screenshot_path = screenshot
+        let screenshot_options = screenshot
             .as_ref()
-            .map(|screenshot| screenshot.path.clone());
-        let screenshot_delay = screenshot.as_ref().map(|screenshot| screenshot.delay);
+            .map(|screenshot| screenshot.options.clone());
         let terrain_load_path =
             parse_required_string_after("--terrain-load", "a terrain snapshot path")?;
         let terrain_save_path =
@@ -529,7 +527,6 @@ impl AppOptions {
                 "--audio-output-device",
                 "an output device name substring",
             )?,
-            list_audio_output_devices: args.iter().any(|a| a == "--list-audio-output-devices"),
             no_shadows: args.iter().any(|a| a == "--no-shadows"),
             no_god_rays: args.iter().any(|a| a == "--no-god-rays"),
             no_lens_flare: args.iter().any(|a| a == "--no-lens-flare"),
@@ -540,8 +537,7 @@ impl AppOptions {
             present_mode,
             monitor_score,
             swapchain_images: parse_f32_after("--swapchain-images").map(|v| v as u32),
-            screenshot_path,
-            screenshot_delay,
+            screenshot: screenshot_options,
             terrain_load_path,
             terrain_save_path,
             camera_snapshot,
@@ -583,7 +579,6 @@ impl AppOptions {
                 .any(|a| a == "--environment-probe-visualization"),
             tree_bench: args.iter().any(|a| a == "--tree-bench"),
             tree_bench_samples: parse_u32_after("--tree-bench-samples").unwrap_or(10),
-            tree_bench_rapid: args.iter().any(|a| a == "--tree-bench-rapid"),
             authored_flora_bench: args.iter().any(|a| a == "--authored-flora-bench"),
             authored_flora_bench_samples: parse_u32_after("--authored-flora-bench-samples")
                 .unwrap_or(25),
@@ -732,8 +727,7 @@ fn parse_screenshot_request(args: &[String]) -> Result<Option<ParsedScreenshot>,
 
     Ok(Some(ParsedScreenshot {
         preset_name,
-        path,
-        delay,
+        options: ScreenshotOptions { path, delay },
     }))
 }
 
@@ -806,7 +800,6 @@ Options:
   --mute                      Start with global audio output muted while keeping audio processing active
   --audio-output-device <text>
                               Select output device by case-insensitive substring/alias match
-  --list-audio-output-devices Print output devices visible to PetalSonic/CPAL and exit
   --no-shadows                Disable shadow rendering passes
   --no-god-rays               Disable god ray pass
   --no-lens-flare             Disable lens flare passes
@@ -882,7 +875,6 @@ Options:
                               Visualize the environment probe grid (debug; default: off)
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
-  --tree-bench-rapid          Do not wait for deferred rebuilds between samples
   --authored-flora-bench      Run authored special-flora paint benchmark and exit
   --authored-flora-bench-samples <N>
                               Authored flora benchmark paint samples (default: 25)
@@ -895,7 +887,6 @@ Examples:
   re-flora --windowed
   re-flora --hidden --mute --auto-exit 20 --perf
   re-flora --audio-output-device KA3
-  re-flora --list-audio-output-devices
   re-flora --hidden --mute --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4
   re-flora --present-mode fifo
   re-flora --monitor-score lowest
@@ -963,7 +954,6 @@ mod tests {
         assert!(!options.hidden);
         assert!(!options.mute);
         assert!(options.audio_output_device.is_none());
-        assert!(!options.list_audio_output_devices);
         assert!(!options.perf);
         assert!(!options.water_experience);
         assert!(options.present_mode.is_none());
@@ -971,8 +961,7 @@ mod tests {
             options.monitor_score,
             MonitorScorePreference::Highest
         ));
-        assert!(options.screenshot_path.is_none());
-        assert!(options.screenshot_delay.is_none());
+        assert!(options.screenshot.is_none());
         assert!(options.terrain_load_path.is_none());
         assert!(options.terrain_save_path.is_none());
         assert!(options.camera_snapshot.is_none());
@@ -1549,12 +1538,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_audio_output_device_query_option() {
-        let options = parse(&["re-flora", "--list-audio-output-devices"]);
-        assert!(options.list_audio_output_devices);
-    }
-
-    #[test]
     fn parses_camera_snapshot_options() {
         let options = parse(&[
             "re-flora",
@@ -1565,8 +1548,7 @@ mod tests {
 
         assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
         assert!(options.list_camera_snapshots);
-        assert!(options.screenshot_path.is_none());
-        assert!(options.screenshot_delay.is_none());
+        assert!(options.screenshot.is_none());
     }
 
     #[test]
@@ -1583,8 +1565,13 @@ mod tests {
 
         assert!(options.hidden);
         assert_eq!(options.camera_snapshot.as_deref(), Some("tree-closeup"));
-        assert_eq!(options.screenshot_path.as_deref(), Some("out.png"));
-        assert_eq!(options.screenshot_delay, Some(2.5));
+        assert_eq!(
+            options.screenshot,
+            Some(ScreenshotOptions {
+                path: "out.png".to_owned(),
+                delay: 2.5,
+            })
+        );
     }
 
     #[test]

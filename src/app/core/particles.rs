@@ -1,16 +1,15 @@
 use super::App;
 use crate::builder::ChunkModifyStats;
-use crate::geom::UAabb3;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, ButterflySpawnSource, FallenLeafEmitter,
-    ParticleEmitter, ParticleHandle, ParticleRenderKind, ParticleSnapshot, ParticleSpawn,
-    ParticleSystem, ParticleTickStep, ParticleUpdateConfig, PARTICLE_CAPACITY,
+    LeafEmitterDesc, ParticleEmitter, ParticleHandle, ParticleRenderKind, ParticleSnapshot,
+    ParticleSpawn, ParticleSystem, ParticleTickStep, ParticleUpdateConfig, PARTICLE_CAPACITY,
     STANDARD_PARTICLE_SIZE,
 };
 use crate::util::ClusterResult;
 use egui::Color32;
 use glam::{Vec2, Vec3, Vec4};
-use std::{f32::consts::TAU, time::Instant};
+use std::{collections::HashMap, f32::consts::TAU, time::Instant};
 
 const TERRAIN_HARVEST_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(0.1, 2);
 
@@ -32,9 +31,9 @@ fn water_debug_particle_size(value: f32) -> f32 {
     }
 }
 
-pub(super) struct TreeLeafEmitter {
+struct TreeLeafEmitter {
     tree_id: u32,
-    pub(super) emitter: FallenLeafEmitter,
+    emitter: FallenLeafEmitter,
 }
 
 impl TreeLeafEmitter {
@@ -50,6 +49,83 @@ impl TreeLeafEmitter {
 impl ParticleEmitter for TreeLeafEmitter {
     fn update(&mut self, system: &mut ParticleSystem, dt: f32, time: f32) {
         self.emitter.update(system, dt, time);
+    }
+}
+
+pub(super) struct TreeLeafEmitterRuntime {
+    emitters: Vec<TreeLeafEmitter>,
+    indices_by_tree: HashMap<u32, Vec<usize>>,
+    desc: LeafEmitterDesc,
+}
+
+impl TreeLeafEmitterRuntime {
+    pub(super) fn new(desc: LeafEmitterDesc) -> Self {
+        Self {
+            emitters: Vec::new(),
+            indices_by_tree: HashMap::new(),
+            desc,
+        }
+    }
+
+    pub(super) fn upsert(&mut self, tree_id: u32, clusters: &[ClusterResult]) {
+        self.remove(tree_id);
+
+        let mut emitter_indices = Vec::with_capacity(clusters.len());
+        for cluster in clusters {
+            let mut emitter = FallenLeafEmitter::new(
+                cluster.pos,
+                Vec::new(),
+                tree_id as u64 + cluster.pos.x as u64 + cluster.pos.y as u64 + cluster.pos.z as u64,
+                &self.desc,
+            );
+            emitter.spawn_rate = self.desc.spawn_rate * (cluster.items_count as f32).sqrt();
+
+            let index = self.emitters.len();
+            self.emitters.push(TreeLeafEmitter::new(tree_id, emitter));
+            emitter_indices.push(index);
+        }
+
+        if !emitter_indices.is_empty() {
+            self.indices_by_tree.insert(tree_id, emitter_indices);
+        }
+    }
+
+    pub(super) fn remove(&mut self, tree_id: u32) {
+        let Some(mut indices) = self.indices_by_tree.remove(&tree_id) else {
+            return;
+        };
+        indices.sort_unstable_by(|a, b| b.cmp(a));
+
+        for index in indices {
+            self.emitters.swap_remove(index);
+            if let Some(swapped) = self.emitters.get(index) {
+                if let Some(swapped_indices) = self.indices_by_tree.get_mut(&swapped.tree_id()) {
+                    let old_index = self.emitters.len();
+                    if let Some(position) =
+                        swapped_indices.iter().position(|&entry| entry == old_index)
+                    {
+                        swapped_indices[position] = index;
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn advance(
+        &mut self,
+        particle_system: &mut ParticleSystem,
+        dt: f32,
+        time: f32,
+        enabled: bool,
+    ) {
+        for emitter in &mut self.emitters {
+            emitter.emitter.enabled = enabled;
+            emitter.update(particle_system, dt, time);
+        }
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.emitters.len()
     }
 }
 
@@ -83,19 +159,29 @@ impl App {
             }
         }
 
-        let color32 = match voxel_type {
-            crate::builder::VOXEL_TYPE_DIRT => super::ActiveVoxelType::Dirt.color(),
-            crate::builder::VOXEL_TYPE_CHERRY_WOOD => super::ActiveVoxelType::CherryWood.color(),
-            crate::builder::VOXEL_TYPE_OAK_WOOD => super::ActiveVoxelType::OakWood.color(),
-            crate::builder::VOXEL_TYPE_SAND => super::ActiveVoxelType::Sand.color(),
-            crate::builder::VOXEL_TYPE_ROCK => super::ActiveVoxelType::Rock.color(),
-            _ => egui::Color32::from_rgb(210, 190, 140),
+        let color_rgb = match voxel_type {
+            crate::builder::VOXEL_TYPE_DIRT => {
+                super::voxel_backpack::BackpackVoxel::Dirt.color_rgb()
+            }
+            crate::builder::VOXEL_TYPE_CHERRY_WOOD => {
+                super::voxel_backpack::BackpackVoxel::CherryWood.color_rgb()
+            }
+            crate::builder::VOXEL_TYPE_OAK_WOOD => {
+                super::voxel_backpack::BackpackVoxel::OakWood.color_rgb()
+            }
+            crate::builder::VOXEL_TYPE_SAND => {
+                super::voxel_backpack::BackpackVoxel::Sand.color_rgb()
+            }
+            crate::builder::VOXEL_TYPE_ROCK => {
+                super::voxel_backpack::BackpackVoxel::Rock.color_rgb()
+            }
+            _ => [210, 190, 140],
         };
 
         Vec4::new(
-            srgb_to_linear(color32.r()),
-            srgb_to_linear(color32.g()),
-            srgb_to_linear(color32.b()),
+            srgb_to_linear(color_rgb[0]),
+            srgb_to_linear(color_rgb[1]),
+            srgb_to_linear(color_rgb[2]),
             1.0,
         )
     }
@@ -284,89 +370,6 @@ impl App {
         }
     }
 
-    pub(super) fn upsert_tree_leaf_emitter(
-        &mut self,
-        tree_id: u32,
-        tree_pos: Vec3,
-        bound: &UAabb3,
-        clusters: &[ClusterResult],
-    ) {
-        self.remove_leaf_emitter(tree_id);
-
-        if clusters.is_empty() {
-            return;
-        }
-
-        let mut emitter_indices = Vec::with_capacity(clusters.len());
-
-        for cluster in clusters {
-            let (_center, _extent) = Self::compute_leaf_emitter_region(tree_pos, bound);
-            let cluster_center = cluster.pos;
-
-            let mut emitter = FallenLeafEmitter::new(
-                cluster_center,
-                Vec::new(),
-                tree_id as u64 + cluster.pos.x as u64 + cluster.pos.y as u64 + cluster.pos.z as u64,
-                &self.leaf_emitter_desc,
-            );
-
-            let cluster_size_multiplier = (cluster.items_count as f32).sqrt();
-            emitter.spawn_rate = self.leaf_emitter_desc.spawn_rate * cluster_size_multiplier;
-
-            let idx = self.leaf_emitters.len();
-            self.leaf_emitters
-                .push(TreeLeafEmitter::new(tree_id, emitter));
-            emitter_indices.push(idx);
-        }
-
-        self.tree_leaf_emitter_indices
-            .insert(tree_id, emitter_indices);
-    }
-
-    pub(super) fn compute_leaf_emitter_region(tree_pos: Vec3, bound: &UAabb3) -> (Vec3, Vec3) {
-        if bound.min() == bound.max() {
-            return (
-                tree_pos + Vec3::new(0.5, 1.3, 0.5),
-                Vec3::new(2.0, 0.5, 2.0),
-            );
-        }
-
-        let min = bound.min().as_vec3() / 256.0;
-        let max = bound.max().as_vec3() / 256.0;
-        let size = max - min;
-        let center = min + size * 0.5;
-        let extent = Vec3::new(
-            (size.x * 0.5).max(0.75),
-            (size.y * 0.25).max(0.5),
-            (size.z * 0.5).max(0.75),
-        );
-
-        (center, extent)
-    }
-
-    pub(super) fn remove_leaf_emitter(&mut self, tree_id: u32) {
-        if let Some(indices) = self.tree_leaf_emitter_indices.remove(&tree_id) {
-            let mut sorted_indices = indices;
-            sorted_indices.sort_unstable_by(|a, b| b.cmp(a));
-
-            for index in sorted_indices {
-                self.leaf_emitters.swap_remove(index);
-                if let Some(swapped) = self.leaf_emitters.get(index) {
-                    if let Some(tree_indices) =
-                        self.tree_leaf_emitter_indices.get_mut(&swapped.tree_id())
-                    {
-                        if let Some(pos) = tree_indices
-                            .iter()
-                            .position(|&i| i == self.leaf_emitters.len())
-                        {
-                            tree_indices[pos] = index;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     pub(super) fn ensure_butterfly_emitter(&mut self) {
         if !self.butterfly_emitters.is_empty() {
             return;
@@ -381,9 +384,6 @@ impl App {
         if self.butterfly_spawn_source_refresh_elapsed < BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS {
             return;
         }
-        if self.deferred_surface_rebuild_inflight() {
-            return;
-        }
         self.butterfly_spawn_source_refresh_elapsed = 0.0;
 
         let ground_voxels = match self.surface_builder.flora_base_world_voxels() {
@@ -394,11 +394,8 @@ impl App {
             }
         };
         let ground_source_count = ground_voxels.len();
-        let tree_source_count = self
-            .tree_records
-            .values()
-            .map(|record| record.butterfly_spawn_positions_ws.len())
-            .sum::<usize>();
+        let tree_spawn_positions = self.trees.butterfly_spawn_positions();
+        let tree_source_count = tree_spawn_positions.len();
         let mut sources = Vec::with_capacity(ground_source_count + tree_source_count);
         let voxel_scale = super::VOXEL_DIM_PER_CHUNK.as_vec3();
         sources.extend(ground_voxels.into_iter().map(|position| {
@@ -407,9 +404,8 @@ impl App {
             )
         }));
         sources.extend(
-            self.tree_records
-                .values()
-                .flat_map(|record| record.butterfly_spawn_positions_ws.iter().copied())
+            tree_spawn_positions
+                .into_iter()
                 .map(ButterflySpawnSource::tree_leaf),
         );
 
@@ -458,20 +454,20 @@ impl App {
             dt,
             wind_time,
         );
-        for emitter in &mut self.leaf_emitters {
-            emitter.emitter.enabled = self.render_flags.enable_leaves;
-        }
-        Self::drive_emitters(
-            &mut self.leaf_emitters,
+        self.trees.advance_leaf_emitters(
             &mut self.particle_system,
             dt,
             wind_time,
+            self.render_flags.enable_leaves,
         );
         let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
-        for emitter in &mut self.sprinkler_emitters {
-            emitter.set_animation_clock(self.flora_tick, world_tick_seconds);
-            emitter.update(&mut self.particle_system, dt, wind_time);
-        }
+        self.sprinklers.advance_particles(
+            &mut self.particle_system,
+            dt,
+            wind_time,
+            self.world_clock.flora_tick(),
+            world_tick_seconds,
+        );
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
         let sim_start = Instant::now();
@@ -510,8 +506,8 @@ impl App {
                 self.particle_snapshots.len(),
                 self.particle_snapshots.len().saturating_sub(sim_snapshot_count),
                 self.butterfly_emitters.len(),
-                self.leaf_emitters.len(),
-                self.sprinkler_emitters.len(),
+                self.trees.leaf_emitter_count(),
+                self.sprinklers.len(),
                 tick_step.did_step,
                 dt,
                 total_start.elapsed().as_secs_f32() * 1000.0,
@@ -527,7 +523,7 @@ impl App {
     }
 
     fn append_water_debug_snapshots(&mut self) {
-        if !self.water_terrain_initialized {
+        if !self.water_terrain_status().is_initialized() {
             return;
         }
 
@@ -775,5 +771,33 @@ impl App {
         for emitter in emitters {
             emitter.update(particle_system, dt, time);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cluster(x: f32) -> ClusterResult {
+        ClusterResult {
+            pos: Vec3::new(x, 1.0, 1.0),
+            items_count: 4,
+        }
+    }
+
+    #[test]
+    fn tree_leaf_emitter_removal_repairs_swapped_tree_indices() {
+        let mut runtime = TreeLeafEmitterRuntime::new(LeafEmitterDesc::default());
+        runtime.upsert(1, &[cluster(1.0), cluster(2.0)]);
+        runtime.upsert(2, &[cluster(3.0)]);
+        assert_eq!(runtime.len(), 3);
+
+        runtime.remove(1);
+        assert_eq!(runtime.len(), 1);
+
+        runtime.upsert(2, &[cluster(4.0), cluster(5.0)]);
+        assert_eq!(runtime.len(), 2);
+        runtime.remove(2);
+        assert_eq!(runtime.len(), 0);
     }
 }

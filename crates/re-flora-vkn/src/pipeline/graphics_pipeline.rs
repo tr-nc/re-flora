@@ -1,31 +1,21 @@
 use super::{
-    descriptor_set_utils, transient_descriptor_sets::TransientDescriptorSets,
-    DescriptorBindingPlan, DescriptorGenerationDraft, DescriptorSetGeneration,
+    descriptor_runtime::{PreparedTransientDescriptorSet, ReflectedDescriptorRuntime},
+    DescriptorUpdate, PreparedDescriptorGeneration,
 };
 use crate::{
-    CommandBuffer, DescriptorPool, DescriptorSet, DescriptorSetLayoutBinding, Device,
-    FormatOverride, FrameRetirement, MergeWithEq, PipelineLayout, RenderPass, RenderPassDesc,
-    ResourceContainer, ShaderModule, Viewport,
+    merge_descriptor_bindings, CommandBuffer, DescriptorPool, DescriptorSet,
+    DescriptorSetLayoutBinding, Device, FormatOverride, FrameRetirement, PipelineLayout,
+    RenderPass, RenderPassDesc, ResourceContainer, ShaderModule, Viewport,
 };
 use anyhow::Result;
 use ash::vk;
-use std::{
-    collections::HashMap,
-    ops::Deref,
-    sync::{Arc, Mutex},
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 struct GraphicsPipelineInner {
     device: Device,
-    descriptor_pool: DescriptorPool,
     pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
-    descriptor_sets: Mutex<DescriptorSetGeneration>,
-    transient_descriptor_sets: Mutex<TransientDescriptorSets>,
-    descriptor_sets_bindings: HashMap<u32, HashMap<u32, DescriptorSetLayoutBinding>>,
-    descriptor_binding_plan: DescriptorBindingPlan,
-    descriptor_draft_active: Arc<AtomicBool>,
+    descriptors: ReflectedDescriptorRuntime,
 }
 
 impl Drop for GraphicsPipelineInner {
@@ -52,6 +42,15 @@ pub struct PushConstantInfo {
     pub push_constants: Vec<u8>,
 }
 
+/// One reflected per-draw descriptor set prepared before entering a render pass.
+///
+/// Allocation, semantic binding validation, resource ownership, and shader-use declaration are
+/// complete. Draw recording can therefore bind this opaque value without recording a Vulkan
+/// barrier inside the render pass.
+pub struct PreparedDrawDescriptors {
+    descriptor_set: PreparedTransientDescriptorSet,
+}
+
 #[derive(Clone, Debug)]
 pub struct GraphicsPipelineDesc {
     pub format_overrides: Vec<FormatOverride>,
@@ -74,10 +73,6 @@ impl Default for GraphicsPipelineDesc {
 }
 
 impl GraphicsPipeline {
-    pub fn descriptor_binding_plan(&self) -> &DescriptorBindingPlan {
-        &self.0.descriptor_binding_plan
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &Device,
@@ -243,42 +238,31 @@ impl GraphicsPipeline {
             &frag_descriptor_sets_bindings,
         )
         .unwrap();
-        let descriptor_binding_plan = DescriptorBindingPlan::from_reflection(
+        let descriptors = ReflectedDescriptorRuntime::from_reflection(
             format!(
                 "graphics shaders {} + {}",
                 vert_shader_module.get_module_name(),
                 frag_shader_module.get_module_name()
             ),
+            descriptor_pool,
+            &pipeline_layout,
             &descriptor_sets_bindings,
         )
-        .expect("shader reflection must produce a valid descriptor binding plan");
+        .expect("shader reflection must produce a valid descriptor runtime");
 
         let pipeline_instance = Self(Arc::new(GraphicsPipelineInner {
             device: device.clone(),
-            descriptor_pool: descriptor_pool.clone(),
             pipeline,
             pipeline_layout: pipeline_layout.clone(),
-            descriptor_sets: Mutex::new(
-                descriptor_set_utils::allocate_descriptor_sets(
-                    descriptor_pool,
-                    &pipeline_layout,
-                    &descriptor_sets_bindings,
-                )
-                .expect("descriptor sets must be allocatable from reflected layouts"),
-            ),
-            transient_descriptor_sets: Mutex::new(TransientDescriptorSets::default()),
-            descriptor_sets_bindings,
-            descriptor_binding_plan,
-            descriptor_draft_active: Arc::new(AtomicBool::new(false)),
+            descriptors,
         }));
 
         if initialize {
-            descriptor_set_utils::initialize_descriptor_sets(
-                resource_containers,
-                &pipeline_instance.0.descriptor_binding_plan,
-                &pipeline_instance.0.descriptor_sets,
-            )
-            .expect("automatic descriptor initialization must resolve reflected resources");
+            pipeline_instance
+                .0
+                .descriptors
+                .initialize(DescriptorUpdate::All(resource_containers))
+                .expect("automatic descriptor initialization must resolve reflected resources");
         }
         return pipeline_instance;
 
@@ -294,7 +278,8 @@ impl GraphicsPipeline {
                 }
                 // if the set id is present in both maps, merge the bindings
                 else {
-                    let set_bindings_merged = bindings.merge_with_eq(
+                    let set_bindings_merged = merge_descriptor_bindings(
+                        bindings,
                         bindings_2
                             .get(set_id)
                             .ok_or(anyhow::anyhow!("Set id not found"))?,
@@ -320,119 +305,29 @@ impl GraphicsPipeline {
         &self.0.pipeline_layout
     }
 
-    pub fn initialize_descriptor(
-        &self,
-        name: &str,
-        resource: super::DescriptorResource<'_>,
-    ) -> Result<()> {
-        let write = self.0.descriptor_binding_plan.make_write(name, resource)?;
-        let set_no = self.0.descriptor_binding_plan.binding(name)?.set_no();
-        let mut write = write;
-        let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
-        descriptor_sets
-            .get(&set_no)
-            .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?
-            .perform_writes(std::slice::from_mut(&mut write));
-        Ok(())
-    }
-
-    /// Starts an owned runtime descriptor draft cloned from the active generation.
-    pub fn begin_descriptor_draft(&self) -> Result<DescriptorGenerationDraft> {
-        self.0
-            .descriptor_draft_active
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .map_err(|_| anyhow::anyhow!("descriptor draft already exists for {}", self.0.descriptor_binding_plan.pipeline_name()))?;
-
-        let active = self.0.descriptor_sets.lock().unwrap();
-        let mut set_nos = self.0.descriptor_sets_bindings.keys().copied().collect::<Vec<_>>();
-        set_nos.sort_unstable();
-        let required_set_nos = set_nos
-            .iter()
-            .copied()
-            .filter(|set_no| {
-                let binding_numbers = self
-                    .0
-                    .descriptor_binding_plan
-                    .bindings_for_set(*set_no)
-                    .expect("descriptor plan set list must be internally consistent")
-                    .iter()
-                    .map(|binding| binding.binding_no())
-                    .collect::<Vec<_>>();
-                active
-                    .get(set_no)
-                    .is_some_and(|set| set.has_bindings(&binding_numbers))
-            })
-            .collect::<Vec<_>>();
-        let result = (|| {
-            let mut pending = DescriptorSetGeneration::empty();
-            for set_no in set_nos {
-                let set = active.get(&set_no).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "descriptor generation for {} is missing reflected set {}",
-                        self.0.descriptor_binding_plan.pipeline_name(),
-                        set_no
-                    )
-                })?;
-                let layout = self
-                    .0
-                    .pipeline_layout
-                    .get_descriptor_set_layouts()
-                    .get(&set_no)
-                    .ok_or_else(|| anyhow::anyhow!("descriptor set layout {set_no} is not reflected"))?;
-                pending.insert(set_no, set.fork(&self.0.descriptor_pool, layout)?);
-            }
-            Ok(DescriptorGenerationDraft::new(
-                pending,
-                self.0.descriptor_binding_plan.clone(),
-                self.0.descriptor_draft_active.clone(),
-                required_set_nos,
-            ))
-        })();
-        if result.is_err() {
-            self.0.descriptor_draft_active.store(false, Ordering::Release);
-        }
-        result
-    }
-
-    /// Publishes a prepared draft by infallibly swapping the active generation.
-    pub fn publish_descriptor_draft(
-        &self,
-        name: &'static str,
-        generation: u64,
-        draft: DescriptorGenerationDraft,
-    ) -> FrameRetirement {
-        self.publish_descriptor_sets(name, generation, draft.into_generation())
-    }
-
     /// Completes creation-time descriptor initialization.
     ///
     /// Every reflected binding must resolve; runtime generation preparation is a separate API.
-    pub fn initialize_descriptor_resources(
-        &self,
-        resource_containers: &[&dyn ResourceContainer],
-    ) -> Result<()> {
-        descriptor_set_utils::initialize_descriptor_sets(
-            resource_containers,
-            &self.0.descriptor_binding_plan,
-            &self.0.descriptor_sets,
-        )
+    pub fn initialize_descriptors(&self, update: DescriptorUpdate<'_>) -> Result<()> {
+        self.0.descriptors.initialize(update)
     }
 
-    /// Initializes the reflected descriptor set containing `binding_name`.
-    ///
-    /// The resource name is the stable semantic anchor; the Vulkan set number remains private to
-    /// the pipeline/reflection implementation.
-    pub fn initialize_descriptor_set_resources(
+    /// Applies and publishes a complete semantic update in one operation.
+    pub fn publish_descriptors(
         &self,
-        binding_name: &str,
-        resource_containers: &[&dyn ResourceContainer],
-    ) -> Result<()> {
-        descriptor_set_utils::initialize_descriptor_set(
-            binding_name,
-            resource_containers,
-            &self.0.descriptor_binding_plan,
-            &self.0.descriptor_sets,
-        )
+        name: &'static str,
+        generation: u64,
+        update: DescriptorUpdate<'_>,
+    ) -> Result<FrameRetirement> {
+        self.0.descriptors.publish(name, generation, update)
+    }
+
+    /// Prepares an opaque generation for a later coordinated publication.
+    pub fn prepare_descriptors(
+        &self,
+        update: DescriptorUpdate<'_>,
+    ) -> Result<PreparedDescriptorGeneration> {
+        self.0.descriptors.prepare(update)
     }
 
     /// Starts a new frame for transient descriptor sets.
@@ -442,23 +337,41 @@ impl GraphicsPipeline {
     /// waited. Call this once before recording any
     /// `record_indexed_with_descriptors` draws for the frame.
     pub fn begin_transient_descriptor_frame(&self, frame_slot: usize) {
-        self.0
-            .transient_descriptor_sets
-            .lock()
-            .unwrap()
-            .begin_frame(frame_slot);
+        self.0.descriptors.begin_transient_frame(frame_slot);
     }
 
-    /// Declare image uses for tracked texture descriptors used by this graphics pipeline.
+    /// Declare shader uses for tracked resources in the active descriptor generation.
     ///
     /// Call this before beginning the render pass that will draw with the pipeline;
     /// Vulkan image barriers cannot be recorded from arbitrary draw helpers once a
     /// render pass is active.
-    pub fn record_texture_transitions(&self, cmdbuf: &CommandBuffer) {
-        let descriptor_sets = self.0.descriptor_sets.lock().unwrap();
-        for descriptor_set in descriptor_sets.values() {
-            descriptor_set.record_image_uses(cmdbuf);
-        }
+    pub fn prepare_descriptor_resources(&self, cmdbuf: &CommandBuffer) {
+        self.0.descriptors.record_active_resource_uses(cmdbuf);
+    }
+
+    /// Prepare one semantic per-draw descriptor set before entering its render pass.
+    pub fn prepare_draw_descriptors(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptors: &[(&str, super::DescriptorResource<'_>)],
+    ) -> Result<PreparedDrawDescriptors> {
+        Ok(PreparedDrawDescriptors {
+            descriptor_set: self
+                .0
+                .descriptors
+                .prepare_transient_set(cmdbuf, descriptors)?,
+        })
+    }
+
+    /// Declare resources owned by an externally retained descriptor set before its render pass.
+    pub fn prepare_descriptor_set_resources(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptor_set: &DescriptorSet,
+    ) {
+        self.0
+            .descriptors
+            .record_standalone_resource_uses(cmdbuf, descriptor_set);
     }
 
     /// Binds an externally owned descriptor set at the reflected set containing `name`.
@@ -471,70 +384,35 @@ impl GraphicsPipeline {
         name: &str,
         descriptor_set: &DescriptorSet,
     ) -> Result<()> {
-        let set_no = self.0.descriptor_binding_plan.binding(name)?.set_no();
-        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-            cmdbuf.as_raw(),
-            self.0.pipeline_layout.as_raw(),
-            set_no,
-            &[descriptor_set.as_raw()],
-        );
-        Ok(())
+        self.0.descriptors.bind_standalone_descriptor(
+            name,
+            descriptor_set,
+            |set_no, descriptor_set| {
+                self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+                    cmdbuf.as_raw(),
+                    self.0.pipeline_layout.as_raw(),
+                    set_no,
+                    &[descriptor_set],
+                );
+            },
+        )
     }
 
     pub fn tracked_texture_binding_count(&self) -> usize {
-        self.0
-            .descriptor_sets
-            .lock()
-            .unwrap()
-            .values()
-            .map(DescriptorSet::image_owner_count)
-            .sum()
+        self.0.descriptors.tracked_texture_binding_count()
     }
 
-    fn record_bind_descriptor_sets(
-        &self,
-        cmdbuf: &CommandBuffer,
-        descriptor_sets: &DescriptorSetGeneration,
-        excluded_set_no: Option<u32>,
-    ) {
-        let mut set_nos = descriptor_sets
-            .keys()
-            .copied()
-            .filter(|set_no| Some(*set_no) != excluded_set_no)
-            .collect::<Vec<_>>();
-        set_nos.sort_unstable();
-        let mut run = Vec::new();
-        let mut run_start = None;
-        for set_no in set_nos {
-            if let Some(start) = run_start {
-                if set_no != start + run.len() as u32 {
-                    self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-                        cmdbuf.as_raw(),
-                        self.0.pipeline_layout.as_raw(),
-                        start,
-                        &run,
-                    );
-                    run.clear();
-                    run_start = Some(set_no);
-                }
-            } else {
-                run_start = Some(set_no);
-            }
-            run.push(
-                descriptor_sets
-                    .get(&set_no)
-                    .expect("descriptor set location was collected from the generation")
-                    .as_raw(),
-            );
-        }
-        if let Some(start) = run_start {
-            self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-                cmdbuf.as_raw(),
-                self.0.pipeline_layout.as_raw(),
-                start,
-                &run,
-            );
-        }
+    fn record_bind_descriptor_sets(&self, cmdbuf: &CommandBuffer, excluded_set_no: Option<u32>) {
+        self.0
+            .descriptors
+            .bind_active(excluded_set_no, |first_set, sets| {
+                self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+                    cmdbuf.as_raw(),
+                    self.0.pipeline_layout.as_raw(),
+                    first_set,
+                    sets,
+                );
+            });
     }
 
     fn create_pipeline(
@@ -592,18 +470,8 @@ impl GraphicsPipeline {
         first_instance: u32,
         push_constants: Option<&PushConstantInfo>,
     ) {
-        let has_active = {
-            let active = self.0.descriptor_sets.lock().unwrap();
-            self.0
-                .descriptor_binding_plan
-                .assert_generation_complete(&active);
-            !active.is_empty()
-        };
         self.record_bind(cmdbuf);
-        if has_active {
-            let active = self.0.descriptor_sets.lock().unwrap();
-            self.record_bind_descriptor_sets(cmdbuf, &active, None);
-        }
+        self.record_bind_descriptor_sets(cmdbuf, None);
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
         }
@@ -627,18 +495,8 @@ impl GraphicsPipeline {
         first_instance: u32,
         push_constants: Option<&PushConstantInfo>,
     ) {
-        let has_active = {
-            let active = self.0.descriptor_sets.lock().unwrap();
-            self.0
-                .descriptor_binding_plan
-                .assert_generation_complete(&active);
-            !active.is_empty()
-        };
         self.record_bind(cmdbuf);
-        if has_active {
-            let active = self.0.descriptor_sets.lock().unwrap();
-            self.record_bind_descriptor_sets(cmdbuf, &active, None);
-        }
+        self.record_bind_descriptor_sets(cmdbuf, None);
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
         }
@@ -652,94 +510,31 @@ impl GraphicsPipeline {
         );
     }
 
-    fn next_transient_descriptor_set(
-        &self,
-        descriptors: &[(&str, super::DescriptorResource<'_>)],
-    ) -> Result<(u32, DescriptorSet)> {
-        let first_name = descriptors
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("transient descriptor set requires at least one resource"))?
-            .0;
-        let set_no = self.0.descriptor_binding_plan.binding(first_name)?.set_no();
-        let reflected_bindings = self.0.descriptor_binding_plan.bindings_for_set(set_no)?;
-        anyhow::ensure!(
-            descriptors.len() == reflected_bindings.len(),
-            "transient descriptor set {} for {} requires exactly {} reflected resources, got {}",
-            set_no,
-            self.0.descriptor_binding_plan.pipeline_name(),
-            reflected_bindings.len(),
-            descriptors.len(),
-        );
-        for reflected in reflected_bindings {
-            let count = descriptors
-                .iter()
-                .filter(|(name, _)| *name == reflected.name())
-                .count();
-            anyhow::ensure!(
-                count == 1,
-                "transient descriptor set {} for {} requires exactly one resource named '{}', got {}",
-                set_no,
-                self.0.descriptor_binding_plan.pipeline_name(),
-                reflected.name(),
-                count,
-            );
-        }
-        let layout = self
-            .0
-            .pipeline_layout
-            .get_descriptor_set_layouts()
-            .get(&set_no)
-            .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?;
-        let descriptor_set = self
-            .0
-            .transient_descriptor_sets
-            .lock()
-            .unwrap()
-            .next_descriptor_set(set_no, &self.0.descriptor_pool, layout, "GraphicsPipeline")?;
-        let mut writes = Vec::with_capacity(descriptors.len());
-        for (name, resource) in descriptors {
-            let binding = self.0.descriptor_binding_plan.binding(name)?;
-            anyhow::ensure!(
-                binding.set_no() == set_no,
-                "transient descriptor resources must use one descriptor set; '{}' is in set {} but '{}' is in set {}",
-                first_name,
-                set_no,
-                name,
-                binding.set_no(),
-            );
-            writes.push(self.0.descriptor_binding_plan.make_write(name, *resource)?);
-        }
-        descriptor_set.perform_writes(&mut writes);
-        Ok((set_no, descriptor_set))
-    }
-
-    /// Records an indexed draw using a per-draw descriptor set addressed by reflected names.
+    /// Records an indexed draw using descriptors prepared before the render pass.
     #[allow(clippy::too_many_arguments)]
-    pub fn record_indexed_with_descriptors(
+    pub fn record_indexed_with_prepared_descriptors(
         &self,
         cmdbuf: &CommandBuffer,
-        descriptors: &[(&str, super::DescriptorResource<'_>)],
+        descriptors: &PreparedDrawDescriptors,
         index_count: u32,
         instance_count: u32,
         first_index: u32,
         vertex_offset: i32,
         first_instance: u32,
         push_constants: Option<&PushConstantInfo>,
-    ) -> Result<()> {
+    ) {
         self.record_bind(cmdbuf);
-        let (set_no, descriptor_set) = self.next_transient_descriptor_set(descriptors)?;
-        let active = self.0.descriptor_sets.lock().unwrap();
-        self.0
-            .descriptor_binding_plan
-            .assert_generation_complete_except(&active, Some(set_no));
-        if !active.is_empty() {
-            self.record_bind_descriptor_sets(cmdbuf, &active, Some(set_no));
-        }
-        self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-            cmdbuf.as_raw(),
-            self.0.pipeline_layout.as_raw(),
-            set_no,
-            &[descriptor_set.as_raw()],
+        self.record_bind_descriptor_sets(cmdbuf, Some(descriptors.descriptor_set.set_no()));
+        self.0.descriptors.bind_prepared_transient(
+            &descriptors.descriptor_set,
+            |set_no, descriptor_set| {
+                self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+                    cmdbuf.as_raw(),
+                    self.0.pipeline_layout.as_raw(),
+                    set_no,
+                    &[descriptor_set],
+                );
+            },
         );
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
@@ -752,7 +547,6 @@ impl GraphicsPipeline {
             vertex_offset,
             first_instance,
         );
-        Ok(())
     }
 
     /// Allocates a standalone descriptor set for a reflected resource, for example an egui
@@ -763,27 +557,9 @@ impl GraphicsPipeline {
         name: &str,
         resource: super::DescriptorResource<'_>,
     ) -> Result<DescriptorSet> {
-        let binding = self.0.descriptor_binding_plan.binding(name)?;
-        let reflected_bindings = self
-            .0
-            .descriptor_binding_plan
-            .bindings_for_set(binding.set_no())?;
-        anyhow::ensure!(
-            reflected_bindings.len() == 1,
-            "standalone transient descriptor '{}' requires its reflected set {} to contain exactly one binding",
-            name,
-            binding.set_no(),
-        );
-        let layout = self
-            .0
-            .pipeline_layout
-            .get_descriptor_set_layouts()
-            .get(&binding.set_no())
-            .ok_or_else(|| anyhow::anyhow!("descriptor set {} is not reflected", binding.set_no()))?;
-        let descriptor_set = self.0.descriptor_pool.allocate_set(layout)?;
-        let mut write = self.0.descriptor_binding_plan.make_write(name, resource)?;
-        descriptor_set.perform_writes(std::slice::from_mut(&mut write));
-        Ok(descriptor_set)
+        self.0
+            .descriptors
+            .allocate_standalone_descriptor(name, resource)
     }
 
     fn record_draw_indexed(
@@ -807,14 +583,15 @@ impl GraphicsPipeline {
 
     /// Publishes a previously staged generation and returns the old generation for completion-
     /// scoped retirement.
-    pub fn publish_descriptor_sets(
+    pub fn publish_prepared_descriptors(
         &self,
         name: &'static str,
         generation: u64,
-        pending: DescriptorSetGeneration,
+        pending: PreparedDescriptorGeneration,
     ) -> FrameRetirement {
-        let old = std::mem::replace(&mut *self.0.descriptor_sets.lock().unwrap(), pending);
-        FrameRetirement::new(name, generation, old)
+        self.0
+            .descriptors
+            .publish_prepared(name, generation, pending)
     }
 }
 
@@ -823,7 +600,6 @@ fn first_subpass_color_attachment_count(desc: &RenderPassDesc) -> usize {
         .first()
         .map_or(0, |subpass| subpass.color_attachments.len())
 }
-
 
 #[cfg(test)]
 mod tests {

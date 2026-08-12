@@ -16,10 +16,10 @@ use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
 use re_flora_vkn::{
     execute_one_time_command, Allocator, DescriptorPool, DescriptorResource, DescriptorSet, Device,
-    Extent2D, Extent3D, FrameRetirement, GraphicsPipeline, GraphicsPipelineDesc, ShaderModule,
-    Texture,
+    Extent2D, Extent3D, FrameRetirement, FrameRetirementSink, GraphicsPipeline,
+    GraphicsPipelineDesc, ShaderModule, Texture,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -40,7 +40,7 @@ pub struct EguiRenderer {
     pool: DescriptorPool,
     managed_textures: HashMap<TextureId, ManagedTexture>,
     frames: Option<Mesh>,
-    pending_frame_retirements: Vec<FrameRetirement>,
+    frame_retirement_sink: FrameRetirementSink,
     texture_generation: u64,
     mesh_generation: u64,
 
@@ -57,6 +57,7 @@ impl EguiRenderer {
         window: &Window,
         allocator: Allocator,
         render_pass: &RenderPass,
+        frame_retirement_sink: FrameRetirementSink,
     ) -> Self {
         let device = vulkan_ctx.device();
 
@@ -102,7 +103,7 @@ impl EguiRenderer {
             pool,
             managed_textures: HashMap::new(),
             frames: None,
-            pending_frame_retirements: Vec::new(),
+            frame_retirement_sink,
             texture_generation: 1,
             mesh_generation: 1,
 
@@ -175,7 +176,7 @@ impl EguiRenderer {
         );
         if let Some(old_texture) = old_texture {
             let retired_generation = old_texture.generation;
-            self.pending_frame_retirements.push(FrameRetirement::new(
+            self.frame_retirement_sink.retire(FrameRetirement::new(
                 "egui.texture",
                 retired_generation,
                 old_texture,
@@ -300,7 +301,7 @@ impl EguiRenderer {
                     .texture_generation
                     .checked_add(1)
                     .expect("egui texture generation overflow");
-                self.pending_frame_retirements.push(FrameRetirement::new(
+                self.frame_retirement_sink.retire(FrameRetirement::new(
                     "egui.texture",
                     retired_generation,
                     old_texture,
@@ -440,6 +441,21 @@ impl EguiRenderer {
             return;
         }
 
+        let mut prepared_textures = HashSet::new();
+        for primitive in primitives {
+            let Primitive::Mesh(mesh) = &primitive.primitive else {
+                continue;
+            };
+            if prepared_textures.insert(mesh.texture_id) {
+                let managed = self
+                    .managed_textures
+                    .get(&mesh.texture_id)
+                    .expect("egui primitive references an unknown managed texture");
+                self.gui_ppl
+                    .prepare_descriptor_set_resources(cmdbuf, &managed.descriptor_set);
+            }
+        }
+
         if self.frames.is_none() {
             self.frames
                 .replace(Mesh::new(device, &mut self.allocator, primitives));
@@ -454,7 +470,7 @@ impl EguiRenderer {
                 .mesh_generation
                 .checked_add(1)
                 .expect("egui mesh generation overflow");
-            self.pending_frame_retirements.push(FrameRetirement::new(
+            self.frame_retirement_sink.retire(FrameRetirement::new(
                 "egui.mesh",
                 generation,
                 (vertices, indices),
@@ -487,9 +503,5 @@ impl EguiRenderer {
             self.pixels_per_point.unwrap() * output_scale,
             self.clipped_primitives.as_ref().unwrap(),
         );
-    }
-
-    pub fn take_frame_retirements(&mut self) -> Vec<FrameRetirement> {
-        std::mem::take(&mut self.pending_frame_retirements)
     }
 }

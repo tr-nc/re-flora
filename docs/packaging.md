@@ -48,6 +48,8 @@ Each package contains the executable plus runtime data directories:
 re-flora(.exe)
 assets/
 config/
+demo/img/splash.png
+docs/playing.md
 README.md
 LICENSE
 LICENSE-ASSETS

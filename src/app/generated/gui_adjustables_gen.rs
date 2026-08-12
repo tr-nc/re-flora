@@ -97,6 +97,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "World Tick Time (s)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Post Processing",
+        id: "dither_strength_lsb",
+        kind: "float",
+        label: "Dither Strength (Max 8-bit LSB)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Wind",
         id: "wind_source_count",
         kind: "uint",
@@ -353,24 +359,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "footstep_volume_db",
         kind: "float",
         label: "Footstep Volume (dB)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "audio_hrtf_backend",
-        kind: "uint",
-        label: "HRTF Backend (0 Native, 1 Steam Audio)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "audio_use_ambisonics",
-        kind: "bool",
-        label: "Use Ambisonics",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "audio_ambisonics_backend",
-        kind: "uint",
-        label: "Ambisonics Backend (0 Native, 1 Steam Audio)",
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
@@ -1456,6 +1444,7 @@ pub struct GuiAdjustables {
     pub path_tracing_ambient_light: crate::gui_adjustables::ColorParam,
     pub path_tracing_max_bounces: crate::gui_adjustables::UintParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
+    pub dither_strength_lsb: crate::gui_adjustables::FloatParam,
     pub wind_source_count: crate::gui_adjustables::UintParam,
     pub wind_directional_bias_fraction: crate::gui_adjustables::FloatParam,
     pub wind_turbulence_fraction: crate::gui_adjustables::FloatParam,
@@ -1499,9 +1488,6 @@ pub struct GuiAdjustables {
     pub wind_source_3_gain: crate::gui_adjustables::FloatParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
     pub footstep_volume_db: crate::gui_adjustables::FloatParam,
-    pub audio_hrtf_backend: crate::gui_adjustables::UintParam,
-    pub audio_use_ambisonics: crate::gui_adjustables::BoolParam,
-    pub audio_ambisonics_backend: crate::gui_adjustables::UintParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
@@ -1705,6 +1691,7 @@ impl GuiAdjustables {
         let mut path_tracing_ambient_light_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut path_tracing_max_bounces_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut dither_strength_lsb_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_source_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_directional_bias_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_turbulence_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1748,9 +1735,6 @@ impl GuiAdjustables {
         let mut wind_source_3_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut audio_hrtf_backend_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut audio_use_ambisonics_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut audio_ambisonics_backend_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2007,6 +1991,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             world_tick_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "dither_strength_lsb" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            dither_strength_lsb_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "wind_source_count" => {
@@ -2292,25 +2283,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             footstep_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "audio_hrtf_backend" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            audio_hrtf_backend_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "audio_use_ambisonics" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            audio_use_ambisonics_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "audio_ambisonics_backend" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            audio_ambisonics_backend_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "tree_wind_response_min_strength" => {
@@ -3525,6 +3497,7 @@ impl GuiAdjustables {
             path_tracing_ambient_light: path_tracing_ambient_light_field.expect("Missing parameter: path_tracing_ambient_light"),
             path_tracing_max_bounces: path_tracing_max_bounces_field.expect("Missing parameter: path_tracing_max_bounces"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
+            dither_strength_lsb: dither_strength_lsb_field.expect("Missing parameter: dither_strength_lsb"),
             wind_source_count: wind_source_count_field.expect("Missing parameter: wind_source_count"),
             wind_directional_bias_fraction: wind_directional_bias_fraction_field.expect("Missing parameter: wind_directional_bias_fraction"),
             wind_turbulence_fraction: wind_turbulence_fraction_field.expect("Missing parameter: wind_turbulence_fraction"),
@@ -3568,9 +3541,6 @@ impl GuiAdjustables {
             wind_source_3_gain: wind_source_3_gain_field.expect("Missing parameter: wind_source_3_gain"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
             footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
-            audio_hrtf_backend: audio_hrtf_backend_field.expect("Missing parameter: audio_hrtf_backend"),
-            audio_use_ambisonics: audio_use_ambisonics_field.expect("Missing parameter: audio_use_ambisonics"),
-            audio_ambisonics_backend: audio_ambisonics_backend_field.expect("Missing parameter: audio_ambisonics_backend"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
             tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
             tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
@@ -3762,6 +3732,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "lod_distance" => Some(&adjustables.lod_distance),
         "flora_draw_distance" => Some(&adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&adjustables.world_tick_seconds),
+        "dither_strength_lsb" => Some(&adjustables.dither_strength_lsb),
         "wind_directional_bias_fraction" => Some(&adjustables.wind_directional_bias_fraction),
         "wind_turbulence_fraction" => Some(&adjustables.wind_turbulence_fraction),
         "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
@@ -3957,8 +3928,6 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_1_octaves" => Some(&adjustables.wind_source_1_octaves),
         "wind_source_2_octaves" => Some(&adjustables.wind_source_2_octaves),
         "wind_source_3_octaves" => Some(&adjustables.wind_source_3_octaves),
-        "audio_hrtf_backend" => Some(&adjustables.audio_hrtf_backend),
-        "audio_ambisonics_backend" => Some(&adjustables.audio_ambisonics_backend),
         "glass_ssr_steps" => Some(&adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
@@ -3997,7 +3966,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "wind_source_1_muted" => Some(&adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&adjustables.wind_source_2_muted),
         "wind_source_3_muted" => Some(&adjustables.wind_source_3_muted),
-        "audio_use_ambisonics" => Some(&adjustables.audio_use_ambisonics),
         "audio_ray_tracing_enabled" => Some(&adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&adjustables.glass_per_voxel_reflection),
@@ -4045,6 +4013,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "lod_distance" => Some(&mut adjustables.lod_distance),
         "flora_draw_distance" => Some(&mut adjustables.flora_draw_distance),
         "world_tick_seconds" => Some(&mut adjustables.world_tick_seconds),
+        "dither_strength_lsb" => Some(&mut adjustables.dither_strength_lsb),
         "wind_directional_bias_fraction" => Some(&mut adjustables.wind_directional_bias_fraction),
         "wind_turbulence_fraction" => Some(&mut adjustables.wind_turbulence_fraction),
         "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
@@ -4240,8 +4209,6 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_1_octaves" => Some(&mut adjustables.wind_source_1_octaves),
         "wind_source_2_octaves" => Some(&mut adjustables.wind_source_2_octaves),
         "wind_source_3_octaves" => Some(&mut adjustables.wind_source_3_octaves),
-        "audio_hrtf_backend" => Some(&mut adjustables.audio_hrtf_backend),
-        "audio_ambisonics_backend" => Some(&mut adjustables.audio_ambisonics_backend),
         "glass_ssr_steps" => Some(&mut adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
@@ -4280,7 +4247,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "wind_source_1_muted" => Some(&mut adjustables.wind_source_1_muted),
         "wind_source_2_muted" => Some(&mut adjustables.wind_source_2_muted),
         "wind_source_3_muted" => Some(&mut adjustables.wind_source_3_muted),
-        "audio_use_ambisonics" => Some(&mut adjustables.audio_use_ambisonics),
         "audio_ray_tracing_enabled" => Some(&mut adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&mut adjustables.glass_per_voxel_reflection),

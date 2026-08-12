@@ -604,12 +604,6 @@ impl TerrainPhysics {
         }
     }
 
-    pub(super) fn mark_terrain_voxel_bound_dirty(&mut self, bound: crate::geom::UAabb3) {
-        for id in terrain_brick_ids_for_inclusive_uvec_aabb(bound.min(), bound.max()) {
-            self.mark_terrain_brick_dirty(id);
-        }
-    }
-
     pub(super) fn mark_terrain_chunks_dirty(&mut self, chunk_ids: &[UVec3], chunk_dim: UVec3) {
         for &chunk_id in chunk_ids {
             let min = (chunk_id * chunk_dim).as_ivec3();
@@ -896,35 +890,6 @@ fn terrain_brick_ids_for_voxel_aabb(min: IVec3, max_exclusive: IVec3) -> Vec<Sta
     ids
 }
 
-fn terrain_brick_ids_for_inclusive_uvec_aabb(
-    min: UVec3,
-    max_inclusive: UVec3,
-) -> Vec<StaticVoxelBrickId> {
-    if min.cmpgt(max_inclusive).any() {
-        return Vec::new();
-    }
-    let Some(max_exclusive) = max_inclusive
-        .x
-        .checked_add(1)
-        .zip(max_inclusive.y.checked_add(1))
-        .zip(max_inclusive.z.checked_add(1))
-        .map(|((x, y), z)| UVec3::new(x, y, z))
-    else {
-        log::error!(
-            "[COLLISION][TERRAIN_BRICK] inclusive voxel bound overflows: min={min:?} max={max_inclusive:?}"
-        );
-        return Vec::new();
-    };
-    let (Ok(min), Ok(max_exclusive)) = (IVec3::try_from(min), IVec3::try_from(max_exclusive))
-    else {
-        log::error!(
-            "[COLLISION][TERRAIN_BRICK] voxel bound exceeds signed collider coordinates: min={min:?} max_exclusive={max_exclusive:?}"
-        );
-        return Vec::new();
-    };
-    terrain_brick_ids_for_voxel_aabb(min, max_exclusive)
-}
-
 fn collision_probe_convex_points() -> Vec<Vec3> {
     convex_points_for_voxels(collision_probe_apple_offsets())
 }
@@ -1178,21 +1143,6 @@ mod tests {
                 StaticVoxelBrickId(IVec3::new(-1, 0, 0)),
                 StaticVoxelBrickId(IVec3::ZERO),
             ]
-        );
-    }
-
-    #[test]
-    fn inclusive_voxel_aabb_marks_the_brick_containing_its_maximum_voxel() {
-        assert_eq!(
-            terrain_brick_ids_for_inclusive_uvec_aabb(UVec3::new(31, 7, 9), UVec3::new(32, 7, 9),),
-            vec![
-                StaticVoxelBrickId(IVec3::new(0, 0, 0)),
-                StaticVoxelBrickId(IVec3::new(1, 0, 0)),
-            ]
-        );
-        assert_eq!(
-            terrain_brick_ids_for_inclusive_uvec_aabb(UVec3::splat(32), UVec3::splat(32)),
-            vec![StaticVoxelBrickId(IVec3::ONE)]
         );
     }
 

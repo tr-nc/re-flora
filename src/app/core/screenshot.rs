@@ -1,7 +1,9 @@
-use super::App;
+use super::denoiser_bench::DenoiserBench;
+use crate::{tracer::Tracer, ScreenshotOptions};
 use anyhow::{Context, Result};
 use re_flora_vkn::{
-    Buffer, BufferUsage, ColorReadbackFormat, CommandBuffer, Extent2D, MemoryLocation,
+    AcquiredFrame, Buffer, BufferUsage, ColorReadbackFormat, Extent2D, MemoryLocation, Swapchain,
+    VulkanContext,
 };
 use std::{borrow::Cow, path::Path, time::Instant};
 
@@ -13,18 +15,64 @@ struct ClipboardCopyOutcome {
     encoded_bytes: Option<usize>,
 }
 
-pub(super) enum ScreenshotDestination {
+#[derive(Clone, Debug, PartialEq)]
+enum ScreenshotDestination {
     File(String),
     Clipboard,
-    DenoiserBenchmark,
 }
 
-pub(super) struct ScreenshotReadback {
-    pub(super) destination: ScreenshotDestination,
-    pub(super) width: u32,
-    pub(super) height: u32,
-    pub(super) format: ColorReadbackFormat,
-    pub(super) buffer: Buffer,
+struct SwapchainReadback {
+    width: u32,
+    height: u32,
+    format: ColorReadbackFormat,
+    buffer: Buffer,
+}
+
+pub(super) struct PendingScreenshot {
+    destination: ScreenshotDestination,
+    readback: SwapchainReadback,
+}
+
+pub(super) struct PendingDenoiserFrame {
+    readback: SwapchainReadback,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct ScreenshotFrameReadiness {
+    render_elapsed_seconds: Option<f32>,
+    test_scenes_ready: bool,
+    environment_lighting_ready: bool,
+}
+
+impl ScreenshotFrameReadiness {
+    pub(super) fn new(
+        render_elapsed_seconds: Option<f32>,
+        test_scenes_ready: bool,
+        environment_lighting_ready: bool,
+    ) -> Self {
+        Self {
+            render_elapsed_seconds,
+            test_scenes_ready,
+            environment_lighting_ready,
+        }
+    }
+
+    fn elapsed_if_ready(self, delay_seconds: f32) -> Option<f32> {
+        let elapsed = self.render_elapsed_seconds?;
+        (elapsed >= delay_seconds && self.test_scenes_ready && self.environment_lighting_ready)
+            .then_some(elapsed)
+    }
+}
+
+struct ScheduledScreenshot {
+    path: String,
+    delay_seconds: f32,
+    taken: bool,
+}
+
+pub(super) struct ScreenshotRuntime {
+    scheduled: Option<ScheduledScreenshot>,
+    clipboard_requested: bool,
 }
 
 #[cfg(target_os = "linux")]
@@ -127,143 +175,294 @@ fn copy_rgba_to_clipboard(width: u32, height: u32, rgba: Vec<u8>) -> Result<Clip
     })
 }
 
-impl App {
-    pub(super) fn prepare_screenshot_readback(
-        &self,
-        path: String,
-        render_area: Extent2D,
-    ) -> Result<ScreenshotReadback> {
-        let output_path = Path::new(&path);
+impl ScreenshotRuntime {
+    pub(super) fn new(options: Option<ScreenshotOptions>) -> Self {
+        Self {
+            scheduled: options.map(|options| ScheduledScreenshot {
+                path: options.path,
+                delay_seconds: options.delay,
+                taken: false,
+            }),
+            clipboard_requested: false,
+        }
+    }
+
+    pub(super) fn is_scheduled(&self) -> bool {
+        self.scheduled.is_some()
+    }
+
+    pub(super) fn request_clipboard(&mut self) {
+        self.clipboard_requested = true;
+        log::info!("[SCREENSHOT] P pressed; capturing next frame to clipboard");
+    }
+
+    fn claim_destination(
+        &mut self,
+        readiness: ScreenshotFrameReadiness,
+    ) -> Option<ScreenshotDestination> {
+        if std::mem::take(&mut self.clipboard_requested) {
+            return Some(ScreenshotDestination::Clipboard);
+        }
+
+        let scheduled = self.scheduled.as_mut()?;
+        if scheduled.taken {
+            return None;
+        }
+        let elapsed = readiness.elapsed_if_ready(scheduled.delay_seconds)?;
+        scheduled.taken = true;
+        log::info!(
+            "[SCREENSHOT] Capturing after {:.2}s to {}",
+            elapsed,
+            scheduled.path
+        );
+        Some(ScreenshotDestination::File(scheduled.path.clone()))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn record_if_ready(
+        &mut self,
+        tracer: &Tracer,
+        vulkan_ctx: &VulkanContext,
+        swapchain: &Swapchain,
+        frame: &AcquiredFrame,
+        readiness: ScreenshotFrameReadiness,
+    ) -> Option<PendingScreenshot> {
+        let destination = self.claim_destination(readiness)?;
+        let readback = match prepare_swapchain_readback(
+            tracer,
+            vulkan_ctx,
+            swapchain,
+            frame.extent(),
+            Some(&destination),
+        ) {
+            Ok(readback) => readback,
+            Err(err) => {
+                match destination {
+                    ScreenshotDestination::Clipboard => {
+                        log::error!("[SCREENSHOT] Failed to prepare clipboard capture: {err}")
+                    }
+                    ScreenshotDestination::File(_) => {
+                        log::error!("[SCREENSHOT] Failed to prepare: {err}")
+                    }
+                }
+                return None;
+            }
+        };
+        record_swapchain_readback(swapchain, frame, &readback);
+        Some(PendingScreenshot {
+            destination,
+            readback,
+        })
+    }
+
+    pub(super) fn complete(&self, readback: PendingScreenshot) {
+        std::thread::Builder::new()
+            .name("screenshot-readback".to_owned())
+            .spawn(move || write_screenshot_readback(readback))
+            .unwrap_or_else(|err| {
+                log::error!("[SCREENSHOT] Failed to start readback thread: {err}");
+                panic!("failed to start screenshot readback thread: {err}");
+            });
+    }
+}
+
+impl PendingDenoiserFrame {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn record(
+        tracer: &Tracer,
+        vulkan_ctx: &VulkanContext,
+        swapchain: &Swapchain,
+        frame: &AcquiredFrame,
+    ) -> Result<Self> {
+        let readback =
+            prepare_swapchain_readback(tracer, vulkan_ctx, swapchain, frame.extent(), None)?;
+        record_swapchain_readback(swapchain, frame, &readback);
+        Ok(Self { readback })
+    }
+
+    pub(super) fn complete(self, benchmark: &mut DenoiserBench) -> Result<bool> {
+        let width = self.readback.width;
+        let height = self.readback.height;
+        let rgba = read_swapchain_rgba(&self.readback)?;
+        benchmark.record_frame(width, height, &rgba)
+    }
+}
+
+fn prepare_swapchain_readback(
+    tracer: &Tracer,
+    vulkan_ctx: &VulkanContext,
+    swapchain: &Swapchain,
+    render_area: Extent2D,
+    destination: Option<&ScreenshotDestination>,
+) -> Result<SwapchainReadback> {
+    if let Some(ScreenshotDestination::File(path)) = destination {
+        let output_path = Path::new(path);
         if let Some(parent) = output_path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
                 anyhow::bail!("parent directory does not exist: {}", parent.display());
             }
         }
-
-        let width = render_area.width;
-        let height = render_area.height;
-        let byte_count = width as u64 * height as u64 * 4;
-        let allocator = self
-            .tracer
-            .get_screen_output_tex()
-            .get_image()
-            .get_allocator()
-            .clone();
-        let buffer = Buffer::new_sized(
-            self.vulkan_ctx.device().clone(),
-            allocator,
-            BufferUsage::transfer_dst(),
-            MemoryLocation::GpuToCpu,
-            byte_count,
-        );
-
-        Ok(ScreenshotReadback {
-            destination: ScreenshotDestination::File(path),
-            width,
-            height,
-            format: self
-                .swapchain
-                .color_readback_format()
-                .context("unsupported swapchain screenshot format")?,
-            buffer,
-        })
     }
 
-    pub(super) fn prepare_clipboard_screenshot_readback(
-        &self,
-        render_area: Extent2D,
-    ) -> Result<ScreenshotReadback> {
-        let mut readback = self.prepare_screenshot_readback(String::new(), render_area)?;
-        readback.destination = ScreenshotDestination::Clipboard;
-        Ok(readback)
-    }
+    let width = render_area.width;
+    let height = render_area.height;
+    let byte_count = u64::from(width) * u64::from(height) * 4;
+    let allocator = tracer
+        .get_screen_output_tex()
+        .get_image()
+        .get_allocator()
+        .clone();
+    let buffer = Buffer::new_sized(
+        vulkan_ctx.device().clone(),
+        allocator,
+        BufferUsage::transfer_dst(),
+        MemoryLocation::GpuToCpu,
+        byte_count,
+    );
 
-    pub(super) fn prepare_denoiser_benchmark_readback(
-        &self,
-        render_area: Extent2D,
-    ) -> Result<ScreenshotReadback> {
-        let mut readback = self.prepare_screenshot_readback(String::new(), render_area)?;
-        readback.destination = ScreenshotDestination::DenoiserBenchmark;
-        Ok(readback)
-    }
+    Ok(SwapchainReadback {
+        width,
+        height,
+        format: swapchain
+            .color_readback_format()
+            .context("unsupported swapchain screenshot format")?,
+        buffer,
+    })
+}
 
-    pub(super) fn read_screenshot_rgba(readback: &ScreenshotReadback) -> Result<Vec<u8>> {
-        let raw_data = readback.buffer.read_back()?;
-        Ok(readback.format.convert_to_rgba(raw_data))
-    }
+fn record_swapchain_readback(
+    swapchain: &Swapchain,
+    frame: &AcquiredFrame,
+    readback: &SwapchainReadback,
+) {
+    swapchain.record_image_readback(frame.command_buffer(), frame, &readback.buffer);
+}
 
-    pub(super) fn record_screenshot_readback(
-        &self,
-        cmdbuf: &CommandBuffer,
-        image_idx: u32,
-        readback: &ScreenshotReadback,
-    ) {
-        self.swapchain.record_image_readback(
-            cmdbuf,
-            image_idx,
-            &readback.buffer,
-            readback.width,
-            readback.height,
-        );
-    }
+fn read_swapchain_rgba(readback: &SwapchainReadback) -> Result<Vec<u8>> {
+    let raw_data = readback.buffer.read_back()?;
+    Ok(readback.format.convert_to_rgba(raw_data))
+}
 
-    pub(super) fn write_screenshot_readback(readback: ScreenshotReadback) {
-        let started = Instant::now();
-        match readback.buffer.read_back() {
-            Ok(raw_data) => {
-                let readback_elapsed = started.elapsed();
-                let rgba_data = readback.format.convert_to_rgba(raw_data);
-                let convert_elapsed = started.elapsed() - readback_elapsed;
-                match readback.destination {
-                    ScreenshotDestination::File(path) => {
-                        match image::RgbaImage::from_raw(readback.width, readback.height, rgba_data)
-                        {
-                            Some(image_data) => match image_data.save(&path) {
-                                Ok(()) => log::info!(
-                                    "[SCREENSHOT] Saved {}x{} to {}",
-                                    readback.width,
-                                    readback.height,
-                                    path
-                                ),
-                                Err(err) => {
-                                    log::error!("[SCREENSHOT] Failed to write {}: {}", path, err)
-                                }
-                            },
-                            None => log::error!(
-                                "[SCREENSHOT] Invalid image dimensions or pixel buffer size"
-                            ),
-                        }
-                    }
-                    ScreenshotDestination::Clipboard => {
-                        match copy_rgba_to_clipboard(readback.width, readback.height, rgba_data) {
-                            Ok(outcome) => log::info!(
-                                "[SCREENSHOT] Copied {}x{} image to clipboard via {} in {:.1}ms (PNG {}, readback {:.1}ms, BGRA conversion {:.1}ms)",
+fn write_screenshot_readback(readback: PendingScreenshot) {
+    let PendingScreenshot {
+        destination,
+        readback,
+    } = readback;
+    let started = Instant::now();
+    match readback.buffer.read_back() {
+        Ok(raw_data) => {
+            let readback_elapsed = started.elapsed();
+            let rgba_data = readback.format.convert_to_rgba(raw_data);
+            let convert_elapsed = started.elapsed() - readback_elapsed;
+            match destination {
+                ScreenshotDestination::File(path) => {
+                    match image::RgbaImage::from_raw(readback.width, readback.height, rgba_data) {
+                        Some(image_data) => match image_data.save(&path) {
+                            Ok(()) => log::info!(
+                                "[SCREENSHOT] Saved {}x{} to {}",
                                 readback.width,
                                 readback.height,
-                                outcome.backend,
-                                started.elapsed().as_secs_f64() * 1000.0,
-                                outcome
-                                    .encoded_bytes
-                                    .map(|bytes| format!("{:.1} MiB", bytes as f64 / 1_048_576.0))
-                                    .unwrap_or_else(|| "size unavailable".to_owned()),
-                                readback_elapsed.as_secs_f64() * 1000.0,
-                                convert_elapsed.as_secs_f64() * 1000.0,
+                                path
                             ),
-                            Err(err) => log::error!(
-                                "[SCREENSHOT] Failed to copy image to clipboard: {}",
-                                err
-                            ),
-                        }
+                            Err(err) => {
+                                log::error!("[SCREENSHOT] Failed to write {}: {}", path, err)
+                            }
+                        },
+                        None => log::error!(
+                            "[SCREENSHOT] Invalid image dimensions or pixel buffer size"
+                        ),
                     }
-                    ScreenshotDestination::DenoiserBenchmark => {
-                        log::error!(
-                            "[DENOISER_BENCH] benchmark readback reached asynchronous screenshot writer"
-                        );
+                }
+                ScreenshotDestination::Clipboard => {
+                    match copy_rgba_to_clipboard(readback.width, readback.height, rgba_data) {
+                        Ok(outcome) => log::info!(
+                            "[SCREENSHOT] Copied {}x{} image to clipboard via {} in {:.1}ms (PNG {}, readback {:.1}ms, BGRA conversion {:.1}ms)",
+                            readback.width,
+                            readback.height,
+                            outcome.backend,
+                            started.elapsed().as_secs_f64() * 1000.0,
+                            outcome
+                                .encoded_bytes
+                                .map(|bytes| format!("{:.1} MiB", bytes as f64 / 1_048_576.0))
+                                .unwrap_or_else(|| "size unavailable".to_owned()),
+                            readback_elapsed.as_secs_f64() * 1000.0,
+                            convert_elapsed.as_secs_f64() * 1000.0,
+                        ),
+                        Err(err) => log::error!(
+                            "[SCREENSHOT] Failed to copy image to clipboard: {}",
+                            err
+                        ),
                     }
                 }
             }
-            Err(err) => log::error!("[SCREENSHOT] GPU readback failed: {}", err),
         }
+        Err(err) => log::error!("[SCREENSHOT] GPU readback failed: {}", err),
+    }
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+
+    fn ready_after(seconds: f32) -> ScreenshotFrameReadiness {
+        ScreenshotFrameReadiness::new(Some(seconds), true, true)
+    }
+
+    #[test]
+    fn clipboard_preempts_a_scheduled_capture_without_consuming_it() {
+        let mut runtime = ScreenshotRuntime::new(Some(ScreenshotOptions {
+            path: "scheduled.png".to_owned(),
+            delay: 2.0,
+        }));
+        assert!(runtime.is_scheduled());
+        assert_eq!(runtime.claim_destination(ready_after(1.0)), None);
+
+        runtime.request_clipboard();
+        assert_eq!(
+            runtime.claim_destination(ScreenshotFrameReadiness::default()),
+            Some(ScreenshotDestination::Clipboard)
+        );
+        assert_eq!(
+            runtime.claim_destination(ready_after(2.0)),
+            Some(ScreenshotDestination::File("scheduled.png".to_owned()))
+        );
+        assert_eq!(runtime.claim_destination(ready_after(3.0)), None);
+    }
+
+    #[test]
+    fn scheduled_capture_requires_all_readiness_inputs() {
+        let options = || {
+            Some(ScreenshotOptions {
+                path: "scheduled.png".to_owned(),
+                delay: 2.0,
+            })
+        };
+        let mut no_render = ScreenshotRuntime::new(options());
+        assert_eq!(
+            no_render.claim_destination(ScreenshotFrameReadiness::new(None, true, true)),
+            None
+        );
+        let mut scene_pending = ScreenshotRuntime::new(options());
+        assert_eq!(
+            scene_pending.claim_destination(ScreenshotFrameReadiness::new(Some(2.0), false, true)),
+            None
+        );
+        let mut lighting_pending = ScreenshotRuntime::new(options());
+        assert_eq!(
+            lighting_pending.claim_destination(ScreenshotFrameReadiness::new(
+                Some(2.0),
+                true,
+                false
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn disabled_runtime_has_no_scheduled_capture() {
+        let mut runtime = ScreenshotRuntime::new(None);
+        assert!(!runtime.is_scheduled());
+        assert_eq!(runtime.claim_destination(ready_after(10.0)), None);
     }
 }
 

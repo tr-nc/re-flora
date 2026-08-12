@@ -507,7 +507,7 @@ mod tests {
     fn terrain_invalidation_fails_closed_before_the_global_sky_fallback() {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let sampler = query
-            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
+            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
             .expect("shared DDGI sampler must exist")
             .1;
         let invalidation = sampler
@@ -525,7 +525,7 @@ mod tests {
     fn consumer_and_transport_adapters_share_one_eight_probe_query() {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let shared = query
-            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
+            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
             .expect("shared atlas-parametric DDGI query must exist")
             .1
             .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
@@ -565,7 +565,7 @@ mod tests {
     fn shared_query_multiplies_exact_voxel_and_moment_visibility_without_camera_direction() {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let shared = query
-            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
+            .split_once("DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(")
             .expect("shared DDGI sampler must exist")
             .1
             .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
@@ -628,11 +628,11 @@ mod tests {
         assert!(query.contains("saturate(visibility) * 65535.0"));
         assert!(!query.contains("f32tof16"));
         assert!(!query.contains("f16tof32"));
-        let exact_reference = tracer
-            .split_once("DdgiQueryResult sampleDdgiExactTerrainReference(")
+        let exact_reference = query
+            .split_once("public DdgiQueryResult sampleDdgiExactTerrainReference(")
             .expect("exact voxel reference must exist")
             .1
-            .split_once("float3 ddgiTerrainDebugValue(")
+            .split_once("public DdgiQueryResult sampleDdgiUnoccludedTerrainReference(")
             .expect("exact reference must remain isolated")
             .0;
         assert!(exact_reference.contains("contribution.hard_visibility"));
@@ -649,7 +649,8 @@ mod tests {
         assert!(query.contains("bool useExactVisibility ="));
         assert!(query.contains("if (useMomentVisibility)"));
         assert!(query.contains("if (useExactVisibility)"));
-        assert!(tracer.contains("getDdgiFullVisibilityProbeContribution("));
+        assert!(query.contains("getDdgiFullVisibilityProbeContribution("));
+        assert!(!tracer.contains("getDdgiFullVisibilityProbeContribution("));
     }
 
     #[test]
@@ -667,8 +668,11 @@ mod tests {
         assert!(query.contains("getDdgiUnoccludedProbeContribution("));
         assert!(query.contains("accumulateDdgiEqualWeightContribution("));
         assert!(query.contains("sampleDdgiRawCageIrradiance("));
-        assert!(tracer.contains("accumulateDdgiContribution(result, contribution, 1.0);"));
-        assert!(query.contains("public DdgiProbeContribution getDdgiProbeContribution("));
+        assert!(query.contains("accumulateDdgiContribution(result, contribution, 1.0);"));
+        assert!(!query.contains("public DdgiProbeContribution getDdgiProbeContribution("));
+        assert!(!tracer.contains("accumulateDdgiContribution("));
+        assert!(query.contains("public void writeDdgiSpatialWeightDiagnostics("));
+        assert!(tracer.contains("writeDdgiSpatialWeightDiagnostics("));
         assert!(tracer.contains("if (view == DDGI_DEBUG_EXACT_IRRADIANCE)"));
     }
 

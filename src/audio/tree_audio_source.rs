@@ -1,8 +1,7 @@
-use crate::audio::{SpatialSoundManager, TreeRustleControl, TreeRustleParams};
+use crate::audio::SpatialSoundManager;
 use crate::wind::{Wind, WindResponseCurve, WindSource};
 use anyhow::Result;
 use glam::Vec3;
-use std::sync::Arc;
 use uuid::Uuid;
 
 const TREE_SILENT_VOLUME_DB: f32 = -80.0;
@@ -24,7 +23,7 @@ pub struct TreeAudioSource {
     current_volume_db: f32,
     last_update_time_seconds: Option<f32>,
     wind_response_curve: WindResponseCurve,
-    rustle_control: Arc<TreeRustleControl>,
+    base_wind: f32,
 }
 
 impl TreeAudioSource {
@@ -35,7 +34,7 @@ impl TreeAudioSource {
         cluster_size: u32,
         wind_volume_db: f32,
         wind_response_curve: WindResponseCurve,
-        rustle_control: Arc<TreeRustleControl>,
+        base_wind: f32,
     ) -> Self {
         Self {
             uuid,
@@ -48,7 +47,7 @@ impl TreeAudioSource {
             current_volume_db: TREE_SILENT_VOLUME_DB,
             last_update_time_seconds: None,
             wind_response_curve,
-            rustle_control,
+            base_wind,
         }
     }
 
@@ -58,8 +57,8 @@ impl TreeAudioSource {
         self.wind_response_curve = wind_response_curve;
     }
 
-    pub fn set_rustle_params(&self, params: TreeRustleParams) {
-        self.rustle_control.set_params(params);
+    pub fn set_base_wind(&mut self, base_wind: f32) {
+        self.base_wind = base_wind.clamp(0.0, 1.0);
     }
 
     pub fn set_wind_volume_db(
@@ -96,7 +95,6 @@ impl TreeAudioSource {
         );
         self.target_response = target_response;
         self.last_update_time_seconds = Some(time_seconds);
-        self.rustle_control.set_wind_response(response);
         self.apply_response_volume(response, spatial_sound_manager)
     }
 
@@ -138,13 +136,9 @@ impl TreeAudioSource {
         spatial_sound_manager: &SpatialSoundManager,
     ) -> Result<()> {
         let response = response.clamp(0.0, 1.0);
-        let base_wind = self.rustle_control.params().base_wind;
-        let target_volume_db = if response <= f32::EPSILON && base_wind <= f32::EPSILON {
+        let target_volume_db = if response <= f32::EPSILON && self.base_wind <= f32::EPSILON {
             TREE_SILENT_VOLUME_DB
         } else {
-            // Runtime rustle now uses wind response inside the procedural model.
-            // Keep SourceConfig volume as a master/cluster gain instead of
-            // double-applying wind amplitude through both volume and synthesis.
             self.wind_volume_db
         };
 

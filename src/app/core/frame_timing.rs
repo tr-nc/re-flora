@@ -7,7 +7,6 @@ use std::time::Instant;
 pub(super) enum FrameCpuScope {
     ContreePoll,
     TerrainSource,
-    DeferredRebuild,
     WaterCache,
     ColliderQueue,
     WaterEditSoak,
@@ -20,7 +19,6 @@ pub(super) struct FrameCpuTimings {
     enabled: bool,
     contree_poll_ms: f32,
     terrain_source_ms: f32,
-    deferred_rebuild_ms: f32,
     water_cache_ms: f32,
     collider_queue_ms: f32,
     water_edit_soak_ms: f32,
@@ -55,7 +53,6 @@ impl FrameCpuTimings {
         match scope {
             FrameCpuScope::ContreePoll => self.contree_poll_ms += elapsed_ms,
             FrameCpuScope::TerrainSource => self.terrain_source_ms += elapsed_ms,
-            FrameCpuScope::DeferredRebuild => self.deferred_rebuild_ms += elapsed_ms,
             FrameCpuScope::WaterCache => self.water_cache_ms += elapsed_ms,
             FrameCpuScope::ColliderQueue => self.collider_queue_ms += elapsed_ms,
             FrameCpuScope::WaterEditSoak => self.water_edit_soak_ms += elapsed_ms,
@@ -65,10 +62,7 @@ impl FrameCpuTimings {
     }
 
     pub(super) fn queue_work_ms(&self) -> f32 {
-        self.terrain_source_ms
-            + self.deferred_rebuild_ms
-            + self.water_cache_ms
-            + self.collider_queue_ms
+        self.terrain_source_ms + self.water_cache_ms + self.collider_queue_ms
     }
 
     fn tracked_cpu_ms(&self) -> f32 {
@@ -96,7 +90,6 @@ impl FrameCpuTimings {
             gpu_present_ms,
             contree_poll_ms: self.contree_poll_ms,
             terrain_source_ms: self.terrain_source_ms,
-            deferred_rebuild_ms: self.deferred_rebuild_ms,
             water_cache_ms: self.water_cache_ms,
             collider_queue_ms: self.collider_queue_ms,
             water_edit_soak_ms: self.water_edit_soak_ms,
@@ -116,7 +109,6 @@ pub(super) struct FrameTimingSnapshot {
     pub(super) gpu_present_ms: f32,
     pub(super) contree_poll_ms: f32,
     pub(super) terrain_source_ms: f32,
-    pub(super) deferred_rebuild_ms: f32,
     pub(super) water_cache_ms: f32,
     pub(super) collider_queue_ms: f32,
     pub(super) water_edit_soak_ms: f32,
@@ -138,7 +130,6 @@ pub(super) fn draw_frame_timing_panel(
         ("gpu + present", timing.gpu_present_ms),
         ("contree poll", timing.contree_poll_ms),
         ("terrain source", timing.terrain_source_ms),
-        ("deferred rebuild", timing.deferred_rebuild_ms),
         ("water cache", timing.water_cache_ms),
         ("collider queue", timing.collider_queue_ms),
         ("water edit soak", timing.water_edit_soak_ms),
@@ -283,7 +274,6 @@ mod tests {
         timings.add_ms(FrameCpuScope::ContreePoll, 1.0);
         timings.add_ms(FrameCpuScope::TerrainSource, 2.0);
         timings.add_ms(FrameCpuScope::TerrainSource, 3.0);
-        timings.add_ms(FrameCpuScope::DeferredRebuild, 4.0);
         timings.add_ms(FrameCpuScope::WaterCache, 5.0);
         timings.add_ms(FrameCpuScope::ColliderQueue, 6.0);
         timings.add_ms(FrameCpuScope::WaterEditSoak, 7.0);
@@ -293,14 +283,13 @@ mod tests {
         let snapshot = timings.snapshot(11, 60.0, 4.0, 5.0);
         assert_eq!(snapshot.contree_poll_ms, 1.0);
         assert_eq!(snapshot.terrain_source_ms, 5.0);
-        assert_eq!(snapshot.deferred_rebuild_ms, 4.0);
         assert_eq!(snapshot.water_cache_ms, 5.0);
         assert_eq!(snapshot.collider_queue_ms, 6.0);
         assert_eq!(snapshot.water_edit_soak_ms, 7.0);
         assert_eq!(snapshot.water_handoff_ms, 8.0);
         assert_eq!(snapshot.particles_ms, 9.0);
-        assert_eq!(timings.queue_work_ms(), 20.0);
-        assert_eq!(snapshot.tracked_cpu_ms, 45.0);
-        assert_eq!(snapshot.untracked_cpu_ms, 6.0);
+        assert_eq!(timings.queue_work_ms(), 16.0);
+        assert_eq!(snapshot.tracked_cpu_ms, 41.0);
+        assert_eq!(snapshot.untracked_cpu_ms, 10.0);
     }
 }

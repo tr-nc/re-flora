@@ -1,16 +1,24 @@
 use super::{precompiled_shader::find_precompiled_shader, struct_layout::*};
 use crate::{
-    DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder, Device,
+    DescriptorAccess, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutBuilder,
+    Device,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use ash::vk;
 use spirv_reflect::{
     types::{
-        ReflectDescriptorSet, ReflectDescriptorType, ReflectTypeDescriptionTraits, ReflectTypeFlags,
+        ReflectDescriptorBinding, ReflectDescriptorSet, ReflectDescriptorType,
+        ReflectTypeDescriptionTraits, ReflectTypeFlags,
     },
     ShaderModule as ReflectShaderModule,
 };
 use std::{collections::HashMap, ffi::CString, fmt::Debug, sync::Arc};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct DescriptorAccessDecorations {
+    non_writable: bool,
+    non_readable: bool,
+}
 
 /// Specifies a manual override for a vertex attribute's format.
 ///
@@ -33,6 +41,7 @@ struct ShaderModuleInner {
     entry_point_name: CString,
     shader_module: vk::ShaderModule,
     reflect_shader_module: ReflectShaderModule,
+    descriptor_access_decorations: HashMap<u32, DescriptorAccessDecorations>,
 
     buffer_layouts: HashMap<String, BufferLayout>, // type_name - the buffer layout
 }
@@ -93,6 +102,9 @@ impl ShaderModule {
             .unwrap_or(&normalized_path);
         let reflect_sm = ReflectShaderModule::load_u8_data(artifact.reflection_spirv)
             .map_err(|error| error.to_string())?;
+        let descriptor_access_decorations =
+            parse_descriptor_access_decorations(artifact.reflection_spirv)
+                .map_err(|error| error.to_string())?;
         let sm = bytecode_to_shader_module(device, artifact.optimized_spirv)?;
         let buffer_layouts = extract_buffer_layouts(&reflect_sm)?;
 
@@ -103,6 +115,7 @@ impl ShaderModule {
             entry_point_name: CString::new(entry_point_name).unwrap(),
             shader_module: sm,
             reflect_shader_module: reflect_sm,
+            descriptor_access_decorations,
             buffer_layouts,
         })))
     }
@@ -403,6 +416,10 @@ impl ShaderModule {
                     ),
                     descriptor_count: binding.count,
                     stage_flags: self.get_stage(),
+                    access: reflected_descriptor_access(
+                        binding,
+                        &self.0.descriptor_access_decorations,
+                    ),
                 },
             );
         }
@@ -430,6 +447,84 @@ impl ShaderModule {
         }
         layouts
     }
+}
+
+fn reflected_descriptor_access(
+    binding: &ReflectDescriptorBinding,
+    decorations_by_id: &HashMap<u32, DescriptorAccessDecorations>,
+) -> DescriptorAccess {
+    let is_storage = matches!(
+        binding.descriptor_type,
+        ReflectDescriptorType::StorageImage
+            | ReflectDescriptorType::StorageTexelBuffer
+            | ReflectDescriptorType::StorageBuffer
+            | ReflectDescriptorType::StorageBufferDynamic
+    );
+    if !is_storage {
+        return DescriptorAccess::ReadOnly;
+    }
+
+    let decorations = decorations_by_id
+        .get(&binding.spirv_id)
+        .copied()
+        .unwrap_or_default();
+    let non_writable = decorations.non_writable;
+    let non_readable = decorations.non_readable;
+    assert!(
+        !(non_writable && non_readable),
+        "reflected descriptor '{}' is both non-writable and non-readable",
+        binding.name,
+    );
+    match (non_writable, non_readable) {
+        (true, false) => DescriptorAccess::ReadOnly,
+        (false, true) => DescriptorAccess::WriteOnly,
+        (false, false) => DescriptorAccess::ReadWrite,
+        (true, true) => unreachable!(),
+    }
+}
+
+fn parse_descriptor_access_decorations(
+    spirv: &[u8],
+) -> Result<HashMap<u32, DescriptorAccessDecorations>> {
+    const SPIRV_MAGIC: u32 = 0x0723_0203;
+    anyhow::ensure!(
+        spirv.len() % std::mem::size_of::<u32>() == 0,
+        "SPIR-V byte length {} is not word aligned",
+        spirv.len(),
+    );
+    let words = spirv
+        .chunks_exact(4)
+        .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        words.len() >= 5 && words[0] == SPIRV_MAGIC,
+        "invalid SPIR-V header while reading descriptor access decorations",
+    );
+
+    let mut decorations = HashMap::<u32, DescriptorAccessDecorations>::new();
+    let mut cursor = 5usize;
+    while cursor < words.len() {
+        let instruction = words[cursor];
+        let word_count = (instruction >> 16) as usize;
+        let opcode = instruction & 0xffff;
+        if word_count == 0 || cursor + word_count > words.len() {
+            return Err(anyhow!(
+                "malformed SPIR-V instruction at word {cursor}: word_count={word_count}"
+            ));
+        }
+        if opcode == spirv::Op::Decorate as u32 && word_count >= 3 {
+            let target_id = words[cursor + 1];
+            let decoration = words[cursor + 2];
+            let entry = decorations.entry(target_id).or_default();
+            if decoration == spirv::Decoration::NonWritable as u32 {
+                entry.non_writable = true;
+            } else if decoration == spirv::Decoration::NonReadable as u32 {
+                entry.non_readable = true;
+            }
+        }
+        cursor += word_count;
+    }
+    Ok(decorations)
 }
 
 /// Convert our SPIR-V bytecode (u8 Vec) into a Vulkan `ShaderModule`.
@@ -573,12 +668,8 @@ fn extract_buffer_layouts(
                 match member_type {
                     GeneralMemberType::Array | GeneralMemberType::Plain => {
                         // notice: u64 is not supported yet in the reflect lib, but we use u64 in our code for the best extensibility
-                        let ty = get_plain_member_type(
-                            type_flags,
-                            &type_description.traits,
-                            size,
-                        )
-                        .unwrap();
+                        let ty = get_plain_member_type(type_flags, &type_description.traits, size)
+                            .unwrap();
                         MemberLayout::Plain(PlainMemberLayout {
                             name: member_name.clone(),
                             ty,
@@ -708,12 +799,11 @@ fn extract_buffer_layouts(
 mod tests {
     use super::{
         find_precompiled_shader, get_slang_matrix_wrapper_type, is_slang_array_wrapper_type,
-        normalize_buffer_type_name, PlainMemberType,
+        normalize_buffer_type_name, parse_descriptor_access_decorations,
+        reflected_descriptor_access, PlainMemberType,
     };
-    use spirv_reflect::{
-        types::ReflectDecorationFlags,
-        ShaderModule as ReflectShaderModule,
-    };
+    use crate::DescriptorAccess;
+    use spirv_reflect::{types::ReflectDecorationFlags, ShaderModule as ReflectShaderModule};
 
     #[test]
     fn normalizes_slang_layout_wrapper_names() {
@@ -767,11 +857,78 @@ mod tests {
             });
 
             assert_eq!(
-                inputs.iter().map(|input| input.location).collect::<Vec<_>>(),
+                inputs
+                    .iter()
+                    .map(|input| input.location)
+                    .collect::<Vec<_>>(),
                 vec![0],
                 "{shader_path} must expose only packed_data as a per-vertex input"
             );
         }
+    }
+
+    #[test]
+    fn active_shader_artifacts_preserve_descriptor_access_decorations() {
+        let flora = find_precompiled_shader("shader/foliage/flora.vert")
+            .expect("missing precompiled flora vertex shader");
+        let flora_decorations =
+            parse_descriptor_access_decorations(flora.reflection_spirv).unwrap();
+        let flora = ReflectShaderModule::load_u8_data(flora.reflection_spirv).unwrap();
+        let flora_bindings = flora.enumerate_descriptor_bindings(None).unwrap();
+        let flora_instances = flora_bindings
+            .iter()
+            .find(|binding| binding.set == 1 && binding.binding == 0)
+            .expect("flora instances descriptor");
+        let chunk_atlas = flora_bindings
+            .iter()
+            .find(|binding| binding.set == 0 && binding.binding == 15)
+            .expect("flora chunk-atlas descriptor");
+        assert_eq!(
+            reflected_descriptor_access(flora_instances, &flora_decorations),
+            DescriptorAccess::ReadOnly
+        );
+        assert_eq!(
+            reflected_descriptor_access(chunk_atlas, &flora_decorations),
+            DescriptorAccess::ReadOnly
+        );
+
+        let terrain_query = find_precompiled_shader("shader/tracer/terrain_query.comp")
+            .expect("missing precompiled terrain-query shader");
+        let terrain_query_decorations =
+            parse_descriptor_access_decorations(terrain_query.reflection_spirv).unwrap();
+        let terrain_query =
+            ReflectShaderModule::load_u8_data(terrain_query.reflection_spirv).unwrap();
+        let query_result = terrain_query
+            .enumerate_descriptor_bindings(None)
+            .unwrap()
+            .into_iter()
+            .find(|binding| binding.set == 0 && binding.binding == 5)
+            .expect("terrain-query result descriptor");
+        assert_eq!(
+            reflected_descriptor_access(&query_result, &terrain_query_decorations),
+            DescriptorAccess::ReadWrite
+        );
+
+        let buffer_setup = find_precompiled_shader("shader/builder/chunk_writer/buffer_setup.comp")
+            .expect("missing precompiled chunk-writer buffer-setup shader");
+        let buffer_setup_decorations =
+            parse_descriptor_access_decorations(buffer_setup.reflection_spirv).unwrap();
+        let buffer_setup =
+            ReflectShaderModule::load_u8_data(buffer_setup.reflection_spirv).unwrap();
+        let write_only_id = buffer_setup_decorations
+            .iter()
+            .find_map(|(&id, decorations)| decorations.non_readable.then_some(id))
+            .expect("buffer-setup shader must retain a non-readable output descriptor");
+        let write_only = buffer_setup
+            .enumerate_descriptor_bindings(None)
+            .unwrap()
+            .into_iter()
+            .find(|binding| binding.spirv_id == write_only_id)
+            .expect("buffer-setup shader must retain a non-readable output descriptor");
+        assert_eq!(
+            reflected_descriptor_access(&write_only, &buffer_setup_decorations),
+            DescriptorAccess::WriteOnly
+        );
     }
 
     #[test]

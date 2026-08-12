@@ -183,6 +183,20 @@ min = 0
 max = 0.1
 
 [[section]]
+name = "Post Processing"
+
+[[section.param]]
+id = "dither_strength_lsb"
+kind = "float"
+label = "Dither Strength (Max 8-bit LSB)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 4
+
+[[section]]
 name = "Wind"
 
 [[section.param]]
@@ -644,37 +658,6 @@ type = "Float"
 value = 33.5
 min = -40
 max = 40
-
-[[section.param]]
-id = "audio_hrtf_backend"
-kind = "uint"
-label = "HRTF Backend (0 Native, 1 Steam Audio)"
-type = "Uint"
-
-[section.param.data]
-value = 0
-min = 0
-max = 1
-
-[[section.param]]
-id = "audio_use_ambisonics"
-kind = "bool"
-label = "Use Ambisonics"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
-id = "audio_ambisonics_backend"
-kind = "uint"
-label = "Ambisonics Backend (0 Native, 1 Steam Audio)"
-type = "Uint"
-
-[section.param.data]
-value = 0
-min = 0
-max = 1
 
 [[section.param]]
 id = "tree_wind_response_min_strength"

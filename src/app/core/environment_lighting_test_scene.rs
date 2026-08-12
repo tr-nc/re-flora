@@ -115,7 +115,7 @@ const TEST_REBUILD_MAX: UVec3 = UVec3::new(440, 244, 416);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TestScenePhase {
     Pending,
-    WaitingForRebuild,
+    TerrainPublished,
     Settling {
         frames: u8,
         terrain_revision: u32,
@@ -123,7 +123,7 @@ enum TestScenePhase {
     WaitingForProbeField {
         terrain_revision: u32,
     },
-    WaitingForPattSeamTerrain {
+    PattSeamTerrainPublished {
         target_revision: u32,
     },
     WaitingForPattSeamProbeField {
@@ -200,7 +200,7 @@ enum TestScenePhase {
         density_token_serial: u64,
         density_field: DdgiFieldIdentity,
     },
-    WaitingForEditedTerrain {
+    TerrainEditPublished {
         edit: TerrainEdit,
         target_revision: u32,
     },
@@ -430,13 +430,13 @@ impl EnvironmentLightingTestScene {
             return None;
         }
         match self.phase {
-            TestScenePhase::WaitingForEditedTerrain {
+            TestScenePhase::TerrainEditPublished {
                 target_revision, ..
             }
             | TestScenePhase::WaitingForEditedProbeField {
                 target_revision, ..
             }
-            | TestScenePhase::WaitingForPattSeamTerrain { target_revision }
+            | TestScenePhase::PattSeamTerrainPublished { target_revision }
             | TestScenePhase::WaitingForPattSeamProbeField { target_revision }
             | TestScenePhase::CapturingInflightFailClosed { target_revision } => {
                 Some(target_revision)
@@ -477,10 +477,10 @@ impl EnvironmentLightingTestScene {
     pub(super) fn phase_label(&self) -> &'static str {
         match self.phase {
             TestScenePhase::Pending => "pending",
-            TestScenePhase::WaitingForRebuild => "waiting-for-initial-terrain",
+            TestScenePhase::TerrainPublished => "terrain-published",
             TestScenePhase::Settling { .. } => "settling-initial-terrain",
             TestScenePhase::WaitingForProbeField { .. } => "waiting-for-initial-probe-field",
-            TestScenePhase::WaitingForPattSeamTerrain { .. } => "waiting-for-patt-seam-terrain",
+            TestScenePhase::PattSeamTerrainPublished { .. } => "patt-seam-terrain-published",
             TestScenePhase::WaitingForPattSeamProbeField { .. } => {
                 "waiting-for-patt-seam-probe-field"
             }
@@ -522,7 +522,7 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::WaitingForDensityFinalPublished { .. } => {
                 "waiting-for-density-final-published"
             }
-            TestScenePhase::WaitingForEditedTerrain { .. } => "waiting-for-edited-terrain",
+            TestScenePhase::TerrainEditPublished { .. } => "terrain-edit-published",
             TestScenePhase::WaitingForEditedProbeField { .. } => "waiting-for-edited-probe-field",
             TestScenePhase::WaitingForDensityRebuild { .. } => "waiting-for-density-rebuild",
             TestScenePhase::CapturingInflightFailClosed { .. } => "capturing-inflight-fail-closed",
@@ -767,8 +767,7 @@ impl App {
         let palette = voxel_palette(case);
         let (time_of_day, latitude, season) = test_lighting(case);
         let sun_luminance = RADIANCE_R1_SUN_LUMINANCE;
-        self.current_time_of_day = time_of_day;
-        self.debug_settings.adjustables.time_of_day.value = time_of_day;
+        self.set_manual_time_of_day(time_of_day);
         self.debug_settings.adjustables.latitude.value = latitude;
         self.debug_settings.adjustables.season.value = season;
         self.debug_settings.adjustables.auto_daynight_cycle.value = false;
@@ -783,12 +782,11 @@ impl App {
         self.debug_settings.adjustables.voxel_oak_wood_color.value = palette.oak_wood;
         self.debug_settings.adjustables.voxel_rock_color.value = palette.rock;
         self.debug_settings.adjustables.voxel_color_variance.value = TEST_VOXEL_COLOR_VARIANCE;
-        self.orbit_camera_focus = camera_target;
+        self.camera_control.set_orbit_focus(camera_target);
         if self
             .tracer
             .set_camera_pose_looking_at(camera_position, camera_target)
         {
-            self.request_vsm_history_reset();
             log::info!(
                 "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} latitude={:.3} season={:.3} sun_luminance={:.3} auto_cycle=false voxel_color_variance={:.3}",
                 case.label(),
@@ -857,12 +855,11 @@ impl App {
         sun_luminance: f32,
         rock_color: Color32,
     ) {
-        self.current_time_of_day = time_of_day;
-        self.debug_settings.adjustables.time_of_day.value = time_of_day;
+        self.set_manual_time_of_day(time_of_day);
         self.debug_settings.adjustables.sun_color.value = sun_color;
         self.debug_settings.adjustables.sun_luminance.value = sun_luminance;
         self.debug_settings.adjustables.voxel_rock_color.value = rock_color;
-        self.request_vsm_history_reset();
+        self.tracer.invalidate_local_direct_sun_shadow_histories();
     }
 
     pub(super) fn process_radiance_test_mutation_after_render(&mut self) {
@@ -958,9 +955,7 @@ impl App {
                 let Some(render_start) = self.render_start_time else {
                     return;
                 };
-                if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS
-                    || !self.deferred_chunk_rebuilds_idle()
-                {
+                if render_start.elapsed().as_secs_f32() < BUILD_DELAY_SECONDS {
                     return;
                 }
 
@@ -981,7 +976,7 @@ impl App {
                             rebuild_bound.min(),
                             rebuild_bound.max(),
                         );
-                        TestScenePhase::WaitingForRebuild
+                        TestScenePhase::TerrainPublished
                     }
                     Err(err) => {
                         log::error!("[ENV_LIGHT_TEST] construction failed: {err:#}");
@@ -989,10 +984,7 @@ impl App {
                     }
                 }
             }
-            TestScenePhase::WaitingForRebuild => {
-                if !self.deferred_chunk_rebuilds_idle() {
-                    return;
-                }
+            TestScenePhase::TerrainPublished => {
                 let terrain_revision = self
                     .observe_initial_published_terrain_for_ddgi()
                     .unwrap_or_else(|err| {
@@ -1049,7 +1041,7 @@ impl App {
                     );
                     match self.apply_patt_seam_dig(terrain_revision) {
                         Ok(target_revision) => {
-                            TestScenePhase::WaitingForPattSeamTerrain { target_revision }
+                            TestScenePhase::PattSeamTerrainPublished { target_revision }
                         }
                         Err(err) => {
                             log::error!("[DDGI_SEAM_REPRO] shovel replay failed: {err:#}");
@@ -1065,7 +1057,7 @@ impl App {
                         TerrainEdit::CloseSkylight,
                         terrain_revision,
                     ) {
-                        Ok(target_revision) => TestScenePhase::WaitingForEditedTerrain {
+                        Ok(target_revision) => TestScenePhase::TerrainEditPublished {
                             edit: TerrainEdit::CloseSkylight,
                             target_revision,
                         },
@@ -1103,7 +1095,7 @@ impl App {
                     Some(r1.field().radiance_revision())
                 );
                 log_acceptance_field("RADIANCE", "r1-terminal", r1);
-                if self.environment_irradiance_capture_path.is_some() {
+                if self.environment_irradiance_capture.is_enabled() {
                     assert_eq!(
                         self.tracer.ddgi_capture_target(),
                         crate::ddgi::DdgiCaptureTarget::Published,
@@ -1276,7 +1268,7 @@ impl App {
                 log::info!(
                     "[DDGI_ACCEPT][RADIANCE] complete r3_coalesced=true field_serial_gap_r2_to_r4=1 geometry_unchanged=true spacing_unchanged=true"
                 );
-                if self.environment_irradiance_capture_path.is_some() {
+                if self.environment_irradiance_capture.is_enabled() {
                     TestScenePhase::CapturingRadianceR4Published { r1, r2, r4 }
                 } else {
                     TestScenePhase::Ready
@@ -1594,12 +1586,9 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
-            TestScenePhase::WaitingForPattSeamTerrain { target_revision } => {
-                if !self.deferred_chunk_rebuilds_idle() {
-                    return;
-                }
+            TestScenePhase::PattSeamTerrainPublished { target_revision } => {
                 log::info!(
-                    "[DDGI_SEAM_REPRO] edited terrain ready target_revision={}",
+                    "[DDGI_SEAM_REPRO] visible terrain publication complete target_revision={}",
                     target_revision,
                 );
                 TestScenePhase::WaitingForPattSeamProbeField { target_revision }
@@ -1626,15 +1615,12 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
-            TestScenePhase::WaitingForEditedTerrain {
+            TestScenePhase::TerrainEditPublished {
                 edit,
                 target_revision,
             } => {
-                if !self.deferred_chunk_rebuilds_idle() {
-                    return;
-                }
                 log::info!(
-                    "[ENV_LIGHT_EDIT_CYCLE] edited terrain ready edit={} target_revision={}",
+                    "[ENV_LIGHT_EDIT_CYCLE] visible terrain publication complete edit={} target_revision={}",
                     edit.label(),
                     target_revision,
                 );
@@ -1669,7 +1655,7 @@ impl App {
                         TerrainEdit::ReopenSkylight,
                         target_revision,
                     ) {
-                        Ok(reopen_revision) => TestScenePhase::WaitingForEditedTerrain {
+                        Ok(reopen_revision) => TestScenePhase::TerrainEditPublished {
                             edit: TerrainEdit::ReopenSkylight,
                             target_revision: reopen_revision,
                         },
@@ -1740,7 +1726,7 @@ impl App {
                                 TerrainEdit::ReopenSkylight,
                                 target_revision,
                             ) {
-                                Ok(reopen_revision) => TestScenePhase::WaitingForEditedTerrain {
+                                Ok(reopen_revision) => TestScenePhase::TerrainEditPublished {
                                     edit: TerrainEdit::ReopenSkylight,
                                     target_revision: reopen_revision,
                                 },
