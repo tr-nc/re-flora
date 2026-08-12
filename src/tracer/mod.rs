@@ -1275,11 +1275,21 @@ impl Tracer {
         Ok(true)
     }
 
-    fn rebuild_ddgi_voxel_visibility(&mut self, geometry_revision: u32) -> Result<()> {
+    fn rebuild_ddgi_voxel_visibility(
+        &mut self,
+        geometry_revision: u32,
+        edited_voxel_bound: UAabb3,
+    ) -> Result<()> {
         let started = std::time::Instant::now();
-        self.ddgi_voxel_visibility.begin_pack(geometry_revision)?;
-        let dispatch = self.ddgi_voxel_visibility.word_dimensions();
-        let block_dispatch = self.ddgi_voxel_visibility.block_dimensions();
+        let Some(update) = self
+            .ddgi_voxel_visibility
+            .begin_pack(geometry_revision, edited_voxel_bound)?
+        else {
+            log::info!("[DDGI][VOXEL_VISIBILITY] reused geometry_revision={geometry_revision}");
+            return Ok(());
+        };
+        let dispatch = update.word_dimensions;
+        let block_dispatch = update.block_dimensions;
         let pack_to_blocks = PipelineBarrier::shader_access(
             PipelineStage::COMPUTE_SHADER,
             PipelineStage::COMPUTE_SHADER,
@@ -1321,11 +1331,13 @@ impl Tracer {
             Some(geometry_revision)
         );
         log::info!(
-            "[DDGI][VOXEL_VISIBILITY] published geometry_revision={} packed={}x{}x{} blocks={}x{}x{} elapsed_ms={:.3}",
+            "[DDGI][VOXEL_VISIBILITY] published geometry_revision={} packed_offset={} packed={}x{}x{} block_offset={} blocks={}x{}x{} elapsed_ms={:.3}",
             geometry_revision,
+            update.word_offset,
             dispatch.x,
             dispatch.y,
             dispatch.z,
+            update.block_offset,
             block_dispatch.x,
             block_dispatch.y,
             block_dispatch.z,
@@ -1342,7 +1354,7 @@ impl Tracer {
         geometry_revision: u32,
         edited_voxel_bound: UAabb3,
     ) -> Result<()> {
-        self.rebuild_ddgi_voxel_visibility(geometry_revision)?;
+        self.rebuild_ddgi_voxel_visibility(geometry_revision, edited_voxel_bound)?;
         let newly_observed = self
             .ddgi_runtime
             .observe_visible_terrain(geometry_revision, edited_voxel_bound);

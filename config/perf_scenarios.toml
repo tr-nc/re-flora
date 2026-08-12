@@ -38,10 +38,66 @@ budget_percent = 3.0
 [scenario.surface-rebuild]
 description = "Deterministic tree replacement with surface construction pass timings"
 args = ["--hidden", "--mute", "--perf", "--tree-bench", "--tree-bench-samples", "10"]
-env = { RUST_LOG = "info,re_flora::builder::surface=debug" }
+env = { RUST_LOG = "info,re_flora::builder::surface=debug,re_flora::app::physical_visible_terrain=debug" }
 warmup_frame = 0
-required_markers = ["[PERF][SURFACE_BUILD]", "[PERF][TREE_BENCH_SUMMARY]"]
+required_markers = ["[PERF][SURFACE_BUILD]", "[PERF][MESH_REBUILD]", "[PERF][VISIBLE_TERRAIN_PUBLICATION]", "[DDGI][VOXEL_VISIBILITY]", "[PERF][TREE_BENCH_SUMMARY]"]
 match_surface_workload = true
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.visible_publication"
+source = "visible_publication"
+key = "elapsed"
+min_samples = 8
+budget_percent = 5.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.voxel_visibility_publication"
+source = "voxel_visibility"
+key = "elapsed"
+min_samples = 8
+budget_percent = 5.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.voxel_visibility_publication_4_chunks"
+source = "voxel_visibility_chunks"
+key = "4"
+min_samples = 5
+budget_percent = 5.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.voxel_visibility_publication_8_chunks"
+source = "voxel_visibility_chunks"
+key = "8"
+min_samples = 5
+budget_percent = 5.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.rebuild.total"
+source = "mesh_rebuild"
+key = "total"
+min_samples = 8
+budget_percent = 5.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.rebuild.surface"
+source = "mesh_rebuild"
+key = "surface"
+min_samples = 8
+budget_percent = 3.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.rebuild.contree"
+source = "mesh_rebuild"
+key = "contree"
+min_samples = 8
+budget_percent = 3.0
+
+[[scenario.surface-rebuild.metric]]
+name = "terrain.rebuild.scene_tex"
+source = "mesh_rebuild"
+key = "scene_tex"
+min_samples = 8
+budget_percent = 3.0
 
 [[scenario.surface-rebuild.metric]]
 name = "surface.build"
@@ -58,9 +114,9 @@ min_samples = 1
 budget_percent = 3.0
 
 [[scenario.surface-rebuild.metric]]
-name = "tree.replace_deferred_total"
+name = "tree.visible_publication_total"
 source = "tree_bench"
-key = "replace_deferred_total"
+key = "visible_publication_total"
 min_samples = 8
 budget_percent = 5.0
 
@@ -72,9 +128,9 @@ warmup_frame = 0
 required_markers = ["[PERF][TREE_BENCH_SUMMARY]"]
 
 [[scenario.tree-replace.metric]]
-name = "tree.replace_deferred_total"
+name = "tree.visible_publication_total"
 source = "tree_bench"
-key = "replace_deferred_total"
+key = "visible_publication_total"
 min_samples = 8
 budget_percent = 5.0
 

@@ -45,11 +45,67 @@ min_samples = 1
 budget_percent = 3.0
 
 [[scenario.test.metric]]
-name = "tree.replace_deferred_total"
+name = "tree.visible_publication_total"
 source = "tree_bench"
-key = "replace_deferred_total"
+key = "visible_publication_total"
 min_samples = 1
 budget_percent = 5.0
+
+[[scenario.test.metric]]
+name = "terrain.visible_publication"
+source = "visible_publication"
+key = "elapsed"
+min_samples = 1
+budget_percent = 5.0
+
+[[scenario.test.metric]]
+name = "terrain.voxel_visibility_publication"
+source = "voxel_visibility"
+key = "elapsed"
+min_samples = 1
+budget_percent = 5.0
+
+[[scenario.test.metric]]
+name = "terrain.voxel_visibility_publication_4_chunks"
+source = "voxel_visibility_chunks"
+key = "4"
+min_samples = 1
+budget_percent = 5.0
+
+[[scenario.test.metric]]
+name = "terrain.voxel_visibility_publication_8_chunks"
+source = "voxel_visibility_chunks"
+key = "8"
+min_samples = 1
+budget_percent = 5.0
+
+[[scenario.test.metric]]
+name = "terrain.rebuild.total"
+source = "mesh_rebuild"
+key = "total"
+min_samples = 1
+budget_percent = 5.0
+
+[[scenario.test.metric]]
+name = "terrain.rebuild.surface"
+source = "mesh_rebuild"
+key = "surface"
+min_samples = 1
+budget_percent = 3.0
+
+[[scenario.test.metric]]
+name = "terrain.rebuild.contree"
+source = "mesh_rebuild"
+key = "contree"
+min_samples = 1
+budget_percent = 3.0
+
+[[scenario.test.metric]]
+name = "terrain.rebuild.scene_tex"
+source = "mesh_rebuild"
+key = "scene_tex"
+min_samples = 1
+budget_percent = 3.0
 """
 
 LOG_TEXT = """
@@ -60,7 +116,12 @@ LOG_TEXT = """
 [DEBUG] [PERF][SURFACE_BUILD_PASS_TIMING] chunk UVec3(0, 0, 0) pass_total=0.220ms make_surface_sparse=0.125ms write_instances=0.095ms
 [INFO] [PERF][GPU_JOB_SCOPE] name=surface.build queue=Compute chunk UVec3(0, 0, 0) duration=240us
 [INFO] [PERF][SURFACE_BUILD] chunk UVec3(0, 0, 0) total 1.0ms active_voxels 12 active_bricks 4 solid_workgroups 8 place_flora true flora_rebuilt true
-[INFO] [PERF][TREE_BENCH] sample 1/1 replace_deferred_total 2.50ms initial_length 32.00 seed 122
+[DEBUG] [PERF][MESH_REBUILD] chunks 1 rebuilt 1 total 1.75ms surface 1.00ms contree 0.70ms scene_tex 0.05ms contree_skipped 0 place_flora true
+[INFO] [DDGI][VOXEL_VISIBILITY] published geometry_revision=1 packed=16x512x512 blocks=64x64x64 elapsed_ms=2.25
+[INFO] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=4 terrain_changed=true revision=Some(1) elapsed_ms=1.80
+[INFO] [DDGI][VOXEL_VISIBILITY] published geometry_revision=2 packed_offset=[0, 0, 0] packed=16x256x512 block_offset=[0, 0, 0] blocks=64x32x64 elapsed_ms=1.125
+[INFO] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=8 terrain_changed=true revision=Some(2) elapsed_ms=2.00
+[INFO] [PERF][TREE_BENCH] sample 1/1 visible_publication_total 2.50ms initial_length 32.00 seed 122
 """
 
 
@@ -79,7 +140,31 @@ class PerfSuiteTests(unittest.TestCase):
         self.assertEqual(samples["frame.render"], [100.0, 110.0])
         self.assertEqual(samples["surface.make_sparse"], [125.0])
         self.assertEqual(samples["surface.build"], [240.0])
-        self.assertEqual(samples["tree.replace_deferred_total"], [2500.0])
+        self.assertEqual(samples["tree.visible_publication_total"], [2500.0])
+        self.assertEqual(samples["terrain.visible_publication"], [1800.0, 2000.0])
+        self.assertEqual(
+            samples["terrain.voxel_visibility_publication"], [2250.0, 1125.0]
+        )
+        self.assertEqual(
+            samples["terrain.voxel_visibility_publication_4_chunks"], [2250.0]
+        )
+        self.assertEqual(
+            samples["terrain.voxel_visibility_publication_8_chunks"], [1125.0]
+        )
+        self.assertEqual(samples["terrain.rebuild.total"], [1750.0])
+        self.assertEqual(samples["terrain.rebuild.surface"], [1000.0])
+        self.assertEqual(samples["terrain.rebuild.contree"], [700.0])
+        self.assertEqual(samples["terrain.rebuild.scene_tex"], [50.0])
+
+    def test_production_tree_scenarios_parse_synchronous_publication_metric(self) -> None:
+        _, scenarios = perf_suite.load_config(Path("config/perf_scenarios.toml"))
+        log_text = """
+[INFO] [PERF][TREE_BENCH] sample 1/1 visible_publication_total 12.50ms initial_length 32.00 seed 122
+"""
+
+        for name in ("surface-rebuild", "tree-replace"):
+            samples = perf_suite.parse_samples(log_text, scenarios[name])
+            self.assertEqual(samples["tree.visible_publication_total"], [12500.0])
 
     def test_parses_surface_workload_signature(self) -> None:
         self.assertEqual(
