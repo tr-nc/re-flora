@@ -1257,6 +1257,17 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "god_ray_temporal_alpha"
+kind = "float"
+label = "Temporal Alpha (Current Frame)"
+type = "Float"
+
+[section.param.data]
+value = 0.1
+min = 0.01
+max = 1
+
+[[section.param]]
 id = "god_ray_max_depth"
 kind = "float"
 label = "Max Depth"

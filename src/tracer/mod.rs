@@ -372,6 +372,7 @@ struct EffectTemporalPushConstants {
 struct GodRayTemporalPushConstants {
     reset_history: u32,
     temporal_blend_enabled: u32,
+    temporal_alpha: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -816,6 +817,7 @@ pub struct Tracer {
     direct_sun_shadows: DirectSunShadowRuntime,
     cloud_history_valid: bool,
     god_ray_temporal_blend_enabled: bool,
+    god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
@@ -1133,6 +1135,7 @@ impl Tracer {
             direct_sun_shadows: DirectSunShadowRuntime::default(),
             cloud_history_valid: false,
             god_ray_temporal_blend_enabled: true,
+            god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
@@ -2627,6 +2630,7 @@ impl Tracer {
         god_ray_max_depth: f32,
         god_ray_max_checks: u32,
         god_ray_temporal_blend_enabled: bool,
+        god_ray_temporal_alpha: f32,
         god_ray_weight: f32,
         god_ray_color: Vec3,
         starlight_iterations: i32,
@@ -2704,6 +2708,7 @@ impl Tracer {
             god_ray_color,
         )?;
         self.god_ray_temporal_blend_enabled = god_ray_temporal_blend_enabled;
+        self.god_ray_temporal_alpha = god_ray_temporal_alpha.clamp(0.01, 1.0);
 
         BufferUpdater::update_post_processing_info(
             &self.resources,
@@ -5797,6 +5802,7 @@ impl Tracer {
         let push_constants = GodRayTemporalPushConstants {
             reset_history: u32::from(!self.god_ray_history_valid),
             temporal_blend_enabled: u32::from(self.god_ray_temporal_blend_enabled),
+            temporal_alpha: self.god_ray_temporal_alpha,
         };
         self.compute_pipelines.god_ray_temporal_ppl.record(
             cmdbuf,

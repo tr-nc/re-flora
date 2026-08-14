@@ -7,6 +7,7 @@ struct GodRayTemporalPushConstants
 {
     uint reset_history;
     uint temporal_blend_enabled;
+    float temporal_alpha;
 };
 
 [[vk::push_constant]]
@@ -128,7 +129,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     float relativeDelta = abs(history - current) / max(abs(current), 0.10);
     float change = smoothstep(0.35, 1.50, relativeDelta);
-    float currentWeight = lerp(0.10, 0.65, change);
+    float temporalAlpha = clamp(god_ray_temporal_push.temporal_alpha, 0.01, 1.0);
+    float currentWeight = lerp(
+        temporalAlpha, max(temporalAlpha, 0.65), change);
     float resolved = lerp(history, current, currentWeight);
     god_ray_output_tex.Store(coordinate, max(resolved, 0.0));
 }

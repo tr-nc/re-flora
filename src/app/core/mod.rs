@@ -3463,6 +3463,7 @@ impl App {
                         self.debug_settings.adjustables.god_ray_max_depth.value,
                         self.debug_settings.adjustables.god_ray_max_checks.value,
                         self.debug_settings.adjustables.god_ray_temporal_blend.value,
+                        self.debug_settings.adjustables.god_ray_temporal_alpha.value,
                         self.debug_settings.adjustables.god_ray_weight.value,
                         Vec3::new(
                             self.debug_settings.adjustables.sun_color.value.r() as f32 / 255.0,
