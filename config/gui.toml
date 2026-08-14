@@ -192,7 +192,7 @@ label = "Dither Strength (Max 8-bit LSB)"
 type = "Float"
 
 [section.param.data]
-value = 0
+value = 1
 min = 0
 max = 4
 
@@ -1296,7 +1296,7 @@ label = "Weight"
 type = "Float"
 
 [section.param.data]
-value = 0.495
+value = 0.225
 min = 0
 max = 1
 
@@ -1307,7 +1307,7 @@ label = "Lens Flare Intensity"
 type = "Float"
 
 [section.param.data]
-value = 0.125
+value = 0.105
 min = 0
 max = 1
 
