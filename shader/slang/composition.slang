@@ -43,6 +43,27 @@ float3 sampleLensFlare(float2 screenUv)
     return lens_flare_output_tex[coordinate].rgb;
 }
 
+float sampleGodRay(float2 screenUv)
+{
+    uint width;
+    uint height;
+    god_ray_output_tex.GetDimensions(width, height);
+    int2 size = int2(width, height);
+    float2 texel = screenUv * float2(size) - float2(0.5);
+    int2 base = int2(floor(texel));
+    float2 fraction = frac(texel);
+    int2 maximum = size - int2(1);
+    int2 c00 = clamp(base, int2(0), maximum);
+    int2 c10 = clamp(base + int2(1, 0), int2(0), maximum);
+    int2 c01 = clamp(base + int2(0, 1), int2(0), maximum);
+    int2 c11 = clamp(base + int2(1, 1), int2(0), maximum);
+    float top = lerp(god_ray_output_tex[c00], god_ray_output_tex[c10],
+                     fraction.x);
+    float bottom = lerp(god_ray_output_tex[c01], god_ray_output_tex[c11],
+                        fraction.x);
+    return lerp(top, bottom, fraction.y);
+}
+
 [numthreads(8, 8, 1)]
 [shader("compute")]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -67,7 +88,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     finalColor += sampleLensFlare(screenUv);
 
     float sunVisibility = sunLuminanceFromDirection(sun_info.sun_dir, 1.0);
-    float godRayWeight = god_ray_output_tex[coordinate] * god_ray_info.weight;
+    float godRayWeight = sampleGodRay(screenUv) * god_ray_info.weight;
     godRayWeight *= sunVisibility;
     float3 godRayColor = srgbToLinear(god_ray_info.color);
     finalColor = lerp(finalColor, godRayColor, godRayWeight);

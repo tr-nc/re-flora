@@ -190,8 +190,12 @@ impl ExtentDependentResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
     ) -> Texture {
+        let god_ray_extent = Extent2D::new(
+            (rendering_extent.width / 2).max(1),
+            (rendering_extent.height / 2).max(1),
+        );
         let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
+            extent: god_ray_extent.into(),
             format: vk::Format::R32_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED

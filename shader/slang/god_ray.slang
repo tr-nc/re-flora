@@ -40,19 +40,25 @@ float getDepth(int2 coordinate)
 [numthreads(GOD_RAY_GROUP_SIZE, GOD_RAY_GROUP_SIZE, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    uint width;
-    uint height;
-    gfx_depth_tex.GetDimensions(width, height);
-    int2 coordinate = int2(dispatchThreadId.xy);
-    if (any(coordinate >= int2(width, height)))
+    uint outputWidth;
+    uint outputHeight;
+    god_ray_output_tex.GetDimensions(outputWidth, outputHeight);
+    int2 outputCoordinate = int2(dispatchThreadId.xy);
+    if (any(outputCoordinate >= int2(outputWidth, outputHeight)))
     {
         return;
     }
 
-    float2 screenUv = (float2(coordinate) + float2(0.5)) /
-                      float2(width, height);
+    float2 screenUv = (float2(outputCoordinate) + float2(0.5)) /
+                      float2(outputWidth, outputHeight);
+    uint depthWidth;
+    uint depthHeight;
+    gfx_depth_tex.GetDimensions(depthWidth, depthHeight);
+    int2 depthCoordinate = int2(clamp(
+        screenUv * float2(depthWidth, depthHeight), float2(0.0),
+        float2(int2(depthWidth, depthHeight) - int2(1))));
     Ray ray = generateCameraRay(screenUv, camera_info.view_proj_mat_inv);
-    float depth = getDepth(coordinate);
+    float depth = getDepth(depthCoordinate);
 
     float3 nearPoint = projectScreenUvToWorld(
         screenUv, 0.0, camera_info.view_proj_mat_inv);
@@ -63,7 +69,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float stepSize = usedDepth / float(god_ray_info.max_checks);
 
     int3 seed = getBlueNoiseSeed(
-        dispatchThreadId.xy, env_info.frame_serial_idx);
+        uint2(depthCoordinate), env_info.frame_serial_idx);
     float randomValue = randomFloat(scalar_bn, seed);
     float shadowVisibility = 0.0;
 
@@ -89,5 +95,5 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         }
     }
 
-    god_ray_output_tex.Store(coordinate, shadowVisibility);
+    god_ray_output_tex.Store(outputCoordinate, shadowVisibility);
 }

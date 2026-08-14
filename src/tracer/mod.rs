@@ -5692,7 +5692,7 @@ impl Tracer {
             cmdbuf,
             self.resources
                 .extent_dependent_resources
-                .compute_depth_tex
+                .god_ray_output_tex
                 .get_image()
                 .get_desc()
                 .extent,
