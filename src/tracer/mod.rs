@@ -367,6 +367,13 @@ struct EffectTemporalPushConstants {
     reset_history: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct GodRayTemporalPushConstants {
+    reset_history: u32,
+    temporal_blend_enabled: u32,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TerrainRayQuery {
     pub origin: Vec3,
@@ -808,6 +815,7 @@ pub struct Tracer {
     current_view_proj_mat: Mat4,
     direct_sun_shadows: DirectSunShadowRuntime,
     cloud_history_valid: bool,
+    god_ray_temporal_blend_enabled: bool,
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
@@ -1124,6 +1132,7 @@ impl Tracer {
             current_view_proj_mat: Mat4::IDENTITY,
             direct_sun_shadows: DirectSunShadowRuntime::default(),
             cloud_history_valid: false,
+            god_ray_temporal_blend_enabled: true,
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
@@ -2617,6 +2626,7 @@ impl Tracer {
         sun_azimuth: f32,
         god_ray_max_depth: f32,
         god_ray_max_checks: u32,
+        god_ray_temporal_blend_enabled: bool,
         god_ray_weight: f32,
         god_ray_color: Vec3,
         starlight_iterations: i32,
@@ -2693,6 +2703,7 @@ impl Tracer {
             god_ray_weight,
             god_ray_color,
         )?;
+        self.god_ray_temporal_blend_enabled = god_ray_temporal_blend_enabled;
 
         BufferUpdater::update_post_processing_info(
             &self.resources,
@@ -3867,8 +3878,12 @@ impl Tracer {
                 "god_ray_temporal.pass",
                 || self.record_god_ray_temporal_pass(cmdbuf),
             );
-            self.record_store_god_ray_history(cmdbuf);
-            self.god_ray_history_valid = true;
+            if self.god_ray_temporal_blend_enabled {
+                self.record_store_god_ray_history(cmdbuf);
+                self.god_ray_history_valid = true;
+            } else {
+                self.god_ray_history_valid = false;
+            }
         } else {
             self.god_ray_history_valid = false;
         }
@@ -5779,8 +5794,9 @@ impl Tracer {
     }
 
     fn record_god_ray_temporal_pass(&self, cmdbuf: &CommandBuffer) {
-        let push_constants = EffectTemporalPushConstants {
+        let push_constants = GodRayTemporalPushConstants {
             reset_history: u32::from(!self.god_ray_history_valid),
+            temporal_blend_enabled: u32::from(self.god_ray_temporal_blend_enabled),
         };
         self.compute_pipelines.god_ray_temporal_ppl.record(
             cmdbuf,

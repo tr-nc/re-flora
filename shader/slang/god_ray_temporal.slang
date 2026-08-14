@@ -6,6 +6,7 @@ static const uint GOD_RAY_GROUP_SIZE = 8u;
 struct GodRayTemporalPushConstants
 {
     uint reset_history;
+    uint temporal_blend_enabled;
 };
 
 [[vk::push_constant]]
@@ -100,7 +101,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     float current = max(god_ray_raw_tex.Load(int3(coordinate, 0)).r, 0.0);
-    if (god_ray_temporal_push.reset_history != 0u)
+    if (god_ray_temporal_push.temporal_blend_enabled == 0u ||
+        god_ray_temporal_push.reset_history != 0u)
     {
         god_ray_output_tex.Store(coordinate, current);
         return;

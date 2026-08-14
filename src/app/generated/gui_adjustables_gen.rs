@@ -680,6 +680,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "GodRay",
+        id: "god_ray_temporal_blend",
+        kind: "bool",
+        label: "Temporal Blend",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "GodRay",
         id: "god_ray_max_depth",
         kind: "float",
         label: "Max Depth",
@@ -1541,6 +1547,7 @@ pub struct GuiAdjustables {
     pub starlight_darkmatter: crate::gui_adjustables::FloatParam,
     pub starlight_distfading: crate::gui_adjustables::FloatParam,
     pub starlight_saturation: crate::gui_adjustables::FloatParam,
+    pub god_ray_temporal_blend: crate::gui_adjustables::BoolParam,
     pub god_ray_max_depth: crate::gui_adjustables::FloatParam,
     pub god_ray_max_checks: crate::gui_adjustables::UintParam,
     pub god_ray_weight: crate::gui_adjustables::FloatParam,
@@ -1788,6 +1795,7 @@ impl GuiAdjustables {
         let mut starlight_darkmatter_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_distfading_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut starlight_saturation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut god_ray_temporal_blend_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut god_ray_max_depth_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut god_ray_max_checks_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut god_ray_weight_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2644,6 +2652,11 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             starlight_saturation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "god_ray_temporal_blend" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            god_ray_temporal_blend_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "god_ray_max_depth" => {
@@ -3594,6 +3607,7 @@ impl GuiAdjustables {
             starlight_darkmatter: starlight_darkmatter_field.expect("Missing parameter: starlight_darkmatter"),
             starlight_distfading: starlight_distfading_field.expect("Missing parameter: starlight_distfading"),
             starlight_saturation: starlight_saturation_field.expect("Missing parameter: starlight_saturation"),
+            god_ray_temporal_blend: god_ray_temporal_blend_field.expect("Missing parameter: god_ray_temporal_blend"),
             god_ray_max_depth: god_ray_max_depth_field.expect("Missing parameter: god_ray_max_depth"),
             god_ray_max_checks: god_ray_max_checks_field.expect("Missing parameter: god_ray_max_checks"),
             god_ray_weight: god_ray_weight_field.expect("Missing parameter: god_ray_weight"),
@@ -3969,6 +3983,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "audio_ray_tracing_enabled" => Some(&adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&adjustables.glass_per_voxel_reflection),
+        "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
@@ -4250,6 +4265,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "audio_ray_tracing_enabled" => Some(&mut adjustables.audio_ray_tracing_enabled),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "glass_per_voxel_reflection" => Some(&mut adjustables.glass_per_voxel_reflection),
+        "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),

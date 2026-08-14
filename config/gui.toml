@@ -1248,6 +1248,15 @@ max = 1
 name = "GodRay"
 
 [[section.param]]
+id = "god_ray_temporal_blend"
+kind = "bool"
+label = "Temporal Blend"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "god_ray_max_depth"
 kind = "float"
 label = "Max Depth"
