@@ -18,7 +18,7 @@ ConstantBuffer<U_CameraInfoPrevFrame> camera_info_prev_frame;
 [[vk::binding(4, 0)]] Sampler2D lens_flare_history_tex;
 
 [[vk::binding(5, 0)]]
-[[vk::image_format("r11f_g11f_b10f")]]
+[[vk::image_format("rgba16f")]]
 WTexture2D<float4> lens_flare_output_tex;
 
 float3 currentMinimum3x3(int2 coordinate, int2 size)

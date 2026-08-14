@@ -7,6 +7,15 @@ use re_flora_vkn::{
 };
 use resource_container_derive::ResourceContainer;
 
+const LENS_FLARE_DOWNSAMPLE_FACTOR: u32 = 2;
+
+fn lens_flare_extent(rendering_extent: Extent2D) -> Extent2D {
+    Extent2D::new(
+        (rendering_extent.width / LENS_FLARE_DOWNSAMPLE_FACTOR).max(1),
+        (rendering_extent.height / LENS_FLARE_DOWNSAMPLE_FACTOR).max(1),
+    )
+}
+
 #[derive(ResourceContainer)]
 pub struct ExtentDependentResources {
     pub gfx_depth_tex: Resource<Texture>,
@@ -271,13 +280,10 @@ impl ExtentDependentResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
     ) -> Texture {
-        let lens_flare_extent = Extent2D::new(
-            (rendering_extent.width / 4).max(1),
-            (rendering_extent.height / 4).max(1),
-        );
+        let lens_flare_extent = lens_flare_extent(rendering_extent);
         let tex_desc = ImageDesc {
             extent: lens_flare_extent.into(),
-            format: vk::Format::B10G11R11_UFLOAT_PACK32,
+            format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::TRANSFER_SRC
@@ -341,12 +347,26 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
-            format: vk::Format::B10G11R11_UFLOAT_PACK32,
+            format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
         Texture::new(device, allocator, &tex_desc, &Default::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lens_flare_runs_at_half_the_internal_render_extent() {
+        assert_eq!(
+            lens_flare_extent(Extent2D::new(1920, 1080)),
+            Extent2D::new(960, 540)
+        );
+        assert_eq!(lens_flare_extent(Extent2D::new(1, 1)), Extent2D::new(1, 1));
     }
 }

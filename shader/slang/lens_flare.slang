@@ -3,6 +3,7 @@ import sunlight;
 import tracer_types;
 
 static const uint LENS_FLARE_GROUP_SIZE = 8u;
+static const uint LENS_FLARE_VISIBILITY_DOWNSAMPLE_FACTOR = 4u;
 static const float PI = 3.14159265;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
@@ -15,8 +16,10 @@ static const float PI = 3.14159265;
 readonly RWTexture1D<uint> lens_flare_visible_count_tex;
 
 [[vk::binding(5, 0)]]
-[[vk::image_format("r11f_g11f_b10f")]]
+[[vk::image_format("rgba16f")]]
 WTexture2D<float4> lens_flare_raw_tex;
+
+[[vk::binding(6, 0)]] Sampler2D gfx_depth_tex;
 
 float lensFlareNoise(float value)
 {
@@ -120,8 +123,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
+    uint depthWidth;
+    uint depthHeight;
+    gfx_depth_tex.GetDimensions(depthWidth, depthHeight);
+    uint visibilitySampleHeight = max(
+        depthHeight / LENS_FLARE_VISIBILITY_DOWNSAMPLE_FACTOR, 1u);
     float sunRadiusPixels = 0.5 * max(sun_info.sun_size, 0.0001) *
-                            camera_info.proj_mat[1][1] * float(height);
+                            camera_info.proj_mat[1][1] *
+                            float(visibilitySampleHeight);
     float estimatedTotalPixels = gui_input.lens_flare_sun_pixel_scale * PI *
                                  sunRadiusPixels * sunRadiusPixels;
     float visibleRatio = clamp(
@@ -131,9 +140,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float aspect = float(width) / float(height);
     position.x *= aspect;
 
-    // One low-resolution texel covers a 4x4 block at the main render extent.
-    // Four Latin-square strata per frame preserve a quarter of the old full-resolution
-    // integration cost; the temporal resolve combines successive phases into all 16 strata.
+    // Four Latin-square strata per frame supersample each half-resolution texel;
+    // the temporal resolve combines successive phases into all 16 strata.
     uint phase = env_info.frame_serial_idx & 3u;
     float3 flare = float3(0.0);
     for (uint sampleIndex = 0u; sampleIndex < 4u; ++sampleIndex)

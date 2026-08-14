@@ -11,7 +11,7 @@ struct U_PostProcessingInfo
 ConstantBuffer<U_PostProcessingInfo> post_processing_info;
 
 [[vk::binding(2, 0)]]
-[[vk::image_format("r11g11b10f")]]
+[[vk::image_format("rgba16f")]]
 RWTexture2D<float4> composited_tex;
 
 [[vk::binding(3, 0)]]

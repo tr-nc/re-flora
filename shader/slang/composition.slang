@@ -25,9 +25,9 @@ readonly RWTexture2D<uint> compute_output_tex;
 readonly RWTexture2D<float> compute_depth_tex;
 [[vk::binding(11, 0)]] [[vk::image_format("r32f")]]
 readonly RWTexture2D<float> god_ray_output_tex;
-[[vk::binding(12, 0)]] [[vk::image_format("r11f_g11f_b10f")]]
+[[vk::binding(12, 0)]] [[vk::image_format("rgba16f")]]
 RWTexture2D<float4> composited_tex;
-[[vk::binding(13, 0)]] [[vk::image_format("r11f_g11f_b10f")]]
+[[vk::binding(13, 0)]] [[vk::image_format("rgba16f")]]
 readonly RWTexture2D<float4> lens_flare_output_tex;
 [[vk::binding(14, 0)]] Sampler2D sun_sprite_tex;
 [[vk::binding(15, 0)]] Sampler2D cloud_output_tex;
