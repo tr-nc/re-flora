@@ -1,4 +1,5 @@
 import contree_node;
+import ddgi_config;
 import ddgi_query;
 import ddgi_types;
 import marching_result;
@@ -8,7 +9,6 @@ import terrain_ray_origin;
 import tracer_material;
 
 static const uint DDGI_TRACE_WORKGROUP_SIZE = 64u;
-static const uint DDGI_RAYS_PER_PROBE = 256u;
 static const uint DDGI_RAYS_PER_THREAD =
     DDGI_RAYS_PER_PROBE / DDGI_TRACE_WORKGROUP_SIZE;
 static const float DDGI_GOLDEN_ANGLE = 2.39996322972865332;

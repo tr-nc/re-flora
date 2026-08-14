@@ -1,7 +1,7 @@
+import ddgi_config;
 import ddgi_octahedral;
 import ddgi_types;
 
-static const uint DDGI_RAYS_PER_PROBE = 256u;
 static const uint DDGI_IRRADIANCE_INTERIOR_SIDE = 8u;
 static const uint DDGI_IRRADIANCE_STORED_SIDE = 10u;
 static const float DDGI_FOUR = 4.0;

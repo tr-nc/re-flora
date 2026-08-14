@@ -1,7 +1,7 @@
+import ddgi_config;
 import ddgi_octahedral;
 import ddgi_types;
 
-static const uint DDGI_RAYS_PER_PROBE = 256u;
 static const uint DDGI_VISIBILITY_INTERIOR_SIDE = 16u;
 static const uint DDGI_VISIBILITY_STORED_SIDE = 18u;
 static const float DDGI_VISIBILITY_FILTER_EXPONENT = 50.0;
