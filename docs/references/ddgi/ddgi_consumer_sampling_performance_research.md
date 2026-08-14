@@ -77,6 +77,17 @@ macOS stopped returning a scored monitor; that run was rejected rather than mixe
 
 The four existing consumer visibility modes isolate the raster vegetation cost cleanly:
 
+> These measurements predate the production split that pins grass/flora and tree-leaf lighting
+> caches to `moment-only`. The CLI visibility A/B now controls terrain and generic consumers;
+> vegetation retains the measured low-cost path.
+
+The production split was subsequently verified with matched 2560×1440 physical hidden-window
+runs. `graphics.leaf_lighting_cache` fell from a 214.5 µs median to 12 µs (-94.4%), while
+`graphics.pass` fell from 491.5 µs to 297.5 µs (-39.5%, or 0.194 ms). The flora cache remained at
+2 µs and the terrain tracer median was unchanged within 2.5 µs. See the
+[`full-visibility baseline`](../../../target/re-flora-logs/re-flora-20260814-173957.421-96433.log)
+and [`vegetation moment-only run`](../../../target/re-flora-logs/re-flora-20260814-174140.316-97367.log).
+
 | Consumer visibility | `graphics.leaf_lighting_cache` median | Interpretation |
 | --- | ---: | --- |
 | `none` | 12.5 µs | Base metadata, weights, irradiance gather, and cache work |

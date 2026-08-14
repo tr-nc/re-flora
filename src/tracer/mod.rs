@@ -999,7 +999,7 @@ impl Tracer {
             desc.ddgi_terrain_hard_origin.label()
         );
         log::info!(
-            "[DDGI][CONSUMER_VISIBILITY] mode={} experimental=true transport_mode=full",
+            "[DDGI][CONSUMER_VISIBILITY] terrain_generic_mode={} vegetation_cache_mode=moment-only experimental=true transport_mode=full",
             desc.ddgi_consumer_visibility.label()
         );
         let ddgi_voxel_visibility = DdgiVoxelVisibility::new(

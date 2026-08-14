@@ -1227,6 +1227,28 @@ public DdgiQueryResult sampleDdgiDiffuseEnvironment(
         worldPosition + normal * biasWorld);
 }
 
+public DdgiQueryResult sampleDdgiMomentOnlyDiffuseEnvironment(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition)
+{
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_MOMENT_ONLY;
+    return sampleDdgiDiffuseEnvironmentFromAtlas(
+        query, ddgi_irradiance_atlas,
+        worldPosition, surfaceNormal, hardVisibilityWorldPosition);
+}
+
+public DdgiQueryResult sampleDdgiMomentOnlyDiffuseEnvironment(
+    U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal)
+{
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    float biasWorld = max(
+        0.0, lighting.environment_probe_visibility_bias_world);
+    return sampleDdgiMomentOnlyDiffuseEnvironment(
+        lighting, worldPosition, surfaceNormal,
+        worldPosition + normal * biasWorld);
+}
+
 public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(
     U_ShadingInfo lighting, float3 worldPosition, float3 surfaceNormal,
     float3 hardVisibilityWorldPosition)

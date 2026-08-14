@@ -19,3 +19,12 @@ public float3 sampleEnvironmentIrradiance(U_GuiInput gui,
 {
     return sampleDiffuseEnvironment(gui, lighting, worldPosition, surfaceNormal);
 }
+
+public float3 sampleMomentOnlyDiffuseEnvironment(U_GuiInput gui,
+                                                  U_ShadingInfo lighting,
+                                                  float3 worldPosition,
+                                                  float3 surfaceNormal)
+{
+    return sampleDdgiMomentOnlyDiffuseEnvironment(
+        lighting, worldPosition, surfaceNormal).irradiance;
+}

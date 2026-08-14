@@ -221,7 +221,7 @@ pub struct AppOptions {
     pub ddgi_batch_order: DdgiBatchOrder,
     /// Select a permanent DDGI diagnostic view; exact modes are correctness-only and expensive.
     pub ddgi_debug_view: DdgiDebugView,
-    /// Select visibility terms for steady-state DDGI consumer performance experiments.
+    /// Select visibility terms for steady-state terrain/generic DDGI consumer experiments.
     pub ddgi_consumer_visibility: DdgiConsumerVisibility,
     /// Select the terrain-only exact-visibility origin used for receiver diagnostics.
     pub ddgi_terrain_hard_origin: DdgiTerrainHardOrigin,
@@ -860,8 +860,8 @@ Options:
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
                               spatial-weight, readback, or atlas DDGI diagnostics (default: final)
   --ddgi-consumer-visibility <mode>
-                              Select full, moment-only, exact-only, or none for consumer perf A/B
-                              (default: full; probe transport remains full)
+                              Select full, moment-only, exact-only, or none for terrain/generic consumer perf A/B
+                              (default: full; vegetation caches stay moment-only; probe transport remains full)
   --ddgi-terrain-hard-origin <mode>
                               Select surface-quarter, center-fixed, or surface-fixed exact visibility origin
                               for terrain receiver experiments (default: {})

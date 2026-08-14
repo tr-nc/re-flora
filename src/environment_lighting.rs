@@ -402,8 +402,11 @@ mod tests {
         let config: toml::Value = toml::from_str(include_str!("../config/gui.toml"))
             .expect("GUI config must be valid TOML");
         let switch = gui_param(&config, "raster_flora_ddgi_lighting");
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let environment = include_str!("../shader/slang/environment_lighting.slang");
         let lighting = include_str!("../shader/slang/flora_shadow.slang");
         let shared = include_str!("../shader/slang/flora_vertex.slang");
+        let flora_cache = include_str!("../shader/slang/flora_lighting_cache.comp.slang");
         let flora = include_str!("../shader/slang/flora.vert.slang");
         let flora_lod = include_str!("../shader/slang/flora_lod.vert.slang");
         let tree_leaf_cache = include_str!("../shader/slang/tree_leaf_lighting_cache.comp.slang");
@@ -415,6 +418,26 @@ mod tests {
         assert!(lighting.contains("float3(24.0 / 255.0)"));
         assert!(lighting.contains("sunLight * shadowWeight + LEGACY_RASTER_FLORA_AMBIENT_LIGHT"));
         assert!(shared.contains("applyLegacyRasterFloraLighting("));
+        let moment_only_query = query
+            .split_once("public DdgiQueryResult sampleDdgiMomentOnlyDiffuseEnvironment(")
+            .expect("DDGI must expose a vegetation-safe moment-only query")
+            .1
+            .split_once("public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(")
+            .expect("moment-only query must remain isolated from capture")
+            .0;
+        assert!(moment_only_query
+            .contains("query.consumer_visibility = DDGI_CONSUMER_VISIBILITY_MOMENT_ONLY;"));
+        assert!(environment.contains("public float3 sampleMomentOnlyDiffuseEnvironment("));
+        let flora_environment = shared
+            .split_once("public float3 sampleFloraEnvironment(")
+            .expect("raster flora must have a shared environment query")
+            .1
+            .split_once("public float3 shadeFloraVertexWithEnvironment(")
+            .expect("flora environment query must remain isolated from shading")
+            .0;
+        assert!(flora_environment.contains("sampleMomentOnlyDiffuseEnvironment("));
+        assert!(!flora_environment.contains("sampleDiffuseEnvironment("));
+        assert_eq!(flora_cache.matches("sampleFloraEnvironment(").count(), 1);
         for shader in [flora, flora_lod] {
             let lighting_branch = shader
                 .split_once("if (rasterFloraUsesDdgiLighting())")
