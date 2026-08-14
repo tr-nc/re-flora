@@ -8,9 +8,24 @@ ROOT = Path(__file__).resolve().parents[2]
 DITHER_SHADER = ROOT / "shader/slang/dither.slang"
 POST_PROCESSING_SHADER = ROOT / "shader/slang/post_processing.slang"
 GUI_CONFIG = ROOT / "config/gui.toml"
+EXTENT_DEPENDENT_RESOURCES = ROOT / "src/tracer/extent_dependent_resources.rs"
 
 
 class PostProcessingDitherTests(unittest.TestCase):
+    def test_linear_scene_color_stays_float_until_srgb_output_blit(self) -> None:
+        resources_source = EXTENT_DEPENDENT_RESOURCES.read_text(encoding="utf-8")
+        screen_output_factory = resources_source.split(
+            "fn create_screen_output_tex", 1
+        )[1].split("fn create_screenshot_output_tex", 1)[0]
+        post_processing_source = POST_PROCESSING_SHADER.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "format: vk::Format::R16G16B16A16_SFLOAT,",
+            screen_output_factory,
+        )
+        self.assertNotIn("vk::Format::R8G8B8A8_UNORM", screen_output_factory)
+        self.assertIn('[[vk::image_format("rgba16f")]]', post_processing_source)
+
     def test_shader_uses_scalar_output_offset_at_final_write(self) -> None:
         dither_source = DITHER_SHADER.read_text(encoding="utf-8")
         post_processing_source = POST_PROCESSING_SHADER.read_text(encoding="utf-8")
@@ -43,7 +58,12 @@ class PostProcessingDitherTests(unittest.TestCase):
             "float ditherOffset = getDitherOffset(uvi, post_processing_info.dither_strength_lsb);",
             post_processing_source,
         )
-        self.assertIn("finalColor += ditherOffset.xxx;", post_processing_source)
+        self.assertIn("float3 encodedColor = linearToSrgb(finalColor);", post_processing_source)
+        self.assertIn(
+            "encodedColor = max(encodedColor + ditherOffset.xxx, float3(0.0));",
+            post_processing_source,
+        )
+        self.assertIn("finalColor = srgbToLinear(encodedColor);", post_processing_source)
 
     def test_default_strength_is_centered_and_bounded_to_declared_lsb_radius(self) -> None:
         default_strength_lsb = self._dither_parameter()["data"]["value"]

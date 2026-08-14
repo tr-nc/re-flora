@@ -236,7 +236,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: screen_extent.into(),
-            format: vk::Format::R8G8B8A8_UNORM,
+            format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::TRANSFER_SRC
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT,

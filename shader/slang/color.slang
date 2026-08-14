@@ -1,5 +1,14 @@
 module color;
 
+public float3 linearToSrgb(float3 color)
+{
+    color = max(color, float3(0.0));
+    bool3 useLinearSegment = color < float3(0.0031308);
+    float3 higher = 1.055 * pow(color, float3(1.0 / 2.4)) - 0.055;
+    float3 lower = color * 12.92;
+    return select(useLinearSegment, lower, higher);
+}
+
 public float3 srgbToLinear(float3 color)
 {
     bool3 useLinearSegment = color < float3(0.04045);

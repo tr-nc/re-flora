@@ -1,3 +1,4 @@
+import color;
 import dither;
 
 struct U_PostProcessingInfo
@@ -14,7 +15,7 @@ ConstantBuffer<U_PostProcessingInfo> post_processing_info;
 RWTexture2D<float4> composited_tex;
 
 [[vk::binding(3, 0)]]
-[[vk::image_format("rgba8")]]
+[[vk::image_format("rgba16f")]]
 WTexture2D<float4> screen_output_tex;
 
 [shader("compute")]
@@ -39,6 +40,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 finalColor = composited_tex[mappedUvi].rgb;
 
     float ditherOffset = getDitherOffset(uvi, post_processing_info.dither_strength_lsb);
-    finalColor += ditherOffset.xxx;
+    if (post_processing_info.dither_strength_lsb > 0.0)
+    {
+        float3 encodedColor = linearToSrgb(finalColor);
+        encodedColor = max(encodedColor + ditherOffset.xxx, float3(0.0));
+        finalColor = srgbToLinear(encodedColor);
+    }
     screen_output_tex.Store(uvi, float4(finalColor, 1.0));
 }

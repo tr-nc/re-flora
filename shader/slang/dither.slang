@@ -3,10 +3,10 @@ module dither;
 static const float OUTPUT_QUANTIZATION_STEP = 1.0 / 255.0;
 static const uint DITHER_HASH_SEED = 0x12345678u;
 
-// The postprocess target is R8G8B8A8_UNORM. Keep this spatial offset at the
-// final linear 8-bit quantization stage; the later swapchain blit converts to
-// the sRGB display encoding. This deterministic integer hash avoids a short
-// repeating tile without introducing a temporal crawl or shimmer.
+// The screen target stays floating point until the final sRGB output blit.
+// This offset is expressed in encoded 8-bit sRGB steps and is round-tripped
+// through linear space in post-processing. The deterministic integer hash
+// avoids a short repeating tile without introducing a temporal crawl or shimmer.
 public float getDitherOffset(int2 screenSpaceUv, float strengthLsb)
 {
     uint2 pixel = uint2(screenSpaceUv);
