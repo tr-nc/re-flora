@@ -61,9 +61,60 @@ lighting revision changes, and evaluate exact voxel visibility at a lower spatia
 frequency than the cheap irradiance gather. This preserves the world-space GI contract for flora
 and leaves without paying eight segment marches for every visible cache entry every frame.
 
-The current branch still needs a matched release-mode A/B before anyone can call its cost
-acceptable. External evidence establishes that the representation is production-proven; it does
-not establish the cost of Re: Flora's exact visibility or current cache population count.
+The current branch was also measured with release-mode hidden runs. On the tested Apple M4 Pro
+and scene, the full receiver path is acceptable inside the current frame budget, but exact leaf
+visibility is the clearest avoidable consumer cost. The detailed measurements and their limits are
+recorded below; they are not transferable to a different GPU or a denser scene without rerunning
+the same A/B.
+
+## Current branch measurements
+
+All retained runs used `cargo run --release -- --hidden --mute --auto-exit 12 --perf`, the normal
+hidden native swapchain path, and a 5120×2880 physical hidden window. Samples before profiler
+frame 330 were discarded so DDGI construction and startup work did not contaminate steady state.
+The tested GPU was an Apple M4 Pro. A later repeat fell back to a 2560×1440 physical window after
+macOS stopped returning a scored monitor; that run was rejected rather than mixed into the data.
+
+The four existing consumer visibility modes isolate the raster vegetation cost cleanly:
+
+| Consumer visibility | `graphics.leaf_lighting_cache` median | Interpretation |
+| --- | ---: | --- |
+| `none` | 12.5 µs | Base metadata, weights, irradiance gather, and cache work |
+| `moment-only` | 17 µs | Moment visibility adds about 4.5 µs |
+| `exact-only` | 210 µs | Exact voxel traversal adds about 197.5 µs |
+| `full` | 215 µs | Exact traversal dominates the combined path |
+
+`graphics.flora_lighting_cache` remained at a 2 µs median in this scene, so this camera's grass
+cache population was not a current bottleneck. The leaf result was stable across two full-mode
+runs: 215 µs median in both, with 95th percentiles of 261.8 µs and 236.8 µs. The corresponding
+logs are [`none`](../../../target/re-flora-logs/re-flora-20260814-171244.221-83584.log),
+[`moment-only`](../../../target/re-flora-logs/re-flora-20260814-171203.587-83366.log),
+[`exact-only`](../../../target/re-flora-logs/re-flora-20260814-171225.605-83470.log), and
+[`full`](../../../target/re-flora-logs/re-flora-20260814-171052.714-82331.log).
+
+In the adjacent `none` then `full` comparison, `frame.render` moved from a 5.658 ms median to
+5.846 ms, a 0.188 ms or 3.3% median difference. Their tail statistics did not order consistently
+because the `none` run contained a large outlier, so this is evidence for the approximate steady
+cost, not a claim that full visibility improves the tail. The retained full run's `frame.render`
+95th percentile was 6.198 ms. See the
+[`full repeat`](../../../target/re-flora-logs/re-flora-20260814-171349.463-84064.log).
+
+A temporary shader A/B then bypassed only the terrain cache-hit smooth resample and returned its
+already-cached canonical irradiance. This removes the repeated eight-corner metadata, weighting,
+and irradiance gather, while retaining cache construction and canonical visibility. On tracer-active
+samples after frame 330, `tracer.pass` moved from 1.877 ms median to 1.714 ms, an indicated 0.163 ms
+or 8.7% reduction inside that pass. Whole-frame median moved by 0.125 ms or 2.1%. The active-pass
+mean improved by 0.124 ms, but its 95th percentile did not improve, so the defensible conclusion is
+that the smooth eight-probe resample is roughly a 0.1–0.2 ms opportunity in this setup, not that it
+is a proven tail-latency win. The bypass was removed immediately after measurement and `cargo check`
+was rerun. See the
+[`temporary bypass run`](../../../target/re-flora-logs/re-flora-20260814-172102.349-87496.log).
+
+These measurements separate two conclusions:
+
+1. The standard eight-corner irradiance gather is not the renderer's dominant cost here.
+2. Repeating exact voxel visibility for every visible leaf cache entry is a larger and more reliable
+   local optimization target than changing the DDGI topology from eight corners to four.
 
 ## What the current renderer actually executes
 
@@ -263,8 +314,8 @@ Interpretation:
 | `exact-only` versus `none` | eight exact voxel segment traversals |
 | `full` versus both single modes | combined latency, divergence, and resource contention |
 
-This measurement is the required answer to “is current performance acceptable?” A total frame
-budget and target GPU are also required; source inspection alone cannot decide acceptance.
+The current results are reported above. Rerun this matrix for each target GPU and representative
+scene; source inspection or one high-end Apple GPU cannot decide the production acceptance bound.
 
 ### P1: make flora and leaf lighting caches persistent and revision-aware
 
