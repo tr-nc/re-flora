@@ -201,13 +201,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let lens_flare_downsample_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/lens_flare_downsample.comp",
-            "main",
-        )
-        .unwrap();
-
         let post_processing_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/post_processing.comp",
@@ -403,7 +396,6 @@ impl PipelineBuilder {
             cloud_temporal_sm,
             lens_flare_sm,
             lens_flare_sun_visible_sm,
-            lens_flare_downsample_sm,
             post_processing_sm,
             player_collider_sm,
             terrain_query_sm,
@@ -641,13 +633,6 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
-        let lens_flare_downsample_ppl = ComputePipeline::new(
-            device,
-            &shader_modules.lens_flare_downsample_sm,
-            pool,
-            &[resources],
-        );
-
         let post_processing_ppl = ComputePipeline::new(
             device,
             &shader_modules.post_processing_sm,
@@ -684,7 +669,6 @@ impl PipelineBuilder {
             cloud_temporal_ppl,
             lens_flare_ppl,
             lens_flare_sun_visible_ppl,
-            lens_flare_downsample_ppl,
             composition_ppl,
             player_collider_ppl,
             terrain_query_ppl,
@@ -1188,7 +1172,6 @@ pub struct ShaderModules {
     pub cloud_temporal_sm: ShaderModule,
     pub lens_flare_sm: ShaderModule,
     pub lens_flare_sun_visible_sm: ShaderModule,
-    pub lens_flare_downsample_sm: ShaderModule,
     pub post_processing_sm: ShaderModule,
     pub player_collider_sm: ShaderModule,
     pub terrain_query_sm: ShaderModule,
@@ -1245,7 +1228,6 @@ pub struct ComputePipelines {
     pub cloud_temporal_ppl: ComputePipeline,
     pub lens_flare_ppl: ComputePipeline,
     pub lens_flare_sun_visible_ppl: ComputePipeline,
-    pub lens_flare_downsample_ppl: ComputePipeline,
     pub composition_ppl: ComputePipeline,
     pub player_collider_ppl: ComputePipeline,
     pub terrain_query_ppl: ComputePipeline,

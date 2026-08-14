@@ -15,7 +15,7 @@ readonly RWTexture1D<uint> lens_flare_visible_count_tex;
 
 [[vk::binding(5, 0)]]
 [[vk::image_format("r11f_g11f_b10f")]]
-WTexture2D<float4> lens_flare_full_output_tex;
+WTexture2D<float4> lens_flare_output_tex;
 
 float lensFlareNoise(float value)
 {
@@ -85,7 +85,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint width;
     uint height;
-    lens_flare_full_output_tex.GetDimensions(width, height);
+    lens_flare_output_tex.GetDimensions(width, height);
     int2 coordinate = int2(dispatchThreadId.xy);
     if (any(coordinate >= int2(width, height)))
     {
@@ -100,7 +100,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         camera_info.view_proj_mat, float4(sunWorldPosition, 1.0));
     if (sunClipPosition.w <= 0.0)
     {
-        lens_flare_full_output_tex.Store(coordinate, float4(0.0));
+        lens_flare_output_tex.Store(coordinate, float4(0.0));
         return;
     }
 
@@ -110,14 +110,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         0.45, 0.8, max(sunDistanceFromCenter.x, sunDistanceFromCenter.y));
     if (edgeFactor <= 0.0)
     {
-        lens_flare_full_output_tex.Store(coordinate, float4(0.0));
+        lens_flare_output_tex.Store(coordinate, float4(0.0));
         return;
     }
 
     uint visibleCount = lens_flare_visible_count_tex[0];
     if (visibleCount == 0u)
     {
-        lens_flare_full_output_tex.Store(coordinate, float4(0.0));
+        lens_flare_output_tex.Store(coordinate, float4(0.0));
         return;
     }
 
@@ -142,6 +142,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float intensity = gui_input.lens_flare_intensity * sunVisibility *
                       edgeFactor * visibleRatio;
     float3 lensFlareColor = max(flare, float3(0.0)) * intensity;
-    lens_flare_full_output_tex.Store(
+    lens_flare_output_tex.Store(
         coordinate, float4(lensFlareColor, 1.0));
 }

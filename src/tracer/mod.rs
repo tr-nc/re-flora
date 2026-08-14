@@ -1837,10 +1837,6 @@ impl Tracer {
             &self.compute_pipelines.lens_flare_sun_visible_ppl,
             &tracer_resources,
         );
-        update_compute_fn(
-            &self.compute_pipelines.lens_flare_downsample_ppl,
-            &tracer_resources,
-        );
         update_compute_fn(&self.compute_pipelines.composition_ppl, &tracer_resources);
         update_compute_fn(
             &self.compute_pipelines.post_processing_ppl,
@@ -3879,13 +3875,6 @@ impl Tracer {
                 "lens_flare.pass",
                 || self.record_lens_flare_pass(cmdbuf),
             );
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "lens_flare_downsample.pass",
-                || self.record_lens_flare_downsample_pass(cmdbuf),
-            );
         }
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
@@ -4048,17 +4037,6 @@ impl Tracer {
         self.resources
             .extent_dependent_resources
             .god_ray_output_tex
-            .get_image()
-            .record_clear(
-                cmdbuf,
-                Some(TextureLayout::GENERAL),
-                0,
-                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
-            );
-
-        self.resources
-            .extent_dependent_resources
-            .lens_flare_full_output_tex
             .get_image()
             .record_clear(
                 cmdbuf,
@@ -5803,7 +5781,7 @@ impl Tracer {
             cmdbuf,
             self.resources
                 .extent_dependent_resources
-                .lens_flare_full_output_tex
+                .lens_flare_output_tex
                 .get_image()
                 .get_desc()
                 .extent,
@@ -5813,19 +5791,6 @@ impl Tracer {
 
     fn record_lens_flare_sun_visible_pass(&self, cmdbuf: &CommandBuffer) {
         self.compute_pipelines.lens_flare_sun_visible_ppl.record(
-            cmdbuf,
-            self.resources
-                .extent_dependent_resources
-                .lens_flare_full_output_tex
-                .get_image()
-                .get_desc()
-                .extent,
-            None,
-        );
-    }
-
-    fn record_lens_flare_downsample_pass(&self, cmdbuf: &CommandBuffer) {
-        self.compute_pipelines.lens_flare_downsample_ppl.record(
             cmdbuf,
             self.resources
                 .extent_dependent_resources

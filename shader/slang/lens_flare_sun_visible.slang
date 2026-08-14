@@ -2,6 +2,7 @@ import ray;
 import tracer_types;
 
 static const uint LENS_FLARE_GROUP_SIZE = 8u;
+static const uint LENS_FLARE_DOWNSAMPLE_FACTOR = 4u;
 static const float MINIMUM_VIEW_DEPTH = 1.0e-5;
 static const float MINIMUM_SUN_SIZE = 1.0e-4;
 
@@ -56,25 +57,30 @@ float sampleSunAlpha(float2 screenUv)
 [numthreads(LENS_FLARE_GROUP_SIZE, LENS_FLARE_GROUP_SIZE, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    uint width;
-    uint height;
-    gfx_depth_tex.GetDimensions(width, height);
-    int2 coordinate = int2(dispatchThreadId.xy);
-    if (any(coordinate >= int2(width, height)))
+    uint depthWidth;
+    uint depthHeight;
+    gfx_depth_tex.GetDimensions(depthWidth, depthHeight);
+    uint sampleWidth = max(depthWidth / LENS_FLARE_DOWNSAMPLE_FACTOR, 1u);
+    uint sampleHeight = max(depthHeight / LENS_FLARE_DOWNSAMPLE_FACTOR, 1u);
+    int2 sampleCoordinate = int2(dispatchThreadId.xy);
+    if (any(sampleCoordinate >= int2(sampleWidth, sampleHeight)))
     {
         return;
     }
 
-    float2 screenUv = (float2(coordinate) + float2(0.5)) /
-                      float2(width, height);
+    float2 screenUv = (float2(sampleCoordinate) + float2(0.5)) /
+                      float2(sampleWidth, sampleHeight);
     float alpha = sampleSunAlpha(screenUv);
     if (alpha <= 0.001)
     {
         return;
     }
 
-    float graphicsDepth = gfx_depth_tex.Load(int3(coordinate, 0)).r;
-    float computeDepth = compute_depth_tex[coordinate];
+    int2 depthCoordinate = int2(clamp(
+        screenUv * float2(depthWidth, depthHeight), float2(0.0),
+        float2(int2(depthWidth, depthHeight) - int2(1))));
+    float graphicsDepth = gfx_depth_tex.Load(int3(depthCoordinate, 0)).r;
+    float computeDepth = compute_depth_tex[depthCoordinate];
     if (graphicsDepth >= 1.0 && computeDepth >= 1.0)
     {
         uint previousCount;

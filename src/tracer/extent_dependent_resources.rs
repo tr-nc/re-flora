@@ -18,7 +18,6 @@ pub struct ExtentDependentResources {
     pub god_ray_output_tex: Resource<Texture>,
     pub lens_flare_required_count_tex: Resource<Texture>,
     pub lens_flare_visible_count_tex: Resource<Texture>,
-    pub lens_flare_full_output_tex: Resource<Texture>,
     pub lens_flare_output_tex: Resource<Texture>,
     pub cloud_raw_tex: Resource<Texture>,
     pub cloud_history_tex: Resource<Texture>,
@@ -56,11 +55,6 @@ impl ExtentDependentResources {
             Self::create_lens_flare_count_tex(device.clone(), allocator.clone());
         let lens_flare_visible_count_tex =
             Self::create_lens_flare_count_tex(device.clone(), allocator.clone());
-        let lens_flare_full_output_tex = Self::create_lens_flare_full_output_tex(
-            device.clone(),
-            allocator.clone(),
-            rendering_extent,
-        );
         let lens_flare_output_tex =
             Self::create_lens_flare_output_tex(device.clone(), allocator.clone(), rendering_extent);
         let cloud_raw_tex =
@@ -85,7 +79,6 @@ impl ExtentDependentResources {
             god_ray_output_tex: Resource::new(god_ray_output_tex),
             lens_flare_required_count_tex: Resource::new(lens_flare_required_count_tex),
             lens_flare_visible_count_tex: Resource::new(lens_flare_visible_count_tex),
-            lens_flare_full_output_tex: Resource::new(lens_flare_full_output_tex),
             lens_flare_output_tex: Resource::new(lens_flare_output_tex),
             cloud_raw_tex: Resource::new(cloud_raw_tex),
             cloud_history_tex: Resource::new(cloud_history_tex),
@@ -259,22 +252,6 @@ impl ExtentDependentResources {
         );
         let tex_desc = ImageDesc {
             extent: lens_flare_extent.into(),
-            format: vk::Format::B10G11R11_UFLOAT_PACK32,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: TextureLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        Texture::new(device, allocator, &tex_desc, &Default::default())
-    }
-
-    fn create_lens_flare_full_output_tex(
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: rendering_extent.into(),
             format: vk::Format::B10G11R11_UFLOAT_PACK32,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: TextureLayout::UNDEFINED,
