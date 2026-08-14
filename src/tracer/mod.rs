@@ -361,6 +361,12 @@ struct CloudShadowTemporalPushConstants {
     reset_history: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct EffectTemporalPushConstants {
+    reset_history: u32,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TerrainRayQuery {
     pub origin: Vec3,
@@ -802,6 +808,8 @@ pub struct Tracer {
     current_view_proj_mat: Mat4,
     direct_sun_shadows: DirectSunShadowRuntime,
     cloud_history_valid: bool,
+    god_ray_history_valid: bool,
+    lens_flare_history_valid: bool,
     environment_lighting: EnvironmentLightingCache,
     flora_lighting_cache: FloraLightingCache,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
@@ -1116,6 +1124,8 @@ impl Tracer {
             current_view_proj_mat: Mat4::IDENTITY,
             direct_sun_shadows: DirectSunShadowRuntime::default(),
             cloud_history_valid: false,
+            god_ray_history_valid: false,
+            lens_flare_history_valid: false,
             environment_lighting: EnvironmentLightingCache::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             ddgi_voxel_visibility,
@@ -1742,6 +1752,8 @@ impl Tracer {
         ));
 
         self.cloud_history_valid = false;
+        self.god_ray_history_valid = false;
+        self.lens_flare_history_valid = false;
         self.direct_sun_shadows.invalidate_cloud_history();
         self.update_sets(
             contree_builder_resources,
@@ -1822,6 +1834,10 @@ impl Tracer {
         update_compute_fn(&self.compute_pipelines.vsm_blur_h_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.vsm_blur_v_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.god_ray_ppl, &tracer_resources);
+        update_compute_fn(
+            &self.compute_pipelines.god_ray_temporal_ppl,
+            &tracer_resources,
+        );
         update_compute_fn(&self.compute_pipelines.cloud_ppl, &tracer_resources);
         update_compute_fn(&self.compute_pipelines.cloud_shadow_ppl, &tracer_resources);
         update_compute_fn(
@@ -1833,6 +1849,10 @@ impl Tracer {
             &tracer_resources,
         );
         update_compute_fn(&self.compute_pipelines.lens_flare_ppl, &tracer_resources);
+        update_compute_fn(
+            &self.compute_pipelines.lens_flare_temporal_ppl,
+            &tracer_resources,
+        );
         update_compute_fn(
             &self.compute_pipelines.lens_flare_sun_visible_ppl,
             &tracer_resources,
@@ -3840,6 +3860,17 @@ impl Tracer {
                 "god_ray.pass",
                 || self.record_god_ray_pass(cmdbuf),
             );
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "god_ray_temporal.pass",
+                || self.record_god_ray_temporal_pass(cmdbuf),
+            );
+            self.record_store_god_ray_history(cmdbuf);
+            self.god_ray_history_valid = true;
+        } else {
+            self.god_ray_history_valid = false;
         }
 
         if render_flags.enable_clouds {
@@ -3875,6 +3906,17 @@ impl Tracer {
                 "lens_flare.pass",
                 || self.record_lens_flare_pass(cmdbuf),
             );
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "lens_flare_temporal.pass",
+                || self.record_lens_flare_temporal_pass(cmdbuf),
+            );
+            self.record_store_lens_flare_history(cmdbuf);
+            self.lens_flare_history_valid = true;
+        } else {
+            self.lens_flare_history_valid = false;
         }
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
@@ -3925,6 +3967,38 @@ impl Tracer {
                 self.resources
                     .extent_dependent_resources
                     .cloud_history_tex
+                    .get_image(),
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
+            );
+    }
+
+    fn record_store_god_ray_history(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .extent_dependent_resources
+            .god_ray_output_tex
+            .get_image()
+            .record_copy_to(
+                cmdbuf,
+                self.resources
+                    .extent_dependent_resources
+                    .god_ray_history_tex
+                    .get_image(),
+                TextureLayout::GENERAL,
+                TextureLayout::GENERAL,
+            );
+    }
+
+    fn record_store_lens_flare_history(&self, cmdbuf: &CommandBuffer) {
+        self.resources
+            .extent_dependent_resources
+            .lens_flare_output_tex
+            .get_image()
+            .record_copy_to(
+                cmdbuf,
+                self.resources
+                    .extent_dependent_resources
+                    .lens_flare_history_tex
                     .get_image(),
                 TextureLayout::GENERAL,
                 TextureLayout::GENERAL,
@@ -4034,27 +4108,31 @@ impl Tracer {
                 );
         }
 
-        self.resources
-            .extent_dependent_resources
-            .god_ray_output_tex
-            .get_image()
-            .record_clear(
-                cmdbuf,
-                Some(TextureLayout::GENERAL),
-                0,
-                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
-            );
+        if !render_flags.enable_god_rays {
+            self.resources
+                .extent_dependent_resources
+                .god_ray_output_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
+                );
+        }
 
-        self.resources
-            .extent_dependent_resources
-            .lens_flare_output_tex
-            .get_image()
-            .record_clear(
-                cmdbuf,
-                Some(TextureLayout::GENERAL),
-                0,
-                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
-            );
+        if !render_flags.enable_lens_flare {
+            self.resources
+                .extent_dependent_resources
+                .lens_flare_output_tex
+                .get_image()
+                .record_clear(
+                    cmdbuf,
+                    Some(TextureLayout::GENERAL),
+                    0,
+                    ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
+                );
+        }
 
         if render_flags.enable_lens_flare {
             self.resources
@@ -5692,11 +5770,27 @@ impl Tracer {
             cmdbuf,
             self.resources
                 .extent_dependent_resources
-                .god_ray_output_tex
+                .god_ray_raw_tex
                 .get_image()
                 .get_desc()
                 .extent,
             None,
+        );
+    }
+
+    fn record_god_ray_temporal_pass(&self, cmdbuf: &CommandBuffer) {
+        let push_constants = EffectTemporalPushConstants {
+            reset_history: u32::from(!self.god_ray_history_valid),
+        };
+        self.compute_pipelines.god_ray_temporal_ppl.record(
+            cmdbuf,
+            self.resources
+                .extent_dependent_resources
+                .god_ray_output_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            Some(bytemuck::bytes_of(&push_constants)),
         );
     }
 
@@ -5781,11 +5875,27 @@ impl Tracer {
             cmdbuf,
             self.resources
                 .extent_dependent_resources
-                .lens_flare_output_tex
+                .lens_flare_raw_tex
                 .get_image()
                 .get_desc()
                 .extent,
             None,
+        );
+    }
+
+    fn record_lens_flare_temporal_pass(&self, cmdbuf: &CommandBuffer) {
+        let push_constants = EffectTemporalPushConstants {
+            reset_history: u32::from(!self.lens_flare_history_valid),
+        };
+        self.compute_pipelines.lens_flare_temporal_ppl.record(
+            cmdbuf,
+            self.resources
+                .extent_dependent_resources
+                .lens_flare_output_tex
+                .get_image()
+                .get_desc()
+                .extent,
+            Some(bytemuck::bytes_of(&push_constants)),
         );
     }
 
@@ -5794,7 +5904,7 @@ impl Tracer {
             cmdbuf,
             self.resources
                 .extent_dependent_resources
-                .lens_flare_output_tex
+                .lens_flare_raw_tex
                 .get_image()
                 .get_desc()
                 .extent,
@@ -5856,6 +5966,8 @@ impl Tracer {
         self.current_view_proj_mat = proj_mat * view_mat;
         self.direct_sun_shadows.invalidate_local_histories();
         self.cloud_history_valid = false;
+        self.god_ray_history_valid = false;
+        self.lens_flare_history_valid = false;
         if let Err(err) = self
             .spatial_sound_manager
             .update_player_pos(self.camera.position(), self.camera.vectors())

@@ -532,6 +532,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/tracer/god_ray_temporal.comp",
+        source_path: "shader/slang/god_ray_temporal.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/tracer/leaf_shadow_mask.comp",
         source_path: "shader/slang/leaf_shadow_mask.slang",
         module_path: "shader/slang",
@@ -552,6 +558,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
     ShaderConfig {
         logical_path: "shader/tracer/lens_flare.comp",
         source_path: "shader/slang/lens_flare.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/tracer/lens_flare_temporal.comp",
+        source_path: "shader/slang/lens_flare_temporal.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Compute,
     },

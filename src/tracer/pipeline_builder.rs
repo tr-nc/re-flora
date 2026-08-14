@@ -143,6 +143,13 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let god_ray_temporal_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/god_ray_temporal.comp",
+            "main",
+        )
+        .unwrap();
+
         let composition_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/composition.comp",
@@ -190,6 +197,13 @@ impl PipelineBuilder {
         let lens_flare_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/lens_flare.comp",
+            "main",
+        )
+        .unwrap();
+
+        let lens_flare_temporal_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/lens_flare_temporal.comp",
             "main",
         )
         .unwrap();
@@ -387,6 +401,7 @@ impl PipelineBuilder {
             vsm_blur_h_sm,
             vsm_blur_v_sm,
             god_ray_sm,
+            god_ray_temporal_sm,
             composition_sm,
             terrain_depth_prefill_vert_sm,
             terrain_depth_prefill_frag_sm,
@@ -395,6 +410,7 @@ impl PipelineBuilder {
             cloud_shadow_temporal_sm,
             cloud_temporal_sm,
             lens_flare_sm,
+            lens_flare_temporal_sm,
             lens_flare_sun_visible_sm,
             post_processing_sm,
             player_collider_sm,
@@ -608,6 +624,12 @@ impl PipelineBuilder {
             ComputePipeline::new(device, &shader_modules.vsm_blur_v_sm, pool, &[resources]);
         let god_ray_ppl =
             ComputePipeline::new(device, &shader_modules.god_ray_sm, pool, &[resources]);
+        let god_ray_temporal_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.god_ray_temporal_sm,
+            pool,
+            &[resources],
+        );
         let composition_ppl =
             ComputePipeline::new(device, &shader_modules.composition_sm, pool, &[resources]);
         let cloud_ppl = ComputePipeline::new(device, &shader_modules.cloud_sm, pool, &[resources]);
@@ -627,6 +649,12 @@ impl PipelineBuilder {
         );
         let lens_flare_ppl =
             ComputePipeline::new(device, &shader_modules.lens_flare_sm, pool, &[resources]);
+        let lens_flare_temporal_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.lens_flare_temporal_sm,
+            pool,
+            &[resources],
+        );
         let lens_flare_sun_visible_ppl = ComputePipeline::new(
             device,
             &shader_modules.lens_flare_sun_visible_sm,
@@ -663,11 +691,13 @@ impl PipelineBuilder {
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
             god_ray_ppl,
+            god_ray_temporal_ppl,
             cloud_ppl,
             cloud_shadow_ppl,
             cloud_shadow_temporal_ppl,
             cloud_temporal_ppl,
             lens_flare_ppl,
+            lens_flare_temporal_ppl,
             lens_flare_sun_visible_ppl,
             composition_ppl,
             player_collider_ppl,
@@ -1163,6 +1193,7 @@ pub struct ShaderModules {
     pub vsm_blur_h_sm: ShaderModule,
     pub vsm_blur_v_sm: ShaderModule,
     pub god_ray_sm: ShaderModule,
+    pub god_ray_temporal_sm: ShaderModule,
     pub composition_sm: ShaderModule,
     pub terrain_depth_prefill_vert_sm: ShaderModule,
     pub terrain_depth_prefill_frag_sm: ShaderModule,
@@ -1171,6 +1202,7 @@ pub struct ShaderModules {
     pub cloud_shadow_temporal_sm: ShaderModule,
     pub cloud_temporal_sm: ShaderModule,
     pub lens_flare_sm: ShaderModule,
+    pub lens_flare_temporal_sm: ShaderModule,
     pub lens_flare_sun_visible_sm: ShaderModule,
     pub post_processing_sm: ShaderModule,
     pub player_collider_sm: ShaderModule,
@@ -1222,11 +1254,13 @@ pub struct ComputePipelines {
     pub vsm_blur_h_ppl: ComputePipeline,
     pub vsm_blur_v_ppl: ComputePipeline,
     pub god_ray_ppl: ComputePipeline,
+    pub god_ray_temporal_ppl: ComputePipeline,
     pub cloud_ppl: ComputePipeline,
     pub cloud_shadow_ppl: ComputePipeline,
     pub cloud_shadow_temporal_ppl: ComputePipeline,
     pub cloud_temporal_ppl: ComputePipeline,
     pub lens_flare_ppl: ComputePipeline,
+    pub lens_flare_temporal_ppl: ComputePipeline,
     pub lens_flare_sun_visible_ppl: ComputePipeline,
     pub composition_ppl: ComputePipeline,
     pub player_collider_ppl: ComputePipeline,

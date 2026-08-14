@@ -15,9 +15,13 @@ pub struct ExtentDependentResources {
     pub environment_irradiance_capture: Resource<Buffer>,
     pub ddgi_spatial_weight_readback: Resource<Buffer>,
     pub gfx_output_tex: Resource<Texture>,
+    pub god_ray_raw_tex: Resource<Texture>,
+    pub god_ray_history_tex: Resource<Texture>,
     pub god_ray_output_tex: Resource<Texture>,
     pub lens_flare_required_count_tex: Resource<Texture>,
     pub lens_flare_visible_count_tex: Resource<Texture>,
+    pub lens_flare_raw_tex: Resource<Texture>,
+    pub lens_flare_history_tex: Resource<Texture>,
     pub lens_flare_output_tex: Resource<Texture>,
     pub cloud_raw_tex: Resource<Texture>,
     pub cloud_history_tex: Resource<Texture>,
@@ -49,14 +53,22 @@ impl ExtentDependentResources {
             Self::create_ddgi_spatial_weight_readback(device.clone(), allocator.clone());
         let gfx_output_tex =
             Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        let god_ray_raw_tex =
+            Self::create_god_ray_tex(device.clone(), allocator.clone(), rendering_extent);
+        let god_ray_history_tex =
+            Self::create_god_ray_tex(device.clone(), allocator.clone(), rendering_extent);
         let god_ray_output_tex =
-            Self::create_god_ray_output_tex(device.clone(), allocator.clone(), rendering_extent);
+            Self::create_god_ray_tex(device.clone(), allocator.clone(), rendering_extent);
         let lens_flare_required_count_tex =
             Self::create_lens_flare_count_tex(device.clone(), allocator.clone());
         let lens_flare_visible_count_tex =
             Self::create_lens_flare_count_tex(device.clone(), allocator.clone());
+        let lens_flare_raw_tex =
+            Self::create_lens_flare_tex(device.clone(), allocator.clone(), rendering_extent);
+        let lens_flare_history_tex =
+            Self::create_lens_flare_tex(device.clone(), allocator.clone(), rendering_extent);
         let lens_flare_output_tex =
-            Self::create_lens_flare_output_tex(device.clone(), allocator.clone(), rendering_extent);
+            Self::create_lens_flare_tex(device.clone(), allocator.clone(), rendering_extent);
         let cloud_raw_tex =
             Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
         let cloud_history_tex =
@@ -76,9 +88,13 @@ impl ExtentDependentResources {
             environment_irradiance_capture: Resource::new(environment_irradiance_capture),
             ddgi_spatial_weight_readback: Resource::new(ddgi_spatial_weight_readback),
             gfx_output_tex: Resource::new(gfx_output_tex),
+            god_ray_raw_tex: Resource::new(god_ray_raw_tex),
+            god_ray_history_tex: Resource::new(god_ray_history_tex),
             god_ray_output_tex: Resource::new(god_ray_output_tex),
             lens_flare_required_count_tex: Resource::new(lens_flare_required_count_tex),
             lens_flare_visible_count_tex: Resource::new(lens_flare_visible_count_tex),
+            lens_flare_raw_tex: Resource::new(lens_flare_raw_tex),
+            lens_flare_history_tex: Resource::new(lens_flare_history_tex),
             lens_flare_output_tex: Resource::new(lens_flare_output_tex),
             cloud_raw_tex: Resource::new(cloud_raw_tex),
             cloud_history_tex: Resource::new(cloud_history_tex),
@@ -185,7 +201,7 @@ impl ExtentDependentResources {
         Texture::new(device, allocator, &tex_desc, &Default::default())
     }
 
-    fn create_god_ray_output_tex(
+    fn create_god_ray_tex(
         device: Device,
         allocator: Allocator,
         rendering_extent: Extent2D,
@@ -205,7 +221,12 @@ impl ExtentDependentResources {
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
-        Texture::new(device, allocator, &tex_desc, &Default::default())
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
     }
 
     fn create_screen_output_tex(
@@ -245,7 +266,7 @@ impl ExtentDependentResources {
         Texture::new(device, allocator, &tex_desc, &Default::default())
     }
 
-    fn create_lens_flare_output_tex(
+    fn create_lens_flare_tex(
         device: Device,
         allocator: Allocator,
         rendering_extent: Extent2D,
@@ -257,12 +278,20 @@ impl ExtentDependentResources {
         let tex_desc = ImageDesc {
             extent: lens_flare_extent.into(),
             format: vk::Format::B10G11R11_UFLOAT_PACK32,
-            usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+            usage: vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC
+                | vk::ImageUsageFlags::TRANSFER_DST,
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
-        Texture::new(device, allocator, &tex_desc, &Default::default())
+        let sam_desc = SamplerDesc {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            ..Default::default()
+        };
+        Texture::new(device, allocator, &tex_desc, &sam_desc)
     }
 
     fn create_cloud_tex(

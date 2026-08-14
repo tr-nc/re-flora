@@ -8,6 +8,7 @@ static const float PI = 3.14159265;
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
 [[vk::binding(2, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
+[[vk::binding(3, 0)]] ConstantBuffer<U_EnvInfo> env_info;
 
 [[vk::binding(4, 0)]]
 [[vk::image_format("r32ui")]]
@@ -15,7 +16,7 @@ readonly RWTexture1D<uint> lens_flare_visible_count_tex;
 
 [[vk::binding(5, 0)]]
 [[vk::image_format("r11f_g11f_b10f")]]
-WTexture2D<float4> lens_flare_output_tex;
+WTexture2D<float4> lens_flare_raw_tex;
 
 float lensFlareNoise(float value)
 {
@@ -85,22 +86,20 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint width;
     uint height;
-    lens_flare_output_tex.GetDimensions(width, height);
+    lens_flare_raw_tex.GetDimensions(width, height);
     int2 coordinate = int2(dispatchThreadId.xy);
     if (any(coordinate >= int2(width, height)))
     {
         return;
     }
 
-    float2 lensFlareUv = (float2(coordinate) + float2(0.5)) /
-                         float2(width, height);
     float3 sunWorldPosition = camera_info.pos.xyz +
                               sun_info.sun_dir * 10000.0;
     float4 sunClipPosition = mul(
         camera_info.view_proj_mat, float4(sunWorldPosition, 1.0));
     if (sunClipPosition.w <= 0.0)
     {
-        lens_flare_output_tex.Store(coordinate, float4(0.0));
+        lens_flare_raw_tex.Store(coordinate, float4(0.0));
         return;
     }
 
@@ -110,14 +109,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         0.45, 0.8, max(sunDistanceFromCenter.x, sunDistanceFromCenter.y));
     if (edgeFactor <= 0.0)
     {
-        lens_flare_output_tex.Store(coordinate, float4(0.0));
+        lens_flare_raw_tex.Store(coordinate, float4(0.0));
         return;
     }
 
     uint visibleCount = lens_flare_visible_count_tex[0];
     if (visibleCount == 0u)
     {
-        lens_flare_output_tex.Store(coordinate, float4(0.0));
+        lens_flare_raw_tex.Store(coordinate, float4(0.0));
         return;
     }
 
@@ -128,20 +127,32 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float visibleRatio = clamp(
         float(visibleCount) / max(estimatedTotalPixels, 1.0), 0.0, 1.0);
 
-    float2 uv = lensFlareUv - float2(0.5);
     float2 position = sunUv - float2(0.5);
     float aspect = float(width) / float(height);
-    uv.x *= aspect;
     position.x *= aspect;
 
-    float3 flare = float3(1.4, 1.2, 1.0) *
-                   lensFlarePattern(uv, position);
-    flare = correctLensFlareColor(flare, 0.5, 0.1);
+    // One low-resolution texel covers a 4x4 block at the main render extent.
+    // Four Latin-square strata per frame preserve a quarter of the old full-resolution
+    // integration cost; the temporal resolve combines successive phases into all 16 strata.
+    uint phase = env_info.frame_serial_idx & 3u;
+    float3 flare = float3(0.0);
+    for (uint sampleIndex = 0u; sampleIndex < 4u; ++sampleIndex)
+    {
+        uint2 stratum = uint2(sampleIndex, (sampleIndex + phase) & 3u);
+        float2 sampleOffset = (float2(stratum) + float2(0.5)) * 0.25;
+        float2 lensFlareUv = (float2(coordinate) + sampleOffset) /
+                             float2(width, height);
+        float2 uv = lensFlareUv - float2(0.5);
+        uv.x *= aspect;
+        flare += float3(1.4, 1.2, 1.0) *
+                 lensFlarePattern(uv, position);
+    }
+    flare = correctLensFlareColor(flare * 0.25, 0.5, 0.1);
 
     float sunVisibility = sunLuminanceFromDirection(sun_info.sun_dir, 1.0);
     float intensity = gui_input.lens_flare_intensity * sunVisibility *
                       edgeFactor * visibleRatio;
     float3 lensFlareColor = max(flare, float3(0.0)) * intensity;
-    lens_flare_output_tex.Store(
+    lens_flare_raw_tex.Store(
         coordinate, float4(lensFlareColor, 1.0));
 }

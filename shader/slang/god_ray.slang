@@ -20,7 +20,7 @@ readonly RWTexture2D<float> compute_depth_tex;
 
 [[vk::binding(7, 0)]]
 [[vk::image_format("r32f")]]
-WTexture2D<float> god_ray_output_tex;
+WTexture2D<float> god_ray_raw_tex;
 
 [[vk::binding(0, 1)]] Sampler2DArray scalar_bn;
 [[vk::binding(1, 1)]] Sampler2DArray unit_vec2_bn;
@@ -42,7 +42,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint outputWidth;
     uint outputHeight;
-    god_ray_output_tex.GetDimensions(outputWidth, outputHeight);
+    god_ray_raw_tex.GetDimensions(outputWidth, outputHeight);
     int2 outputCoordinate = int2(dispatchThreadId.xy);
     if (any(outputCoordinate >= int2(outputWidth, outputHeight)))
     {
@@ -95,5 +95,5 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         }
     }
 
-    god_ray_output_tex.Store(outputCoordinate, shadowVisibility);
+    god_ray_raw_tex.Store(outputCoordinate, shadowVisibility);
 }
