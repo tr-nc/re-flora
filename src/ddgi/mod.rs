@@ -48,11 +48,11 @@ pub(crate) const DDGI_SPATIAL_WEIGHT_READBACK_PIXELS: [[u32; 2];
 pub use atlas::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiAtlasLayout, DdgiVolumeGrid,
     DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE,
-    DDGI_PROBE_BATCH_SIZE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
-    DDGI_VISIBILITY_INTERIOR_SIDE, DEFAULT_DDGI_SPACING_VOXELS, SUPPORTED_DDGI_SPACINGS_VOXELS,
+    DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DEFAULT_DDGI_SPACING_VOXELS, SUPPORTED_DDGI_SPACINGS_VOXELS,
 };
 pub use capture::{DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiCaptureTarget};
-pub use config::DDGI_RAYS_PER_PROBE;
+pub use config::{DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE, DDGI_RAY_BUDGET_PER_FRAME};
 // These identities and diagnostics form the capture/analysis seam even when the game binary does
 // not directly name every exported type in a particular build.
 #[allow(unused_imports)]

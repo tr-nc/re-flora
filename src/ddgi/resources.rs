@@ -1,7 +1,7 @@
 use super::{
     DdgiAtlasLayout, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldStage, DdgiScheduledWork,
     DdgiScheduledWorkKind, DdgiVolumeGrid, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_PROBE_BATCH_SIZE,
-    DDGI_RAYS_PER_PROBE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DDGI_RAYS_PER_PROBE, DDGI_RAY_BUDGET_PER_FRAME, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::DdgiRadianceSnapshot;
 use crate::generated::gpu_structs::{
@@ -929,7 +929,7 @@ impl DdgiVolume {
             Texture::new(device, allocator, &global_sky_desc, &sampler_desc);
 
         log::info!(
-            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} total_mib={:.2}",
+            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_budget_per_frame={} ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
@@ -939,6 +939,7 @@ impl DdgiVolume {
             irradiance_layout.extent().y,
             visibility_layout.extent().x,
             visibility_layout.extent().y,
+            DDGI_RAY_BUDGET_PER_FRAME,
             DDGI_PROBE_BATCH_SIZE,
             DDGI_RAYS_PER_PROBE,
             resource_bytes.probe_metadata,
