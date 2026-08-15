@@ -58,10 +58,11 @@ Probe hit 上合法的 direct-sun bounce
   防止一个 voxel 内出现黑/亮三角裂缝；
 - Probe trace、direct-sun transport、atlas、材质、默认 spacing 和最终 direct VSM 均未改变。
 
-为了保留原 terrain cache 的性能，缓存现在为八个 cage corners 保存 canonical
-`hard * moment` visibility，并以 8 个 UNORM16 打包进一个 `uint4`。缓存命中时只重采八个
-Probe irradiance 并用精确 surface position 重建连续 spatial weight。没有启用 Vulkan
-Float16/Int16 capability。
+历史实现为了保留当时 terrain receiver cache 的性能，为八个 cage corners 保存 canonical
+`hard * moment` visibility，并以 8 个 UNORM16 打包进一个 `uint4`。该 cache 已于
+2026-08-16 在 Moment-only consumer 迁移后完整移除；当前 terrain 直接用精确 surface
+position 对已发布 DDGI field 做 smooth Moment query。seam 修复保留的职责拆分与 fallback
+语义不依赖这个 cache。
 
 ### 症状与正确性验收
 
@@ -104,8 +105,9 @@ analyzer 同时增加了“窄台阶”判定：局部 gradient 必须足够集�
 | `tracer.pass` | `334 / 390.4 us` | `371 / 395.6 us` | `+37 us` |
 
 整帧 mean 从 `2023.0 us` 到 `2015.5 us`；P95 的下降属于该场景调度噪声，不作为性能收益
-宣称。可归因的稳定成本是 main tracer 约 `37 us`。terrain DDGI cache 从 32 MiB 增至
-48 MiB，即额外 16 MiB GPU memory。生成文件和 `config/gui.toml` 均未变化。
+宣称。可归因的稳定成本是 main tracer 约 `37 us`。当时 terrain DDGI cache 从 32 MiB
+增至 48 MiB，即额外 16 MiB GPU memory；该 48 MiB allocation 后来已随 receiver cache
+一并删除。生成文件和 `config/gui.toml` 均未变化。
 
 ## 2026-08-07 诊断进展
 

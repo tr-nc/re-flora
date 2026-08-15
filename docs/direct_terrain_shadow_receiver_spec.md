@@ -121,8 +121,7 @@ or host-side setting.
 
 - Changing DDGI Probe placement, relocation, transport, Irradiance Map construction, Visibility Map
   construction, consumer visibility, receiver bias, hard visibility, convergence, or publication.
-- Changing the terrain DDGI cache key, cache population, cache lookup, cache invalidation, or the
-  canonical DDGI receiver position.
+- Changing the canonical DDGI receiver position or introducing a terrain DDGI receiver cache.
 - Changing `result.normal`, normal generation, normal smoothing, or the cosine lighting term.
 - Changing terrain albedo, palette lookup, fertility tint, material variation, or edit-preview
   tint.

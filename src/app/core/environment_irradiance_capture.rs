@@ -799,7 +799,7 @@ mod tests {
             .split_once("public DdgiQueryResult sampleDdgiUnpublishedTerrainSmoothEnvironment(")
             .expect("capture-only DDGI query must exist")
             .1
-            .split_once("public struct DdgiTerrainSmoothCacheData")
+            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
             .expect("capture-only query must remain isolated")
             .0;
         assert!(capture_query.contains("query.ready = 1u"));

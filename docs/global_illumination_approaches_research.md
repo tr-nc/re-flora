@@ -151,14 +151,18 @@ authoritative voxel terrain + material/sun/sky revisions
                          |
  sampleDiffuseEnvironment(world_position, geometric_normal)
               /                              \
- terrain receiver cache             raster lighting caches
+ direct terrain query               raster lighting caches
                                      flora/leaves/future objects
 
 direct sun / VSM / leaf / cloud shadows remain separate
 specular / reflections remain separate
 ```
 
-**【事实】仓库现有 `TerrainLightingCache` 缓存的是 terrain shading 对已发布 DDGI field 的消费结果；它是 receiver-side cache，并不是上图建议的 producer cache。** 新 cache 若成立，应由 geometry/material/sun/sky/source-field revisions 标识，复用 probe rays 命中 terrain 后的 radiance 计算，再把结果投影进现有 irradiance field；不能把两种 ownership 混在一个失效策略中。见 [`src/tracer/terrain_lighting_cache.rs`](../src/tracer/terrain_lighting_cache.rs)。
+**【事实】terrain shading 现在直接查询已发布 DDGI field；曾有的 receiver-side cache 已在
+2026-08-16 移除。** 它与上图建议的 producer cache 本来就是不同 ownership。新 producer
+cache 若成立，应由 geometry/material/sun/sky/source-field revisions 标识，复用 probe rays
+命中 terrain 后的 radiance 计算，再把结果投影进现有 irradiance field；不能因为历史上有过
+receiver cache 就沿用它的失效策略。
 
 **【建议】provider 的语义保持稳定，内部实现可换。** 当前 shader ABI 可以暂时仍只返回 irradiance；host/domain 边界应把 `confidence`、`geometry_revision`、`radiance_revision` 作为内部 ownership 继续保留。任何新 backend 都必须证明：
 

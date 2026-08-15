@@ -131,12 +131,12 @@ These measurements separate two conclusions:
 2. Repeating exact voxel visibility for every visible leaf cache entry is a larger and more reliable
    local optimization target than changing the DDGI topology from eight corners to four.
 
-### Moment-only terrain cache retention measurement (2026-08-16)
+### Moment-only terrain cache removal decision (2026-08-16)
 
 After all runtime consumers were standardized on Moment visibility, the terrain receiver cache was
 remeasured rather than retained from the old Full-mode evidence. Baseline commit `91e996b1` used
-the production cache. Throwaway branch commit `3c304dae` bypassed only
-`sampleTerrainDdgiEnvironmentSmoothCached` and called the existing uncached smooth Moment query;
+the production cache. Throwaway branch commit `3c304dae` bypassed only the production cache call
+and called the existing uncached smooth Moment query;
 the unused cache resources remained allocated, making this a conservative steady-render test of
 the lookup/reuse algorithm rather than a memory-footprint comparison.
 
@@ -155,10 +155,11 @@ before interpretation because its final baseline changed from 2400x1350 to 2880x
 Both individual A/B pairs reproduced the tracer delta: baseline medians were 482/484 us and the
 uncached candidate medians were 539/540 us. Tail samples were host-noisy and did not order with the
 median, so no p95 benefit is claimed. The stable median regressions exceed the checked-in 2% budgets
-for both `frame.render` and `tracer.render`; the cache remains justified even though Exact consumer
-visibility has been removed. Evidence is under
-`target/perf/terrain-cache-moment-bypass-windowed-abba-2/`; the bypass remains only on the
-throwaway experiment branch and is not production code.
+for both `frame.render` and `tracer.render`; this is the measured cost of removing the cache, not a
+performance-neutral cleanup. The product decision nevertheless chose the direct Moment query to
+remove 48 MiB of GPU allocations plus the cache key, invalidation, clear, descriptor, and shader
+maintenance paths. Evidence is under
+`target/perf/terrain-cache-moment-bypass-windowed-abba-2/`; production now uses the direct query.
 
 ## What the current renderer actually executes
 
@@ -184,17 +185,17 @@ cost(query) ~= 8 * (
 Early rejection can reduce this, but it also introduces lane divergence when neighboring cache
 entries reject different probes or exact traversals hit at different lengths.
 
-### Terrain already has a receiver cache
+### Terrain now queries the published field directly
 
-**Fact:** terrain stores canonical irradiance and eight 16-bit packed visibility values. When a
-matching terrain cache entry exists, it reuses those visibility results and only reloads probe
-metadata and irradiance to rebuild the smoothly weighted result. See
-[`ddgi_query.slang`](../../../shader/slang/ddgi_query.slang#L1002-L1023) and
-[`ddgi_query.slang`](../../../shader/slang/ddgi_query.slang#L1145-L1207).
+**Fact:** terrain performs the smooth eight-corner Moment query directly from the published DDGI
+field. It no longer allocates or maintains a receiver-side result/visibility cache. See
+[`tracer.slang`](../../../shader/slang/tracer.slang) and
+[`ddgi_query.slang`](../../../shader/slang/ddgi_query.slang).
 
-**Inference:** this is already the right decomposition: geometric visibility has a different
-invalidation lifetime from lighting radiance. It is a stronger template for flora optimization
-than changing the number of probe corners.
+**Decision:** the earlier cache was measurably faster, but its 48 MiB footprint and invalidation,
+clear, descriptor, and shader complexity were not worth the measured 56 us median frame benefit
+for the current Moment-only renderer. That trade-off should be remeasured before any future cache
+is introduced rather than inferred from the removed design.
 
 ### Flora and leaves cache the result, but rebuild the cache every frame
 
@@ -229,7 +230,7 @@ by the full receiver query, not the eventual flora/leaf draw's one-buffer-load l
 | Irradiance | Up to eight bilinear atlas samples | Up to eight bilinear `RGBA32F` atlas samples | Bandwidth/cache sensitive; neighboring shading points often share probes and directions, improving locality |
 | Visibility moments | Up to eight bilinear distance samples plus Chebyshev | Same structure, currently `RG32F` | Additional bandwidth plus moderate ALU; usually predictable and bounded |
 | Exact visibility | None | Up to eight variable-length 3D voxel traversals | High-risk cost: dependent memory access and divergent loop length |
-| Repetition frequency | Typically per shaded pixel/vertex or chosen cache sample | terrain cache reuse, but all visible flora cache entries and leaf instances repopulated each frame | Multiplier can dominate even when one query is individually reasonable |
+| Repetition frequency | Typically per shaded pixel/vertex or chosen cache sample | terrain queries directly; all visible flora cache entries and leaf instances repopulate each frame | Multiplier can dominate even when one query is individually reasonable |
 | Output/writeback | Inline gather can avoid an intermediate full-screen pass | Flora compute writes one `float4` per cache entry, then vertex shader rereads it | Beneficial if many vertices reuse each entry; wasteful if entry is only consumed once or unchanged across frames |
 
 The official RTXGI source confirms the bounded standard shape: probe-state load, distance sample,
@@ -378,13 +379,14 @@ entries, terrain edits inside the dependency region, movement across a cache cel
 DDGI revision make an entry dirty. Wind animation alone should not invalidate a cache if its
 chosen lighting sample position and lighting normal remain stable.
 
-On a DDGI lighting-only revision, retain cached geometry visibility and refresh irradiance. This
-extends the split already implemented by the terrain cache. On a terrain/relocation revision,
-refresh both.
+On a DDGI lighting-only revision, a future flora/leaf cache could retain cached geometry visibility
+and refresh irradiance. On a terrain/relocation revision, it would refresh both. This is a proposed
+invalidation contract, not an existing terrain implementation.
 
 Expected suitability:
 
-- **terrain:** already partially implemented and high value;
+- **terrain:** deliberately uncached; do not reintroduce without a new memory/complexity/performance
+  decision;
 - **grass/flora:** very high value because roots and voxel identities are stable;
 - **leaves:** high value if the cache uses a stable rest normal or bounded normal classes; exact
   per-frame wind-normal fidelity is not worth full DDGI visibility refresh without visual proof;
@@ -471,8 +473,8 @@ those systems.
 
 | Approach | Saves | Terrain | Grass/flora | Leaves | Main risk |
 | --- | --- | --- | --- | --- | --- |
-| Persistent result cache | Whole unchanged receiver query | Existing partial pattern | Best first target | Best first target | Correct invalidation and cache residency |
-| Persistent eight-visibility cache | Exact DDA and moment sampling | Existing pattern | Excellent | Excellent with spatial grouping | Relocation/geometry revisions must invalidate |
+| Persistent result cache | Whole unchanged receiver query | Removed by product decision | Best first target | Best first target | Correct invalidation and cache residency |
+| Persistent eight-visibility cache | Exact DDA and moment sampling | Removed by product decision | Excellent | Excellent with spatial grouping | Relocation/geometry revisions must invalidate |
 | Moment-only consumer tier | Exact DDA | Risky around terrain seams | Plausible | Strong candidate | Leaks behind terrain/thin walls |
 | Per-instance GI | Entry count | Too coarse | Good for tiny plants/distant LOD | Too flat for large crowns | Spatial flattening |
 | Tree/crown local grid | Entry count with spatial variation | Not applicable | Large plants only | Strong candidate | Cache construction and transition seams |
@@ -490,8 +492,9 @@ those systems.
 3. **The flora draw is already cheap with respect to DDGI.** Its separate cache-population pass is
    where probe queries occur.
 4. **The most defensible first optimization is persistent, revision-aware flora/leaf receiver
-   caching, with visibility lifetime separated from radiance lifetime.** This copies a pattern the
-   terrain path already uses and matches the broader production practice of amortizing cached GI.
+   caching, with visibility lifetime separated from radiance lifetime.** It matches the broader
+   production practice of amortizing cached GI, but must independently justify its memory and
+   invalidation complexity because the terrain implementation was removed.
 5. **The completed four-mode profiling experiment identified exact traversal as the dominant
    avoidable receiver cost.** The temporary matrix was removed after runtime consumers were
    standardized on Moment visibility.

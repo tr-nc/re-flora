@@ -56,7 +56,6 @@ impl BufferUpdater {
         ddgi_visibility_tile_columns: u32,
         ddgi_debug_view: u32,
         ddgi_terrain_hard_origin: u32,
-        ddgi_query_revision: u32,
         ddgi_receiver_visibility_bias_world: f32,
         ddgi_invalidation_voxel_bound: Option<crate::geom::UAabb3>,
     ) -> Result<()> {
@@ -89,7 +88,6 @@ impl BufferUpdater {
             ddgi_visibility_tile_columns,
             ddgi_debug_view,
             ddgi_terrain_hard_origin,
-            ddgi_query_revision,
             ddgi_invalidation_enabled,
             ddgi_invalidation_world_min,
             ddgi_invalidation_world_max,

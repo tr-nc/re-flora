@@ -15,7 +15,7 @@ use crate::{
             FLORA_VOXEL_LOOKUP_EMPTY_KEY,
         },
         ButterflyPalettePreset, ExtentDependentResources, LeafVertex, ParticleTextureLayout,
-        TerrainLightingCache, Vertex, WIND_VOLUME_BUCKET_COUNT,
+        Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
 };
@@ -1310,8 +1310,6 @@ pub struct TracerResources {
     #[resource(nested)]
     pub terrain_query: TerrainQueryResources,
     #[resource(nested)]
-    pub terrain_lighting_cache: TerrainLightingCache,
-    #[resource(nested)]
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,
     #[resource(nested)]
@@ -1375,7 +1373,6 @@ impl TracerResources {
                 terrain_query_sm,
                 max_terrain_queries,
             ),
-            terrain_lighting_cache: TerrainLightingCache::new(device.clone(), allocator.clone()),
             textures: TracerTextureResources::new(vulkan_ctx, allocator.clone()),
             meshes: TracerMeshResources::new(device.clone(), allocator.clone(), chunk_bound),
             extent_dependent_resources: ExtentDependentResources::new(

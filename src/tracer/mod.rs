@@ -34,9 +34,6 @@ mod direct_sun_shadow_runtime;
 use direct_sun_shadow_runtime::DirectSunShadowRuntime;
 pub use direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_ALL;
 
-mod terrain_lighting_cache;
-use terrain_lighting_cache::{TerrainLightingCache, TerrainLightingCacheIdentity};
-
 pub mod tree_preview_mesh;
 
 mod extent_dependent_resources;
@@ -2457,9 +2454,6 @@ impl Tracer {
         }
         // DdgiRuntime::promote_ready_volume performs promote_staging(build_token) and the
         // coordinator token promotion as one fail-fast transaction.
-        self.resources
-            .terrain_lighting_cache
-            .force_clear_before_next_trace();
         let retired_active = self
             .ddgi_runtime
             .promote_ready_volume(build_token)
@@ -2847,17 +2841,6 @@ impl Tracer {
             unpublished_capture_geometry_revision,
             unpublished_capture,
         );
-        let ddgi_invalidation_voxel_bound = self.ddgi_runtime.invalidation_voxel_bound();
-        let terrain_cache_identity = TerrainLightingCacheIdentity {
-            published_field: ddgi_status.published_field,
-            environment_revision: environment_lighting.revision,
-            global_sky_revision: ddgi_status.global_sky_revision,
-            invalidation_voxel_bound: ddgi_invalidation_voxel_bound,
-        };
-        let terrain_cache_revision = self
-            .resources
-            .terrain_lighting_cache
-            .observe(terrain_cache_identity);
         BufferUpdater::update_shading_info(
             &self.resources,
             environment_lighting,
@@ -2871,7 +2854,6 @@ impl Tracer {
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
-            terrain_cache_revision,
             ddgi_receiver_visibility_bias_world,
             self.ddgi_runtime.invalidation_voxel_bound(),
         )?;
@@ -3219,9 +3201,6 @@ impl Tracer {
                                 for retirement in descriptor_retirements {
                                     self.frame_retirement_sink.retire(retirement);
                                 }
-                                self.resources
-                                    .terrain_lighting_cache
-                                    .force_clear_before_next_trace();
                                 let slot = self
                                     .ddgi_runtime
                                     .volumes()
@@ -3780,13 +3759,6 @@ impl Tracer {
         // its hardware depth attachment from this output so every raster
         // fragment is tested against terrain before transparent blending can
         // discard the individual depths of layers behind it.
-        if self
-            .resources
-            .terrain_lighting_cache
-            .record_clear_if_needed(cmdbuf)
-        {
-            log::debug!("[DDGI][TERRAIN_CACHE] clear scheduled before tracer pass");
-        }
         if render_flags.enable_tracer {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),

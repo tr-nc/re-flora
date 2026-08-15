@@ -660,20 +660,20 @@ mod tests {
             "surfacePosition +\n            normalDirection * gui_input.terrain_ray_origin_offset_world"
         ));
         assert!(tracer.contains(
-            "sampleTerrainDdgiEnvironmentSmoothCached(\n            result.center_position, ddgiReceiverPosition, result.position,\n            result.normal)"
+            "sampleDdgiTerrainSmoothEnvironment(\n        shading_info, ddgiReceiverPosition, result.position,\n        result.normal)"
         ));
-        let terrain_cache = tracer
-            .split_once("float3 sampleTerrainDdgiEnvironmentSmoothCached(")
-            .expect("terrain DDGI cache seam must exist")
+        assert!(!tracer.contains("register(t39"));
+        assert!(!tracer.contains("register(t40"));
+        assert!(!tracer.contains("register(t42"));
+        let terrain_smooth = query
+            .split_once("DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(")
+            .expect("terrain smooth Moment query must exist")
             .1
-            .split_once("float3 shadowRayColor(")
-            .expect("terrain cache must remain ahead of direct lighting")
+            .split_once("public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(")
+            .expect("terrain smooth adapter must follow its implementation")
             .0;
-        assert!(terrain_cache.contains(
-            "shading_info, receiverWorldPosition,\n            positionWeightWorldPosition, surfaceNormal"
-        ));
-        assert!(!terrain_cache.contains("hardVisibilityWorldPosition"));
-        assert!(terrain_cache.contains("terrain_ddgi_cache_visibility[slot]"));
+        assert!(terrain_smooth.contains("getDdgiMomentSpatialWeightProbeContributionAt("));
+        assert!(!terrain_smooth.contains("hardVisibilityWorldPosition"));
         assert!(query.contains("getDdgiMomentSpatialWeightProbeContributionAt("));
         assert!(query.contains("float3 biasedWorldPosition = worldPosition + normal * biasWorld;"));
         assert!(query.contains(
@@ -682,12 +682,6 @@ mod tests {
         assert!(
             query.contains("float3 surfaceToProbe = actualPosition - positionWeightWorldPosition;")
         );
-        assert!(query.contains(
-            "ddgiRelocationAwarePositionWeight(\n                        canonicalFragment"
-        ));
-        assert!(query.contains("saturate(visibility) * 65535.0"));
-        assert!(!query.contains("f32tof16"));
-        assert!(!query.contains("f16tof32"));
         let exact_reference = query
             .split_once("public DdgiQueryResult sampleDdgiExactTerrainReference(")
             .expect("exact voxel reference must exist")
@@ -757,7 +751,7 @@ mod tests {
             "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));
         assert!(tracer.contains(
-            "sampleTerrainDdgiEnvironmentSmoothCached(\n            result.center_position, ddgiReceiverPosition, result.position,\n            result.normal)"
+            "sampleDdgiTerrainSmoothEnvironment(\n        shading_info, ddgiReceiverPosition, result.position,\n        result.normal)"
         ));
     }
 
