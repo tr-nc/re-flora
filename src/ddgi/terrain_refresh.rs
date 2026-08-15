@@ -152,15 +152,16 @@ impl DdgiTerrainRefresh {
         active_spacing_voxels: u32,
         active_terrain_revision: u32,
     ) -> Option<DdgiBuildToken> {
+        // One physical staging volume owns one update at a time. A newer terrain release may
+        // replace the pending request, but it cannot allocate another token until the current
+        // candidate has either promoted or finished obsolete.
+        if self.candidate.is_some() {
+            return None;
+        }
         if let Some(request) = self.request {
             let exact_terrain_is_published =
                 self.published_terrain_revision == Some(request.terrain_revision);
-            let candidate_matches_latest = self.candidate.is_some_and(|candidate| {
-                candidate.kind == DdgiBuildKind::Terrain
-                    && candidate.terrain_revision == request.terrain_revision
-                    && candidate.spacing_voxels == active_spacing_voxels
-            });
-            if !exact_terrain_is_published || candidate_matches_latest {
+            if !exact_terrain_is_published {
                 return None;
             }
             let token = self.allocate_token(
@@ -252,6 +253,16 @@ impl DdgiTerrainRefresh {
         if token.kind == DdgiBuildKind::Terrain {
             self.request = None;
         }
+        true
+    }
+
+    /// Releases the single candidate slot after a completed build became obsolete. The latest
+    /// terrain or density request remains queued and may be claimed on the next frame.
+    pub fn finish_obsolete_candidate(&mut self, token: DdgiBuildToken) -> bool {
+        if self.candidate != Some(token) || self.token_can_promote(token) {
+            return false;
+        }
+        self.candidate = None;
         true
     }
 
@@ -408,6 +419,31 @@ mod tests {
     }
 
     #[test]
+    fn terrain_probe_refresh_serializes_releases_while_one_build_is_active() {
+        let mut refresh = DdgiTerrainRefresh::default();
+        assert!(refresh.request(
+            7,
+            UAabb3::new(UVec3::splat(100), UVec3::splat(120)),
+            grid(32),
+        ));
+        refresh.mark_terrain_published(7);
+        let first = refresh.claim_next_build(32, 6).unwrap();
+
+        assert!(refresh.request(
+            8,
+            UAabb3::new(UVec3::splat(200), UVec3::splat(220)),
+            grid(32),
+        ));
+        refresh.mark_terrain_published(8);
+
+        assert_eq!(refresh.claim_next_build(32, 6), None);
+        assert_eq!(refresh.candidate, Some(first));
+        assert!(refresh.finish_obsolete_candidate(first));
+        let second = refresh.claim_next_build(32, 6).unwrap();
+        assert_eq!(second.terrain_revision(), 8);
+    }
+
+    #[test]
     fn initial_build_consumes_only_its_matching_pending_refresh() {
         let mut refresh = DdgiTerrainRefresh::default();
         assert!(refresh.request(
@@ -525,6 +561,7 @@ mod tests {
         assert!(!refresh.mark_promoted(first));
         assert!(refresh.invalidation_voxel_bound().is_some());
         refresh.mark_terrain_published(8);
+        assert!(refresh.finish_obsolete_candidate(first));
         let second = refresh.claim_next_build(16, 6).unwrap();
         assert!(refresh.token_can_promote(second));
         assert!(refresh.mark_promoted(second));
@@ -541,6 +578,8 @@ mod tests {
         assert!(refresh.request(8, UAabb3::new(UVec3::splat(10), UVec3::splat(20)), grid(32),));
         assert!(!refresh.token_can_promote(density));
         refresh.mark_terrain_published(8);
+        assert_eq!(refresh.claim_next_build(32, 7), None);
+        assert!(refresh.finish_obsolete_candidate(density));
         let terrain = refresh.claim_next_build(32, 7).unwrap();
         assert_eq!(terrain.kind(), DdgiBuildKind::Terrain);
         assert!(refresh.mark_promoted(terrain));
@@ -559,6 +598,8 @@ mod tests {
         refresh.request_density_rebuild(16);
         assert!(!refresh.token_can_promote(first));
 
+        assert_eq!(refresh.claim_next_build(32, 7), None);
+        assert!(refresh.finish_obsolete_candidate(first));
         let second = refresh.claim_next_build(32, 7).unwrap();
         assert_eq!(second.spacing_voxels(), 16);
         assert_ne!(second.serial(), first.serial());

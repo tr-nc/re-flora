@@ -80,6 +80,7 @@ pub(crate) struct DdgiRuntime {
     capture_target: DdgiCaptureTarget,
     capture_batch_order: DdgiBatchOrder,
     capture_checkpoint: Option<DdgiCaptureCheckpoint>,
+    resident_active_capture_checkpoint: Option<DdgiCaptureCheckpoint>,
 }
 
 impl DdgiRuntime {
@@ -98,6 +99,7 @@ impl DdgiRuntime {
             capture_target: DdgiCaptureTarget::default(),
             capture_batch_order: DdgiBatchOrder::default(),
             capture_checkpoint: None,
+            resident_active_capture_checkpoint: None,
         }
     }
 
@@ -146,6 +148,7 @@ impl DdgiRuntime {
         self.capture_target = target;
         self.capture_batch_order = batch_order;
         self.capture_checkpoint = None;
+        self.resident_active_capture_checkpoint = None;
     }
 
     /// Observes one authoritative terrain publication. Repeating the same publication is
@@ -320,6 +323,10 @@ impl DdgiRuntime {
         self.terrain_refresh.token_can_promote(token)
     }
 
+    pub(crate) fn finish_obsolete_volume_build(&mut self, token: DdgiBuildToken) -> bool {
+        self.terrain_refresh.finish_obsolete_candidate(token)
+    }
+
     pub(crate) fn mark_promoted(&mut self, token: DdgiBuildToken) -> bool {
         if !self.terrain_refresh.mark_promoted(token) {
             return false;
@@ -331,6 +338,12 @@ impl DdgiRuntime {
         .expect("promoted DDGI token must retain a supported Volume grid");
         self.active_build_token = Some(token);
         self.active_ready = true;
+        if self
+            .capture_checkpoint
+            .is_some_and(|checkpoint| checkpoint.build_token == token)
+        {
+            self.resident_active_capture_checkpoint = self.capture_checkpoint;
+        }
         true
     }
 
@@ -340,18 +353,27 @@ impl DdgiRuntime {
     }
 
     pub(crate) fn capture_checkpoint(&self, volumes: DdgiStatus) -> Option<DdgiCaptureCheckpoint> {
-        let checkpoint = self.capture_checkpoint?;
         let active = volumes.active();
-        if active.build_token != Some(checkpoint.build_token) {
-            return None;
-        }
-        let resident = match checkpoint.publication {
-            DdgiCapturePublication::Published => active.published_field == Some(checkpoint.field),
-            DdgiCapturePublication::Unpublished => {
-                active.published_field.is_none() && active.complete_field == Some(checkpoint.field)
+        [
+            self.capture_checkpoint,
+            self.resident_active_capture_checkpoint,
+        ]
+        .into_iter()
+        .flatten()
+        .find(|checkpoint| {
+            if active.build_token != Some(checkpoint.build_token) {
+                return false;
             }
-        };
-        resident.then_some(checkpoint)
+            match checkpoint.publication {
+                DdgiCapturePublication::Published => {
+                    active.published_field == Some(checkpoint.field)
+                }
+                DdgiCapturePublication::Unpublished => {
+                    active.published_field.is_none()
+                        && active.complete_field == Some(checkpoint.field)
+                }
+            }
+        })
     }
 
     pub(crate) fn capture_target(&self) -> DdgiCaptureTarget {
@@ -368,13 +390,17 @@ impl DdgiRuntime {
         if !self.capture_enabled || !self.capture_target.matches_checkpoint(field, publication) {
             return false;
         }
-        self.capture_checkpoint = Some(DdgiCaptureCheckpoint {
+        let checkpoint = DdgiCaptureCheckpoint {
             build_token,
             field,
             validation,
             publication,
             batch_order: self.capture_batch_order,
-        });
+        };
+        self.capture_checkpoint = Some(checkpoint);
+        if self.active_build_token == Some(build_token) {
+            self.resident_active_capture_checkpoint = Some(checkpoint);
+        }
         true
     }
 
@@ -517,8 +543,8 @@ impl From<DdgiVolumeStatus> for DdgiRuntimeVolumeStatus {
 /// Canonical observation of the DDGI Volume runtime lifecycle.
 ///
 /// The variants make staging evidence available only while a staging volume exists. Callers can
-/// observe logical identities, progress, and fail-closed state without learning atlas ownership or
-/// descriptor publication ordering.
+/// observe logical identities, progress, and active-field availability without learning atlas
+/// ownership or descriptor publication ordering.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DdgiRuntimeStatus {
     state: DdgiRuntimeState,
@@ -634,11 +660,8 @@ impl DdgiRuntimeStatus {
         }
     }
 
-    pub fn full_domain_invalidation_is_fail_closed(self) -> bool {
-        matches!(
-            self.coordinator(),
-            DdgiRefreshState::AwaitingTerrain { .. } | DdgiRefreshState::BuildingTerrain { .. }
-        )
+    pub fn active_consumers_are_available(self) -> bool {
+        self.active().is_ready()
     }
 
     pub fn active_token_serial(self) -> Option<u64> {
@@ -698,11 +721,13 @@ impl DdgiRuntimeStatus {
         )
     }
 
-    pub fn invalidation_line(self) -> &'static str {
-        if self.full_domain_invalidation_is_fail_closed() {
-            "Invalidation: full domain · fail-closed ON"
+    pub fn availability_line(self) -> &'static str {
+        if self.target_terrain_revision().is_some() && self.active_consumers_are_available() {
+            "Probes: active field available · replacement pending"
+        } else if self.active_consumers_are_available() {
+            "Probes: active field available"
         } else {
-            "Invalidation: none · fail-closed OFF"
+            "Probes: initializing"
         }
     }
 }
@@ -834,7 +859,7 @@ mod tests {
     }
 
     #[test]
-    fn staging_evidence_exists_only_in_the_staging_variant() {
+    fn terrain_probe_refresh_keeps_active_consumers_available_while_staging() {
         let (mut runtime, active_token, _) = initialized_runtime();
         let active = volume_status(Some(active_token), 7, 3, DdgiVolumeStage::Ready);
         let active_only = runtime.status(DdgiStatus::new(active, None));
@@ -846,8 +871,8 @@ mod tests {
         );
         assert_eq!(active_only.builder_line(), "Builder none");
         assert_eq!(
-            active_only.invalidation_line(),
-            "Invalidation: none · fail-closed OFF"
+            active_only.availability_line(),
+            "Probes: active field available"
         );
 
         runtime.request_density_rebuild(32);
@@ -862,9 +887,10 @@ mod tests {
             .starts_with("Builder token 2 · Terrain"));
         assert!(building.coordinator_line().contains("Target terrain 8"));
         assert!(building.coordinator_line().contains("density queued 32"));
+        assert!(building.active_consumers_are_available());
         assert_eq!(
-            building.invalidation_line(),
-            "Invalidation: full domain · fail-closed ON"
+            building.availability_line(),
+            "Probes: active field available · replacement pending"
         );
     }
 
@@ -889,6 +915,19 @@ mod tests {
         assert_eq!(checkpoint.batch_order, DdgiBatchOrder::Reverse);
 
         let wrong_token = DdgiBuildToken::for_test(2, 7, 16, DdgiBuildKind::Terrain);
+        let staging_field = field(8, 4);
+        runtime.observe_capture_checkpoint(
+            wrong_token,
+            staging_field,
+            DdgiAtlasValidationStats::default(),
+            DdgiCapturePublication::Published,
+        );
+        let active_after_staging_checkpoint = runtime
+            .status(DdgiStatus::new(active, None))
+            .capture_checkpoint()
+            .expect("staging capture evidence must not hide the resident active checkpoint");
+        assert_eq!(active_after_staging_checkpoint.field, captured_field);
+
         let mismatched_active = volume_status(Some(wrong_token), 7, 3, DdgiVolumeStage::Ready);
         assert!(runtime
             .status(DdgiStatus::new(mismatched_active, None))
@@ -933,7 +972,7 @@ mod tests {
     }
 
     #[test]
-    fn latest_terrain_revision_preempts_older_in_flight_work() {
+    fn latest_terrain_revision_waits_for_older_in_flight_work_to_finish() {
         let (mut runtime, _, _) = initialized_runtime();
         assert!(runtime.observe_visible_terrain(8, edit_bound(100, 120)));
         let first = runtime.claim_volume_build().unwrap().token();
@@ -948,8 +987,14 @@ mod tests {
         );
 
         assert!(runtime.observe_visible_terrain(9, edit_bound(200, 220)));
-        let latest = runtime.claim_volume_build().unwrap().token();
+        assert_eq!(runtime.claim_volume_build(), None);
         assert!(!runtime.token_can_promote(first));
+        let first_published = first_work.scheduled().destination();
+        runtime
+            .complete_transport_work(first_work.scheduled(), first_published, first)
+            .unwrap();
+        assert!(runtime.finish_obsolete_volume_build(first));
+        let latest = runtime.claim_volume_build().unwrap().token();
         assert!(runtime.token_can_promote(latest));
         assert_eq!(latest.terrain_revision(), 9);
         assert_eq!(runtime.in_flight_authored_lighting(), None);

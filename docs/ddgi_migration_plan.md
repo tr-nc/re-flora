@@ -35,10 +35,11 @@ Implementation progress:
   DDGI metadata and atlases directly. The post-removal correctness suite passed all six
   configurations with bit-exact repeats.
 - The runtime-terrain-edit milestone is complete: active and staging volumes carry immutable build
-  tokens, latest-revision terrain work preempts obsolete candidates, density requests remain
+  tokens, latest-revision terrain requests obsolete older candidates, density requests remain
   queued behind terrain correctness, and promotion switches every terrain/raster consumer to one
-  complete token and terrain revision. While terrain staging is outstanding, the full DDGI world
-  domain fails closed; dependency-exact invalidation is deliberately deferred as an optimization.
+  complete token and terrain revision. One physical staging update runs at a time, and the last
+  complete active field remains consumer-visible while its replacement builds; dependency-exact
+  refresh is deliberately deferred as an optimization.
 
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional
@@ -455,17 +456,20 @@ Each milestone is a focused, validated commit before the next begins.
 
 - Publish a terrain revision only after its deferred GPU terrain rebuild is idle, then prepare a
   same-spacing staging volume for that exact revision.
-- Fail closed across the complete DDGI world domain while edited staging is incomplete; never use
-  stale active lighting or the global-sky fallback in that domain.
+- Keep the last complete active field available while edited staging is incomplete. Consumer exact
+  visibility uses the latest published voxel terrain, while active irradiance, relocation, and
+  moment data may remain stale until promotion.
 - Give each staging allocation an immutable serial token. A later edit obsoletes older work, so an
-  obsolete Ready notification can neither promote nor clear invalidation.
-- Arbitrate one physical staging slot with terrain priority. A density rebuild remains queued until
-  the newest terrain revision promotes, and then rebuilds that active terrain revision.
+  obsolete Ready notification can neither promote nor clear the latest refresh request.
+- Arbitrate one physical staging slot with terrain priority. Batch continuous player terrain dabs
+  and publish one refresh request on left- or right-mouse release. A later release may update the
+  queued latest revision while the current candidate finishes, but it cannot allocate a second
+  concurrent staging update. A density rebuild remains queued behind terrain work.
 - Promote metadata, irradiance, visibility, spacing, and revision as one consumer-visible unit.
   The centralized promotion seam records terrain compute and representative flora raster consumers
   against the same active token and terrain revision.
-- Expose active/target identity, builder progress, coordinator state, queued density, and
-  full-domain fail-closed state in the Environment Probes debug panel.
+- Expose active/target identity, builder progress, coordinator state, queued density, and resident
+  active-field availability in the Environment Probes debug panel.
 
 The permanent unattended gate is:
 
@@ -483,8 +487,9 @@ readback failures, and returns one aggregate exit status with one output directo
 
 The gate also captures the ordinary final DDGI output while the latest terrain candidate is still
 `BuildingTerrain`: active revision 1 remains bound, target revision 3 has a nonzero staging token
-and GPU filtering progress, full-domain invalidation is on, neither terrain candidate has promoted,
-and every terrain hit must receive bit-exact zero in all three irradiance channels. A separate
+and GPU filtering progress, neither terrain candidate has promoted, and the older resident active
+field must produce finite, nonnegative, nonzero terrain irradiance. Log ordering proves the older
+candidate releases the single update slot before the latest queued build starts. A separate
 flora-enabled runtime run requires a nonzero flora instance draw to report the exact final active
 token and terrain revision recorded by the shared consumer promotion seam. Capture runs are
 one-shot tasks and exit immediately after the file is successfully flushed; the default 60-second
@@ -518,8 +523,8 @@ After the sky-only static field is correct:
 2. **Indirect hit shading** — first shade terrain hits for a single indirect bounce, then add
    previous-DDGI feedback for multi-bounce propagation without changing atlas/query seams.
 3. **Dependency-exact terrain refresh** — measure and record probe-to-geometry dependencies, then
-   replace correctness-first full-domain invalidation and full-volume staging with a provably safe
-   local refresh. This is an optimization; it must preserve token/latest-wins promotion semantics.
+   replace full-volume staging with a provably safe local refresh. This is an optimization; it must
+   preserve active-field continuity, single-update serialization, and latest-wins promotion.
 4. **Scale and activity** — qualify spacing 8, measure sleeping/vigilant states, and only then
    consider tracking volumes, cascades, paging, and cross-volume blending.
 5. **Additional geometry** — consider dynamic DDGI occluders only after a specific visual need and

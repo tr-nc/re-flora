@@ -51,7 +51,7 @@ use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, Screensho
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRuntime, TreeVariationConfig};
-use self::visible_terrain::VisibleTerrainChange;
+use self::visible_terrain::{TerrainProbeRefreshCadence, VisibleTerrainChange};
 use self::voxel_backpack::VoxelBackpack;
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::environment;
@@ -1573,6 +1573,30 @@ impl App {
         Ok(())
     }
 
+    fn flush_player_terrain_probe_refresh_on_release(&mut self) {
+        let Some(refresh_bound) = self.player_tools.take_terrain_probe_refresh_on_release() else {
+            return;
+        };
+        let revision = self.visible_terrain_revision;
+        match self
+            .tracer
+            .observe_published_environment_probe_terrain(revision, refresh_bound)
+        {
+            Ok(()) => log::info!(
+                "[DDGI] player terrain stroke released revision={} edit_voxel_bound={:?}..{:?}",
+                revision,
+                refresh_bound.min(),
+                refresh_bound.max(),
+            ),
+            Err(err) => {
+                self.player_tools.record_terrain_probe_edit(refresh_bound);
+                log::error!(
+                    "[DDGI] failed to publish player terrain stroke on mouse release: {err:#}"
+                );
+            }
+        }
+    }
+
     fn observe_initial_published_terrain_for_ddgi(&mut self) -> Result<u32> {
         let revision = self.visible_terrain_revision;
         self.tracer.observe_published_environment_probe_terrain(
@@ -1659,6 +1683,9 @@ impl App {
                 if let WindowEvent::MouseInput { state, button, .. } = &event {
                     if *state == ElementState::Released {
                         let captured = self.set_orbit_mouse_drag_state(*button, *state);
+                        if matches!(button, MouseButton::Left | MouseButton::Right) {
+                            self.flush_player_terrain_probe_refresh_on_release();
+                        }
                         if !captured {
                             self.set_tool_mouse_button_state(*button, *state);
                             self.refresh_terrain_edit_hold_from_mouse_buttons();
@@ -1768,6 +1795,11 @@ impl App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let captured = self.set_orbit_mouse_drag_state(button, state);
+                if state == ElementState::Released
+                    && matches!(button, MouseButton::Left | MouseButton::Right)
+                {
+                    self.flush_player_terrain_probe_refresh_on_release();
+                }
                 if captured {
                     return;
                 }
@@ -2271,7 +2303,7 @@ impl App {
                                             ui.monospace(ddgi_runtime_status.active_line());
                                             ui.monospace(ddgi_runtime_status.builder_line());
                                             ui.monospace(ddgi_runtime_status.coordinator_line());
-                                            ui.monospace(ddgi_runtime_status.invalidation_line());
+                                            ui.monospace(ddgi_runtime_status.availability_line());
                                             ui.monospace(format!(
                                                 "Allocated {:.2} MiB (irradiance {:.2} + visibility {:.2} + metadata {:.2} + rays {:.2} + sky {:.4} + stats {:.4})",
                                                 bytes.total() as f64 / (1024.0 * 1024.0),

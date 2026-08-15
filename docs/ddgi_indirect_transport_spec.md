@@ -1,6 +1,6 @@
 # DDGI Terrain Indirect Transport Specification
 
-Status: `implemented-and-acceptance-qualified` (2026-08-01)
+Status: `implemented-and-acceptance-qualified` (terrain-refresh continuity amended 2026-08-16)
 
 This is a local project specification. It intentionally replaces issue-tracker publication for
 this work.
@@ -21,11 +21,11 @@ The missing behavior is instead to use direct sun and the previous diffuse field
 DDGI Probe ray's terrain hit, so that the resulting reflected radiance becomes indirect light for
 other surfaces.
 
-Editable voxel terrain makes correctness more important than continuity or performance. After an
-occupancy change, an old Visibility Map may describe a wall or opening that no longer exists. Such
-data must never be allowed to create stale shadows or renewed light leaks. At the same time, sun,
-sky, and palette changes do not invalidate geometry visibility and should converge without making
-environment lighting disappear.
+Editable voxel terrain requires both continuity and explicit revision ownership. After an occupancy
+change, the active probe field may temporarily describe a wall or opening that no longer exists, but
+removing all indirect light during every edit is a larger visible discontinuity. The runtime keeps
+that last complete field available while rebuilding, pairs consumer queries with the latest
+published exact voxel visibility, and still prevents an obsolete replacement from being promoted.
 
 ## Solution
 
@@ -42,8 +42,10 @@ allowing repeated full-volume iterations to converge toward multi-bounce diffuse
 
 The first implementation uses fixed probe-ray directions, zero hysteresis, full-precision storage,
 and whole-volume deterministic updates. It publishes only complete iterations. Geometry changes
-remain full-domain fail-closed until the latest geometry revision has a complete single-bounce
-result. Radiance-only changes retain the last valid field and coalesce pending work to the latest
+retain the last complete active field until the latest geometry revision has a complete
+single-bounce result. At most one physical staging update runs at once; later edit releases coalesce
+to the latest requested revision and start after the older staging work finishes and is discarded.
+Radiance-only changes follow the same continuity principle and coalesce pending work to the latest
 radiance revision.
 
 ## User Stories
@@ -62,14 +64,15 @@ radiance revision.
    iteration, so that feedback cannot invent energy.
 7. As a player, I want thin walls, roofs, and diagonal barriers to remain leak-free after indirect
    transport is enabled, so that the previous visibility correction is preserved.
-8. As a player editing terrain, I want a newly placed wall to reject stale environment lighting,
-   so that old probes cannot shine through geometry that now exists.
+8. As a player editing terrain, I want the last complete probe field to remain visible while its
+   replacement builds, so that digging or placing terrain does not make indirect light disappear.
 9. As a player editing terrain, I want a newly opened roof or doorway to receive lighting from the
    latest geometry revision, so that the field does not publish an obsolete rebuild.
-10. As a player editing terrain repeatedly, I want only the newest geometry result to become
-    visible, so that late GPU work cannot overwrite a more recent edit.
-11. As a player editing terrain, I want direct sun to remain available while DDGI is fail-closed,
-    so that invalidating environment lighting does not disable all lighting.
+10. As a player editing terrain repeatedly, I want only one probe update to run at a time and only
+    the newest geometry result to become visible, so that overlapping GPU work cannot race or let an
+    obsolete edit overwrite a newer release.
+11. As a player editing terrain, I want each mouse release to request one refresh while continuous
+    drag edits remain batched, so that the update cadence follows intentional edit strokes.
 12. As a player, I want the first post-edit DDGI result to be a complete single-bounce field, so
     that I never see a probe batch or grid sweep across the world.
 13. As a player, I want later multi-bounce iterations to appear atomically, so that convergence is
@@ -194,13 +197,21 @@ radiance revision.
   from publishing. No internal indirect-strength control, energy clamp, or display-space compression
   may hide divergence; display mapping remains a final-composition concern.
 - Geometry revision identity covers voxel occupancy/topology and all visibility-sensitive inputs.
-  A geometry change invalidates the full DDGI Volume, because a conservative local dependency set
-  is not yet available.
+  A geometry change requests a replacement for the full DDGI Volume, because a conservative local
+  dependency set is not yet available. The previous complete active Volume remains available while
+  that replacement builds.
 - Geometry publication uses strict latest-revision-wins semantics. Superseded GPU work may finish,
   but a token that is not the latest geometry request must never become active.
-- During full-domain geometry invalidation, environment and indirect queries fail closed to zero.
-  Direct sun remains available through its independent visible-surface path. The first new DDGI data
-  that may publish is a complete S1 for the latest geometry revision.
+- Terrain-edit requests are serialized: only one physical staging Volume update may run at a time.
+  A newer release updates the queued latest revision without allocating another staging update; an
+  obsolete candidate finishes, is discarded, and releases the slot for that latest request.
+- During a geometry rebuild, environment and indirect consumers continue sampling the prior active
+  field. Exact voxel visibility uses the latest published terrain revision, while irradiance,
+  relocation metadata, and moment visibility may remain stale until atomic promotion. The first new
+  DDGI data that may publish is a complete S1 for the latest geometry revision.
+- Continuous player-tool terrain dabs only accumulate their edited voxel bounds. A left- or
+  right-mouse release publishes one combined probe-refresh request; a later release can queue the
+  next revision even while the current physical update is still running.
 - Radiance revision identity covers sun direction, sun lighting color and luminance, authored sky
   parameters, voxel base palette, and hash-color variance. It excludes the deferred dynamic material
   effects.
@@ -262,9 +273,10 @@ radiance revision.
 - The existing portal and walls cases continue comparing moment visibility against exact visibility
   and approximate irradiance against the exact-reference mode. Enabling transport must not weaken
   their calibrated leak limits.
-- The existing in-flight terrain-edit case continues requiring strict-zero DDGI output while the full
-  domain is invalidated. It additionally proves that S0 and partial S1 never become consumer-visible,
-  and that an obsolete geometry token cannot publish.
+- The in-flight terrain-edit case requires finite, nonnegative, nonzero output from the resident
+  active field while a newer staging field is visibly progressing. It additionally proves that
+  staging updates are serialized, S0 and partial S1 never become consumer-visible, and an obsolete
+  geometry token cannot publish.
 - A completed terrain edit proves that S1 is the first published current-geometry field and that all
   terrain and Raster Consumers bind the same active transport identity.
 - A radiance-change case proves that direct sun responds immediately, the old valid DDGI field remains
@@ -303,7 +315,7 @@ radiance revision.
   budgets, prioritized subsets, and production temporal denoising.
 - Compact or perceptual atlas formats, half precision, memory compression, and performance-driven
   reductions in ray count or update frequency.
-- Dependency-exact local invalidation. Geometry edits continue to invalidate the full DDGI Volume.
+- Dependency-exact local refresh. Geometry edits continue to rebuild the full DDGI Volume.
 - Camera-tracking volumes, cascades, paging, volume blending, or formal spacing-8 qualification.
 - Per-fragment Raster Consumer sampling or changes to existing packed instance/vertex layouts.
 - An indirect-strength slider or internal brightness clamp used to tune around incorrect transport
@@ -312,9 +324,9 @@ radiance revision.
 
 ## Further Notes
 
-- "Fail closed" means returning zero environment/indirect contribution when the DDGI module cannot
-  prove that cached geometry visibility is valid. It does not stop rendering and does not remove the
-  independent direct-sun path.
+- "Fail closed" remains the rule for genuinely unavailable or malformed query resources. A pending
+  terrain replacement alone is not such a condition: it keeps the resident active field available
+  and explicitly exposes that its radiance and relocation data may be stale.
 - "Strict latest-revision-wins" applies to geometry publication: once a newer geometry request exists,
   an older build cannot publish even if its GPU work finishes later.
 - Radiance scheduling instead finishes the current immutable iteration and coalesces pending requests

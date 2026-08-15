@@ -1,7 +1,7 @@
 use super::particles::TreeLeafEmitterRuntime;
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
-use super::visible_terrain::VisibleTerrainChange;
+use super::visible_terrain::{TerrainProbeRefreshCadence, VisibleTerrainChange};
 use super::App;
 use crate::app::world_edits::{
     BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
@@ -31,6 +31,7 @@ pub(super) enum SurfaceOccupantClearPath {
     TerrainRebuild {
         bound: UAabb3,
         terrain_changed: bool,
+        probe_refresh_cadence: TerrainProbeRefreshCadence,
     },
 }
 
@@ -1531,6 +1532,7 @@ impl App {
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
         max_removed_counts: Option<[u32; crate::builder::EDIT_STATS_VOXEL_TYPE_COUNT]>,
+        probe_refresh_cadence: TerrainProbeRefreshCadence,
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
@@ -1563,6 +1565,7 @@ impl App {
                 SurfaceOccupantClearPath::TerrainRebuild {
                     bound: rebuild_bound,
                     terrain_changed,
+                    probe_refresh_cadence,
                 },
             )?;
             let total_elapsed = total_start.elapsed();
@@ -1581,6 +1584,7 @@ impl App {
         edit: TerrainRemovalEdit,
         voxel_type: u32,
         max_write_count: u32,
+        probe_refresh_cadence: TerrainProbeRefreshCadence,
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         if let Some(compiled) =
@@ -1609,17 +1613,21 @@ impl App {
                 || stats.stats.added_counts.iter().any(|&count| count > 0);
             let _modify_elapsed = modify_start.elapsed();
             let mesh_start = Instant::now();
-            self.publish_visible_terrain(VisibleTerrainChange::preserving_flora(
-                rebuild_bound,
-                world_ops::FloraBrushEdit {
-                    start: edit.center,
-                    end: edit.center,
-                    radius: edit.radius,
-                    tick: self.world_clock.flora_tick(),
-                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
-                },
-                terrain_changed,
-            ))?;
+            self.publish_visible_terrain_with_probe_refresh_cadence(
+                VisibleTerrainChange::preserving_flora(
+                    rebuild_bound,
+                    world_ops::FloraBrushEdit {
+                        start: edit.center,
+                        end: edit.center,
+                        radius: edit.radius,
+                        tick: self.world_clock.flora_tick(),
+                        spawn_time_ms: self.time_info.time_since_start_duration().as_millis()
+                            as u32,
+                    },
+                    terrain_changed,
+                ),
+                probe_refresh_cadence,
+            )?;
             let _mesh_elapsed = mesh_start.elapsed();
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
@@ -1662,10 +1670,14 @@ impl App {
             SurfaceOccupantClearPath::TerrainRebuild {
                 bound,
                 terrain_changed,
+                probe_refresh_cadence,
             } => {
                 let change =
                     VisibleTerrainChange::preserving_flora(bound, flora_edit, terrain_changed);
-                self.publish_visible_terrain(change)?;
+                self.publish_visible_terrain_with_probe_refresh_cadence(
+                    change,
+                    probe_refresh_cadence,
+                )?;
             }
         }
 
@@ -1682,6 +1694,7 @@ impl App {
         strength: f32,
         max_delta: f32,
         deadband: f32,
+        probe_refresh_cadence: TerrainProbeRefreshCadence,
     ) -> Result<()> {
         let flora_brush_edit = TerrainBrushEdit {
             start: center,
@@ -1718,11 +1731,12 @@ impl App {
 
         let rebuild_chunk_ids =
             world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
-        self.publish_visible_terrain(
+        self.publish_visible_terrain_with_probe_refresh_cadence(
             VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunksWithoutFlora(
                 rebuild_chunk_ids,
             )])?
             .context("terrain smoothing requires an affected visible terrain region")?,
+            probe_refresh_cadence,
         )?;
         Ok(())
     }

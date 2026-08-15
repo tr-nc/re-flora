@@ -320,11 +320,14 @@ impl EnvironmentIrradianceCaptureRuntime {
                 } if candidate.terrain_revision() == target_revision
                     && latest_terrain_revision == target_revision
             ) && runtime.target_terrain_revision() == Some(target_revision)
-                && runtime.active().relocated_terrain_revision == Some(1)
+                && runtime
+                    .active()
+                    .relocated_terrain_revision
+                    .is_some_and(|active_revision| active_revision != target_revision)
                 && runtime.staging().is_some_and(|staging| {
                     staging.build_token.is_some() && staging.stage != DdgiVolumeStage::Ready
                 })
-                && runtime.full_domain_invalidation_is_fail_closed()
+                && runtime.active_consumers_are_available()
         });
         if !target_scene_ready
             || !inflight_checkpoint_ready
@@ -339,7 +342,7 @@ impl EnvironmentIrradianceCaptureRuntime {
                 .staging()
                 .expect("ready in-flight checkpoint must retain staging work");
             log::info!(target: "re_flora::app::core::environment_irradiance_capture",
-                "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision={:?} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=full-domain-fail-closed",
+                "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision={:?} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=stale-active",
                 runtime.active().relocated_terrain_revision,
                 target_revision,
                 runtime.staging_token().map(|token| token.serial()),

@@ -366,7 +366,8 @@ surface-side weight**。这是实验候选，不是预先宣布的最终答案�
 - canonical voxel receiver 和 nominal cage 选择方式不变；
 - relocation 后的 actual position 继续用于 probe direction、distance、moment visibility
   和 exact voxel visibility；
-- probe state、support-distance、terrain invalidation 和 fail-closed 规则继续生效；
+- probe state、support-distance 和 genuinely unavailable query 的 fail-closed 规则继续生效；
+  terrain replacement pending 时按 `ddgi_migration_plan.md` 保留 stale active field；
 - probe trace、atlas 内容、transport feedback、材质和 direct VSM 不变；
 - 不顺手重构 DDGI 查询模块的其他部分。
 

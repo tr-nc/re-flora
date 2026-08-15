@@ -32,16 +32,25 @@ scenario_for_state() {
         closed) echo terrain-edits-closed ;;
         sequential-reopened) echo terrain-edits ;;
         inflight-latest-wins) echo terrain-edits-inflight ;;
-        inflight-fail-closed) echo terrain-edits-inflight-capture ;;
+        inflight-stale-active) echo terrain-edits-inflight-capture ;;
         *) return 2 ;;
     esac
 }
 
 final_revision_for_state() {
-    case "$1" in
-        initial-open) echo 1 ;;
-        closed) echo 2 ;;
-        sequential-reopened|inflight-latest-wins|inflight-fail-closed) echo 3 ;;
+    local state="$1"
+    local console="$2"
+    local initial_revision
+    if [[ "$state" == initial-open ]]; then
+        initial_revision="$(sed -n 's/.*\[ENV_LIGHT_TEST\] ready case=portal backend=ddgi terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"
+    else
+        initial_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_CYCLE\] initial probe field ready terrain_revision=\([0-9][0-9]*\).*/\1/p' "$console" | tail -n 1)"
+    fi
+    [[ -n "$initial_revision" ]] || return 2
+    case "$state" in
+        initial-open) echo "$initial_revision" ;;
+        closed) echo "$((initial_revision + 1))" ;;
+        sequential-reopened|inflight-latest-wins|inflight-stale-active) echo "$((initial_revision + 2))" ;;
         *) return 2 ;;
     esac
 }
@@ -52,6 +61,7 @@ run_capture() {
     local view="$3"
     local label="$4"
     local flora_enabled="${5:-false}"
+    local capture_target="${6:-}"
     local scenario
     scenario="$(scenario_for_state "$state")"
     local capture="$run_dir/${state}-spacing${spacing}-${label}.rfirr"
@@ -67,6 +77,9 @@ run_capture() {
     )
     if [[ "$flora_enabled" != true ]]; then
         command+=(--no-flora)
+    fi
+    if [[ -n "$capture_target" ]]; then
+        command+=(--environment-irradiance-capture-target "$capture_target")
     fi
     if $dry_run; then
         printf '%q ' "${command[@]}"
@@ -96,18 +109,27 @@ check_lifecycle_markers() {
     local state="$2"
     local console="$3"
     local final_revision
-    final_revision="$(final_revision_for_state "$state")"
+    final_revision="$(final_revision_for_state "$state" "$console")"
+    local initial_revision
+    if [[ "$state" == initial-open ]]; then
+        initial_revision="$final_revision"
+    elif [[ "$state" == closed ]]; then
+        initial_revision="$((final_revision - 1))"
+    else
+        initial_revision="$((final_revision - 2))"
+    fi
+    local closed_revision="$((initial_revision + 1))"
     local required=()
     if [[ "$state" == "initial-open" ]]; then
         required=(
-            "[ENV_LIGHT_TEST] ready case=portal backend=ddgi terrain_revision=1 geometry=static"
+            "[ENV_LIGHT_TEST] ready case=portal backend=ddgi terrain_revision=$initial_revision geometry=static"
             "[ENV_IRRADIANCE_CAPTURE] saved"
             "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run"
         )
     else
         required=(
-            "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=1"
-            "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=1 target_revision=2"
+            "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=$initial_revision"
+            "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=$initial_revision target_revision=$closed_revision"
             "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))"
             "target_terrain_revision=$final_revision"
             "[DDGI] staging promoted"
@@ -118,18 +140,18 @@ check_lifecycle_markers() {
             "[ENV_IRRADIANCE_CAPTURE] complete; exiting one-shot capture run"
         )
         if [[ "$state" == "closed" ]]; then
-            required+=("[ENV_LIGHT_EDIT_CYCLE] complete mode=closed final_terrain_revision=2")
+            required+=("[ENV_LIGHT_EDIT_CYCLE] complete mode=closed final_terrain_revision=$final_revision")
         else
             required+=(
-                "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=2 target_revision=3"
-                "[ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision=3"
+                "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=$closed_revision target_revision=$final_revision"
+                "[ENV_LIGHT_EDIT_CYCLE] complete mode=reopened final_terrain_revision=$final_revision"
             )
         fi
         if [[ "$state" == "inflight-latest-wins" ]]; then
             required+=(
-                "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision=2"
+                "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision=$closed_revision"
                 "[DDGI] obsolete staging promotion skipped"
-                "replacement_terrain_revision=3"
+                "replacement_terrain_revision=$final_revision"
             )
         fi
     fi
@@ -153,27 +175,26 @@ check_lifecycle_markers() {
         fi
     fi
     if [[ "$state" == "inflight-latest-wins" ]] && \
-        grep -Eq '\[DDGI\] staging promoted .*kind=Terrain.*geometry_revision=2([^0-9]|$)' "$console"; then
-        echo "[DDGI_RUNTIME_EDIT] obsolete revision 2 promoted state=$state spacing=$spacing" >&2
+        grep -Eq "\[DDGI\] staging promoted .*kind=Terrain.*geometry_revision=$closed_revision([^0-9]|$)" "$console"; then
+        echo "[DDGI_RUNTIME_EDIT] obsolete revision $closed_revision promoted state=$state spacing=$spacing" >&2
         missing=$((missing + 1))
     fi
     (( missing == 0 ))
 }
 
-check_inflight_fail_closed_markers() {
+check_inflight_stale_active_markers() {
     local spacing="$1"
     local console="$2"
     local required=(
-        "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=1"
-        "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision=2"
-        "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision=2 target_revision=3"
+        "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision="
+        "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision="
+        "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision="
         "[DDGI] obsolete staging promotion skipped"
-        "replacement_terrain_revision=3"
         "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))"
-        "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed active_terrain_revision=Some(1) target_terrain_revision=3"
         "coordinator=BuildingTerrain"
-        "invalidation=full-domain-fail-closed"
-        "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision=Some(1) target_terrain_revision=3"
+        "invalidation=stale-active"
+        "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed active_terrain_revision=Some("
+        "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision=Some("
         "staging_token_serial=Some("
         "staging_stage=Rebuilding"
         "[ENV_IRRADIANCE_CAPTURE] saved"
@@ -191,12 +212,32 @@ check_inflight_fail_closed_markers() {
         echo "[DDGI_RUNTIME_EDIT] missing GPU-visible staging progress spacing=$spacing" >&2
         missing=$((missing + 1))
     fi
-    if grep -Eq '\[DDGI\] staging promoted .*kind=Terrain.*geometry_revision=(2|3)([^0-9]|$)' "$console"; then
+    local armed active_revision target_revision
+    armed="$(grep -F '[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed' "$console" | tail -n 1 || true)"
+    active_revision="$(sed -n 's/.*active_terrain_revision=Some(\([0-9][0-9]*\)).*/\1/p' <<<"$armed")"
+    target_revision="$(sed -n 's/.*target_terrain_revision=\([0-9][0-9]*\).*/\1/p' <<<"$armed")"
+    if [[ -z "$active_revision" || -z "$target_revision" || "$active_revision" == "$target_revision" ]]; then
+        echo "[DDGI_RUNTIME_EDIT] transient capture lacks distinct active/target revisions spacing=$spacing" >&2
+        missing=$((missing + 1))
+    fi
+    if grep -E '\[DDGI\] staging promoted .*kind=Terrain.*geometry_revision=' "$console" \
+        | sed -n 's/.*geometry_revision=\([0-9][0-9]*\).*/\1/p' \
+        | awk -v active="$active_revision" '$1 > active { found = 1 } END { exit !found }'; then
         echo "[DDGI_RUNTIME_EDIT] transient capture occurred after a terrain promotion spacing=$spacing" >&2
         missing=$((missing + 1))
     fi
-    if grep -Eq '\[DDGI\]\[CONSUMERS\].*geometry_revision=(2|3)([^0-9]|$)' "$console"; then
+    if grep -E '\[DDGI\]\[CONSUMERS\].*geometry_revision=' "$console" \
+        | sed -n 's/.*geometry_revision=\([0-9][0-9]*\).*/\1/p' \
+        | awk -v active="$active_revision" '$1 > active { found = 1 } END { exit !found }'; then
         echo "[DDGI_RUNTIME_EDIT] transient capture exposed an unready terrain revision spacing=$spacing" >&2
+        missing=$((missing + 1))
+    fi
+    local obsolete_finished_line latest_started_line
+    obsolete_finished_line="$(grep -nE '\[DDGI\] obsolete staging promotion skipped .*coordinator=' "$console" | head -n 1 | cut -d: -f1 || true)"
+    latest_started_line="$(grep -nE '\[DDGI\] staging prepared .*target_terrain_revision=' "$console" | tail -n 1 | cut -d: -f1 || true)"
+    if [[ -z "$obsolete_finished_line" || -z "$latest_started_line" ]] \
+        || (( latest_started_line <= obsolete_finished_line )); then
+        echo "[DDGI_RUNTIME_EDIT] terrain staging updates overlapped or lacked serialized lifecycle evidence spacing=$spacing" >&2
         missing=$((missing + 1))
     fi
     (( missing == 0 ))
@@ -222,41 +263,51 @@ check_captures() {
     echo "[DDGI_RUNTIME_EDIT] PASS state=$state spacing=$spacing environment-bit-exact exact-reference-qualified"
 }
 
-check_inflight_fail_closed_captures() {
+check_inflight_stale_active_captures() {
     local spacing="$1"
-    local first="$run_dir/inflight-fail-closed-spacing${spacing}-final-a.rfirr"
-    local second="$run_dir/inflight-fail-closed-spacing${spacing}-final-b.rfirr"
+    local first="$run_dir/inflight-stale-active-spacing${spacing}-final-a.rfirr"
+    local second="$run_dir/inflight-stale-active-spacing${spacing}-final-b.rfirr"
+    local console="$run_dir/inflight-stale-active-spacing${spacing}-final-a.console.log"
+    local active_revision
+    active_revision="$(sed -n 's/.*\[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE\] armed active_terrain_revision=Some(\([0-9][0-9]*\)).*/\1/p' "$console" | tail -n 1)"
+    if [[ -z "$active_revision" ]]; then
+        echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing missing resident active revision" >&2
+        return 1
+    fi
     if ! cmp -s "$first" "$second"; then
         echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing captures are not bit-exact" >&2
         return 1
     fi
     if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
         "$first" --compare "$second" --compare-direct-light --expect-version 5 \
-        --max-luminance 0.00001 --require-zero-rgb --require-nonnegative-rgb \
+        --expect-geometry-revision "$active_revision" --expect-publication-state published \
+        --min-luminance-p99 0.10 --require-nonnegative-rgb \
         --correctness \
         --direct-light-sunlit-roi 0.85 0.60 1.025 0.875 0.675 1.125 \
         --min-direct-light-sunlit-luminance-mean 0.15 \
         --direct-light-shadowed-roi 0.425 0.60 1.075 0.45 0.85 1.275 \
         --max-direct-light-shadowed-luminance-max 0; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing expected terrain hits and strict zero" >&2
+        echo "[DDGI_RUNTIME_EDIT] FAIL transient spacing=$spacing expected lit resident active DDGI" >&2
         return 1
     fi
-    echo "[DDGI_RUNTIME_EDIT] PASS state=inflight-fail-closed spacing=$spacing GPU-visible strict-zero deterministic direct-sun-independent"
+    echo "[DDGI_RUNTIME_EDIT] PASS state=inflight-stale-active spacing=$spacing GPU-visible stale-active deterministic direct-sun-independent"
 }
 
 check_flora_consumer() {
     local console="$1"
     local capture="$2"
+    local final_revision
+    final_revision="$(final_revision_for_state sequential-reopened "$console")"
     local consumer_line
-    consumer_line="$(grep -E '\[DDGI\]\[CONSUMERS\].*geometry_revision=3([^0-9]|$)' "$console" | tail -n 1 || true)"
+    consumer_line="$(grep -E "\[DDGI\]\[CONSUMERS\].*geometry_revision=$final_revision([^0-9]|$)" "$console" | tail -n 1 || true)"
     local active_token
     active_token="$(sed -n 's/.*active_token_serial=\([0-9][0-9]*\).*/\1/p' <<<"$consumer_line")"
     if [[ -z "$active_token" ]]; then
         echo "[DDGI_RUNTIME_EDIT] FAIL flora run missing final shared-consumer token" >&2
         return 1
     fi
-    if ! grep -Eq "\\[DDGI\\]\\[FLORA_CONSUMER\\] draw_recorded active_token_serial=$active_token terrain_revision=3([^0-9]|$).*instance_count=[1-9][0-9]*" "$console"; then
-        echo "[DDGI_RUNTIME_EDIT] FAIL flora draw did not consume final token=$active_token revision=3" >&2
+    if ! grep -Eq "\\[DDGI\\]\\[FLORA_CONSUMER\\] draw_recorded active_token_serial=$active_token terrain_revision=$final_revision([^0-9]|$).*instance_count=[1-9][0-9]*" "$console"; then
+        echo "[DDGI_RUNTIME_EDIT] FAIL flora draw did not consume final token=$active_token revision=$final_revision" >&2
         return 1
     fi
     if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
@@ -264,7 +315,7 @@ check_flora_consumer() {
         echo "[DDGI_RUNTIME_EDIT] FAIL flora-enabled final capture is not lit" >&2
         return 1
     fi
-    echo "[DDGI_RUNTIME_EDIT] PASS flora draw consumed final token=$active_token terrain_revision=3"
+    echo "[DDGI_RUNTIME_EDIT] PASS flora draw consumed final token=$active_token terrain_revision=$final_revision"
 }
 
 for spacing in "${spacings[@]}"; do
@@ -295,14 +346,14 @@ done
 for spacing in "${spacings[@]}"; do
     transient_failed=false
     for label in final-a final-b; do
-        if ! run_capture "$spacing" inflight-fail-closed final "$label"; then
+        if ! run_capture "$spacing" inflight-stale-active final "$label" false published; then
             transient_failed=true
-        elif ! $dry_run && ! check_inflight_fail_closed_markers \
-            "$spacing" "$run_dir/inflight-fail-closed-spacing${spacing}-${label}.console.log"; then
+        elif ! $dry_run && ! check_inflight_stale_active_markers \
+            "$spacing" "$run_dir/inflight-stale-active-spacing${spacing}-${label}.console.log"; then
             transient_failed=true
         fi
     done
-    if ! $dry_run && ! check_inflight_fail_closed_captures "$spacing"; then
+    if ! $dry_run && ! check_inflight_stale_active_captures "$spacing"; then
         transient_failed=true
     fi
     if $transient_failed; then

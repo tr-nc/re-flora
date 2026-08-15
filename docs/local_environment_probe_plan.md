@@ -902,15 +902,17 @@ architectural context, while the three density rows above are the matched produc
 ### Runtime DDGI Terrain-Edit Relocation
 
 This subsection is the current DDGI status and supersedes the archived local-SH implementation
-evidence earlier in this document. In particular, current runtime invalidation does not use global
-SH, nearest-valid fill, local priority regions, or a partially trusted active field.
+evidence earlier in this document. In particular, current runtime refresh does not use global SH,
+nearest-valid fill, or local priority regions.
 
 Startup classification and voxel-native relocation still run only after initial terrain is ready.
-Runtime terrain edits are now supported by a correctness-first full-volume staging rebuild. The
-edited world domain returns strict-zero environment irradiance until the exact latest terrain
-revision reaches Ready; promotion
-then switches terrain and raster consumers to one immutable build token and revision. Edits during
-a build obsolete the older candidate, while density changes remain queued behind terrain work.
+Runtime terrain edits use a full-volume staging rebuild, but the last complete active probe field
+remains consumer-visible until its replacement reaches Ready. Consumer exact visibility follows the
+latest published voxel terrain; the active field's irradiance, relocation, and moment data may be
+temporarily stale. Promotion then switches terrain and raster consumers to one immutable build token
+and revision. Only one staging update runs at a time. A newer mouse release coalesces into the latest
+queued revision, the older candidate finishes without promotion, and density changes remain queued
+behind terrain work. Continuous edit dabs are batched and do not request probe work before release.
 
 - [x] Reclassify, relocate, retrace, and atomically promote runtime terrain edits at spacing 32 and
   16, including sequential edits and latest-revision-wins replacement.
@@ -924,14 +926,15 @@ a build obsolete the older candidate, while density changes remain queued behind
 - Animated flora and leaves consume the field but are intentionally not probe occluders. Their
   direct leaf-shadow temporal filter remains separate and can still need responsiveness tuning for
   fast motion.
-- Terrain edits use conservative full-domain fail-closed invalidation and a full-volume staging
-  rebuild. Dependency-exact/local refresh remains a performance optimization, and spacing 8 is not
-  runtime-edit qualified.
+- Terrain edits retain a potentially stale active field during a conservative full-volume staging
+  rebuild. Dependency-exact/local refresh remains future work, and spacing 8 is not runtime-edit
+  qualified.
 - Relocation-failed probes remain invalid and contribute zero; the current query does not substitute
   nearest-valid or global-SH lighting. Narrow geometry below the 32-voxel sampling scale can still
   justify a temporary 16-voxel quality run.
 - Runtime progress is reported as active-to-target revision/token identity, staging stage and
-  filtered-probe progress, coordinator state, queued density, and full-domain fail-closed state.
+  filtered-probe progress, coordinator state, queued density, and resident active-field
+  availability.
   It does not use the archived local-SH aggregate/all-dirty model or per-frame full-volume readback.
 - Probe spacing changes rebuild the complete finite volume explicitly. Runtime paging,
   camera-relative scrolling, dependency-exact invalidation, local direct lights, and ReSTIR DI

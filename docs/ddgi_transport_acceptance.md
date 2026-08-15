@@ -21,8 +21,8 @@ Every stage capture writes three adjacent artifacts below
 
 Analyzer comparisons report environment/world and direct-light bit exactness separately. General
 DDGI determinism checks require the environment/world planes because temporal raster shadows may
-legitimately differ between independent processes; the dedicated fail-closed scenario adds
-`--compare-direct-light` and requires all three planes to match.
+legitimately differ between independent processes; the dedicated stale-active terrain-refresh
+scenario adds `--compare-direct-light` and requires all three planes to match.
 
 The required matrix covers spacing 32 and 16, sealed S0/S1/S2/converged,
 portal S1 plus converged, donor S0/S1/converged, dogleg S1/S2/converged, and donor S1 in both
@@ -69,18 +69,22 @@ spacing 32 and 16, with identical authored camera, time, and voxel variance. Bot
 the observed maximum RGB channel error is `3.58e-7` and the maximum luminance error is `1.18e-7`,
 below the committed `1e-6` limits.
 
-## Independent direct-sun evidence
+## Stale-active terrain-refresh and independent direct-sun evidence
 
 Capture v5's third float4 plane is the actual raster terrain `directLighting` term after albedo,
 cosine, and VSM/leaf/cloud shadowing, but before it is added to the DDGI environment term. It never
 samples a DDGI atlas. The in-flight terrain-edit acceptance capture requires all of the following at
-both spacings while the DDGI environment plane is strict zero:
+both spacings while the latest terrain staging field is still rebuilding:
 
+- the capture identity remains the older resident active token and geometry revision;
+- environment irradiance p99 is at least `0.10`, finite, nonnegative, and repeated captures are
+  bit-exact;
+- logs prove only one staging update exists at a time and an obsolete candidate is discarded before
+  the latest queued edit starts;
 - sunlit ROI mean direct-light luminance at least `0.15` (observed `0.168975`, 11.2% margin);
 - shadowed ROI maximum direct-light luminance exactly `0`;
 - direct-light and environment terrain-hit masks match;
-- all direct-light channels are finite and nonnegative;
-- repeated captures are bit-exact.
+- all direct-light channels are finite and nonnegative.
 
 The spacing 32 and 16 direct-light payloads were themselves bit-exact and contained 5,277 sunlit and
 24,455 shadowed samples. The top-level runner therefore reports

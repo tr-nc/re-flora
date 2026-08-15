@@ -1,6 +1,6 @@
 use super::placeables::{PipeRayHit, PlaceableKind, SprinklerPlacementTarget};
 use super::player_tools::{ContinuousTerrainToolAction, PlayerTool, PlayerToolSelectionUpdate};
-use super::App;
+use super::{App, TerrainProbeRefreshCadence};
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::app::world_edits::{
     TerrainBrushEdit, TerrainRemovalEdit, TreeAddOptions, TreePlacement,
@@ -688,6 +688,7 @@ impl App {
                         None,
                         None,
                         None,
+                        TerrainProbeRefreshCadence::PlayerStrokeRelease,
                     )
                     .map(|readback| {
                         let removed_total: u32 = readback.stats.removed_counts.iter().sum();
@@ -748,6 +749,7 @@ impl App {
                     super::TERRAIN_SMOOTH_STRENGTH,
                     super::TERRAIN_SMOOTH_MAX_DELTA,
                     super::TERRAIN_SMOOTH_DEADBAND,
+                    TerrainProbeRefreshCadence::PlayerStrokeRelease,
                 ) {
                     log::error!("Failed to apply terrain smoothing: {}", err);
                     return;
@@ -971,6 +973,7 @@ impl App {
                         },
                         place_voxel_type_id,
                         place_voxel_count,
+                        TerrainProbeRefreshCadence::PlayerStrokeRelease,
                     )
                     .map(|readback| {
                         self.voxel_backpack

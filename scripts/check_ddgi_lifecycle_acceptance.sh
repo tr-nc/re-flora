@@ -165,10 +165,10 @@ check_density() {
     require_markers DENSITY "$console" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=baseline" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=density-midflight" \
-        "old_field_visible=true invalidation=false" \
+        "old_field_visible=true active_available=true" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-preempted-density" \
         "queued_density_spacing_voxels=16" \
-        "obsolete_density_consumer_visible=false invalidation=true" \
+        "obsolete_density_consumer_visible=false active_available=true" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-s1-published" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=density-retry-midflight" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=complete" \

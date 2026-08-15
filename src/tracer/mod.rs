@@ -118,14 +118,14 @@ use re_flora_vkn::{
 use std::time::Instant;
 
 fn ddgi_shading_geometry_revision(
-    active_published_revision: Option<u32>,
+    published_visibility_revision: Option<u32>,
     capture_checkpoint_revision: Option<u32>,
     unpublished_capture: bool,
 ) -> u32 {
     if unpublished_capture {
         capture_checkpoint_revision.unwrap_or_default()
     } else {
-        active_published_revision.unwrap_or_default()
+        published_visibility_revision.unwrap_or_default()
     }
 }
 
@@ -523,7 +523,7 @@ mod ddgi_density_rebuild_tests {
     };
 
     #[test]
-    fn unpublished_s0_query_uses_its_exact_capture_checkpoint_revision() {
+    fn consumer_query_uses_current_visibility_unless_capturing_unpublished_field() {
         assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), true), 7);
         assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), false), 3);
         assert_eq!(ddgi_shading_geometry_revision(Some(3), None, true), 0);
@@ -1232,7 +1232,13 @@ impl Tracer {
         self.ddgi_trace_stats_readback_pending = None;
         self.ddgi_relocation_stats_readback_pending = false;
         let retired_staging = self.ddgi_runtime.volumes_mut().prepare_staging(staging);
-        drop(retired_staging);
+        if let Some(retired_staging) = retired_staging {
+            self.frame_retirement_sink.retire(FrameRetirement::new(
+                "ddgi.staging.volume",
+                descriptor_generation,
+                retired_staging,
+            ));
+        }
         let status = self.ddgi_runtime.volumes().status();
         log::info!(
             "[DDGI] staging prepared token_serial={} kind={:?} spacing_voxels={} probes={} active_terrain_revision={} target_terrain_revision={}",
@@ -2430,6 +2436,11 @@ impl Tracer {
                 build_token.spacing_voxels(),
                 self.ddgi_runtime.refresh_state(),
             );
+            assert!(
+                self.ddgi_runtime.finish_obsolete_volume_build(build_token),
+                "completed obsolete DDGI staging token must release the single update slot"
+            );
+            self.prepared_ddgi_consumer_descriptors = None;
             return;
         }
 
@@ -2835,12 +2846,14 @@ impl Tracer {
             })
             .flatten();
         let ddgi_geometry_revision = ddgi_shading_geometry_revision(
-            ddgi_status
-                .published_field
-                .map(|field| field.field().geometry_revision()),
+            self.ddgi_voxel_visibility.published_revision(),
             unpublished_capture_geometry_revision,
             unpublished_capture,
         );
+        // Keep the last complete active field available while a terrain replacement builds. The
+        // coordinator retains the conservative pending bound for scheduling and diagnostics, but
+        // consumers intentionally use the resident field until its replacement promotes.
+        let ddgi_consumer_invalidation_voxel_bound = None;
         BufferUpdater::update_shading_info(
             &self.resources,
             environment_lighting,
@@ -2855,7 +2868,7 @@ impl Tracer {
             self.desc.ddgi_debug_view.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
             ddgi_receiver_visibility_bias_world,
-            self.ddgi_runtime.invalidation_voxel_bound(),
+            ddgi_consumer_invalidation_voxel_bound,
         )?;
         self.ddgi_runtime
             .observe_authored_lighting(environment_lighting);
