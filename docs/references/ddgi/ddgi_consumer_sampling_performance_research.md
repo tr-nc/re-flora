@@ -131,6 +131,35 @@ These measurements separate two conclusions:
 2. Repeating exact voxel visibility for every visible leaf cache entry is a larger and more reliable
    local optimization target than changing the DDGI topology from eight corners to four.
 
+### Moment-only terrain cache retention measurement (2026-08-16)
+
+After all runtime consumers were standardized on Moment visibility, the terrain receiver cache was
+remeasured rather than retained from the old Full-mode evidence. Baseline commit `91e996b1` used
+the production cache. Throwaway branch commit `3c304dae` bypassed only
+`sampleTerrainDdgiEnvironmentSmoothCached` and called the existing uncached smooth Moment query;
+the unused cache resources remained allocated, making this a conservative steady-render test of
+the lookup/reuse algorithm rather than a memory-footprint comparison.
+
+The authoritative `render-steady` run used release binaries from independent target directories,
+order `A,B,B,A`, `--windowed`, 600 warm-up frames, a fixed camera, MAILBOX present mode, and an
+identical 1920x1080 physical extent in all four runs. The first borderless attempt was rejected
+before interpretation because its final baseline changed from 2400x1350 to 2880x1620.
+
+| GPU scope | cache baseline median | uncached candidate median | delta | samples A / B |
+| --- | ---: | ---: | ---: | ---: |
+| `frame.render` | 1669 us | 1725 us | +56 us (+3.36%) | 579 / 576 |
+| `tracer.render` | 483 us | 539 us | +56 us (+11.59%) | 579 / 576 |
+| `tracer.shadow_prepass` | 788 us | 788 us | 0 us | 579 / 576 |
+| `composition.pass` | 41 us | 41 us | 0 us | 579 / 576 |
+
+Both individual A/B pairs reproduced the tracer delta: baseline medians were 482/484 us and the
+uncached candidate medians were 539/540 us. Tail samples were host-noisy and did not order with the
+median, so no p95 benefit is claimed. The stable median regressions exceed the checked-in 2% budgets
+for both `frame.render` and `tracer.render`; the cache remains justified even though Exact consumer
+visibility has been removed. Evidence is under
+`target/perf/terrain-cache-moment-bypass-windowed-abba-2/`; the bypass remains only on the
+throwaway experiment branch and is not production code.
+
 ## What the current renderer actually executes
 
 ### The regular query
