@@ -84,12 +84,12 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
-    DdgiCaptureTarget, DdgiConsumerVisibility, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage,
-    DdgiRayBatch, DdgiRuntime, DdgiRuntimeStatus, DdgiRuntimeVolumeTarget,
-    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes,
-    DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
-    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
-    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch, DdgiRuntime,
+    DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiValidatedIterationOutcome,
+    DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes, DdgiVoxelVisibility,
+    DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
+    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
+    DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot, EnvironmentLightingCache,
@@ -704,7 +704,6 @@ pub struct TracerDesc {
     pub environment_irradiance_capture_target: DdgiCaptureTarget,
     pub ddgi_batch_order: DdgiBatchOrder,
     pub ddgi_debug_view: DdgiDebugView,
-    pub ddgi_consumer_visibility: DdgiConsumerVisibility,
     pub ddgi_terrain_hard_origin: crate::ddgi::DdgiTerrainHardOrigin,
 }
 
@@ -1017,8 +1016,7 @@ impl Tracer {
             desc.ddgi_terrain_hard_origin.label()
         );
         log::info!(
-            "[DDGI][CONSUMER_VISIBILITY] terrain_generic_mode={} vegetation_cache_mode=moment-only experimental=true transport_mode=full",
-            desc.ddgi_consumer_visibility.label()
+            "[DDGI][VISIBILITY] runtime_consumers=moment transport_and_reference=moment+exact"
         );
         let ddgi_voxel_visibility = DdgiVoxelVisibility::new(
             &vulkan_ctx,
@@ -2854,8 +2852,6 @@ impl Tracer {
             published_field: ddgi_status.published_field,
             environment_revision: environment_lighting.revision,
             global_sky_revision: ddgi_status.global_sky_revision,
-            consumer_visibility: self.desc.ddgi_consumer_visibility.as_u32(),
-            hard_origin: self.desc.ddgi_terrain_hard_origin.as_u32(),
             invalidation_voxel_bound: ddgi_invalidation_voxel_bound,
         };
         let terrain_cache_revision = self
@@ -2874,7 +2870,6 @@ impl Tracer {
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
-            self.desc.ddgi_consumer_visibility.as_u32(),
             self.desc.ddgi_terrain_hard_origin.as_u32(),
             terrain_cache_revision,
             ddgi_receiver_visibility_bias_world,

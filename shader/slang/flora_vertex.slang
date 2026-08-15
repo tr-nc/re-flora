@@ -504,7 +504,7 @@ public float3 shadeFloraVertex(float3 baseColor, float shadowWeight,
 
 public float3 sampleFloraEnvironment(float3 voxelPosition, float3 shadingNormal)
 {
-    return sampleMomentOnlyDiffuseEnvironment(
+    return sampleDiffuseEnvironment(
         gui_input, shading_info, voxelPosition, shadingNormal);
 }
 

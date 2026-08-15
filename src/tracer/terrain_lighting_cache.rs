@@ -13,8 +13,6 @@ pub struct TerrainLightingCacheIdentity {
     pub published_field: Option<DdgiFieldIdentity>,
     pub environment_revision: u32,
     pub global_sky_revision: u32,
-    pub consumer_visibility: u32,
-    pub hard_origin: u32,
     pub invalidation_voxel_bound: Option<UAabb3>,
 }
 

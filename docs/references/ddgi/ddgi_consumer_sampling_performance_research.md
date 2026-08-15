@@ -8,6 +8,11 @@
 > Evidence labels: **Fact** is directly supported by repository source or a primary external
 > source; **Inference** maps that evidence onto Re: Flora; **Recommendation** still requires a
 > matched release-mode A/B benchmark.
+>
+> Production status (2026-08-16): runtime terrain, flora, leaves, and generic consumers now use
+> Moment visibility only. Probe transport and explicit reference/debug queries retain exact voxel
+> visibility. The temporary four-mode consumer CLI used for the measurements below was removed;
+> its mode names and results are retained here as historical evidence.
 
 ## Executive answer
 
@@ -75,11 +80,10 @@ frame 330 were discarded so DDGI construction and startup work did not contamina
 The tested GPU was an Apple M4 Pro. A later repeat fell back to a 2560×1440 physical window after
 macOS stopped returning a scored monitor; that run was rejected rather than mixed into the data.
 
-The four existing consumer visibility modes isolate the raster vegetation cost cleanly:
+The four historical consumer visibility modes isolated the raster vegetation cost cleanly:
 
-> These measurements predate the production split that pins grass/flora and tree-leaf lighting
-> caches to `moment-only`. The CLI visibility A/B now controls terrain and generic consumers;
-> vegetation retains the measured low-cost path.
+> These measurements predate the production decision that standardized all runtime consumers on
+> `moment-only`. The temporary CLI matrix no longer exists.
 
 The production split was subsequently verified with matched 2560×1440 physical hidden-window
 runs. `graphics.leaf_lighting_cache` fell from a 214.5 µs median to 12 µs (-94.4%), while
@@ -305,10 +309,10 @@ query among nearby leaves and retain spatial variation.
 The order below is based on expected return and semantic risk, not on an unmeasured millisecond
 claim.
 
-### P0: measure the four existing visibility modes
+### Historical P0: measure the four visibility modes
 
-The renderer already has `full`, `moment-only`, `exact-only`, and `none` consumer visibility
-modes. Use the same release scene and separately report:
+The research revision exposed `full`, `moment-only`, `exact-only`, and `none` consumer visibility
+modes. The retained experiment used the same release scene and separately reported:
 
 - `graphics.flora_lighting_cache`;
 - `graphics.leaf_lighting_cache`;
@@ -325,8 +329,8 @@ Interpretation:
 | `exact-only` versus `none` | eight exact voxel segment traversals |
 | `full` versus both single modes | combined latency, divergence, and resource contention |
 
-The current results are reported above. Rerun this matrix for each target GPU and representative
-scene; source inspection or one high-end Apple GPU cannot decide the production acceptance bound.
+The results are reported above. Reintroduce such a matrix only on a throwaway benchmark branch if
+a future target GPU requires the production decision to be revisited.
 
 ### P1: make flora and leaf lighting caches persistent and revision-aware
 
@@ -372,8 +376,8 @@ Evaluate these in increasing quality risk:
    its own trilinear/surface-side weight and irradiance direction.
 3. Temporally rotate through dirty leaf/flora entries while preserving the previous result; give
    new or newly visible entries priority.
-4. Test `moment-only` specifically for leaves and small flora, retaining full exact visibility for
-   terrain and large opaque objects.
+4. Test `moment-only` for runtime consumers while retaining moment-plus-exact visibility for probe
+   transport and explicit reference/debug queries. This is now the selected production design.
 
 The last option is the riskiest near thin walls, caves, and terrain overhangs. Standard RTXGI is
 evidence that moment-only is a production design, not proof that it passes this project's exact
@@ -452,16 +456,16 @@ those systems.
 1. **Eight neighboring probes are not inherently too expensive.** Classical DDGI and shipped
    engines use this topology, and published full-frame gather measurements are sub-millisecond on
    their stated hardware.
-2. **Re: Flora is not paying only the classical cost.** Full mode adds eight potentially long,
-   divergent exact voxel traversals.
+2. **Re: Flora's historical Full experiment did not pay only the classical cost.** It added eight
+   potentially long, divergent exact voxel traversals.
 3. **The flora draw is already cheap with respect to DDGI.** Its separate cache-population pass is
    where probe queries occur.
 4. **The most defensible first optimization is persistent, revision-aware flora/leaf receiver
    caching, with visibility lifetime separated from radiance lifetime.** This copies a pattern the
    terrain path already uses and matches the broader production practice of amortizing cached GI.
-5. **The first profiling experiment should be `full / moment-only / exact-only / none`, not 8
-   probes versus 4.** It identifies whether the real constraint is exact traversal, moment/atlas
-   bandwidth, or merely the number of entries rebuilt every frame.
+5. **The completed four-mode profiling experiment identified exact traversal as the dominant
+   avoidable receiver cost.** The temporary matrix was removed after runtime consumers were
+   standardized on Moment visibility.
 
 ## Primary sources
 

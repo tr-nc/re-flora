@@ -189,8 +189,7 @@ bool terrainDdgiCacheSlot(uint key, out uint slot)
 
 float3 sampleTerrainDdgiEnvironmentSmoothCached(
     float3 voxelCenter, float3 receiverWorldPosition,
-    float3 positionWeightWorldPosition, float3 surfaceNormal,
-    float3 hardVisibilityWorldPosition)
+    float3 positionWeightWorldPosition, float3 surfaceNormal)
 {
     uint slot;
     uint key = terrainDdgiCacheKey(voxelCenter);
@@ -198,8 +197,7 @@ float3 sampleTerrainDdgiEnvironmentSmoothCached(
     {
         return buildDdgiTerrainSmoothCacheData(
             shading_info, receiverWorldPosition,
-            positionWeightWorldPosition, surfaceNormal,
-            hardVisibilityWorldPosition).result.irradiance;
+            positionWeightWorldPosition, surfaceNormal).result.irradiance;
     }
 
     uint targetRevision = shading_info.ddgi_query_revision;
@@ -236,8 +234,7 @@ float3 sampleTerrainDdgiEnvironmentSmoothCached(
     DdgiTerrainSmoothCacheData cacheData =
         buildDdgiTerrainSmoothCacheData(
             shading_info, receiverWorldPosition,
-            positionWeightWorldPosition, surfaceNormal,
-            hardVisibilityWorldPosition);
+            positionWeightWorldPosition, surfaceNormal);
     if (canPublish)
     {
         terrain_ddgi_cache_irradiance[slot] =
@@ -457,16 +454,14 @@ float3 ddgiTerrainDebugValue(float2 screenUv, float3 worldPosition,
     {
         DdgiQueryResult unoccludedResult =
             sampleDdgiUnoccludedTerrainReference(
-                shading_info, worldPosition, surfaceNormal,
-                hardVisibilityWorldPosition);
+                shading_info, worldPosition, surfaceNormal);
         return unoccludedResult.irradiance;
     }
     if (view == DDGI_DEBUG_EQUAL_WEIGHT_IRRADIANCE)
     {
         DdgiQueryResult equalWeightResult =
             sampleDdgiEqualWeightTerrainReference(
-                shading_info, worldPosition, surfaceNormal,
-                hardVisibilityWorldPosition);
+                shading_info, worldPosition, surfaceNormal);
         return equalWeightResult.irradiance;
     }
     if (view == DDGI_DEBUG_RAW_CAGE_IRRADIANCE)
@@ -590,13 +585,11 @@ void getPixelColor(out float3 color, out float depth,
     {
         directLight = directLighting(albedo, result.normal, result.position);
     }
-    // Geometry-facing visibility remains fixed for every pixel of the voxel.
+    // The moment-visibility receiver remains fixed for every pixel of the voxel.
     // Only the nominal-grid position basis follows the exact surface hit so a
     // smooth probe field is not quantized into one irradiance step per voxel.
     float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, result.normal);
-    float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(
-        result.center_position, ddgiReceiverPosition, result.normal);
     DdgiQueryResult consumerResult = makeEmptyDdgiQueryResult();
     bool canUseTerrainCache =
         shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL &&
@@ -606,25 +599,27 @@ void getPixelColor(out float3 color, out float depth,
     {
         consumerResult.irradiance = sampleTerrainDdgiEnvironmentSmoothCached(
             result.center_position, ddgiReceiverPosition, result.position,
-            result.normal, ddgiHardVisibilityOrigin);
+            result.normal);
     }
     else
     {
         consumerResult = sampleDdgiTerrainSmoothEnvironment(
             shading_info, ddgiReceiverPosition, result.position,
-            result.normal, ddgiHardVisibilityOrigin);
+            result.normal);
     }
     DdgiQueryResult captureResult = consumerResult;
     if (shading_info.environment_irradiance_capture_unpublished != 0u)
     {
         captureResult = sampleDdgiUnpublishedTerrainSmoothEnvironment(
             shading_info, ddgiReceiverPosition, result.position,
-            result.normal, ddgiHardVisibilityOrigin);
+            result.normal);
     }
     environmentIrradiance = consumerResult.irradiance;
     environmentCaptureIrradiance = captureResult.irradiance;
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {
+        float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(
+            result.center_position, ddgiReceiverPosition, result.normal);
         environmentIrradiance = ddgiTerrainDebugValue(
             screenUv, ddgiReceiverPosition, result.position, result.normal,
             ddgiHardVisibilityOrigin, consumerResult);

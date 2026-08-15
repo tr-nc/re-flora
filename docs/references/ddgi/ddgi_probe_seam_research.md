@@ -123,10 +123,11 @@ The following is source-grounded observation, not a new hypothesis:
    make one probe dominate a region. See [`ddgi_query.slang`](../../../shader/slang/ddgi_query.slang:270-348,../../../shader/slang/ddgi_query.slang:384-420).
 
 These facts explain why the exact crop is diagnostically valuable and also why it must be
-read carefully. `--ddgi-consumer-visibility none` changes the normal consumer query, but
-`exact-irradiance` deliberately calls `getDdgiFullVisibilityProbeContribution`; therefore a
-visibility-none run of that debug view is **not** an all-visibility-disabled experiment.
-Normal-view parity and exact-view evidence answer different questions.
+read carefully. The historical visibility-disabled run changed the normal consumer query, but
+`exact-irradiance` deliberately called the moment-plus-exact reference contribution; therefore
+that exact debug view was **not** an all-visibility-disabled experiment. Normal-view parity and
+exact-view evidence answer different questions. The temporary consumer-visibility CLI matrix has
+since been removed.
 
 ## Matched hidden-release isolation results
 
@@ -152,10 +153,10 @@ The captured crops are under `target/ddgi-seam-repro/experiments/`:
 | equal-weight irradiance | `equalweight32/crop.png` | `re-flora-20260806-015750.868-302798.log` | GREEN, 1 internal band, ratio 0.067848 |
 | raw cage irradiance | `rawcage32/crop.png` | `re-flora-20260806-020646.703-308245.log` | GREEN, 1 internal band, ratio 0.089716 |
 
-The exact view with `--ddgi-consumer-visibility none` is byte-identical to the full exact view
-(crop RMSE `0`), as expected from its deliberate full-visibility reference call. The normal
-`full` and `none` captures also have the same row-gradient peaks, so the consumer visibility
-switch is not the source of the reported bands.
+The exact view from the historical visibility-disabled run is byte-identical to the normal exact
+view (crop RMSE `0`), as expected from its deliberate moment-plus-exact reference call. The normal
+production and visibility-disabled captures also have the same row-gradient peaks, so consumer
+visibility was not the source of the reported bands.
 
 The reproducible metric is:
 

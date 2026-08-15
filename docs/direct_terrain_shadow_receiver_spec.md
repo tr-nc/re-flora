@@ -46,11 +46,12 @@ These inputs are acceptance fixtures. Do not retune them to make the implementat
 
 ## Root-Cause Evidence
 
-Disabling DDGI consumer visibility does not remove the accepted bands. A release-hidden capture
-with `--ddgi-consumer-visibility none` remains RED with essentially the same band structure as the
-full-visibility capture. In the accepted analysis region, the full-versus-none mean pixel change is
-approximately `0.35 / 255`, while the symptom contrast is approximately `78 / 255` at the same
-extent.
+Disabling DDGI consumer visibility did not remove the accepted bands in the historical isolation
+run. That release-hidden capture remained RED with essentially the same band structure as the
+production visibility capture. In the accepted analysis region, their mean pixel change was
+approximately `0.35 / 255`, while the symptom contrast was approximately `78 / 255` at the same
+extent. The temporary consumer-visibility CLI matrix used for that experiment has since been
+removed; `unoccluded-irradiance` remains the supported visibility-free diagnostic.
 
 The exact DDGI visibility debug capture is almost uniformly visible in the affected region, and the
 DDGI dominant-probe regions are substantially larger than the narrow repeated bands. DDGI moment
@@ -178,14 +179,15 @@ or host-side setting.
 
 ### DDGI Isolation Acceptance
 
-- Repeat the fixed capture with `--ddgi-consumer-visibility none`. Full visibility and none must
-  both be GREEN, retain the principal beam, and show the same direct-shadow improvement.
+- Repeat the fixed capture with `--ddgi-debug-view unoccluded-irradiance`. The production Moment
+  path and the unoccluded diagnostic must both be GREEN, retain the principal beam, and show the
+  same direct-shadow improvement.
 - Capture the exact-visibility, moment-visibility, visibility-error, exact-irradiance,
   irradiance-error, weight-sum, and dominant-probe DDGI debug views before and after the change.
   They must remain unchanged within the deterministic capture tolerance. The final shaded view is
   expected to change because it includes direct lighting.
-- Do not accept a change that makes the full-visibility case GREEN while the visibility-none case
-  retains the bands, or vice versa.
+- Do not accept a change that makes the production Moment path GREEN while the unoccluded
+  diagnostic retains the bands, or vice versa.
 
 ### Regression Acceptance
 
