@@ -601,7 +601,7 @@ mod tests {
         );
         assert!(consumer.contains("sampleDdgiDiffuseEnvironmentFromAtlas("));
         assert!(consumer.contains("ddgi_irradiance_atlas"));
-        assert!(transport.contains("getDdgiMomentExactProbeContribution("));
+        assert!(transport.contains("getDdgiMomentExactProbeContributionFromAtlases("));
 
         let trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
         assert!(!trace.contains("ConstantBuffer<U_SunInfo>"));
@@ -707,7 +707,7 @@ mod tests {
             .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
             .expect("transport implementation must remain behind its adapter")
             .0;
-        assert!(transport.contains("getDdgiMomentExactProbeContribution("));
+        assert!(transport.contains("getDdgiMomentExactProbeContributionFromAtlases("));
         assert!(transport.contains("contribution.hard_visibility"));
     }
 
