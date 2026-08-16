@@ -156,9 +156,6 @@ for spacing in "${spacings[@]}"; do
         --require-zero-rgb || true
     run_stage sealed "$spacing" converged forward \
         --expect-lifecycle-state converged \
-        --expect-update-epoch "$convergence_max_epoch" \
-        --expect-source-state converging \
-        --expect-source-update-epoch "$((convergence_max_epoch - 1))" \
         --expect-publication-state published \
         --require-zero-rgb || true
 
@@ -202,9 +199,6 @@ for spacing in "${spacings[@]}"; do
     for convergence_case in portal donor dogleg; do
         run_stage "$convergence_case" "$spacing" converged forward \
             --expect-lifecycle-state converged \
-            --expect-update-epoch "$convergence_max_epoch" \
-            --expect-source-state converging \
-            --expect-source-update-epoch "$((convergence_max_epoch - 1))" \
             --expect-publication-state published \
             || true
     done

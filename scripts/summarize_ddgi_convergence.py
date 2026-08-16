@@ -15,6 +15,9 @@ from pathlib import Path
 DEFAULT_CASES = ("sealed", "portal", "donor", "dogleg")
 DEFAULT_SPACINGS = (32, 16)
 VALIDATION_PATTERN = re.compile(
+    r"geometry_revision=(?P<geometry>\d+) "
+    r"radiance_revision=(?P<radiance>\d+) "
+    r"spacing_voxels=(?P<spacing>\d+) "
     r"state=(?P<state>\w+) update_epoch=(?P<epoch>\d+).*?"
     r"max_abs_rgb_delta=(?P<absolute>[0-9.eE+-]+) "
     r"max_rel_rgb_delta=(?P<relative>[0-9.eE+-]+) "
@@ -57,6 +60,9 @@ def parse_curve(console_path: Path) -> tuple[list[dict[str, object]], str]:
             values = match.groupdict()
             records.append(
                 {
+                    "geometry_revision": int(values["geometry"]),
+                    "radiance_revision": int(values["radiance"]),
+                    "spacing_voxels": int(values["spacing"]),
                     "state": values["state"],
                     "update_epoch": int(values["epoch"]),
                     "max_absolute_rgb_delta": float(values["absolute"]),
@@ -103,6 +109,19 @@ def validate_curve(
         raise ValueError(f"{case_name} spacing {spacing}: capture is not converged")
     if capture.get("spacing_voxels") != spacing:
         raise ValueError(f"{case_name} spacing {spacing}: capture spacing mismatch")
+    geometry_revision = capture.get("geometry_revision")
+    radiance_revision = capture.get("radiance_revision")
+    records = [
+        record
+        for record in records
+        if record["geometry_revision"] == geometry_revision
+        and record["radiance_revision"] == radiance_revision
+        and record["spacing_voxels"] == spacing
+    ]
+    if not records:
+        raise ValueError(
+            f"{case_name} spacing {spacing}: no curve for captured geometry/radiance revision"
+        )
 
     epochs = [int(record["update_epoch"]) for record in records]
     if epochs != list(range(epochs[-1] + 1)):

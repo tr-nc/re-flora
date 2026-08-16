@@ -27,9 +27,18 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
             (2, 0.002, 0.01, 1),
             (3, 0.001, 0.005, 2),
         )
+        lines.append(
+            "[DDGI] full-atlas validated geometry_revision=1 radiance_revision=1 "
+            "spacing_voxels=32 state=Converging update_epoch=0 source=None "
+            "max_abs_rgb_delta=0.00000000 max_rel_rgb_delta=0.00000000 "
+            "non_finite=0 negative_rgb_texels=0 valid_texels=64 "
+            "scanned_stored_texels=100 abs_threshold=0.00250000 "
+            "rel_threshold=0.02000000 consecutive_below=0/2"
+        )
         for epoch, absolute, relative, consecutive in samples:
             lines.append(
                 "[DDGI] full-atlas validated "
+                "geometry_revision=2 radiance_revision=1 spacing_voxels=32 "
                 f"state=Converging update_epoch={epoch} source=None "
                 f"max_abs_rgb_delta={absolute:.8f} "
                 f"max_rel_rgb_delta={relative:.8f} "
@@ -50,6 +59,8 @@ class SummarizeDdgiConvergenceTests(unittest.TestCase):
                         "lifecycle_state": "converged",
                         "update_epoch": 3,
                         "spacing_voxels": 32,
+                        "geometry_revision": 2,
+                        "radiance_revision": 1,
                         "max_abs_delta": 0.001,
                         "max_rel_delta": 0.005,
                     },
