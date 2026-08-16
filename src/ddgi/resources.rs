@@ -2093,6 +2093,8 @@ mod tests {
             assert_eq!(reverse, forward.iter().copied().rev().collect::<Vec<_>>());
         }
 
+        let tail_probe_count = (4_913 - 1) % DDGI_PROBE_BATCH_SIZE + 1;
+        let tail_first_probe = 4_913 - tail_probe_count;
         assert_eq!(
             assert_batch_traversal_covers_every_probe_once(
                 4_913,
@@ -2100,7 +2102,7 @@ mod tests {
                 DdgiBatchOrder::Reverse,
             )
             .first(),
-            Some(&(4_864, 49)),
+            Some(&(tail_first_probe, tail_probe_count)),
             "reverse traversal must process the short tail as ordinal zero",
         );
         assert_eq!(
