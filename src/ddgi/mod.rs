@@ -66,7 +66,7 @@ pub(crate) use runtime::{DdgiRuntime, DdgiRuntimeVolumeTarget};
 pub use runtime::{DdgiRuntimeStatus, DdgiRuntimeTargetWork, DdgiRuntimeVolumeStatus};
 #[allow(unused_imports)]
 pub use scheduler::{
-    DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldStage, DdgiScheduledWorkKind,
+    DdgiFieldIdentity, DdgiFieldIdentityError, DdgiFieldKey, DdgiFieldState, DdgiScheduledWorkKind,
 };
 pub(crate) use scheduler::{DdgiScheduledWork, DdgiSchedulerError, DdgiTransportScheduler};
 pub(crate) use terrain_refresh::DdgiTerrainRefresh;

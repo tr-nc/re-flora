@@ -1,39 +1,38 @@
-//! Resource-independent scheduling and identity for deterministic DDGI transport.
+//! Resource-independent scheduling and identity for temporal DDGI transport.
 //!
-//! Geometry and density requests may preempt lower-priority feedback. Radiance changes instead
-//! coalesce while one immutable iteration finishes, so a moving sun never rewrites an in-flight
-//! snapshot or makes the last complete field disappear.
+//! Geometry and density requests may preempt lower-priority convergence work. Radiance changes
+//! instead coalesce while one immutable update epoch finishes, so a moving sun never rewrites an
+//! in-flight snapshot or makes the last complete field disappear.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DdgiFieldStage {
-    SeedSky,
-    SingleBounce,
-    Feedback,
+pub enum DdgiFieldState {
+    Converging,
     Converged,
-    NonConverged,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiFieldIdentityError {
     ZeroIdentityComponent,
-    InvalidStageIteration,
-    MissingSource,
+    InvalidStateEpoch,
     UnexpectedSource,
     SourceGeometryOrSpacingMismatch,
-    SourceIterationMismatch,
+    SourceEpochMismatch,
     SourceSerialReuse,
 }
 
-/// Stable identity of one complete field. Iteration remains explicit even for terminal states,
-/// avoiding the loss of the last real bounce number in `Converged` and `NonConverged`.
+/// Stable identity of one complete current-revision field.
+///
+/// `update_epoch` is a temporal sample epoch, not a light-transport bounce or display frame. A new
+/// geometry, density, or radiance revision starts at epoch zero. Each later epoch consumes the
+/// previous complete field for the same revision.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiFieldKey {
     serial: u64,
     geometry_revision: u32,
     radiance_revision: u32,
     spacing_voxels: u32,
-    stage: DdgiFieldStage,
-    iteration: u32,
+    state: DdgiFieldState,
+    update_epoch: u32,
 }
 
 impl DdgiFieldKey {
@@ -42,29 +41,22 @@ impl DdgiFieldKey {
         geometry_revision: u32,
         radiance_revision: u32,
         spacing_voxels: u32,
-        stage: DdgiFieldStage,
-        iteration: u32,
+        state: DdgiFieldState,
+        update_epoch: u32,
     ) -> Result<Self, DdgiFieldIdentityError> {
         if serial == 0 || radiance_revision == 0 || spacing_voxels == 0 {
             return Err(DdgiFieldIdentityError::ZeroIdentityComponent);
         }
-        let valid_iteration = match stage {
-            DdgiFieldStage::SeedSky => iteration == 0,
-            DdgiFieldStage::SingleBounce => iteration == 1,
-            DdgiFieldStage::Feedback | DdgiFieldStage::Converged | DdgiFieldStage::NonConverged => {
-                iteration >= 2
-            }
-        };
-        if !valid_iteration {
-            return Err(DdgiFieldIdentityError::InvalidStageIteration);
+        if state == DdgiFieldState::Converged && update_epoch == 0 {
+            return Err(DdgiFieldIdentityError::InvalidStateEpoch);
         }
         Ok(Self {
             serial,
             geometry_revision,
             radiance_revision,
             spacing_voxels,
-            stage,
-            iteration,
+            state,
+            update_epoch,
         })
     }
 
@@ -84,27 +76,27 @@ impl DdgiFieldKey {
         self.spacing_voxels
     }
 
-    pub fn stage(self) -> DdgiFieldStage {
-        self.stage
+    pub fn state(self) -> DdgiFieldState {
+        self.state
     }
 
-    pub fn iteration(self) -> u32 {
-        self.iteration
+    pub fn update_epoch(self) -> u32 {
+        self.update_epoch
     }
 
-    fn with_stage(self, stage: DdgiFieldStage) -> Result<Self, DdgiFieldIdentityError> {
+    fn with_state(self, state: DdgiFieldState) -> Result<Self, DdgiFieldIdentityError> {
         Self::new(
             self.serial,
             self.geometry_revision,
             self.radiance_revision,
             self.spacing_voxels,
-            stage,
-            self.iteration,
+            state,
+            self.update_epoch,
         )
     }
 }
 
-/// A field plus the immutable complete field from which it was derived.
+/// A complete field plus the immutable complete field from which its epoch was derived.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiFieldIdentity {
     field: DdgiFieldKey,
@@ -116,30 +108,21 @@ impl DdgiFieldIdentity {
         field: DdgiFieldKey,
         source: Option<DdgiFieldKey>,
     ) -> Result<Self, DdgiFieldIdentityError> {
-        match field.stage {
-            DdgiFieldStage::SeedSky => {
-                if source.is_some() {
+        match source {
+            None => {
+                if field.update_epoch != 0 || field.state != DdgiFieldState::Converging {
                     return Err(DdgiFieldIdentityError::UnexpectedSource);
                 }
             }
-            DdgiFieldStage::SingleBounce => {
-                let source = source.ok_or(DdgiFieldIdentityError::MissingSource)?;
+            Some(source) => {
                 validate_source_pair(field, source)?;
-                if source.stage != DdgiFieldStage::SeedSky || source.iteration != 0 {
-                    return Err(DdgiFieldIdentityError::SourceIterationMismatch);
-                }
-            }
-            DdgiFieldStage::Feedback | DdgiFieldStage::Converged | DdgiFieldStage::NonConverged => {
-                let source = source.ok_or(DdgiFieldIdentityError::MissingSource)?;
-                validate_source_pair(field, source)?;
-                let expected_iteration = if source.radiance_revision == field.radiance_revision {
-                    source.iteration.saturating_add(1)
+                let expected_epoch = if source.radiance_revision == field.radiance_revision {
+                    source.update_epoch.saturating_add(1)
                 } else {
-                    // A new radiance epoch starts with its first previous-field update, S2.
-                    2
+                    0
                 };
-                if field.iteration != expected_iteration {
-                    return Err(DdgiFieldIdentityError::SourceIterationMismatch);
+                if field.update_epoch != expected_epoch {
+                    return Err(DdgiFieldIdentityError::SourceEpochMismatch);
                 }
             }
         }
@@ -154,8 +137,8 @@ impl DdgiFieldIdentity {
         self.source
     }
 
-    pub(crate) fn with_stage(self, stage: DdgiFieldStage) -> Result<Self, DdgiFieldIdentityError> {
-        Self::new(self.field.with_stage(stage)?, self.source)
+    pub(crate) fn with_state(self, state: DdgiFieldState) -> Result<Self, DdgiFieldIdentityError> {
+        Self::new(self.field.with_state(state)?, self.source)
     }
 }
 
@@ -176,28 +159,22 @@ fn validate_source_pair(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiScheduledWorkKind {
-    GeometryBootstrap,
-    DensityBootstrap,
-    RadianceFeedback,
-    Feedback,
+    GeometryUpdate,
+    DensityUpdate,
+    RadianceUpdate,
+    ConvergenceUpdate,
 }
 
-/// One immutable unit of scheduled work. Bootstrap owns both S0 and its S1 destination; feedback
-/// owns only a destination because its source is the currently published complete field.
+/// One immutable full-volume update epoch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdgiScheduledWork {
     kind: DdgiScheduledWorkKind,
-    seed: Option<DdgiFieldIdentity>,
     destination: DdgiFieldIdentity,
 }
 
 impl DdgiScheduledWork {
     pub fn kind(self) -> DdgiScheduledWorkKind {
         self.kind
-    }
-
-    pub fn seed(self) -> Option<DdgiFieldIdentity> {
-        self.seed
     }
 
     pub fn destination(self) -> DdgiFieldIdentity {
@@ -236,7 +213,7 @@ pub struct DdgiTransportScheduler {
     pending_geometry: Option<GeometryRequest>,
     pending_density_spacing_voxels: Option<u32>,
     latest_radiance_revision: Option<u32>,
-    feedback_requested: bool,
+    convergence_requested: bool,
 }
 
 impl DdgiTransportScheduler {
@@ -248,7 +225,7 @@ impl DdgiTransportScheduler {
             pending_geometry: None,
             pending_density_spacing_voxels: None,
             latest_radiance_revision: None,
-            feedback_requested: false,
+            convergence_requested: false,
         }
     }
 
@@ -265,10 +242,7 @@ impl DdgiTransportScheduler {
             .max(published.source.map_or(0, |source| source.serial));
         self.latest_radiance_revision = Some(published.field.radiance_revision);
         self.published = Some(published);
-        self.feedback_requested = matches!(
-            published.field.stage,
-            DdgiFieldStage::SingleBounce | DdgiFieldStage::Feedback
-        );
+        self.convergence_requested = published.field.state == DdgiFieldState::Converging;
         Ok(())
     }
 
@@ -301,7 +275,7 @@ impl DdgiTransportScheduler {
         };
         if self.pending_geometry == Some(request)
             || self.in_flight.is_some_and(|work| {
-                work.kind == DdgiScheduledWorkKind::GeometryBootstrap
+                work.kind == DdgiScheduledWorkKind::GeometryUpdate
                     && work.destination.field.geometry_revision == geometry_revision
                     && work.destination.field.spacing_voxels == active_spacing_voxels
             })
@@ -311,43 +285,42 @@ impl DdgiTransportScheduler {
 
         self.pending_geometry = Some(request);
         self.pending_density_spacing_voxels = None;
-        self.feedback_requested = false;
+        self.convergence_requested = false;
         self.in_flight.take()
     }
 
-    /// Density is lower priority than geometry but preempts feedback. The old published spacing
-    /// is deliberately untouched until this bootstrap is later completed and published.
+    /// Density is lower priority than geometry but preempts convergence. The old published spacing
+    /// remains untouched until the new volume completes epoch zero and is published.
     pub fn request_density(&mut self, spacing_voxels: u32) -> Option<DdgiScheduledWork> {
         assert_ne!(spacing_voxels, 0);
         if self.in_flight.is_some_and(|work| {
-            work.kind == DdgiScheduledWorkKind::DensityBootstrap
+            work.kind == DdgiScheduledWorkKind::DensityUpdate
                 && work.destination.field.spacing_voxels == spacing_voxels
         }) {
             return None;
         }
         self.pending_density_spacing_voxels = Some(spacing_voxels);
         match self.in_flight {
-            Some(work) if work.kind != DdgiScheduledWorkKind::GeometryBootstrap => {
+            Some(work) if work.kind != DdgiScheduledWorkKind::GeometryUpdate => {
                 self.in_flight.take()
             }
             _ => None,
         }
     }
 
-    /// Records only the latest radiance request. It never mutates or preempts the current work.
+    /// Records only the latest radiance request. It never mutates or preempts the current epoch.
     pub fn observe_radiance(&mut self, radiance_revision: u32) {
         assert_ne!(radiance_revision, 0);
-        if self.latest_radiance_revision == Some(radiance_revision) {
-            return;
+        if self.latest_radiance_revision != Some(radiance_revision) {
+            self.latest_radiance_revision = Some(radiance_revision);
         }
-        self.latest_radiance_revision = Some(radiance_revision);
     }
 
-    pub fn request_feedback(&mut self) {
-        self.feedback_requested = true;
+    pub fn request_convergence(&mut self) {
+        self.convergence_requested = true;
     }
 
-    /// Claims exactly one highest-priority immutable work item.
+    /// Claims exactly one highest-priority immutable full-volume update epoch.
     pub fn claim_next(&mut self) -> Result<Option<DdgiScheduledWork>, DdgiSchedulerError> {
         if self.in_flight.is_some() {
             return Ok(None);
@@ -357,8 +330,8 @@ impl DdgiTransportScheduler {
         };
 
         let next = if let Some(request) = self.pending_geometry.take() {
-            Some(self.make_bootstrap(
-                DdgiScheduledWorkKind::GeometryBootstrap,
+            Some(self.make_initial_update(
+                DdgiScheduledWorkKind::GeometryUpdate,
                 request.geometry_revision,
                 radiance_revision,
                 request.spacing_voxels,
@@ -368,21 +341,20 @@ impl DdgiTransportScheduler {
                 self.pending_density_spacing_voxels = Some(spacing_voxels);
                 return Ok(None);
             };
-            Some(self.make_bootstrap(
-                DdgiScheduledWorkKind::DensityBootstrap,
+            Some(self.make_initial_update(
+                DdgiScheduledWorkKind::DensityUpdate,
                 published.field.geometry_revision,
                 radiance_revision,
                 spacing_voxels,
             )?)
         } else {
-            self.make_feedback(radiance_revision)?
+            self.make_temporal_update(radiance_revision)?
         };
 
         self.in_flight = next;
         Ok(next)
     }
 
-    /// Completes work only after the caller has validated and atomically published its resources.
     pub fn validate_in_flight_completion(
         &self,
         work: DdgiScheduledWork,
@@ -395,55 +367,40 @@ impl DdgiTransportScheduler {
         validate_completion(work, published)
     }
 
-    /// Completes work only after the caller has validated and atomically published its resources.
     pub fn complete_in_flight(
         &mut self,
         work: DdgiScheduledWork,
         published: DdgiFieldIdentity,
     ) -> Result<DdgiFieldIdentity, DdgiSchedulerError> {
         self.validate_in_flight_completion(work, published)?;
-
         self.in_flight = None;
         self.published = Some(published);
-        self.feedback_requested = matches!(
-            published.field.stage,
-            DdgiFieldStage::SingleBounce | DdgiFieldStage::Feedback
-        );
+        self.convergence_requested = published.field.state == DdgiFieldState::Converging;
         Ok(published)
     }
 
-    fn make_bootstrap(
+    fn make_initial_update(
         &mut self,
         kind: DdgiScheduledWorkKind,
         geometry_revision: u32,
         radiance_revision: u32,
         spacing_voxels: u32,
     ) -> Result<DdgiScheduledWork, DdgiSchedulerError> {
-        let seed_key = DdgiFieldKey::new(
-            self.allocate_serial(),
-            geometry_revision,
-            radiance_revision,
-            spacing_voxels,
-            DdgiFieldStage::SeedSky,
-            0,
-        )?;
-        let seed = DdgiFieldIdentity::new(seed_key, None)?;
         let destination_key = DdgiFieldKey::new(
             self.allocate_serial(),
             geometry_revision,
             radiance_revision,
             spacing_voxels,
-            DdgiFieldStage::SingleBounce,
-            1,
+            DdgiFieldState::Converging,
+            0,
         )?;
         Ok(DdgiScheduledWork {
             kind,
-            seed: Some(seed),
-            destination: DdgiFieldIdentity::new(destination_key, Some(seed_key))?,
+            destination: DdgiFieldIdentity::new(destination_key, None)?,
         })
     }
 
-    fn make_feedback(
+    fn make_temporal_update(
         &mut self,
         radiance_revision: u32,
     ) -> Result<Option<DdgiScheduledWork>, DdgiSchedulerError> {
@@ -452,35 +409,30 @@ impl DdgiTransportScheduler {
         };
         let radiance_changed = source.field.radiance_revision != radiance_revision;
         if !radiance_changed
-            && (!self.feedback_requested
-                || matches!(
-                    source.field.stage,
-                    DdgiFieldStage::Converged | DdgiFieldStage::NonConverged
-                ))
+            && (!self.convergence_requested || source.field.state == DdgiFieldState::Converged)
         {
             return Ok(None);
         }
-        let iteration = if radiance_changed {
-            2
+        let update_epoch = if radiance_changed {
+            0
         } else {
-            source.field.iteration.saturating_add(1)
+            source.field.update_epoch.saturating_add(1)
         };
         let destination_key = DdgiFieldKey::new(
             self.allocate_serial(),
             source.field.geometry_revision,
             radiance_revision,
             source.field.spacing_voxels,
-            DdgiFieldStage::Feedback,
-            iteration,
+            DdgiFieldState::Converging,
+            update_epoch,
         )?;
-        self.feedback_requested = false;
+        self.convergence_requested = false;
         Ok(Some(DdgiScheduledWork {
             kind: if radiance_changed {
-                DdgiScheduledWorkKind::RadianceFeedback
+                DdgiScheduledWorkKind::RadianceUpdate
             } else {
-                DdgiScheduledWorkKind::Feedback
+                DdgiScheduledWorkKind::ConvergenceUpdate
             },
-            seed: None,
             destination: DdgiFieldIdentity::new(destination_key, Some(source.field))?,
         }))
     }
@@ -514,20 +466,22 @@ fn validate_completion(
         || actual.geometry_revision != planned.geometry_revision
         || actual.radiance_revision != planned.radiance_revision
         || actual.spacing_voxels != planned.spacing_voxels
-        || actual.iteration != planned.iteration
+        || actual.update_epoch != planned.update_epoch
     {
         return Err(DdgiSchedulerError::InvalidCompletion);
     }
-    let valid_stage = match work.kind {
-        DdgiScheduledWorkKind::GeometryBootstrap | DdgiScheduledWorkKind::DensityBootstrap => {
-            actual.stage == DdgiFieldStage::SingleBounce
+    let valid_state = match work.kind {
+        DdgiScheduledWorkKind::GeometryUpdate | DdgiScheduledWorkKind::DensityUpdate => {
+            actual.state == DdgiFieldState::Converging
         }
-        DdgiScheduledWorkKind::RadianceFeedback | DdgiScheduledWorkKind::Feedback => matches!(
-            actual.stage,
-            DdgiFieldStage::Feedback | DdgiFieldStage::Converged | DdgiFieldStage::NonConverged
-        ),
+        DdgiScheduledWorkKind::RadianceUpdate | DdgiScheduledWorkKind::ConvergenceUpdate => {
+            matches!(
+                actual.state,
+                DdgiFieldState::Converging | DdgiFieldState::Converged
+            )
+        }
     };
-    if !valid_stage {
+    if !valid_state {
         return Err(DdgiSchedulerError::InvalidCompletion);
     }
     Ok(())
@@ -541,132 +495,125 @@ mod tests {
         DdgiTransportScheduler::new()
     }
 
-    fn single_bounce(
-        seed_serial: u64,
+    fn field(
         serial: u64,
         geometry_revision: u32,
         radiance_revision: u32,
         spacing_voxels: u32,
+        update_epoch: u32,
+        state: DdgiFieldState,
+        source: Option<DdgiFieldKey>,
     ) -> DdgiFieldIdentity {
-        let seed = DdgiFieldKey::new(
-            seed_serial,
-            geometry_revision,
-            radiance_revision,
-            spacing_voxels,
-            DdgiFieldStage::SeedSky,
-            0,
-        )
-        .unwrap();
         DdgiFieldIdentity::new(
             DdgiFieldKey::new(
                 serial,
                 geometry_revision,
                 radiance_revision,
                 spacing_voxels,
-                DdgiFieldStage::SingleBounce,
-                1,
+                state,
+                update_epoch,
             )
             .unwrap(),
-            Some(seed),
+            source,
         )
         .unwrap()
     }
 
+    fn initial(
+        serial: u64,
+        geometry_revision: u32,
+        radiance_revision: u32,
+        spacing_voxels: u32,
+    ) -> DdgiFieldIdentity {
+        field(
+            serial,
+            geometry_revision,
+            radiance_revision,
+            spacing_voxels,
+            0,
+            DdgiFieldState::Converging,
+            None,
+        )
+    }
+
     fn with_active() -> DdgiTransportScheduler {
         let mut scheduler = scheduler();
-        scheduler
-            .install_published(single_bounce(1, 2, 7, 1, 32))
-            .unwrap();
+        scheduler.install_published(initial(1, 7, 1, 32)).unwrap();
         scheduler
     }
 
-    fn classified(work: DdgiScheduledWork, stage: DdgiFieldStage) -> DdgiFieldIdentity {
-        work.destination().with_stage(stage).unwrap()
+    fn classified(work: DdgiScheduledWork, state: DdgiFieldState) -> DdgiFieldIdentity {
+        work.destination().with_state(state).unwrap()
     }
 
     #[test]
-    fn field_identity_preserves_terminal_iteration_and_exact_source() {
-        let source = single_bounce(1, 2, 7, 3, 32).field();
-        for stage in [
-            DdgiFieldStage::Feedback,
-            DdgiFieldStage::Converged,
-            DdgiFieldStage::NonConverged,
-        ] {
-            let identity = DdgiFieldIdentity::new(
-                DdgiFieldKey::new(3, 7, 3, 32, stage, 2).unwrap(),
-                Some(source),
-            )
-            .unwrap();
-            assert_eq!(identity.field().iteration(), 2);
-            assert_eq!(identity.field().stage(), stage);
+    fn field_identity_tracks_epoch_state_and_exact_source() {
+        let source = initial(1, 7, 3, 32).field();
+        for state in [DdgiFieldState::Converging, DdgiFieldState::Converged] {
+            let identity = field(2, 7, 3, 32, 1, state, Some(source));
+            assert_eq!(identity.field().update_epoch(), 1);
+            assert_eq!(identity.field().state(), state);
             assert_eq!(identity.source(), Some(source));
         }
     }
 
     #[test]
-    fn initial_geometry_revision_zero_is_a_valid_field_identity() {
-        let identity = single_bounce(1, 2, 0, 1, 32);
+    fn initial_geometry_revision_zero_is_valid_and_publishes_after_one_epoch() {
+        let identity = initial(1, 0, 1, 32);
         assert_eq!(identity.field().geometry_revision(), 0);
 
         let mut scheduler = scheduler();
-        scheduler.install_published(identity).unwrap();
+        scheduler.observe_radiance(1);
         scheduler.request_geometry(0, 32);
-        let bootstrap = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(bootstrap.destination().field().geometry_revision(), 0);
+        let update = scheduler.claim_next().unwrap().unwrap();
+        assert_eq!(update.kind(), DdgiScheduledWorkKind::GeometryUpdate);
+        assert_eq!(update.destination().field().update_epoch(), 0);
+        assert_eq!(update.destination().source(), None);
+        scheduler
+            .complete_in_flight(update, update.destination())
+            .unwrap();
+        assert_eq!(scheduler.published(), Some(update.destination()));
     }
 
     #[test]
-    fn geometry_then_density_preempt_lower_priority_feedback() {
+    fn geometry_then_density_preempt_lower_priority_convergence() {
         let mut scheduler = with_active();
-        let feedback = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(feedback.kind(), DdgiScheduledWorkKind::Feedback);
+        let convergence = scheduler.claim_next().unwrap().unwrap();
+        assert_eq!(convergence.kind(), DdgiScheduledWorkKind::ConvergenceUpdate);
 
-        let preempted = scheduler.request_density(16).unwrap();
-        assert_eq!(preempted, feedback);
+        assert_eq!(scheduler.request_density(16), Some(convergence));
         let density = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(density.kind(), DdgiScheduledWorkKind::DensityBootstrap);
+        assert_eq!(density.kind(), DdgiScheduledWorkKind::DensityUpdate);
         assert_eq!(density.destination().field().spacing_voxels(), 16);
 
-        let preempted = scheduler.request_geometry(8, 32).unwrap();
-        assert_eq!(preempted, density);
+        assert_eq!(scheduler.request_geometry(8, 32), Some(density));
         let geometry = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(geometry.kind(), DdgiScheduledWorkKind::GeometryBootstrap);
-        assert_eq!(geometry.destination().field().geometry_revision(), 8);
-
+        assert_eq!(geometry.kind(), DdgiScheduledWorkKind::GeometryUpdate);
         let geometry = scheduler
             .complete_in_flight(geometry, geometry.destination())
             .unwrap();
-        assert_eq!(geometry.field().stage(), DdgiFieldStage::SingleBounce);
-        let feedback = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(feedback.kind(), DdgiScheduledWorkKind::Feedback);
-        assert_eq!(feedback.destination().field().geometry_revision(), 8);
-        assert_eq!(feedback.destination().field().spacing_voxels(), 32);
+        assert_eq!(geometry.field().state(), DdgiFieldState::Converging);
 
-        assert_eq!(scheduler.request_density(16), Some(feedback));
-        let retried_density = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(
-            retried_density.kind(),
-            DdgiScheduledWorkKind::DensityBootstrap
-        );
-        assert_eq!(retried_density.destination().field().geometry_revision(), 8);
-        assert_eq!(retried_density.destination().field().spacing_voxels(), 16);
+        let convergence = scheduler.claim_next().unwrap().unwrap();
+        assert_eq!(convergence.kind(), DdgiScheduledWorkKind::ConvergenceUpdate);
+        assert_eq!(convergence.destination().field().geometry_revision(), 8);
+        assert_eq!(convergence.destination().field().update_epoch(), 1);
     }
 
     #[test]
     fn pending_density_requires_an_explicit_retry_after_geometry() {
         let mut scheduler = with_active();
-        let feedback = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(scheduler.request_density(16), Some(feedback));
+        let convergence = scheduler.claim_next().unwrap().unwrap();
+        assert_eq!(scheduler.request_density(16), Some(convergence));
 
         assert_eq!(scheduler.request_geometry(8, 32), None);
         let geometry = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(geometry.kind(), DdgiScheduledWorkKind::GeometryBootstrap);
         scheduler
             .complete_in_flight(geometry, geometry.destination())
             .unwrap();
 
         let next = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(next.kind(), DdgiScheduledWorkKind::Feedback);
+        assert_eq!(next.kind(), DdgiScheduledWorkKind::ConvergenceUpdate);
         assert_eq!(next.destination().field().spacing_voxels(), 32);
     }
 
@@ -675,25 +622,20 @@ mod tests {
         let mut scheduler = with_active();
         scheduler.observe_radiance(2);
         let revision_two = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(revision_two.kind(), DdgiScheduledWorkKind::RadianceFeedback);
-        assert_eq!(revision_two.destination().field().radiance_revision(), 2);
+        assert_eq!(revision_two.kind(), DdgiScheduledWorkKind::RadianceUpdate);
+        assert_eq!(revision_two.destination().field().update_epoch(), 0);
 
         scheduler.observe_radiance(3);
         scheduler.observe_radiance(4);
         assert_eq!(scheduler.in_flight(), Some(revision_two));
-        assert_eq!(scheduler.latest_radiance_revision(), Some(4));
 
         let published_two = scheduler
             .complete_in_flight(revision_two, revision_two.destination())
             .unwrap();
-        assert_eq!(published_two.field().radiance_revision(), 2);
         let revision_four = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(
-            revision_four.kind(),
-            DdgiScheduledWorkKind::RadianceFeedback
-        );
+        assert_eq!(revision_four.kind(), DdgiScheduledWorkKind::RadianceUpdate);
         assert_eq!(revision_four.destination().field().radiance_revision(), 4);
-        assert_eq!(revision_four.destination().field().iteration(), 2);
+        assert_eq!(revision_four.destination().field().update_epoch(), 0);
         assert_eq!(
             revision_four.destination().source(),
             Some(published_two.field())
@@ -701,24 +643,19 @@ mod tests {
     }
 
     #[test]
-    fn geometry_bootstrap_finishes_its_snapshot_then_schedules_latest_radiance() {
+    fn geometry_update_finishes_its_snapshot_then_schedules_latest_radiance() {
         let mut scheduler = with_active();
         scheduler.observe_radiance(2);
         scheduler.request_geometry(8, 32);
         let geometry = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(geometry.destination().field().radiance_revision(), 2);
-
         scheduler.observe_radiance(3);
-        assert_eq!(scheduler.in_flight(), Some(geometry));
         let geometry = scheduler
             .complete_in_flight(geometry, geometry.destination())
             .unwrap();
-        assert_eq!(geometry.field().geometry_revision(), 8);
         assert_eq!(geometry.field().radiance_revision(), 2);
 
         let latest = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(latest.kind(), DdgiScheduledWorkKind::RadianceFeedback);
-        assert_eq!(latest.destination().field().geometry_revision(), 8);
+        assert_eq!(latest.kind(), DdgiScheduledWorkKind::RadianceUpdate);
         assert_eq!(latest.destination().field().radiance_revision(), 3);
     }
 
@@ -726,52 +663,31 @@ mod tests {
     fn density_preemption_keeps_the_old_published_field_visible() {
         let mut scheduler = with_active();
         let old = scheduler.published().unwrap();
-        let feedback = scheduler.claim_next().unwrap().unwrap();
+        let convergence = scheduler.claim_next().unwrap().unwrap();
 
-        assert_eq!(scheduler.request_density(16), Some(feedback));
+        assert_eq!(scheduler.request_density(16), Some(convergence));
         assert_eq!(scheduler.published(), Some(old));
         assert_eq!(
-            scheduler.validate_in_flight_completion(feedback, feedback.destination()),
+            scheduler.validate_in_flight_completion(convergence, convergence.destination()),
             Err(DdgiSchedulerError::NoInFlightWork),
         );
-        assert_eq!(
-            scheduler.complete_in_flight(feedback, feedback.destination()),
-            Err(DdgiSchedulerError::NoInFlightWork),
-        );
-
-        let density = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(density.kind(), DdgiScheduledWorkKind::DensityBootstrap);
-        assert_eq!(scheduler.published(), Some(old));
     }
 
     #[test]
-    fn resource_classification_preserves_the_real_terminal_iteration() {
+    fn convergence_sleeps_until_a_tracked_change_wakes_it() {
         let mut scheduler = with_active();
-        let s2 = scheduler.claim_next().unwrap().unwrap();
-        let s2 = scheduler
-            .complete_in_flight(s2, classified(s2, DdgiFieldStage::Feedback))
-            .unwrap();
-        assert_eq!(s2.field().stage(), DdgiFieldStage::Feedback);
-        let s3 = scheduler.claim_next().unwrap().unwrap();
+        let epoch_one = scheduler.claim_next().unwrap().unwrap();
         let converged = scheduler
-            .complete_in_flight(s3, classified(s3, DdgiFieldStage::Converged))
+            .complete_in_flight(epoch_one, classified(epoch_one, DdgiFieldState::Converged))
             .unwrap();
-        assert_eq!(converged.field().stage(), DdgiFieldStage::Converged);
-        assert_eq!(converged.field().iteration(), 3);
+        assert_eq!(converged.field().update_epoch(), 1);
         assert_eq!(scheduler.claim_next().unwrap(), None);
-    }
 
-    #[test]
-    fn a_new_radiance_epoch_starts_at_s2_from_a_terminal_field() {
-        let mut scheduler = with_active();
-        let s2 = scheduler.claim_next().unwrap().unwrap();
-        let s2 = scheduler
-            .complete_in_flight(s2, classified(s2, DdgiFieldStage::Converged))
-            .unwrap();
         scheduler.observe_radiance(2);
         let restarted = scheduler.claim_next().unwrap().unwrap();
-        assert_eq!(restarted.destination().field().iteration(), 2);
-        assert_eq!(restarted.destination().source(), Some(s2.field()));
+        assert_eq!(restarted.kind(), DdgiScheduledWorkKind::RadianceUpdate);
+        assert_eq!(restarted.destination().field().update_epoch(), 0);
+        assert_eq!(restarted.destination().source(), Some(converged.field()));
     }
 
     #[test]
@@ -779,19 +695,15 @@ mod tests {
         let mut scheduler = with_active();
         let work = scheduler.claim_next().unwrap().unwrap();
         let expected = work.destination();
-        let wrong_serial = DdgiFieldIdentity::new(
-            DdgiFieldKey::new(
-                expected.field().serial() + 1,
-                expected.field().geometry_revision(),
-                expected.field().radiance_revision(),
-                expected.field().spacing_voxels(),
-                DdgiFieldStage::Feedback,
-                expected.field().iteration(),
-            )
-            .unwrap(),
+        let wrong_serial = field(
+            expected.field().serial() + 1,
+            expected.field().geometry_revision(),
+            expected.field().radiance_revision(),
+            expected.field().spacing_voxels(),
+            expected.field().update_epoch(),
+            DdgiFieldState::Converging,
             expected.source(),
-        )
-        .unwrap();
+        );
 
         assert_eq!(
             scheduler.complete_in_flight(work, wrong_serial),

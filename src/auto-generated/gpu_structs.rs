@@ -385,7 +385,7 @@ pub struct PushConstantProbeTrace {
     pub first_probe_index: u32,
     pub probe_count: u32,
     pub terrain_revision: u32,
-    pub transport_iteration: u32,
+    pub has_history: u32,
     pub source_slot: u32,
     pub far_distance_world: f32,
     pub padding: [u32; 2],

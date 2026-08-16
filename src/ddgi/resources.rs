@@ -1,5 +1,5 @@
 use super::{
-    DdgiAtlasLayout, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldStage, DdgiScheduledWork,
+    DdgiAtlasLayout, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldState, DdgiScheduledWork,
     DdgiScheduledWorkKind, DdgiVolumeGrid, DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_PROBE_BATCH_SIZE,
     DDGI_RAYS_PER_PROBE, DDGI_RAY_BUDGET_PER_FRAME, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
@@ -23,7 +23,7 @@ const DDGI_TRACE_STATS_COUNT: usize = 8;
 const DDGI_RELOCATION_STATS_COUNT: usize = 14;
 const DDGI_ATLAS_REDUCTION_COUNT: usize = 6;
 
-/// Conservative, centralized feedback stopping policy. The relative metric uses a symmetric
+/// Conservative, centralized temporal-convergence policy. The relative metric uses a symmetric
 /// denominator `max(abs(source), abs(destination), relative_floor)` so near-black texels do not
 /// prevent convergence forever. These are transport decisions only; HDR values are never clamped.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -32,7 +32,6 @@ pub struct DdgiConvergencePolicy {
     pub relative_threshold: f32,
     pub relative_floor: f32,
     pub consecutive_iterations: u32,
-    pub hard_max_iteration: u32,
 }
 
 pub const DDGI_CONVERGENCE_POLICY: DdgiConvergencePolicy = DdgiConvergencePolicy {
@@ -40,7 +39,6 @@ pub const DDGI_CONVERGENCE_POLICY: DdgiConvergencePolicy = DdgiConvergencePolicy
     relative_threshold: 0.02,
     relative_floor: 0.05,
     consecutive_iterations: 2,
-    hard_max_iteration: 8,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,39 +100,28 @@ fn resident_iteration_for_work(
 ) -> Result<DdgiResidentIteration> {
     let destination = work.destination();
     match work.kind() {
-        DdgiScheduledWorkKind::GeometryBootstrap | DdgiScheduledWorkKind::DensityBootstrap => {
+        DdgiScheduledWorkKind::GeometryUpdate | DdgiScheduledWorkKind::DensityUpdate => {
             ensure!(
                 published.is_none(),
-                "DDGI bootstrap must use an unpublished staging volume"
-            );
-            let seed = work
-                .seed()
-                .context("DDGI bootstrap work lost S0 identity")?;
-            ensure!(
-                destination.source() == Some(seed.field()),
-                "DDGI bootstrap destination does not consume its scheduled S0"
+                "initial DDGI update must use an unpublished staging volume"
             );
             let destination = DdgiResidentField {
-                logical: seed,
-                irradiance_slot: DdgiIrradianceSlot::Atlas1,
+                logical: destination,
+                irradiance_slot: DdgiIrradianceSlot::Atlas0,
                 sky_slot: DdgiSkySlot::Sky0,
             };
             Ok(DdgiResidentIteration {
                 work,
-                logical: seed,
+                logical: destination.logical,
                 source: None,
                 destination,
             })
         }
-        DdgiScheduledWorkKind::RadianceFeedback | DdgiScheduledWorkKind::Feedback => {
-            ensure!(
-                work.seed().is_none(),
-                "DDGI feedback work cannot contain S0"
-            );
-            let source = published.context("DDGI feedback requires a resident published source")?;
+        DdgiScheduledWorkKind::RadianceUpdate | DdgiScheduledWorkKind::ConvergenceUpdate => {
+            let source = published.context("temporal DDGI update requires a published source")?;
             ensure!(
                 destination.source() == Some(source.logical.field()),
-                "DDGI feedback source {:?} does not match resident source {:?}",
+                "DDGI temporal source {:?} does not match resident source {:?}",
                 destination.source(),
                 source.logical,
             );
@@ -212,12 +199,12 @@ impl DdgiRayBatch {
         self.resident.logical.field().spacing_voxels()
     }
 
-    pub fn stage(self) -> DdgiFieldStage {
-        self.resident.logical.field().stage()
+    pub fn state(self) -> DdgiFieldState {
+        self.resident.logical.field().state()
     }
 
-    pub fn iteration(self) -> u32 {
-        self.resident.logical.field().iteration()
+    pub fn update_epoch(self) -> u32 {
+        self.resident.logical.field().update_epoch()
     }
 
     pub fn source(self) -> Option<DdgiFieldIdentity> {
@@ -251,7 +238,7 @@ impl DdgiRayBatch {
     }
 
     pub fn writes_visibility(self) -> bool {
-        self.stage() == DdgiFieldStage::SeedSky
+        self.resident.source.is_none()
     }
 }
 
@@ -486,17 +473,12 @@ pub enum DdgiVerifiedBatchOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiValidatedIterationOutcome {
-    SeedSkyComplete,
     Published {
         work: DdgiScheduledWork,
         field: DdgiFieldIdentity,
         consecutive_below_threshold: u32,
     },
     Converged {
-        work: DdgiScheduledWork,
-        field: DdgiFieldIdentity,
-    },
-    NonConverged {
         work: DdgiScheduledWork,
         field: DdgiFieldIdentity,
     },
@@ -1128,15 +1110,15 @@ impl DdgiVolume {
         self.transport_query_snapshot.geometry_revision = destination.field().geometry_revision();
         let resident = resident_iteration_for_work(work, self.published_field)?;
         match work.kind() {
-            DdgiScheduledWorkKind::GeometryBootstrap | DdgiScheduledWorkKind::DensityBootstrap => {
+            DdgiScheduledWorkKind::GeometryUpdate | DdgiScheduledWorkKind::DensityUpdate => {
                 ensure!(
                     self.complete_field.is_none(),
-                    "DDGI bootstrap must not retain a complete field"
+                    "initial DDGI update must not retain a current-revision complete field"
                 );
                 self.consecutive_below_threshold = 0;
                 self.set_transport_source_ready(false)?;
             }
-            DdgiScheduledWorkKind::RadianceFeedback | DdgiScheduledWorkKind::Feedback => {
+            DdgiScheduledWorkKind::RadianceUpdate | DdgiScheduledWorkKind::ConvergenceUpdate => {
                 if radiance_changed {
                     self.consecutive_below_threshold = 0;
                 }
@@ -1324,27 +1306,18 @@ impl DdgiVolume {
             "DDGI atlas validation no longer matches the builder iteration"
         );
         validate_atlas_stats(stats)?;
-        match identity.field().stage() {
-            DdgiFieldStage::SeedSky | DdgiFieldStage::SingleBounce => Ok(identity),
-            DdgiFieldStage::Feedback => {
-                match classify_feedback_iteration(
-                    policy,
-                    identity.field().iteration(),
-                    self.consecutive_below_threshold,
-                    stats,
-                ) {
-                    DdgiFeedbackDecision::Continue { .. } => Ok(identity),
-                    DdgiFeedbackDecision::Converged { .. } => identity
-                        .with_stage(DdgiFieldStage::Converged)
-                        .map_err(|error| anyhow::anyhow!("invalid converged field: {error:?}")),
-                    DdgiFeedbackDecision::NonConverged { .. } => identity
-                        .with_stage(DdgiFieldStage::NonConverged)
-                        .map_err(|error| anyhow::anyhow!("invalid non-converged field: {error:?}")),
-                }
-            }
-            DdgiFieldStage::Converged | DdgiFieldStage::NonConverged => {
-                anyhow::bail!("terminal DDGI stage cannot be built: {identity:?}")
-            }
+        ensure!(
+            identity.field().state() == DdgiFieldState::Converging,
+            "converged DDGI field cannot be used as a build destination: {identity:?}"
+        );
+        if identity.source().is_none() {
+            return Ok(identity);
+        }
+        match classify_temporal_epoch(policy, self.consecutive_below_threshold, stats) {
+            DdgiConvergenceDecision::Continue { .. } => Ok(identity),
+            DdgiConvergenceDecision::Converged { .. } => identity
+                .with_state(DdgiFieldState::Converged)
+                .map_err(|error| anyhow::anyhow!("invalid converged field: {error:?}")),
         }
     }
 
@@ -1365,118 +1338,64 @@ impl DdgiVolume {
         self.filtered_probe_count = 0;
         self.next_batch_ordinal = 0;
 
-        match identity.field().stage() {
-            DdgiFieldStage::SeedSky => {
-                ensure!(
-                    iteration.source.is_none(),
-                    "DDGI S0 must not have a source field"
-                );
-                let seed = iteration.destination;
-                let destination = DdgiResidentField {
-                    logical: iteration.work.destination(),
-                    irradiance_slot: seed.irradiance_slot.other(),
-                    sky_slot: seed.sky_slot,
-                };
-                self.building_iteration = Some(DdgiResidentIteration {
-                    work: iteration.work,
-                    logical: destination.logical,
-                    source: Some(seed),
-                    destination,
-                });
-                self.set_transport_source_ready(true)?;
-                self.stage = DdgiVolumeStage::Rebuilding;
-                Ok(DdgiValidatedIterationOutcome::SeedSkyComplete)
-            }
-            DdgiFieldStage::SingleBounce => {
-                ensure!(
-                    iteration.source == previous_complete,
-                    "DDGI S1 did not consume the immutable S0 field"
-                );
+        if identity.source().is_none() {
+            ensure!(
+                iteration.source.is_none() && previous_complete.is_none(),
+                "initial DDGI epoch must not consume a current-revision field"
+            );
+            self.published_field = Some(iteration.destination);
+            self.consecutive_below_threshold = 0;
+            self.building_iteration = None;
+            self.scheduled_work = None;
+            self.stage = DdgiVolumeStage::Ready;
+            return Ok(DdgiValidatedIterationOutcome::Published {
+                work: iteration.work,
+                field: identity,
+                consecutive_below_threshold: 0,
+            });
+        }
+
+        ensure!(
+            iteration.source == previous_complete,
+            "DDGI temporal epoch {} did not consume the previous complete field",
+            identity.field().update_epoch()
+        );
+        match classify_temporal_epoch(policy, self.consecutive_below_threshold, stats) {
+            DdgiConvergenceDecision::Continue {
+                consecutive_below_threshold,
+            } => {
+                self.consecutive_below_threshold = consecutive_below_threshold;
                 self.published_field = Some(iteration.destination);
-                self.consecutive_below_threshold = 0;
                 self.building_iteration = None;
                 self.scheduled_work = None;
                 self.stage = DdgiVolumeStage::Ready;
                 Ok(DdgiValidatedIterationOutcome::Published {
                     work: iteration.work,
                     field: identity,
-                    consecutive_below_threshold: 0,
+                    consecutive_below_threshold,
                 })
             }
-            DdgiFieldStage::Feedback => {
-                let iteration_number = identity.field().iteration();
+            DdgiConvergenceDecision::Converged {
+                consecutive_below_threshold,
+            } => {
+                let field = classified_field;
                 ensure!(
-                    iteration.source == previous_complete,
-                    "DDGI feedback iteration S{iteration_number} did not consume the previous field"
+                    field.field().state() == DdgiFieldState::Converged,
+                    "DDGI convergence preview changed before publication"
                 );
-                match classify_feedback_iteration(
-                    policy,
-                    iteration_number,
-                    self.consecutive_below_threshold,
-                    stats,
-                ) {
-                    DdgiFeedbackDecision::Continue {
-                        consecutive_below_threshold,
-                    } => {
-                        self.consecutive_below_threshold = consecutive_below_threshold;
-                        self.published_field = Some(iteration.destination);
-                        self.building_iteration = None;
-                        self.scheduled_work = None;
-                        self.stage = DdgiVolumeStage::Ready;
-                        Ok(DdgiValidatedIterationOutcome::Published {
-                            work: iteration.work,
-                            field: identity,
-                            consecutive_below_threshold,
-                        })
-                    }
-                    DdgiFeedbackDecision::Converged {
-                        consecutive_below_threshold,
-                    } => {
-                        let field = classified_field;
-                        ensure!(
-                            field.field().stage() == DdgiFieldStage::Converged,
-                            "DDGI feedback preview changed before publication"
-                        );
-                        self.complete_field = Some(DdgiResidentField {
-                            logical: field,
-                            ..iteration.destination
-                        });
-                        self.published_field = self.complete_field;
-                        self.building_iteration = None;
-                        self.scheduled_work = None;
-                        self.consecutive_below_threshold = consecutive_below_threshold;
-                        self.stage = DdgiVolumeStage::Ready;
-                        Ok(DdgiValidatedIterationOutcome::Converged {
-                            work: iteration.work,
-                            field,
-                        })
-                    }
-                    DdgiFeedbackDecision::NonConverged {
-                        consecutive_below_threshold,
-                    } => {
-                        let field = classified_field;
-                        ensure!(
-                            field.field().stage() == DdgiFieldStage::NonConverged,
-                            "DDGI feedback preview changed before publication"
-                        );
-                        self.complete_field = Some(DdgiResidentField {
-                            logical: field,
-                            ..iteration.destination
-                        });
-                        self.published_field = self.complete_field;
-                        self.building_iteration = None;
-                        self.scheduled_work = None;
-                        self.consecutive_below_threshold = consecutive_below_threshold;
-                        self.stage = DdgiVolumeStage::Ready;
-                        Ok(DdgiValidatedIterationOutcome::NonConverged {
-                            work: iteration.work,
-                            field,
-                        })
-                    }
-                }
-            }
-            DdgiFieldStage::Converged | DdgiFieldStage::NonConverged => {
-                anyhow::bail!("terminal DDGI stage cannot be built: {:?}", identity)
+                self.complete_field = Some(DdgiResidentField {
+                    logical: field,
+                    ..iteration.destination
+                });
+                self.published_field = self.complete_field;
+                self.building_iteration = None;
+                self.scheduled_work = None;
+                self.consecutive_below_threshold = consecutive_below_threshold;
+                self.stage = DdgiVolumeStage::Ready;
+                Ok(DdgiValidatedIterationOutcome::Converged {
+                    work: iteration.work,
+                    field,
+                })
             }
         }
     }
@@ -1486,25 +1405,6 @@ impl DdgiVolume {
             DdgiIrradianceSlot::Atlas0 => &self.ddgi_irradiance_atlas,
             DdgiIrradianceSlot::Atlas1 => &self.ddgi_transport_source_irradiance_atlas,
         }
-    }
-
-    /// Resolves a logical field to its private resident atlas for capture diagnostics. Physical
-    /// ping-pong ownership remains inside the DDGI module and is never exposed to App or consumers.
-    pub(crate) fn capture_irradiance_atlas(
-        &self,
-        identity: DdgiFieldIdentity,
-    ) -> Option<&Resource<Texture>> {
-        let building = self.building_iteration;
-        [
-            self.complete_field,
-            self.published_field,
-            building.and_then(|iteration| iteration.source),
-            building.map(|iteration| iteration.destination),
-        ]
-        .into_iter()
-        .flatten()
-        .find(|field| field.logical == identity)
-        .map(|field| self.irradiance_atlas(field.irradiance_slot))
     }
 
     pub fn published_irradiance_atlas(&self) -> Option<&Resource<Texture>> {
@@ -1680,19 +1580,16 @@ fn pending_trace_stats_batch_matches(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DdgiFeedbackDecision {
+enum DdgiConvergenceDecision {
     Continue { consecutive_below_threshold: u32 },
     Converged { consecutive_below_threshold: u32 },
-    NonConverged { consecutive_below_threshold: u32 },
 }
 
-fn classify_feedback_iteration(
+fn classify_temporal_epoch(
     policy: DdgiConvergencePolicy,
-    iteration: u32,
     previous_consecutive_below_threshold: u32,
     stats: DdgiAtlasValidationStats,
-) -> DdgiFeedbackDecision {
-    debug_assert!(iteration >= 2);
+) -> DdgiConvergenceDecision {
     let below = stats.max_absolute_rgb_delta <= policy.absolute_threshold
         && stats.max_relative_rgb_delta <= policy.relative_threshold;
     let consecutive_below_threshold = if below {
@@ -1701,15 +1598,11 @@ fn classify_feedback_iteration(
         0
     };
     if consecutive_below_threshold >= policy.consecutive_iterations {
-        DdgiFeedbackDecision::Converged {
-            consecutive_below_threshold,
-        }
-    } else if iteration >= policy.hard_max_iteration {
-        DdgiFeedbackDecision::NonConverged {
+        DdgiConvergenceDecision::Converged {
             consecutive_below_threshold,
         }
     } else {
-        DdgiFeedbackDecision::Continue {
+        DdgiConvergenceDecision::Continue {
             consecutive_below_threshold,
         }
     }
@@ -1765,7 +1658,7 @@ fn atlas_image_desc(
 mod tests {
     use super::*;
 
-    fn bootstrap_work(
+    fn initial_work(
         geometry_revision: u32,
         radiance_revision: u32,
         spacing_voxels: u32,
@@ -1861,7 +1754,7 @@ mod tests {
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE).unwrap();
         let visibility_layout =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_VISIBILITY_INTERIOR_SIDE).unwrap();
-        let field_for = |terrain_revision| bootstrap_work(terrain_revision, 3, 32).destination();
+        let field_for = |terrain_revision| initial_work(terrain_revision, 3, 32).destination();
         let status_for = |stage: DdgiVolumeStage,
                           terrain_revision: u32,
                           published: bool|
@@ -1898,7 +1791,7 @@ mod tests {
         assert_eq!(status.builder(), staging);
         assert!(!status.staging_is_ready());
 
-        // A complete finite S1 can promote while partial S2 writes the other slot.
+        // A complete finite epoch zero can promote while a later epoch writes the other slot.
         let ready_staging = status_for(DdgiVolumeStage::Rebuilding, 8, true);
         let status = DdgiStatus {
             active,
@@ -1910,7 +1803,7 @@ mod tests {
     }
 
     #[test]
-    fn sky_update_preserves_initialization_and_feedback_residency() {
+    fn sky_update_preserves_initialization_and_temporal_residency() {
         assert_eq!(
             stage_after_global_sky_update(DdgiVolumeStage::Allocated),
             DdgiVolumeStage::GlobalSkyReady
@@ -1959,10 +1852,10 @@ mod tests {
     }
 
     #[test]
-    fn resident_feedback_uses_the_exact_source_slot_and_only_rotates_sky_for_new_radiance() {
-        let bootstrap = bootstrap_work(7, 3, 32);
+    fn resident_temporal_update_uses_the_exact_source_slot_and_rotates_sky_for_new_radiance() {
+        let initial = initial_work(7, 3, 32);
         let published = DdgiResidentField {
-            logical: bootstrap.destination(),
+            logical: initial.destination(),
             irradiance_slot: DdgiIrradianceSlot::Atlas0,
             sky_slot: DdgiSkySlot::Sky0,
         };
@@ -1987,42 +1880,28 @@ mod tests {
             DdgiIrradianceSlot::Atlas0
         );
         assert_eq!(changed.destination.sky_slot, DdgiSkySlot::Sky1);
-        assert_eq!(changed.logical.field().iteration(), 2);
+        assert_eq!(changed.logical.field().update_epoch(), 0);
     }
 
     #[test]
-    fn only_bootstrap_seed_batches_write_visibility() {
-        let work = bootstrap_work(7, 3, 32);
-        let seed = DdgiResidentField {
-            logical: work.seed().unwrap(),
-            irradiance_slot: DdgiIrradianceSlot::Atlas1,
-            sky_slot: DdgiSkySlot::Sky0,
-        };
-        let seed_batch = DdgiRayBatch {
+    fn only_initial_epoch_batches_write_visibility_before_temporal_visibility_is_enabled() {
+        let work = initial_work(7, 3, 32);
+        let initial = resident_iteration_for_work(work, None).unwrap();
+        let initial_batch = DdgiRayBatch {
             first_probe_index: 0,
             probe_count: 64,
-            resident: DdgiResidentIteration {
-                work,
-                logical: seed.logical,
-                source: None,
-                destination: seed,
-            },
+            resident: initial,
         };
-        let single_bounce_batch = DdgiRayBatch {
-            resident: DdgiResidentIteration {
-                logical: work.destination(),
-                source: Some(seed),
-                destination: DdgiResidentField {
-                    logical: work.destination(),
-                    irradiance_slot: DdgiIrradianceSlot::Atlas0,
-                    sky_slot: DdgiSkySlot::Sky0,
-                },
-                ..seed_batch.resident
-            },
-            ..seed_batch
+        let published = initial.destination;
+        let mut scheduler = super::super::DdgiTransportScheduler::new();
+        scheduler.install_published(published.logical).unwrap();
+        let temporal_work = scheduler.claim_next().unwrap().unwrap();
+        let temporal_batch = DdgiRayBatch {
+            resident: resident_iteration_for_work(temporal_work, Some(published)).unwrap(),
+            ..initial_batch
         };
-        assert!(seed_batch.writes_visibility());
-        assert!(!single_bounce_batch.writes_visibility());
+        assert!(initial_batch.writes_visibility());
+        assert!(!temporal_batch.writes_visibility());
     }
 
     #[test]
@@ -2112,21 +1991,21 @@ mod tests {
     }
 
     #[test]
-    fn convergence_requires_two_consecutive_iterations_below_both_thresholds() {
+    fn convergence_requires_two_consecutive_epochs_below_both_thresholds() {
         let low = DdgiAtlasValidationStats {
             max_absolute_rgb_delta: DDGI_CONVERGENCE_POLICY.absolute_threshold,
             max_relative_rgb_delta: DDGI_CONVERGENCE_POLICY.relative_threshold,
             ..Default::default()
         };
         assert_eq!(
-            classify_feedback_iteration(DDGI_CONVERGENCE_POLICY, 2, 0, low),
-            DdgiFeedbackDecision::Continue {
+            classify_temporal_epoch(DDGI_CONVERGENCE_POLICY, 0, low),
+            DdgiConvergenceDecision::Continue {
                 consecutive_below_threshold: 1
             }
         );
         assert_eq!(
-            classify_feedback_iteration(DDGI_CONVERGENCE_POLICY, 3, 1, low),
-            DdgiFeedbackDecision::Converged {
+            classify_temporal_epoch(DDGI_CONVERGENCE_POLICY, 1, low),
+            DdgiConvergenceDecision::Converged {
                 consecutive_below_threshold: 2
             }
         );
@@ -2137,8 +2016,8 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            classify_feedback_iteration(DDGI_CONVERGENCE_POLICY, 3, 1, high_relative),
-            DdgiFeedbackDecision::Continue {
+            classify_temporal_epoch(DDGI_CONVERGENCE_POLICY, 1, high_relative),
+            DdgiConvergenceDecision::Continue {
                 consecutive_below_threshold: 0
             }
         );
@@ -2175,32 +2054,12 @@ mod tests {
     }
 
     #[test]
-    fn hard_max_classifies_latest_finite_field_as_non_converged() {
-        let high = DdgiAtlasValidationStats {
-            max_absolute_rgb_delta: 1.0,
-            max_relative_rgb_delta: 1.0,
-            ..Default::default()
-        };
-        assert_eq!(
-            classify_feedback_iteration(
-                DDGI_CONVERGENCE_POLICY,
-                DDGI_CONVERGENCE_POLICY.hard_max_iteration,
-                0,
-                high,
-            ),
-            DdgiFeedbackDecision::NonConverged {
-                consecutive_below_threshold: 0
-            }
-        );
-    }
-
-    #[test]
-    fn trace_stat_readback_requires_exact_batch_and_iteration_identity() {
-        let work = bootstrap_work(7, 3, 32);
-        let seed = work.seed().unwrap();
+    fn trace_stat_readback_requires_exact_batch_and_epoch_identity() {
+        let work = initial_work(7, 3, 32);
+        let initial = work.destination();
         let resident = DdgiResidentField {
-            logical: seed,
-            irradiance_slot: DdgiIrradianceSlot::Atlas1,
+            logical: initial,
+            irradiance_slot: DdgiIrradianceSlot::Atlas0,
             sky_slot: DdgiSkySlot::Sky0,
         };
         let batch = DdgiRayBatch {
@@ -2208,7 +2067,7 @@ mod tests {
             probe_count: 64,
             resident: DdgiResidentIteration {
                 work,
-                logical: seed,
+                logical: initial,
                 source: None,
                 destination: resident,
             },
@@ -2228,7 +2087,19 @@ mod tests {
             DdgiVolumeStage::Rebuilding,
             DdgiRayBatch {
                 resident: DdgiResidentIteration {
-                    logical: work.destination(),
+                    logical: DdgiFieldIdentity::new(
+                        super::super::DdgiFieldKey::new(
+                            99,
+                            7,
+                            3,
+                            32,
+                            DdgiFieldState::Converging,
+                            1,
+                        )
+                        .unwrap(),
+                        Some(initial.field()),
+                    )
+                    .unwrap(),
                     ..batch.resident
                 },
                 ..batch

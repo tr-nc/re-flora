@@ -1,12 +1,11 @@
 use super::{
-    DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldStage,
+    DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldState,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DdgiCaptureTarget {
-    Iteration(u32),
+    Epoch(u32),
     Converged,
-    NonConverged,
     Published,
 }
 
@@ -14,27 +13,25 @@ impl DdgiCaptureTarget {
     pub fn from_cli_value(value: &str) -> Option<Self> {
         match value {
             "converged" => Some(Self::Converged),
-            "non-converged" => Some(Self::NonConverged),
             "published" => Some(Self::Published),
             _ => value
-                .strip_prefix('s')
-                .and_then(|iteration| iteration.parse::<u32>().ok())
-                .map(Self::Iteration),
+                .strip_prefix('e')
+                .and_then(|epoch| epoch.parse::<u32>().ok())
+                .map(Self::Epoch),
         }
     }
 
-    pub fn iteration(self) -> Option<u32> {
+    pub fn update_epoch(self) -> Option<u32> {
         match self {
-            Self::Iteration(iteration) => Some(iteration),
-            Self::Converged | Self::NonConverged | Self::Published => None,
+            Self::Epoch(epoch) => Some(epoch),
+            Self::Converged | Self::Published => None,
         }
     }
 
     pub fn label(self) -> String {
         match self {
-            Self::Iteration(iteration) => format!("s{iteration}"),
+            Self::Epoch(epoch) => format!("e{epoch}"),
             Self::Converged => "converged".to_owned(),
-            Self::NonConverged => "non-converged".to_owned(),
             Self::Published => "published".to_owned(),
         }
     }
@@ -42,9 +39,8 @@ impl DdgiCaptureTarget {
     pub fn matches(self, identity: DdgiFieldIdentity) -> bool {
         let field = identity.field();
         match self {
-            Self::Iteration(iteration) => field.iteration() == iteration,
-            Self::Converged => field.stage() == DdgiFieldStage::Converged,
-            Self::NonConverged => field.stage() == DdgiFieldStage::NonConverged,
+            Self::Epoch(epoch) => field.update_epoch() == epoch,
+            Self::Converged => field.state() == DdgiFieldState::Converged,
             Self::Published => true,
         }
     }
@@ -61,7 +57,7 @@ impl DdgiCaptureTarget {
 
 impl Default for DdgiCaptureTarget {
     fn default() -> Self {
-        Self::Iteration(1)
+        Self::Epoch(0)
     }
 }
 
@@ -84,43 +80,38 @@ pub struct DdgiCaptureCheckpoint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ddgi::{DdgiFieldKey, DdgiFieldStage};
+    use crate::ddgi::{DdgiFieldKey, DdgiFieldState};
 
-    fn field(stage: DdgiFieldStage, iteration: u32) -> DdgiFieldIdentity {
-        let source = (iteration > 0).then(|| {
-            let source_stage = if iteration == 1 {
-                DdgiFieldStage::SeedSky
-            } else {
-                DdgiFieldStage::Feedback
-            };
-            DdgiFieldKey::new(10, 3, 4, 32, source_stage, iteration - 1).unwrap()
+    fn field(state: DdgiFieldState, epoch: u32) -> DdgiFieldIdentity {
+        let source = (epoch > 0).then(|| {
+            DdgiFieldKey::new(10, 3, 4, 32, DdgiFieldState::Converging, epoch - 1).unwrap()
         });
         DdgiFieldIdentity::new(
-            DdgiFieldKey::new(11, 3, 4, 32, stage, iteration).unwrap(),
+            DdgiFieldKey::new(11, 3, 4, 32, state, epoch).unwrap(),
             source,
         )
         .unwrap()
     }
 
     #[test]
-    fn parses_iteration_and_terminal_targets() {
+    fn parses_epoch_and_terminal_targets() {
         assert_eq!(
-            DdgiCaptureTarget::from_cli_value("s0"),
-            Some(DdgiCaptureTarget::Iteration(0))
+            DdgiCaptureTarget::from_cli_value("e0"),
+            Some(DdgiCaptureTarget::Epoch(0))
         );
         assert_eq!(
-            DdgiCaptureTarget::from_cli_value("s1"),
-            Some(DdgiCaptureTarget::Iteration(1))
+            DdgiCaptureTarget::from_cli_value("e1"),
+            Some(DdgiCaptureTarget::Epoch(1))
         );
         assert_eq!(
-            DdgiCaptureTarget::from_cli_value("s12"),
-            Some(DdgiCaptureTarget::Iteration(12))
+            DdgiCaptureTarget::from_cli_value("e12"),
+            Some(DdgiCaptureTarget::Epoch(12))
         );
         assert_eq!(
             DdgiCaptureTarget::from_cli_value("converged"),
             Some(DdgiCaptureTarget::Converged)
         );
-        assert_eq!(DdgiCaptureTarget::from_cli_value("sn"), None);
+        assert_eq!(DdgiCaptureTarget::from_cli_value("en"), None);
         assert_eq!(
             DdgiCaptureTarget::from_cli_value("published"),
             Some(DdgiCaptureTarget::Published)
@@ -128,11 +119,10 @@ mod tests {
     }
 
     #[test]
-    fn iteration_target_accepts_terminal_classification_at_that_iteration() {
-        let converged = field(DdgiFieldStage::Converged, 6);
-        assert!(DdgiCaptureTarget::Iteration(6).matches(converged));
+    fn epoch_target_accepts_converged_classification_at_that_epoch() {
+        let converged = field(DdgiFieldState::Converged, 6);
+        assert!(DdgiCaptureTarget::Epoch(6).matches(converged));
         assert!(DdgiCaptureTarget::Converged.matches(converged));
-        assert!(!DdgiCaptureTarget::NonConverged.matches(converged));
         assert!(DdgiCaptureTarget::Published
             .matches_checkpoint(converged, DdgiCapturePublication::Published));
         assert!(!DdgiCaptureTarget::Published

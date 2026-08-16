@@ -97,12 +97,9 @@ impl DdgiSpatialWeightReadbackRuntime {
         cmdbuf: &CommandBuffer,
     ) -> Result<Option<PendingDdgiSpatialWeightReadback>> {
         let active = tracer.ddgi_runtime_status().active();
-        let terminal_field = active.complete_field.filter(|field| {
-            matches!(
-                field.field().stage(),
-                crate::ddgi::DdgiFieldStage::Converged | crate::ddgi::DdgiFieldStage::NonConverged
-            )
-        });
+        let terminal_field = active
+            .complete_field
+            .filter(|field| field.field().state() == crate::ddgi::DdgiFieldState::Converged);
         if !self.should_record(terminal_field.is_some()) {
             return Ok(None);
         }
@@ -188,13 +185,13 @@ impl DdgiSpatialWeightReadbackRuntime {
         let field_key = readback.field.field();
         writeln!(
             file,
-            "field=serial:{} geometry_revision:{} radiance_revision:{} spacing_voxels:{} stage:{:?} iteration:{}",
+            "field=serial:{} geometry_revision:{} radiance_revision:{} spacing_voxels:{} state:{:?} update_epoch:{}",
             field_key.serial(),
             field_key.geometry_revision(),
             field_key.radiance_revision(),
             field_key.spacing_voxels(),
-            field_key.stage(),
-            field_key.iteration(),
+            field_key.state(),
+            field_key.update_epoch(),
         )?;
         writeln!(
             file,

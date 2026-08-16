@@ -2,7 +2,7 @@ use super::environment_lighting_test_scene::{
     EnvironmentLightingTestScene, RadianceCaptureCheckpoint, RadianceCaptureRequest,
 };
 use crate::ddgi::{
-    DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRefreshState,
+    DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState, DdgiRefreshState,
     DdgiVolumeStage,
 };
 use crate::environment_lighting::{DdgiRadianceSnapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY};
@@ -13,16 +13,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 5;
+const CAPTURE_VERSION: u32 = 6;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = 3;
 const CAPTURE_HEADER_BYTE_COUNT: usize = 124;
 const DDGI_BACKEND_ID: u32 = 1;
-const CAPTURE_STAGE_SEED_SKY: u32 = 1;
-const CAPTURE_STAGE_SINGLE_BOUNCE: u32 = 2;
-const CAPTURE_STAGE_FEEDBACK: u32 = 3;
-const CAPTURE_STAGE_CONVERGED: u32 = 4;
-const CAPTURE_STAGE_NON_CONVERGED: u32 = 5;
+const CAPTURE_STATE_CONVERGING: u32 = 1;
+const CAPTURE_STATE_CONVERGED: u32 = 2;
 #[cfg(test)]
 const CAPTURE_PUBLICATION_PUBLISHED: u32 = 1;
 const CAPTURE_UNKNOWN_U32: u32 = u32::MAX;
@@ -35,10 +32,10 @@ struct CaptureMetadata {
     radiance_model_identity: u64,
     build_token_serial: u64,
     field_serial: u64,
-    transport_stage: u32,
-    transport_iteration: u32,
-    source_stage: u32,
-    source_iteration: u32,
+    lifecycle_state: u32,
+    update_epoch: u32,
+    source_state: u32,
+    source_update_epoch: u32,
     source_field_serial: u64,
     source_radiance_revision: u32,
     publication_state: u32,
@@ -67,13 +64,13 @@ impl CaptureMetadata {
             radiance_model_identity,
             build_token_serial: checkpoint.build_token.serial(),
             field_serial: field.serial(),
-            transport_stage: encode_transport_stage(field.stage()),
-            transport_iteration: field.iteration(),
-            source_stage: source
-                .map(|source| encode_transport_stage(source.stage()))
+            lifecycle_state: encode_lifecycle_state(field.state()),
+            update_epoch: field.update_epoch(),
+            source_state: source
+                .map(|source| encode_lifecycle_state(source.state()))
                 .unwrap_or(CAPTURE_UNKNOWN_U32),
-            source_iteration: source
-                .map(|source| source.iteration())
+            source_update_epoch: source
+                .map(|source| source.update_epoch())
                 .unwrap_or(CAPTURE_UNKNOWN_U32),
             source_field_serial: source
                 .map(|source| source.serial())
@@ -97,10 +94,10 @@ impl CaptureMetadata {
         writer.write_all(&self.build_token_serial.to_le_bytes())?;
         writer.write_all(&self.field_serial.to_le_bytes())?;
         for value in [
-            self.transport_stage,
-            self.transport_iteration,
-            self.source_stage,
-            self.source_iteration,
+            self.lifecycle_state,
+            self.update_epoch,
+            self.source_state,
+            self.source_update_epoch,
         ] {
             writer.write_all(&value.to_le_bytes())?;
         }
@@ -120,13 +117,10 @@ impl CaptureMetadata {
     }
 }
 
-fn encode_transport_stage(stage: DdgiFieldStage) -> u32 {
-    match stage {
-        DdgiFieldStage::SeedSky => CAPTURE_STAGE_SEED_SKY,
-        DdgiFieldStage::SingleBounce => CAPTURE_STAGE_SINGLE_BOUNCE,
-        DdgiFieldStage::Feedback => CAPTURE_STAGE_FEEDBACK,
-        DdgiFieldStage::Converged => CAPTURE_STAGE_CONVERGED,
-        DdgiFieldStage::NonConverged => CAPTURE_STAGE_NON_CONVERGED,
+fn encode_lifecycle_state(state: DdgiFieldState) -> u32 {
+    match state {
+        DdgiFieldState::Converging => CAPTURE_STATE_CONVERGING,
+        DdgiFieldState::Converged => CAPTURE_STATE_CONVERGED,
     }
 }
 
@@ -201,13 +195,13 @@ fn field_json(field: Option<DdgiFieldIdentity>) -> String {
     let key = field.field();
     let source = field.source();
     format!(
-        "{{\"field_serial\":{},\"geometry_revision\":{},\"radiance_revision\":{},\"spacing_voxels\":{},\"transport_stage\":\"{:?}\",\"transport_iteration\":{},\"source_field_serial\":{},\"source_radiance_revision\":{}}}",
+        "{{\"field_serial\":{},\"geometry_revision\":{},\"radiance_revision\":{},\"spacing_voxels\":{},\"lifecycle_state\":\"{:?}\",\"update_epoch\":{},\"source_field_serial\":{},\"source_radiance_revision\":{}}}",
         key.serial(),
         key.geometry_revision(),
         key.radiance_revision(),
         key.spacing_voxels(),
-        key.stage(),
-        key.iteration(),
+        key.state(),
+        key.update_epoch(),
         source.map_or(0, |source| source.serial()),
         source.map_or(0, |source| source.radiance_revision()),
     )
@@ -305,8 +299,8 @@ impl EnvironmentIrradianceCaptureRuntime {
             test_scene.is_none_or(EnvironmentLightingTestScene::is_capture_ready);
         let target_scene_ready = tracer
             .ddgi_capture_target()
-            .iteration()
-            .is_some_and(|iteration| iteration == 0)
+            .update_epoch()
+            .is_some_and(|epoch| epoch == 0)
             || test_scene_ready;
         let inflight_target_revision =
             test_scene.and_then(EnvironmentLightingTestScene::inflight_capture_target_revision);
@@ -589,7 +583,7 @@ impl EnvironmentIrradianceCaptureRuntime {
             evidence.write(&readback.path)?;
         }
         log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} transport_stage={} transport_iteration={} source_stage={} source_iteration={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit",
+            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} lifecycle_state={} update_epoch={} source_state={} source_update_epoch={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit",
             readback.path,
             readback.extent.width,
             readback.extent.height,
@@ -602,10 +596,10 @@ impl EnvironmentIrradianceCaptureRuntime {
             readback.metadata.radiance_model_identity,
             readback.metadata.build_token_serial,
             readback.metadata.field_serial,
-            readback.metadata.transport_stage,
-            readback.metadata.transport_iteration,
-            readback.metadata.source_stage,
-            readback.metadata.source_iteration,
+            readback.metadata.lifecycle_state,
+            readback.metadata.update_epoch,
+            readback.metadata.source_state,
+            readback.metadata.source_update_epoch,
             readback.metadata.source_field_serial,
             readback.metadata.source_radiance_revision,
             readback.metadata.publication_state,
@@ -625,7 +619,7 @@ mod tests {
     use crate::ddgi::{
         DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
         DdgiCaptureCheckpoint, DdgiCapturePublication, DdgiFieldIdentity, DdgiFieldKey,
-        DdgiFieldStage,
+        DdgiFieldState,
     };
 
     #[test]
@@ -647,7 +641,7 @@ mod tests {
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 5);
+        assert_eq!(CAPTURE_VERSION, 6);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(CAPTURE_PLANE_COUNT, 3);
         assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 124);
@@ -656,9 +650,9 @@ mod tests {
     #[test]
     fn capture_metadata_uses_authoritative_published_terminal_identity() {
         let token = DdgiBuildToken::for_test(9001, 41, 16, DdgiBuildKind::Terrain);
-        let source = DdgiFieldKey::new(88, 41, 17, 16, DdgiFieldStage::Feedback, 5).unwrap();
+        let source = DdgiFieldKey::new(88, 41, 17, 16, DdgiFieldState::Converging, 5).unwrap();
         let published = DdgiFieldIdentity::new(
-            DdgiFieldKey::new(89, 41, 17, 16, DdgiFieldStage::Converged, 6).unwrap(),
+            DdgiFieldKey::new(89, 41, 17, 16, DdgiFieldState::Converged, 6).unwrap(),
             Some(source),
         )
         .unwrap();
@@ -691,10 +685,10 @@ mod tests {
         );
         assert_eq!(metadata.build_token_serial, 9001);
         assert_eq!(metadata.field_serial, 89);
-        assert_eq!(metadata.transport_stage, CAPTURE_STAGE_CONVERGED);
-        assert_eq!(metadata.transport_iteration, 6);
-        assert_eq!(metadata.source_stage, CAPTURE_STAGE_FEEDBACK);
-        assert_eq!(metadata.source_iteration, 5);
+        assert_eq!(metadata.lifecycle_state, CAPTURE_STATE_CONVERGED);
+        assert_eq!(metadata.update_epoch, 6);
+        assert_eq!(metadata.source_state, CAPTURE_STATE_CONVERGING);
+        assert_eq!(metadata.source_update_epoch, 5);
         assert_eq!(metadata.source_field_serial, 88);
         assert_eq!(metadata.source_radiance_revision, 17);
         assert_eq!(metadata.publication_state, CAPTURE_PUBLICATION_PUBLISHED);

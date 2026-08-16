@@ -369,7 +369,7 @@ impl AppOptions {
             parse_required_string_after("--ddgi-spatial-weight-readback", "an output text path")?;
         let environment_irradiance_capture_target_value = parse_required_string_after(
             "--environment-irradiance-capture-target",
-            "s0, s1, sN, converged, non-converged, or published",
+            "e0, e1, eN, converged, or published",
         )?;
         if environment_irradiance_capture_target_value.is_some()
             && environment_irradiance_capture_path.is_none()
@@ -383,7 +383,7 @@ impl AppOptions {
             match environment_irradiance_capture_target_value {
                 Some(value) => DdgiCaptureTarget::from_cli_value(&value).ok_or_else(|| {
                     format!(
-                        "Invalid --environment-irradiance-capture-target '{value}'. Expected s0, s1, sN, converged, non-converged, or published."
+                        "Invalid --environment-irradiance-capture-target '{value}'. Expected e0, e1, eN, converged, or published."
                     )
                 })?,
                 None => DdgiCaptureTarget::default(),
@@ -435,14 +435,6 @@ impl AppOptions {
             })?,
             None => DdgiTerrainHardOrigin::default(),
         };
-        if environment_irradiance_capture_target.iteration() == Some(0)
-            && ddgi_debug_view != DdgiDebugView::Final
-        {
-            return Err(
-                "--environment-irradiance-capture-target s0 requires --ddgi-debug-view final"
-                    .to_owned(),
-            );
-        }
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
         if screenshot.is_some() && denoiser_bench.is_some() {
@@ -841,7 +833,7 @@ Options:
   --ddgi-spatial-weight-readback <path>
                               Save the fixed saved-terrain eight-probe contribution readback (requires spatial-weight-readback)
   --environment-irradiance-capture-target <target>
-                              Capture s0, s1, a specified sN, converged, or non-converged (default: s1)
+                              Capture e0, e1, a specified eN, converged, or published (default: e0)
   --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
                               spatial-weight, readback, or atlas DDGI diagnostics (default: final)
@@ -956,7 +948,7 @@ mod tests {
         assert!(options.ddgi_spatial_weight_readback_path.is_none());
         assert_eq!(
             options.environment_irradiance_capture_target,
-            DdgiCaptureTarget::Iteration(1)
+            DdgiCaptureTarget::Epoch(0)
         );
         assert_eq!(options.ddgi_batch_order, DdgiBatchOrder::Forward);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
@@ -1075,7 +1067,7 @@ mod tests {
         );
         assert_eq!(
             options.environment_irradiance_capture_target,
-            DdgiCaptureTarget::Iteration(1)
+            DdgiCaptureTarget::Epoch(0)
         );
     }
 
@@ -1084,14 +1076,14 @@ mod tests {
         let options = parse(&[
             "re-flora",
             "--environment-irradiance-capture",
-            "target/sealed-s4.rfirr",
+            "target/sealed-e4.rfirr",
             "--environment-irradiance-capture-target",
-            "s4",
+            "e4",
         ]);
 
         assert_eq!(
             options.environment_irradiance_capture_target,
-            DdgiCaptureTarget::Iteration(4)
+            DdgiCaptureTarget::Epoch(4)
         );
     }
 
@@ -1114,7 +1106,7 @@ mod tests {
     #[test]
     fn rejects_capture_target_without_capture_path() {
         let result = AppOptions::try_from_arg_strings(
-            ["re-flora", "--environment-irradiance-capture-target", "s2"]
+            ["re-flora", "--environment-irradiance-capture-target", "e2"]
                 .iter()
                 .map(|arg| (*arg).to_owned())
                 .collect(),
@@ -1221,28 +1213,6 @@ mod tests {
         assert!(result
             .unwrap_err()
             .contains("Expected one of: surface-quarter, center-fixed, surface-fixed"));
-    }
-
-    #[test]
-    fn rejects_unpublished_s0_capture_with_non_final_debug_view() {
-        let result = AppOptions::try_from_arg_strings(
-            [
-                "re-flora",
-                "--environment-irradiance-capture",
-                "target/sealed-s0.rfirr",
-                "--environment-irradiance-capture-target",
-                "s0",
-                "--ddgi-debug-view",
-                "exact-irradiance",
-            ]
-            .iter()
-            .map(|arg| (*arg).to_owned())
-            .collect(),
-        );
-
-        assert!(result
-            .unwrap_err()
-            .contains("s0 requires --ddgi-debug-view final"));
     }
 
     #[test]
