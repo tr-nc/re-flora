@@ -1044,6 +1044,17 @@ min = 0
 max = 0.02
 
 [[section.param]]
+id = "ddgi_history_retention"
+kind = "float"
+label = "DDGI History Retention"
+type = "Float"
+
+[section.param.data]
+value = 0.98
+min = 0
+max = 0.99
+
+[[section.param]]
 id = "vsm_blur_radius"
 kind = "uint"
 label = "VSM Blur Radius (texels)"

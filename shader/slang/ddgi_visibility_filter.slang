@@ -1,5 +1,6 @@
 import ddgi_config;
 import ddgi_octahedral;
+import ddgi_sampling;
 import ddgi_types;
 
 static const uint DDGI_VISIBILITY_INTERIOR_SIDE = 16u;
@@ -17,6 +18,9 @@ readonly GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
 [[vk::binding(28, 0)]]
 RWTexture2D<float2> ddgi_visibility_atlas;
 
+[[vk::binding(39, 0)]]
+RWTexture2D<float2> ddgi_transport_source_visibility_atlas;
+
 struct DdgiVisibilityFilterPushConstants
 {
     uint first_probe_index;
@@ -25,10 +29,30 @@ struct DdgiVisibilityFilterPushConstants
     uint terrain_revision;
     float3 spacing_world;
     float far_distance_world;
+    uint destination_slot;
+    uint source_slot;
+    uint has_history;
+    float history_retention;
+    float4 epoch_rotation;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<DdgiVisibilityFilterPushConstants> pc;
+
+float2 loadVisibility(uint slot, uint2 coordinate)
+{
+    return slot == 0u
+        ? ddgi_visibility_atlas[coordinate]
+        : ddgi_transport_source_visibility_atlas[coordinate];
+}
+
+void storeVisibility(uint2 coordinate, float2 value)
+{
+    if (pc.destination_slot == 0u)
+        ddgi_visibility_atlas[coordinate] = value;
+    else
+        ddgi_transport_source_visibility_atlas[coordinate] = value;
+}
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
@@ -47,7 +71,7 @@ void main(uint3 groupId : SV_GroupID,
     if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID ||
         metadata.state_and_reserved.y != pc.terrain_revision)
     {
-        ddgi_visibility_atlas[atlasCoordinate] = float2(0.0);
+        storeVisibility(atlasCoordinate, float2(0.0));
         return;
     }
 
@@ -68,8 +92,8 @@ void main(uint3 groupId : SV_GroupID,
     [loop]
     for (uint rayIndex = 0u; rayIndex < DDGI_RAYS_PER_PROBE; ++rayIndex)
     {
-        float3 rayDirection =
-            ddgiFibonacciDirection(rayIndex, DDGI_RAYS_PER_PROBE);
+        float3 rayDirection = ddgiEpochDirection(
+            rayIndex, DDGI_RAYS_PER_PROBE, pc.epoch_rotation);
         float cosineWeight = max(0.0, dot(filterDirection, rayDirection));
         cosineWeight = pow(cosineWeight, DDGI_VISIBILITY_FILTER_EXPONENT);
         float signedDistance =
@@ -95,15 +119,23 @@ void main(uint3 groupId : SV_GroupID,
         accumulatedWeight += cosineWeight;
     }
 
+    float2 current;
     if (accumulatedWeight <= 1.0e-8)
     {
-        ddgi_visibility_atlas[atlasCoordinate] =
-            float2(supportDistance, supportDistance * supportDistance);
+        current = float2(supportDistance,
+                         supportDistance * supportDistance);
     }
     else
     {
         float inverseWeight = rcp(accumulatedWeight);
-        ddgi_visibility_atlas[atlasCoordinate] =
-            float2(weightedDistance, weightedSquaredDistance) * inverseWeight;
+        current = float2(weightedDistance, weightedSquaredDistance) *
+                  inverseWeight;
     }
+    if (pc.has_history != 0u)
+    {
+        current = lerp(current,
+                       loadVisibility(pc.source_slot, atlasCoordinate),
+                       saturate(pc.history_retention));
+    }
+    storeVisibility(atlasCoordinate, current);
 }

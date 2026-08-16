@@ -57,9 +57,9 @@ pub use config::{DDGI_PROBE_BATCH_SIZE, DDGI_RAYS_PER_PROBE, DDGI_RAY_BUDGET_PER
 // not directly name every exported type in a particular build.
 #[allow(unused_imports)]
 pub use resources::{
-    DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiRayBatch,
-    DdgiResourceBytes, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume,
-    DdgiVolumeStage, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
+    DdgiAtlasValidationStats, DdgiBatchOrder, DdgiConvergencePolicy, DdgiConvergenceReason,
+    DdgiRayBatch, DdgiResourceBytes, DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome,
+    DdgiVolume, DdgiVolumeStage, DdgiVolumes, DDGI_CONVERGENCE_POLICY,
 };
 pub(crate) use runtime::{DdgiRuntime, DdgiRuntimeVolumeTarget};
 #[allow(unused_imports)]

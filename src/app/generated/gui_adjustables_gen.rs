@@ -572,6 +572,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Shadow",
+        id: "ddgi_history_retention",
+        kind: "float",
+        label: "DDGI History Retention",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Shadow",
         id: "vsm_blur_radius",
         kind: "uint",
         label: "VSM Blur Radius (texels)",
@@ -1535,6 +1541,7 @@ pub struct GuiAdjustables {
     pub terrain_self_shadow_tolerance_voxels: crate::gui_adjustables::FloatParam,
     pub terrain_ray_origin_offset_world: crate::gui_adjustables::FloatParam,
     pub ddgi_receiver_visibility_bias_world: crate::gui_adjustables::FloatParam,
+    pub ddgi_history_retention: crate::gui_adjustables::FloatParam,
     pub vsm_blur_radius: crate::gui_adjustables::UintParam,
     pub vsm_temporal_alpha: crate::gui_adjustables::FloatParam,
     pub leaf_shadow_fragment_opacity: crate::gui_adjustables::FloatParam,
@@ -1784,6 +1791,7 @@ impl GuiAdjustables {
         let mut terrain_self_shadow_tolerance_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_ray_origin_offset_world_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut ddgi_receiver_visibility_bias_world_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut ddgi_history_retention_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vsm_blur_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut vsm_temporal_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_shadow_fragment_opacity_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2534,6 +2542,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             ddgi_receiver_visibility_bias_world_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "ddgi_history_retention" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            ddgi_history_retention_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "vsm_blur_radius" => {
@@ -3604,6 +3619,7 @@ impl GuiAdjustables {
             terrain_self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels_field.expect("Missing parameter: terrain_self_shadow_tolerance_voxels"),
             terrain_ray_origin_offset_world: terrain_ray_origin_offset_world_field.expect("Missing parameter: terrain_ray_origin_offset_world"),
             ddgi_receiver_visibility_bias_world: ddgi_receiver_visibility_bias_world_field.expect("Missing parameter: ddgi_receiver_visibility_bias_world"),
+            ddgi_history_retention: ddgi_history_retention_field.expect("Missing parameter: ddgi_history_retention"),
             vsm_blur_radius: vsm_blur_radius_field.expect("Missing parameter: vsm_blur_radius"),
             vsm_temporal_alpha: vsm_temporal_alpha_field.expect("Missing parameter: vsm_temporal_alpha"),
             leaf_shadow_fragment_opacity: leaf_shadow_fragment_opacity_field.expect("Missing parameter: leaf_shadow_fragment_opacity"),
@@ -3822,6 +3838,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "terrain_self_shadow_tolerance_voxels" => Some(&adjustables.terrain_self_shadow_tolerance_voxels),
         "terrain_ray_origin_offset_world" => Some(&adjustables.terrain_ray_origin_offset_world),
         "ddgi_receiver_visibility_bias_world" => Some(&adjustables.ddgi_receiver_visibility_bias_world),
+        "ddgi_history_retention" => Some(&adjustables.ddgi_history_retention),
         "vsm_temporal_alpha" => Some(&adjustables.vsm_temporal_alpha),
         "leaf_shadow_fragment_opacity" => Some(&adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&adjustables.leaf_shadow_strength),
@@ -4105,6 +4122,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "terrain_self_shadow_tolerance_voxels" => Some(&mut adjustables.terrain_self_shadow_tolerance_voxels),
         "terrain_ray_origin_offset_world" => Some(&mut adjustables.terrain_ray_origin_offset_world),
         "ddgi_receiver_visibility_bias_world" => Some(&mut adjustables.ddgi_receiver_visibility_bias_world),
+        "ddgi_history_retention" => Some(&mut adjustables.ddgi_history_retention),
         "vsm_temporal_alpha" => Some(&mut adjustables.vsm_temporal_alpha),
         "leaf_shadow_fragment_opacity" => Some(&mut adjustables.leaf_shadow_fragment_opacity),
         "leaf_shadow_strength" => Some(&mut adjustables.leaf_shadow_strength),

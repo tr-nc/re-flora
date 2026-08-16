@@ -34,15 +34,6 @@ public float3 octDecode(float2 encoded)
     return normalize(direction);
 }
 
-public float3 ddgiFibonacciDirection(uint rayIndex, uint rayCount)
-{
-    static const float GOLDEN_ANGLE = 2.39996322972865332;
-    float y = 1.0 - (2.0 * float(rayIndex) + 1.0) / float(rayCount);
-    float radius = sqrt(max(0.0, 1.0 - y * y));
-    float azimuth = GOLDEN_ANGLE * float(rayIndex);
-    return float3(radius * cos(azimuth), y, radius * sin(azimuth));
-}
-
 public uint2 ddgiTileOrigin(uint probeIndex, uint tileColumns,
                            uint storedSide)
 {

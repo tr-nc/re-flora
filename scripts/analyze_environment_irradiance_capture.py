@@ -19,6 +19,7 @@ HEADER_V2 = struct.Struct("<8s7I")
 HEADER_V3 = struct.Struct("<8s10I2Q4IQI2f2I")
 HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
 HEADER_V5 = HEADER_V4
+HEADER_V6 = HEADER_V4
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
@@ -44,6 +45,10 @@ TRANSPORT_STAGE_LABELS = {
     3: "feedback",
     4: "converged",
     5: "non-converged",
+}
+LIFECYCLE_STATE_LABELS = {
+    1: "converging",
+    2: "converged",
 }
 PUBLICATION_STATE_LABELS = {
     0: "unpublished",
@@ -90,6 +95,10 @@ class Capture:
     source_identity: int | None = None
     source_field_serial: int | None = None
     source_radiance_revision: int | None = None
+    lifecycle_state: int | None = None
+    update_epoch: int | None = None
+    source_state: int | None = None
+    source_update_epoch: int | None = None
     publication_state: int | None = None
     batch_order: int | None = None
     max_abs_delta: float | None = None
@@ -174,8 +183,8 @@ def load_capture(path: Path) -> Capture:
             "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
         }
-    elif version in (4, 5):
-        header = HEADER_V4 if version == 4 else HEADER_V5
+    elif version in (4, 5, 6):
+        header = {4: HEADER_V4, 5: HEADER_V5, 6: HEADER_V6}[version]
         if len(data) < header.size:
             raise ValueError(f"{path}: truncated v{version} header")
         (
@@ -193,10 +202,10 @@ def load_capture(path: Path) -> Capture:
             radiance_model_identity,
             build_token_serial,
             field_serial,
-            transport_stage,
-            transport_iteration,
-            source_stage,
-            source_iteration,
+            state_or_stage,
+            epoch_or_iteration,
+            source_state_or_stage,
+            source_epoch_or_iteration,
             source_field_serial,
             source_radiance_revision,
             publication_state,
@@ -207,16 +216,27 @@ def load_capture(path: Path) -> Capture:
             valid_count,
         ) = header.unpack_from(data)
         header_size = header.size
+        lifecycle_metadata = (
+            {
+                "lifecycle_state": None if state_or_stage == UNKNOWN_U32 else state_or_stage,
+                "update_epoch": None if epoch_or_iteration == UNKNOWN_U32 else epoch_or_iteration,
+                "source_state": None if source_state_or_stage == UNKNOWN_U32 else source_state_or_stage,
+                "source_update_epoch": None if source_epoch_or_iteration == UNKNOWN_U32 else source_epoch_or_iteration,
+            }
+            if version == 6
+            else {
+                "transport_stage": None if state_or_stage == UNKNOWN_U32 else state_or_stage,
+                "transport_iteration": None if epoch_or_iteration == UNKNOWN_U32 else epoch_or_iteration,
+                "source_stage": None if source_state_or_stage == UNKNOWN_U32 else source_state_or_stage,
+                "source_iteration": None if source_epoch_or_iteration == UNKNOWN_U32 else source_epoch_or_iteration,
+            }
+        )
         metadata = {
             "geometry_revision": None if geometry_revision == UNKNOWN_U32 else geometry_revision,
             "radiance_revision": None if radiance_revision == UNKNOWN_U32 else radiance_revision,
             "radiance_model_identity": None if radiance_model_identity == UNKNOWN_U64 else radiance_model_identity,
             "build_token_serial": None if build_token_serial == UNKNOWN_U64 else build_token_serial,
             "field_serial": None if field_serial == UNKNOWN_U64 else field_serial,
-            "transport_stage": None if transport_stage == UNKNOWN_U32 else transport_stage,
-            "transport_iteration": None if transport_iteration == UNKNOWN_U32 else transport_iteration,
-            "source_stage": None if source_stage == UNKNOWN_U32 else source_stage,
-            "source_iteration": None if source_iteration == UNKNOWN_U32 else source_iteration,
             "source_field_serial": None if source_field_serial == UNKNOWN_U64 else source_field_serial,
             "source_radiance_revision": None if source_radiance_revision == UNKNOWN_U32 else source_radiance_revision,
             "publication_state": None if publication_state == UNKNOWN_U32 else publication_state,
@@ -225,14 +245,15 @@ def load_capture(path: Path) -> Capture:
             "max_rel_delta": None if max_rel_delta == UNKNOWN_DELTA else max_rel_delta,
             "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
+            **lifecycle_metadata,
         }
     else:
         raise ValueError(f"{path}: unsupported version {version}")
     if channels != 4:
         raise ValueError(f"{path}: expected four float channels, got {channels}")
-    expected_plane_counts = (3,) if version == 5 else (1, 2)
+    expected_plane_counts = (3,) if version in (5, 6) else (1, 2)
     if plane_count not in expected_plane_counts:
-        expected_label = "three" if version == 5 else "one or two"
+        expected_label = "three" if version in (5, 6) else "one or two"
         raise ValueError(
             f"{path}: expected {expected_label} float4 planes, got {plane_count}"
         )
@@ -709,6 +730,14 @@ def summarize(
         "token_serial": capture.build_token_serial,
         "build_token_serial": capture.build_token_serial,
         "field_serial": capture.field_serial,
+        "lifecycle_state": LIFECYCLE_STATE_LABELS.get(
+            capture.lifecycle_state, capture.lifecycle_state
+        ),
+        "update_epoch": capture.update_epoch,
+        "source_state": LIFECYCLE_STATE_LABELS.get(
+            capture.source_state, capture.source_state
+        ),
+        "source_update_epoch": capture.source_update_epoch,
         "transport_stage": TRANSPORT_STAGE_LABELS.get(
             capture.transport_stage, capture.transport_stage
         ),
@@ -749,12 +778,16 @@ def metadata_mismatches(first: Capture, second: Capture) -> list[str]:
         "radiance_revision",
         "radiance_model_identity",
         "build_token_serial",
-        "transport_stage",
-        "transport_iteration",
-        "source_stage",
-        "source_iteration",
         "publication_state",
     ]
+    if first.version == 6 or second.version == 6:
+        fields.extend(
+            ["lifecycle_state", "update_epoch", "source_state", "source_update_epoch"]
+        )
+    else:
+        fields.extend(
+            ["transport_stage", "transport_iteration", "source_stage", "source_iteration"]
+        )
     if first.version >= 4 or second.version >= 4:
         fields.extend(
             [
@@ -1120,6 +1153,14 @@ def main() -> int:
     parser.add_argument("--expect-build-token-serial", type=int)
     parser.add_argument("--expect-field-serial", type=int)
     parser.add_argument(
+        "--expect-lifecycle-state", choices=tuple(LIFECYCLE_STATE_LABELS.values())
+    )
+    parser.add_argument("--expect-update-epoch", type=int)
+    parser.add_argument(
+        "--expect-source-state", choices=tuple(LIFECYCLE_STATE_LABELS.values())
+    )
+    parser.add_argument("--expect-source-update-epoch", type=int)
+    parser.add_argument(
         "--expect-transport-stage", choices=tuple(TRANSPORT_STAGE_LABELS.values())
     )
     parser.add_argument("--expect-transport-iteration", type=int)
@@ -1181,6 +1222,10 @@ def main() -> int:
     expect("radiance_revision", args.expect_radiance_revision)
     expect("build_token_serial", args.expect_build_token_serial)
     expect("field_serial", args.expect_field_serial)
+    expect("lifecycle_state", args.expect_lifecycle_state)
+    expect("update_epoch", args.expect_update_epoch)
+    expect("source_state", args.expect_source_state)
+    expect("source_update_epoch", args.expect_source_update_epoch)
     expect("transport_stage", args.expect_transport_stage)
     expect("transport_iteration", args.expect_transport_iteration)
     expect("source_stage", args.expect_source_stage)

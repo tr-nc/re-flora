@@ -333,7 +333,10 @@ pub struct PushConstantIrradianceFilter {
     pub tile_columns: u32,
     pub terrain_revision: u32,
     pub destination_is_transport_source: u32,
-    pub _pad0: [u8; 12],
+    pub source_slot: u32,
+    pub has_history: u32,
+    pub history_retention: f32,
+    pub epoch_rotation: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantIrradianceGutter` (native Slang source of truth).
@@ -389,6 +392,7 @@ pub struct PushConstantProbeTrace {
     pub source_slot: u32,
     pub far_distance_world: f32,
     pub padding: [u32; 2],
+    pub epoch_rotation: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).
@@ -401,6 +405,11 @@ pub struct PushConstantVisibilityFilter {
     pub terrain_revision: u32,
     pub spacing_world: [f32; 3],
     pub far_distance_world: f32,
+    pub destination_slot: u32,
+    pub source_slot: u32,
+    pub has_history: u32,
+    pub history_retention: f32,
+    pub epoch_rotation: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityGutter` (native Slang source of truth).
@@ -410,7 +419,7 @@ pub struct PushConstantVisibilityGutter {
     pub first_probe_index: u32,
     pub probe_count: u32,
     pub tile_columns: u32,
-    pub padding: u32,
+    pub destination_slot: u32,
 }
 
 /// Auto-generated from `PushConstantVsmBlurH` (native Slang source of truth).

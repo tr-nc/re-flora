@@ -162,6 +162,7 @@ struct DdgiProbeTracePushConstants {
     source_slot: u32,
     far_distance_world: f32,
     _padding: [u32; 2],
+    epoch_rotation: [f32; 4],
 }
 
 #[repr(C)]
@@ -172,6 +173,10 @@ struct DdgiAtlasFilterPushConstants {
     tile_columns: u32,
     terrain_revision: u32,
     destination_is_transport_source: u32,
+    source_slot: u32,
+    has_history: u32,
+    history_retention: f32,
+    epoch_rotation: [f32; 4],
 }
 
 #[repr(C)]
@@ -183,6 +188,11 @@ struct DdgiVisibilityFilterPushConstants {
     terrain_revision: u32,
     spacing_world: [f32; 3],
     far_distance_world: f32,
+    destination_slot: u32,
+    source_slot: u32,
+    has_history: u32,
+    history_retention: f32,
+    epoch_rotation: [f32; 4],
 }
 
 #[repr(C)]
@@ -738,6 +748,7 @@ pub struct Tracer {
     flora_lighting_cache: FloraLightingCache,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
+    ddgi_history_retention: f32,
     prepared_ddgi_consumer_descriptors: Option<PreparedDdgiConsumerDescriptors>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     ddgi_relocation_stats_readback_pending: bool,
@@ -1055,6 +1066,7 @@ impl Tracer {
             flora_lighting_cache: FloraLightingCache::default(),
             ddgi_voxel_visibility,
             ddgi_runtime,
+            ddgi_history_retention: 0.98,
             prepared_ddgi_consumer_descriptors: None,
             ddgi_trace_stats_readback_pending: None,
             ddgi_relocation_stats_readback_pending: false,
@@ -2037,6 +2049,11 @@ impl Tracer {
             &ddgi_volume.ddgi_visibility_atlas
         );
         write_texture!(
+            trace,
+            "ddgi_transport_source_visibility_atlas",
+            &ddgi_volume.ddgi_transport_source_visibility_atlas
+        );
+        write_texture!(
             global_sky_filter,
             "ddgi_global_sky_irradiance",
             ddgi_volume.building_global_sky_irradiance()
@@ -2067,6 +2084,11 @@ impl Tracer {
                 writes,
                 "ddgi_visibility_atlas",
                 &ddgi_volume.ddgi_visibility_atlas
+            );
+            write_texture!(
+                writes,
+                "ddgi_transport_source_visibility_atlas",
+                &ddgi_volume.ddgi_transport_source_visibility_atlas
             );
         }
 
@@ -2169,6 +2191,9 @@ impl Tracer {
         let irradiance_atlas = ddgi_volume
             .published_irradiance_atlas()
             .unwrap_or(&ddgi_volume.ddgi_irradiance_atlas);
+        let visibility_atlas = ddgi_volume
+            .published_visibility_atlas()
+            .unwrap_or(&ddgi_volume.ddgi_visibility_atlas);
         let mut tracer_writes = vec![
             DescriptorWrite {
                 name: "ddgi_probe_metadata",
@@ -2197,7 +2222,7 @@ impl Tracer {
                 ddgi_volume.published_global_sky_irradiance(),
             ),
             ("ddgi_irradiance_atlas", irradiance_atlas),
-            ("ddgi_visibility_atlas", &ddgi_volume.ddgi_visibility_atlas),
+            ("ddgi_visibility_atlas", visibility_atlas),
         ] {
             let write = DescriptorWrite {
                 name: binding,
@@ -2469,6 +2494,7 @@ impl Tracer {
         path_tracing_ambient_light: Vec3,
         terrain_ray_origin_offset_world: f32,
         ddgi_receiver_visibility_bias_world: f32,
+        ddgi_history_retention: f32,
         terrain_self_shadow_tolerance_voxels: f32,
         flora_instance_hsv_offset_max: Vec3,
         flora_voxel_hsv_offset_max: Vec3,
@@ -2635,6 +2661,7 @@ impl Tracer {
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
         self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
+        self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
         BufferUpdater::update_gui_input(
@@ -2999,13 +3026,18 @@ impl Tracer {
                                 );
                                 Some((work, field))
                             }
-                            DdgiValidatedIterationOutcome::Converged { work, field } => {
+                            DdgiValidatedIterationOutcome::Converged {
+                                work,
+                                field,
+                                reason,
+                            } => {
                                 log::info!(
-                                    "[DDGI] transport converged serial={} update_epoch={} slot={} source={:?} ready=true",
+                                    "[DDGI] transport converged serial={} update_epoch={} slot={} source={:?} reason={:?} ready=true",
                                     field.field().serial(),
                                     field.field().update_epoch(),
                                     batch.destination_label(),
                                     field.source(),
+                                    reason,
                                 );
                                 Some((work, field))
                             }
@@ -3232,8 +3264,8 @@ impl Tracer {
                 "ddgi.irradiance_filter",
                 || self.record_ddgi_irradiance_filter_pass(cmdbuf, batch),
             );
-            // Visibility is geometry-owned and is written only by bootstrap S0. Radiance-only
-            // feedback retains the complete visibility atlas.
+            // Trace directions rotate once per full epoch, so irradiance and directional distance
+            // moments update together into the same ping-pong slot.
             if batch.writes_visibility() {
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
@@ -3274,7 +3306,7 @@ impl Tracer {
                 || status.filtered_probe_count % 1_024 == 0
             {
                 log::info!(
-                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
+                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
                     batch.first_probe_index,
                     batch.probe_count,
                     crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -3288,6 +3320,8 @@ impl Tracer {
                     batch.update_epoch(),
                     batch.source(),
                     batch.destination_label(),
+                    batch.irradiance_history_retention(self.ddgi_history_retention),
+                    batch.visibility_history_retention(self.ddgi_history_retention),
                     batch.writes_visibility(),
                     iteration_will_complete,
                     status.stage,
@@ -5277,6 +5311,7 @@ impl Tracer {
             source_slot: batch.source_slot_index(),
             far_distance_world,
             _padding: [0; 2],
+            epoch_rotation: batch.epoch_rotation(),
         };
         self.compute_pipelines.ddgi_probe_trace_ppl.record(
             cmdbuf,
@@ -5293,6 +5328,10 @@ impl Tracer {
             tile_columns: volume.status().irradiance_layout.tile_grid().x,
             terrain_revision: batch.geometry_revision(),
             destination_is_transport_source: u32::from(batch.destination_is_transport_source()),
+            source_slot: batch.source_slot_index(),
+            has_history: u32::from(batch.irradiance_history_is_valid()),
+            history_retention: batch.irradiance_history_retention(self.ddgi_history_retention),
+            epoch_rotation: batch.epoch_rotation(),
         };
         self.compute_pipelines.ddgi_irradiance_filter_ppl.record(
             cmdbuf,
@@ -5318,6 +5357,11 @@ impl Tracer {
             terrain_revision: batch.geometry_revision(),
             spacing_world: spacing_world.to_array(),
             far_distance_world,
+            destination_slot: batch.destination_slot_index(),
+            source_slot: batch.source_slot_index(),
+            has_history: u32::from(batch.visibility_history_is_valid()),
+            history_retention: batch.visibility_history_retention(self.ddgi_history_retention),
+            epoch_rotation: batch.epoch_rotation(),
         };
         self.compute_pipelines.ddgi_visibility_filter_ppl.record(
             cmdbuf,
@@ -5347,6 +5391,7 @@ impl Tracer {
         if batch.writes_visibility() {
             let visibility_push = DdgiAtlasGutterPushConstants {
                 tile_columns: volume.status().visibility_layout.tile_grid().x,
+                destination_is_transport_source: batch.destination_slot_index(),
                 ..irradiance_push
             };
             self.compute_pipelines.ddgi_visibility_gutter_ppl.record(

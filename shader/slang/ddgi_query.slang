@@ -218,13 +218,21 @@ public float3 sampleDdgiRawCageIrradiance(
 }
 
 float2 sampleDdgiDistanceMoments(uint probeIndex, float3 direction,
-                                 DdgiQueryInfo query)
+                                 DdgiQueryInfo query,
+                                 Sampler2D visibilityAtlas)
 {
     float2 uv = ddgiAtlasUv(
         probeIndex, direction, query.visibility_tile_columns,
         DDGI_VISIBILITY_INTERIOR_SIDE, DDGI_VISIBILITY_STORED_SIDE,
-        ddgi_visibility_atlas);
-    return ddgi_visibility_atlas.SampleLevel(uv, 0.0).xy;
+        visibilityAtlas);
+    return visibilityAtlas.SampleLevel(uv, 0.0).xy;
+}
+
+float2 sampleDdgiDistanceMoments(uint probeIndex, float3 direction,
+                                 DdgiQueryInfo query)
+{
+    return sampleDdgiDistanceMoments(
+        probeIndex, direction, query, ddgi_visibility_atlas);
 }
 
 float ddgiChebyshevVisibility(float2 moments, float distanceToSurface)
@@ -502,6 +510,36 @@ DdgiProbeContribution getDdgiMomentExactProbeContribution(
         query, worldPosition, worldPosition, surfaceNormal,
         hardVisibilityWorldPosition, cageCorner,
         DDGI_SPATIAL_WEIGHT_RELOCATION_HARD, irradianceAtlas);
+}
+
+DdgiProbeContribution getDdgiMomentExactProbeContributionFromAtlases(
+    DdgiQueryInfo query, float3 worldPosition, float3 surfaceNormal,
+    float3 hardVisibilityWorldPosition, uint3 cageCorner,
+    Sampler2D irradianceAtlas, Sampler2D visibilityAtlas)
+{
+    DdgiProbeContribution contribution =
+        getDdgiUnoccludedSpatialWeightProbeContributionAt(
+            query, worldPosition, worldPosition, surfaceNormal,
+            cageCorner, DDGI_SPATIAL_WEIGHT_RELOCATION_HARD,
+            irradianceAtlas);
+    if (!contribution.trustworthy) return contribution;
+
+    float3 normal = ddgiNormalizedSurfaceNormal(surfaceNormal);
+    float3 biasedWorldPosition = worldPosition +
+        normal * max(0.0, query.visibility_bias_world);
+    float3 probeToBiasedSurface =
+        biasedWorldPosition - contribution.actual_position;
+    if (dot(probeToBiasedSurface, probeToBiasedSurface) <= 1.0e-12)
+        probeToBiasedSurface = -normal;
+    float2 moments = sampleDdgiDistanceMoments(
+        contribution.probe_index, normalize(probeToBiasedSurface),
+        query, visibilityAtlas);
+    contribution.moment_visibility = ddgiChebyshevVisibility(
+        moments, contribution.distance_to_surface);
+    contribution.hard_visibility = ddgiVoxelSegmentVisibility(
+        hardVisibilityWorldPosition, contribution.actual_position,
+        query.geometry_revision);
+    return contribution;
 }
 
 DdgiProbeContribution getDdgiMomentExactProbeContribution(
@@ -994,6 +1032,7 @@ public DdgiQueryResult sampleDdgiUnpublishedCaptureEnvironment(
 
 DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(
     DdgiQueryInfo query, Sampler2D irradianceAtlas,
+    Sampler2D visibilityAtlas,
     float3 worldPosition, float3 surfaceNormal,
     float3 hardVisibilityWorldPosition)
 {
@@ -1016,10 +1055,10 @@ DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(
             for (uint x = 0u; x < 2u; ++x)
             {
                 DdgiProbeContribution contribution =
-                    getDdgiMomentExactProbeContribution(
+                    getDdgiMomentExactProbeContributionFromAtlases(
                         query, worldPosition, normal,
                         hardVisibilityWorldPosition, uint3(x, y, z),
-                        irradianceAtlas);
+                        irradianceAtlas, visibilityAtlas);
                 accumulateDdgiContribution(
                     result, contribution,
                     contribution.moment_visibility *
@@ -1033,12 +1072,14 @@ DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(
 
 public DdgiQueryResult sampleDdgiTransportSource(
     U_DdgiTransportQueryInfo transport, Sampler2D sourceIrradianceAtlas,
+    Sampler2D sourceVisibilityAtlas,
     float3 worldPosition, float3 surfaceNormal,
     float3 hardVisibilityWorldPosition)
 {
     DdgiQueryInfo query = ddgiTransportQueryInfo(transport);
     return sampleDdgiTransportEnvironmentFromAtlas(
-        query, sourceIrradianceAtlas, worldPosition, surfaceNormal,
+        query, sourceIrradianceAtlas, sourceVisibilityAtlas,
+        worldPosition, surfaceNormal,
         hardVisibilityWorldPosition);
 }
 
@@ -1048,7 +1089,8 @@ public DdgiQueryResult sampleDdgiTransportAtlas0(
     float3 hardVisibilityWorldPosition)
 {
     return sampleDdgiTransportSource(
-        transport, ddgi_irradiance_atlas, worldPosition, surfaceNormal,
+        transport, ddgi_irradiance_atlas, ddgi_visibility_atlas,
+        worldPosition, surfaceNormal,
         hardVisibilityWorldPosition);
 }
 

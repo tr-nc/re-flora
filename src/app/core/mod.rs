@@ -3119,6 +3119,7 @@ impl App {
                             .adjustables
                             .ddgi_receiver_visibility_bias_world
                             .value,
+                        self.debug_settings.adjustables.ddgi_history_retention.value,
                         self.debug_settings
                             .adjustables
                             .terrain_self_shadow_tolerance_voxels

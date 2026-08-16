@@ -10,7 +10,7 @@ use crate::generated::gpu_structs::{
 use crate::resource::{DescriptorResource, Resource, ResourceContainer, ResourceLookup};
 use anyhow::{ensure, Context, Result};
 use bytemuck::Zeroable;
-use glam::UVec3;
+use glam::{Quat, UVec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, BufferUse, Extent3D, ImageDesc, MemoryLocation, SamplerDesc,
@@ -23,15 +23,18 @@ const DDGI_TRACE_STATS_COUNT: usize = 8;
 const DDGI_RELOCATION_STATS_COUNT: usize = 14;
 const DDGI_ATLAS_REDUCTION_COUNT: usize = 6;
 
-/// Conservative, centralized temporal-convergence policy. The relative metric uses a symmetric
-/// denominator `max(abs(source), abs(destination), relative_floor)` so near-black texels do not
-/// prevent convergence forever. These are transport decisions only; HDR values are never clamped.
+/// Centralized temporal stopping policy. Delta thresholds permit an early sleep after a minimum
+/// sample age. Rotated Monte Carlo samples can retain isolated high-delta texels indefinitely, so
+/// the finite epoch budget is the deterministic quality contract and sleep backstop. These are
+/// transport decisions only; HDR values are never clamped.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DdgiConvergencePolicy {
     pub absolute_threshold: f32,
     pub relative_threshold: f32,
     pub relative_floor: f32,
     pub consecutive_iterations: u32,
+    pub minimum_update_epochs: u32,
+    pub maximum_update_epochs: u32,
 }
 
 pub const DDGI_CONVERGENCE_POLICY: DdgiConvergencePolicy = DdgiConvergencePolicy {
@@ -39,16 +42,18 @@ pub const DDGI_CONVERGENCE_POLICY: DdgiConvergencePolicy = DdgiConvergencePolicy
     relative_threshold: 0.02,
     relative_floor: 0.05,
     consecutive_iterations: 2,
+    minimum_update_epochs: 8,
+    maximum_update_epochs: 64,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
-enum DdgiIrradianceSlot {
+enum DdgiAtlasSlot {
     Atlas0 = 0,
     Atlas1 = 1,
 }
 
-impl DdgiIrradianceSlot {
+impl DdgiAtlasSlot {
     fn other(self) -> Self {
         match self {
             Self::Atlas0 => Self::Atlas1,
@@ -82,7 +87,7 @@ impl DdgiSkySlot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DdgiResidentField {
     logical: DdgiFieldIdentity,
-    irradiance_slot: DdgiIrradianceSlot,
+    atlas_slot: DdgiAtlasSlot,
     sky_slot: DdgiSkySlot,
 }
 
@@ -107,7 +112,7 @@ fn resident_iteration_for_work(
             );
             let destination = DdgiResidentField {
                 logical: destination,
-                irradiance_slot: DdgiIrradianceSlot::Atlas0,
+                atlas_slot: DdgiAtlasSlot::Atlas0,
                 sky_slot: DdgiSkySlot::Sky0,
             };
             Ok(DdgiResidentIteration {
@@ -129,7 +134,7 @@ fn resident_iteration_for_work(
                 != source.logical.field().radiance_revision();
             let destination = DdgiResidentField {
                 logical: destination,
-                irradiance_slot: source.irradiance_slot.other(),
+                atlas_slot: source.atlas_slot.other(),
                 sky_slot: if radiance_changed {
                     source.sky_slot.other()
                 } else {
@@ -214,32 +219,113 @@ impl DdgiRayBatch {
     pub fn source_slot_index(self) -> u32 {
         self.resident
             .source
-            .map(|source| source.irradiance_slot as u32)
+            .map(|source| source.atlas_slot as u32)
             .unwrap_or_default()
     }
 
     pub fn destination_slot_index(self) -> u32 {
-        self.resident.destination.irradiance_slot as u32
+        self.resident.destination.atlas_slot as u32
     }
 
     pub fn destination_is_transport_source(self) -> bool {
-        self.resident.destination.irradiance_slot == DdgiIrradianceSlot::Atlas1
+        self.resident.destination.atlas_slot == DdgiAtlasSlot::Atlas1
     }
 
     pub fn destination_label(self) -> &'static str {
-        self.resident.destination.irradiance_slot.label()
+        self.resident.destination.atlas_slot.label()
     }
 
     pub fn source_label(self) -> &'static str {
         self.resident
             .source
-            .map(|source| source.irradiance_slot.label())
+            .map(|source| source.atlas_slot.label())
             .unwrap_or("none")
     }
 
     pub fn writes_visibility(self) -> bool {
-        self.resident.source.is_none()
+        true
     }
+
+    pub fn irradiance_history_is_valid(self) -> bool {
+        self.resident.source.is_some_and(|source| {
+            source.logical.field().geometry_revision() == self.geometry_revision()
+                && source.logical.field().radiance_revision() == self.radiance_revision()
+        })
+    }
+
+    pub fn visibility_history_is_valid(self) -> bool {
+        self.resident.source.is_some_and(|source| {
+            source.logical.field().geometry_revision() == self.geometry_revision()
+        })
+    }
+
+    pub fn irradiance_history_retention(self, configured: f32) -> f32 {
+        if !self.irradiance_history_is_valid() {
+            return 0.0;
+        }
+        configured
+            .clamp(0.0, 0.99)
+            .min(self.update_epoch() as f32 / (self.update_epoch() as f32 + 1.0))
+    }
+
+    pub fn visibility_history_retention(self, configured: f32) -> f32 {
+        if !self.visibility_history_is_valid() {
+            return 0.0;
+        }
+        let configured = configured.clamp(0.0, 0.99);
+        if self.irradiance_history_is_valid() {
+            configured.min(self.update_epoch() as f32 / (self.update_epoch() as f32 + 1.0))
+        } else {
+            configured
+        }
+    }
+
+    pub fn epoch_rotation(self) -> [f32; 4] {
+        ddgi_epoch_rotation(
+            self.geometry_revision(),
+            self.radiance_revision(),
+            self.update_epoch(),
+        )
+    }
+}
+
+fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
+}
+
+fn unit_f64(bits: u64) -> f64 {
+    ((bits >> 11) as f64 + 0.5) * (1.0 / ((1_u64 << 53) as f64))
+}
+
+/// Returns a deterministic, uniformly distributed SO(3) rotation for one complete update epoch.
+/// Every batch in that epoch receives the same quaternion, so batch scheduling cannot create
+/// directional seams. The quaternion uses Slang/glam's shared `(x, y, z, w)` convention.
+fn ddgi_epoch_rotation(
+    geometry_revision: u32,
+    radiance_revision: u32,
+    update_epoch: u32,
+) -> [f32; 4] {
+    let seed = u64::from(geometry_revision)
+        | (u64::from(radiance_revision) << 21)
+        | (u64::from(update_epoch) << 42);
+    let u1 = unit_f64(splitmix64(seed));
+    let u2 = unit_f64(splitmix64(seed ^ 0xa076_1d64_78bd_642f));
+    let u3 = unit_f64(splitmix64(seed ^ 0xe703_7ed1_a0b4_28db));
+    let angle2 = std::f64::consts::TAU * u2;
+    let angle3 = std::f64::consts::TAU * u3;
+    let radius1 = (1.0 - u1).sqrt();
+    let radius2 = u1.sqrt();
+    Quat::from_xyzw(
+        (radius1 * angle2.sin()) as f32,
+        (radius1 * angle2.cos()) as f32,
+        (radius2 * angle3.sin()) as f32,
+        (radius2 * angle3.cos()) as f32,
+    )
+    .normalize()
+    .to_array()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -394,6 +480,7 @@ pub struct DdgiResourceBytes {
     pub irradiance_atlas: u64,
     pub transport_source_irradiance_atlas: u64,
     pub visibility_atlas: u64,
+    pub transport_source_visibility_atlas: u64,
     pub global_sky_irradiance: u64,
     pub probe_metadata: u64,
     pub transient_ray_data: u64,
@@ -431,6 +518,9 @@ impl DdgiResourceBytes {
             visibility_atlas: visibility_extent.x as u64
                 * visibility_extent.y as u64
                 * std::mem::size_of::<[f32; 2]>() as u64,
+            transport_source_visibility_atlas: visibility_extent.x as u64
+                * visibility_extent.y as u64
+                * std::mem::size_of::<[f32; 2]>() as u64,
             global_sky_irradiance: super::DDGI_IRRADIANCE_STORED_SIDE as u64
                 * super::DDGI_IRRADIANCE_STORED_SIDE as u64
                 * std::mem::size_of::<[f32; 4]>() as u64
@@ -453,6 +543,7 @@ impl DdgiResourceBytes {
         self.irradiance_atlas
             + self.transport_source_irradiance_atlas
             + self.visibility_atlas
+            + self.transport_source_visibility_atlas
             + self.global_sky_irradiance
             + self.probe_metadata
             + self.transient_ray_data
@@ -481,7 +572,14 @@ pub enum DdgiValidatedIterationOutcome {
     Converged {
         work: DdgiScheduledWork,
         field: DdgiFieldIdentity,
+        reason: DdgiConvergenceReason,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DdgiConvergenceReason {
+    Threshold,
+    SampleBudget,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -590,6 +688,7 @@ pub struct DdgiVolume {
     pub ddgi_irradiance_atlas: Resource<Texture>,
     pub ddgi_transport_source_irradiance_atlas: Resource<Texture>,
     pub ddgi_visibility_atlas: Resource<Texture>,
+    pub ddgi_transport_source_visibility_atlas: Resource<Texture>,
     pub ddgi_global_sky_irradiance: Resource<Texture>,
     pub ddgi_global_sky_irradiance_alt: Resource<Texture>,
     pub ddgi_radiance_sun: Resource<Buffer>,
@@ -708,6 +807,9 @@ impl ResourceContainer for DdgiVolume {
             "ddgi_visibility_atlas" => {
                 ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_visibility_atlas))
             }
+            "ddgi_transport_source_visibility_atlas" => ResourceLookup::Unique(
+                DescriptorResource::Texture(&self.ddgi_transport_source_visibility_atlas),
+            ),
             "ddgi_global_sky_irradiance" => ResourceLookup::Unique(DescriptorResource::Texture(
                 &self.ddgi_global_sky_irradiance,
             )),
@@ -901,6 +1003,12 @@ impl DdgiVolume {
             &visibility_desc,
             &sampler_desc,
         );
+        let transport_source_visibility_atlas = Texture::new(
+            device.clone(),
+            allocator.clone(),
+            &visibility_desc,
+            &sampler_desc,
+        );
         let global_sky_irradiance = Texture::new(
             device.clone(),
             allocator.clone(),
@@ -911,7 +1019,7 @@ impl DdgiVolume {
             Texture::new(device, allocator, &global_sky_desc, &sampler_desc);
 
         log::info!(
-            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_budget_per_frame={} ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} total_mib={:.2}",
+            "[DDGI] allocated stage=allocated spacing_voxels={} grid={}x{}x{} probes={} irradiance={}x{} RGBA32F visibility={}x{} RG32F ray_budget_per_frame={} ray_batch={}x{} metadata_bytes={} irradiance_bytes={} transport_source_irradiance_bytes={} visibility_bytes={} transport_source_visibility_bytes={} ray_bytes={} trace_stats_bytes={} relocation_stats_bytes={} atlas_reduction_bytes={} global_sky_bytes={} snapshot_uniform_bytes={} transport_query_bytes={} total_mib={:.2}",
             spacing_voxels,
             grid.dimensions().x,
             grid.dimensions().y,
@@ -928,6 +1036,7 @@ impl DdgiVolume {
             resource_bytes.irradiance_atlas,
             resource_bytes.transport_source_irradiance_atlas,
             resource_bytes.visibility_atlas,
+            resource_bytes.transport_source_visibility_atlas,
             resource_bytes.transient_ray_data,
             resource_bytes.trace_stats,
             resource_bytes.relocation_stats,
@@ -973,6 +1082,9 @@ impl DdgiVolume {
                 transport_source_irradiance_atlas,
             ),
             ddgi_visibility_atlas: Resource::new(visibility_atlas),
+            ddgi_transport_source_visibility_atlas: Resource::new(
+                transport_source_visibility_atlas,
+            ),
             ddgi_global_sky_irradiance: Resource::new(global_sky_irradiance),
             ddgi_global_sky_irradiance_alt: Resource::new(global_sky_irradiance_alt),
             ddgi_radiance_sun: Resource::new(radiance_sun),
@@ -1313,7 +1425,12 @@ impl DdgiVolume {
         if identity.source().is_none() {
             return Ok(identity);
         }
-        match classify_temporal_epoch(policy, self.consecutive_below_threshold, stats) {
+        match classify_temporal_epoch(
+            policy,
+            identity.field().update_epoch(),
+            self.consecutive_below_threshold,
+            stats,
+        ) {
             DdgiConvergenceDecision::Continue { .. } => Ok(identity),
             DdgiConvergenceDecision::Converged { .. } => identity
                 .with_state(DdgiFieldState::Converged)
@@ -1360,7 +1477,12 @@ impl DdgiVolume {
             "DDGI temporal epoch {} did not consume the previous complete field",
             identity.field().update_epoch()
         );
-        match classify_temporal_epoch(policy, self.consecutive_below_threshold, stats) {
+        match classify_temporal_epoch(
+            policy,
+            identity.field().update_epoch(),
+            self.consecutive_below_threshold,
+            stats,
+        ) {
             DdgiConvergenceDecision::Continue {
                 consecutive_below_threshold,
             } => {
@@ -1377,6 +1499,7 @@ impl DdgiVolume {
             }
             DdgiConvergenceDecision::Converged {
                 consecutive_below_threshold,
+                reason,
             } => {
                 let field = classified_field;
                 ensure!(
@@ -1395,26 +1518,38 @@ impl DdgiVolume {
                 Ok(DdgiValidatedIterationOutcome::Converged {
                     work: iteration.work,
                     field,
+                    reason,
                 })
             }
         }
     }
 
-    fn irradiance_atlas(&self, slot: DdgiIrradianceSlot) -> &Resource<Texture> {
+    fn irradiance_atlas(&self, slot: DdgiAtlasSlot) -> &Resource<Texture> {
         match slot {
-            DdgiIrradianceSlot::Atlas0 => &self.ddgi_irradiance_atlas,
-            DdgiIrradianceSlot::Atlas1 => &self.ddgi_transport_source_irradiance_atlas,
+            DdgiAtlasSlot::Atlas0 => &self.ddgi_irradiance_atlas,
+            DdgiAtlasSlot::Atlas1 => &self.ddgi_transport_source_irradiance_atlas,
+        }
+    }
+
+    fn visibility_atlas(&self, slot: DdgiAtlasSlot) -> &Resource<Texture> {
+        match slot {
+            DdgiAtlasSlot::Atlas0 => &self.ddgi_visibility_atlas,
+            DdgiAtlasSlot::Atlas1 => &self.ddgi_transport_source_visibility_atlas,
         }
     }
 
     pub fn published_irradiance_atlas(&self) -> Option<&Resource<Texture>> {
         self.published_field
-            .map(|field| self.irradiance_atlas(field.irradiance_slot))
+            .map(|field| self.irradiance_atlas(field.atlas_slot))
+    }
+
+    pub fn published_visibility_atlas(&self) -> Option<&Resource<Texture>> {
+        self.published_field
+            .map(|field| self.visibility_atlas(field.atlas_slot))
     }
 
     pub fn published_irradiance_label(&self) -> Option<&'static str> {
-        self.published_field
-            .map(|field| field.irradiance_slot.label())
+        self.published_field.map(|field| field.atlas_slot.label())
     }
 
     pub fn building_global_sky_irradiance(&self) -> &Resource<Texture> {
@@ -1581,12 +1716,18 @@ fn pending_trace_stats_batch_matches(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DdgiConvergenceDecision {
-    Continue { consecutive_below_threshold: u32 },
-    Converged { consecutive_below_threshold: u32 },
+    Continue {
+        consecutive_below_threshold: u32,
+    },
+    Converged {
+        consecutive_below_threshold: u32,
+        reason: DdgiConvergenceReason,
+    },
 }
 
 fn classify_temporal_epoch(
     policy: DdgiConvergencePolicy,
+    update_epoch: u32,
     previous_consecutive_below_threshold: u32,
     stats: DdgiAtlasValidationStats,
 ) -> DdgiConvergenceDecision {
@@ -1597,9 +1738,18 @@ fn classify_temporal_epoch(
     } else {
         0
     };
-    if consecutive_below_threshold >= policy.consecutive_iterations {
+    let completed_epoch_count = update_epoch.saturating_add(1);
+    let threshold_converged = completed_epoch_count >= policy.minimum_update_epochs
+        && consecutive_below_threshold >= policy.consecutive_iterations;
+    let sample_budget_complete = completed_epoch_count >= policy.maximum_update_epochs;
+    if threshold_converged || sample_budget_complete {
         DdgiConvergenceDecision::Converged {
             consecutive_below_threshold,
+            reason: if threshold_converged {
+                DdgiConvergenceReason::Threshold
+            } else {
+                DdgiConvergenceReason::SampleBudget
+            },
         }
     } else {
         DdgiConvergenceDecision::Continue {
@@ -1683,6 +1833,7 @@ mod tests {
         assert_eq!(bytes.irradiance_atlas, 7_952_000);
         assert_eq!(bytes.transport_source_irradiance_atlas, 7_952_000);
         assert_eq!(bytes.visibility_atlas, 12_882_240);
+        assert_eq!(bytes.transport_source_visibility_atlas, 12_882_240);
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
         assert_eq!(bytes.trace_stats, 32);
@@ -1839,14 +1990,8 @@ mod tests {
 
     #[test]
     fn physical_slots_are_derived_only_by_toggling_the_resident_source() {
-        assert_eq!(
-            DdgiIrradianceSlot::Atlas0.other(),
-            DdgiIrradianceSlot::Atlas1
-        );
-        assert_eq!(
-            DdgiIrradianceSlot::Atlas1.other(),
-            DdgiIrradianceSlot::Atlas0
-        );
+        assert_eq!(DdgiAtlasSlot::Atlas0.other(), DdgiAtlasSlot::Atlas1);
+        assert_eq!(DdgiAtlasSlot::Atlas1.other(), DdgiAtlasSlot::Atlas0);
         assert_eq!(DdgiSkySlot::Sky0.other(), DdgiSkySlot::Sky1);
         assert_eq!(DdgiSkySlot::Sky1.other(), DdgiSkySlot::Sky0);
     }
@@ -1856,7 +2001,7 @@ mod tests {
         let initial = initial_work(7, 3, 32);
         let published = DdgiResidentField {
             logical: initial.destination(),
-            irradiance_slot: DdgiIrradianceSlot::Atlas0,
+            atlas_slot: DdgiAtlasSlot::Atlas0,
             sky_slot: DdgiSkySlot::Sky0,
         };
         let mut scheduler = super::super::DdgiTransportScheduler::new();
@@ -1864,8 +2009,15 @@ mod tests {
         let same_radiance = scheduler.claim_next().unwrap().unwrap();
         let same = resident_iteration_for_work(same_radiance, Some(published)).unwrap();
         assert_eq!(same.source, Some(published));
-        assert_eq!(same.destination.irradiance_slot, DdgiIrradianceSlot::Atlas1);
+        assert_eq!(same.destination.atlas_slot, DdgiAtlasSlot::Atlas1);
         assert_eq!(same.destination.sky_slot, DdgiSkySlot::Sky0);
+        let same_batch = DdgiRayBatch {
+            first_probe_index: 0,
+            probe_count: 64,
+            resident: same,
+        };
+        assert_eq!(same_batch.irradiance_history_retention(0.98), 0.5);
+        assert_eq!(same_batch.visibility_history_retention(0.98), 0.5);
 
         let published = same.destination;
         scheduler
@@ -1875,16 +2027,19 @@ mod tests {
         let new_radiance = scheduler.claim_next().unwrap().unwrap();
         let changed = resident_iteration_for_work(new_radiance, Some(published)).unwrap();
         assert_eq!(changed.source, Some(published));
-        assert_eq!(
-            changed.destination.irradiance_slot,
-            DdgiIrradianceSlot::Atlas0
-        );
+        assert_eq!(changed.destination.atlas_slot, DdgiAtlasSlot::Atlas0);
         assert_eq!(changed.destination.sky_slot, DdgiSkySlot::Sky1);
         assert_eq!(changed.logical.field().update_epoch(), 0);
+        let changed_batch = DdgiRayBatch {
+            resident: changed,
+            ..same_batch
+        };
+        assert_eq!(changed_batch.irradiance_history_retention(0.98), 0.0);
+        assert_eq!(changed_batch.visibility_history_retention(0.98), 0.98);
     }
 
     #[test]
-    fn only_initial_epoch_batches_write_visibility_before_temporal_visibility_is_enabled() {
+    fn every_epoch_updates_visibility_in_the_matching_ping_pong_slot() {
         let work = initial_work(7, 3, 32);
         let initial = resident_iteration_for_work(work, None).unwrap();
         let initial_batch = DdgiRayBatch {
@@ -1901,7 +2056,18 @@ mod tests {
             ..initial_batch
         };
         assert!(initial_batch.writes_visibility());
-        assert!(!temporal_batch.writes_visibility());
+        assert!(temporal_batch.writes_visibility());
+    }
+
+    #[test]
+    fn epoch_rotation_is_unit_length_deterministic_and_epoch_scoped() {
+        let first = ddgi_epoch_rotation(7, 3, 11);
+        let repeated = ddgi_epoch_rotation(7, 3, 11);
+        let next = ddgi_epoch_rotation(7, 3, 12);
+        assert_eq!(first, repeated);
+        assert_ne!(first, next);
+        let norm_squared: f32 = first.into_iter().map(|value| value * value).sum();
+        assert!((norm_squared - 1.0).abs() < 1.0e-6);
     }
 
     #[test]
@@ -1998,15 +2164,16 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            classify_temporal_epoch(DDGI_CONVERGENCE_POLICY, 0, low),
+            classify_temporal_epoch(DDGI_CONVERGENCE_POLICY, 6, 0, low),
             DdgiConvergenceDecision::Continue {
                 consecutive_below_threshold: 1
             }
         );
         assert_eq!(
-            classify_temporal_epoch(DDGI_CONVERGENCE_POLICY, 1, low),
+            classify_temporal_epoch(DDGI_CONVERGENCE_POLICY, 7, 1, low),
             DdgiConvergenceDecision::Converged {
-                consecutive_below_threshold: 2
+                consecutive_below_threshold: 2,
+                reason: DdgiConvergenceReason::Threshold,
             }
         );
 
@@ -2016,9 +2183,22 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            classify_temporal_epoch(DDGI_CONVERGENCE_POLICY, 1, high_relative),
+            classify_temporal_epoch(DDGI_CONVERGENCE_POLICY, 7, 1, high_relative),
             DdgiConvergenceDecision::Continue {
                 consecutive_below_threshold: 0
+            }
+        );
+
+        assert_eq!(
+            classify_temporal_epoch(
+                DDGI_CONVERGENCE_POLICY,
+                DDGI_CONVERGENCE_POLICY.maximum_update_epochs - 1,
+                0,
+                high_relative,
+            ),
+            DdgiConvergenceDecision::Converged {
+                consecutive_below_threshold: 0,
+                reason: DdgiConvergenceReason::SampleBudget,
             }
         );
     }
@@ -2059,7 +2239,7 @@ mod tests {
         let initial = work.destination();
         let resident = DdgiResidentField {
             logical: initial,
-            irradiance_slot: DdgiIrradianceSlot::Atlas0,
+            atlas_slot: DdgiAtlasSlot::Atlas0,
             sky_slot: DdgiSkySlot::Sky0,
         };
         let batch = DdgiRayBatch {

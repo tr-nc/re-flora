@@ -16,6 +16,7 @@ import analyze_environment_irradiance_capture as analyzer  # noqa: E402
 HEADER_V3 = struct.Struct("<8s10I2Q4IQI2f2I")
 HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
 HEADER_V5 = HEADER_V4
+HEADER_V6 = HEADER_V4
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
@@ -187,6 +188,78 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             for pixel in irradiance_pixels + world_pixels + direct_light_pixels
         )
         path.write_bytes(header + payload)
+
+    def write_capture_v6(
+        self,
+        path: Path,
+        irradiance_pixels: list[tuple[float, float, float, float]],
+        world_pixels: list[tuple[float, float, float, float]],
+        direct_light_pixels: list[tuple[float, float, float, float]],
+    ) -> None:
+        self.assertEqual(len(irradiance_pixels), len(world_pixels))
+        self.assertEqual(len(irradiance_pixels), len(direct_light_pixels))
+        header = HEADER_V6.pack(
+            analyzer.MAGIC,
+            6,
+            len(irradiance_pixels),
+            1,
+            4,
+            1,
+            16,
+            0,
+            3,
+            41,
+            17,
+            0xA11CE,
+            9001,
+            89,
+            2,
+            31,
+            1,
+            30,
+            88,
+            17,
+            1,
+            0,
+            0.0125,
+            0.025,
+            0,
+            len(irradiance_pixels),
+        )
+        payload = b"".join(
+            analyzer.PIXEL.pack(*pixel)
+            for pixel in irradiance_pixels + world_pixels + direct_light_pixels
+        )
+        path.write_bytes(header + payload)
+
+    def test_loads_v6_lifecycle_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "capture-v6.rfirr"
+            self.write_capture_v6(
+                path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(0.0, 0.0, 0.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+            )
+            result = self.run_analyzer(
+                path,
+                "--expect-version",
+                "6",
+                "--expect-lifecycle-state",
+                "converged",
+                "--expect-update-epoch",
+                "31",
+                "--expect-source-state",
+                "converging",
+                "--expect-source-update-epoch",
+                "30",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = json.loads(result.stdout)["capture"]
+        self.assertEqual(summary["lifecycle_state"], "converged")
+        self.assertEqual(summary["update_epoch"], 31)
+        self.assertEqual(summary["source_state"], "converging")
+        self.assertEqual(summary["source_update_epoch"], 30)
 
     def test_loads_v5_direct_light_plane_without_breaking_v4(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
