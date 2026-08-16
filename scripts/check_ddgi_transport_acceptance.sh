@@ -18,15 +18,14 @@ fi
 
 # Committed exact-gate calibration. These are correctness limits, not environment overrides;
 # provenance and the tighter spacing-specific observations live in the companion document.
-donor_max_s0_red_share=0.05
-donor_min_s1_red_share_gain=0.065
-donor_min_s1_luminance_gain=0.045
-dogleg_max_s1_luminance_mean=0.00002
-dogleg_min_s2_luminance_gain=0.00007
+donor_min_e0_luminance_mean=0.045
+dogleg_max_e0_luminance_mean=0.00002
+dogleg_min_e1_luminance_gain=0.00007
 convergence_max_abs_delta=0.0025
 convergence_max_rel_delta=0.02
-convergence_consecutive_iterations=2
-convergence_hard_max_iteration=8
+convergence_consecutive_epochs=2
+convergence_minimum_epoch_count=8
+convergence_max_epoch=63
 
 spacings=(32 16)
 donor_roi=(0.53125 0.4375 0.9375 0.8125 0.59375 0.9375)
@@ -37,7 +36,7 @@ failures=0
 
 echo "[DDGI_TRANSPORT] threshold_provenance=docs/ddgi_transport_acceptance.md"
 echo "[DDGI_TRANSPORT] convergence_provenance=docs/ddgi_convergence_calibration.md"
-echo "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v5-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
+echo "[DDGI_TRANSPORT] direct-sun-framebuffer=PROVEN seam=v6-direct-light-plane runner=check_ddgi_runtime_terrain_edits.sh"
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
@@ -106,7 +105,7 @@ run_analysis() {
     local command=(
         "$analyzer" "$capture"
         --correctness
-        --expect-version 5
+        --expect-version 6
         --require-nonnegative-rgb
         "$@"
     )
@@ -143,100 +142,75 @@ run_stage() {
 }
 
 for spacing in "${spacings[@]}"; do
-    run_stage sealed "$spacing" s0 forward \
-        --expect-transport-stage seed-sky \
-        --expect-transport-iteration 0 \
-        --expect-publication-state unpublished \
-        --require-zero-rgb || true
-    run_stage sealed "$spacing" s1 forward \
-        --expect-transport-stage single-bounce \
-        --expect-transport-iteration 1 \
-        --expect-source-stage seed-sky \
-        --expect-source-iteration 0 \
+    run_stage sealed "$spacing" e0 forward \
+        --expect-lifecycle-state converging \
+        --expect-update-epoch 0 \
         --expect-publication-state published \
         --require-zero-rgb || true
-    run_stage sealed "$spacing" s2 forward \
-        --expect-transport-stage feedback \
-        --expect-transport-iteration 2 \
-        --expect-source-stage single-bounce \
-        --expect-source-iteration 1 \
+    run_stage sealed "$spacing" e1 forward \
+        --expect-lifecycle-state converging \
+        --expect-update-epoch 1 \
+        --expect-source-state converging \
+        --expect-source-update-epoch 0 \
         --expect-publication-state published \
         --require-zero-rgb || true
     run_stage sealed "$spacing" converged forward \
-        --expect-transport-stage converged \
+        --expect-lifecycle-state converged \
+        --expect-update-epoch "$convergence_max_epoch" \
+        --expect-source-state converging \
+        --expect-source-update-epoch "$((convergence_max_epoch - 1))" \
         --expect-publication-state published \
-        --convergence-max-abs-delta "$convergence_max_abs_delta" \
-        --convergence-max-rel-delta "$convergence_max_rel_delta" \
         --require-zero-rgb || true
 
-    donor_s0="$(capture_path donor "$spacing" s0 forward)"
-    run_stage donor "$spacing" s0 forward \
-        --expect-transport-stage seed-sky \
-        --expect-transport-iteration 0 \
-        --expect-publication-state unpublished \
-        --world-roi "${donor_roi[@]}" \
-        --roi-channel red \
-        --max-roi-channel-share "$donor_max_s0_red_share" \
-        --max-exact-direct-sun-visibility 0 || true
-    donor_s1="$(capture_path donor "$spacing" s1 forward)"
-    run_stage donor "$spacing" s1 forward \
-        --expect-transport-stage single-bounce \
-        --expect-transport-iteration 1 \
-        --expect-source-stage seed-sky \
-        --expect-source-iteration 0 \
+    donor_e0="$(capture_path donor "$spacing" e0 forward)"
+    run_stage donor "$spacing" e0 forward \
+        --expect-lifecycle-state converging \
+        --expect-update-epoch 0 \
         --expect-publication-state published \
         --world-roi "${donor_roi[@]}" \
-        --roi-channel red \
-        --baseline "$donor_s0" \
-        --min-roi-channel-share-gain "$donor_min_s1_red_share_gain" \
-        --min-roi-luminance-gain "$donor_min_s1_luminance_gain" \
+        --min-roi-luminance-mean "$donor_min_e0_luminance_mean" \
         --max-exact-direct-sun-visibility 0 || true
-    donor_reverse="$(capture_path donor "$spacing" s1 reverse)"
-    run_stage donor "$spacing" s1 reverse \
-        --expect-transport-stage single-bounce \
-        --expect-transport-iteration 1 \
-        --expect-source-stage seed-sky \
-        --expect-source-iteration 0 \
+    donor_reverse="$(capture_path donor "$spacing" e0 reverse)"
+    run_stage donor "$spacing" e0 reverse \
+        --expect-lifecycle-state converging \
+        --expect-update-epoch 0 \
         --expect-publication-state published \
         --world-roi "${donor_roi[@]}" \
-        --roi-channel red \
-        --baseline "$donor_s0" \
-        --min-roi-channel-share-gain "$donor_min_s1_red_share_gain" \
-        --min-roi-luminance-gain "$donor_min_s1_luminance_gain" \
+        --min-roi-luminance-mean "$donor_min_e0_luminance_mean" \
         --max-exact-direct-sun-visibility 0 \
-        --compare "$donor_s1" || true
+        --compare "$donor_e0" || true
 
-    dogleg_s1="$(capture_path dogleg "$spacing" s1 forward)"
-    run_stage dogleg "$spacing" s1 forward \
-        --expect-transport-stage single-bounce \
-        --expect-transport-iteration 1 \
-        --expect-source-stage seed-sky \
-        --expect-source-iteration 0 \
+    dogleg_e0="$(capture_path dogleg "$spacing" e0 forward)"
+    run_stage dogleg "$spacing" e0 forward \
+        --expect-lifecycle-state converging \
+        --expect-update-epoch 0 \
         --expect-publication-state published \
         --world-roi "${dogleg_receiver_roi[@]}" \
-        --max-roi-luminance-mean "$dogleg_max_s1_luminance_mean" \
+        --max-roi-luminance-mean "$dogleg_max_e0_luminance_mean" \
         --max-exact-direct-sun-visibility 0 || true
-    run_stage dogleg "$spacing" s2 forward \
-        --expect-transport-stage feedback \
-        --expect-transport-iteration 2 \
-        --expect-source-stage single-bounce \
-        --expect-source-iteration 1 \
+    run_stage dogleg "$spacing" e1 forward \
+        --expect-lifecycle-state converging \
+        --expect-update-epoch 1 \
+        --expect-source-state converging \
+        --expect-source-update-epoch 0 \
         --expect-publication-state published \
         --world-roi "${dogleg_receiver_roi[@]}" \
-        --baseline "$dogleg_s1" \
-        --min-roi-luminance-gain "$dogleg_min_s2_luminance_gain" \
+        --baseline "$dogleg_e0" \
+        --min-roi-luminance-gain "$dogleg_min_e1_luminance_gain" \
         --max-exact-direct-sun-visibility 0 || true
 
     for convergence_case in portal donor dogleg; do
         run_stage "$convergence_case" "$spacing" converged forward \
-            --expect-transport-stage converged \
+            --expect-lifecycle-state converged \
+            --expect-update-epoch "$convergence_max_epoch" \
+            --expect-source-state converging \
+            --expect-source-update-epoch "$((convergence_max_epoch - 1))" \
             --expect-publication-state published \
-            --convergence-max-abs-delta "$convergence_max_abs_delta" \
-            --convergence-max-rel-delta "$convergence_max_rel_delta" || true
+            || true
     done
 
-    if ! $dry_run && [[ -f "$donor_s0" ]]; then
-        echo "[DDGI_TRANSPORT] evidence donor_s0=$donor_s0"
+    if ! $dry_run && [[ -f "$donor_e0" ]]; then
+        echo "[DDGI_TRANSPORT] evidence donor_e0=$donor_e0"
     fi
     if ! $dry_run && [[ -f "$donor_reverse" ]]; then
         echo "[DDGI_TRANSPORT] evidence donor_reverse=$donor_reverse"
@@ -250,8 +224,9 @@ convergence_summary_command=(
     --output "$convergence_summary"
     --absolute-threshold "$convergence_max_abs_delta"
     --relative-threshold "$convergence_max_rel_delta"
-    --consecutive-iterations "$convergence_consecutive_iterations"
-    --hard-max-iteration "$convergence_hard_max_iteration"
+    --consecutive-epochs "$convergence_consecutive_epochs"
+    --minimum-epoch-count "$convergence_minimum_epoch_count"
+    --maximum-update-epoch "$convergence_max_epoch"
 )
 if $dry_run; then
     print_command "${convergence_summary_command[@]}"
@@ -290,7 +265,7 @@ fi
 run_child "$lifecycle_runner"
 
 if $dry_run; then
-    echo "[DDGI_TRANSPORT] dry-run complete spacings=2 sealed_stages=4 portal_stages=1 donor_stages=3 dogleg_stages=3 convergence_curves=8 batch_orders=2"
+    echo "[DDGI_TRANSPORT] dry-run complete spacings=2 sealed_epochs=3 donor_epochs=2 dogleg_epochs=2 convergence_curves=8 batch_orders=2"
     exit 0
 fi
 

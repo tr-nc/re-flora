@@ -295,13 +295,8 @@ impl EnvironmentIrradianceCaptureRuntime {
             return Ok(None);
         }
 
-        let test_scene_ready =
+        let target_scene_ready =
             test_scene.is_none_or(EnvironmentLightingTestScene::is_capture_ready);
-        let target_scene_ready = tracer
-            .ddgi_capture_target()
-            .update_epoch()
-            .is_some_and(|epoch| epoch == 0)
-            || test_scene_ready;
         let inflight_target_revision =
             test_scene.and_then(EnvironmentLightingTestScene::inflight_capture_target_revision);
         let inflight_checkpoint_ready = inflight_target_revision.is_none_or(|target_revision| {
@@ -782,25 +777,15 @@ mod tests {
     }
 
     #[test]
-    fn unpublished_s0_capture_uses_a_private_atlas_without_changing_consumers() {
+    fn capture_uses_the_same_published_field_as_runtime_consumers() {
         let tracer = include_str!("../../../shader/slang/tracer.slang");
         let query = include_str!("../../../shader/slang/ddgi_query.slang");
 
-        assert!(tracer.contains("sampleDdgiUnpublishedTerrainSmoothEnvironment("));
-        assert!(tracer.contains("environmentCaptureIrradiance = captureResult.irradiance"));
+        assert!(!tracer.contains("sampleDdgiUnpublished"));
+        assert!(tracer.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
         assert!(tracer.contains("color = environmentIrradiance * albedo"));
         assert!(query.contains("[[vk::binding(27, 0)]]\nSampler2D ddgi_irradiance_atlas"));
-        assert!(query.contains("[[vk::binding(34, 0)]]\nSampler2D ddgi_capture_irradiance_atlas"));
-        let capture_query = query
-            .split_once("public DdgiQueryResult sampleDdgiUnpublishedTerrainSmoothEnvironment(")
-            .expect("capture-only DDGI query must exist")
-            .1
-            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
-            .expect("capture-only query must remain isolated")
-            .0;
-        assert!(capture_query.contains("query.ready = 1u"));
-        assert!(capture_query.contains("query.invalidation_enabled = 0u"));
-        assert!(capture_query.contains("ddgi_capture_irradiance_atlas"));
+        assert!(!query.contains("ddgi_capture_irradiance_atlas"));
     }
 }

@@ -115,7 +115,6 @@ public struct U_ShadingInfo
     public uint ddgi_ready;
     public uint ddgi_geometry_revision;
     public uint environment_irradiance_capture_enabled;
-    public uint environment_irradiance_capture_unpublished;
     public uint ddgi_irradiance_tile_columns;
     public uint ddgi_visibility_tile_columns;
     public uint ddgi_debug_view;

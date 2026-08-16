@@ -831,7 +831,7 @@ impl App {
                     DOGLEG_FINAL_RECEIVER_ROI_MAX,
                 );
                 log::info!(
-                    "[ENV_LIGHT_TEST_ROI] case=dogleg first_reflector_world={:?}..{:?} second_reflector_world={:?}..{:?} final_receiver_world={:?}..{:?} expected_first_signal_stage=S2 final_receiver_direct_sun=occluded",
+                    "[ENV_LIGHT_TEST_ROI] case=dogleg first_reflector_world={:?}..{:?} second_reflector_world={:?}..{:?} final_receiver_world={:?}..{:?} expected_first_signal_epoch=1 final_receiver_direct_sun=occluded",
                     first_min,
                     first_max,
                     second_min,
@@ -1153,7 +1153,7 @@ impl App {
                     .ddgi_runtime_status()
                     .active_consumers_are_available());
                 log::info!(
-                    "[DDGI_ACCEPT][RADIANCE] checkpoint=r2-midflight active_field_serial={} active_radiance_revision={} building_field_serial={} building_radiance_revision={} building_iteration={} source_field_serial={} progress={}/{} old_field_visible=true",
+                    "[DDGI_ACCEPT][RADIANCE] checkpoint=r2-midflight active_field_serial={} active_radiance_revision={} building_field_serial={} building_radiance_revision={} building_update_epoch={} source_field_serial={} progress={}/{} old_field_visible=true",
                     r1.field().serial(),
                     r1.field().radiance_revision(),
                     r2.field().serial(),
@@ -1235,7 +1235,7 @@ impl App {
                     return;
                 }
                 log::info!(
-                    "[DDGI_ACCEPT][RADIANCE] checkpoint=r4-midflight active_field_serial={} active_radiance_revision={} building_field_serial={} building_radiance_revision={} building_iteration={} source_field_serial={} progress={}/{} r3_coalesced=true old_field_visible=true",
+                    "[DDGI_ACCEPT][RADIANCE] checkpoint=r4-midflight active_field_serial={} active_radiance_revision={} building_field_serial={} building_radiance_revision={} building_update_epoch={} source_field_serial={} progress={}/{} r3_coalesced=true old_field_visible=true",
                     r2.field().serial(),
                     r2.field().radiance_revision(),
                     r4.field().serial(),
@@ -1440,7 +1440,7 @@ impl App {
                 let geometry_field = runtime
                     .active()
                     .published_field
-                    .expect("terrain S1 must be published before promotion");
+                    .expect("terrain epoch zero must be published before promotion");
                 assert_initial_epoch_zero(
                     geometry_field,
                     target_revision,
@@ -1449,9 +1449,9 @@ impl App {
                 );
                 assert!(runtime.active_consumers_are_available());
                 assert_eq!(runtime.deferred_density_spacing_voxels(), Some(16));
-                log_acceptance_field("DENSITY", "geometry-s1-published", geometry_field);
+                log_acceptance_field("DENSITY", "geometry-e0-published", geometry_field);
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-s1-published terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-published terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
                     terrain_token_serial,
                     obsolete_density_token_serial,
                     target_revision,
@@ -1575,7 +1575,7 @@ impl App {
                 assert!(runtime.active_consumers_are_available());
                 log_acceptance_field("DENSITY", "complete", density_field);
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] complete obsolete_density_token_serial={} terrain_token_serial={} density_token_serial={} obsolete_density_consumer_visible=false first_consumer_visible_16_stage=S1 geometry_revision={} spacing_voxels=16",
+                    "[DDGI_ACCEPT][DENSITY] complete obsolete_density_token_serial={} terrain_token_serial={} density_token_serial={} obsolete_density_consumer_visible=false first_consumer_visible_16_epoch=0 geometry_revision={} spacing_voxels=16",
                     obsolete_density_token_serial,
                     terrain_token_serial,
                     density_token_serial,
@@ -1605,7 +1605,7 @@ impl App {
                     return;
                 }
                 log::info!(
-                    "[DDGI_SEAM_REPRO] ready target_revision={} transport={:?} iteration={} opening=shovel-sphere",
+                    "[DDGI_SEAM_REPRO] ready target_revision={} state={:?} update_epoch={} opening=shovel-sphere",
                     target_revision,
                     field.field().state(),
                     field.field().update_epoch(),
@@ -1911,13 +1911,13 @@ mod tests {
 
     #[test]
     fn density_initial_epoch_has_no_old_geometry_source() {
-        let s1 = DdgiFieldIdentity::new(
+        let epoch_zero = DdgiFieldIdentity::new(
             DdgiFieldKey::new(20, 2, 1, 16, DdgiFieldState::Converging, 0).unwrap(),
             None,
         )
         .unwrap();
 
-        assert_initial_epoch_zero(s1, 2, 1, 16);
+        assert_initial_epoch_zero(epoch_zero, 2, 1, 16);
     }
 
     #[test]

@@ -311,7 +311,7 @@ mod tests {
         assert!(!shared.contains("environment_lighting_backend"));
         assert!(terrain.contains("consumerResult = sampleDdgiTerrainSmoothEnvironment("));
         assert!(terrain.contains("environmentIrradiance = consumerResult.irradiance"));
-        assert!(terrain.contains("environmentCaptureIrradiance = captureResult.irradiance"));
+        assert!(terrain.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         assert!(terrain.contains("color = environmentIrradiance * albedo"));
         assert!(raster.contains("sampleDiffuseEnvironment("));
         assert!(raster.contains("shading, voxelCenter, shadingNormal"));

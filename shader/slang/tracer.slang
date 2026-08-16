@@ -472,15 +472,8 @@ void getPixelColor(out float3 color, out float depth,
     DdgiQueryResult consumerResult = sampleDdgiTerrainSmoothEnvironment(
         shading_info, ddgiReceiverPosition, result.position,
         result.normal);
-    DdgiQueryResult captureResult = consumerResult;
-    if (shading_info.environment_irradiance_capture_unpublished != 0u)
-    {
-        captureResult = sampleDdgiUnpublishedTerrainSmoothEnvironment(
-            shading_info, ddgiReceiverPosition, result.position,
-            result.normal);
-    }
     environmentIrradiance = consumerResult.irradiance;
-    environmentCaptureIrradiance = captureResult.irradiance;
+    environmentCaptureIrradiance = consumerResult.irradiance;
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {
         float3 ddgiHardVisibilityOrigin = terrainDdgiHardVisibilityOrigin(
@@ -490,7 +483,7 @@ void getPixelColor(out float3 color, out float depth,
             ddgiHardVisibilityOrigin, consumerResult);
         environmentCaptureIrradiance = ddgiTerrainDebugValue(
             screenUv, ddgiReceiverPosition, result.position, result.normal,
-            ddgiHardVisibilityOrigin, captureResult);
+            ddgiHardVisibilityOrigin, consumerResult);
     }
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
     {

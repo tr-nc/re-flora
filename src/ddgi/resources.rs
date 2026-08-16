@@ -32,7 +32,7 @@ pub struct DdgiConvergencePolicy {
     pub absolute_threshold: f32,
     pub relative_threshold: f32,
     pub relative_floor: f32,
-    pub consecutive_iterations: u32,
+    pub consecutive_epochs: u32,
     pub minimum_update_epochs: u32,
     pub maximum_update_epochs: u32,
 }
@@ -41,7 +41,7 @@ pub const DDGI_CONVERGENCE_POLICY: DdgiConvergencePolicy = DdgiConvergencePolicy
     absolute_threshold: 0.0025,
     relative_threshold: 0.02,
     relative_floor: 0.05,
-    consecutive_iterations: 2,
+    consecutive_epochs: 2,
     minimum_update_epochs: 8,
     maximum_update_epochs: 64,
 };
@@ -794,11 +794,6 @@ impl ResourceContainer for DdgiVolume {
                 ResourceLookup::Unique(DescriptorResource::Buffer(&self.ddgi_transport_query_info))
             }
             "ddgi_irradiance_atlas" => {
-                ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_irradiance_atlas))
-            }
-            // Descriptor bootstrap only. The capture adapter replaces this alias with the
-            // requested logical field after validation; no physical slot identity escapes.
-            "ddgi_capture_irradiance_atlas" => {
                 ResourceLookup::Unique(DescriptorResource::Texture(&self.ddgi_irradiance_atlas))
             }
             "ddgi_transport_source_irradiance_atlas" => ResourceLookup::Unique(
@@ -1740,7 +1735,7 @@ fn classify_temporal_epoch(
     };
     let completed_epoch_count = update_epoch.saturating_add(1);
     let threshold_converged = completed_epoch_count >= policy.minimum_update_epochs
-        && consecutive_below_threshold >= policy.consecutive_iterations;
+        && consecutive_below_threshold >= policy.consecutive_epochs;
     let sample_budget_complete = completed_epoch_count >= policy.maximum_update_epochs;
     if threshold_converged || sample_budget_complete {
         DdgiConvergenceDecision::Converged {

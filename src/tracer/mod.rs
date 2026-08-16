@@ -2194,16 +2194,10 @@ impl Tracer {
         let visibility_atlas = ddgi_volume
             .published_visibility_atlas()
             .unwrap_or(&ddgi_volume.ddgi_visibility_atlas);
-        let mut tracer_writes = vec![
-            DescriptorWrite {
-                name: "ddgi_probe_metadata",
-                resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-            },
-            DescriptorWrite {
-                name: "ddgi_capture_irradiance_atlas",
-                resource: DescriptorResource::Texture(irradiance_atlas),
-            },
-        ];
+        let mut tracer_writes = vec![DescriptorWrite {
+            name: "ddgi_probe_metadata",
+            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
+        }];
         let mut flora_lighting_cache_writes = vec![DescriptorWrite {
             name: "ddgi_probe_metadata",
             resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
@@ -2771,7 +2765,6 @@ impl Tracer {
             self.ddgi_ready(),
             ddgi_geometry_revision,
             self.desc.environment_irradiance_capture_enabled,
-            false,
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
@@ -3003,7 +2996,7 @@ impl Tracer {
                             DDGI_CONVERGENCE_POLICY.absolute_threshold,
                             DDGI_CONVERGENCE_POLICY.relative_threshold,
                             status.consecutive_below_threshold,
-                            DDGI_CONVERGENCE_POLICY.consecutive_iterations,
+                            DDGI_CONVERGENCE_POLICY.consecutive_epochs,
                             self.ddgi_runtime.volumes().builder().published_irradiance_label(),
                             status.stage,
                         );
