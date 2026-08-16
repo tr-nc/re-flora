@@ -1,6 +1,6 @@
 # Re: Flora DDGI stages, secondary rays, and modern update strategies
 
-Research date: 2026-08-16
+Research date: 2026-08-16; implementation decision updated 2026-08-17
 
 ## Short answer
 
@@ -33,8 +33,11 @@ donor and dogleg acceptance cases measure both boundaries.
 
 S2+ is recursive in **transport order**, but it is not yet the paper/RTXGI's full **temporal update
 form**. Current feedback deliberately uses fixed directions, zero hysteresis, and deterministic
-full-volume source-to-destination iterations. Random rotation, history blending, sleeping, and
-adaptive scheduling remain deferred ([current transport policy][transport-current-policy]).
+full-volume source-to-destination iterations. The accepted migration on
+`feature/ddgi-temporal-lifecycle` removes transport-order stages: publish the first complete
+current-revision field, then use epoch-scoped ray rotation and history accumulation until the field
+converges and sleeps. Active/Staging publication and immutable source/destination fields remain
+correctness requirements, not transport stages.
 
 ## What exactly are S0 and S1?
 
@@ -206,145 +209,183 @@ The current result is “exact” only in the narrower engineering sense of bein
 complete, and revision-consistent. Sixty-four fixed directions are still a finite angular
 quadrature, not the exact rendering-equation integral.
 
-### Why a paper-style temporal bootstrap does not automatically erase S0 work
+## Accepted temporal lifecycle
 
-There are two different latency claims that must not be conflated:
+The feature branch accepts the third bootstrap contract above: the first complete field may be a
+lower-order estimate and may visibly converge afterward. This removes the private S0 and the rule
+that publication waits for S1. It does **not** claim that one update has solved the same light paths
+as the old two-update bootstrap.
 
-- A paper-style implementation can **display an evolving new field after one full update**.
-- It cannot necessarily produce Re: Flora's current, clean, sky-lit S1 result from no valid history
-  in one update.
+The consumer-facing lifecycle is now specified as:
 
-On a black cold start, the first paper-style update can store sky misses and directly sun-lit terrain
-hits, but a terrain hit that obtains diffuse sky illumination from the previous probe field still
-reads black. The `sky -> terrain surface` dependency only becomes available on the next update. This
-is the same transport dependency that Re: Flora makes explicit as private S0 followed by S1. Making
-the first incomplete field visible removes the publication wait; it does not remove the underlying
-light-transport work.
+```text
+Building -> Converging -> Converged
+```
 
-Warm-starting from the old Active field can produce a richer first result after one update, but it
-is no longer a clean current-geometry result. Old irradiance and moment visibility participate in
-new hit shading, and normal hysteresis deliberately retains most old history. After a wall is added,
-removed, or moved, that can temporarily preserve light from an obsolete visibility topology. The
-2019 paper itself notes that indirect illumination can appear to “flow” after dramatic visibility
-changes because of previous-frame latency (section 4).
+- **Building** means no complete field for the requested geometry/density revision exists yet. The
+  previous Active field remains visible while a Staging volume builds.
+- **Converging** means at least one complete current-revision field has been atomically published;
+  subsequent update epochs improve angular sampling and recursively propagate transport.
+- **Converged** means the variability criteria have held for the required consecutive epochs. The
+  scheduler sleeps and the published atlases remain read-only until a tracked event wakes it.
 
-There are only three honest ways to obtain a clean, sky-lit first result with one full probe update:
+These are lifecycle states, not bounce-order labels. A field no longer claims to be S0, S1, or S2.
+Its identity needs `serial`, `geometry_revision`, `radiance_revision`, `spacing_voxels`, and
+`update_epoch`. `update_epoch` is diagnostic and sequences samples; it does not promise a precise
+bounce count. A hard safety budget, if retained, is a scheduler pause reason while the field remains
+`Converging`, not a `NonConverged` transport stage.
 
-1. evaluate environment/sky direct illumination independently at every terrain hit;
-2. reuse history only where a conservative invalidation system proves geometry and visibility are
-   unchanged; or
-3. accept a lower-order/incomplete first field and converge it later.
+### First complete current-revision field
 
-The first moves S0's work into another estimator, the second requires local dependency tracking that
-Re: Flora does not yet have, and the third changes the current publication-quality contract.
+Initial load and geometry/density changes use a fresh Staging volume with zero valid history. Epoch
+0 traces current geometry immediately:
 
-### Recommended event policy
+- misses contribute the authored sky;
+- front-face hits contribute current direct-sun diffuse radiance;
+- indirect hit radiance reads a defined black source, so no old-geometry irradiance or visibility
+  can enter the result;
+- irradiance and visibility history weights are zero.
 
-| Event | Source/history policy | Update schedule | Sleep condition |
-|---|---|---|---|
-| Initial load or full geometry/density change | keep clean `S0 -> S1`; do not sample old-revision visibility globally | publish S1, then rotated temporal feedback | variability/delta stable for consecutive updates |
-| Same geometry, sun/sky/material-lighting change | retain the last complete geometry-valid field; reset or sharply lower irradiance hysteresis | update affected volume until stable | stable again |
-| Proven local geometry edit (future) | retain unaffected probes; clear and bootstrap only conservative invalid region plus propagation margin | prioritize invalid/neighbor probes | all awakened regions stable |
-| Camera-only movement in a fixed world-space volume | retain all probe state | no update required | already asleep |
-| No tracked scene or lighting change | retain all probe state | no mandatory periodic work | remain asleep |
+After **every valid probe** has been traced, filtered, guttered, reduced, and validated, this field
+is promoted atomically and displayed as `Converging`. With the measured 64-ray workload this changes
+the publication critical path from two full probe iterations to one. Sky-lit surface reflection and
+higher-order transport still appear in later epochs, which is an accepted visual convergence cost.
+No partially updated atlas is ever consumer-visible.
 
-Thus the refined recommendation is to adopt the paper/RTXGI temporal machinery for rotated angular
-sampling and same-revision convergence, but not to equate that with globally warm-starting a new
-geometry revision. The strict S0/S1 path can eventually disappear **if** an equivalent clean
-direct-sky estimator or conservative invalidation scheme replaces its correctness role; temporal
-blending alone is not that replacement.
+### One rotation and two immutable fields per update epoch
 
-## What current engines commonly do
+An update epoch owns one uniformly distributed global SO(3) rotation of the 64-direction Fibonacci
+set. The same rotation must be used by:
 
-There is no single engine-standard GI update form. The closest comparison is RTXGI DDGI; Lumen,
-Unity APV, and Godot's voxel/SDF systems solve related problems with different representations.
-The common real-time pattern is to amortize work through persistent spatial/temporal state rather
-than trace a complete multi-bounce path tree for every shaded pixel every frame.
+- all probes and all multi-frame batches in the epoch;
+- probe tracing;
+- irradiance filtering; and
+- visibility-moment filtering.
 
-The repository already contains a longer source audit of this question in [DDGI dynamic-scene
-update strategies][industry-update-strategies]. That note predates the current S2+ implementation,
-so this note supersedes its implementation-status/decision sections; its primary-source audit and
-evidence boundary still apply. The paper/RTXGI form is well supported as normal practice **inside
-the documented DDGI lineage**, but the public sources do not justify a market-wide claim that “most
-games” use one exact algorithm. The table below is a compact architectural comparison, not an
-engine-popularity census.
+Generating a new rotation per display frame would be incorrect because one epoch currently spans
+about ten frames: different probe batches would use different sampling bases, and forward/reverse
+batch order would no longer describe the same computation. Generate the rotation from a
+deterministic hash/PRNG of the field generation plus `update_epoch`, store it on scheduled work, and
+advance it only when the complete epoch is published. RTXGI likewise computes a volume-wide probe
+ray rotation when the volume is updated ([RTXGI source: `DDGIVolumeBase::Update`][rtxgi-volume-source]).
 
-| System | Officially documented form | Relevance to this decision |
+Each epoch is a Jacobi-style operation:
+
+```text
+immutable complete source field + epoch rotation
+    -> trace/filter every batch into private destination field
+    -> validate the complete destination
+    -> atomically publish destination as the next source
+```
+
+The destination must never be sampled by another batch in the same epoch. Irradiance already has
+two physical slots, but visibility currently has only one atlas and is written only during S0. Once
+visibility uses rotated temporal samples, it also needs source/destination slots. Otherwise the
+renderer and later batches can observe partially accumulated moments. At spacing 32 the additional
+`RG32F` visibility atlas is 12,882,240 bytes per physical volume; this memory increase is an explicit
+cost of preserving the complete-field contract.
+
+### Hysteresis and history accumulation
+
+For each irradiance or visibility texel, let `sample` be the filtered result of this epoch and
+`history` be the matching texel in the immutable source field:
+
+```text
+destination = H * history + (1 - H) * sample
+```
+
+`H` is the **history retention** (DDGI hysteresis), not the new-sample alpha. The paper describes the
+new result entering at `1 - H`, with `H` in the 0.85-0.98 range ([paper, section 4.4][paper-pdf]).
+RTXGI's shader implements the same weighting and lowers hysteresis for large changes
+([RTXGI probe blending source][rtxgi-probe-blending]).
+
+The initial implementation should expose one GUI value named `DDGI History Retention`, defaulting
+to `0.95`, while applying these non-optional overrides:
+
+| Condition | Effective history retention |
+|---|---|
+| Fresh geometry/density history or uninitialized texel | `0` |
+| First epoch after a radiance revision | `0` for atlas blending; the immutable old field may still be queried for recursive hit shading |
+| Large finite per-texel radiance change | lower toward `0`, using the existing absolute/relative thresholds initially |
+| Ordinary same-revision convergence | `min(gui_H, sample_age / (sample_age + 1))` |
+
+The sample-age cap makes the early epochs a running average rather than allowing the first noisy
+64-ray estimate to retain 95% weight immediately. It later becomes a bounded EMA at the configured
+history retention. This is an implementation hypothesis, not a claim from the paper, and must be
+A/B tested against constant `H=0.95`. Do not copy RTXGI's low-bit-depth darkening step or brightness
+impulse clamp initially: Re: Flora stores irradiance in `RGBA32F`, so those heuristics add response
+lag without addressing the format problem they document.
+
+Transport feedback and history blending remain separate operations: ray-hit shading queries the
+immutable source field to propagate indirect light; the filter then blends the newly traced sample
+with that same source field to reduce sampling variance.
+
+### Convergence, sleep, and wake
+
+The current post-blend atlas delta cannot be the only stop metric. With `H=0.95`, it is mechanically
+about 20 times smaller than the raw sample/history difference and can produce a false early sleep.
+Each epoch must reduce at least:
+
+1. a raw pre-blend irradiance variability metric, such as mean luminance coefficient of variation
+   over valid texels (the RTXGI variability feature uses coefficient of variation as its proxy);
+2. post-blend absolute and relative atlas deltas as a stability guard; and
+3. non-finite and validity counts.
+
+Sleep requires a minimum epoch count plus consecutive below-threshold epochs. The exact minimum,
+variability threshold, and consecutive count are experiment outputs, not values to guess into the
+design. Max-only variability is expected to be too sensitive to one texel; record mean, percentile,
+and maximum during tuning. A sleeping field performs no trace or filter work and does not rotate its
+rays.
+
+| Event | History policy | Wake behavior |
 |---|---|---|
-| NVIDIA RTXGI DDGI | Probe hits combine direct lighting with recursively sampled probe irradiance. A volume computes a new random ray rotation when updated; updating with newly traced data every frame is common, but lower-frequency or asynchronous streaming is allowed. Probe variability can be used to pause converged updates. | Closest direct precedent for previous-field recursion, temporal sampling, and scheduled probe updates. It does not prescribe Re: Flora's two-pass geometry publication barrier. |
-| Unreal Engine Lumen | Fully dynamic diffuse GI with “infinite” diffuse bounces, built from multiple trace methods plus Surface/Radiance caches. Epic exposes cache update-speed controls and notes that global lighting changes can take seconds to propagate. | Strong evidence that production real-time GI normally accepts cached, delayed propagation. It is not DDGI and cannot be copied as an S0/S1 algorithm. |
-| Unity 6 APV | Automatically placed adaptive probes contain **baked** indirect lighting, support per-pixel sampling, streaming, blending baked Lighting Scenarios, and runtime sky-occlusion updates. Geometry changes can prevent sharing/blending scenarios. | Useful probe-storage and invalidation comparison, but not evidence for a dynamic recursive DDGI update loop. |
-| Godot SDFGI | Semi-real-time cascaded GI. One bounce is the default; `Bounce Feedback` enables further propagation. Quality is accumulated over configurable convergence frames, while dynamic occluders/emissive surfaces are limited. | A close conceptual example of feedback across frames and its convergence/feedback risks, but its SDF/cascade representation differs from DDGI. |
-| Godot VoxelGI | Static geometry is voxel-baked; lighting can update at runtime. It offers one or two bounces, propagation controls, and dynamic contributors with higher cost. | Demonstrates another common bounded-bounce cached representation, not a previous-frame DDGI atlas. |
+| Geometry or density revision | fresh Staging, no old-revision history | build epoch 0, publish, converge |
+| Sun/sky/palette radiance revision with matching geometry | keep immutable source for recursive shading; reset blend sample age and first-epoch `H` | update until stable |
+| Camera-only movement | keep history | do not wake |
+| No tracked change | keep history | remain asleep |
 
-Primary-source details are in the [RTXGI integration guide][rtxgi-integration], [RTXGI volume
-reference][rtxgi-volume], [Lumen overview][lumen-overview], [Lumen update documentation][lumen-update],
-[Unity APV manual][unity-apv], [Godot SDFGI manual][godot-sdfgi], and [Godot VoxelGI
-manual][godot-voxelgi].
+### Migration order and experiment gates
 
-## Should Re: Flora adopt the paper form?
+Implement and commit each validated step separately:
 
-Not as a wholesale replacement. The current steady-state feedback is already paper-like where it
-matters physically, while the two-pass bootstrap solves a repository-specific edit/publication
-problem that the paper leaves to the integrator.
+1. Replace `DdgiFieldStage` transport semantics with epoch identity and lifecycle state. Publish a
+   direct-plus-sky epoch 0 after one complete update, while preserving old Active during Staging.
+2. Add deterministic epoch rotation to trace and both filters; prove the same rotation survives all
+   batches and capture metadata.
+3. Ping-pong visibility as well as irradiance, then add source-to-destination history blending with
+   forced reset behavior.
+4. Add raw variability reduction, lifecycle sleep/wake, GUI history retention, and diagnostics.
+5. Delete S0/S1/S2 branches, capture labels, tests, and documentation only after their replacement
+   assertions cover publication and source ownership. Do not retain compatibility dead code.
 
-Adopting previous-frame temporal accumulation more directly would offer:
+The branch is not complete until release-mode evidence passes all of these gates:
 
-- one-update responsiveness instead of waiting for both complete S0 and complete S1 before any
-  current-revision lighting is publishable;
-- new angular information over time if ray directions are rotated;
-- less visible Monte Carlo noise through hysteresis;
-- natural amortization for continuous sun/light changes and budgeted probe subsets.
+- first current-revision publication takes one full iteration, not two;
+- old Active indirect light remains visible throughout a terrain edit until epoch 0 promotion;
+- epoch 0 contains finite sky and direct-sun response and never samples old-geometry history;
+- forward and reverse batch order produce equivalent complete fields for the same epoch seed;
+- repeated static epochs add angular information and reduce donor/portal noise at 64 rays;
+- donor S1-like color transfer and dogleg multi-epoch propagation remain measurable without relying
+  on stage labels;
+- wall add/remove and portal open/close do not retain old visibility after epoch 0 promotion;
+- radiance changes respond on the first epoch and then settle without permanent ghosting;
+- a fixed camera converges, sleeps with zero DDGI dispatches, and wakes only for tracked changes;
+- matched release measurements report time to first field, time to sleep, total DDGI GPU work,
+  temporal variance, and the extra visibility-atlas memory.
 
-It would also introduce:
-
-- stale-light ghosting and lag after material, sun, or geometry changes;
-- an invalidation problem: deciding which probes/history are still owned by the new geometry;
-- potential light leaks or mixed revisions if old visibility/radiance is reused too broadly;
-- more parameters and tests for hysteresis, disocclusion, reset, and convergence;
-- batch-order hazards if “previous frame” is not kept logically immutable.
-
-The existing design offers the inverse tradeoff: deterministic complete fields, exact revision
-identity, stable batch-order behavior, and easy S0/S1/S2 acceptance tests, but higher cold-bootstrap
-latency and no temporal angular supersampling.
-
-## Recommended hybrid direction
-
-Keep the Active/Staging publication boundary and immutable source/destination semantics. They are
-what prevent terrain edits from blacking out the whole scene or exposing a half-updated field. Do
-not delete S0 merely to imitate the paper.
-
-If measured update latency or 64-ray angular error becomes unacceptable, test these changes in this
-order:
-
-1. Add a per-update global rotation for radiance rays and a controlled history blend for ordinary
-   same-geometry feedback. Keep any fixed rays needed for relocation/classification separate, as
-   RTXGI does.
-2. Preserve hard history resets for changed geometry until a conservative probe/cell invalidation
-   rule exists. Reusing old Active everywhere would sacrifice the correctness just gained by the
-   staging design.
-3. Experiment with warm-starting only demonstrably unchanged regions, while invalid regions retain
-   `SeedSky -> SingleBounce`. Continue to publish only complete, revision-consistent fields.
-4. Compare fixed workloads in release mode: time to first new field, time to convergence, maximum
-   stale-light duration after edits, donor/dogleg transport, portal/wall leakage, and stationary
-   temporal variance. The paper-style path is justified only if its latency/quality gain survives
-   those correctness gates.
-
-This hybrid follows the modern pattern--persistent history, rotated samples, budgeted convergence--
-without giving up Re: Flora's strongest property: an Active field is always complete and a geometry
-edit cannot make consumers observe a partially rebuilt field.
+Unit tests must cover identity, source/destination ownership, reset policy, deterministic rotation,
+batch-order invariance, scheduler sleep/wake, and stale completion rejection. Final validation uses
+`cargo fmt --check`, `cargo check`, `cargo test`, hidden muted release startup plus log inspection,
+and the deterministic donor/dogleg/edit/capture workloads. Debug timings are not performance
+evidence.
 
 ## Primary sources
 
 - Zander Majercik et al., [*Dynamic Diffuse Global Illumination with Ray-Traced Irradiance
   Fields*][paper-page], JCGT 8(2), 2019. See sections 4, 4.2-4.4, and 5.3.
 - NVIDIA, [RTXGI DDGI Integration Guide][rtxgi-integration] and [DDGIVolume
-  Reference][rtxgi-volume], pinned to current upstream commit `f33e496c`.
-- Epic Games, [Lumen Global Illumination and Reflections][lumen-overview] and [Lumen update/cache
-  settings][lumen-update].
-- Unity, [Introduction to Adaptive Probe Volumes][unity-apv], Unity 6.0 manual.
-- Godot Engine, [Signed Distance Field Global Illumination][godot-sdfgi] and [Voxel Global
-  Illumination][godot-voxelgi], stable manual.
+  Reference][rtxgi-volume], [`DDGIVolumeBase` random-rotation source][rtxgi-volume-source], and
+  [probe-blending source][rtxgi-probe-blending], all pinned to upstream commit `f33e496c`.
 
 [paper-page]: https://jcgt.org/published/0008/02/01/
 [paper-pdf]: https://jcgt.org/published/0008/02/01/paper-lowres.pdf
@@ -352,11 +393,8 @@ edit cannot make consumers observe a partially rebuilt field.
 [rtxgi-volume]: https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/DDGIVolume.md#updating-a-ddgivolume
 [rtxgi-volume-update]: https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/DDGIVolume.md#updating-a-ddgivolume
 [rtxgi-variability]: https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/DDGIVolume.md#probe-variability
-[lumen-overview]: https://dev.epicgames.com/documentation/en-us/unreal-engine/lumen-global-illumination-and-reflections-in-unreal-engine
-[lumen-update]: https://dev.epicgames.com/documentation/en-us/unreal-engine/lumen-global-illumination-and-reflections-in-unreal-engine#lumenlightingupdatespeed
-[unity-apv]: https://docs.unity3d.com/6000.0/Documentation/Manual/urp/probevolumes-concept.html
-[godot-sdfgi]: https://docs.godotengine.org/en/stable/tutorials/3d/global_illumination/using_sdfgi.html
-[godot-voxelgi]: https://docs.godotengine.org/en/stable/tutorials/3d/global_illumination/using_voxel_gi.html
+[rtxgi-volume-source]: https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/rtxgi-sdk/src/ddgi/DDGIVolume.cpp#L103-L109
+[rtxgi-probe-blending]: https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/rtxgi-sdk/shaders/ddgi/ProbeBlendingCS.hlsl#L505-L570
 [stage-enum]: ../../../src/ddgi/scheduler.rs#L8-L55
 [bootstrap-publication]: ../../../src/ddgi/resources.rs#L1368-L1404
 [probe-trace]: ../../../shader/slang/ddgi_probe_trace.slang#L61-L180
@@ -365,6 +403,5 @@ edit cannot make consumers observe a partially rebuilt field.
 [transport-acceptance]: ../../ddgi_transport_acceptance.md#L45-L60
 [terrain-reference]: ../../../shader/slang/tracer.slang#L188-L278
 [path-tracing-gui]: ../../../config/gui.toml#L138-L171
-[industry-update-strategies]: industry-dynamic-scene-update-strategies.md
 [current-convergence-policy]: ../../../src/ddgi/resources.rs#L26-L43
 [scheduler-stop-rule]: ../../../src/ddgi/scheduler.rs#L446-L485
