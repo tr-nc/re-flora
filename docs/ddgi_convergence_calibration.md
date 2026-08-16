@@ -1,24 +1,49 @@
-# DDGI Convergence Calibration
+# DDGI Temporal Convergence Calibration
 
-This document independently records how the committed DDGI convergence policy is qualified. It is
-intentionally separate from the broader transport acceptance narrative so the policy provenance can
-be reviewed and regenerated without changing functional donor, dogleg, visibility, or lifecycle
-gates.
+This document records the stopping policy and representative release evidence for the temporal DDGI
+lifecycle. Generated run artifacts remain authoritative after any shader, scene, spacing, history,
+or scheduler change.
 
 ## Policy
 
-- maximum absolute RGB delta: `0.0025`;
-- maximum relative RGB delta: `0.02`;
-- required consecutive passing full-volume iterations: `2`;
-- hard maximum feedback iteration: `8`.
+| Parameter | Value |
+|---|---:|
+| maximum absolute RGB delta | `0.0025` |
+| maximum relative RGB delta | `0.02` |
+| relative floor | `0.05` |
+| minimum complete epochs | `8` |
+| consecutive passing epochs | `2` |
+| maximum complete epochs | `64` (`e0` through `e63`) |
 
-The policy is qualified by complete convergence curves for `sealed`, `portal`, `donor`, and
-`dogleg`, each at probe spacing 32 and 16. A curve contains every full-atlas validation from S0 to
-its terminal converged iteration. Every validation must cover all valid 8x8 interior texels and all
-corresponding 10x10 stored texels, contain no non-finite or negative RGB values, and report the exact
-committed policy above.
+The maximum is a finite temporal sampling budget and sleep backstop. `Threshold` means both deltas
+passed for the required consecutive epochs after the minimum age. `SampleBudget` means the latest
+finite nonnegative field was retained and put to sleep at e63 even though its maximum texel delta did
+not pass. The lifecycle state is `Converged` in both cases; the reason must be inspected when making
+a quality claim.
 
-## Reproduction and machine-readable evidence
+## Current evidence
+
+The representative spacing-32 release captures from
+`target/ddgi-temporal-final-full-rerun/20260816T171425Z-213621/` completed the full field and slept
+at the finite sample budget:
+
+| Scene | Final epoch | Reason | Max absolute delta | Max relative delta |
+|---|---:|---|---:|---:|
+| sealed | 63 | SampleBudget | 0.00553083 | 0.02123354 |
+| portal | 63 | SampleBudget | 0.00553083 | 0.02791479 |
+| donor | 63 | SampleBudget | 0.00544786 | 0.02720159 |
+| dogleg | 63 | SampleBudget | 0.00493240 | 0.03324598 |
+
+These results are finite and nonnegative but do not satisfy the maximum-delta thresholds. This is
+expected evidence for the implemented bounded temporal sampler, not evidence of numerical fixed-
+point convergence. A dense spacing-16 donor run likewise completed at e63 with max absolute delta
+`0.00804699` and max relative delta `0.03064647`.
+
+The old deterministic fixed-ray, zero-history S5/S6 calibration is not applicable to rotated
+temporal sampling and has been removed from the current policy. Historical artifacts remain usable
+only to audit the superseded implementation.
+
+## Reproduction
 
 Run:
 
@@ -26,28 +51,19 @@ Run:
 scripts/check_ddgi_transport_acceptance.sh
 ```
 
-Alongside the per-stage `.rfirr`, `.analysis.json`, and `.console.log` files, the runner writes
-`target/ddgi-transport-acceptance/<run-id>/convergence-calibration.json`. The JSON records the policy,
-the complete eight-curve matrix, every per-iteration absolute/relative delta, final threshold
-margins, consecutive-pass count, hard-max headroom, and source artifact names. It is emitted only if
-all curves independently validate.
+The convergence summarizer validates:
 
-The observed calibration table below is filled from a full release acceptance run on the commit
-that introduced this evidence. Regenerate the JSON after any transport, scene, spacing, or shader
-change; the generated run artifact remains authoritative.
+- one contiguous epoch sequence for the capture's exact geometry/radiance/spacing identity;
+- full valid/stored atlas coverage for every epoch;
+- finite, nonnegative RGB values;
+- the exact policy constants above;
+- captured epoch/state matching the terminal log record;
+- terminal reason matching either the first valid threshold stop or e63 sample-budget stop.
 
-| Case | Spacing | Final iteration | Max absolute delta | Absolute margin | Max relative delta | Relative margin | Hard-max headroom |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| sealed | 32 | S5 | 0.00042211 | 0.00207789 | 0.00350526 | 0.01649474 | 3 |
-| portal | 32 | S5 | 0.00042211 | 0.00207789 | 0.00350526 | 0.01649474 | 3 |
-| donor | 32 | S6 | 0.00016218 | 0.00233782 | 0.00136243 | 0.01863757 | 2 |
-| dogleg | 32 | S5 | 0.00014585 | 0.00235415 | 0.00282001 | 0.01717999 | 3 |
-| sealed | 16 | S6 | 0.00019798 | 0.00230202 | 0.00221997 | 0.01778003 | 2 |
-| portal | 16 | S6 | 0.00019798 | 0.00230202 | 0.00221997 | 0.01778003 | 2 |
-| donor | 16 | S6 | 0.00022581 | 0.00227419 | 0.00228004 | 0.01771996 | 2 |
-| dogleg | 16 | S5 | 0.00020987 | 0.00229013 | 0.00410989 | 0.01589011 | 3 |
+## Known limitation and next experiment
 
-All eight curves reached two consecutive passing iterations at least two iterations before the S8
-hard maximum. The tightest observed absolute margin was `0.00207789`; the tightest relative margin
-was `0.01589011`. The source artifact for this table is
-`target/ddgi-transport-acceptance/20260801T132942Z-1090600/convergence-calibration.json`.
+The present delta is measured after temporal blending. A high history-retention value can reduce
+post-blend delta without proving that new raw samples have low variance. The next calibration should
+record pre-blend sample variability separately, then decide whether threshold sleep can be trusted
+independently of the 64-epoch budget. Per-probe variability and adaptive sleep remain out of scope
+for this implementation.

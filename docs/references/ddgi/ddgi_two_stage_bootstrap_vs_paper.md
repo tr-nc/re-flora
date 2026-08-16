@@ -2,11 +2,16 @@
 
 Research date: 2026-08-16; implementation decision updated 2026-08-17
 
-## Short answer
+Implementation status: the temporal lifecycle described below is implemented on
+`feature/ddgi-temporal-lifecycle`. The S0/S1/S2 discussion is retained as an explanation of the
+superseded design and of the measurements that motivated the migration; those labels no longer
+exist in the current runtime.
 
-`S0`, `S1`, and `S2` are Re: Flora transport-stage labels. In this repository, `S` is best read as
-**Stage**: the code calls the state enum `DdgiFieldStage`, while the paper does not define an `S0` or
-`S1` notation. It is not a sample count and it is unrelated to a random-number seed.
+## Short answer and historical terminology
+
+`S0`, `S1`, and `S2` were Re: Flora transport-stage labels. `S` meant **Stage**: the old code called
+its state enum `DdgiFieldStage`, while the paper does not define an `S0` or `S1` notation. It was not
+a sample count and was unrelated to a random-number seed.
 
 - **S0 / `SeedSky`** is a complete, current-geometry field containing authored-sky radiance from
   probe-ray misses and current-geometry visibility. Terrain hits contribute no reflected radiance.
@@ -31,20 +36,17 @@ when the red wall is directly lit by sky or sun. A path requiring two ordered di
 as `sky/sun -> red wall A -> wall B -> ground`, needs S2 or a later feedback field. The committed
 donor and dogleg acceptance cases measure both boundaries.
 
-S2+ is recursive in **transport order**, but it is not yet the paper/RTXGI's full **temporal update
-form**. Current feedback deliberately uses fixed directions, zero hysteresis, and deterministic
-full-volume source-to-destination iterations. The accepted migration on
-`feature/ddgi-temporal-lifecycle` removes transport-order stages: publish the first complete
-current-revision field, then use epoch-scoped ray rotation and history accumulation until the field
-converges and sleeps. Active/Staging publication and immutable source/destination fields remain
-correctness requirements, not transport stages.
+S2+ was recursive in **transport order**, but it was not the paper/RTXGI's full **temporal update
+form**. The implemented migration removes transport-order stages: it publishes the first complete
+current-revision field, then uses epoch-scoped ray rotation and history accumulation until the field
+sleeps. Active/Staging publication and immutable source/destination fields remain correctness
+requirements, not transport stages.
 
-## What exactly are S0 and S1?
+## What exactly were S0 and S1?
 
-The names are project terminology, enforced by [`DdgiFieldStage` and its iteration
-invariants][stage-enum]: `SeedSky` must be iteration 0, `SingleBounce` must be iteration 1, and
-feedback/terminal states must be iteration 2 or later. The abbreviated `S0`, `S1`, and `S2` labels
-used in logs and specifications are therefore **stage/transport-order indices**, not terminology
+The names were project terminology enforced by the former `DdgiFieldStage` invariants: `SeedSky`
+was iteration 0, `SingleBounce` was iteration 1, and feedback/terminal states were iteration 2 or
+later. The abbreviated labels were therefore **stage/transport-order indices**, not terminology
 imported from Majercik et al. 2019.
 
 | Re: Flora label | Complete field contains | Immutable source | Publication role |
@@ -58,7 +60,7 @@ deliberate because it exists to provide a clean incident sky field for hit shadi
 makes it the private source for S1; only complete, validated S1 is promoted as the first new Active
 field ([bootstrap publication][bootstrap-publication]).
 
-## Why sky seeding precedes single bounce
+## Why sky seeding preceded single bounce
 
 At an S1 probe-ray terrain hit, the shader needs the incident diffuse irradiance at the hit so it can
 compute reflected radiance. Re: Flora does not allow a new geometry revision to sample the old
@@ -93,8 +95,9 @@ S1, and lifecycle/validation/promotion overhead; it is not the time for a single
 
 ### Production DDGI
 
-For every probe, the production trace shader emits a fixed spherical-Fibonacci set of probe rays.
-A miss records authored sky. A front-face terrain hit from S1 onward computes
+For every probe, the production trace shader emits a 64-direction spherical-Fibonacci set under one
+deterministic SO(3) rotation per complete update epoch. A miss records authored sky. A front-face
+terrain hit computes
 
 `albedo * (current direct-sun irradiance + previous-complete-field irradiance)`
 
@@ -102,12 +105,13 @@ A miss records authored sky. A front-face terrain hit from S1 onward computes
 the same terrain revision. There is no diffuse hemisphere/ray-tree launch from the hit; the design
 contract says this explicitly ([transport specification][transport-spec-secondary]).
 
-This still represents approximate multi-bounce diffuse transport. A probe ray that sees a red wall
+This represents approximate multi-bounce diffuse transport. A probe ray that sees a red wall
 stores radiance already multiplied by the wall's red albedo. Ground pixels then interpolate that
-probe field, so they can receive red indirect light. On the next complete feedback iteration, a
+probe field, so they can receive red indirect light. On the next complete update epoch, a
 different hit can query that red-containing field and propagate it around another corner. The
-acceptance evidence shows the red donor raising red's channel share at S1, while the two-segment
-dogleg remains nearly dark at S1 and gains energy at S2 ([transport acceptance][transport-acceptance]).
+historical acceptance evidence used the S1/S2 boundary to isolate this propagation; current
+acceptance uses epoch checkpoints without claiming an exact bounce order
+([transport acceptance][transport-acceptance]).
 
 This is not full path tracing:
 
@@ -115,12 +119,11 @@ This is not full path tracing:
 - there is no explicit branching diffuse ray tree at each hit;
 - there is no glossy/specular secondary transport in the DDGI field;
 - probe spacing, moment visibility, and interpolation can blur detail or leak through geometry;
-- the current fixed ray directions do not add new angular samples on later feedback iterations.
+- each epoch still has only 64 directions, although rotation adds angular samples over time.
 
-The complete-volume policy matters here: every feedback destination is withheld until all valid
-probes have been updated from one immutable source. Current recursion is therefore deterministic
-Jacobi-style field iteration, not an in-place partial history update and not a temporally blended
-Monte Carlo estimator.
+The complete-volume policy matters here: every destination is withheld until all valid probes have
+been updated from one immutable source. Current recursion remains a Jacobi-style field update, and
+its irradiance and visibility filters then blend the rotated sample with that immutable history.
 
 ### Terrain path-tracing reference
 
@@ -154,21 +157,17 @@ previous complete irradiance field. It differs in update and publication policy:
 
 | Property | Majercik 2019 recurring form | Current Re: Flora |
 |---|---|---|
-| Bootstrap notation | no prescribed S0/S1 barrier | explicit private S0 then publishable S1 |
+| Bootstrap notation | no prescribed S0/S1 barrier | no transport-stage barrier; publish complete e0 |
 | History | previous-frame atlas blended with new samples | immutable complete source, distinct complete destination |
-| Temporal blend | hysteresis | no irradiance-history lerp in the filter |
-| Ray directions | randomly rotated each frame | same fixed Fibonacci directions each iteration |
+| Temporal blend | hysteresis | GUI history retention, reset/capped by sample age |
+| Ray directions | randomly rotated each frame | deterministic global SO(3) rotation per complete epoch |
 | Partial visibility | displayed field evolves continuously | old Active remains visible until complete staging promotion |
 | Geometry revision | initialization/invalidation left to integration | strict revision ownership and atomic replacement |
 
-Current Re: Flora therefore favors deterministic stage boundaries and edit correctness over fast
-temporal convergence. With 64 fixed rays per probe, feedback improves transport order but does not
-average a fresh set of angular samples; paper/RTXGI-style rotation plus hysteresis would improve
-sampling convergence, at the cost of temporal state and invalidation complexity.
-
-That distinction is the answer to whether Re: Flora has already “synced with the paper”: the
-recursive radiance term is present at S2+, but random temporal sampling, hysteresis, and adaptive
-probe scheduling are not.
+Current Re: Flora now follows the paper's recurring temporal form more closely while keeping a
+stricter complete-field publication boundary for terrain editing. It has recursive previous-field
+shading, rotated samples, and history accumulation. It still lacks per-probe adaptive scheduling,
+raw-variability convergence, cascades, and RTXGI's per-texel responsiveness heuristics.
 
 ## Clarification: temporal accumulation does not require perpetual updates
 
@@ -200,18 +199,16 @@ periodic low-frequency probe update is therefore an optional safety net for untr
 physical or algorithmic requirement. With reliable geometry and radiance revision tracking, an
 event-driven wake-up is sufficient.
 
-Re: Flora already implements the same high-level **converge then sleep** lifecycle, but for its
-deterministic zero-hysteresis field iterations: two consecutive complete feedback iterations must
-fall below absolute and relative delta thresholds; a converged terminal field schedules no more
-feedback until a geometry, density, or radiance request wakes it
+Re: Flora implements the same high-level **converge then sleep** lifecycle with rotated temporal
+samples and history accumulation. A terminal field schedules no more updates until a geometry,
+density, or radiance request wakes it
 ([current convergence policy][current-convergence-policy], [current scheduler stop rule][scheduler-stop-rule]).
-The current result is “exact” only in the narrower engineering sense of being deterministic,
-complete, and revision-consistent. Sixty-four fixed directions are still a finite angular
-quadrature, not the exact rendering-equation integral.
+The current result is deterministic, complete, and revision-consistent, but 64 directions per epoch
+and a finite 64-epoch budget are not the exact rendering-equation integral.
 
 ## Accepted temporal lifecycle
 
-The feature branch accepts the third bootstrap contract above: the first complete field may be a
+The feature branch implements the third bootstrap contract above: the first complete field may be a
 lower-order estimate and may visibly converge afterward. This removes the private S0 and the rule
 that publication waits for S1. It does **not** claim that one update has solved the same light paths
 as the old two-update bootstrap.
@@ -219,21 +216,22 @@ as the old two-update bootstrap.
 The consumer-facing lifecycle is now specified as:
 
 ```text
-Building -> Converging -> Converged
+unpublished Building work -> Converging e0 -> ... -> Converged
 ```
 
 - **Building** means no complete field for the requested geometry/density revision exists yet. The
   previous Active field remains visible while a Staging volume builds.
 - **Converging** means at least one complete current-revision field has been atomically published;
   subsequent update epochs improve angular sampling and recursively propagate transport.
-- **Converged** means the variability criteria have held for the required consecutive epochs. The
-  scheduler sleeps and the published atlases remain read-only until a tracked event wakes it.
+- **Converged** means the threshold criteria passed or the finite sample budget completed. The
+  terminal reason distinguishes those outcomes; either way the scheduler sleeps until a tracked
+  event wakes it.
 
 These are lifecycle states, not bounce-order labels. A field no longer claims to be S0, S1, or S2.
 Its identity needs `serial`, `geometry_revision`, `radiance_revision`, `spacing_voxels`, and
 `update_epoch`. `update_epoch` is diagnostic and sequences samples; it does not promise a precise
-bounce count. A hard safety budget, if retained, is a scheduler pause reason while the field remains
-`Converging`, not a `NonConverged` transport stage.
+bounce count. The implemented 64-epoch budget transitions to `Converged` with reason
+`SampleBudget`; this is a sleep/quality-budget result, not a claim that thresholds passed.
 
 ### First complete current-revision field
 
@@ -278,12 +276,10 @@ immutable complete source field + epoch rotation
     -> atomically publish destination as the next source
 ```
 
-The destination must never be sampled by another batch in the same epoch. Irradiance already has
-two physical slots, but visibility currently has only one atlas and is written only during S0. Once
-visibility uses rotated temporal samples, it also needs source/destination slots. Otherwise the
-renderer and later batches can observe partially accumulated moments. At spacing 32 the additional
-`RG32F` visibility atlas is 12,882,240 bytes per physical volume; this memory increase is an explicit
-cost of preserving the complete-field contract.
+The destination must never be sampled by another batch in the same epoch. The implementation now
+ping-pongs both irradiance and visibility. At spacing 32 the additional `RG32F` visibility atlas is
+12,882,240 bytes per physical volume; this memory increase is an explicit cost of preserving the
+complete-field contract.
 
 ### Hysteresis and history accumulation
 
@@ -299,22 +295,19 @@ new result entering at `1 - H`, with `H` in the 0.85-0.98 range ([paper, section
 RTXGI's shader implements the same weighting and lowers hysteresis for large changes
 ([RTXGI probe blending source][rtxgi-probe-blending]).
 
-The initial implementation should expose one GUI value named `DDGI History Retention`, defaulting
-to `0.95`, while applying these non-optional overrides:
+The implementation exposes one GUI value named `DDGI History Retention`, defaulting to `0.98`, with
+these overrides:
 
 | Condition | Effective history retention |
 |---|---|
 | Fresh geometry/density history or uninitialized texel | `0` |
-| First epoch after a radiance revision | `0` for atlas blending; the immutable old field may still be queried for recursive hit shading |
-| Large finite per-texel radiance change | lower toward `0`, using the existing absolute/relative thresholds initially |
+| First epoch after a radiance revision | `0` for irradiance; configured H for still-valid visibility |
 | Ordinary same-revision convergence | `min(gui_H, sample_age / (sample_age + 1))` |
 
 The sample-age cap makes the early epochs a running average rather than allowing the first noisy
-64-ray estimate to retain 95% weight immediately. It later becomes a bounded EMA at the configured
-history retention. This is an implementation hypothesis, not a claim from the paper, and must be
-A/B tested against constant `H=0.95`. Do not copy RTXGI's low-bit-depth darkening step or brightness
-impulse clamp initially: Re: Flora stores irradiance in `RGBA32F`, so those heuristics add response
-lag without addressing the format problem they document.
+64-ray estimate to retain 98% weight immediately. It later becomes a bounded EMA at the configured
+history retention. Re: Flora does not copy RTXGI's low-bit-depth darkening step or brightness
+impulse clamp: irradiance remains `RGBA32F`, and those heuristics would add response lag.
 
 Transport feedback and history blending remain separate operations: ray-hit shading queries the
 immutable source field to propagate indirect light; the filter then blends the newly traced sample
@@ -322,20 +315,10 @@ with that same source field to reduce sampling variance.
 
 ### Convergence, sleep, and wake
 
-The current post-blend atlas delta cannot be the only stop metric. With `H=0.95`, it is mechanically
-about 20 times smaller than the raw sample/history difference and can produce a false early sleep.
-Each epoch must reduce at least:
-
-1. a raw pre-blend irradiance variability metric, such as mean luminance coefficient of variation
-   over valid texels (the RTXGI variability feature uses coefficient of variation as its proxy);
-2. post-blend absolute and relative atlas deltas as a stability guard; and
-3. non-finite and validity counts.
-
-Sleep requires a minimum epoch count plus consecutive below-threshold epochs. The exact minimum,
-variability threshold, and consecutive count are experiment outputs, not values to guess into the
-design. Max-only variability is expected to be too sensitive to one texel; record mean, percentile,
-and maximum during tuning. A sleeping field performs no trace or filter work and does not rotate its
-rays.
+The implementation currently uses post-blend maximum absolute and relative atlas deltas, with a
+minimum of 8 epochs, two consecutive passing epochs, and a hard stop after 64 samples. A high H can
+make post-blend delta look artificially small, so raw pre-blend variability remains the next
+calibration experiment. A sleeping field performs no trace/filter work and does not rotate rays.
 
 | Event | History policy | Wake behavior |
 |---|---|---|
@@ -344,9 +327,9 @@ rays.
 | Camera-only movement | keep history | do not wake |
 | No tracked change | keep history | remain asleep |
 
-### Migration order and experiment gates
+### Implemented migration and residual gates
 
-Implement and commit each validated step separately:
+The branch completed these focused steps:
 
 1. Replace `DdgiFieldStage` transport semantics with epoch identity and lifecycle state. Publish a
    direct-plus-sky epoch 0 after one complete update, while preserving old Active during Staging.
@@ -354,30 +337,45 @@ Implement and commit each validated step separately:
    batches and capture metadata.
 3. Ping-pong visibility as well as irradiance, then add source-to-destination history blending with
    forced reset behavior.
-4. Add raw variability reduction, lifecycle sleep/wake, GUI history retention, and diagnostics.
+4. Add finite convergence/sleep/wake, GUI history retention, and diagnostics.
 5. Delete S0/S1/S2 branches, capture labels, tests, and documentation only after their replacement
    assertions cover publication and source ownership. Do not retain compatibility dead code.
 
-The branch is not complete until release-mode evidence passes all of these gates:
+Release-mode acceptance covers these gates:
 
 - first current-revision publication takes one full iteration, not two;
 - old Active indirect light remains visible throughout a terrain edit until epoch 0 promotion;
 - epoch 0 contains finite sky and direct-sun response and never samples old-geometry history;
 - forward and reverse batch order produce equivalent complete fields for the same epoch seed;
-- repeated static epochs add angular information and reduce donor/portal noise at 64 rays;
+- repeated static epochs add angular information at 64 rays;
 - donor S1-like color transfer and dogleg multi-epoch propagation remain measurable without relying
   on stage labels;
 - wall add/remove and portal open/close do not retain old visibility after epoch 0 promotion;
 - radiance changes respond on the first epoch and then settle without permanent ghosting;
-- a fixed camera converges, sleeps with zero DDGI dispatches, and wakes only for tracked changes;
+- a fixed camera reaches threshold or the finite sample budget, then sleeps with zero DDGI dispatches
+  until a tracked change;
 - matched release measurements report time to first field, time to sleep, total DDGI GPU work,
   temporal variance, and the extra visibility-atlas memory.
 
-Unit tests must cover identity, source/destination ownership, reset policy, deterministic rotation,
+Unit tests cover identity, source/destination ownership, reset policy, deterministic rotation,
 batch-order invariance, scheduler sleep/wake, and stale completion rejection. Final validation uses
 `cargo fmt --check`, `cargo check`, `cargo test`, hidden muted release startup plus log inspection,
 and the deterministic donor/dogleg/edit/capture workloads. Debug timings are not performance
 evidence.
+
+The final matched RTX 3060 Ti release measurement records six terrain edit-to-epoch-zero
+promotions at `31-36 ms` (median `34.5 ms`, p95 `36 ms`). The retained two-stage baseline log has
+two comparable observations at `87/88 ms` (median `87.5 ms`), so removing the two-iteration display
+gate reduced observed first-valid-field latency by about `60.6%`. Publication bookkeeping remained
+`0.0095 ms` median. A five-second static portal run reached `Converged e63` and issued no later
+scheduler claims.
+
+One rejected experiment added a full-precision visibility-weight ping-pong so temporal blending
+could average weighted moment numerators and denominators. It increased spacing-32 DDGI memory by
+`12.29 MiB` but left the converged walls exact-reference P99 essentially unchanged (`0.391`), so it
+was removed. The residual wall difference is the accepted cost of the earlier Moment-only runtime
+consumer decision, not evidence that more temporal visibility weight storage repairs exact
+thin-wall occlusion.
 
 ## Primary sources
 

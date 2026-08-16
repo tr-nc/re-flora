@@ -1,101 +1,125 @@
-# DDGI Transport Acceptance
+# DDGI Temporal Transport Acceptance
 
-`scripts/check_ddgi_transport_acceptance.sh` is the top-level hidden release-mode acceptance
-runner for the transport specification. It runs the stage-specific transport captures and
-convergence summarizer first, then the portal/walls correctness runner, runtime terrain-edit runner,
-radiance/density lifecycle runner, and committed sky-normalization evidence checker. Every
-subordinate check is mandatory; a missing checker or runner is an acceptance failure.
+`scripts/check_ddgi_transport_acceptance.sh` is the top-level hidden release-mode acceptance runner.
+It owns the current temporal transport matrix, then invokes portal/walls correctness, runtime
+terrain-edit continuity, radiance/density lifecycle, and committed sky-normalization checks. A
+missing subordinate checker is a failure.
 
-## Evidence
+## Evidence format
 
-Every stage capture writes three adjacent artifacts below
-`target/ddgi-transport-acceptance/<run-id>/`:
+Runs write beneath `target/ddgi-transport-acceptance/<run-id>/`:
 
-- `<case>-spacing<spacing>-<stage>-<order>.rfirr` is the v5 capture: pre-albedo
-  environment irradiance, world position plus exact sun visibility, and the raster terrain's
-  independent direct-light RGB;
-- the matching `.analysis.json` records capture identity, ROI measurements, and convergence deltas;
-- the matching `.console.log` records every full-atlas validation reached on the way to the requested
-  stage. The `[DDGI] full-atlas validated` records are the complete per-iteration convergence curve,
-  including absolute and relative delta.
+- `.rfirr` capture v6 contains pre-albedo environment irradiance, world position plus exact sun
+  visibility, and the raster terrain's independent direct-light RGB;
+- `.analysis.json` records lifecycle identity, ROI measurements, finiteness, and atlas deltas;
+- `.console.log` records scheduling, source/destination slots, per-epoch retention, full-atlas
+  validation, atomic publication, and terminal sleep reason;
+- `convergence-calibration.json` contains every validated convergence curve.
 
-Analyzer comparisons report environment/world and direct-light bit exactness separately. General
-DDGI determinism checks require the environment/world planes because temporal raster shadows may
-legitimately differ between independent processes; the dedicated stale-active terrain-refresh
-scenario adds `--compare-direct-light` and requires all three planes to match.
+Old capture versions remain readable for committed historical evidence, but all current-runtime
+acceptance requires v6 `Converging` / `Converged` metadata and `update_epoch`.
 
-The required matrix covers spacing 32 and 16, sealed S0/S1/S2/converged,
-portal S1 plus converged, donor S0/S1/converged, dogleg S1/S2/converged, and donor S1 in both
-forward and reverse batch order. The eight complete convergence curves are summarized separately in
-`docs/ddgi_convergence_calibration.md`. `NonConverged` remains a valid diagnostic capture state, but
-analyzer `--correctness` rejects it.
+## Transport matrix
 
-## Threshold provenance
+The matrix runs spacing 32 and 16 and includes:
 
-The convergence limits are exactly the current centralized `DDGI_CONVERGENCE_POLICY` values:
+| Scene | Required checkpoints | Purpose |
+|---|---|---|
+| sealed | e0, e1, converged | no created energy and no recursive leak |
+| portal | converged plus exact-reference runner | moment-visibility leak bound |
+| donor | e0 forward/reverse, converged | first-publication signal and batch-order invariance |
+| dogleg | e0, e1, converged | delayed multi-segment propagation |
 
-- maximum absolute RGB delta: `0.0025`;
-- maximum relative RGB delta: `0.02`;
-- convergence requires the runtime policy's two consecutive passing iterations.
+Epoch labels are temporal sample identities, not exact bounce-order claims. The first geometry field
+contains sky misses and direct-sun terrain reflection; later epochs recursively query the previous
+complete field and add new rotated angular samples.
 
-These limits are not widened by the runner. The existing portal/walls exact-reference limits also
-remain owned by `scripts/check_ddgi_correctness.sh`: walls p99 is `0.15` at spacing 32 and `0.133` at
+The donor epoch-zero ROI luminance gate is at least `0.045`; the measured spacing-32 forward and
+reverse value was `0.1289403043`, with bit-exact environment and direct-light payloads. Captures may
+have different field serials because startup timing is process-local; payload equality is the
+determinism criterion after compatible scene/revision/epoch metadata is established.
+
+The dogleg e0 ROI must remain at most `0.00002`. Epoch one must gain at least `0.000035`; this is the
+temporal equivalent of the old unblended `0.00007` gate because the sample-age cap deliberately
+retains 50% history at e1. The measured gains were `0.00004127` at spacing 32 and `0.00005353` at
 spacing 16.
 
-The exact-voxel hard-gate calibration used the committed deterministic camera, authored palette,
-printed world-space ROIs, and exact requested field identities. The limits are committed in the
-runner, so a normal correctness run cannot weaken them through environment variables:
+Runtime terrain, Flora, and Leaves intentionally use Moment visibility only; exact segment
+visibility remains a transport and diagnostic oracle. The terminal `walls` gate therefore records
+the accepted Moment-only leakage ceiling rather than the older Full/Moment-times-Exact ceiling. In
+`target/ddgi-temporal-final-correctness-converged/20260816T174539Z-229568/`, converged e63
+environment payloads repeated bit-exactly and measured exact-reference luminance-error P99
+`0.391190` at spacing 32 and `0.365590` at spacing 16. The guarded ceilings are `0.400` and `0.375`.
+Sealed and portal retain their stricter existing bounds. Every correctness capture explicitly
+targets `converged`; default e0 capture timing cannot masquerade as terminal quality.
 
-| Signal | spacing 32 | spacing 16 | committed gate | margin from tighter observation |
-|---|---:|---:|---:|---:|
-| donor S0 red channel share | 0.036368 | 0.037327 | at most 0.05 | +0.012673 |
-| donor S1 minus S0 red-share gain | 0.091683 | 0.083320 | at least 0.065 | 22.0% |
-| donor S1 minus S0 luminance gain | 0.069264 | 0.057747 | at least 0.045 | 22.1% |
-| dogleg S1 receiver luminance mean | 0.000013900 | 0.000010577 | at most 0.00002 | +43.9% |
-| dogleg S2 minus S1 luminance gain | 0.000085190 | 0.000092319 | at least 0.00007 | 17.8% |
+## Convergence policy
 
-The donor gate uses red *share gain*, rather than absolute red-minus-blue advantage. The authored sky
-is intentionally blue, so absolute blue remains larger at S1; the stable stage-boundary evidence is
-that the red donor raises red's share from about 3.7% to 12–13% while also raising total irradiance.
-This distinguishes transported donor energy from the unchanged sky seed without changing the game's
-authored sky.
+The runner does not override `DDGI_CONVERGENCE_POLICY`:
 
-## Sky-normalization presentation parity
+- absolute delta threshold `0.0025`;
+- relative delta threshold `0.02` with floor `0.05`;
+- minimum 8 complete epochs and two consecutive passing epochs;
+- maximum 64 complete epochs (`e0` through `e63`).
 
-`scripts/check_ddgi_sky_normalization_evidence.py` validates the committed machine-readable evidence
-in `docs/evidence/ddgi_sky_normalization.json`. The evidence compares release-mode portal captures
-from the adjacent pre-transport commits immediately before and after the `E/pi` normalization at
-spacing 32 and 16, with identical authored camera, time, and voxel variance. Both hit masks match;
-the observed maximum RGB channel error is `3.58e-7` and the maximum luminance error is `1.18e-7`,
-below the committed `1e-6` limits.
+Both `Threshold` and `SampleBudget` are valid terminal reasons. `SampleBudget` means the finite
+quality budget completed with a finite nonnegative field; it does not mean the threshold passed.
+The convergence summarizer filters records to the captured geometry/radiance/spacing identity so
+startup-volume epochs cannot contaminate the target curve.
 
-## Stale-active terrain-refresh and independent direct-sun evidence
+## Lifecycle checks
 
-Capture v5's third float4 plane is the actual raster terrain `directLighting` term after albedo,
-cosine, and VSM/leaf/cloud shadowing, but before it is added to the DDGI environment term. It never
-samples a DDGI atlas. The in-flight terrain-edit acceptance capture requires all of the following at
-both spacings while the latest terrain staging field is still rebuilding:
+`scripts/check_ddgi_lifecycle_acceptance.sh` proves at spacing 32 and 16 that:
 
-- the capture identity remains the older resident active token and geometry revision;
-- environment irradiance p99 is at least `0.10`, finite, nonnegative, and repeated captures are
-  bit-exact;
-- logs prove only one staging update exists at a time and an obsolete candidate is discarded before
-  the latest queued edit starts;
-- sunlit ROI mean direct-light luminance at least `0.15` (observed `0.168975`, 11.2% margin);
-- shadowed ROI maximum direct-light luminance exactly `0`;
-- direct-light and environment terrain-hit masks match;
-- all direct-light channels are finite and nonnegative.
+- the old DDGI payload remains bit-exact on the first rendered frame after a radiance mutation;
+- direct light responds immediately and changes the fixed sunlit ROI by at least `0.02`;
+- the in-flight radiance snapshot remains immutable and queued revisions coalesce latest-wins;
+- the final radiance epoch zero uses the expected prior complete source;
+- a density update leaves spacing 32 active while spacing 16 builds;
+- a geometry edit preempts the first density candidate without making it consumer-visible;
+- the latest geometry epoch zero publishes before the density retry;
+- spacing 16 first becomes visible only as a complete epoch-zero field.
 
-The spacing 32 and 16 direct-light payloads were themselves bit-exact and contained 5,277 sunlit and
-24,455 shadowed samples. The top-level runner therefore reports
-`direct-sun-framebuffer=PROVEN seam=v5-direct-light-plane`.
+## Terrain-edit continuity
 
-## Dynamic radiance lifecycle evidence
+`scripts/check_ddgi_runtime_terrain_edits.sh` requires the last complete Active field to remain
+finite, nonnegative, and available while Staging progresses. It also requires one physical Staging
+update, latest-geometry promotion, shared terrain/Flora identity, and no partially filtered atlas
+publication. Exact direct sun remains a separate capture plane and is not accepted as evidence that
+indirect continuity worked.
 
-The radiance lifecycle runner captures four v5 frames in one process at both required spacings:
-the terminal baseline, the first rendered frame after R2, the first rendered frame after R4, and the
-final R4 field. Identity sidecars prove `capture_frame = mutation_frame + 1`, that R2 remains the
-immutable in-flight snapshot when R4 arrives, and that R3 is coalesced while the final active field
-uses R4 from R2. On both spacings the old DDGI irradiance payload, world XYZ, and terrain-hit mask are
-bit-exact during the immediate direct-light changes. The sunlit ROI changes from `0.168975` to
-`0.303398` at R2 and `0.073722` at R4; both absolute deltas exceed the committed `0.02` gate.
+## Response latency and static sleep
+
+On the NVIDIA GeForce RTX 3060 Ti, three matched release runs of
+`terrain-edits-closed` produced six complete edit-to-epoch-zero promotions in `31-36 ms`, with
+median `34.5 ms` and p95 `36 ms`. The retained two-stage baseline log contains `87 ms` and `88 ms`
+for the same two edits, median `87.5 ms`; the observed first-valid-field latency is therefore about
+`60.6%` lower. The old baseline has only two observations, so this is a response-latency result,
+not a broad frame-performance claim. Atomic descriptor/resource publication itself remained
+`0.0095 ms` median. Current evidence is under `target/ddgi-temporal-lifecycle-final/`; the baseline
+is under `target/ddgi-temporal-lifecycle-baseline/`.
+
+A separate five-second static portal run reached `Converged e63` and recorded zero scheduler claims
+after the terminal publication. Camera/display frames alone therefore do not keep DDGI awake;
+geometry, density, or radiance revision changes are required to restart work.
+
+## Sky normalization
+
+`scripts/check_ddgi_sky_normalization_evidence.py` keeps the original `E/pi` presentation-parity
+evidence pinned to its historical commits. Those v3-v5 stage labels are retained only because they
+describe the old artifacts; they do not reintroduce a current runtime stage path.
+
+## Reproduction
+
+Run the full suite from the repository root:
+
+```bash
+scripts/check_ddgi_transport_acceptance.sh
+```
+
+For focused iteration:
+
+```bash
+scripts/check_ddgi_lifecycle_acceptance.sh
+python scripts/benchmark_ddgi_publication.py --samples 1 --auto-exit 15
+```
