@@ -1024,8 +1024,6 @@ def compare_roi_baseline(
         and not metadata_mismatches
         and current_mean is not None
         and baseline_mean is not None
-        and current_channel_share is not None
-        and baseline_channel_share is not None
     )
     return {
         "compatible": compatible,
@@ -1045,6 +1043,8 @@ def compare_roi_baseline(
                 )
             ]
             if compatible
+            and current_channel_share is not None
+            and baseline_channel_share is not None
             else None
         ),
     }
@@ -1435,12 +1435,19 @@ def main() -> int:
                 )
                 exit_code = 1
             share_gains = baseline_comparison["roi_channel_share_gain"]
-            selected_share_gain = share_gains[ROI_CHANNEL_INDICES[args.roi_channel]]
-            baseline_comparison["selected_roi_channel"] = args.roi_channel
-            baseline_comparison["selected_roi_channel_share_gain"] = selected_share_gain
-            if (
-                args.min_roi_channel_share_gain is not None
-                and selected_share_gain < args.min_roi_channel_share_gain
+            if share_gains is not None:
+                selected_share_gain = share_gains[
+                    ROI_CHANNEL_INDICES[args.roi_channel]
+                ]
+                baseline_comparison["selected_roi_channel"] = args.roi_channel
+                baseline_comparison["selected_roi_channel_share_gain"] = (
+                    selected_share_gain
+                )
+            else:
+                selected_share_gain = None
+            if args.min_roi_channel_share_gain is not None and (
+                selected_share_gain is None
+                or selected_share_gain < args.min_roi_channel_share_gain
             ):
                 failures.append(
                     "selected_roi_channel_share_gain: expected at least "

@@ -20,7 +20,9 @@ fi
 # provenance and the tighter spacing-specific observations live in the companion document.
 donor_min_e0_luminance_mean=0.045
 dogleg_max_e0_luminance_mean=0.00002
-dogleg_min_e1_luminance_gain=0.00007
+# Epoch one retains 50% history under the sample-age cap, so the old unblended 0.00007 gate maps
+# to a minimum blended gain of 0.000035.
+dogleg_min_e1_luminance_gain=0.000035
 convergence_max_abs_delta=0.0025
 convergence_max_rel_delta=0.02
 convergence_consecutive_epochs=2

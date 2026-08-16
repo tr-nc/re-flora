@@ -80,7 +80,7 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
         for contract in (
             "--min-roi-luminance-mean 0.045",
             "--max-roi-luminance-mean 0.00002",
-            "--min-roi-luminance-gain 0.00007",
+            "--min-roi-luminance-gain 0.000035",
         ):
             self.assertIn(contract, result.stdout)
         self.assertNotIn("CALIBRATE_", result.stdout + result.stderr)

@@ -31,6 +31,44 @@ FRAME_RE = re.compile(
     r"\[PERF\]\[GPU_FRAME_SCOPE\] frame (?P<frame>\d+) .*?frame\.render=(?P<render>\d+)us"
 )
 DEVICE_RE = re.compile(r"Selected physical device: (?P<device>.+)")
+TERRAIN_OBSERVED_RE = re.compile(
+    r"\[(?P<time>\d\d:\d\d:\d\d\.\d\d\d) [^]]+\].*?"
+    r"\[DDGI\] runtime observed visible terrain revision=(?P<revision>\d+) "
+    r"newly_observed=true"
+)
+TERRAIN_PROMOTED_RE = re.compile(
+    r"\[(?P<time>\d\d:\d\d:\d\d\.\d\d\d) [^]]+\].*?"
+    r"\[DDGI\] staging promoted .*?geometry_revision=(?P<revision>\d+)"
+)
+
+
+def timestamp_ms(value: str) -> int:
+    hours, minutes, seconds = value.split(":")
+    whole_seconds, milliseconds = seconds.split(".")
+    return (
+        ((int(hours) * 60 + int(minutes)) * 60 + int(whole_seconds)) * 1000
+        + int(milliseconds)
+    )
+
+
+def terrain_update_latencies(text: str) -> list[dict[str, int]]:
+    observed = {
+        int(match.group("revision")): timestamp_ms(match.group("time"))
+        for match in TERRAIN_OBSERVED_RE.finditer(text)
+        if int(match.group("revision")) > 1
+    }
+    promoted = {
+        int(match.group("revision")): timestamp_ms(match.group("time"))
+        for match in TERRAIN_PROMOTED_RE.finditer(text)
+        if int(match.group("revision")) > 1
+    }
+    latencies = []
+    for revision in sorted(observed.keys() & promoted.keys()):
+        elapsed_ms = promoted[revision] - observed[revision]
+        if elapsed_ms < 0:
+            elapsed_ms += 24 * 60 * 60 * 1000
+        latencies.append({"geometry_revision": revision, "elapsed_ms": elapsed_ms})
+    return latencies
 
 
 def summary(values: list[float]) -> dict[str, float | int]:
@@ -98,6 +136,7 @@ def parse_log(text: str) -> dict[str, object]:
         "device": device_match.group("device").strip() if device_match else None,
         "publications": publications,
         "frame_render_us": frame_render_us,
+        "terrain_update_latencies": terrain_update_latencies(text),
     }
 
 
@@ -136,6 +175,11 @@ def run(args: argparse.Namespace) -> int:
 
     publications = [publication for sample in samples for publication in sample["publications"]]
     frame_render_us = [value for sample in samples for value in sample["frame_render_us"]]
+    terrain_update_latency_ms = [
+        item["elapsed_ms"]
+        for sample in samples
+        for item in sample["terrain_update_latencies"]
+    ]
     summary_payload = {
         "version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -155,6 +199,9 @@ def run(args: argparse.Namespace) -> int:
             "total_publication_ms": summary([item["total_publication_ms"] for item in publications]),
         },
         "frame_render_us": summary(frame_render_us) if frame_render_us else None,
+        "terrain_update_latency_ms": (
+            summary(terrain_update_latency_ms) if terrain_update_latency_ms else None
+        ),
         "samples": samples,
     }
     summary_path = output / "summary.json"

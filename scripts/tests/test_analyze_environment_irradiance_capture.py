@@ -967,6 +967,49 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertAlmostEqual(gain["roi_luminance_gain"], 0.1)
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
+    def test_luminance_gain_accepts_a_zero_energy_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_path = Path(directory) / "dogleg-e0.rfirr"
+            current_path = Path(directory) / "dogleg-e1.rfirr"
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            self.write_capture_v6(
+                baseline_path,
+                [(0.0, 0.0, 0.0, 1.0)],
+                world,
+                [(0.0, 0.0, 0.0, 1.0)],
+            )
+            self.write_capture_v6(
+                current_path,
+                [(0.00004, 0.00004, 0.00004, 1.0)],
+                world,
+                [(0.0, 0.0, 0.0, 1.0)],
+            )
+
+            comparison = analyzer.compare_roi_baseline(
+                analyzer.load_capture(current_path),
+                analyzer.load_capture(baseline_path),
+                (0.0, 0.0, 0.0, 2.0, 3.0, 4.0),
+            )
+            cli_result = self.run_analyzer(
+                current_path,
+                "--baseline",
+                str(baseline_path),
+                "--world-roi",
+                "0",
+                "0",
+                "0",
+                "2",
+                "3",
+                "4",
+                "--min-roi-luminance-gain",
+                "0.000035",
+            )
+
+        self.assertTrue(comparison["compatible"])
+        self.assertAlmostEqual(comparison["roi_luminance_gain"], 0.00004)
+        self.assertIsNone(comparison["roi_channel_share_gain"])
+        self.assertEqual(cli_result.returncode, 0, cli_result.stdout)
+
     def test_cli_gates_selected_channel_share_and_gain_over_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             baseline_path = Path(directory) / "donor-s0.rfirr"
