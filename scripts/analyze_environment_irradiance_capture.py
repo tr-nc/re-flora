@@ -1062,8 +1062,8 @@ def compare_direct_light_baseline(
     current_hits = current_summary["direct_light_sunlit_roi_terrain_hit_count"]
     baseline_hits = baseline_summary["direct_light_sunlit_roi_terrain_hit_count"]
     compatible = (
-        current.version == 5
-        and baseline.version == 5
+        current.version >= 5
+        and current.version == baseline.version
         and current.width == baseline.width
         and current.height == baseline.height
         and current.backend == baseline.backend

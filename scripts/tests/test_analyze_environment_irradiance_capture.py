@@ -452,6 +452,36 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         )
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
 
+    def test_v6_direct_light_baseline_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_path = Path(directory) / "baseline-v6.rfirr"
+            changed_path = Path(directory) / "changed-v6.rfirr"
+            irradiance = [(0.1, 0.2, 0.3, 1.0)]
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            self.write_capture_v6(
+                baseline_path,
+                irradiance,
+                world,
+                [(0.1, 0.1, 0.1, 1.0)],
+            )
+            self.write_capture_v6(
+                changed_path,
+                irradiance,
+                world,
+                [(0.4, 0.4, 0.4, 1.0)],
+            )
+
+            comparison = analyzer.compare_direct_light_baseline(
+                analyzer.load_capture(changed_path),
+                analyzer.load_capture(baseline_path),
+                (0.0, 0.0, 0.0, 2.0, 3.0, 4.0),
+            )
+
+        self.assertTrue(comparison["compatible"])
+        self.assertAlmostEqual(
+            comparison["sunlit_roi_luminance_absolute_delta"], 0.3
+        )
+
     def test_radiance_frame_compares_terrain_hit_mask_independently(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             baseline_path = Path(directory) / "baseline.rfirr"

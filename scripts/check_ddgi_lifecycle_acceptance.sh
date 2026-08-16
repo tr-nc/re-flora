@@ -157,8 +157,7 @@ check_radiance() {
 check_density() {
     local capture="$run_dir/density-changes.rfirr"
     local console="$run_dir/density-changes.console.log"
-    run_hidden DENSITY density-changes 32 e0 "$capture" "$console" \
-        --environment-probe-rebuild-spacing-voxels 16 || return 1
+    run_hidden DENSITY density-changes 32 e0 "$capture" "$console" || return 1
     if $dry_run; then
         return 0
     fi

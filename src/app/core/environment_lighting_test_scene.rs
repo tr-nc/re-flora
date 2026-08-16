@@ -1030,6 +1030,7 @@ impl App {
                     assert_eq!(runtime.active().grid.spacing_voxels(), 32);
                     assert!(runtime.active_consumers_are_available());
                     log_acceptance_field("DENSITY", "baseline", baseline);
+                    self.tracer.rebuild_environment_probes(16);
                     TestScenePhase::WaitingForDensityMidflight { baseline }
                 } else if case == EnvironmentLightingTestCase::PattSeam {
                     log::info!(
