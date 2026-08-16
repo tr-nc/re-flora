@@ -195,6 +195,11 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         irradiance_pixels: list[tuple[float, float, float, float]],
         world_pixels: list[tuple[float, float, float, float]],
         direct_light_pixels: list[tuple[float, float, float, float]],
+        *,
+        build_token_serial: int = 9001,
+        field_serial: int = 89,
+        update_epoch: int = 31,
+        source_field_serial: int = 88,
     ) -> None:
         self.assertEqual(len(irradiance_pixels), len(world_pixels))
         self.assertEqual(len(irradiance_pixels), len(direct_light_pixels))
@@ -211,13 +216,13 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             41,
             17,
             0xA11CE,
-            9001,
-            89,
+            build_token_serial,
+            field_serial,
             2,
-            31,
+            update_epoch,
             1,
-            30,
-            88,
+            update_epoch - 1,
+            source_field_serial,
             17,
             1,
             0,
@@ -260,6 +265,55 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(summary["update_epoch"], 31)
         self.assertEqual(summary["source_state"], "converging")
         self.assertEqual(summary["source_update_epoch"], 30)
+
+    def test_v6_cross_process_comparison_ignores_only_process_local_serials(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v6.rfirr"
+            second_path = Path(directory) / "second-v6.rfirr"
+            different_epoch_path = Path(directory) / "different-epoch-v6.rfirr"
+            irradiance = [(0.1, 0.2, 0.3, 1.0)]
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            direct = [(0.4, 0.5, 0.6, 1.0)]
+            self.write_capture_v6(first_path, irradiance, world, direct)
+            self.write_capture_v6(
+                second_path,
+                irradiance,
+                world,
+                direct,
+                build_token_serial=9100,
+                field_serial=109,
+                source_field_serial=108,
+            )
+            self.write_capture_v6(
+                different_epoch_path,
+                irradiance,
+                world,
+                direct,
+                build_token_serial=9200,
+                field_serial=119,
+                update_epoch=32,
+                source_field_serial=118,
+            )
+
+            first = analyzer.load_capture(first_path)
+            second = analyzer.load_capture(second_path)
+            comparison = analyzer.compare(first, second)
+            reference = analyzer.compare_reference(first, second)
+            different_epoch = analyzer.compare(
+                first, analyzer.load_capture(different_epoch_path)
+            )
+
+        self.assertTrue(comparison["compatible"])
+        self.assertTrue(comparison["bit_exact"])
+        self.assertEqual(
+            comparison["process_local_identity_mismatches"],
+            ["build_token_serial", "field_serial", "source_field_serial"],
+        )
+        self.assertTrue(reference["compatible"])
+        self.assertFalse(different_epoch["compatible"])
+        self.assertIn("update_epoch", different_epoch["metadata_mismatches"])
 
     def test_loads_v5_direct_light_plane_without_breaking_v4(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -803,6 +803,22 @@ def metadata_mismatches(first: Capture, second: Capture) -> list[str]:
     ]
 
 
+def cross_process_metadata_mismatches(
+    first: Capture, second: Capture
+) -> tuple[list[str], list[str]]:
+    mismatches = metadata_mismatches(first, second)
+    ignored: list[str] = []
+    if first.version == 6 and second.version == 6:
+        process_local_fields = {
+            "build_token_serial",
+            "field_serial",
+            "source_field_serial",
+        }
+        ignored = [field for field in mismatches if field in process_local_fields]
+        mismatches = [field for field in mismatches if field not in process_local_fields]
+    return mismatches, ignored
+
+
 def compare(first: Capture, second: Capture) -> dict[str, object]:
     base_compatible = (
         first.width,
@@ -817,7 +833,9 @@ def compare(first: Capture, second: Capture) -> dict[str, object]:
         second.spacing_voxels,
         second.debug_view,
     )
-    mismatches = metadata_mismatches(first, second)
+    mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
+        first, second
+    )
     compatible = base_compatible and not mismatches
     environment_bit_exact = (
         compatible
@@ -830,6 +848,7 @@ def compare(first: Capture, second: Capture) -> dict[str, object]:
     return {
         "compatible": compatible,
         "metadata_mismatches": mismatches,
+        "process_local_identity_mismatches": process_local_identity_mismatches,
         "environment_bit_exact": environment_bit_exact,
         "direct_light_bit_exact": direct_light_bit_exact,
         "bit_exact": environment_bit_exact and direct_light_bit_exact,
@@ -918,10 +937,16 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
         exact.backend,
         exact.spacing_voxels,
     )
-    mismatches = metadata_mismatches(approximate, exact)
+    mismatches, process_local_identity_mismatches = cross_process_metadata_mismatches(
+        approximate, exact
+    )
     compatible = base_compatible and not mismatches
     if not compatible:
-        return {"compatible": False, "metadata_mismatches": mismatches}
+        return {
+            "compatible": False,
+            "metadata_mismatches": mismatches,
+            "process_local_identity_mismatches": process_local_identity_mismatches,
+        }
 
     luminance_errors: list[float] = []
     luminance_overestimates: list[float] = []
@@ -959,6 +984,7 @@ def compare_reference(approximate: Capture, exact: Capture) -> dict[str, object]
     return {
         "compatible": True,
         "metadata_mismatches": [],
+        "process_local_identity_mismatches": process_local_identity_mismatches,
         "hit_mask_matches": hit_mask_matches,
         "sample_count": len(luminance_errors),
         "luminance_error_mean": (
