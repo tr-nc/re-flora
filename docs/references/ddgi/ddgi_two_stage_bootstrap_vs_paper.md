@@ -167,6 +167,93 @@ That distinction is the answer to whether Re: Flora has already “synced with t
 recursive radiance term is present at S2+, but random temporal sampling, hysteresis, and adaptive
 probe scheduling are not.
 
+## Clarification: temporal accumulation does not require perpetual updates
+
+Majercik et al. do run the update loop every frame in their **reference implementation**: section
+4.2 says that every scene probe is marked active and receives the same ray count every frame. That
+is not stated as a requirement of the transport estimator. In the immediately preceding paragraph,
+the authors report experimenting with probe subsets and distance-dependent ray counts; they choose
+the all-probes schedule for simplicity. Sections 6.1-6.2 call it a conservative performance choice
+and leave optimized probe selection and adaptive updates to future work ([paper, sections 4.2,
+6.1-6.2][paper-pdf]).
+
+“Temporal” therefore means **across probe-update epochs**, not necessarily across every display
+frame. If a volume is updated once every four frames, its random rotation and history blend advance
+once every four frames. If updates stop, the last probe textures remain valid and rendering can
+reuse them indefinitely; there is no requirement to decay or recompute them merely because another
+camera frame was presented.
+
+Continued updates are useful while a static field is still converging for two independent reasons:
+
+1. Randomly rotated 64-ray sets contribute new angular samples, reducing finite-sample error.
+2. Previous-field recursion propagates additional diffuse transport orders over successive updates.
+
+Once both effects are converged enough, a truly static scene can sleep. RTXGI explicitly supports
+this policy: it says per-frame updates are common but lower-frequency and asynchronous schedules are
+valid, and its Probe Variability feature exists so an application can pause ray tracing and blending
+when variability settles, then re-enable them when a light-field-changing event occurs
+([RTXGI volume update][rtxgi-volume-update], [RTXGI probe variability][rtxgi-variability]). A
+periodic low-frequency probe update is therefore an optional safety net for untracked changes, not a
+physical or algorithmic requirement. With reliable geometry and radiance revision tracking, an
+event-driven wake-up is sufficient.
+
+Re: Flora already implements the same high-level **converge then sleep** lifecycle, but for its
+deterministic zero-hysteresis field iterations: two consecutive complete feedback iterations must
+fall below absolute and relative delta thresholds; a converged terminal field schedules no more
+feedback until a geometry, density, or radiance request wakes it
+([current convergence policy][current-convergence-policy], [current scheduler stop rule][scheduler-stop-rule]).
+The current result is “exact” only in the narrower engineering sense of being deterministic,
+complete, and revision-consistent. Sixty-four fixed directions are still a finite angular
+quadrature, not the exact rendering-equation integral.
+
+### Why a paper-style temporal bootstrap does not automatically erase S0 work
+
+There are two different latency claims that must not be conflated:
+
+- A paper-style implementation can **display an evolving new field after one full update**.
+- It cannot necessarily produce Re: Flora's current, clean, sky-lit S1 result from no valid history
+  in one update.
+
+On a black cold start, the first paper-style update can store sky misses and directly sun-lit terrain
+hits, but a terrain hit that obtains diffuse sky illumination from the previous probe field still
+reads black. The `sky -> terrain surface` dependency only becomes available on the next update. This
+is the same transport dependency that Re: Flora makes explicit as private S0 followed by S1. Making
+the first incomplete field visible removes the publication wait; it does not remove the underlying
+light-transport work.
+
+Warm-starting from the old Active field can produce a richer first result after one update, but it
+is no longer a clean current-geometry result. Old irradiance and moment visibility participate in
+new hit shading, and normal hysteresis deliberately retains most old history. After a wall is added,
+removed, or moved, that can temporarily preserve light from an obsolete visibility topology. The
+2019 paper itself notes that indirect illumination can appear to “flow” after dramatic visibility
+changes because of previous-frame latency (section 4).
+
+There are only three honest ways to obtain a clean, sky-lit first result with one full probe update:
+
+1. evaluate environment/sky direct illumination independently at every terrain hit;
+2. reuse history only where a conservative invalidation system proves geometry and visibility are
+   unchanged; or
+3. accept a lower-order/incomplete first field and converge it later.
+
+The first moves S0's work into another estimator, the second requires local dependency tracking that
+Re: Flora does not yet have, and the third changes the current publication-quality contract.
+
+### Recommended event policy
+
+| Event | Source/history policy | Update schedule | Sleep condition |
+|---|---|---|---|
+| Initial load or full geometry/density change | keep clean `S0 -> S1`; do not sample old-revision visibility globally | publish S1, then rotated temporal feedback | variability/delta stable for consecutive updates |
+| Same geometry, sun/sky/material-lighting change | retain the last complete geometry-valid field; reset or sharply lower irradiance hysteresis | update affected volume until stable | stable again |
+| Proven local geometry edit (future) | retain unaffected probes; clear and bootstrap only conservative invalid region plus propagation margin | prioritize invalid/neighbor probes | all awakened regions stable |
+| Camera-only movement in a fixed world-space volume | retain all probe state | no update required | already asleep |
+| No tracked scene or lighting change | retain all probe state | no mandatory periodic work | remain asleep |
+
+Thus the refined recommendation is to adopt the paper/RTXGI temporal machinery for rotated angular
+sampling and same-revision convergence, but not to equate that with globally warm-starting a new
+geometry revision. The strict S0/S1 path can eventually disappear **if** an equivalent clean
+direct-sky estimator or conservative invalidation scheme replaces its correctness role; temporal
+blending alone is not that replacement.
+
 ## What current engines commonly do
 
 There is no single engine-standard GI update form. The closest comparison is RTXGI DDGI; Lumen,
@@ -263,6 +350,8 @@ edit cannot make consumers observe a partially rebuilt field.
 [paper-pdf]: https://jcgt.org/published/0008/02/01/paper-lowres.pdf
 [rtxgi-integration]: https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/Integration.md#tracing-probe-rays-for-a-ddgivolume
 [rtxgi-volume]: https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/DDGIVolume.md#updating-a-ddgivolume
+[rtxgi-volume-update]: https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/DDGIVolume.md#updating-a-ddgivolume
+[rtxgi-variability]: https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/DDGIVolume.md#probe-variability
 [lumen-overview]: https://dev.epicgames.com/documentation/en-us/unreal-engine/lumen-global-illumination-and-reflections-in-unreal-engine
 [lumen-update]: https://dev.epicgames.com/documentation/en-us/unreal-engine/lumen-global-illumination-and-reflections-in-unreal-engine#lumenlightingupdatespeed
 [unity-apv]: https://docs.unity3d.com/6000.0/Documentation/Manual/urp/probevolumes-concept.html
@@ -277,3 +366,5 @@ edit cannot make consumers observe a partially rebuilt field.
 [terrain-reference]: ../../../shader/slang/tracer.slang#L188-L278
 [path-tracing-gui]: ../../../config/gui.toml#L138-L171
 [industry-update-strategies]: industry-dynamic-scene-update-strategies.md
+[current-convergence-policy]: ../../../src/ddgi/resources.rs#L26-L43
+[scheduler-stop-rule]: ../../../src/ddgi/scheduler.rs#L446-L485
