@@ -95,7 +95,6 @@ pub(crate) enum VoxelEdit {
         cuboids: Vec<Cuboid>,
         voxel_type: u32,
     },
-    #[allow(dead_code)]
     StampSpheres {
         bvh_nodes: Vec<BvhNode>,
         spheres: Vec<Sphere>,

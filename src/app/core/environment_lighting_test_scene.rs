@@ -1,15 +1,18 @@
 use super::App;
 use crate::app::world_edits::{BuildEdit, TerrainRemovalEdit, VoxelEdit, WorldEditPlan};
-use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
+use crate::builder::{
+    VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMPTY, VOXEL_TYPE_OAK_WOOD,
+    VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
+};
 use crate::ddgi::{
     DdgiBuildKind, DdgiFieldIdentity, DdgiFieldState, DdgiRefreshState, DdgiScheduledWorkKind,
     DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
 };
-use crate::geom::{build_bvh, Cuboid, UAabb3};
+use crate::geom::{build_bvh, Cuboid, Sphere, UAabb3};
 use crate::EnvironmentLightingTestCase;
 use anyhow::{Context, Result};
 use egui::Color32;
-use glam::{UVec3, Vec3};
+use glam::{Quat, UVec3, Vec3};
 
 const BUILD_DELAY_SECONDS: f32 = 0.5;
 const SETTLE_FRAMES: u8 = 2;
@@ -19,6 +22,9 @@ const TEST_SEASON: f32 = 0.25;
 const PATT_SEAM_TIME_OF_DAY: f32 = 0.49;
 const PATT_SEAM_LATITUDE: f32 = -0.07;
 const PATT_SEAM_SEASON: f32 = 0.29;
+const CORNELL_TIME_OF_DAY: f32 = 0.5;
+const CORNELL_LATITUDE: f32 = 0.0;
+const CORNELL_SEASON: f32 = 0.25;
 const TEST_VOXEL_COLOR_VARIANCE: f32 = 0.0;
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 const RADIANCE_R1_SUN_COLOR: Color32 = Color32::from_rgb(255, 241, 224);
@@ -44,6 +50,34 @@ const INTERIOR_MIN: Vec3 = Vec3::new(112.0, 100.0, 242.0);
 const INTERIOR_MAX: Vec3 = Vec3::new(222.0, 216.0, 376.0);
 const SKYLIGHT_MIN: Vec3 = Vec3::new(144.0, 216.0, 270.0);
 const SKYLIGHT_MAX: Vec3 = Vec3::new(192.0, 244.0, 334.0);
+
+// Classic Cornell Box composition in terrain voxels. The front is open toward +Z. Four ceiling
+// slabs leave a centered skylight because terrain materials do not currently include emitters.
+const CORNELL_CLEAR_MIN: Vec3 = Vec3::new(64.0, 0.0, 48.0);
+const CORNELL_CLEAR_MAX: Vec3 = Vec3::new(448.0, 432.0, 480.0);
+const CORNELL_FLOOR_MIN: Vec3 = Vec3::new(96.0, 64.0, 80.0);
+const CORNELL_FLOOR_MAX: Vec3 = Vec3::new(416.0, 80.0, 416.0);
+const CORNELL_BACK_MIN: Vec3 = Vec3::new(96.0, 80.0, 80.0);
+const CORNELL_BACK_MAX: Vec3 = Vec3::new(416.0, 400.0, 96.0);
+const CORNELL_LEFT_WALL_MIN: Vec3 = Vec3::new(96.0, 80.0, 80.0);
+const CORNELL_LEFT_WALL_MAX: Vec3 = Vec3::new(112.0, 400.0, 416.0);
+const CORNELL_RIGHT_WALL_MIN: Vec3 = Vec3::new(400.0, 80.0, 80.0);
+const CORNELL_RIGHT_WALL_MAX: Vec3 = Vec3::new(416.0, 400.0, 416.0);
+const CORNELL_CEILING_BACK_MIN: Vec3 = Vec3::new(96.0, 384.0, 80.0);
+const CORNELL_CEILING_BACK_MAX: Vec3 = Vec3::new(416.0, 400.0, 184.0);
+const CORNELL_CEILING_FRONT_MIN: Vec3 = Vec3::new(96.0, 384.0, 280.0);
+const CORNELL_CEILING_FRONT_MAX: Vec3 = Vec3::new(416.0, 400.0, 416.0);
+const CORNELL_CEILING_LEFT_MIN: Vec3 = Vec3::new(96.0, 384.0, 184.0);
+const CORNELL_CEILING_LEFT_MAX: Vec3 = Vec3::new(216.0, 400.0, 280.0);
+const CORNELL_CEILING_RIGHT_MIN: Vec3 = Vec3::new(296.0, 384.0, 184.0);
+const CORNELL_CEILING_RIGHT_MAX: Vec3 = Vec3::new(416.0, 400.0, 280.0);
+const CORNELL_CUBE_CENTER: Vec3 = Vec3::new(326.0, 124.0, 190.0);
+const CORNELL_CUBE_HALF_SIZE: Vec3 = Vec3::splat(44.0);
+const CORNELL_CUBE_YAW_RADIANS: f32 = -0.349_065_84;
+const CORNELL_LARGE_SPHERE_CENTER: Vec3 = Vec3::new(190.0, 141.0, 250.0);
+const CORNELL_LARGE_SPHERE_RADIUS: f32 = 61.0;
+const CORNELL_SMALL_SPHERE_CENTER: Vec3 = Vec3::new(325.0, 118.0, 310.0);
+const CORNELL_SMALL_SPHERE_RADIUS: f32 = 38.0;
 const PATT_SEAM_DIG_CENTERS: [Vec3; 2] = [
     Vec3::new(0.58, 226.0 / 256.0, 1.10),
     Vec3::new(0.52, 226.0 / 256.0, 1.20),
@@ -535,15 +569,24 @@ struct TestSceneGeometry {
     rock: Vec<Cuboid>,
     carved_empty: Vec<Cuboid>,
     sand: Vec<Cuboid>,
+    cherry_wood: Vec<Cuboid>,
+    oak_wood: Vec<Cuboid>,
+    dirt_spheres: Vec<Sphere>,
+    sand_spheres: Vec<Sphere>,
+    rebuild_without_flora: bool,
     startup_obstacle_rebuild_bound: UAabb3,
     test_rebuild_bound: UAabb3,
 }
 
 fn test_rebuild_bound(case: EnvironmentLightingTestCase) -> UAabb3 {
-    if case == EnvironmentLightingTestCase::Dogleg {
-        UAabb3::new(DOGLEG_CLEAR_MIN.as_uvec3(), DOGLEG_CLEAR_MAX.as_uvec3())
-    } else {
-        UAabb3::new(TEST_REBUILD_MIN, TEST_REBUILD_MAX)
+    match case {
+        EnvironmentLightingTestCase::Dogleg => {
+            UAabb3::new(DOGLEG_CLEAR_MIN.as_uvec3(), DOGLEG_CLEAR_MAX.as_uvec3())
+        }
+        EnvironmentLightingTestCase::CornellBox => {
+            UAabb3::new(CORNELL_CLEAR_MIN.as_uvec3(), CORNELL_CLEAR_MAX.as_uvec3())
+        }
+        _ => UAabb3::new(TEST_REBUILD_MIN, TEST_REBUILD_MAX),
     }
 }
 
@@ -554,6 +597,53 @@ impl TestSceneGeometry {
         let startup_obstacle_aabb = startup_obstacle.aabb();
 
         let test_rebuild_bound = test_rebuild_bound(case);
+        if case == EnvironmentLightingTestCase::CornellBox {
+            return Self {
+                cleared_startup_obstacle: vec![startup_obstacle],
+                cleared_test_scene: vec![Cuboid::from_min_max(
+                    CORNELL_CLEAR_MIN,
+                    CORNELL_CLEAR_MAX,
+                )],
+                rock: vec![
+                    Cuboid::from_min_max(CORNELL_FLOOR_MIN, CORNELL_FLOOR_MAX),
+                    Cuboid::from_min_max(CORNELL_BACK_MIN, CORNELL_BACK_MAX),
+                    Cuboid::from_min_max(CORNELL_CEILING_BACK_MIN, CORNELL_CEILING_BACK_MAX),
+                    Cuboid::from_min_max(CORNELL_CEILING_FRONT_MIN, CORNELL_CEILING_FRONT_MAX),
+                    Cuboid::from_min_max(CORNELL_CEILING_LEFT_MIN, CORNELL_CEILING_LEFT_MAX),
+                    Cuboid::from_min_max(CORNELL_CEILING_RIGHT_MIN, CORNELL_CEILING_RIGHT_MAX),
+                    Cuboid::new_oriented(
+                        CORNELL_CUBE_CENTER,
+                        CORNELL_CUBE_HALF_SIZE,
+                        Quat::from_rotation_y(CORNELL_CUBE_YAW_RADIANS),
+                    ),
+                ],
+                carved_empty: Vec::new(),
+                sand: Vec::new(),
+                cherry_wood: vec![Cuboid::from_min_max(
+                    CORNELL_LEFT_WALL_MIN,
+                    CORNELL_LEFT_WALL_MAX,
+                )],
+                oak_wood: vec![Cuboid::from_min_max(
+                    CORNELL_RIGHT_WALL_MIN,
+                    CORNELL_RIGHT_WALL_MAX,
+                )],
+                dirt_spheres: vec![Sphere::new(
+                    CORNELL_SMALL_SPHERE_CENTER,
+                    CORNELL_SMALL_SPHERE_RADIUS,
+                )],
+                sand_spheres: vec![Sphere::new(
+                    CORNELL_LARGE_SPHERE_CENTER,
+                    CORNELL_LARGE_SPHERE_RADIUS,
+                )],
+                rebuild_without_flora: true,
+                startup_obstacle_rebuild_bound: UAabb3::new(
+                    startup_obstacle_aabb.min_uvec3(),
+                    startup_obstacle_aabb.max_uvec3(),
+                ),
+                test_rebuild_bound,
+            };
+        }
+
         let (cleared_test_scene, rock, carved_empty, sand) = match case {
             EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => (
                 Vec::new(),
@@ -620,6 +710,7 @@ impl TestSceneGeometry {
                     DOGLEG_FIRST_REFLECTOR_MAX,
                 )],
             ),
+            EnvironmentLightingTestCase::CornellBox => unreachable!(),
         };
 
         Self {
@@ -628,6 +719,11 @@ impl TestSceneGeometry {
             rock,
             carved_empty,
             sand,
+            cherry_wood: Vec::new(),
+            oak_wood: Vec::new(),
+            dirt_spheres: Vec::new(),
+            sand_spheres: Vec::new(),
+            rebuild_without_flora: false,
             startup_obstacle_rebuild_bound: UAabb3::new(
                 startup_obstacle_aabb.min_uvec3(),
                 startup_obstacle_aabb.max_uvec3(),
@@ -651,12 +747,32 @@ impl TestSceneGeometry {
         if !self.sand.is_empty() {
             voxel_edits.push(stamp_cuboids(self.sand, VOXEL_TYPE_SAND)?);
         }
-        Ok(WorldEditPlan {
-            voxel_edits,
-            build_edits: vec![
+        if !self.cherry_wood.is_empty() {
+            voxel_edits.push(stamp_cuboids(self.cherry_wood, VOXEL_TYPE_CHERRY_WOOD)?);
+        }
+        if !self.oak_wood.is_empty() {
+            voxel_edits.push(stamp_cuboids(self.oak_wood, VOXEL_TYPE_OAK_WOOD)?);
+        }
+        if !self.dirt_spheres.is_empty() {
+            voxel_edits.push(stamp_spheres(self.dirt_spheres, VOXEL_TYPE_DIRT)?);
+        }
+        if !self.sand_spheres.is_empty() {
+            voxel_edits.push(stamp_spheres(self.sand_spheres, VOXEL_TYPE_SAND)?);
+        }
+        let build_edits = if self.rebuild_without_flora {
+            vec![
+                BuildEdit::RebuildMeshWithoutFlora(self.startup_obstacle_rebuild_bound),
+                BuildEdit::RebuildMeshWithoutFlora(self.test_rebuild_bound),
+            ]
+        } else {
+            vec![
                 BuildEdit::RebuildMesh(self.startup_obstacle_rebuild_bound),
                 BuildEdit::RebuildMesh(self.test_rebuild_bound),
-            ],
+            ]
+        };
+        Ok(WorldEditPlan {
+            voxel_edits,
+            build_edits,
         })
     }
 }
@@ -668,6 +784,17 @@ fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
     Ok(VoxelEdit::StampCuboids {
         bvh_nodes,
         cuboids,
+        voxel_type,
+    })
+}
+
+fn stamp_spheres(spheres: Vec<Sphere>, voxel_type: u32) -> Result<VoxelEdit> {
+    let aabbs = spheres.iter().map(Sphere::aabb).collect::<Vec<_>>();
+    let leaves = (0..spheres.len() as u32).collect::<Vec<_>>();
+    let bvh_nodes = build_bvh(&aabbs, &leaves).map_err(anyhow::Error::msg)?;
+    Ok(VoxelEdit::StampSpheres {
+        bvh_nodes,
+        spheres,
         voxel_type,
     })
 }
@@ -687,6 +814,9 @@ fn skylight_edit_plan(edit: TerrainEdit) -> Result<WorldEditPlan> {
 
 fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
     match case {
+        EnvironmentLightingTestCase::CornellBox => {
+            (Vec3::new(1.0, 0.88, 1.95), Vec3::new(1.0, 0.77, 0.82))
+        }
         EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => {
             (Vec3::new(0.65, 0.58, 1.38), Vec3::new(0.65, 0.64, 1.02))
         }
@@ -721,6 +851,15 @@ struct TestVoxelPalette {
 }
 
 fn voxel_palette(case: EnvironmentLightingTestCase) -> TestVoxelPalette {
+    if case == EnvironmentLightingTestCase::CornellBox {
+        return TestVoxelPalette {
+            dirt: Color32::from_rgb(48, 88, 176),
+            sand: Color32::from_rgb(214, 164, 56),
+            cherry_wood: Color32::from_rgb(184, 34, 30),
+            oak_wood: Color32::from_rgb(34, 140, 62),
+            rock: Color32::from_rgb(198, 198, 190),
+        };
+    }
     TestVoxelPalette {
         dirt: Color32::from_rgb(95, 95, 95),
         sand: if matches!(
@@ -739,6 +878,9 @@ fn voxel_palette(case: EnvironmentLightingTestCase) -> TestVoxelPalette {
 
 fn test_lighting(case: EnvironmentLightingTestCase) -> (f32, f32, f32) {
     match case {
+        EnvironmentLightingTestCase::CornellBox => {
+            (CORNELL_TIME_OF_DAY, CORNELL_LATITUDE, CORNELL_SEASON)
+        }
         EnvironmentLightingTestCase::PattSeam => {
             (PATT_SEAM_TIME_OF_DAY, PATT_SEAM_LATITUDE, PATT_SEAM_SEASON)
         }
@@ -967,6 +1109,12 @@ impl App {
                 {
                     Ok(()) => {
                         let rebuild_bound = test_rebuild_bound(case);
+                        if case == EnvironmentLightingTestCase::CornellBox {
+                            log::info!(
+                                "[CORNELL_BOX] geometry published room_surfaces=4 ceiling_slabs=4 spheres=2 oriented_cubes=1 cube_yaw_degrees={:.1} skylight=overhead",
+                                CORNELL_CUBE_YAW_RADIANS.to_degrees(),
+                            );
+                        }
                         log::info!(
                             "[ENV_LIGHT_TEST] static edits applied case={} rebuild_voxel_bound={:?}..{:?}",
                             case.label(),
@@ -2044,6 +2192,7 @@ mod tests {
     fn all_test_scene_plans_are_static_and_bounded() {
         for case in [
             EnvironmentLightingTestCase::Sealed,
+            EnvironmentLightingTestCase::CornellBox,
             EnvironmentLightingTestCase::PattSeam,
             EnvironmentLightingTestCase::Portal,
             EnvironmentLightingTestCase::Walls,
@@ -2058,14 +2207,103 @@ mod tests {
             let plan = TestSceneGeometry::build(case).compile().unwrap();
             assert!(plan.voxel_edits.len() >= 2);
             assert_eq!(plan.build_edits.len(), 2);
-            assert!(plan.build_edits.iter().all(|edit| {
-                matches!(
-                    edit,
-                    BuildEdit::RebuildMesh(bound)
-                        if bound.max().cmple(UVec3::splat(512)).all()
-                )
+            assert!(plan.build_edits.iter().all(|edit| match edit {
+                BuildEdit::RebuildMesh(bound) | BuildEdit::RebuildMeshWithoutFlora(bound) => {
+                    bound.max().cmple(UVec3::splat(512)).all()
+                }
+                _ => false,
             }));
         }
+    }
+
+    #[test]
+    fn cornell_box_uses_colored_walls_real_spheres_and_an_oriented_cube() {
+        let palette = voxel_palette(EnvironmentLightingTestCase::CornellBox);
+        assert!(palette.cherry_wood.r() > palette.cherry_wood.g() * 4);
+        assert!(palette.oak_wood.g() > palette.oak_wood.r() * 3);
+        assert!((palette.rock.r() as i16 - palette.rock.g() as i16).abs() <= 8);
+
+        let geometry = TestSceneGeometry::build(EnvironmentLightingTestCase::CornellBox);
+        assert_eq!(geometry.cherry_wood.len(), 1);
+        assert_eq!(geometry.oak_wood.len(), 1);
+        assert_eq!(geometry.dirt_spheres.len(), 1);
+        assert_eq!(geometry.sand_spheres.len(), 1);
+        assert!(geometry.rebuild_without_flora);
+        assert_eq!(
+            geometry.dirt_spheres[0].center(),
+            CORNELL_SMALL_SPHERE_CENTER
+        );
+        assert_eq!(
+            geometry.sand_spheres[0].center(),
+            CORNELL_LARGE_SPHERE_CENTER
+        );
+        assert_eq!(
+            CORNELL_SMALL_SPHERE_CENTER.y - CORNELL_SMALL_SPHERE_RADIUS,
+            CORNELL_FLOOR_MAX.y
+        );
+        assert_eq!(
+            CORNELL_LARGE_SPHERE_CENTER.y - CORNELL_LARGE_SPHERE_RADIUS,
+            CORNELL_FLOOR_MAX.y
+        );
+
+        let cube = geometry
+            .rock
+            .iter()
+            .find(|cuboid| !cuboid.rotation().abs_diff_eq(Quat::IDENTITY, 1.0e-6))
+            .expect("Cornell Box must contain a genuinely oriented cube");
+        assert!(cube
+            .rotation()
+            .abs_diff_eq(Quat::from_rotation_y(CORNELL_CUBE_YAW_RADIANS), 1.0e-6));
+        assert_eq!(cube.center().y - cube.half_size().y, CORNELL_FLOOR_MAX.y);
+
+        let plan = geometry.compile().unwrap();
+        assert_eq!(
+            plan.voxel_edits
+                .iter()
+                .filter(|edit| matches!(edit, VoxelEdit::StampSpheres { .. }))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn cornell_box_camera_looks_through_the_open_front() {
+        let (position, target) = camera_pose(EnvironmentLightingTestCase::CornellBox);
+
+        assert!(position.z > CORNELL_FLOOR_MAX.z / VOXELS_PER_WORLD_UNIT);
+        assert!(position.z < 2.0);
+        assert!(target.x > CORNELL_LEFT_WALL_MAX.x / VOXELS_PER_WORLD_UNIT);
+        assert!(target.x < CORNELL_RIGHT_WALL_MIN.x / VOXELS_PER_WORLD_UNIT);
+        assert!(target.y > CORNELL_FLOOR_MAX.y / VOXELS_PER_WORLD_UNIT);
+        assert!(target.y < CORNELL_CEILING_BACK_MIN.y / VOXELS_PER_WORLD_UNIT);
+    }
+
+    #[test]
+    fn cornell_box_skylight_projects_direct_sun_onto_the_room() {
+        let (time_of_day, latitude, season) =
+            test_lighting(EnvironmentLightingTestCase::CornellBox);
+        let (sun_altitude, sun_azimuth) =
+            crate::app::environment::calculate_sun_position(time_of_day, latitude, season);
+        let incoming =
+            -crate::util::get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
+        let opening_center_vox = Vec3::new(
+            (CORNELL_CEILING_LEFT_MAX.x + CORNELL_CEILING_RIGHT_MIN.x) * 0.5,
+            CORNELL_CEILING_BACK_MIN.y,
+            (CORNELL_CEILING_BACK_MAX.z + CORNELL_CEILING_FRONT_MIN.z) * 0.5,
+        );
+        let distance = (CORNELL_FLOOR_MAX.y - opening_center_vox.y) / incoming.y;
+        let floor_hit = opening_center_vox + incoming * distance;
+
+        assert!(incoming.y < 0.0);
+        assert!(distance > 0.0);
+        assert!(
+            floor_hit.x > CORNELL_FLOOR_MIN.x && floor_hit.x < CORNELL_FLOOR_MAX.x,
+            "sun misses Cornell floor on X: {floor_hit:?}"
+        );
+        assert!(
+            floor_hit.z > CORNELL_FLOOR_MIN.z && floor_hit.z < CORNELL_FLOOR_MAX.z,
+            "sun misses Cornell floor on Z: {floor_hit:?}"
+        );
     }
 
     #[test]

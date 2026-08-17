@@ -44,6 +44,26 @@ to `time_of_day=0.535705` to exercise environment-only SH reprojection. It then 
 skylight above the roofed plinth, waits for probe convergence, restores the roof, and waits for the
 closure revision. Those runtime overrides and edits are not persisted.
 
+## Cornell Box Scene
+
+Launch the classic room composition directly with:
+
+```bash
+cargo run -- --cornell-box-scene
+```
+
+`--cornell-box-scene` maps to the `cornell-box` environment-lighting case and therefore uses the
+same terrain publication and DDGI readiness lifecycle as the other deterministic cases. The scene
+contains a neutral floor, back wall and ceiling; red and green side walls; two solid voxel spheres;
+and one solid voxel cube rotated 20 degrees around the vertical axis through the general oriented
+cuboid stamping path. The open front is framed by a deterministic camera pose.
+
+Terrain materials do not currently support emitters, so a centered ceiling aperture and a fixed
+overhead sun replace the canonical emissive ceiling panel. This keeps the room useful for direct
+shadowing, color bleeding, visibility and temporal-convergence review without introducing a
+scene-only light implementation. `--environment-lighting-test-scene cornell-box` is an equivalent
+lower-level spelling; do not combine both flags.
+
 ## Hidden Validation Command
 
 All automated validation must run hidden:

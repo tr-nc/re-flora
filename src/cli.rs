@@ -38,6 +38,7 @@ pub enum MonitorScorePreference {
 pub enum EnvironmentLightingTestCase {
     #[default]
     Sealed,
+    CornellBox,
     PattSeam,
     Portal,
     Walls,
@@ -55,6 +56,7 @@ impl EnvironmentLightingTestCase {
     fn from_cli_value(value: &str) -> Option<Self> {
         match value {
             "sealed" => Some(Self::Sealed),
+            "cornell-box" => Some(Self::CornellBox),
             "patt-seam" => Some(Self::PattSeam),
             "portal" => Some(Self::Portal),
             "walls" => Some(Self::Walls),
@@ -73,6 +75,7 @@ impl EnvironmentLightingTestCase {
     pub fn label(self) -> &'static str {
         match self {
             Self::Sealed => "sealed",
+            Self::CornellBox => "cornell-box",
             Self::PattSeam => "patt-seam",
             Self::Portal => "portal",
             Self::Walls => "walls",
@@ -360,7 +363,17 @@ impl AppOptions {
             }
             None => None,
         };
-        let environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
+        let mut environment_lighting_test_scene = parse_environment_lighting_test_scene(&args)?;
+        let cornell_box_scene = args.iter().any(|arg| arg == "--cornell-box-scene");
+        if cornell_box_scene && environment_lighting_test_scene.is_some() {
+            return Err(
+                "Do not combine --cornell-box-scene with --environment-lighting-test-scene."
+                    .to_owned(),
+            );
+        }
+        if cornell_box_scene {
+            environment_lighting_test_scene = Some(EnvironmentLightingTestCase::CornellBox);
+        }
         let environment_irradiance_capture_path = parse_required_string_after(
             "--environment-irradiance-capture",
             "an output .rfirr path",
@@ -470,6 +483,12 @@ impl AppOptions {
         let hybrid_transparency_test_scene = args
             .iter()
             .any(|arg| arg == "--hybrid-transparency-test-scene");
+        if cornell_box_scene && hybrid_transparency_test_scene {
+            return Err(
+                "Do not combine --cornell-box-scene with --hybrid-transparency-test-scene."
+                    .to_owned(),
+            );
+        }
         let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
         if water_experience
             && (environment_lighting_test_scene.is_some()
@@ -632,7 +651,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, cornell-box, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
                 )
             }),
     }
@@ -823,8 +842,9 @@ Options:
   --water-gamma <G>           Override weakly-compressible EOS gamma
   --water-j-min <J>           Override minimum weakly-compressible volume ratio J
   --water-edit-soak           Run deterministic pond terrain edits for water validation
+  --cornell-box-scene         Build a classic Cornell Box room with colored walls, spheres, and a rotated cube
   --environment-lighting-test-scene [case]
-                              Build a lighting case: sealed (default), patt-seam, portal, walls, donor, dogleg,
+                              Build a lighting case: sealed (default), cornell-box, patt-seam, portal, walls, donor, dogleg,
                               radiance-changes, density-changes, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, or
                               terrain-edits-closed
@@ -873,6 +893,7 @@ Examples:
   re-flora --auto-exit 10 --perf
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance
   re-flora --water-experience
+  re-flora --cornell-box-scene
   re-flora --hidden --mute --auto-exit 4 --perf --water-particles 35000 --water-particle-edge-len 0.05
   re-flora --hidden --mute --auto-exit 4 --perf --water-profile performance --water-damping 1.5 --water-terrain-margin-cells 0.0
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
@@ -1007,6 +1028,7 @@ mod tests {
     fn parses_named_environment_lighting_test_scenes() {
         for (name, expected) in [
             ("sealed", EnvironmentLightingTestCase::Sealed),
+            ("cornell-box", EnvironmentLightingTestCase::CornellBox),
             ("patt-seam", EnvironmentLightingTestCase::PattSeam),
             ("portal", EnvironmentLightingTestCase::Portal),
             ("walls", EnvironmentLightingTestCase::Walls),
@@ -1049,8 +1071,45 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
+            "sealed, cornell-box, patt-seam, portal, walls, donor, dogleg, radiance-changes, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
         ));
+    }
+
+    #[test]
+    fn cornell_box_flag_selects_the_dedicated_lighting_scene() {
+        let options = parse(&["re-flora", "--cornell-box-scene"]);
+
+        assert_eq!(
+            options.environment_lighting_test_scene,
+            Some(EnvironmentLightingTestCase::CornellBox)
+        );
+
+        let conflict = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--cornell-box-scene",
+                "--environment-lighting-test-scene",
+                "sealed",
+            ]
+            .iter()
+            .map(|arg| (*arg).to_owned())
+            .collect(),
+        )
+        .unwrap_err();
+        assert!(conflict.contains("Do not combine --cornell-box-scene"));
+
+        let hybrid_conflict = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--cornell-box-scene",
+                "--hybrid-transparency-test-scene",
+            ]
+            .iter()
+            .map(|arg| (*arg).to_owned())
+            .collect(),
+        )
+        .unwrap_err();
+        assert!(hybrid_conflict.contains("Do not combine --cornell-box-scene"));
     }
 
     #[test]
