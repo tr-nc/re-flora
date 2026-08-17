@@ -58,11 +58,12 @@ contains a neutral floor, back wall and ceiling; red and green side walls; two s
 and one solid voxel cube rotated 20 degrees around the vertical axis through the general oriented
 cuboid stamping path. The open front is framed by a deterministic camera pose.
 
-Terrain materials do not currently support emitters, so a centered ceiling aperture and a fixed
-overhead sun replace the canonical emissive ceiling panel. This keeps the room useful for direct
-shadowing, color bleeding, visibility and temporal-convergence review without introducing a
-scene-only light implementation. `--environment-lighting-test-scene cornell-box` is an equivalent
-lower-level spelling; do not combine both flags.
+Terrain materials do not currently support emitters, so a centered ceiling aperture and overhead
+sunlight replace the canonical emissive ceiling panel. Unlike the deterministic lighting test
+cases, Cornell Box preserves the saved GUI Sky settings, including time of day, latitude, season,
+day/night cycling, sun color, and sun luminance. This keeps the room useful for interactive lighting
+review without introducing a scene-only light implementation. `--environment-lighting-test-scene
+cornell-box` is an equivalent lower-level spelling; do not combine both flags.
 
 ## Hidden Validation Command
 

@@ -888,6 +888,10 @@ fn test_lighting(case: EnvironmentLightingTestCase) -> (f32, f32, f32) {
     }
 }
 
+fn scene_overrides_sky_settings(case: EnvironmentLightingTestCase) -> bool {
+    case != EnvironmentLightingTestCase::CornellBox
+}
+
 fn voxel_roi_to_world(min_voxel: Vec3, max_voxel: Vec3) -> (Vec3, Vec3) {
     (
         min_voxel / VOXELS_PER_WORLD_UNIT,
@@ -906,12 +910,15 @@ impl App {
         let palette = voxel_palette(case);
         let (time_of_day, latitude, season) = test_lighting(case);
         let sun_luminance = RADIANCE_R1_SUN_LUMINANCE;
-        self.set_manual_time_of_day(time_of_day);
-        self.debug_settings.adjustables.latitude.value = latitude;
-        self.debug_settings.adjustables.season.value = season;
-        self.debug_settings.adjustables.auto_daynight_cycle.value = false;
-        self.debug_settings.adjustables.sun_color.value = RADIANCE_R1_SUN_COLOR;
-        self.debug_settings.adjustables.sun_luminance.value = sun_luminance;
+        let overrides_sky_settings = scene_overrides_sky_settings(case);
+        if overrides_sky_settings {
+            self.set_manual_time_of_day(time_of_day);
+            self.debug_settings.adjustables.latitude.value = latitude;
+            self.debug_settings.adjustables.season.value = season;
+            self.debug_settings.adjustables.auto_daynight_cycle.value = false;
+            self.debug_settings.adjustables.sun_color.value = RADIANCE_R1_SUN_COLOR;
+            self.debug_settings.adjustables.sun_luminance.value = sun_luminance;
+        }
         self.debug_settings.adjustables.voxel_dirt_color.value = palette.dirt;
         self.debug_settings.adjustables.voxel_sand_color.value = palette.sand;
         self.debug_settings
@@ -926,8 +933,18 @@ impl App {
             .tracer
             .set_camera_pose_looking_at(camera_position, camera_target)
         {
+            let effective_time_of_day = self.debug_settings.adjustables.time_of_day.value;
+            let effective_latitude = self.debug_settings.adjustables.latitude.value;
+            let effective_season = self.debug_settings.adjustables.season.value;
+            let effective_sun_luminance = self.debug_settings.adjustables.sun_luminance.value;
+            let effective_auto_cycle = self.debug_settings.adjustables.auto_daynight_cycle.value;
+            let sky_settings_source = if overrides_sky_settings {
+                "scene-preset"
+            } else {
+                "persisted-gui"
+            };
             log::info!(
-                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} latitude={:.3} season={:.3} sun_luminance={:.3} auto_cycle=false voxel_color_variance={:.3}",
+                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) sky_settings_source={} time_of_day={:.6} latitude={:.3} season={:.3} sun_luminance={:.3} auto_cycle={} voxel_color_variance={:.3}",
                 case.label(),
                 camera_position.x,
                 camera_position.y,
@@ -935,10 +952,12 @@ impl App {
                 camera_target.x,
                 camera_target.y,
                 camera_target.z,
-                time_of_day,
-                latitude,
-                season,
-                sun_luminance,
+                sky_settings_source,
+                effective_time_of_day,
+                effective_latitude,
+                effective_season,
+                effective_sun_luminance,
+                effective_auto_cycle,
                 TEST_VOXEL_COLOR_VARIANCE,
             );
             if case == EnvironmentLightingTestCase::Donor {
@@ -2276,6 +2295,16 @@ mod tests {
         assert!(target.x < CORNELL_RIGHT_WALL_MIN.x / VOXELS_PER_WORLD_UNIT);
         assert!(target.y > CORNELL_FLOOR_MAX.y / VOXELS_PER_WORLD_UNIT);
         assert!(target.y < CORNELL_CEILING_BACK_MIN.y / VOXELS_PER_WORLD_UNIT);
+    }
+
+    #[test]
+    fn cornell_box_respects_persisted_sky_settings() {
+        assert!(!scene_overrides_sky_settings(
+            EnvironmentLightingTestCase::CornellBox
+        ));
+        assert!(scene_overrides_sky_settings(
+            EnvironmentLightingTestCase::PattSeam
+        ));
     }
 
     #[test]
