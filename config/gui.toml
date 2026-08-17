@@ -830,7 +830,7 @@ label = "Sun Luminance"
 type = "Float"
 
 [section.param.data]
-value = 1.65
+value = 6.1
 min = 0
 max = 10
 
@@ -861,7 +861,7 @@ label = "Initial / Manual Time of Day"
 type = "Float"
 
 [section.param.data]
-value = 0.455705
+value = 0.5
 min = 0
 max = 1
 
@@ -872,7 +872,7 @@ label = "Latitude"
 type = "Float"
 
 [section.param.data]
-value = -0.24
+value = 0
 min = -1
 max = 1
 
@@ -2551,7 +2551,7 @@ label = "Dirt Color"
 type = "Color"
 
 [section.param.data]
-value = "#5F5F5F"
+value = "#3058B0"
 
 [[section.param]]
 id = "voxel_sand_color"
@@ -2560,7 +2560,7 @@ label = "Sand Color"
 type = "Color"
 
 [section.param.data]
-value = "#C2B073"
+value = "#D6A438"
 
 [[section.param]]
 id = "voxel_cherry_wood_color"
@@ -2569,7 +2569,7 @@ label = "Cherry Wood Color"
 type = "Color"
 
 [section.param.data]
-value = "#CAB05C"
+value = "#B8221E"
 
 [[section.param]]
 id = "voxel_oak_wood_color"
@@ -2578,7 +2578,7 @@ label = "Oak Wood Color"
 type = "Color"
 
 [section.param.data]
-value = "#A6904B"
+value = "#228C3E"
 
 [[section.param]]
 id = "voxel_rock_color"
@@ -2587,7 +2587,7 @@ label = "Rock Color"
 type = "Color"
 
 [section.param.data]
-value = "#7A7D80"
+value = "#C6C6BE"
 
 [[section.param]]
 id = "voxel_color_variance"
