@@ -499,6 +499,11 @@ mod tests {
             receiver_visibility_bias["data"]["max"].as_float(),
             Some(0.02)
         );
+        assert_eq!(
+            receiver_visibility_bias["data"]["value"].as_float(),
+            Some(1.0 / 256.0),
+            "the default visibility receiver bias must remain one terrain voxel"
+        );
         for dependent in [ambient, max_bounces] {
             assert_eq!(
                 dependent["enabled_if"]["param"].as_str(),

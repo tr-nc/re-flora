@@ -2,7 +2,7 @@
 
 Research date: 2026-08-18
 
-Scope: diagnosis and experiment design only; no renderer or runtime-setting change
+Scope: diagnosis, experiment design, and the accepted Git/GUI experiment
 
 ## Decision
 
@@ -27,12 +27,12 @@ rotation and translation while the shaded region remains covered
 low-frequency diffuse irradiance, not as a piecewise probe-cell field
 ([RTXGI Algorithms, lines 27–35](https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/Algorithms.md#L27-L35)).
 
-The first implementation experiment should therefore be a **receiver-bias sweep
-in both voxel and probe-spacing units**, with leak regressions, rather than
-another density increase or a precision change. A one-voxel normal bias is the
-smallest tested value that clears the current Cornell metric at spacing 32. It
-is a candidate, not yet an accepted production default, because the spacing-16
-and full edit/occluder matrix still need to run.
+The implementation experiment therefore uses a **one-terrain-voxel normal-only
+receiver bias** (`0.00390625` world), rather than another density increase or a
+precision change. It is the smallest tested value that clears the Cornell
+metric. The previous `0.000977` value remains the Git/GUI control; the new value
+is the branch's experiment default, not a claim that all future geometry can
+drop leak regression coverage.
 
 ## Reproduction contract
 
@@ -116,10 +116,34 @@ existing occluder gates:
   `0.397634` at one voxel), below the committed `0.40` limit, while mean error
   changed from `0.076073` to `0.075950`.
 
-These controls are encouraging but deliberately incomplete: they cover spacing
-32 and static converged geometry, not spacing 16, dogleg/roof cases, or terrain
-edit publication. Every temporary config edit was restored to the original
-SHA-256 before continuing.
+The implementation pass then repeated the committed sealed, portal, and walls
+matrix at spacing 32 and 16. All six quality gates passed with coherent release
+captures. At spacing 16 the sealed result remained black, portal
+Moment-vs-Exact error p99 was `0.000523` against the `0.01` limit, and the walls
+case remained below its `0.375` limit. The spacing-32 walls p99 was `0.397408`
+against the `0.40` limit. A spacing-16 Cornell Moment capture also cleared the
+scaled wall high-pass gate (`0.000257 < 0.001`).
+
+The first full-matrix invocation reported three infrastructure failures: two
+spacing-16 exact views needed about 25 seconds but the script allowed 24, and
+one set changed render extent while the display state changed. Re-capturing at
+a fixed 800 x 450 windowed extent made the missing comparisons compatible and
+green. The walls-spacing-32 repeat payloads were not bit-exact even though both
+were converged at epoch 63; the analyzer's quality and compatibility gates
+passed. Treat that temporal/capture-repeat variance as a separate existing
+test-harness follow-up, not as evidence that a larger bias is free.
+
+Runtime A/B does not require a second flag. The existing
+`DDGI Receiver Visibility Bias (world)` float control accepts exact numeric
+input, persists through the GUI Save action, and participates in the DDGI
+radiance snapshot identity. Enter `0.000977` for the control or `0.00390625` for
+the one-voxel experiment, then wait for the replacement field to report
+Converged. Git commit `deb8c8cd` is the source-level control point.
+
+The dogleg/roof and edit-publication cases were not rerun in this implementation
+pass. They remain required before treating the experiment value as a universal
+production constant. Every earlier temporary config edit was restored before
+the experiment default was changed intentionally.
 
 ## Literature facts
 

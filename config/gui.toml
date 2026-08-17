@@ -1039,7 +1039,7 @@ label = "DDGI Receiver Visibility Bias (world)"
 type = "Float"
 
 [section.param.data]
-value = 0.000977
+value = 0.00390625
 min = 0
 max = 0.02
 
