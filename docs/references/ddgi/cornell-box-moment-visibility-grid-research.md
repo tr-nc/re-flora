@@ -27,10 +27,12 @@ rotation and translation while the shaded region remains covered
 low-frequency diffuse irradiance, not as a piecewise probe-cell field
 ([RTXGI Algorithms, lines 27–35](https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/Algorithms.md#L27-L35)).
 
-The first implementation experiment should therefore be a **probe-spacing-scaled
-receiver-bias sweep**, with leak regressions, rather than another density increase
-or a precision change. The `0.02` world-space A/B is strong causal evidence, not
-yet a safe production value.
+The first implementation experiment should therefore be a **receiver-bias sweep
+in both voxel and probe-spacing units**, with leak regressions, rather than
+another density increase or a precision change. A one-voxel normal bias is the
+smallest tested value that clears the current Cornell metric at spacing 32. It
+is a candidate, not yet an accepted production default, because the spacing-16
+and full edit/occluder matrix still need to run.
 
 ## Reproduction contract
 
@@ -92,6 +94,32 @@ the normalized wall ROI's high-pass standard deviation at sigma 32 changed from
 `0.006608` to `0.0000986`, a 98.5% reduction. This strongly identifies the
 surface/moment boundary as the cause family. It does **not** establish that
 `0.02` is safe near portals or thin walls.
+
+A follow-up sweep bounded the useful transition in terrain-voxel units:
+
+| Normal-only bias | Wall high-pass standard deviation | Gate |
+| --- | ---: | --- |
+| `0.000977` world, about 0.25 voxel | `0.00660821` | RED |
+| `0.001953125` world, 0.5 voxel | `0.00361189` | RED |
+| `0.00390625` world, 1 voxel | `0.000423077` | GREEN |
+| `0.0078125` world, 2 voxels | `0.000245527` | GREEN |
+| `0.02` world, about 5.12 voxels | `0.0000985887` | GREEN |
+
+The one-voxel candidate also made the normal Final capture visibly smooth. In
+matched current-build spacing-32 correctness captures, it did not weaken the
+existing occluder gates:
+
+- the sealed case remained exactly black (`luminance max = 0`);
+- the portal Moment-vs-Exact luminance error p99 was `0.001518`, below the
+  committed `0.01` limit, and overestimate p99 was `0.000171`;
+- the walls p99 was effectively unchanged (`0.397584` at the saved default,
+  `0.397634` at one voxel), below the committed `0.40` limit, while mean error
+  changed from `0.076073` to `0.075950`.
+
+These controls are encouraging but deliberately incomplete: they cover spacing
+32 and static converged geometry, not spacing 16, dogleg/roof cases, or terrain
+edit publication. Every temporary config edit was restored to the original
+SHA-256 before continuing.
 
 ## Literature facts
 
@@ -290,13 +318,15 @@ both Moment Visibility and Final improve. The historical saved-seam analyzer
 targets a different horizontal-seam ROI and is not a red-capable gate for this
 Cornell symptom.
 
-### 2. Sweep a dimensionless receiver bias first
+### 2. Sweep receiver bias in voxel and dimensionless units first
 
 Express the normal-only terrain bias as
 `k * min(probe_spacing_world)` and test, for example,
-`k = {0.05, 0.10, 0.15, 0.20}` at both spacing 32 and spacing 16. Include the
-current values and the `0.02` world A/B as controls. Choose the smallest `k` that
-passes the wall metric; do not copy the paper's mixed normal/view scalar as a
+`k = {0.03125, 0.05, 0.10, 0.15, 0.20}` at both spacing 32 and spacing 16.
+Also compare fixed 0.5-, 1-, and 2-voxel offsets, because Re: Flora's occluders
+and canonical receiver are voxel-defined. Include the current value and the
+`0.02` world A/B as controls. Choose the smallest rule that passes the wall
+metric at both densities; do not copy the paper's mixed normal/view scalar as a
 normal-only constant.
 
 Every bias candidate must also pass sealed-room, portal, roof/skylight,
