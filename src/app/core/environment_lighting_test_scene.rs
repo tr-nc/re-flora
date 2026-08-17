@@ -1,4 +1,4 @@
-use super::{App, TerrainProbeRefreshCadence};
+use super::App;
 use crate::app::world_edits::{BuildEdit, TerrainRemovalEdit, VoxelEdit, WorldEditPlan};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
@@ -1823,7 +1823,6 @@ impl App {
                     Some(VOXEL_TYPE_ROCK),
                     None,
                     None,
-                    TerrainProbeRefreshCadence::Immediate,
                 )?;
                 let stroke_removed: u32 = readback.stats.removed_counts.iter().sum();
                 productive_strokes += usize::from(stroke_removed > 0);

@@ -1,4 +1,4 @@
-use super::super::{App, TerrainProbeRefreshCadence};
+use super::super::App;
 use super::runtime;
 use crate::app::world_edits::TerrainRemovalEdit;
 use crate::builder::VOXEL_TYPE_ROCK;
@@ -111,7 +111,6 @@ impl App {
                     None,
                     Some(65_536),
                     None,
-                    TerrainProbeRefreshCadence::Immediate,
                 )?;
                 let removed: u32 = readback.stats.removed_counts.iter().sum();
                 log::info!(
@@ -133,7 +132,6 @@ impl App {
                     },
                     VOXEL_TYPE_ROCK,
                     65_536,
-                    TerrainProbeRefreshCadence::Immediate,
                 )?;
                 let added: u32 = readback.stats.added_counts.iter().sum();
                 log::info!(
