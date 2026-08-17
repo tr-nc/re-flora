@@ -2281,6 +2281,52 @@ impl PlainBuilder {
         self.chunk_modify_cuboids_with_voxel_type_impl(bvh_nodes, cuboids, fill_voxel_type)
     }
 
+    pub fn chunk_modify_spheres_with_voxel_type(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        spheres: &[Sphere],
+        fill_voxel_type: u32,
+    ) -> Result<()> {
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
+            return Ok(());
+        };
+        update_chunk_modify_info(
+            &self.resources,
+            offset,
+            dim,
+            fill_voxel_type,
+            None,
+            PRIMITIVE_KIND_SPHERE,
+            false,
+            None,
+            None,
+        )?;
+        update_spheres(&self.resources, spheres)?;
+        update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
+
+        execute_one_time_command(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.spheres, BufferUse::HostWrite);
+                self.chunk_modify_ppl.record(
+                    cmdbuf,
+                    Extent3D {
+                        width: dim.x,
+                        height: dim.y,
+                        depth: dim.z,
+                    },
+                    None,
+                );
+            },
+        );
+        Ok(())
+    }
+
     pub fn chunk_modify_surface_spheres_with_voxel_type(
         &mut self,
         bvh_nodes: &[BvhNode],
@@ -3219,8 +3265,9 @@ fn update_round_cones(resources: &PlainBuilderResources, round_cones: &[RoundCon
 fn update_cuboids(resources: &PlainBuilderResources, cuboids: &[Cuboid]) -> Result<()> {
     for (i, cuboid) in cuboids.iter().enumerate() {
         let data = Cuboids {
-            min_corner: cuboid.min().to_array(),
-            max_corner: cuboid.max().to_array(),
+            center: cuboid.center().to_array(),
+            half_size: cuboid.half_size().to_array(),
+            inverse_rotation: cuboid.rotation().conjugate().to_array(),
             ..Cuboids::zeroed()
         };
         resources

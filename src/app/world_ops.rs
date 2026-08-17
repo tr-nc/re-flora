@@ -44,6 +44,11 @@ pub(crate) fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit
                 plain_builder.chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &cuboids, voxel_type)
             }
         }
+        VoxelEdit::StampSpheres {
+            bvh_nodes,
+            spheres,
+            voxel_type,
+        } => plain_builder.chunk_modify_spheres_with_voxel_type(&bvh_nodes, &spheres, voxel_type),
         VoxelEdit::StampSurfaceSpheres {
             bvh_nodes,
             spheres,

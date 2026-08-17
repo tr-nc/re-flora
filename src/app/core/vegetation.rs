@@ -217,9 +217,10 @@ impl CubePlacementService {
     #[allow(dead_code)]
     fn compile(edit: CubePlacementEdit) -> CompiledFencePlacement {
         let half_extent = edit.size * 0.5;
-        let cuboid = Cuboid::new(
+        let cuboid = Cuboid::new_oriented(
             edit.center * 256.0,
             Vec3::new(half_extent, half_extent, half_extent),
+            edit.rotation,
         );
         let cuboids = vec![cuboid];
         let leaves_data_sequential = vec![0_u32];
@@ -2208,6 +2209,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::FRAC_PI_4;
 
     fn tree_record(bound: UAabb3, spawn_x: f32) -> TreeRecord {
         TreeRecord {
@@ -2220,6 +2222,27 @@ mod tests {
             },
             butterfly_spawn_positions_ws: vec![Vec3::new(spawn_x, 0.5, 0.5)],
         }
+    }
+
+    #[test]
+    fn cube_placement_preserves_rotation_and_expands_rebuild_bound() {
+        let rotation = glam::Quat::from_rotation_y(FRAC_PI_4);
+        let compiled = CubePlacementService::compile(CubePlacementEdit {
+            center: Vec3::new(1.0, 0.5, 1.0),
+            size: 64.0,
+            rotation,
+            voxel_type: crate::builder::VOXEL_TYPE_ROCK,
+        });
+        let VoxelEdit::StampCuboids { cuboids, .. } = &compiled.voxel_edit else {
+            panic!("expected cuboid edit");
+        };
+        let cuboid = &cuboids[0];
+
+        assert!(cuboid.rotation().abs_diff_eq(rotation, 1.0e-6));
+        assert!(cuboid.aabb().dimensions().x > 64.0);
+        assert!(cuboid.aabb().dimensions().z > 64.0);
+        assert_eq!(compiled.rebuild_bound.min(), cuboid.aabb().min_uvec3());
+        assert_eq!(compiled.rebuild_bound.max(), cuboid.aabb().max_uvec3());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::tree_gen::TreeDesc;
-use glam::{UVec3, Vec2, Vec3};
+use glam::{Quat, UVec3, Vec2, Vec3};
 
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
@@ -46,6 +46,7 @@ pub(crate) struct FencePostPlacementEdit {
 pub(crate) struct CubePlacementEdit {
     pub(crate) center: Vec3,
     pub(crate) size: f32,
+    pub(crate) rotation: Quat,
     pub(crate) voxel_type: u32,
 }
 
@@ -92,6 +93,12 @@ pub(crate) enum VoxelEdit {
     StampCuboids {
         bvh_nodes: Vec<BvhNode>,
         cuboids: Vec<Cuboid>,
+        voxel_type: u32,
+    },
+    #[allow(dead_code)]
+    StampSpheres {
+        bvh_nodes: Vec<BvhNode>,
+        spheres: Vec<Sphere>,
         voxel_type: u32,
     },
     StampSurfaceSpheres {

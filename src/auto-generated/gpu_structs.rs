@@ -33,10 +33,11 @@ pub struct CounterForLevels {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Cuboids {
-    pub min_corner: [f32; 3],
+    pub center: [f32; 3],
     pub _pad0: f32,
-    pub max_corner: [f32; 3],
+    pub half_size: [f32; 3],
     pub _pad1: f32,
+    pub inverse_rotation: [f32; 4],
 }
 
 /// Auto-generated from `B_DdgiAtlasReduction` (native Slang source of truth).
