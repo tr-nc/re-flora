@@ -41,7 +41,7 @@ Implementation progress:
   refresh is deliberately deferred as an optimization.
 - The temporal-transport milestone is complete: the runtime uses 64 rotated rays per probe,
   publishes a complete epoch zero without the former S0/S1 barrier, accumulates irradiance and
-  visibility history, and sleeps after thresholds or a finite 64-epoch sample budget.
+  visibility history, and sleeps after thresholds or a finite 128-epoch sample budget.
 
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional

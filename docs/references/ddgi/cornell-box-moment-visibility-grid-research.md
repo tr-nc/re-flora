@@ -1,5 +1,13 @@
 # Cornell-box DDGI probe-grid artifact
 
+> **Superseded diagnosis (2026-08-19):** the receiver-bias conclusion below was
+> based on a Moment Visibility debug crop and did not predict the production
+> Final view. A fixed-camera Final A/B retained `98.69%` of the grid energy at
+> the maximum bias. The corrected diagnosis, rejected alternatives, accepted
+> same-side weighting curve, and leak gates are recorded in
+> [`cornell-box-grid-followup.md`](cornell-box-grid-followup.md). This file is
+> retained as the first-pass research record, not current implementation advice.
+
 Research date: 2026-08-18
 
 Scope: diagnosis, experiment design, and the accepted Git/GUI experiment

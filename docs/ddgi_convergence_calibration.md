@@ -13,17 +13,17 @@ or scheduler change.
 | relative floor | `0.05` |
 | minimum complete epochs | `8` |
 | consecutive passing epochs | `2` |
-| maximum complete epochs | `64` (`e0` through `e63`) |
+| maximum complete epochs | `128` (`e0` through `e127`) |
 
 The maximum is a finite temporal sampling budget and sleep backstop. `Threshold` means both deltas
 passed for the required consecutive epochs after the minimum age. `SampleBudget` means the latest
-finite nonnegative field was retained and put to sleep at e63 even though its maximum texel delta did
+finite nonnegative field was retained and put to sleep at e127 even though its maximum texel delta did
 not pass. The lifecycle state is `Converged` in both cases; the reason must be inspected when making
 a quality claim.
 
-## Current evidence
+## Historical 64-epoch baseline
 
-The representative spacing-32 release captures from
+The representative pre-change spacing-32 release captures from
 `target/ddgi-temporal-final-full-rerun/20260816T171425Z-213621/` completed the full field and slept
 at the finite sample budget:
 
@@ -34,9 +34,9 @@ at the finite sample budget:
 | donor | 63 | SampleBudget | 0.00544786 | 0.02720159 |
 | dogleg | 63 | SampleBudget | 0.00493240 | 0.03324598 |
 
-These results are finite and nonnegative but do not satisfy the maximum-delta thresholds. This is
-expected evidence for the implemented bounded temporal sampler, not evidence of numerical fixed-
-point convergence. A dense spacing-16 donor run likewise completed at e63 with max absolute delta
+These results are finite and nonnegative but do not satisfy the maximum-delta thresholds. They
+motivated the current 128-epoch budget; they are historical baseline evidence, not a calibration of
+the new terminal epoch. A dense spacing-16 donor run likewise completed at e63 with max absolute delta
 `0.00804699` and max relative delta `0.03064647`.
 
 The old deterministic fixed-ray, zero-history S5/S6 calibration is not applicable to rotated
@@ -58,12 +58,14 @@ The convergence summarizer validates:
 - finite, nonnegative RGB values;
 - the exact policy constants above;
 - captured epoch/state matching the terminal log record;
-- terminal reason matching either the first valid threshold stop or e63 sample-budget stop.
+- terminal reason matching either the first valid threshold stop or e127 sample-budget stop.
 
 ## Known limitation and next experiment
 
 The present delta is measured after temporal blending. A high history-retention value can reduce
 post-blend delta without proving that new raw samples have low variance. The next calibration should
 record pre-blend sample variability separately, then decide whether threshold sleep can be trusted
-independently of the 64-epoch budget. Per-probe variability and adaptive sleep remain out of scope
-for this implementation.
+independently of the 128-epoch budget. Per-probe variability and adaptive sleep remain out of scope
+for this implementation. The Cornell follow-up records the measured 64/128/256
+quality tradeoff for the current policy
+([follow-up](references/ddgi/cornell-box-grid-followup.md)).

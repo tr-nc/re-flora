@@ -79,7 +79,7 @@ destination = H * history + (1 - H) * current_sample
 ```
 
 `H` is history retention, traditionally called DDGI hysteresis. It is not the new-sample alpha.
-The GUI exposes `DDGI History Retention` in `[0, 0.99]`, with default `0.98`. A value of zero disables
+The GUI exposes `DDGI History Retention` in `[0, 0.99]`, with default `0.99`. A value of zero disables
 the temporal blend while retaining rotated samples and recursive previous-field transport.
 
 History validity and the effective value are:

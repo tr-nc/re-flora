@@ -204,7 +204,7 @@ samples and history accumulation. A terminal field schedules no more updates unt
 density, or radiance request wakes it
 ([current convergence policy][current-convergence-policy], [current scheduler stop rule][scheduler-stop-rule]).
 The current result is deterministic, complete, and revision-consistent, but 64 directions per epoch
-and a finite 64-epoch budget are not the exact rendering-equation integral.
+and a finite 128-epoch budget are not the exact rendering-equation integral.
 
 ## Accepted temporal lifecycle
 
@@ -230,7 +230,7 @@ unpublished Building work -> Converging e0 -> ... -> Converged
 These are lifecycle states, not bounce-order labels. A field no longer claims to be S0, S1, or S2.
 Its identity needs `serial`, `geometry_revision`, `radiance_revision`, `spacing_voxels`, and
 `update_epoch`. `update_epoch` is diagnostic and sequences samples; it does not promise a precise
-bounce count. The implemented 64-epoch budget transitions to `Converged` with reason
+bounce count. The implemented 128-epoch budget transitions to `Converged` with reason
 `SampleBudget`; this is a sleep/quality-budget result, not a claim that thresholds passed.
 
 ### First complete current-revision field
@@ -295,7 +295,7 @@ new result entering at `1 - H`, with `H` in the 0.85-0.98 range ([paper, section
 RTXGI's shader implements the same weighting and lowers hysteresis for large changes
 ([RTXGI probe blending source][rtxgi-probe-blending]).
 
-The implementation exposes one GUI value named `DDGI History Retention`, defaulting to `0.98`, with
+The implementation exposes one GUI value named `DDGI History Retention`, defaulting to `0.99`, with
 these overrides:
 
 | Condition | Effective history retention |

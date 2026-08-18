@@ -60,7 +60,7 @@ The runner does not override `DDGI_CONVERGENCE_POLICY`:
 - absolute delta threshold `0.0025`;
 - relative delta threshold `0.02` with floor `0.05`;
 - minimum 8 complete epochs and two consecutive passing epochs;
-- maximum 64 complete epochs (`e0` through `e63`).
+- maximum 128 complete epochs (`e0` through `e127`).
 
 Both `Threshold` and `SampleBudget` are valid terminal reasons. `SampleBudget` means the finite
 quality budget completed with a finite nonnegative field; it does not mean the threshold passed.

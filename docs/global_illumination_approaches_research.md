@@ -37,13 +37,13 @@ terrain 可以向场中贡献太阳/天空反弹与多次 diffuse 传播，terra
 
 **【事实】runtime consumer query 对 cage 的八个 probes 做 position、surface-side、moment visibility 与 support/confidence 加权；packed-voxel exact visibility 只保留给 probe transport 和 diagnostic/reference query。公开 seam 是 `sampleEnvironmentIrradiance(worldPosition, surfaceNormal)`；terrain compute 与 flora/leaf lighting cache 都通过它消费同一场。Raster Consumers 不进入 DDGI occluder geometry。** 见 [`shader/slang/ddgi_query.slang`](../shader/slang/ddgi_query.slang)、[`shader/slang/environment_lighting.slang`](../shader/slang/environment_lighting.slang)、[`shader/slang/flora_lighting_cache.comp.slang`](../shader/slang/flora_lighting_cache.comp.slang) 与 [`CONTEXT.md`](../CONTEXT.md)。
 
-**【事实】当前 transport 有 hidden release 验收：sealed、portal、donor、dogleg 覆盖 no-created-energy、leak、颜色传播、多 epoch 传播、batch-order、revision 与 publication。收敛策略是至少 8 个 epoch、absolute delta `0.0025`、relative delta `0.02` 连续通过两轮，并以 64 个 epoch 为有限 sample budget；代表性 spacing-32 曲线目前均以 `SampleBudget` 在 e63 睡眠，而不是宣称达到数值阈值。** 见 [`docs/ddgi_transport_acceptance.md`](ddgi_transport_acceptance.md) 与 [`docs/ddgi_convergence_calibration.md`](ddgi_convergence_calibration.md)。
+**【事实】当前 transport 有 hidden release 验收：sealed、portal、donor、dogleg 覆盖 no-created-energy、leak、颜色传播、多 epoch 传播、batch-order、revision 与 publication。收敛策略是至少 8 个 epoch、absolute delta `0.0025`、relative delta `0.02` 连续通过两轮，并以 128 个 epoch 为有限 sample budget；旧的代表性 spacing-32 曲线均以 `SampleBudget` 在 e63 睡眠，现作为 64-epoch 历史基线，而不是数值收敛证据。** 见 [`docs/ddgi_transport_acceptance.md`](ddgi_transport_acceptance.md)、[`docs/ddgi_convergence_calibration.md`](ddgi_convergence_calibration.md) 与 [`Cornell follow-up`](references/ddgi/cornell-box-grid-followup.md)。
 
 **【事实】RTX 3060 Ti 上三个匹配的 release hidden `terrain-edits-closed` 样本产生六次完整更新：edit 到 e0 promotion 为 `31-36 ms`、median `34.5 ms`，旧两阶段日志的两次为 `87/88 ms`；静态 portal 在 e63 后没有新的 scheduler claim。这个结果证明当前生命周期响应更快且会休眠，但旧基线只有两个观测，不能外推成通用帧性能结论。** 见 [`docs/ddgi_transport_acceptance.md`](ddgi_transport_acceptance.md)。
 
 **【事实】仓库里较早、匹配的 local environment probe 测量显示：spacing 32 的 steady `frame.render` median 为 6.146 ms、`tracer.render` median 为 4.339 ms，旧 global-SH bridge 的平均值约 5.325/2.977 ms，即 position-dependent visibility 当时约增加 1.24/1.26 ms；但该测量发生在现有 multi-bounce transport、cache 与 lifecycle 继续演化以前，不能当作当前性能基线。** 见 [`docs/local_environment_probe_plan.md`](local_environment_probe_plan.md)。
 
-**【推断】当前主要问题不是算法没有 terrain bounce 或 temporal sampling，而是 production scheduling 仍不够细：** full-precision 双 atlas、所有 probes 等额工作、full-volume terrain rebuild 和 64-epoch 全场 budget 仍偏重。下一步应测量 raw variability、per-probe activity 与局部 invalidation，而不是继续增加历史长度。
+**【推断】当前主要问题不是算法没有 terrain bounce 或 temporal sampling，而是 production scheduling 仍不够细：** full-precision 双 atlas、所有 probes 等额工作、full-volume terrain rebuild 和 128-epoch 全场 budget 仍偏重。下一步应测量 raw variability、per-probe activity 与局部 invalidation，而不是继续增加历史长度。
 
 ## 2. 候选方法的成熟度与项目适配排名
 
@@ -250,7 +250,7 @@ cargo run --release -- --latest-log
 | 单次 terrain edit | voxel visibility、trace/filter/publication、edit-to-first-valid、edit-to-converged | stale-light strict gate、latest revision、e0 first publish、portal/wall leak | correctness 全保留；edit-to-valid 至少不退化，优化方案应证明显著缩短 |
 | 连续 brush edits | queue depth、obsolete work、GPU p99、CPU scheduling | latest-wins、无旧 field 回写、无长时间黑场 | 无 unbounded queue；active field continuity 与当前 lifecycle 契约一致 |
 | sealed / thin wall / portal | trace/query cost | exact zero sealed；moment-vs-exact p99；halo/leak crop | 现有 committed thresholds 不得放宽 |
-| donor / dogleg | 每个完整 update epoch 与总睡眠时间 | e0 signal、multi-epoch dogleg、能量有限非负 | 现有 lifecycle gates 与 64-epoch sample budget 不得静默放宽 |
+| donor / dogleg | 每个完整 update epoch 与总睡眠时间 | e0 signal、multi-epoch dogleg、能量有限非负 | 现有 lifecycle gates 与 128-epoch sample budget 不得静默放宽 |
 | raster-only future object fixture | object cache/query cost | 在任意空中 position + normal 取得当前 terrain bounce；revision parity | 必须无需 GBuffer-visible 或 per-object ray 才能消费 GI |
 | memory stress：spacing 32/16 | atlas/cache/TLAS/SDF/surfel/history 总 bytes、allocation peak | 同质量配置 | 报总系统内存而非单 cache；Phase 1 默认不得用额外大常驻表示换取小时间收益 |
 
