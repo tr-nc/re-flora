@@ -1066,7 +1066,7 @@ impl Tracer {
             flora_lighting_cache: FloraLightingCache::default(),
             ddgi_voxel_visibility,
             ddgi_runtime,
-            ddgi_history_retention: 0.98,
+            ddgi_history_retention: 0.99,
             prepared_ddgi_consumer_descriptors: None,
             ddgi_trace_stats_readback_pending: None,
             ddgi_relocation_stats_readback_pending: false,

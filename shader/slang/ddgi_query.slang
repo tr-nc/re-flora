@@ -11,9 +11,9 @@ static const uint DDGI_VISIBILITY_INTERIOR_SIDE = 16u;
 static const uint DDGI_VISIBILITY_STORED_SIDE = 18u;
 static const float DDGI_QUERY_WEIGHT_EPSILON = 1.0e-6;
 
-// Diagnostic-only spatial weight candidates. The low bit selects nominal versus
-// relocation-aware position weights; the second bit selects hard versus wrap
-// surface-side weighting. Production consumers always use the zero mode.
+// Spatial-weight modes shared by the production terrain query and diagnostics.
+// The low bit selects nominal versus relocation-aware position weights; the
+// second bit selects same-side versus wrap surface weighting.
 static const uint DDGI_SPATIAL_WEIGHT_RELOCATION_HARD = 0u;
 static const uint DDGI_SPATIAL_WEIGHT_NOMINAL_HARD = 1u;
 static const uint DDGI_SPATIAL_WEIGHT_RELOCATION_WRAP = 2u;
@@ -407,8 +407,7 @@ DdgiProbeContribution getDdgiUnoccludedSpatialWeightProbeContributionAt(
     }
     else
     {
-        surfaceSideWeight = max(0.0, surfaceAlignment);
-        surfaceSideWeight *= surfaceSideWeight;
+        surfaceSideWeight = sqrt(max(0.0, surfaceAlignment));
     }
     contribution.surface_side_weight = surfaceSideWeight;
     if (surfaceSideWeight <= DDGI_QUERY_WEIGHT_EPSILON)

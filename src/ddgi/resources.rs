@@ -43,7 +43,7 @@ pub const DDGI_CONVERGENCE_POLICY: DdgiConvergencePolicy = DdgiConvergencePolicy
     relative_floor: 0.05,
     consecutive_epochs: 2,
     minimum_update_epochs: 8,
-    maximum_update_epochs: 64,
+    maximum_update_epochs: 128,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

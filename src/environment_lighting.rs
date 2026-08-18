@@ -678,8 +678,10 @@ mod tests {
             .expect("terrain smooth adapter must follow its implementation")
             .0;
         assert!(terrain_smooth.contains("getDdgiMomentSpatialWeightProbeContributionAt("));
+        assert!(terrain_smooth.contains("DDGI_SPATIAL_WEIGHT_NOMINAL_HARD"));
         assert!(!terrain_smooth.contains("hardVisibilityWorldPosition"));
         assert!(query.contains("getDdgiMomentSpatialWeightProbeContributionAt("));
+        assert!(query.contains("surfaceSideWeight = sqrt(max(0.0, surfaceAlignment));"));
         assert!(query.contains("float3 biasedWorldPosition = worldPosition + normal * biasWorld;"));
         assert!(query.contains(
             "ddgiVoxelSegmentVisibility(\n        hardVisibilityWorldPosition, contribution.actual_position"

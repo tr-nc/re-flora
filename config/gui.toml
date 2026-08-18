@@ -1050,7 +1050,7 @@ label = "DDGI History Retention"
 type = "Float"
 
 [section.param.data]
-value = 0.98
+value = 0.99
 min = 0
 max = 0.99
 
