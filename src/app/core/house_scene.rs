@@ -15,7 +15,9 @@ const HOUSE_MIN_Z: f32 = 242.0;
 const HOUSE_MAX_Z: f32 = 376.0;
 const SURFACE_SAMPLE_OFFSET: UVec3 = UVec3::new(112, 32, 242);
 const SURFACE_SAMPLE_DIM: UVec3 = UVec3::new(111, 224, 135);
-const HOUSE_HEIGHT_SCALE: f32 = 0.7;
+// The authored vertical dimensions were first reduced to 70%; keep the second
+// 70% reduction explicit so the resulting 49% scale is easy to audit.
+const HOUSE_HEIGHT_SCALE: f32 = 0.7 * 0.7;
 const WALL_HEIGHT: f32 = 96.0 * HOUSE_HEIGHT_SCALE;
 const WALL_THICKNESS: f32 = 8.0;
 const ROOF_OVERHANG: f32 = 6.0;
@@ -166,29 +168,50 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
         ),
     );
     let planter_top_y = base_y + scaled_height(33.0);
-    let planter_bottom_y = planter_top_y - 9.0;
+    let planter_bottom_y = planter_top_y - scaled_height(9.0);
+    let planter_bottom_thickness = scaled_height(3.0);
     let window_planter = vec![
         // A shallow hollow window box: bottom, front rail, and two end caps.
         box_at(
             Vec3::new(HOUSE_MAX_X, planter_bottom_y, 274.0),
-            Vec3::new(HOUSE_MAX_X + 10.0, planter_bottom_y + 3.0, 342.0),
+            Vec3::new(
+                HOUSE_MAX_X + 10.0,
+                planter_bottom_y + planter_bottom_thickness,
+                342.0,
+            ),
         ),
         box_at(
-            Vec3::new(HOUSE_MAX_X + 7.0, planter_bottom_y + 3.0, 274.0),
+            Vec3::new(
+                HOUSE_MAX_X + 7.0,
+                planter_bottom_y + planter_bottom_thickness,
+                274.0,
+            ),
             Vec3::new(HOUSE_MAX_X + 10.0, planter_top_y, 342.0),
         ),
         box_at(
-            Vec3::new(HOUSE_MAX_X, planter_bottom_y + 3.0, 274.0),
+            Vec3::new(
+                HOUSE_MAX_X,
+                planter_bottom_y + planter_bottom_thickness,
+                274.0,
+            ),
             Vec3::new(HOUSE_MAX_X + 7.0, planter_top_y, 277.0),
         ),
         box_at(
-            Vec3::new(HOUSE_MAX_X, planter_bottom_y + 3.0, 339.0),
+            Vec3::new(
+                HOUSE_MAX_X,
+                planter_bottom_y + planter_bottom_thickness,
+                339.0,
+            ),
             Vec3::new(HOUSE_MAX_X + 7.0, planter_top_y, 342.0),
         ),
     ];
     let planter_soil = box_at(
-        Vec3::new(HOUSE_MAX_X + 1.0, planter_bottom_y + 3.0, 277.0),
-        Vec3::new(HOUSE_MAX_X + 7.0, planter_top_y - 1.0, 339.0),
+        Vec3::new(
+            HOUSE_MAX_X + 1.0,
+            planter_bottom_y + planter_bottom_thickness,
+            277.0,
+        ),
+        Vec3::new(HOUSE_MAX_X + 7.0, planter_top_y - scaled_height(1.0), 339.0),
     );
 
     Ok(WorldEditPlan {
@@ -231,6 +254,8 @@ mod tests {
 
     #[test]
     fn house_uses_plantable_stucco_roof_and_floor_without_chimney() {
+        assert!((HOUSE_HEIGHT_SCALE - 0.7 * 0.7).abs() < f32::EPSILON);
+
         let ground_y = 100;
         let plan = house_plan(SurfaceSampleReport {
             median_y: ground_y,
@@ -262,6 +287,8 @@ mod tests {
         let floor_surface_y = ground_y as f32 + 1.0;
         assert!(structure[0].min().y < floor_surface_y);
         assert!((carved_space[0].min().y - floor_surface_y).abs() < 1.0e-4);
+        assert!((carved_space[1].max().y - floor_surface_y - scaled_height(69.0)).abs() < 1.0e-4);
+        assert!((carved_space[2].min().y - floor_surface_y - scaled_height(36.0)).abs() < 1.0e-4);
 
         let VoxelEdit::StampCuboids {
             cuboids: roofs,
@@ -299,6 +326,8 @@ mod tests {
         };
         assert_eq!(*planter_type, VOXEL_TYPE_STUCCO);
         assert_eq!(planter.len(), 4);
+        assert!((planter[0].height() - scaled_height(3.0)).abs() < 1.0e-4);
+        assert!((planter[1].height() - scaled_height(6.0)).abs() < 1.0e-4);
 
         let VoxelEdit::StampCuboids {
             cuboids: soil,
@@ -312,5 +341,6 @@ mod tests {
         assert_eq!(soil.len(), 1);
         assert!(soil[0].min().x >= HOUSE_MAX_X);
         assert!(soil[0].max().x < HOUSE_MAX_X + 10.0);
+        assert!((soil[0].height() - scaled_height(5.0)).abs() < 1.0e-4);
     }
 }
