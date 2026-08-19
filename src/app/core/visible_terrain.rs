@@ -124,7 +124,7 @@ impl App {
             next_visible_terrain_revision(self.visible_terrain_revision, change.terrain_changed);
         if let Some(revision) = revision {
             self.terrain_physics
-                .mark_terrain_chunks_dirty(&chunk_ids, VOXEL_DIM_PER_CHUNK);
+                .mark_terrain_voxels_dirty(change.affected_voxels);
             self.tracer
                 .observe_published_environment_probe_terrain(revision, change.affected_voxels)
                 .unwrap_or_else(|err| {
