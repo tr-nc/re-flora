@@ -830,7 +830,7 @@ label = "Sun Luminance"
 type = "Float"
 
 [section.param.data]
-value = 6.7
+value = 2
 min = 0
 max = 10
 
@@ -1039,7 +1039,7 @@ label = "DDGI Receiver Visibility Bias (world)"
 type = "Float"
 
 [section.param.data]
-value = 0.00390625
+value = 0.003906
 min = 0
 max = 0.02
 
@@ -1307,7 +1307,7 @@ label = "Weight"
 type = "Float"
 
 [section.param.data]
-value = 0.225
+value = 0.5
 min = 0
 max = 1
 
@@ -1318,7 +1318,7 @@ label = "Lens Flare Intensity"
 type = "Float"
 
 [section.param.data]
-value = 0.105
+value = 0.8
 min = 0
 max = 1
 
