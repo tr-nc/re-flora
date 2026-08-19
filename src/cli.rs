@@ -225,6 +225,8 @@ pub struct AppOptions {
     pub ddgi_terrain_hard_origin: DdgiTerrainHardOrigin,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
     pub hybrid_transparency_test_scene: bool,
+    /// Build the authored house scene on freshly generated terrain.
+    pub house_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
     pub environment_probe_spacing_voxels: u32,
     /// Rebuild the environment probe grid once at runtime with this spacing.
@@ -470,10 +472,12 @@ impl AppOptions {
         let hybrid_transparency_test_scene = args
             .iter()
             .any(|arg| arg == "--hybrid-transparency-test-scene");
+        let house_scene = args.iter().any(|arg| arg == "--house-scene");
         let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
         if water_experience
             && (environment_lighting_test_scene.is_some()
                 || hybrid_transparency_test_scene
+                || house_scene
                 || water_edit_soak)
         {
             return Err(
@@ -484,11 +488,22 @@ impl AppOptions {
         if terrain_load_path.is_some()
             && (environment_lighting_test_scene.is_some()
                 || hybrid_transparency_test_scene
+                || house_scene
                 || water_edit_soak
                 || water_experience)
         {
             return Err(
                 "Do not combine --terrain-load with terrain-stamping test scenes or --water-edit-soak"
+                    .to_owned(),
+            );
+        }
+        if house_scene
+            && (environment_lighting_test_scene.is_some()
+                || hybrid_transparency_test_scene
+                || water_edit_soak)
+        {
+            return Err(
+                "Do not combine --house-scene with terrain-stamping test scenes or --water-edit-soak"
                     .to_owned(),
             );
         }
@@ -550,6 +565,7 @@ impl AppOptions {
             ddgi_debug_view,
             ddgi_terrain_hard_origin,
             hybrid_transparency_test_scene,
+            house_scene,
             environment_probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels,
             environment_probe_visualization: args
@@ -842,6 +858,7 @@ Options:
                               for terrain receiver experiments (default: {})
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
+  --house-scene               Build the authored flat-roof house on freshly generated terrain
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
   --environment-probe-rebuild-spacing-voxels <N>
@@ -878,6 +895,7 @@ Examples:
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
   re-flora --hidden --mute --environment-lighting-test-scene sealed --environment-irradiance-capture target/sealed.rfirr --auto-exit 8
   re-flora --hidden --mute --windowed --hybrid-transparency-test-scene --screenshot player-default target/hybrid-transparency-test.png --screenshot-delay 2 --auto-exit 6
+  re-flora --house-scene --camera-snapshot house-overlook
   re-flora --latest-log
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#,
@@ -944,6 +962,7 @@ mod tests {
         assert!(!options.egui_texture_lifecycle_test);
         assert!(!options.resize_lifecycle_test);
         assert!(options.environment_lighting_test_scene.is_none());
+        assert!(!options.house_scene);
         assert!(options.environment_irradiance_capture_path.is_none());
         assert!(options.ddgi_spatial_weight_readback_path.is_none());
         assert_eq!(
@@ -1220,6 +1239,26 @@ mod tests {
         let options = parse(&["re-flora", "--hybrid-transparency-test-scene"]);
 
         assert!(options.hybrid_transparency_test_scene);
+    }
+
+    #[test]
+    fn parses_house_scene_and_rejects_snapshot_input() {
+        let options = parse(&["re-flora", "--house-scene"]);
+        assert!(options.house_scene);
+
+        let incompatible = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--terrain-load",
+                "target/input.rflterrain",
+                "--house-scene",
+            ]
+            .iter()
+            .map(|arg| (*arg).to_owned())
+            .collect(),
+        )
+        .unwrap_err();
+        assert!(incompatible.contains("Do not combine --terrain-load"));
     }
 
     #[test]

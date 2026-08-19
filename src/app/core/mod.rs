@@ -10,6 +10,7 @@ mod denoiser_bench;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
 mod frame_timing;
+mod house_scene;
 mod hybrid_transparency_test_scene;
 mod input;
 mod lifecycle;
@@ -375,6 +376,7 @@ pub struct App {
         Option<environment_lighting_test_scene::EnvironmentLightingTestScene>,
     hybrid_transparency_test_scene:
         Option<hybrid_transparency_test_scene::HybridTransparencyTestScene>,
+    house_scene_requested: bool,
     visible_terrain_revision: u32,
     shutdown_started: bool,
 
@@ -1088,6 +1090,7 @@ impl App {
             hybrid_transparency_test_scene: options
                 .hybrid_transparency_test_scene
                 .then(hybrid_transparency_test_scene::HybridTransparencyTestScene::new),
+            house_scene_requested: options.house_scene,
             visible_terrain_revision: 0,
             shutdown_started: false,
 

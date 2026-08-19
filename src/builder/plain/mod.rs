@@ -89,7 +89,7 @@ pub(crate) const TERRAIN_SMOOTH_MBO_CELL_CAPACITY: u64 = (TERRAIN_SMOOTH_MBO_MAX
     * (TERRAIN_SMOOTH_MBO_MAX_DIM as u64);
 const EDIT_REMOVAL_SAMPLE_COUNT: usize = 50;
 
-fn voxel_type_from_atlas_byte(voxel_data: u8) -> u8 {
+pub(crate) fn voxel_type_from_atlas_byte(voxel_data: u8) -> u8 {
     voxel_data & VOXEL_TYPE_MASK
 }
 
@@ -112,7 +112,7 @@ fn pack_voxel_atlas_byte_with_fertility(voxel_type: u8, moisture: u8, fertility:
         | (((fertility & VOXEL_FERTILITY_MAX) << 6) & VOXEL_FERTILITY_MASK)
 }
 
-fn pack_voxel_atlas_byte(voxel_type: u8, moisture: u8) -> u8 {
+pub(crate) fn pack_voxel_atlas_byte(voxel_type: u8, moisture: u8) -> u8 {
     pack_voxel_atlas_byte_with_fertility(
         voxel_type,
         moisture,
