@@ -191,8 +191,7 @@ pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<FloraMeshData<L
     Ok(mesh)
 }
 
-/// The shared raster description used by attached apple rendering, collision-probe
-/// rendering, and the dynamic convex collider.
+/// The shared raster description used by attached apple rendering and the dynamic convex collider.
 pub fn voxel_apple_offsets() -> Vec<IVec3> {
     voxel_apple_offsets_for_radius(TREE_FRUIT_MAX_RADIUS_VOXELS)
 }
@@ -208,25 +207,6 @@ pub fn voxel_apple_offsets_for_radius(radius_voxels: u32) -> Vec<IVec3> {
                 let center = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
                 if (center / radius_voxels as f32).length_squared() <= 1.0 {
                     offsets.push(IVec3::new(x, y, z));
-                }
-            }
-        }
-    }
-    offsets
-}
-
-/// A two-times debug derivation of the regular apple. Each source voxel expands into eight
-/// standard-size voxels, so the probe is easier to see without breaking the scene's voxel scale.
-pub fn collision_probe_apple_offsets() -> Vec<IVec3> {
-    const SCALE: i32 = 2;
-    let source_offsets = voxel_apple_offsets();
-    let mut offsets = Vec::with_capacity(source_offsets.len() * SCALE.pow(3) as usize);
-    for source in source_offsets {
-        let min = source * SCALE;
-        for x in 0..SCALE {
-            for y in 0..SCALE {
-                for z in 0..SCALE {
-                    offsets.push(min + IVec3::new(x, y, z));
                 }
             }
         }
@@ -267,24 +247,6 @@ mod tests {
         assert_eq!(
             voxel_apple_offsets_for_radius(TREE_FRUIT_MAX_RADIUS_VOXELS + 1),
             voxel_apple_offsets()
-        );
-    }
-
-    #[test]
-    fn collision_probe_apple_is_two_times_bigger_with_unit_voxels() {
-        let offsets = collision_probe_apple_offsets();
-        let unique = offsets.iter().copied().collect::<HashSet<_>>();
-
-        assert_eq!(offsets.len(), voxel_apple_offsets().len() * 8);
-        assert_eq!(unique.len(), offsets.len());
-        let radius = TREE_FRUIT_MAX_RADIUS_VOXELS as i32;
-        assert_eq!(
-            offsets.iter().map(|offset| offset.min_element()).min(),
-            Some(-radius * 2)
-        );
-        assert_eq!(
-            offsets.iter().map(|offset| offset.max_element()).max(),
-            Some(radius * 2 - 1)
         );
     }
 }

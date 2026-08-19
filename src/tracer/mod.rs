@@ -47,9 +47,7 @@ pub mod voxel_encoding;
 mod voxel_geometry;
 
 mod leaves_construct;
-pub use leaves_construct::{
-    collision_probe_apple_offsets, voxel_apple_offsets, TREE_FRUIT_MAX_RADIUS_VOXELS,
-};
+pub use leaves_construct::{voxel_apple_offsets, TREE_FRUIT_MAX_RADIUS_VOXELS};
 
 mod pipeline_builder;
 use pipeline_builder::*;
@@ -5992,12 +5990,6 @@ impl Tracer {
         self.geometry_preview_resources.tree.clear();
     }
 
-    pub fn upload_collision_probe_geometry(&mut self) -> Result<()> {
-        // The formal dynamic-fruit mesh is immutable and uploaded once with Tracer resources.
-        debug_assert!(self.dynamic_fruit_resources.indices_len > 0);
-        Ok(())
-    }
-
     pub fn show_dynamic_fruit_geometry(
         &mut self,
         instances: &[DynamicFruitRenderInstance],
@@ -6005,7 +5997,7 @@ impl Tracer {
         self.dynamic_fruit_resources.show(instances)
     }
 
-    pub fn clear_collision_probe_geometry(&mut self) {
+    pub fn clear_dynamic_fruit_geometry(&mut self) {
         self.dynamic_fruit_resources.clear();
     }
 
