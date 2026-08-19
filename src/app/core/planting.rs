@@ -123,6 +123,7 @@ mod tests {
     use super::*;
     use crate::builder::{
         VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
+        VOXEL_TYPE_STUCCO,
     };
 
     const WORLD_DIM_VOX: UVec3 = UVec3::new(512, 512, 512);
@@ -154,6 +155,7 @@ mod tests {
             VOXEL_TYPE_ROCK,
             VOXEL_TYPE_CHERRY_WOOD,
             VOXEL_TYPE_OAK_WOOD,
+            VOXEL_TYPE_STUCCO,
         ] {
             assert_eq!(
                 classify_plantable_surface_hit(
@@ -167,10 +169,11 @@ mod tests {
     }
 
     #[test]
-    fn cpu_and_shader_planting_policies_both_require_dirt() {
+    fn manual_planting_requires_dirt_while_surface_flora_allows_stucco() {
         assert!(is_plantable_surface_voxel_type(VOXEL_TYPE_DIRT));
         let shader_policy = include_str!("../../../shader/slang/flora_surface_planting.slang");
-        assert!(shader_policy.contains("return voxelType == VOXEL_TYPE_DIRT;"));
+        assert!(shader_policy
+            .contains("return voxelType == VOXEL_TYPE_DIRT || voxelType == VOXEL_TYPE_STUCCO;"));
     }
 
     #[test]

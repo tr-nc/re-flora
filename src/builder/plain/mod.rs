@@ -45,6 +45,7 @@ pub const VOXEL_TYPE_ROCK: u32 = 7;
 pub const VOXEL_TYPE_EMPTY: u32 = 0;
 pub const VOXEL_TYPE_DIRT: u32 = 2;
 pub const VOXEL_TYPE_SAND: u32 = 3;
+pub const VOXEL_TYPE_STUCCO: u32 = 4;
 pub const VOXEL_TYPE_MASK: u8 = 0x0f;
 pub const VOXEL_ATLAS_STATE_MASK: u8 = 0xf0;
 // Atlas bytes store 4 bits of voxel type, 2 bits of moisture, and 2 bits of fertility.
@@ -112,7 +113,7 @@ fn pack_voxel_atlas_byte_with_fertility(voxel_type: u8, moisture: u8, fertility:
         | (((fertility & VOXEL_FERTILITY_MAX) << 6) & VOXEL_FERTILITY_MASK)
 }
 
-pub(crate) fn pack_voxel_atlas_byte(voxel_type: u8, moisture: u8) -> u8 {
+fn pack_voxel_atlas_byte(voxel_type: u8, moisture: u8) -> u8 {
     pack_voxel_atlas_byte_with_fertility(
         voxel_type,
         moisture,

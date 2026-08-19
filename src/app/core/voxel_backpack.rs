@@ -1,21 +1,23 @@
 use crate::builder::{
     ChunkModifyStats, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_OAK_WOOD,
-    VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
+    VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BackpackVoxel {
     Dirt,
     Sand,
+    Stucco,
     CherryWood,
     OakWood,
     Rock,
 }
 
 impl BackpackVoxel {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Dirt,
         Self::Sand,
+        Self::Stucco,
         Self::CherryWood,
         Self::OakWood,
         Self::Rock,
@@ -25,6 +27,7 @@ impl BackpackVoxel {
         match self {
             Self::Dirt => VOXEL_TYPE_DIRT,
             Self::Sand => VOXEL_TYPE_SAND,
+            Self::Stucco => VOXEL_TYPE_STUCCO,
             Self::CherryWood => VOXEL_TYPE_CHERRY_WOOD,
             Self::OakWood => VOXEL_TYPE_OAK_WOOD,
             Self::Rock => VOXEL_TYPE_ROCK,
@@ -35,6 +38,7 @@ impl BackpackVoxel {
         match self {
             Self::Dirt => "Dirt",
             Self::Sand => "Sand",
+            Self::Stucco => "Stucco",
             Self::CherryWood => "Cherry wood",
             Self::OakWood => "Oak wood",
             Self::Rock => "Rock",
@@ -45,6 +49,7 @@ impl BackpackVoxel {
         match self {
             Self::Dirt => [178, 124, 80],
             Self::Sand => [229, 204, 126],
+            Self::Stucco => [209, 189, 128],
             Self::CherryWood => [219, 128, 152],
             Self::OakWood => [159, 110, 70],
             Self::Rock => [168, 176, 190],
@@ -55,9 +60,10 @@ impl BackpackVoxel {
         match self {
             Self::Dirt => 0,
             Self::Sand => 1,
-            Self::CherryWood => 2,
-            Self::OakWood => 3,
-            Self::Rock => 4,
+            Self::Stucco => 2,
+            Self::CherryWood => 3,
+            Self::OakWood => 4,
+            Self::Rock => 5,
         }
     }
 }
@@ -112,7 +118,7 @@ impl VoxelBackpack {
 #[cfg(test)]
 mod tests {
     use super::{BackpackVoxel, VoxelBackpack};
-    use crate::builder::{ChunkModifyStats, VOXEL_TYPE_DIRT, VOXEL_TYPE_ROCK};
+    use crate::builder::{ChunkModifyStats, VOXEL_TYPE_DIRT, VOXEL_TYPE_ROCK, VOXEL_TYPE_STUCCO};
 
     #[test]
     fn deposits_and_withdrawals_are_saturating() {
@@ -130,12 +136,14 @@ mod tests {
     fn removed_voxels_are_deposited_by_semantic_type() {
         let mut stats = ChunkModifyStats::default();
         stats.removed_counts[VOXEL_TYPE_DIRT as usize] = 3;
+        stats.removed_counts[VOXEL_TYPE_STUCCO as usize] = 5;
         stats.removed_counts[VOXEL_TYPE_ROCK as usize] = 7;
         let mut backpack = VoxelBackpack::default();
 
         backpack.deposit_removed(&stats);
 
         assert_eq!(backpack.count(BackpackVoxel::Dirt), 3);
+        assert_eq!(backpack.count(BackpackVoxel::Stucco), 5);
         assert_eq!(backpack.count(BackpackVoxel::Rock), 7);
         assert_eq!(backpack.count(BackpackVoxel::Sand), 0);
     }

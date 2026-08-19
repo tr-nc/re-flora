@@ -4,5 +4,5 @@ import voxel_types;
 
 public bool isFloraSurfacePlantable(uint voxelType)
 {
-    return voxelType == VOXEL_TYPE_DIRT;
+    return voxelType == VOXEL_TYPE_DIRT || voxelType == VOXEL_TYPE_STUCCO;
 }
