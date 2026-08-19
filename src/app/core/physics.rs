@@ -24,6 +24,10 @@ const PLAYER_CAPSULE_HALF_HEIGHT_VOXELS: f32 = 8.0;
 const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(276.0, 152.0, 280.0);
 const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
 const APPLE_CONTACT_SKIN_VOXELS: f32 = 0.15;
+const APPLE_FRICTION: f32 = 0.82;
+const APPLE_RESTITUTION: f32 = 0.12;
+const APPLE_LINEAR_DAMPING: f32 = 0.06;
+const APPLE_ANGULAR_DAMPING: f32 = 0.10;
 // Release measurements put one real 32-cubed Contree export plus Rapier update at about 1.2 ms.
 // Keeping this at one avoids terrain edits turning a single render frame into an unbounded scan.
 const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 1;
@@ -302,6 +306,7 @@ impl TerrainPhysics {
         desc.linear_damping = 0.08;
         desc.angular_damping = 0.12;
         desc.ccd_enabled = true;
+        desc.terrain_ccd_assist_enabled = true;
 
         let body = self
             .collision_world
@@ -537,18 +542,11 @@ impl TerrainPhysics {
             .collect::<Vec<_>>();
 
         for (tree_id, fruit_id, spec) in ready {
-            let mut desc = DynamicBodyDesc::sphere(spec.position_voxels.as_vec3(), 2.0);
-            desc.collider = DynamicColliderShape::ConvexHull {
-                points: apple_convex_points(),
-            };
-            desc.linear_velocity = spec.linear_velocity_voxels;
-            desc.angular_velocity = spec.angular_velocity;
-            desc.friction = 0.82;
-            desc.restitution = 0.12;
-            desc.contact_skin = APPLE_CONTACT_SKIN_VOXELS;
-            desc.linear_damping = 0.06;
-            desc.angular_damping = 0.10;
-            desc.ccd_enabled = true;
+            let desc = apple_dynamic_body_desc(
+                spec.position_voxels.as_vec3(),
+                spec.linear_velocity_voxels,
+                spec.angular_velocity,
+            );
             let body = self
                 .collision_world
                 .spawn_dynamic_body(desc)
@@ -898,6 +896,26 @@ fn apple_convex_points() -> Vec<Vec3> {
     convex_points_for_voxels(voxel_apple_offsets())
 }
 
+fn apple_dynamic_body_desc(
+    position: Vec3,
+    linear_velocity: Vec3,
+    angular_velocity: Vec3,
+) -> DynamicBodyDesc {
+    let mut desc = DynamicBodyDesc::sphere(position, 2.0);
+    desc.collider = DynamicColliderShape::ConvexHull {
+        points: apple_convex_points(),
+    };
+    desc.linear_velocity = linear_velocity;
+    desc.angular_velocity = angular_velocity;
+    desc.friction = APPLE_FRICTION;
+    desc.restitution = APPLE_RESTITUTION;
+    desc.contact_skin = APPLE_CONTACT_SKIN_VOXELS;
+    desc.linear_damping = APPLE_LINEAR_DAMPING;
+    desc.angular_damping = APPLE_ANGULAR_DAMPING;
+    desc.ccd_enabled = true;
+    desc
+}
+
 fn convex_points_for_voxels(voxels: Vec<IVec3>) -> Vec<Vec3> {
     let mut corners = HashSet::new();
     for voxel in voxels {
@@ -966,6 +984,50 @@ mod tests {
             linear_velocity_voxels: Vec3::ZERO,
             angular_velocity: Vec3::ZERO,
         }
+    }
+
+    fn two_layer_flat_floor() -> BrickOccupancy {
+        BrickOccupancy::from_filled_voxels((0..2).flat_map(|y| {
+            (0..STATIC_VOXEL_BRICK_DIM)
+                .flat_map(move |z| (0..STATIC_VOXEL_BRICK_DIM).map(move |x| UVec3::new(x, y, z)))
+        }))
+    }
+
+    #[test]
+    fn dropped_apple_stops_visible_motion_on_flat_terrain_within_five_seconds() {
+        const MAX_STEPS: usize = 5 * 120;
+        let mut world = CollisionWorld::new();
+        world.set_gravity(COLLISION_PROBE_GRAVITY_VOXELS).unwrap();
+        for z in 0..4 {
+            for x in 0..4 {
+                world.upsert_static_voxel_brick(
+                    StaticVoxelBrickId(IVec3::new(x, 0, z)),
+                    1,
+                    two_layer_flat_floor(),
+                );
+            }
+        }
+        let body = world
+            .spawn_dynamic_body(apple_dynamic_body_desc(
+                Vec3::new(16.0, 28.0, 16.0),
+                Vec3::new(7.0, -2.0, 7.0),
+                Vec3::new(2.5, 2.5, -2.5),
+            ))
+            .unwrap();
+
+        for _ in 0..MAX_STEPS {
+            assert_eq!(world.advance(1.0 / 120.0).steps, 1);
+        }
+
+        let state = world.dynamic_body_state(body).unwrap();
+        assert!(
+            state.linear_velocity.x.hypot(state.linear_velocity.z) < 0.01,
+            "apple still translating across the floor after five seconds: {state:?}",
+        );
+        assert!(
+            state.angular_velocity.length() < 0.01,
+            "apple still visibly rotating after five seconds: {state:?}",
+        );
     }
 
     #[test]

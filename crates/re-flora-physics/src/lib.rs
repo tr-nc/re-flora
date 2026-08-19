@@ -77,6 +77,9 @@ pub struct DynamicBodyDesc {
     pub linear_damping: f32,
     pub angular_damping: f32,
     pub ccd_enabled: bool,
+    /// Enables the additional terrain sweep needed by oversized debug probes. Normal dynamic
+    /// bodies should rely on Rapier CCD so contact friction can take over after impact.
+    pub terrain_ccd_assist_enabled: bool,
     pub can_sleep: bool,
 }
 
@@ -95,6 +98,7 @@ impl DynamicBodyDesc {
             linear_damping: 0.1,
             angular_damping: 0.1,
             ccd_enabled: true,
+            terrain_ccd_assist_enabled: false,
             can_sleep: true,
         }
     }
@@ -350,6 +354,7 @@ pub struct CollisionWorld {
     static_bricks: HashMap<StaticVoxelBrickId, StaticVoxelBrick>,
     static_brick_revisions: HashMap<StaticVoxelBrickId, u64>,
     dynamic_bodies: HashMap<DynamicBodyId, RigidBodyHandle>,
+    terrain_ccd_assist_bodies: HashSet<RigidBodyHandle>,
     next_dynamic_body_id: u64,
     fixed_step_seconds: f32,
     max_substeps: u32,
@@ -374,6 +379,7 @@ impl CollisionWorld {
             static_bricks: HashMap::new(),
             static_brick_revisions: HashMap::new(),
             dynamic_bodies: HashMap::new(),
+            terrain_ccd_assist_bodies: HashSet::new(),
             next_dynamic_body_id: 1,
             fixed_step_seconds: DEFAULT_FIXED_STEP_SECONDS,
             max_substeps: DEFAULT_MAX_SUBSTEPS,
@@ -448,6 +454,9 @@ impl CollisionWorld {
             .user_data(id.get() as u128);
         let (body_handle, _) = self.physics.insert(body, collider);
         self.dynamic_bodies.insert(id, body_handle);
+        if desc.terrain_ccd_assist_enabled {
+            self.terrain_ccd_assist_bodies.insert(body_handle);
+        }
         Ok(id)
     }
 
@@ -455,6 +464,7 @@ impl CollisionWorld {
         let Some(handle) = self.dynamic_bodies.remove(&id) else {
             return false;
         };
+        self.terrain_ccd_assist_bodies.remove(&handle);
         self.physics.remove_body(handle).is_some()
     }
 
@@ -507,17 +517,21 @@ impl CollisionWorld {
     }
 
     fn limit_ccd_body_terrain_approach(&mut self) {
-        // Rapier's built-in CCD can miss the first gravity-driven contact between a rotating
-        // convex hull and a Voxels collider. Sweep the full nonlinear pose against the
-        // terrain-only query world first and limit only the velocity into the hit normal.
-        // Tangential and angular motion remain untouched so fruit can still roll and tumble.
+        // Rapier's built-in CCD can miss the first gravity-driven contact between an oversized
+        // rotating debug hull and a Voxels collider. For explicitly opted-in bodies, sweep the
+        // full nonlinear pose against the terrain-only query world first and limit only the
+        // velocity into the hit normal. Applying this assist to normal fruit prevents stable
+        // contact from taking over and makes the fruit roll indefinitely.
         let mut handles = self.dynamic_bodies.values().copied().collect::<Vec<_>>();
         handles.sort_unstable_by_key(|handle| handle.into_raw_parts());
         let mut limited_velocities = Vec::new();
 
         for handle in handles {
             let body = &self.physics.bodies[handle];
-            if body.is_sleeping() || !body.is_ccd_enabled() {
+            if body.is_sleeping()
+                || !body.is_ccd_enabled()
+                || !self.terrain_ccd_assist_bodies.contains(&handle)
+            {
                 continue;
             }
             let Some(&collider_handle) = body.colliders().first() else {
@@ -1628,6 +1642,7 @@ mod tests {
         desc.contact_skin = 0.15;
         desc.linear_damping = 0.08;
         desc.angular_damping = 0.12;
+        desc.terrain_ccd_assist_enabled = true;
         let body = world.spawn_dynamic_body(desc).unwrap();
         let mut min_bottom = f32::INFINITY;
         let mut max_upward_velocity = 0.0_f32;
