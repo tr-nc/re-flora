@@ -11,6 +11,7 @@ from typing import NoReturn
 
 ROOT = Path(__file__).resolve().parents[1]
 SHADER_ROOT = ROOT / "shader"
+PRODUCTION_SHADER_ROOT = SHADER_ROOT / "slang"
 MANIFEST = ROOT / "crates/re-flora-shader-build/src/lib.rs"
 CONFIG_RE = re.compile(
     r"ShaderConfig\s*\{\s*"
@@ -35,6 +36,9 @@ def duplicates(values: list[str]) -> list[str]:
 
 def main() -> int:
     shader_files = sorted(path for path in SHADER_ROOT.rglob("*") if path.is_file())
+    production_shader_files = sorted(
+        path for path in PRODUCTION_SHADER_ROOT.rglob("*") if path.is_file()
+    )
     non_slang = [path.relative_to(ROOT).as_posix() for path in shader_files if path.suffix != ".slang"]
     if non_slang:
         fail(f"non-Slang shader sources remain: {non_slang}")
@@ -55,7 +59,7 @@ def main() -> int:
 
     module_names: list[str] = []
     imported_modules: set[str] = set()
-    for shader_file in shader_files:
+    for shader_file in production_shader_files:
         source = shader_file.read_text(encoding="utf-8")
         if re.search(r"^\s*#\s*include\b", source, re.MULTILINE):
             fail(f"textual include remains in {shader_file.relative_to(ROOT).as_posix()}")
@@ -97,7 +101,7 @@ def main() -> int:
 
     print(
         f"native shader manifest matches {len(configs)} entry points "
-        f"and {len(shader_files) - len(configs)} shared Slang modules"
+        f"and {len(production_shader_files) - len(configs)} shared Slang modules"
     )
     return 0
 

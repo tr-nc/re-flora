@@ -1,3 +1,5 @@
+module ddgi_exact_sun_visibility;
+
 import contree_node;
 import marching_result;
 import scene_marching;
