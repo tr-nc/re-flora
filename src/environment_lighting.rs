@@ -311,7 +311,7 @@ mod tests {
         assert!(!shared.contains("environment_lighting_backend"));
         assert!(terrain.contains("consumerResult = sampleDdgiTerrainSmoothEnvironment("));
         assert!(terrain.contains("environmentIrradiance = consumerResult.irradiance"));
-        assert!(terrain.contains("environmentCaptureIrradiance = captureResult.irradiance"));
+        assert!(terrain.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         assert!(terrain.contains("color = environmentIrradiance * albedo"));
         assert!(raster.contains("sampleDiffuseEnvironment("));
         assert!(raster.contains("shading, voxelCenter, shadingNormal"));
@@ -499,6 +499,11 @@ mod tests {
             receiver_visibility_bias["data"]["max"].as_float(),
             Some(0.02)
         );
+        assert_eq!(
+            receiver_visibility_bias["data"]["value"].as_float(),
+            Some(1.0 / 256.0),
+            "the default visibility receiver bias must remain one terrain voxel"
+        );
         for dependent in [ambient, max_bounces] {
             assert_eq!(
                 dependent["enabled_if"]["param"].as_str(),
@@ -601,7 +606,7 @@ mod tests {
         );
         assert!(consumer.contains("sampleDdgiDiffuseEnvironmentFromAtlas("));
         assert!(consumer.contains("ddgi_irradiance_atlas"));
-        assert!(transport.contains("getDdgiMomentExactProbeContribution("));
+        assert!(transport.contains("getDdgiMomentExactProbeContributionFromAtlases("));
 
         let trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
         assert!(!trace.contains("ConstantBuffer<U_SunInfo>"));
@@ -673,8 +678,10 @@ mod tests {
             .expect("terrain smooth adapter must follow its implementation")
             .0;
         assert!(terrain_smooth.contains("getDdgiMomentSpatialWeightProbeContributionAt("));
+        assert!(terrain_smooth.contains("DDGI_SPATIAL_WEIGHT_NOMINAL_HARD"));
         assert!(!terrain_smooth.contains("hardVisibilityWorldPosition"));
         assert!(query.contains("getDdgiMomentSpatialWeightProbeContributionAt("));
+        assert!(query.contains("surfaceSideWeight = sqrt(max(0.0, surfaceAlignment));"));
         assert!(query.contains("float3 biasedWorldPosition = worldPosition + normal * biasWorld;"));
         assert!(query.contains(
             "ddgiVoxelSegmentVisibility(\n        hardVisibilityWorldPosition, contribution.actual_position"
@@ -707,7 +714,7 @@ mod tests {
             .split_once("public DdgiQueryResult sampleDdgiTransportSource(")
             .expect("transport implementation must remain behind its adapter")
             .0;
-        assert!(transport.contains("getDdgiMomentExactProbeContribution("));
+        assert!(transport.contains("getDdgiMomentExactProbeContributionFromAtlases("));
         assert!(transport.contains("contribution.hard_visibility"));
     }
 

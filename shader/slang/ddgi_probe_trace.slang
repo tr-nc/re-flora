@@ -1,6 +1,7 @@
 import contree_node;
 import ddgi_config;
 import ddgi_query;
+import ddgi_sampling;
 import ddgi_types;
 import marching_result;
 import scene_marching;
@@ -11,7 +12,6 @@ import tracer_material;
 static const uint DDGI_TRACE_WORKGROUP_SIZE = 64u;
 static const uint DDGI_RAYS_PER_THREAD =
     DDGI_RAYS_PER_PROBE / DDGI_TRACE_WORKGROUP_SIZE;
-static const float DDGI_GOLDEN_ANGLE = 2.39996322972865332;
 
 [[vk::binding(7, 0)]]
 StructuredBuffer<ContreeNode> contree_node_data;
@@ -30,9 +30,8 @@ GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
 GLSLShaderStorageBuffer<B_DdgiTraceStats, Std430DataLayout>
     ddgi_trace_stats;
 
-// These builder-only bindings shape the immutable source/destination transport seam. S0 does not
-// sample a source atlas; every later iteration consumes the previous complete field through the
-// shared DDGI query path.
+// These builder-only bindings shape the immutable source/destination transport seam. An initial
+// epoch has black indirect history; later epochs consume the previous complete field.
 [[vk::binding(29, 0)]]
 Sampler2D ddgi_transport_source_irradiance_atlas;
 
@@ -45,28 +44,23 @@ ConstantBuffer<U_DdgiRadianceVoxelPalette> ddgi_radiance_voxel_palette;
 [[vk::binding(32, 0)]]
 ConstantBuffer<U_DdgiTransportQueryInfo> ddgi_transport_query_info;
 
+[[vk::binding(39, 0)]]
+Sampler2D ddgi_transport_source_visibility_atlas;
+
 struct DdgiProbeTracePushConstants
 {
     uint first_probe_index;
     uint probe_count;
     uint terrain_revision;
-    uint transport_iteration;
+    uint has_history;
     uint source_slot;
     float far_distance_world;
     uint2 padding;
+    float4 epoch_rotation;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<DdgiProbeTracePushConstants> pc;
-
-float3 fibonacciDirection(uint rayIndex)
-{
-    float y = 1.0 - (2.0 * float(rayIndex) + 1.0) /
-                        float(DDGI_RAYS_PER_PROBE);
-    float radius = sqrt(max(0.0, 1.0 - y * y));
-    float azimuth = DDGI_GOLDEN_ANGLE * float(rayIndex);
-    return float3(radius * cos(azimuth), y, radius * sin(azimuth));
-}
 
 void recordTraceStat(uint index)
 {
@@ -104,23 +98,24 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
     float3 ddgiHardVisibilityPosition = terrainRayOriginAlongNormal(
         result.center_position, normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world);
-    DdgiQueryResult source;
-    if (pc.source_slot == 0u)
+    float3 indirectIrradiance = float3(0.0);
+    if (pc.has_history != 0u && pc.source_slot == 0u)
     {
-        source = sampleDdgiTransportAtlas0(
+        indirectIrradiance = sampleDdgiTransportAtlas0(
             ddgi_transport_query_info, ddgiReceiverPosition, normal,
-            ddgiHardVisibilityPosition);
+            ddgiHardVisibilityPosition).irradiance;
     }
-    else
+    else if (pc.has_history != 0u)
     {
-        source = sampleDdgiTransportSource(
+        indirectIrradiance = sampleDdgiTransportSource(
             ddgi_transport_query_info,
             ddgi_transport_source_irradiance_atlas,
-            ddgiReceiverPosition, normal, ddgiHardVisibilityPosition);
+            ddgi_transport_source_visibility_atlas,
+            ddgiReceiverPosition, normal, ddgiHardVisibilityPosition).irradiance;
     }
     float3 albedo = ddgiVoxelColorByTypeAndHash(
         ddgi_radiance_voxel_palette, result.voxel_type, result.hash_id);
-    return albedo * (directIrradiance + source.irradiance);
+    return albedo * (directIrradiance + indirectIrradiance);
 }
 
 [shader("compute")]
@@ -155,7 +150,8 @@ void main(uint3 groupId : SV_GroupID,
         }
 
         recordTraceStat(1u);
-        float3 direction = fibonacciDirection(rayIndex);
+        float3 direction = ddgiEpochDirection(
+            rayIndex, DDGI_RAYS_PER_PROBE, pc.epoch_rotation);
         MarchingResult result = marchScene(
             contree_node_data, contree_leaf_data, scene_tex,
             metadata.actual_position_and_clearance.xyz, direction,
@@ -171,7 +167,7 @@ void main(uint3 groupId : SV_GroupID,
             float hitDistance = max(result.distance, 1.0e-5);
             bool backface = dot(direction, result.normal) > 0.0;
             rayRecord.w = backface ? -hitDistance : hitDistance;
-            if (!backface && pc.transport_iteration >= 1u)
+            if (!backface)
             {
                 rayRecord.xyz = ddgiTransportHitRadiance(
                     result, localInvocationId.x);

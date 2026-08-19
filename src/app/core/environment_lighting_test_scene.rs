@@ -1,8 +1,8 @@
-use super::{App, TerrainProbeRefreshCadence};
+use super::App;
 use crate::app::world_edits::{BuildEdit, TerrainRemovalEdit, VoxelEdit, WorldEditPlan};
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
-    DdgiBuildKind, DdgiFieldIdentity, DdgiFieldStage, DdgiRefreshState, DdgiScheduledWorkKind,
+    DdgiBuildKind, DdgiFieldIdentity, DdgiFieldState, DdgiRefreshState, DdgiScheduledWorkKind,
     DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
 };
 use crate::geom::{build_bvh, Cuboid, UAabb3};
@@ -44,6 +44,7 @@ const INTERIOR_MIN: Vec3 = Vec3::new(112.0, 100.0, 242.0);
 const INTERIOR_MAX: Vec3 = Vec3::new(222.0, 216.0, 376.0);
 const SKYLIGHT_MIN: Vec3 = Vec3::new(144.0, 216.0, 270.0);
 const SKYLIGHT_MAX: Vec3 = Vec3::new(192.0, 244.0, 334.0);
+
 const PATT_SEAM_DIG_CENTERS: [Vec3; 2] = [
     Vec3::new(0.58, 226.0 / 256.0, 1.10),
     Vec3::new(0.52, 226.0 / 256.0, 1.20),
@@ -269,62 +270,57 @@ fn next_nonzero_revision(revision: u32) -> u32 {
     revision.wrapping_add(1).max(1)
 }
 
-fn is_terminal_field(field: DdgiFieldIdentity) -> bool {
-    matches!(
-        field.field().stage(),
-        DdgiFieldStage::Converged | DdgiFieldStage::NonConverged
-    )
+fn is_converged_field(field: DdgiFieldIdentity) -> bool {
+    field.field().state() == DdgiFieldState::Converged
 }
 
-fn assert_radiance_s2(field: DdgiFieldIdentity, source: DdgiFieldIdentity, radiance_revision: u32) {
+fn assert_radiance_epoch_zero(
+    field: DdgiFieldIdentity,
+    source: DdgiFieldIdentity,
+    radiance_revision: u32,
+) {
     let key = field.field();
     let source_key = source.field();
-    assert_eq!(key.stage(), DdgiFieldStage::Feedback);
-    assert_eq!(key.iteration(), 2);
+    assert_eq!(key.state(), DdgiFieldState::Converging);
+    assert_eq!(key.update_epoch(), 0);
     assert_eq!(key.geometry_revision(), source_key.geometry_revision());
     assert_eq!(key.spacing_voxels(), source_key.spacing_voxels());
     assert_eq!(key.radiance_revision(), radiance_revision);
     assert_eq!(field.source(), Some(source_key));
 }
 
-fn assert_bootstrap_s1(
+fn assert_initial_epoch_zero(
     field: DdgiFieldIdentity,
     geometry_revision: u32,
     radiance_revision: u32,
     spacing_voxels: u32,
 ) {
     let key = field.field();
-    let source = field.source().expect("S1 must consume an S0 field");
     assert_eq!(key.geometry_revision(), geometry_revision);
     assert_eq!(key.radiance_revision(), radiance_revision);
     assert_eq!(key.spacing_voxels(), spacing_voxels);
-    assert_eq!(key.stage(), DdgiFieldStage::SingleBounce);
-    assert_eq!(key.iteration(), 1);
-    assert_eq!(source.geometry_revision(), geometry_revision);
-    assert_eq!(source.radiance_revision(), radiance_revision);
-    assert_eq!(source.spacing_voxels(), spacing_voxels);
-    assert_eq!(source.stage(), DdgiFieldStage::SeedSky);
-    assert_eq!(source.iteration(), 0);
-    assert_eq!(key.serial(), source.serial() + 1);
+    assert_eq!(key.state(), DdgiFieldState::Converging);
+    assert_eq!(key.update_epoch(), 0);
+    assert_eq!(field.source(), None);
 }
 
 fn log_acceptance_field(group: &str, checkpoint: &str, field: DdgiFieldIdentity) {
     let key = field.field();
     let source = field.source();
     log::info!(
-        "[DDGI_ACCEPT][{}] checkpoint={} field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} transport={:?} iteration={} source_field_serial={} source_radiance_revision={} source_transport={} source_iteration={}",
+        "[DDGI_ACCEPT][{}] checkpoint={} field_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source_field_serial={} source_radiance_revision={} source_state={} source_update_epoch={}",
         group,
         checkpoint,
         key.serial(),
         key.geometry_revision(),
         key.radiance_revision(),
         key.spacing_voxels(),
-        key.stage(),
-        key.iteration(),
+        key.state(),
+        key.update_epoch(),
         source.map_or(0, |source| source.serial()),
         source.map_or(0, |source| source.radiance_revision()),
-        source.map_or_else(|| "none".to_owned(), |source| format!("{:?}", source.stage())),
-        source.map_or(0, |source| source.iteration()),
+        source.map_or_else(|| "none".to_owned(), |source| format!("{:?}", source.state())),
+        source.map_or(0, |source| source.update_epoch()),
     );
 }
 
@@ -535,29 +531,24 @@ impl EnvironmentLightingTestScene {
 }
 
 struct TestSceneGeometry {
-    cleared_startup_obstacle: Vec<Cuboid>,
     cleared_test_scene: Vec<Cuboid>,
     rock: Vec<Cuboid>,
     carved_empty: Vec<Cuboid>,
     sand: Vec<Cuboid>,
-    startup_obstacle_rebuild_bound: UAabb3,
     test_rebuild_bound: UAabb3,
 }
 
 fn test_rebuild_bound(case: EnvironmentLightingTestCase) -> UAabb3 {
-    if case == EnvironmentLightingTestCase::Dogleg {
-        UAabb3::new(DOGLEG_CLEAR_MIN.as_uvec3(), DOGLEG_CLEAR_MAX.as_uvec3())
-    } else {
-        UAabb3::new(TEST_REBUILD_MIN, TEST_REBUILD_MAX)
+    match case {
+        EnvironmentLightingTestCase::Dogleg => {
+            UAabb3::new(DOGLEG_CLEAR_MIN.as_uvec3(), DOGLEG_CLEAR_MAX.as_uvec3())
+        }
+        _ => UAabb3::new(TEST_REBUILD_MIN, TEST_REBUILD_MAX),
     }
 }
 
 impl TestSceneGeometry {
     fn build(case: EnvironmentLightingTestCase) -> Self {
-        let (startup_obstacle_min, startup_obstacle_max) = App::debug_startup_block_bounds();
-        let startup_obstacle = Cuboid::from_min_max(startup_obstacle_min, startup_obstacle_max);
-        let startup_obstacle_aabb = startup_obstacle.aabb();
-
         let test_rebuild_bound = test_rebuild_bound(case);
         let (cleared_test_scene, rock, carved_empty, sand) = match case {
             EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => (
@@ -628,24 +619,16 @@ impl TestSceneGeometry {
         };
 
         Self {
-            cleared_startup_obstacle: vec![startup_obstacle],
             cleared_test_scene,
             rock,
             carved_empty,
             sand,
-            startup_obstacle_rebuild_bound: UAabb3::new(
-                startup_obstacle_aabb.min_uvec3(),
-                startup_obstacle_aabb.max_uvec3(),
-            ),
             test_rebuild_bound,
         }
     }
 
     fn compile(self) -> Result<WorldEditPlan> {
-        let mut voxel_edits = vec![stamp_cuboids(
-            self.cleared_startup_obstacle,
-            VOXEL_TYPE_EMPTY,
-        )?];
+        let mut voxel_edits = Vec::new();
         if !self.cleared_test_scene.is_empty() {
             voxel_edits.push(stamp_cuboids(self.cleared_test_scene, VOXEL_TYPE_EMPTY)?);
         }
@@ -656,12 +639,10 @@ impl TestSceneGeometry {
         if !self.sand.is_empty() {
             voxel_edits.push(stamp_cuboids(self.sand, VOXEL_TYPE_SAND)?);
         }
+        let build_edits = vec![BuildEdit::RebuildMesh(self.test_rebuild_bound)];
         Ok(WorldEditPlan {
             voxel_edits,
-            build_edits: vec![
-                BuildEdit::RebuildMesh(self.startup_obstacle_rebuild_bound),
-                BuildEdit::RebuildMesh(self.test_rebuild_bound),
-            ],
+            build_edits,
         })
     }
 }
@@ -789,8 +770,13 @@ impl App {
             .tracer
             .set_camera_pose_looking_at(camera_position, camera_target)
         {
+            let effective_time_of_day = self.debug_settings.adjustables.time_of_day.value;
+            let effective_latitude = self.debug_settings.adjustables.latitude.value;
+            let effective_season = self.debug_settings.adjustables.season.value;
+            let effective_sun_luminance = self.debug_settings.adjustables.sun_luminance.value;
+            let effective_auto_cycle = self.debug_settings.adjustables.auto_daynight_cycle.value;
             log::info!(
-                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) time_of_day={:.6} latitude={:.3} season={:.3} sun_luminance={:.3} auto_cycle=false voxel_color_variance={:.3}",
+                "[ENV_LIGHT_TEST] case={} camera position=({:.3},{:.3},{:.3}) target=({:.3},{:.3},{:.3}) sky_settings_source={} time_of_day={:.6} latitude={:.3} season={:.3} sun_luminance={:.3} auto_cycle={} voxel_color_variance={:.3}",
                 case.label(),
                 camera_position.x,
                 camera_position.y,
@@ -798,10 +784,12 @@ impl App {
                 camera_target.x,
                 camera_target.y,
                 camera_target.z,
-                time_of_day,
-                latitude,
-                season,
-                sun_luminance,
+                "scene-preset",
+                effective_time_of_day,
+                effective_latitude,
+                effective_season,
+                effective_sun_luminance,
+                effective_auto_cycle,
                 TEST_VOXEL_COLOR_VARIANCE,
             );
             if case == EnvironmentLightingTestCase::Donor {
@@ -836,7 +824,7 @@ impl App {
                     DOGLEG_FINAL_RECEIVER_ROI_MAX,
                 );
                 log::info!(
-                    "[ENV_LIGHT_TEST_ROI] case=dogleg first_reflector_world={:?}..{:?} second_reflector_world={:?}..{:?} final_receiver_world={:?}..{:?} expected_first_signal_stage=S2 final_receiver_direct_sun=occluded",
+                    "[ENV_LIGHT_TEST_ROI] case=dogleg first_reflector_world={:?}..{:?} second_reflector_world={:?}..{:?} final_receiver_world={:?}..{:?} expected_first_signal_epoch=1 final_receiver_direct_sun=occluded",
                     first_min,
                     first_max,
                     second_min,
@@ -1035,6 +1023,7 @@ impl App {
                     assert_eq!(runtime.active().grid.spacing_voxels(), 32);
                     assert!(runtime.active_consumers_are_available());
                     log_acceptance_field("DENSITY", "baseline", baseline);
+                    self.tracer.rebuild_environment_probes(16);
                     TestScenePhase::WaitingForDensityMidflight { baseline }
                 } else if case == EnvironmentLightingTestCase::PattSeam {
                     log::info!(
@@ -1084,7 +1073,7 @@ impl App {
                 let Some(r1) = active.published_field else {
                     return;
                 };
-                if !is_terminal_field(r1)
+                if !is_converged_field(r1)
                     || active.stage != DdgiVolumeStage::Ready
                     || active.building_field.is_some()
                     || status.staging().is_some()
@@ -1139,12 +1128,12 @@ impl App {
                     return;
                 };
                 let r2_revision = next_nonzero_revision(r1.field().radiance_revision());
-                assert_radiance_s2(r2, r1, r2_revision);
+                assert_radiance_epoch_zero(r2, r1, r2_revision);
                 assert_eq!(r2.field().serial(), r1.field().serial() + 1);
                 let work = active
                     .target_work
                     .expect("r2 building field must retain scheduled work");
-                assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceFeedback);
+                assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceUpdate);
                 assert_eq!(work.destination(), r2);
                 let remaining = active
                     .grid
@@ -1158,12 +1147,12 @@ impl App {
                     .ddgi_runtime_status()
                     .active_consumers_are_available());
                 log::info!(
-                    "[DDGI_ACCEPT][RADIANCE] checkpoint=r2-midflight active_field_serial={} active_radiance_revision={} building_field_serial={} building_radiance_revision={} building_iteration={} source_field_serial={} progress={}/{} old_field_visible=true",
+                    "[DDGI_ACCEPT][RADIANCE] checkpoint=r2-midflight active_field_serial={} active_radiance_revision={} building_field_serial={} building_radiance_revision={} building_update_epoch={} source_field_serial={} progress={}/{} old_field_visible=true",
                     r1.field().serial(),
                     r1.field().radiance_revision(),
                     r2.field().serial(),
                     r2.field().radiance_revision(),
-                    r2.field().iteration(),
+                    r2.field().update_epoch(),
                     r2.source().expect("r2 must have source").serial(),
                     active.filtered_probe_count,
                     active.grid.probe_count(),
@@ -1225,7 +1214,7 @@ impl App {
                 let Some(r4) = active.building_field else {
                     return;
                 };
-                assert_radiance_s2(r4, r2, r4_revision);
+                assert_radiance_epoch_zero(r4, r2, r4_revision);
                 assert_eq!(
                     r4.field().serial(),
                     r2.field().serial() + 1,
@@ -1234,18 +1223,18 @@ impl App {
                 let work = active
                     .target_work
                     .expect("r4 building field must retain scheduled work");
-                assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceFeedback);
+                assert_eq!(work.kind(), DdgiScheduledWorkKind::RadianceUpdate);
                 assert_eq!(work.destination(), r4);
                 if active.filtered_probe_count == 0 {
                     return;
                 }
                 log::info!(
-                    "[DDGI_ACCEPT][RADIANCE] checkpoint=r4-midflight active_field_serial={} active_radiance_revision={} building_field_serial={} building_radiance_revision={} building_iteration={} source_field_serial={} progress={}/{} r3_coalesced=true old_field_visible=true",
+                    "[DDGI_ACCEPT][RADIANCE] checkpoint=r4-midflight active_field_serial={} active_radiance_revision={} building_field_serial={} building_radiance_revision={} building_update_epoch={} source_field_serial={} progress={}/{} r3_coalesced=true old_field_visible=true",
                     r2.field().serial(),
                     r2.field().radiance_revision(),
                     r4.field().serial(),
                     r4.field().radiance_revision(),
-                    r4.field().iteration(),
+                    r4.field().update_epoch(),
                     r4.source().expect("r4 must have source").serial(),
                     active.filtered_probe_count,
                     active.grid.probe_count(),
@@ -1306,9 +1295,9 @@ impl App {
                 let Some(work) = staging.target_work else {
                     return;
                 };
-                assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityBootstrap);
+                assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityUpdate);
                 let density_field = work.destination();
-                assert_bootstrap_s1(
+                assert_initial_epoch_zero(
                     density_field,
                     baseline.field().geometry_revision(),
                     baseline.field().radiance_revision(),
@@ -1445,8 +1434,8 @@ impl App {
                 let geometry_field = runtime
                     .active()
                     .published_field
-                    .expect("terrain S1 must be published before promotion");
-                assert_bootstrap_s1(
+                    .expect("terrain epoch zero must be published before promotion");
+                assert_initial_epoch_zero(
                     geometry_field,
                     target_revision,
                     baseline.field().radiance_revision(),
@@ -1454,9 +1443,9 @@ impl App {
                 );
                 assert!(runtime.active_consumers_are_available());
                 assert_eq!(runtime.deferred_density_spacing_voxels(), Some(16));
-                log_acceptance_field("DENSITY", "geometry-s1-published", geometry_field);
+                log_acceptance_field("DENSITY", "geometry-e0-published", geometry_field);
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-s1-published terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
+                    "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-published terrain_token_serial={} obsolete_density_token_serial={} geometry_revision={} active_spacing_voxels=32 queued_density_spacing_voxels=16 obsolete_density_consumer_visible=false active_available=true",
                     terrain_token_serial,
                     obsolete_density_token_serial,
                     target_revision,
@@ -1507,9 +1496,9 @@ impl App {
                 let Some(work) = staging.target_work else {
                     return;
                 };
-                assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityBootstrap);
+                assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityUpdate);
                 let density_field = work.destination();
-                assert_bootstrap_s1(
+                assert_initial_epoch_zero(
                     density_field,
                     geometry_field.field().geometry_revision(),
                     geometry_field.field().radiance_revision(),
@@ -1569,7 +1558,7 @@ impl App {
                 let active = runtime.active();
                 assert_eq!(active.published_field, Some(density_field));
                 assert_eq!(active.grid.spacing_voxels(), 16);
-                assert_bootstrap_s1(
+                assert_initial_epoch_zero(
                     density_field,
                     geometry_field.field().geometry_revision(),
                     geometry_field.field().radiance_revision(),
@@ -1580,7 +1569,7 @@ impl App {
                 assert!(runtime.active_consumers_are_available());
                 log_acceptance_field("DENSITY", "complete", density_field);
                 log::info!(
-                    "[DDGI_ACCEPT][DENSITY] complete obsolete_density_token_serial={} terrain_token_serial={} density_token_serial={} obsolete_density_consumer_visible=false first_consumer_visible_16_stage=S1 geometry_revision={} spacing_voxels=16",
+                    "[DDGI_ACCEPT][DENSITY] complete obsolete_density_token_serial={} terrain_token_serial={} density_token_serial={} obsolete_density_consumer_visible=false first_consumer_visible_16_epoch=0 geometry_revision={} spacing_voxels=16",
                     obsolete_density_token_serial,
                     terrain_token_serial,
                     density_token_serial,
@@ -1602,7 +1591,7 @@ impl App {
                     return;
                 };
                 if field.field().geometry_revision() != target_revision
-                    || !is_terminal_field(field)
+                    || !is_converged_field(field)
                     || active.stage != DdgiVolumeStage::Ready
                     || active.building_field.is_some()
                     || runtime.staging().is_some()
@@ -1610,10 +1599,10 @@ impl App {
                     return;
                 }
                 log::info!(
-                    "[DDGI_SEAM_REPRO] ready target_revision={} transport={:?} iteration={} opening=shovel-sphere",
+                    "[DDGI_SEAM_REPRO] ready target_revision={} state={:?} update_epoch={} opening=shovel-sphere",
                     target_revision,
-                    field.field().stage(),
-                    field.field().iteration(),
+                    field.field().state(),
+                    field.field().update_epoch(),
                 );
                 TestScenePhase::Ready
             }
@@ -1827,7 +1816,6 @@ impl App {
                     Some(VOXEL_TYPE_ROCK),
                     None,
                     None,
-                    TerrainProbeRefreshCadence::Immediate,
                 )?;
                 let stroke_removed: u32 = readback.stats.removed_counts.iter().sum();
                 productive_strokes += usize::from(stroke_removed > 0);
@@ -1897,33 +1885,32 @@ mod tests {
     }
 
     #[test]
-    fn radiance_s2_identity_restarts_from_the_exact_previous_field() {
-        let r1_source = DdgiFieldKey::new(9, 1, 1, 32, DdgiFieldStage::Feedback, 3).unwrap();
+    fn radiance_epoch_zero_restarts_from_the_exact_previous_field() {
+        let r1_source = DdgiFieldKey::new(9, 1, 1, 32, DdgiFieldState::Converging, 3).unwrap();
         let r1 = DdgiFieldIdentity::new(
-            DdgiFieldKey::new(10, 1, 1, 32, DdgiFieldStage::Converged, 4).unwrap(),
+            DdgiFieldKey::new(10, 1, 1, 32, DdgiFieldState::Converged, 4).unwrap(),
             Some(r1_source),
         )
         .unwrap();
         let r2 = DdgiFieldIdentity::new(
-            DdgiFieldKey::new(11, 1, 2, 32, DdgiFieldStage::Feedback, 2).unwrap(),
+            DdgiFieldKey::new(11, 1, 2, 32, DdgiFieldState::Converging, 0).unwrap(),
             Some(r1.field()),
         )
         .unwrap();
 
-        assert_radiance_s2(r2, r1, 2);
+        assert_radiance_epoch_zero(r2, r1, 2);
         assert_eq!(r2.field().serial(), r1.field().serial() + 1);
     }
 
     #[test]
-    fn density_bootstrap_s1_consumes_matching_s0() {
-        let seed = DdgiFieldKey::new(20, 2, 1, 16, DdgiFieldStage::SeedSky, 0).unwrap();
-        let s1 = DdgiFieldIdentity::new(
-            DdgiFieldKey::new(21, 2, 1, 16, DdgiFieldStage::SingleBounce, 1).unwrap(),
-            Some(seed),
+    fn density_initial_epoch_has_no_old_geometry_source() {
+        let epoch_zero = DdgiFieldIdentity::new(
+            DdgiFieldKey::new(20, 2, 1, 16, DdgiFieldState::Converging, 0).unwrap(),
+            None,
         )
         .unwrap();
 
-        assert_bootstrap_s1(s1, 2, 1, 16);
+        assert_initial_epoch_zero(epoch_zero, 2, 1, 16);
     }
 
     #[test]
@@ -2062,14 +2049,11 @@ mod tests {
             EnvironmentLightingTestCase::TerrainEditsClosed,
         ] {
             let plan = TestSceneGeometry::build(case).compile().unwrap();
-            assert!(plan.voxel_edits.len() >= 2);
-            assert_eq!(plan.build_edits.len(), 2);
-            assert!(plan.build_edits.iter().all(|edit| {
-                matches!(
-                    edit,
-                    BuildEdit::RebuildMesh(bound)
-                        if bound.max().cmple(UVec3::splat(512)).all()
-                )
+            assert!(!plan.voxel_edits.is_empty());
+            assert_eq!(plan.build_edits.len(), 1);
+            assert!(plan.build_edits.iter().all(|edit| match edit {
+                BuildEdit::RebuildMesh(bound) => bound.max().cmple(UVec3::splat(512)).all(),
+                _ => false,
             }));
         }
     }

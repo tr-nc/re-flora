@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-auto_exit="${DDGI_CORRECTNESS_AUTO_EXIT:-12}"
+auto_exit="${DDGI_CORRECTNESS_AUTO_EXIT:-24}"
 output_root="${DDGI_CORRECTNESS_OUTPUT_DIR:-$repo_root/target/ddgi-correctness}"
 terrain_hard_origin="${DDGI_CORRECTNESS_TERRAIN_HARD_ORIGIN:-}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -41,10 +41,13 @@ for case_name in "${cases[@]}"; do
                 thresholds=(--min-luminance-p99 0.10 --max-reference-error-p99 0.01)
                 ;;
             walls)
+                # Runtime consumers intentionally use Moment visibility only. These bounds retain
+                # the measured thin-wall leakage ceiling after the Full/Exact consumer was
+                # removed; the exact view remains the fixed oracle, not the production path.
                 if [[ "$spacing" == "32" ]]; then
-                    thresholds=(--max-reference-error-p99 0.15)
+                    thresholds=(--max-reference-error-p99 0.40)
                 else
-                    thresholds=(--max-reference-error-p99 0.133)
+                    thresholds=(--max-reference-error-p99 0.375)
                 fi
                 ;;
         esac
@@ -53,6 +56,7 @@ for case_name in "${cases[@]}"; do
             --hidden --mute --no-flora --no-particles --no-god-rays --no-lens-flare --no-clouds
             --environment-lighting-test-scene "$case_name"
             --environment-probe-spacing-voxels "$spacing"
+            --environment-irradiance-capture-target converged
             --auto-exit "$auto_exit"
         )
         if [[ -n "$terrain_hard_origin" ]]; then

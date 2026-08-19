@@ -5,7 +5,9 @@ use std::{collections::HashMap, collections::HashSet, io::Write, path::Path};
 
 const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 const CONFIG_FILE_NAME: &str = "gui.toml";
-const GUI_FLOAT_DECIMALS: usize = 6;
+// Keep exact voxel-scale controls such as 1 / 256 while still trimming the
+// noisy tail emitted when an f32 is serialized through TOML.
+const GUI_FLOAT_DECIMALS: usize = 8;
 
 pub struct GuiConfigLoader;
 
@@ -428,7 +430,7 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::GuiConfigLoader;
+    use super::{GuiConfigLoader, GUI_FLOAT_DECIMALS};
     use crate::app::gui_config_model::GuiConfigFile;
     use std::path::Path;
 
@@ -454,6 +456,13 @@ mod tests {
         let src = "value = 0.05000000074505806\nmin = 0.10000000149011612\nmax = 2.0\n";
         let normalized = GuiConfigLoader::normalize_float_assignments(src, 6);
         assert_eq!(normalized, "value = 0.05\nmin = 0.1\nmax = 2\n");
+    }
+
+    #[test]
+    fn configured_precision_preserves_one_voxel_world_scale() {
+        let src = "value = 0.00390625\n";
+        let normalized = GuiConfigLoader::normalize_float_assignments(src, GUI_FLOAT_DECIMALS);
+        assert_eq!(normalized, src);
     }
 
     #[test]

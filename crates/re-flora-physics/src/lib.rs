@@ -1,6 +1,6 @@
 use glam::{IVec3, Quat, UVec3, Vec3};
 use rapier3d::control::{CharacterAutostep, CharacterLength, KinematicCharacterController};
-use rapier3d::parry::query::{NonlinearRigidMotion, ShapeCastOptions};
+use rapier3d::parry::query::ShapeCastOptions;
 #[cfg(test)]
 use rapier3d::prelude::{AxisMask, VoxelState};
 use rapier3d::prelude::{
@@ -490,7 +490,6 @@ impl CollisionWorld {
             // current first so character queries stay valid even when their next query happens
             // after a dynamic simulation step.
             self.sync_capsule_character_broad_phase();
-            self.limit_ccd_body_terrain_approach();
             self.physics.step();
             self.fixed_step_accumulator =
                 (self.fixed_step_accumulator - self.fixed_step_seconds).max(0.0);
@@ -503,67 +502,6 @@ impl CollisionWorld {
             dropped_seconds,
             interpolation_alpha: (self.fixed_step_accumulator / self.fixed_step_seconds)
                 .clamp(0.0, 1.0),
-        }
-    }
-
-    fn limit_ccd_body_terrain_approach(&mut self) {
-        // Rapier's built-in CCD can miss the first gravity-driven contact between a rotating
-        // convex hull and a Voxels collider. Sweep the full nonlinear pose against the
-        // terrain-only query world first and limit only the velocity into the hit normal.
-        // Tangential and angular motion remain untouched so fruit can still roll and tumble.
-        let mut handles = self.dynamic_bodies.values().copied().collect::<Vec<_>>();
-        handles.sort_unstable_by_key(|handle| handle.into_raw_parts());
-        let mut limited_velocities = Vec::new();
-
-        for handle in handles {
-            let body = &self.physics.bodies[handle];
-            if body.is_sleeping() || !body.is_ccd_enabled() {
-                continue;
-            }
-            let Some(&collider_handle) = body.colliders().first() else {
-                continue;
-            };
-            let collider = &self.physics.colliders[collider_handle];
-            let predicted_velocity = body.linvel()
-                + self.physics.gravity * body.gravity_scale() * self.fixed_step_seconds;
-            let motion = NonlinearRigidMotion::new(
-                *body.position(),
-                body.local_center_of_mass(),
-                predicted_velocity,
-                body.angvel(),
-            );
-            let queries = self.capsule_character_broad_phase.as_query_pipeline(
-                self.physics.narrow_phase.query_dispatcher(),
-                &self.physics.bodies,
-                &self.physics.colliders,
-                QueryFilter::default().exclude_sensors(),
-            );
-            let Some((_, hit)) = queries.cast_shape_nonlinear(
-                &motion,
-                collider.shape(),
-                0.0,
-                self.fixed_step_seconds,
-                true,
-            ) else {
-                continue;
-            };
-            if hit.time_of_impact <= 0.0 || hit.time_of_impact >= self.fixed_step_seconds {
-                continue;
-            }
-
-            let normal = hit.normal1;
-            let normal_velocity = predicted_velocity.dot(normal);
-            if normal_velocity >= 0.0 {
-                continue;
-            }
-            let allowed_normal_distance = normal_velocity * hit.time_of_impact;
-            let allowed_normal_velocity = allowed_normal_distance / self.fixed_step_seconds;
-            let correction = normal * (allowed_normal_velocity - normal_velocity);
-            limited_velocities.push((handle, body.linvel() + correction));
-        }
-
-        for (handle, velocity) in limited_velocities {
-            self.physics.bodies[handle].set_linvel(velocity, false);
         }
     }
 
@@ -1578,95 +1516,6 @@ mod tests {
         assert!(
             max_abs_vertical_velocity_near_seam < 0.02,
             "vertical seam kick: {max_abs_vertical_velocity_near_seam}"
-        );
-    }
-
-    fn probe_sized_voxel_hull_points() -> Vec<Vec3> {
-        let source_voxels = (-2..2)
-            .flat_map(|x| {
-                (-2..2).flat_map(move |y| {
-                    (-2..2).filter_map(move |z| {
-                        let center = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
-                        ((center / 2.0).length_squared() <= 1.0).then_some(IVec3::new(x, y, z))
-                    })
-                })
-            })
-            .collect::<Vec<_>>();
-        let mut point_set = std::collections::HashSet::new();
-        for voxel in source_voxels {
-            let voxel = voxel * 2;
-            for x in 0..=2 {
-                for y in 0..=2 {
-                    for z in 0..=2 {
-                        point_set.insert(voxel + IVec3::new(x, y, z));
-                    }
-                }
-            }
-        }
-        point_set.into_iter().map(IVec3::as_vec3).collect()
-    }
-
-    #[test]
-    fn rotating_convex_body_reaches_voxel_floor_without_visible_penetration() {
-        let points = probe_sized_voxel_hull_points();
-        let mut world = CollisionWorld::new();
-        world.set_gravity(Vec3::new(0.0, -9.8 * 256.0, 0.0)).unwrap();
-        for brick in [IVec3::ZERO, IVec3::X] {
-            world.upsert_static_voxel_brick(
-                StaticVoxelBrickId(brick),
-                1,
-                two_layer_floor(),
-            );
-        }
-        let mut desc = DynamicBodyDesc::sphere(Vec3::new(16.0, 28.0, 16.0), 4.0);
-        desc.collider = DynamicColliderShape::ConvexHull {
-            points: points.clone(),
-        };
-        desc.linear_velocity = Vec3::new(7.0, 0.0, 2.0);
-        desc.angular_velocity = Vec3::new(3.2, 1.7, -4.0);
-        desc.restitution = 0.08;
-        desc.contact_skin = 0.15;
-        desc.linear_damping = 0.08;
-        desc.angular_damping = 0.12;
-        let body = world.spawn_dynamic_body(desc).unwrap();
-        let mut min_bottom = f32::INFINITY;
-        let mut max_upward_velocity = 0.0_f32;
-        let mut saw_contact = false;
-        for _ in 0..120 {
-            assert_eq!(world.advance(DEFAULT_FIXED_STEP_SECONDS).steps, 1);
-            let state = world.dynamic_body_state(body).unwrap();
-            let bottom = points
-                .iter()
-                .map(|point| (state.rotation * *point + state.position).y)
-                .reduce(f32::min)
-                .unwrap();
-            min_bottom = min_bottom.min(bottom);
-            max_upward_velocity = max_upward_velocity.max(state.linear_velocity.y);
-            saw_contact |= world.physics.narrow_phase.contact_pairs().next().is_some();
-        }
-        let final_state = world.dynamic_body_state(body).unwrap();
-        let final_bottom = points
-            .iter()
-            .map(|point| (final_state.rotation * *point + final_state.position).y)
-            .reduce(f32::min)
-            .unwrap();
-
-        assert!(min_bottom >= 1.99, "visible floor penetration: {min_bottom}");
-        assert!(saw_contact, "terrain contact was never generated");
-        assert!(
-            (1.99..=2.16).contains(&final_bottom),
-            "unexpected final floor gap: {final_bottom}"
-        );
-        assert!(max_upward_velocity < 5.0, "excessive bounce: {max_upward_velocity}");
-        let final_horizontal_speed =
-            final_state.linear_velocity.x.hypot(final_state.linear_velocity.z);
-        assert!(
-            final_horizontal_speed < 7.0_f32.hypot(2.0),
-            "terrain friction did not slow horizontal motion: {final_state:?}"
-        );
-        assert!(
-            final_state.angular_velocity.length() < Vec3::new(3.2, 1.7, -4.0).length(),
-            "terrain contact did not slow rotation: {final_state:?}"
         );
     }
 

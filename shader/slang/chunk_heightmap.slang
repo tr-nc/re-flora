@@ -33,13 +33,15 @@ float computeIslandShape2D(float2 worldXZ)
 
 float computeBaseShape2D(float2 worldXZ)
 {
+    static const float TERRAIN_RELIEF_SCALE = 0.85;
     float base = fbmClassicGradientNoise2D(
-        worldXZ.x, worldXZ.y, 42u, 0.15, 5, 2.2, 0.55) * 0.5 + 0.5;
+        worldXZ.x, worldXZ.y, 42u, 0.15, 5, 2.2, 0.55);
     float detail = fbmClassicGradientNoise2D(
         worldXZ.x, worldXZ.y, 999u, 0.8, 4, 2.0, 0.5);
     float fine = fbmClassicGradientNoise2D(
         worldXZ.x, worldXZ.y, 5555u, 3.0, 3, 2.0, 0.5);
-    return base + detail * 0.15 + fine * 0.04;
+    float relief = base * 0.5 + detail * 0.15 + fine * 0.04;
+    return 0.5 + relief * TERRAIN_RELIEF_SCALE;
 }
 
 float computeSurfaceHeight2D(float2 worldXZ)

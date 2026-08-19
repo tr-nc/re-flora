@@ -33,10 +33,11 @@ pub struct CounterForLevels {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Cuboids {
-    pub min_corner: [f32; 3],
+    pub center: [f32; 3],
     pub _pad0: f32,
-    pub max_corner: [f32; 3],
+    pub half_size: [f32; 3],
     pub _pad1: f32,
+    pub inverse_rotation: [f32; 4],
 }
 
 /// Auto-generated from `B_DdgiAtlasReduction` (native Slang source of truth).
@@ -333,7 +334,10 @@ pub struct PushConstantIrradianceFilter {
     pub tile_columns: u32,
     pub terrain_revision: u32,
     pub destination_is_transport_source: u32,
-    pub _pad0: [u8; 12],
+    pub source_slot: u32,
+    pub has_history: u32,
+    pub history_retention: f32,
+    pub epoch_rotation: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantIrradianceGutter` (native Slang source of truth).
@@ -385,10 +389,11 @@ pub struct PushConstantProbeTrace {
     pub first_probe_index: u32,
     pub probe_count: u32,
     pub terrain_revision: u32,
-    pub transport_iteration: u32,
+    pub has_history: u32,
     pub source_slot: u32,
     pub far_distance_world: f32,
     pub padding: [u32; 2],
+    pub epoch_rotation: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).
@@ -401,6 +406,11 @@ pub struct PushConstantVisibilityFilter {
     pub terrain_revision: u32,
     pub spacing_world: [f32; 3],
     pub far_distance_world: f32,
+    pub destination_slot: u32,
+    pub source_slot: u32,
+    pub has_history: u32,
+    pub history_retention: f32,
+    pub epoch_rotation: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityGutter` (native Slang source of truth).
@@ -410,7 +420,7 @@ pub struct PushConstantVisibilityGutter {
     pub first_probe_index: u32,
     pub probe_count: u32,
     pub tile_columns: u32,
-    pub padding: u32,
+    pub destination_slot: u32,
 }
 
 /// Auto-generated from `PushConstantVsmBlurH` (native Slang source of truth).
@@ -818,17 +828,15 @@ pub struct ShadingInfo {
     pub ddgi_ready: u32,
     pub ddgi_geometry_revision: u32,
     pub environment_irradiance_capture_enabled: u32,
-    pub environment_irradiance_capture_unpublished: u32,
     pub ddgi_irradiance_tile_columns: u32,
     pub ddgi_visibility_tile_columns: u32,
     pub ddgi_debug_view: u32,
     pub ddgi_terrain_hard_origin: u32,
     pub ddgi_invalidation_enabled: u32,
-    pub _pad2: [u8; 12],
     pub ddgi_invalidation_world_min: [f32; 3],
-    pub _pad3: [u8; 4],
+    pub _pad2: [u8; 4],
     pub ddgi_invalidation_world_max: [f32; 3],
-    pub _pad4: [u8; 4],
+    pub _pad3: [u8; 4],
 }
 
 /// Auto-generated from `U_ShadowCameraInfo` (native Slang source of truth).

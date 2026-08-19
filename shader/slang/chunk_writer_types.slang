@@ -37,10 +37,11 @@ public struct RoundCone
 
 public struct Cuboid
 {
-    public float3 min_corner;
+    public float3 center;
     public float _pad0;
-    public float3 max_corner;
+    public float3 half_size;
     public float _pad1;
+    public float4 inverse_rotation;
 };
 
 public struct Sphere

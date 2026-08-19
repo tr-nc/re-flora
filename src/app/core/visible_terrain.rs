@@ -10,12 +10,6 @@ enum VisibleTerrainRebuild {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TerrainProbeRefreshCadence {
-    Immediate,
-    PlayerStrokeRelease,
-}
-
 /// A semantic request to make one authoritative terrain change fully visible.
 ///
 /// The fields stay private so callers cannot select builder stages or downstream observers.
@@ -88,17 +82,6 @@ impl VisibleTerrainChange {
 
 impl App {
     pub(super) fn publish_visible_terrain(&mut self, change: VisibleTerrainChange) -> Result<()> {
-        self.publish_visible_terrain_with_probe_refresh_cadence(
-            change,
-            TerrainProbeRefreshCadence::Immediate,
-        )
-    }
-
-    pub(super) fn publish_visible_terrain_with_probe_refresh_cadence(
-        &mut self,
-        change: VisibleTerrainChange,
-        probe_refresh_cadence: TerrainProbeRefreshCadence,
-    ) -> Result<()> {
         let chunk_ids = change.affected_chunks()?;
         let started_at = Instant::now();
         let mut physical_publications = match change.rebuild {
@@ -141,20 +124,14 @@ impl App {
             next_visible_terrain_revision(self.visible_terrain_revision, change.terrain_changed);
         if let Some(revision) = revision {
             self.terrain_physics
-                .mark_terrain_chunks_dirty(&chunk_ids, VOXEL_DIM_PER_CHUNK);
-            match probe_refresh_cadence {
-                TerrainProbeRefreshCadence::Immediate => self
-                    .tracer
-                    .observe_published_environment_probe_terrain(revision, change.affected_voxels)
-                    .unwrap_or_else(|err| {
-                        panic!(
-                            "visible terrain downstream observation failed after physical publication: {err:#}"
-                        )
-                    }),
-                TerrainProbeRefreshCadence::PlayerStrokeRelease => self
-                    .player_tools
-                    .record_terrain_probe_edit(change.affected_voxels),
-            }
+                .mark_terrain_voxels_dirty(change.affected_voxels);
+            self.tracer
+                .observe_published_environment_probe_terrain(revision, change.affected_voxels)
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "visible terrain downstream observation failed after physical publication: {err:#}"
+                    )
+                });
             self.visible_terrain_revision = revision;
         }
 

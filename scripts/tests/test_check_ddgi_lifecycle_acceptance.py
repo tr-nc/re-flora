@@ -61,8 +61,12 @@ class CheckDdgiLifecycleAcceptanceTests(unittest.TestCase):
         self.assertIn("--environment-probe-spacing-voxels 32", output)
         self.assertIn("--environment-probe-spacing-voxels 16", output)
         self.assertIn("--environment-lighting-test-scene density-changes", output)
-        self.assertIn("--environment-probe-rebuild-spacing-voxels 16", output)
-        self.assertIn("--environment-irradiance-capture-target s1", output)
+        self.assertIn(
+            "[DDGI_LIFECYCLE] group=DENSITY scene=density-changes target=e0 running",
+            output,
+        )
+        self.assertNotIn("--environment-probe-rebuild-spacing-voxels", output)
+        self.assertIn("--environment-irradiance-capture-target e0", output)
         self.assertIn("[DDGI_LIFECYCLE] dry-run complete scenarios=3", output)
 
     def test_rejects_unknown_arguments_without_running_cargo(self) -> None:

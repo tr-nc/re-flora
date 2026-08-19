@@ -10,6 +10,7 @@ float3 voxelColorByTypeSrgb(U_VoxelColors colors, uint voxelType)
 {
     if (voxelType == VOXEL_TYPE_DIRT) return colors.dirt_color;
     if (voxelType == VOXEL_TYPE_SAND) return colors.sand_color;
+    if (voxelType == VOXEL_TYPE_STUCCO) return VOXEL_STUCCO_COLOR_SRGB;
     if (voxelType == VOXEL_TYPE_CHERRY_WOOD) return colors.cherry_wood_color;
     if (voxelType == VOXEL_TYPE_OAK_WOOD) return colors.oak_wood_color;
     if (voxelType == VOXEL_TYPE_ROCK) return colors.rock_color;
@@ -19,6 +20,7 @@ float3 voxelColorByTypeSrgb(U_VoxelColors colors, uint voxelType)
 float voxelHashVariance(uint voxelType)
 {
     if (voxelType == VOXEL_TYPE_DIRT || voxelType == VOXEL_TYPE_SAND) return 1.0;
+    if (voxelType == VOXEL_TYPE_STUCCO) return 0.15;
     if (voxelType == VOXEL_TYPE_ROCK) return 0.6;
     return 0.0;
 }
@@ -48,6 +50,7 @@ float3 ddgiVoxelColorByTypeSrgb(U_DdgiRadianceVoxelPalette colors,
 {
     if (voxelType == VOXEL_TYPE_DIRT) return colors.dirt_color;
     if (voxelType == VOXEL_TYPE_SAND) return colors.sand_color;
+    if (voxelType == VOXEL_TYPE_STUCCO) return VOXEL_STUCCO_COLOR_SRGB;
     if (voxelType == VOXEL_TYPE_CHERRY_WOOD) return colors.cherry_wood_color;
     if (voxelType == VOXEL_TYPE_OAK_WOOD) return colors.oak_wood_color;
     if (voxelType == VOXEL_TYPE_ROCK) return colors.rock_color;

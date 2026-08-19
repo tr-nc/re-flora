@@ -2,11 +2,10 @@
 
 ## Status
 
-This document records the approved design baseline for replacing the branch's local spherical-
-harmonic probe field with a paper-based Dynamic Diffuse Global Illumination implementation. The
-first milestone is deliberately **sky-only DDGI**: it must make authored environment lighting and
-probe-to-surface visibility correct before adding indirect hit radiance, temporal convergence, or
-production compression.
+This document records the historical milestone plan that replaced the local spherical-harmonic
+probe field with DDGI. Its original first milestone was deliberately **sky-only DDGI**. Current
+runtime behavior is specified by [DDGI Temporal Indirect Transport](ddgi_indirect_transport_spec.md);
+the fixed-ray, zero-history scope below is retained only as implementation history.
 
 Implementation progress:
 
@@ -40,6 +39,9 @@ Implementation progress:
   complete token and terrain revision. One physical staging update runs at a time, and the last
   complete active field remains consumer-visible while its replacement builds; dependency-exact
   refresh is deliberately deferred as an optimization.
+- The temporal-transport milestone is complete: the runtime uses 64 rotated rays per probe,
+  publishes a complete epoch zero without the former S0/S1 barrier, accumulates irradiance and
+  visibility history, and sleeps after thresholds or a finite 128-epoch sample budget.
 
 The canonical terms are defined in the root [rendering glossary](../CONTEXT.md). In particular,
 DDGI still uses probes. The migration replaces each probe's SH representation with directional
@@ -50,7 +52,8 @@ octahedral maps; it does not remove the probe volume.
 The environment-lighting path now contains:
 
 - a fixed world-aligned DDGI volume;
-- one octahedral irradiance map and one octahedral visibility map per probe;
+- one logical octahedral irradiance map and one visibility map per probe, each backed by two
+  source/destination atlas slots for temporal accumulation;
 - a single global sky irradiance map for positions outside a ready volume;
 - one shared `sampleDiffuseEnvironment(worldPosition, surfaceNormal)` shader seam for terrain and
   raster consumers;
@@ -118,7 +121,7 @@ normal. Flora, leaves, fruit, sprinklers, and particles may reuse their existing
 normal when they later become DDGI consumers. A separate geometric/visibility normal will be added
 only if a concrete consumer demonstrates that the distinction is necessary.
 
-## First-Milestone Scope
+## Historical First-Milestone Scope
 
 ### Included
 
@@ -406,6 +409,13 @@ separate remaining visibility-quality issue: environment/combined black pixels c
 `36,318`/`23,798` to `19,232`/`13,441` at spacing 32 and measured `14,198`/`8,981` at spacing 16.
 The post-change walls reference-error P99 is `0.02630` at spacing 32 and `0.00402` at spacing 16,
 with all six correctness cases still accepted.
+
+These `0.15/0.133` and `0.02630/0.00402` results are historical Full-consumer evidence: terrain
+then multiplied Moment visibility by packed-voxel exact visibility. Production consumers were
+subsequently standardized on Moment Only and the Full path was deleted. The current temporal runner
+captures `Converged e63` and guards the accepted Moment-only walls ceiling at `0.400/0.375`; measured
+P99 is `0.391190/0.365590`. Exact visibility remains the oracle and probe-transport path, but is no
+longer part of normal terrain/Flora/Leaves shading.
 
 ## Migration Milestones
 

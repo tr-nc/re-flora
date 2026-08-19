@@ -50,7 +50,7 @@ completion stay in the runtime while Tracer remains the concrete Vulkan command 
   reports completion through runtime methods.
 - Preparation, execution, validation, and publication errors fail fast. No recovery state, retry,
   degraded mode, or compatibility layer is introduced.
-- Capture v5, accepted logs, external runners, shader behavior, and the complete DDGI correctness
+- Capture v6 lifecycle metadata, accepted logs, external runners, shader behavior, and the complete DDGI correctness
   acceptance remain compatible.
 - The existing device-wide publication synchronization remains unchanged in this workstream. Its
   measured replacement belongs to VKN Tickets 07 and 08.
@@ -340,14 +340,14 @@ published atomically and retired on frame completion, and staging publication no
 - [x] DDGI consumer publication no longer requires `device.wait_idle()`.
 - [x] Consumers observe either the previous complete DDGI Volume or the newly published complete
       generation, never a mixture of the two.
-- [x] Partial S0, S1, or feedback work never becomes consumer-visible during publication.
+- [x] Partial DDGI epoch work never becomes consumer-visible during publication.
 - [x] Obsolete or replaced generations remain resident until all referencing frame submissions
       complete and then retire deterministically.
 - [x] The DDGI lifecycle acceptance remains green for geometry edits, density preemption/retry,
       radiance coalescing, convergence, and published captures (`scripts/check_ddgi_lifecycle_acceptance.sh`).
 - [x] The complete DDGI correctness acceptance remains green across every batch-order invariance
       case. The release transport matrix covered both `forward` and `reverse` donor batches at
-      spacings 32 and 16, all sealed/donor/dogleg/portal convergence stages, exact-reference
+      spacings 32 and 16, all sealed/donor/dogleg/portal convergence checkpoints, exact-reference
       correctness, and the terrain-edit runtime matrix. The initial composite run reported one
       failure only because `check_ddgi_runtime_terrain_edits.sh` expected
       `staging_stage=Some(Rebuilding)` while the runtime log contract is `staging_stage=Rebuilding`;

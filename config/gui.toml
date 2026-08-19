@@ -830,7 +830,7 @@ label = "Sun Luminance"
 type = "Float"
 
 [section.param.data]
-value = 1.65
+value = 2
 min = 0
 max = 10
 
@@ -861,7 +861,7 @@ label = "Initial / Manual Time of Day"
 type = "Float"
 
 [section.param.data]
-value = 0.455705
+value = 0.47
 min = 0
 max = 1
 
@@ -872,7 +872,7 @@ label = "Latitude"
 type = "Float"
 
 [section.param.data]
-value = -0.24
+value = 0.46
 min = -1
 max = 1
 
@@ -1039,9 +1039,20 @@ label = "DDGI Receiver Visibility Bias (world)"
 type = "Float"
 
 [section.param.data]
-value = 0.000977
+value = 0.00390625
 min = 0
 max = 0.02
+
+[[section.param]]
+id = "ddgi_history_retention"
+kind = "float"
+label = "DDGI History Retention"
+type = "Float"
+
+[section.param.data]
+value = 0.99
+min = 0
+max = 0.99
 
 [[section.param]]
 id = "vsm_blur_radius"
@@ -1296,7 +1307,7 @@ label = "Weight"
 type = "Float"
 
 [section.param.data]
-value = 0.225
+value = 0.5
 min = 0
 max = 1
 
@@ -1307,7 +1318,7 @@ label = "Lens Flare Intensity"
 type = "Float"
 
 [section.param.data]
-value = 0.105
+value = 0.8
 min = 0
 max = 1
 

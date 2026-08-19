@@ -45,6 +45,7 @@ pub const VOXEL_TYPE_ROCK: u32 = 7;
 pub const VOXEL_TYPE_EMPTY: u32 = 0;
 pub const VOXEL_TYPE_DIRT: u32 = 2;
 pub const VOXEL_TYPE_SAND: u32 = 3;
+pub const VOXEL_TYPE_STUCCO: u32 = 4;
 pub const VOXEL_TYPE_MASK: u8 = 0x0f;
 pub const VOXEL_ATLAS_STATE_MASK: u8 = 0xf0;
 // Atlas bytes store 4 bits of voxel type, 2 bits of moisture, and 2 bits of fertility.
@@ -89,7 +90,7 @@ pub(crate) const TERRAIN_SMOOTH_MBO_CELL_CAPACITY: u64 = (TERRAIN_SMOOTH_MBO_MAX
     * (TERRAIN_SMOOTH_MBO_MAX_DIM as u64);
 const EDIT_REMOVAL_SAMPLE_COUNT: usize = 50;
 
-fn voxel_type_from_atlas_byte(voxel_data: u8) -> u8 {
+pub(crate) fn voxel_type_from_atlas_byte(voxel_data: u8) -> u8 {
     voxel_data & VOXEL_TYPE_MASK
 }
 
@@ -2281,6 +2282,52 @@ impl PlainBuilder {
         self.chunk_modify_cuboids_with_voxel_type_impl(bvh_nodes, cuboids, fill_voxel_type)
     }
 
+    pub fn chunk_modify_spheres_with_voxel_type(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        spheres: &[Sphere],
+        fill_voxel_type: u32,
+    ) -> Result<()> {
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
+            return Ok(());
+        };
+        update_chunk_modify_info(
+            &self.resources,
+            offset,
+            dim,
+            fill_voxel_type,
+            None,
+            PRIMITIVE_KIND_SPHERE,
+            false,
+            None,
+            None,
+        )?;
+        update_spheres(&self.resources, spheres)?;
+        update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
+
+        execute_one_time_command(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.spheres, BufferUse::HostWrite);
+                self.chunk_modify_ppl.record(
+                    cmdbuf,
+                    Extent3D {
+                        width: dim.x,
+                        height: dim.y,
+                        depth: dim.z,
+                    },
+                    None,
+                );
+            },
+        );
+        Ok(())
+    }
+
     pub fn chunk_modify_surface_spheres_with_voxel_type(
         &mut self,
         bvh_nodes: &[BvhNode],
@@ -3219,8 +3266,9 @@ fn update_round_cones(resources: &PlainBuilderResources, round_cones: &[RoundCon
 fn update_cuboids(resources: &PlainBuilderResources, cuboids: &[Cuboid]) -> Result<()> {
     for (i, cuboid) in cuboids.iter().enumerate() {
         let data = Cuboids {
-            min_corner: cuboid.min().to_array(),
-            max_corner: cuboid.max().to_array(),
+            center: cuboid.center().to_array(),
+            half_size: cuboid.half_size().to_array(),
+            inverse_rotation: cuboid.rotation().conjugate().to_array(),
             ..Cuboids::zeroed()
         };
         resources

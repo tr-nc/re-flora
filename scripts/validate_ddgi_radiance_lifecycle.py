@@ -31,12 +31,14 @@ def require(condition: bool, message: str, failures: list[str]) -> None:
 def field_matches_capture(
     field: dict[str, object], capture: analyzer.Capture
 ) -> bool:
+    lifecycle_state = analyzer.LIFECYCLE_STATE_LABELS.get(capture.lifecycle_state)
     return (
         field["field_serial"] == capture.field_serial
         and field["geometry_revision"] == capture.geometry_revision
         and field["radiance_revision"] == capture.radiance_revision
         and field["spacing_voxels"] == capture.spacing_voxels
-        and field["transport_iteration"] == capture.transport_iteration
+        and str(field["lifecycle_state"]).lower() == lifecycle_state
+        and field["update_epoch"] == capture.update_epoch
         and field["source_field_serial"] == capture.source_field_serial
         and field["source_radiance_revision"] == capture.source_radiance_revision
     )
@@ -56,7 +58,7 @@ def validate(
     for checkpoint in CHECKPOINTS:
         capture = captures[checkpoint]
         identity = identities[checkpoint]
-        require(capture.version == 5, f"{checkpoint}: capture is not v5", failures)
+        require(capture.version == 6, f"{checkpoint}: capture is not v6", failures)
         require(
             capture.spacing_voxels == spacing_voxels,
             f"{checkpoint}: spacing is not {spacing_voxels}",
@@ -74,7 +76,7 @@ def validate(
         )
         require(
             field_matches_capture(identity["active_field"], capture),
-            f"{checkpoint}: sidecar active field does not match v5 header",
+            f"{checkpoint}: sidecar active field does not match v6 header",
             failures,
         )
 

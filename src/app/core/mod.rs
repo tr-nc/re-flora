@@ -10,6 +10,7 @@ mod denoiser_bench;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
 mod frame_timing;
+mod house_scene;
 mod hybrid_transparency_test_scene;
 mod input;
 mod lifecycle;
@@ -51,7 +52,7 @@ use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, Screensho
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRuntime, TreeVariationConfig};
-use self::visible_terrain::{TerrainProbeRefreshCadence, VisibleTerrainChange};
+use self::visible_terrain::VisibleTerrainChange;
 use self::voxel_backpack::VoxelBackpack;
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
 use crate::app::environment;
@@ -63,7 +64,7 @@ use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
-    VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
+    VOXEL_MOISTURE_MAX,
 };
 use crate::ddgi::{DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS};
 use crate::environment_probes::{
@@ -71,7 +72,7 @@ use crate::environment_probes::{
 };
 use crate::flora::species;
 use crate::game_time::WorldClock;
-use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
+use crate::geom::UAabb3;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
@@ -131,7 +132,7 @@ use winit::{
 };
 
 const LEAF_CLUSTER_DISTANCE: f32 = 0.08;
-const TERRAIN_EDIT_PREVIEW_ALPHA: f32 = 0.2;
+const TERRAIN_EDIT_PREVIEW_ALPHA: f32 = 0.9;
 // Muted runs should exercise audio setup, source updates, ray tracing, and pump paths
 // without producing audible output for the user.
 const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
@@ -375,6 +376,7 @@ pub struct App {
         Option<environment_lighting_test_scene::EnvironmentLightingTestScene>,
     hybrid_transparency_test_scene:
         Option<hybrid_transparency_test_scene::HybridTransparencyTestScene>,
+    house_scene_requested: bool,
     visible_terrain_revision: u32,
     shutdown_started: bool,
 
@@ -577,31 +579,6 @@ fn draw_center_cross_mark(ctx: &egui::Context) {
 }
 
 impl App {
-    fn debug_startup_block_bounds() -> (Vec3, Vec3) {
-        // Temporary synthetic obstacle. Bounds are derived from the atlas dimensions so changing
-        // CHUNK_DIM does not require hand-updating debug geometry.
-        let atlas_dim = (CHUNK_DIM * VOXEL_DIM_PER_CHUNK).as_vec3();
-        let min = Vec3::new(atlas_dim.x * 0.58, 0.0, atlas_dim.z * 0.75);
-        let max = (min + Vec3::new(20.0, atlas_dim.y * 0.5, 88.0)).min(atlas_dim);
-        (min, max)
-    }
-
-    fn apply_debug_cuboid(&mut self, min: Vec3, max: Vec3, voxel_type: u32) -> Result<()> {
-        let cuboid = Cuboid::from_min_max(min, max);
-        let aabb = Aabb3::new(min, max);
-        let bvh_nodes = build_bvh(&[aabb], &[0]).map_err(anyhow::Error::msg)?;
-        self.plain_builder
-            .chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &[cuboid], voxel_type)
-    }
-
-    fn apply_debug_startup_materials(&mut self) -> Result<()> {
-        let (block_min, block_max) = Self::debug_startup_block_bounds();
-        self.apply_debug_cuboid(block_min, block_max, VOXEL_TYPE_DIRT)?;
-
-        self.tracer.invalidate_local_direct_sun_shadow_histories();
-        Ok(())
-    }
-
     fn master_volume_gain_db(master_volume_db: f32, mute_audio_output: bool) -> f32 {
         if mute_audio_output {
             MUTED_AUDIO_OUTPUT_GAIN_DB
@@ -1113,6 +1090,7 @@ impl App {
             hybrid_transparency_test_scene: options
                 .hybrid_transparency_test_scene
                 .then(hybrid_transparency_test_scene::HybridTransparencyTestScene::new),
+            house_scene_requested: options.house_scene,
             visible_terrain_revision: 0,
             shutdown_started: false,
 
@@ -1573,30 +1551,6 @@ impl App {
         Ok(())
     }
 
-    fn flush_player_terrain_probe_refresh_on_release(&mut self) {
-        let Some(refresh_bound) = self.player_tools.take_terrain_probe_refresh_on_release() else {
-            return;
-        };
-        let revision = self.visible_terrain_revision;
-        match self
-            .tracer
-            .observe_published_environment_probe_terrain(revision, refresh_bound)
-        {
-            Ok(()) => log::info!(
-                "[DDGI] player terrain stroke released revision={} edit_voxel_bound={:?}..{:?}",
-                revision,
-                refresh_bound.min(),
-                refresh_bound.max(),
-            ),
-            Err(err) => {
-                self.player_tools.record_terrain_probe_edit(refresh_bound);
-                log::error!(
-                    "[DDGI] failed to publish player terrain stroke on mouse release: {err:#}"
-                );
-            }
-        }
-    }
-
     fn observe_initial_published_terrain_for_ddgi(&mut self) -> Result<u32> {
         let revision = self.visible_terrain_revision;
         self.tracer.observe_published_environment_probe_terrain(
@@ -1683,9 +1637,6 @@ impl App {
                 if let WindowEvent::MouseInput { state, button, .. } = &event {
                     if *state == ElementState::Released {
                         let captured = self.set_orbit_mouse_drag_state(*button, *state);
-                        if matches!(button, MouseButton::Left | MouseButton::Right) {
-                            self.flush_player_terrain_probe_refresh_on_release();
-                        }
                         if !captured {
                             self.set_tool_mouse_button_state(*button, *state);
                             self.refresh_terrain_edit_hold_from_mouse_buttons();
@@ -1795,11 +1746,6 @@ impl App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let captured = self.set_orbit_mouse_drag_state(button, state);
-                if state == ElementState::Released
-                    && matches!(button, MouseButton::Left | MouseButton::Right)
-                {
-                    self.flush_player_terrain_probe_refresh_on_release();
-                }
                 if captured {
                     return;
                 }
@@ -2002,11 +1948,6 @@ impl App {
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_flora_paint_selection_index = None;
-                let collision_probe_ready = self.terrain_physics.collision_probe_ready();
-                let collision_probe_active = self.terrain_physics.collision_probe_active();
-                let collision_probe_status = self.terrain_physics.collision_probe_status();
-                let mut drop_collision_probe_requested = false;
-                let mut clear_collision_probe_requested = false;
                 let mut terrain_save_requested = false;
                 let mut terrain_load_requested = false;
                 let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
@@ -2450,66 +2391,6 @@ impl App {
                         }
                         self.config_panel_visible = config_panel_open;
 
-                        egui::Area::new("collision_probe_panel".into())
-                            .order(egui::Order::Foreground)
-                            .anchor(
-                                egui::Align2::CENTER_TOP,
-                                egui::Vec2::new(0.0, 16.0),
-                            )
-                            .show(ctx, |ui| {
-                                let probe_frame = egui::containers::Frame {
-                                    fill: PANEL_DARK,
-                                    inner_margin: egui::Margin::symmetric(12, 10),
-                                    corner_radius: egui::CornerRadius::same(0),
-                                    shadow: egui::epaint::Shadow {
-                                        offset: [4, 4],
-                                        blur: 0,
-                                        spread: 0,
-                                        color: SHADOW_COLOR,
-                                    },
-                                    stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
-                                    ..Default::default()
-                                };
-
-                                probe_frame.show(ui, |ui| {
-                                    ui.set_min_width(220.0);
-                                    ui.label(
-                                        RichText::new("Collision Probe")
-                                            .color(GOLD_ACCENT)
-                                            .monospace()
-                                            .size(12.0),
-                                    );
-                                    ui.add_space(4.0);
-                                    ui.label(
-                                        RichText::new(collision_probe_status.as_str())
-                                            .color(SAGE_ACCENT)
-                                            .monospace()
-                                            .size(11.0),
-                                    );
-                                    ui.add_space(6.0);
-                                    ui.horizontal(|ui| {
-                                        if ui
-                                            .add_enabled(
-                                                collision_probe_ready,
-                                                egui::Button::new("Drop Apple Probe"),
-                                            )
-                                            .clicked()
-                                        {
-                                            drop_collision_probe_requested = true;
-                                        }
-                                        if ui
-                                            .add_enabled(
-                                                collision_probe_active,
-                                                egui::Button::new("Clear"),
-                                            )
-                                            .clicked()
-                                        {
-                                            clear_collision_probe_requested = true;
-                                        }
-                                    });
-                                });
-                            });
-
                         let item_panel_slots = [
                             ItemPanelSlot {
                                 index: HAND_SLOT_INDEX,
@@ -2790,14 +2671,6 @@ impl App {
                     }
                     self.sync_cursor_with_panels();
                     return;
-                }
-                if clear_collision_probe_requested {
-                    self.terrain_physics.clear_collision_probe(&mut self.tracer);
-                }
-                if drop_collision_probe_requested {
-                    if let Err(err) = self.terrain_physics.drop_collision_probe(&mut self.tracer) {
-                        log::error!("Failed to drop collision probe: {err:#}");
-                    }
                 }
                 if environment_probe_rebuild_requested {
                     self.tracer
@@ -3119,6 +2992,7 @@ impl App {
                             .adjustables
                             .ddgi_receiver_visibility_bias_world
                             .value,
+                        self.debug_settings.adjustables.ddgi_history_retention.value,
                         self.debug_settings
                             .adjustables
                             .terrain_self_shadow_tolerance_voxels
@@ -4131,12 +4005,5 @@ mod tests {
         assert_eq!(normal_default_gain_db, 0.0);
         assert!(muted_gain_db <= normal_min_gain_db);
         assert!(normal_default_gain_db < normal_max_gain_db);
-    }
-
-    #[test]
-    fn debug_startup_block_top_reaches_chunk_seam() {
-        let (min, max) = App::debug_startup_block_bounds();
-        assert!(max.y > min.y);
-        assert_eq!(max.y, super::VOXEL_DIM_PER_CHUNK.y as f32);
     }
 }

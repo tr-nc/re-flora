@@ -290,10 +290,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             else if (chunk_modify_info.primitive_kind == PRIMITIVE_KIND_CUBOID)
             {
                 Cuboid primitive = cuboids.data[primitiveIndex];
-                hit = pointInAabb(
-                    worldVoxelCenter,
-                    primitive.min_corner,
-                    primitive.max_corner);
+                float3 localPoint = worldVoxelCenter - primitive.center;
+                float3 qCross = cross(primitive.inverse_rotation.xyz, localPoint);
+                localPoint += 2.0 * cross(
+                    primitive.inverse_rotation.xyz,
+                    qCross + primitive.inverse_rotation.w * localPoint);
+                hit = all(abs(localPoint) <= primitive.half_size);
             }
             else if (chunk_modify_info.primitive_kind == PRIMITIVE_KIND_SPHERE)
             {

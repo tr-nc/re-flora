@@ -7,16 +7,34 @@ static const uint DDGI_GUTTER_WORKGROUP_SIZE = 64u;
 [[vk::binding(28, 0)]]
 RWTexture2D<float2> ddgi_visibility_atlas;
 
+[[vk::binding(39, 0)]]
+RWTexture2D<float2> ddgi_transport_source_visibility_atlas;
+
 struct DdgiAtlasGutterPushConstants
 {
     uint first_probe_index;
     uint probe_count;
     uint tile_columns;
-    uint padding;
+    uint destination_slot;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<DdgiAtlasGutterPushConstants> pc;
+
+float2 loadVisibility(uint2 coordinate)
+{
+    return pc.destination_slot == 0u
+        ? ddgi_visibility_atlas[coordinate]
+        : ddgi_transport_source_visibility_atlas[coordinate];
+}
+
+void storeVisibility(uint2 coordinate, float2 value)
+{
+    if (pc.destination_slot == 0u)
+        ddgi_visibility_atlas[coordinate] = value;
+    else
+        ddgi_transport_source_visibility_atlas[coordinate] = value;
+}
 
 [shader("compute")]
 [numthreads(DDGI_GUTTER_WORKGROUP_SIZE, 1, 1)]
@@ -39,10 +57,11 @@ void main(uint3 groupId : SV_GroupID,
                         destination.y == 0u || destination.y == last;
         if (isBorder)
         {
-            ddgi_visibility_atlas[tileOrigin + destination] =
-                ddgi_visibility_atlas[
+            storeVisibility(
+                tileOrigin + destination,
+                loadVisibility(
                     tileOrigin +
-                    ddgiGutterSource(destination, DDGI_INTERIOR_SIDE)];
+                    ddgiGutterSource(destination, DDGI_INTERIOR_SIDE)));
         }
     }
 }

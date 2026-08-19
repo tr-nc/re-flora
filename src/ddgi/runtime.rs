@@ -742,10 +742,10 @@ fn format_ddgi_field(value: Option<DdgiFieldIdentity>) -> String {
         |identity| {
             let field = identity.field();
             format!(
-                "#{}/S{} {:?} <- {:?}",
+                "#{}/E{} {:?} <- {:?}",
                 field.serial(),
-                field.iteration(),
-                field.stage(),
+                field.update_epoch(),
+                field.state(),
                 identity.source().map(|source| source.serial()),
             )
         },
@@ -756,7 +756,7 @@ fn format_ddgi_field(value: Option<DdgiFieldIdentity>) -> String {
 mod tests {
     use super::*;
     use crate::ddgi::{
-        DdgiAtlasLayout, DdgiBuildKind, DdgiFieldKey, DdgiFieldStage, DdgiResourceBytes,
+        DdgiAtlasLayout, DdgiBuildKind, DdgiFieldKey, DdgiFieldState, DdgiResourceBytes,
         DdgiVolumeGrid, DdgiVolumeStage,
     };
     use crate::environment_lighting::{DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot};
@@ -764,26 +764,17 @@ mod tests {
     use glam::{UVec3, Vec3};
 
     fn field(geometry_revision: u32, radiance_revision: u32) -> super::DdgiFieldIdentity {
-        let seed = DdgiFieldKey::new(
-            1,
-            geometry_revision,
-            radiance_revision,
-            16,
-            DdgiFieldStage::SeedSky,
-            0,
-        )
-        .unwrap();
         DdgiFieldIdentity::new(
             DdgiFieldKey::new(
-                2,
+                1,
                 geometry_revision,
                 radiance_revision,
                 16,
-                DdgiFieldStage::SingleBounce,
-                1,
+                DdgiFieldState::Converging,
+                0,
             )
             .unwrap(),
-            Some(seed),
+            None,
         )
         .unwrap()
     }
@@ -867,7 +858,7 @@ mod tests {
         assert!(active_only.staging().is_none());
         assert_eq!(
             active_only.active_line(),
-            "Active token 1 · terrain 7 · radiance 3 · 16 vox · Ready · published #2/S1 SingleBounce <- Some(1)"
+            "Active token 1 · terrain 7 · radiance 3 · 16 vox · Ready · published #1/E0 Converging <- None"
         );
         assert_eq!(active_only.builder_line(), "Builder none");
         assert_eq!(
@@ -1022,7 +1013,7 @@ mod tests {
         );
         assert_eq!(build.token().spacing_voxels(), 32);
         let work = runtime.claim_transport_work().unwrap().scheduled();
-        assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityBootstrap);
+        assert_eq!(work.kind(), DdgiScheduledWorkKind::DensityUpdate);
         assert_eq!(work.destination().field().spacing_voxels(), 32);
     }
 

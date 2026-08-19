@@ -16,6 +16,7 @@ import analyze_environment_irradiance_capture as analyzer  # noqa: E402
 HEADER_V3 = struct.Struct("<8s10I2Q4IQI2f2I")
 HEADER_V4 = struct.Struct("<8s10I3Q4IQ3I2f2I")
 HEADER_V5 = HEADER_V4
+HEADER_V6 = HEADER_V4
 
 
 class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
@@ -187,6 +188,132 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             for pixel in irradiance_pixels + world_pixels + direct_light_pixels
         )
         path.write_bytes(header + payload)
+
+    def write_capture_v6(
+        self,
+        path: Path,
+        irradiance_pixels: list[tuple[float, float, float, float]],
+        world_pixels: list[tuple[float, float, float, float]],
+        direct_light_pixels: list[tuple[float, float, float, float]],
+        *,
+        build_token_serial: int = 9001,
+        field_serial: int = 89,
+        update_epoch: int = 31,
+        source_field_serial: int = 88,
+    ) -> None:
+        self.assertEqual(len(irradiance_pixels), len(world_pixels))
+        self.assertEqual(len(irradiance_pixels), len(direct_light_pixels))
+        header = HEADER_V6.pack(
+            analyzer.MAGIC,
+            6,
+            len(irradiance_pixels),
+            1,
+            4,
+            1,
+            16,
+            0,
+            3,
+            41,
+            17,
+            0xA11CE,
+            build_token_serial,
+            field_serial,
+            2,
+            update_epoch,
+            1,
+            update_epoch - 1,
+            source_field_serial,
+            17,
+            1,
+            0,
+            0.0125,
+            0.025,
+            0,
+            len(irradiance_pixels),
+        )
+        payload = b"".join(
+            analyzer.PIXEL.pack(*pixel)
+            for pixel in irradiance_pixels + world_pixels + direct_light_pixels
+        )
+        path.write_bytes(header + payload)
+
+    def test_loads_v6_lifecycle_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "capture-v6.rfirr"
+            self.write_capture_v6(
+                path,
+                [(0.1, 0.2, 0.3, 1.0)],
+                [(0.0, 0.0, 0.0, 0.0)],
+                [(0.0, 0.0, 0.0, 1.0)],
+            )
+            result = self.run_analyzer(
+                path,
+                "--expect-version",
+                "6",
+                "--expect-lifecycle-state",
+                "converged",
+                "--expect-update-epoch",
+                "31",
+                "--expect-source-state",
+                "converging",
+                "--expect-source-update-epoch",
+                "30",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = json.loads(result.stdout)["capture"]
+        self.assertEqual(summary["lifecycle_state"], "converged")
+        self.assertEqual(summary["update_epoch"], 31)
+        self.assertEqual(summary["source_state"], "converging")
+        self.assertEqual(summary["source_update_epoch"], 30)
+
+    def test_v6_cross_process_comparison_ignores_only_process_local_serials(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first-v6.rfirr"
+            second_path = Path(directory) / "second-v6.rfirr"
+            different_epoch_path = Path(directory) / "different-epoch-v6.rfirr"
+            irradiance = [(0.1, 0.2, 0.3, 1.0)]
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            direct = [(0.4, 0.5, 0.6, 1.0)]
+            self.write_capture_v6(first_path, irradiance, world, direct)
+            self.write_capture_v6(
+                second_path,
+                irradiance,
+                world,
+                direct,
+                build_token_serial=9100,
+                field_serial=109,
+                source_field_serial=108,
+            )
+            self.write_capture_v6(
+                different_epoch_path,
+                irradiance,
+                world,
+                direct,
+                build_token_serial=9200,
+                field_serial=119,
+                update_epoch=32,
+                source_field_serial=118,
+            )
+
+            first = analyzer.load_capture(first_path)
+            second = analyzer.load_capture(second_path)
+            comparison = analyzer.compare(first, second)
+            reference = analyzer.compare_reference(first, second)
+            different_epoch = analyzer.compare(
+                first, analyzer.load_capture(different_epoch_path)
+            )
+
+        self.assertTrue(comparison["compatible"])
+        self.assertTrue(comparison["bit_exact"])
+        self.assertEqual(
+            comparison["process_local_identity_mismatches"],
+            ["build_token_serial", "field_serial", "source_field_serial"],
+        )
+        self.assertTrue(reference["compatible"])
+        self.assertFalse(different_epoch["compatible"])
+        self.assertIn("update_epoch", different_epoch["metadata_mismatches"])
 
     def test_loads_v5_direct_light_plane_without_breaking_v4(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -378,6 +505,36 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             0.3,
         )
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_v6_direct_light_baseline_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_path = Path(directory) / "baseline-v6.rfirr"
+            changed_path = Path(directory) / "changed-v6.rfirr"
+            irradiance = [(0.1, 0.2, 0.3, 1.0)]
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            self.write_capture_v6(
+                baseline_path,
+                irradiance,
+                world,
+                [(0.1, 0.1, 0.1, 1.0)],
+            )
+            self.write_capture_v6(
+                changed_path,
+                irradiance,
+                world,
+                [(0.4, 0.4, 0.4, 1.0)],
+            )
+
+            comparison = analyzer.compare_direct_light_baseline(
+                analyzer.load_capture(changed_path),
+                analyzer.load_capture(baseline_path),
+                (0.0, 0.0, 0.0, 2.0, 3.0, 4.0),
+            )
+
+        self.assertTrue(comparison["compatible"])
+        self.assertAlmostEqual(
+            comparison["sunlit_roi_luminance_absolute_delta"], 0.3
+        )
 
     def test_radiance_frame_compares_terrain_hit_mask_independently(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -863,6 +1020,49 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertAlmostEqual(gain["current_roi_luminance_mean"], 0.2)
         self.assertAlmostEqual(gain["roi_luminance_gain"], 0.1)
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_luminance_gain_accepts_a_zero_energy_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_path = Path(directory) / "dogleg-e0.rfirr"
+            current_path = Path(directory) / "dogleg-e1.rfirr"
+            world = [(1.0, 2.0, 3.0, 0.0)]
+            self.write_capture_v6(
+                baseline_path,
+                [(0.0, 0.0, 0.0, 1.0)],
+                world,
+                [(0.0, 0.0, 0.0, 1.0)],
+            )
+            self.write_capture_v6(
+                current_path,
+                [(0.00004, 0.00004, 0.00004, 1.0)],
+                world,
+                [(0.0, 0.0, 0.0, 1.0)],
+            )
+
+            comparison = analyzer.compare_roi_baseline(
+                analyzer.load_capture(current_path),
+                analyzer.load_capture(baseline_path),
+                (0.0, 0.0, 0.0, 2.0, 3.0, 4.0),
+            )
+            cli_result = self.run_analyzer(
+                current_path,
+                "--baseline",
+                str(baseline_path),
+                "--world-roi",
+                "0",
+                "0",
+                "0",
+                "2",
+                "3",
+                "4",
+                "--min-roi-luminance-gain",
+                "0.000035",
+            )
+
+        self.assertTrue(comparison["compatible"])
+        self.assertAlmostEqual(comparison["roi_luminance_gain"], 0.00004)
+        self.assertIsNone(comparison["roi_channel_share_gain"])
+        self.assertEqual(cli_result.returncode, 0, cli_result.stdout)
 
     def test_cli_gates_selected_channel_share_and_gain_over_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

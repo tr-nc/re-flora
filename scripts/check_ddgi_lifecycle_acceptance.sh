@@ -131,16 +131,16 @@ check_radiance() {
     }
 
     "$analyzer" "$capture" \
-        --expect-version 5 \
+        --expect-version 6 \
         --expect-spacing-voxels "$spacing_voxels" \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 4 \
         --expect-build-token-serial "$build_token_serial" \
         --expect-field-serial "$field_serial" \
-        --expect-transport-stage feedback \
-        --expect-transport-iteration 2 \
-        --expect-source-stage feedback \
-        --expect-source-iteration 2 \
+        --expect-lifecycle-state converging \
+        --expect-update-epoch 0 \
+        --expect-source-state converging \
+        --expect-source-update-epoch 0 \
         --expect-source-field-serial "$source_field_serial" \
         --expect-source-radiance-revision 2 \
         --expect-publication-state published \
@@ -157,8 +157,7 @@ check_radiance() {
 check_density() {
     local capture="$run_dir/density-changes.rfirr"
     local console="$run_dir/density-changes.console.log"
-    run_hidden DENSITY density-changes 32 s1 "$capture" "$console" \
-        --environment-probe-rebuild-spacing-voxels 16 || return 1
+    run_hidden DENSITY density-changes 32 e0 "$capture" "$console" || return 1
     if $dry_run; then
         return 0
     fi
@@ -169,10 +168,10 @@ check_density() {
         "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-preempted-density" \
         "queued_density_spacing_voxels=16" \
         "obsolete_density_consumer_visible=false active_available=true" \
-        "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-s1-published" \
+        "[DDGI_ACCEPT][DENSITY] checkpoint=geometry-e0-published" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=density-retry-midflight" \
         "[DDGI_ACCEPT][DENSITY] checkpoint=complete" \
-        "first_consumer_visible_16_stage=S1" || return 1
+        "first_consumer_visible_16_epoch=0" || return 1
 
     local preemption complete
     preemption="$(grep -F '[DDGI_ACCEPT][DENSITY] checkpoint=geometry-preempted-density' "$console" | tail -n 1)"
@@ -183,7 +182,7 @@ check_density() {
     source_field_serial="$(field_value "$complete" source_field_serial)"
     geometry_revision="$(field_value "$complete" geometry_revision)"
     local checkpoint build_token_serial
-    checkpoint="$(grep -F "[ENV_IRRADIANCE_CAPTURE] checkpoint target=s1" "$console" | grep -F "field_serial=$field_serial" | tail -n 1)"
+    checkpoint="$(grep -F "[ENV_IRRADIANCE_CAPTURE] checkpoint target=e0" "$console" | grep -F "field_serial=$field_serial" | tail -n 1)"
     build_token_serial="$(field_value "$checkpoint" build_token_serial)"
     [[ -n "$obsolete_token" && -n "$field_serial" && -n "$source_field_serial" && -n "$geometry_revision" && -n "$build_token_serial" ]] || {
         echo "[DDGI_LIFECYCLE] FAIL group=DENSITY could not extract lifecycle identity" >&2
@@ -199,18 +198,14 @@ check_density() {
     fi
 
     "$analyzer" "$capture" \
-        --expect-version 5 \
+        --expect-version 6 \
         --expect-spacing-voxels 16 \
         --expect-geometry-revision "$geometry_revision" \
         --expect-radiance-revision 1 \
         --expect-build-token-serial "$build_token_serial" \
         --expect-field-serial "$field_serial" \
-        --expect-transport-stage single-bounce \
-        --expect-transport-iteration 1 \
-        --expect-source-stage seed-sky \
-        --expect-source-iteration 0 \
-        --expect-source-field-serial "$source_field_serial" \
-        --expect-source-radiance-revision 1 \
+        --expect-lifecycle-state converging \
+        --expect-update-epoch 0 \
         --expect-publication-state published \
         --expect-batch-order forward \
         --require-nonnegative-rgb >"$run_dir/density-changes.analysis.json" || return 1

@@ -1,7 +1,7 @@
 use super::particles::TreeLeafEmitterRuntime;
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
-use super::visible_terrain::{TerrainProbeRefreshCadence, VisibleTerrainChange};
+use super::visible_terrain::VisibleTerrainChange;
 use super::App;
 use crate::app::world_edits::{
     BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
@@ -31,7 +31,6 @@ pub(super) enum SurfaceOccupantClearPath {
     TerrainRebuild {
         bound: UAabb3,
         terrain_changed: bool,
-        probe_refresh_cadence: TerrainProbeRefreshCadence,
     },
 }
 
@@ -218,9 +217,10 @@ impl CubePlacementService {
     #[allow(dead_code)]
     fn compile(edit: CubePlacementEdit) -> CompiledFencePlacement {
         let half_extent = edit.size * 0.5;
-        let cuboid = Cuboid::new(
+        let cuboid = Cuboid::new_oriented(
             edit.center * 256.0,
             Vec3::new(half_extent, half_extent, half_extent),
+            edit.rotation,
         );
         let cuboids = vec![cuboid];
         let leaves_data_sequential = vec![0_u32];
@@ -1532,7 +1532,6 @@ impl App {
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
         max_removed_counts: Option<[u32; crate::builder::EDIT_STATS_VOXEL_TYPE_COUNT]>,
-        probe_refresh_cadence: TerrainProbeRefreshCadence,
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
@@ -1565,7 +1564,6 @@ impl App {
                 SurfaceOccupantClearPath::TerrainRebuild {
                     bound: rebuild_bound,
                     terrain_changed,
-                    probe_refresh_cadence,
                 },
             )?;
             let total_elapsed = total_start.elapsed();
@@ -1584,7 +1582,6 @@ impl App {
         edit: TerrainRemovalEdit,
         voxel_type: u32,
         max_write_count: u32,
-        probe_refresh_cadence: TerrainProbeRefreshCadence,
     ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         if let Some(compiled) =
@@ -1613,21 +1610,17 @@ impl App {
                 || stats.stats.added_counts.iter().any(|&count| count > 0);
             let _modify_elapsed = modify_start.elapsed();
             let mesh_start = Instant::now();
-            self.publish_visible_terrain_with_probe_refresh_cadence(
-                VisibleTerrainChange::preserving_flora(
-                    rebuild_bound,
-                    world_ops::FloraBrushEdit {
-                        start: edit.center,
-                        end: edit.center,
-                        radius: edit.radius,
-                        tick: self.world_clock.flora_tick(),
-                        spawn_time_ms: self.time_info.time_since_start_duration().as_millis()
-                            as u32,
-                    },
-                    terrain_changed,
-                ),
-                probe_refresh_cadence,
-            )?;
+            self.publish_visible_terrain(VisibleTerrainChange::preserving_flora(
+                rebuild_bound,
+                world_ops::FloraBrushEdit {
+                    start: edit.center,
+                    end: edit.center,
+                    radius: edit.radius,
+                    tick: self.world_clock.flora_tick(),
+                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
+                },
+                terrain_changed,
+            ))?;
             let _mesh_elapsed = mesh_start.elapsed();
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
@@ -1670,14 +1663,10 @@ impl App {
             SurfaceOccupantClearPath::TerrainRebuild {
                 bound,
                 terrain_changed,
-                probe_refresh_cadence,
             } => {
                 let change =
                     VisibleTerrainChange::preserving_flora(bound, flora_edit, terrain_changed);
-                self.publish_visible_terrain_with_probe_refresh_cadence(
-                    change,
-                    probe_refresh_cadence,
-                )?;
+                self.publish_visible_terrain(change)?;
             }
         }
 
@@ -1694,7 +1683,6 @@ impl App {
         strength: f32,
         max_delta: f32,
         deadband: f32,
-        probe_refresh_cadence: TerrainProbeRefreshCadence,
     ) -> Result<()> {
         let flora_brush_edit = TerrainBrushEdit {
             start: center,
@@ -1731,12 +1719,11 @@ impl App {
 
         let rebuild_chunk_ids =
             world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
-        self.publish_visible_terrain_with_probe_refresh_cadence(
+        self.publish_visible_terrain(
             VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunksWithoutFlora(
                 rebuild_chunk_ids,
             )])?
             .context("terrain smoothing requires an affected visible terrain region")?,
-            probe_refresh_cadence,
         )?;
         Ok(())
     }
@@ -2222,6 +2209,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::FRAC_PI_4;
 
     fn tree_record(bound: UAabb3, spawn_x: f32) -> TreeRecord {
         TreeRecord {
@@ -2234,6 +2222,27 @@ mod tests {
             },
             butterfly_spawn_positions_ws: vec![Vec3::new(spawn_x, 0.5, 0.5)],
         }
+    }
+
+    #[test]
+    fn cube_placement_preserves_rotation_and_expands_rebuild_bound() {
+        let rotation = glam::Quat::from_rotation_y(FRAC_PI_4);
+        let compiled = CubePlacementService::compile(CubePlacementEdit {
+            center: Vec3::new(1.0, 0.5, 1.0),
+            size: 64.0,
+            rotation,
+            voxel_type: crate::builder::VOXEL_TYPE_ROCK,
+        });
+        let VoxelEdit::StampCuboids { cuboids, .. } = &compiled.voxel_edit else {
+            panic!("expected cuboid edit");
+        };
+        let cuboid = &cuboids[0];
+
+        assert!(cuboid.rotation().abs_diff_eq(rotation, 1.0e-6));
+        assert!(cuboid.aabb().dimensions().x > 64.0);
+        assert!(cuboid.aabb().dimensions().z > 64.0);
+        assert_eq!(compiled.rebuild_bound.min(), cuboid.aabb().min_uvec3());
+        assert_eq!(compiled.rebuild_bound.max(), cuboid.aabb().max_uvec3());
     }
 
     #[test]

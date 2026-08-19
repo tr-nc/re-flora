@@ -1,4 +1,3 @@
-use crate::geom::UAabb3;
 use glam::{Vec2, Vec3};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -11,26 +10,6 @@ use super::ui_style::{
     SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, TILLER_SLOT_INDEX,
     TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX, WATERING_SLOT_INDEX,
 };
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct TerrainProbeRefreshBatch {
-    edited_voxel_bound: Option<UAabb3>,
-}
-
-impl TerrainProbeRefreshBatch {
-    fn record_edit(&mut self, edited_voxel_bound: UAabb3) {
-        self.edited_voxel_bound = Some(
-            self.edited_voxel_bound
-                .map_or(edited_voxel_bound, |pending| {
-                    pending.union_with(&edited_voxel_bound)
-                }),
-        );
-    }
-
-    fn take_on_release(&mut self) -> Option<UAabb3> {
-        self.edited_voxel_bound.take()
-    }
-}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum PlayerTool {
@@ -419,7 +398,6 @@ pub(super) struct PlayerToolRuntime {
     selected_placeable: PlaceableKind,
     pointer: ToolPointerState,
     strokes: TerrainStrokeRuntime,
-    terrain_probe_refresh_batch: TerrainProbeRefreshBatch,
     pub(super) terrain_edit_radius: f32,
     pub(super) flora_paint_selection_index: usize,
     pub(super) terrain_edit_loop_sound: Option<Uuid>,
@@ -434,7 +412,6 @@ impl Default for PlayerToolRuntime {
             selected_placeable: PlaceableKind::Tree,
             pointer: ToolPointerState::default(),
             strokes: TerrainStrokeRuntime::default(),
-            terrain_probe_refresh_batch: TerrainProbeRefreshBatch::default(),
             terrain_edit_radius: super::TERRAIN_EDIT_DEFAULT_RADIUS,
             flora_paint_selection_index: 0,
             terrain_edit_loop_sound: None,
@@ -445,15 +422,6 @@ impl Default for PlayerToolRuntime {
 }
 
 impl PlayerToolRuntime {
-    pub(super) fn record_terrain_probe_edit(&mut self, edited_voxel_bound: UAabb3) {
-        self.terrain_probe_refresh_batch
-            .record_edit(edited_voxel_bound);
-    }
-
-    pub(super) fn take_terrain_probe_refresh_on_release(&mut self) -> Option<UAabb3> {
-        self.terrain_probe_refresh_batch.take_on_release()
-    }
-
     pub(super) fn selected_tool(&self) -> PlayerTool {
         self.selected_tool
     }
@@ -736,8 +704,7 @@ mod tests {
         ContinuousTerrainToolAction, PlaceableKind, PlayerTool, PlayerToolPointerAction,
         PlayerToolRuntime,
     };
-    use crate::geom::UAabb3;
-    use glam::{UVec3, Vec3};
+    use glam::Vec3;
     use std::time::{Duration, Instant};
     use winit::event::{ElementState, MouseButton};
 
@@ -750,25 +717,6 @@ mod tests {
         assert_eq!(
             runtime.selected_item_panel_display_slot(),
             super::HAND_SLOT_INDEX
-        );
-    }
-
-    #[test]
-    fn terrain_probe_refresh_batches_continuous_edits_until_each_release() {
-        let mut runtime = PlayerToolRuntime::default();
-        runtime.record_terrain_probe_edit(UAabb3::new(UVec3::splat(10), UVec3::splat(20)));
-        runtime.record_terrain_probe_edit(UAabb3::new(UVec3::splat(15), UVec3::splat(30)));
-
-        assert_eq!(
-            runtime.take_terrain_probe_refresh_on_release(),
-            Some(UAabb3::new(UVec3::splat(10), UVec3::splat(30)))
-        );
-        assert_eq!(runtime.take_terrain_probe_refresh_on_release(), None);
-
-        runtime.record_terrain_probe_edit(UAabb3::new(UVec3::splat(40), UVec3::splat(50)));
-        assert_eq!(
-            runtime.take_terrain_probe_refresh_on_release(),
-            Some(UAabb3::new(UVec3::splat(40), UVec3::splat(50)))
         );
     }
 

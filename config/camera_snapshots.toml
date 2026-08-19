@@ -1,12 +1,25 @@
 [[snapshots]]
-name = "snapshot"
+name = "gd-ptn2"
 description = ""
 position = [
-    0.64095235,
-    0.52771884,
-    1.0284802,
+    0.6926965,
+    1.0372217,
+    1.2506304,
 ]
-yaw_deg = 81.902435
-pitch_deg = -9.50234
+yaw_deg = 10.176713
+pitch_deg = -0.55396795
 fov_deg = 60.0
+fly_mode = true
+
+[[snapshots]]
+name = "house-overlook"
+description = "Overlook the authored terrain house from the southeast"
+position = [
+    1.72,
+    1.15,
+    1.92,
+]
+yaw_deg = -55.5
+pitch_deg = -21.2
+fov_deg = 55.0
 fly_mode = true

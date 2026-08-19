@@ -19,7 +19,7 @@ spacings=(32 16)
 states=(initial-open closed sequential-reopened inflight-latest-wins)
 failures=0
 
-echo "[DDGI_RUNTIME_EDIT] direct-sun-evidence=v5-direct-light-plane sunlit_min_mean=0.15 shadowed_max=0"
+echo "[DDGI_RUNTIME_EDIT] direct-sun-evidence=v6-direct-light-plane sunlit_min_mean=0.15 shadowed_max=0"
 
 if ! $dry_run; then
     mkdir -p "$run_dir"
@@ -165,12 +165,12 @@ check_lifecycle_markers() {
         fi
     done
     if [[ "$state" != "initial-open" ]]; then
-        if ! grep -Eq "\\[DDGI\\]\\[CONSUMERS\\] consumer_set=terrain_compute,flora_raster .*active_token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*transport=SingleBounce.*iteration=1([^0-9]|$)" "$console"; then
-            echo "[DDGI_RUNTIME_EDIT] missing shared consumer first-current-geometry S1 publication state=$state spacing=$spacing revision=$final_revision" >&2
+        if ! grep -Eq "\\[DDGI\\]\\[CONSUMERS\\] consumer_set=terrain_compute,flora_raster .*active_token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*state=Converging.*update_epoch=0([^0-9]|$)" "$console"; then
+            echo "[DDGI_RUNTIME_EDIT] missing shared consumer first-current-geometry epoch-zero publication state=$state spacing=$spacing revision=$final_revision" >&2
             missing=$((missing + 1))
         fi
-        if ! grep -Eq "\\[DDGI\\] staging promoted .*token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*published_transport=SingleBounce.*published_iteration=1([^0-9]|$)" "$console"; then
-            echo "[DDGI_RUNTIME_EDIT] missing exact active S1 promotion state=$state spacing=$spacing revision=$final_revision" >&2
+        if ! grep -Eq "\\[DDGI\\] staging promoted .*token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*published_state=Converging.*published_update_epoch=0([^0-9]|$)" "$console"; then
+            echo "[DDGI_RUNTIME_EDIT] missing exact active epoch-zero promotion state=$state spacing=$spacing revision=$final_revision" >&2
             missing=$((missing + 1))
         fi
     fi
@@ -279,7 +279,7 @@ check_inflight_stale_active_captures() {
         return 1
     fi
     if ! "$repo_root/scripts/analyze_environment_irradiance_capture.py" \
-        "$first" --compare "$second" --compare-direct-light --expect-version 5 \
+        "$first" --compare "$second" --compare-direct-light --expect-version 6 \
         --expect-geometry-revision "$active_revision" --expect-publication-state published \
         --min-luminance-p99 0.10 --require-nonnegative-rgb \
         --correctness \

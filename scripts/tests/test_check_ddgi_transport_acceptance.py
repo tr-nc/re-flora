@@ -26,48 +26,47 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         output = result.stdout
         for spacing in (32, 16):
-            for stage in ("s0", "s1", "s2", "converged"):
+            for stage in ("e0", "e1", "converged"):
                 self.assertIn(
                     f"case=sealed spacing={spacing} target={stage} order=forward",
                     output,
                 )
-            for stage in ("s0", "s1"):
+            for stage in ("e0", "converged"):
                 self.assertIn(
                     f"case=donor spacing={spacing} target={stage} order=forward",
                     output,
                 )
-            for stage in ("s1", "s2"):
+            for stage in ("e0", "e1", "converged"):
                 self.assertIn(
                     f"case=dogleg spacing={spacing} target={stage} order=forward",
                     output,
                 )
-            for case_name in ("portal", "donor", "dogleg"):
-                self.assertIn(
-                    f"case={case_name} spacing={spacing} target=converged order=forward",
-                    output,
-                )
             self.assertIn(
-                f"case=donor spacing={spacing} target=s1 order=reverse", output
+                f"case=portal spacing={spacing} target=converged order=forward",
+                output,
+            )
+            self.assertIn(
+                f"case=donor spacing={spacing} target=e0 order=reverse", output
             )
 
         for contract in (
             "--require-zero-rgb",
-            "--expect-transport-stage seed-sky",
-            "--expect-publication-state unpublished",
+            "--expect-lifecycle-state converging",
+            "--expect-update-epoch 0",
+            "--expect-lifecycle-state converged",
             "--expect-batch-order reverse",
             "--ddgi-batch-order reverse",
             "--min-roi-luminance-gain",
-            "--min-roi-channel-share-gain 0.065",
-            "--max-roi-channel-share 0.05",
-            "--expect-version 5",
+            "--expect-version 6",
             "check_ddgi_correctness.sh --dry-run",
             "check_ddgi_runtime_terrain_edits.sh --dry-run",
             "threshold_provenance=docs/ddgi_transport_acceptance.md",
             "direct-sun-framebuffer=PROVEN",
             "convergence_provenance=docs/ddgi_convergence_calibration.md",
             "summarize_ddgi_convergence.py",
-            "--consecutive-iterations 2",
-            "--hard-max-iteration 8",
+            "--consecutive-epochs 2",
+            "--minimum-epoch-count 8",
+            "--maximum-update-epoch 63",
             "check_ddgi_sky_normalization_evidence.py",
         ):
             self.assertIn(contract, output)
@@ -79,20 +78,14 @@ class CheckDdgiTransportAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         for contract in (
-            "--min-roi-luminance-gain 0.045",
+            "--min-roi-luminance-mean 0.045",
             "--max-roi-luminance-mean 0.00002",
-            "--min-roi-luminance-gain 0.00007",
+            "--min-roi-luminance-gain 0.000035",
         ):
             self.assertIn(contract, result.stdout)
         self.assertNotIn("CALIBRATE_", result.stdout + result.stderr)
         self.assertNotIn("missing calibrated threshold", result.stdout + result.stderr)
-        self.assertEqual(result.stdout.count("--expect-transport-stage converged"), 8)
-        self.assertEqual(
-            result.stdout.count("--convergence-max-abs-delta 0.0025"), 8
-        )
-        self.assertEqual(
-            result.stdout.count("--convergence-max-rel-delta 0.02"), 8
-        )
+        self.assertEqual(result.stdout.count("--expect-lifecycle-state converged"), 8)
 
 
 if __name__ == "__main__":

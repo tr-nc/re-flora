@@ -47,9 +47,7 @@ pub mod voxel_encoding;
 mod voxel_geometry;
 
 mod leaves_construct;
-pub use leaves_construct::{
-    collision_probe_apple_offsets, voxel_apple_offsets, TREE_FRUIT_MAX_RADIUS_VOXELS,
-};
+pub use leaves_construct::{voxel_apple_offsets, TREE_FRUIT_MAX_RADIUS_VOXELS};
 
 mod pipeline_builder;
 use pipeline_builder::*;
@@ -81,7 +79,7 @@ use crate::builder::{
 };
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
-    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiFieldStage, DdgiRayBatch, DdgiRuntime,
+    DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiRayBatch, DdgiRuntime,
     DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiValidatedIterationOutcome,
     DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes, DdgiVoxelVisibility,
     DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
@@ -116,44 +114,6 @@ use re_flora_vkn::{
     Viewport, VulkanContext,
 };
 use std::time::Instant;
-
-fn ddgi_shading_geometry_revision(
-    published_visibility_revision: Option<u32>,
-    capture_checkpoint_revision: Option<u32>,
-    unpublished_capture: bool,
-) -> u32 {
-    if unpublished_capture {
-        capture_checkpoint_revision.unwrap_or_default()
-    } else {
-        published_visibility_revision.unwrap_or_default()
-    }
-}
-
-fn ddgi_unpublished_capture_geometry_revision(
-    target: DdgiCaptureTarget,
-    checkpoint: Option<DdgiCaptureCheckpoint>,
-    complete_field: Option<DdgiFieldIdentity>,
-    building_field: Option<DdgiFieldIdentity>,
-) -> Option<u32> {
-    checkpoint
-        .filter(|checkpoint| target.matches(checkpoint.field))
-        .map(|checkpoint| checkpoint.field.field().geometry_revision())
-        .or_else(|| {
-            [complete_field, building_field]
-                .into_iter()
-                .flatten()
-                .find(|field| target.matches(*field))
-                .map(|field| field.field().geometry_revision())
-        })
-}
-
-fn validate_unpublished_capture_volume(builder_is_active: bool) -> Result<()> {
-    anyhow::ensure!(
-        builder_is_active,
-        "unpublished S0 capture requires the initial active bootstrap; staging S0 cannot use active capture query resources",
-    );
-    Ok(())
-}
 
 fn require_ddgi_staging_preparation(build_token: DdgiBuildToken, result: Result<()>) {
     result.unwrap_or_else(|err| {
@@ -196,10 +156,11 @@ struct DdgiProbeTracePushConstants {
     first_probe_index: u32,
     probe_count: u32,
     terrain_revision: u32,
-    transport_iteration: u32,
+    has_history: u32,
     source_slot: u32,
     far_distance_world: f32,
     _padding: [u32; 2],
+    epoch_rotation: [f32; 4],
 }
 
 #[repr(C)]
@@ -210,6 +171,10 @@ struct DdgiAtlasFilterPushConstants {
     tile_columns: u32,
     terrain_revision: u32,
     destination_is_transport_source: u32,
+    source_slot: u32,
+    has_history: u32,
+    history_retention: f32,
+    epoch_rotation: [f32; 4],
 }
 
 #[repr(C)]
@@ -221,6 +186,11 @@ struct DdgiVisibilityFilterPushConstants {
     terrain_revision: u32,
     spacing_world: [f32; 3],
     far_distance_world: f32,
+    destination_slot: u32,
+    source_slot: u32,
+    has_history: u32,
+    history_retention: f32,
+    epoch_rotation: [f32; 4],
 }
 
 #[repr(C)]
@@ -514,52 +484,8 @@ mod default_camera_tests {
 
 #[cfg(test)]
 mod ddgi_density_rebuild_tests {
-    use super::{
-        ddgi_shading_geometry_revision, ddgi_unpublished_capture_geometry_revision,
-        require_ddgi_staging_preparation, validate_unpublished_capture_volume,
-    };
-    use crate::ddgi::{
-        DdgiBuildKind, DdgiBuildToken, DdgiFieldIdentity, DdgiFieldKey, DdgiFieldStage,
-    };
-
-    #[test]
-    fn consumer_query_uses_current_visibility_unless_capturing_unpublished_field() {
-        assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), true), 7);
-        assert_eq!(ddgi_shading_geometry_revision(Some(3), Some(7), false), 3);
-        assert_eq!(ddgi_shading_geometry_revision(Some(3), None, true), 0);
-    }
-
-    #[test]
-    fn unpublished_s0_revision_survives_the_private_s0_to_s1_residency_transition() {
-        let s0_key = DdgiFieldKey::new(1, 7, 4, 32, DdgiFieldStage::SeedSky, 0).unwrap();
-        let s0 = DdgiFieldIdentity::new(s0_key, None).unwrap();
-        let s1 = DdgiFieldIdentity::new(
-            DdgiFieldKey::new(2, 7, 4, 32, DdgiFieldStage::SingleBounce, 1).unwrap(),
-            Some(s0_key),
-        )
-        .unwrap();
-        let target = crate::ddgi::DdgiCaptureTarget::Iteration(0);
-
-        assert_eq!(
-            ddgi_unpublished_capture_geometry_revision(target, None, None, Some(s0)),
-            Some(7),
-            "pre-validation query must use the private building S0 field",
-        );
-        assert_eq!(
-            ddgi_unpublished_capture_geometry_revision(target, None, Some(s0), Some(s1)),
-            Some(7),
-            "post-validation query must prefer the private complete S0 over building S1",
-        );
-    }
-
-    #[test]
-    fn unpublished_capture_rejects_staging_volume_resource_mix() {
-        validate_unpublished_capture_volume(true)
-            .expect("initial active bootstrap owns all S0 query resources");
-        let error = validate_unpublished_capture_volume(false)
-            .expect_err("staging S0 must not mix its atlas with active query resources");
-        assert!(error.to_string().contains("staging S0"));
-    }
+    use super::require_ddgi_staging_preparation;
+    use crate::ddgi::{DdgiBuildKind, DdgiBuildToken};
 
     #[test]
     #[should_panic(
@@ -820,6 +746,7 @@ pub struct Tracer {
     flora_lighting_cache: FloraLightingCache,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
+    ddgi_history_retention: f32,
     prepared_ddgi_consumer_descriptors: Option<PreparedDdgiConsumerDescriptors>,
     ddgi_trace_stats_readback_pending: Option<DdgiRayBatch>,
     ddgi_relocation_stats_readback_pending: bool,
@@ -1137,6 +1064,7 @@ impl Tracer {
             flora_lighting_cache: FloraLightingCache::default(),
             ddgi_voxel_visibility,
             ddgi_runtime,
+            ddgi_history_retention: 0.99,
             prepared_ddgi_consumer_descriptors: None,
             ddgi_trace_stats_readback_pending: None,
             ddgi_relocation_stats_readback_pending: false,
@@ -1285,15 +1213,15 @@ impl Tracer {
         for retirement in descriptor_retirements {
             self.frame_retirement_sink.retire(retirement);
         }
-        log::info!(
-            "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} stage={:?} iteration={} source={:?}",
+        log::debug!(
+            "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?}",
             work.kind(),
             destination.serial(),
             destination.geometry_revision(),
             destination.radiance_revision(),
             destination.spacing_voxels(),
-            destination.stage(),
-            destination.iteration(),
+            destination.state(),
+            destination.update_epoch(),
             work.destination().source(),
         );
         Ok(true)
@@ -1496,36 +1424,14 @@ impl Tracer {
             return;
         }
         log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} field_serial={} stage={:?} iteration={} publication={:?}",
+            "[ENV_IRRADIANCE_CAPTURE] checkpoint target={} build_token_serial={} field_serial={} state={:?} update_epoch={} publication={:?}",
             self.ddgi_runtime.capture_target().label(),
             build_token.serial(),
             field.field().serial(),
-            field.field().stage(),
-            field.field().iteration(),
+            field.field().state(),
+            field.field().update_epoch(),
             publication,
         );
-    }
-
-    fn update_ddgi_capture_descriptor(
-        &self,
-        volume: &DdgiVolume,
-        field: DdgiFieldIdentity,
-        generation: u64,
-    ) -> Result<FrameRetirement> {
-        let irradiance_atlas = volume
-            .capture_irradiance_atlas(field)
-            .context("DDGI capture field has no resident irradiance atlas")?;
-        self.compute_pipelines
-            .tracer_ppl
-            .publish_descriptors(
-                "ddgi.capture.descriptors",
-                generation,
-                DescriptorUpdate::Named(&[DescriptorWrite {
-                    name: "ddgi_capture_irradiance_atlas",
-                    resource: DescriptorResource::Texture(irradiance_atlas),
-                }]),
-            )
-            .context("DDGI capture descriptor publication failed")
     }
 
     pub fn ddgi_ready(&self) -> bool {
@@ -2141,6 +2047,11 @@ impl Tracer {
             &ddgi_volume.ddgi_visibility_atlas
         );
         write_texture!(
+            trace,
+            "ddgi_transport_source_visibility_atlas",
+            &ddgi_volume.ddgi_transport_source_visibility_atlas
+        );
+        write_texture!(
             global_sky_filter,
             "ddgi_global_sky_irradiance",
             ddgi_volume.building_global_sky_irradiance()
@@ -2171,6 +2082,11 @@ impl Tracer {
                 writes,
                 "ddgi_visibility_atlas",
                 &ddgi_volume.ddgi_visibility_atlas
+            );
+            write_texture!(
+                writes,
+                "ddgi_transport_source_visibility_atlas",
+                &ddgi_volume.ddgi_transport_source_visibility_atlas
             );
         }
 
@@ -2273,16 +2189,13 @@ impl Tracer {
         let irradiance_atlas = ddgi_volume
             .published_irradiance_atlas()
             .unwrap_or(&ddgi_volume.ddgi_irradiance_atlas);
-        let mut tracer_writes = vec![
-            DescriptorWrite {
-                name: "ddgi_probe_metadata",
-                resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
-            },
-            DescriptorWrite {
-                name: "ddgi_capture_irradiance_atlas",
-                resource: DescriptorResource::Texture(irradiance_atlas),
-            },
-        ];
+        let visibility_atlas = ddgi_volume
+            .published_visibility_atlas()
+            .unwrap_or(&ddgi_volume.ddgi_visibility_atlas);
+        let mut tracer_writes = vec![DescriptorWrite {
+            name: "ddgi_probe_metadata",
+            resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
+        }];
         let mut flora_lighting_cache_writes = vec![DescriptorWrite {
             name: "ddgi_probe_metadata",
             resource: DescriptorResource::Buffer(&ddgi_volume.ddgi_probe_metadata),
@@ -2301,7 +2214,7 @@ impl Tracer {
                 ddgi_volume.published_global_sky_irradiance(),
             ),
             ("ddgi_irradiance_atlas", irradiance_atlas),
-            ("ddgi_visibility_atlas", &ddgi_volume.ddgi_visibility_atlas),
+            ("ddgi_visibility_atlas", visibility_atlas),
         ] {
             let write = DescriptorWrite {
                 name: binding,
@@ -2485,7 +2398,7 @@ impl Tracer {
         let promoted_terrain_revision = active.relocated_terrain_revision.unwrap_or_default();
         let cleared_terrain_invalidation = build_token.kind() == DdgiBuildKind::Terrain;
         log::info!(
-            "[DDGI] staging promoted token_serial={} kind={:?} spacing_voxels={} probes={} geometry_revision={} radiance_revision={} environment_revision={} published_transport={:?} published_iteration={} published_slot={} published_source={:?} building={:?} cleared_terrain_invalidation={} stage={:?}",
+            "[DDGI] staging promoted token_serial={} kind={:?} spacing_voxels={} probes={} geometry_revision={} radiance_revision={} environment_revision={} published_state={:?} published_update_epoch={} published_slot={} published_source={:?} building={:?} cleared_terrain_invalidation={} stage={:?}",
             build_token.serial(),
             build_token.kind(),
             active.grid.spacing_voxels(),
@@ -2493,8 +2406,8 @@ impl Tracer {
             promoted_terrain_revision,
             published_key.radiance_revision(),
             active.global_sky_revision,
-            published_key.stage(),
-            published_key.iteration(),
+            published_key.state(),
+            published_key.update_epoch(),
             published_slot,
             published.source(),
             active.building_field,
@@ -2510,14 +2423,14 @@ impl Tracer {
             descriptor_generation,
         );
         log::info!(
-            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} published_slot={} transport={:?} iteration={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=update_ddgi_consumer_descriptors",
+            "[DDGI][CONSUMERS] consumer_set=terrain_compute,flora_raster active_token_serial={} geometry_revision={} radiance_revision={} spacing_voxels={} published_slot={} state={:?} update_epoch={} source={:?} sampler=sampleDiffuseEnvironment shading_info=shared descriptor_seam=update_ddgi_consumer_descriptors",
             build_token.serial(),
             promoted_terrain_revision,
             published_key.radiance_revision(),
             active.grid.spacing_voxels(),
             published_slot,
-            published_key.stage(),
-            published_key.iteration(),
+            published_key.state(),
+            published_key.update_epoch(),
             published.source(),
         );
         drop(retired_active);
@@ -2573,6 +2486,7 @@ impl Tracer {
         path_tracing_ambient_light: Vec3,
         terrain_ray_origin_offset_world: f32,
         ddgi_receiver_visibility_bias_world: f32,
+        ddgi_history_retention: f32,
         terrain_self_shadow_tolerance_voxels: f32,
         flora_instance_hsv_offset_max: Vec3,
         flora_voxel_hsv_offset_max: Vec3,
@@ -2739,6 +2653,7 @@ impl Tracer {
 
         self.world_tick_seconds = crate::game_time::clamp_world_tick_seconds(world_tick_seconds);
         self.raster_flora_ddgi_lighting = raster_flora_ddgi_lighting;
+        self.ddgi_history_retention = ddgi_history_retention.clamp(0.0, 0.99);
 
         self.ensure_wind_source_buffer_capacity(wind_gui_params.sources.len())?;
         BufferUpdater::update_gui_input(
@@ -2832,24 +2747,10 @@ impl Tracer {
             },
         });
         let ddgi_status = self.ddgi_runtime.volumes().status().active();
-        let unpublished_capture = self.desc.environment_irradiance_capture_enabled
-            && self.desc.environment_irradiance_capture_target.iteration() == Some(0);
-        let builder_status = self.ddgi_runtime.volumes().status().builder();
-        let unpublished_capture_geometry_revision = unpublished_capture
-            .then(|| {
-                ddgi_unpublished_capture_geometry_revision(
-                    self.desc.environment_irradiance_capture_target,
-                    self.ddgi_capture_checkpoint(),
-                    builder_status.complete_field,
-                    builder_status.building_field,
-                )
-            })
-            .flatten();
-        let ddgi_geometry_revision = ddgi_shading_geometry_revision(
-            self.ddgi_voxel_visibility.published_revision(),
-            unpublished_capture_geometry_revision,
-            unpublished_capture,
-        );
+        let ddgi_geometry_revision = self
+            .ddgi_voxel_visibility
+            .published_revision()
+            .unwrap_or_default();
         // Keep the last complete active field available while a terrain replacement builds. The
         // coordinator retains the conservative pending bound for scheduling and diagnostics, but
         // consumers intentionally use the resident field until its replacement promotes.
@@ -2862,7 +2763,6 @@ impl Tracer {
             self.ddgi_ready(),
             ddgi_geometry_revision,
             self.desc.environment_irradiance_capture_enabled,
-            self.desc.environment_irradiance_capture_target.iteration() == Some(0),
             ddgi_status.irradiance_layout.tile_grid().x,
             ddgi_status.visibility_layout.tile_grid().x,
             self.desc.ddgi_debug_view.as_u32(),
@@ -3011,8 +2911,8 @@ impl Tracer {
                     || filtered_probe_count == probe_count
                     || filtered_probe_count % 1_024 == 0
                 {
-                    log::info!(
-                        "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} terrain_revision={} token_serial={:?} radiance_revision={} transport={:?} iteration={} source={:?}",
+                    log::debug!(
+                        "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
                         batch.first_probe_index,
                         batch.probe_count,
                         crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -3026,8 +2926,8 @@ impl Tracer {
                         batch.geometry_revision(),
                         build_token.map(DdgiBuildToken::serial),
                         batch.radiance_revision(),
-                        batch.stage(),
-                        batch.iteration(),
+                        batch.state(),
+                        batch.update_epoch(),
                         batch.source(),
                     );
                 }
@@ -3053,22 +2953,20 @@ impl Tracer {
                                 atlas_stats,
                                 DDGI_CONVERGENCE_POLICY,
                             )?;
-                        if identity.field().stage() != DdgiFieldStage::SeedSky {
-                            let work = self
-                                .ddgi_runtime
-                                .volumes()
-                                .builder()
-                                .status()
-                                .scheduled_work
-                                .expect("validated non-S0 iteration must retain scheduled work");
-                            self.ddgi_runtime
-                                .validate_transport_completion(work, classified_field)
-                                .map_err(|error| {
-                                    anyhow::anyhow!(
-                                        "DDGI scheduler rejected completion before publication: {error:?}"
-                                    )
-                                })?;
-                        }
+                        let work = self
+                            .ddgi_runtime
+                            .volumes()
+                            .builder()
+                            .status()
+                            .scheduled_work
+                            .expect("validated DDGI epoch must retain scheduled work");
+                        self.ddgi_runtime
+                            .validate_transport_completion(work, classified_field)
+                            .map_err(|error| {
+                                anyhow::anyhow!(
+                                    "DDGI scheduler rejected completion before publication: {error:?}"
+                                )
+                            })?;
                         let validated = self
                             .ddgi_runtime
                             .volumes_mut()
@@ -3076,14 +2974,14 @@ impl Tracer {
                             .mark_atlas_validated(identity, atlas_stats, DDGI_CONVERGENCE_POLICY)?;
                         let status = self.ddgi_runtime.volumes().builder().status();
                         let key = identity.field();
-                        log::info!(
-                            "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} transport={:?} iteration={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} hard_max={} published_slot={:?} stage={:?}",
+                        log::debug!(
+                            "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} published_slot={:?} stage={:?}",
                             build_token.map(DdgiBuildToken::serial),
                             key.geometry_revision(),
                             key.radiance_revision(),
                             key.spacing_voxels(),
-                            key.stage(),
-                            key.iteration(),
+                            key.state(),
+                            key.update_epoch(),
                             identity.source(),
                             batch.source_label(),
                             batch.destination_label(),
@@ -3096,90 +2994,41 @@ impl Tracer {
                             DDGI_CONVERGENCE_POLICY.absolute_threshold,
                             DDGI_CONVERGENCE_POLICY.relative_threshold,
                             status.consecutive_below_threshold,
-                            DDGI_CONVERGENCE_POLICY.consecutive_iterations,
-                            DDGI_CONVERGENCE_POLICY.hard_max_iteration,
+                            DDGI_CONVERGENCE_POLICY.consecutive_epochs,
                             self.ddgi_runtime.volumes().builder().published_irradiance_label(),
                             status.stage,
                         );
 
                         let completed = match validated {
-                            DdgiValidatedIterationOutcome::SeedSkyComplete => {
-                                log::info!(
-                                    "[DDGI] transport iteration complete stage=SeedSky iteration=0 published=false source_ready=true next=SingleBounce identity={identity:?}"
-                                );
-                                if self
-                                    .desc
-                                    .environment_irradiance_capture_target
-                                    .matches_checkpoint(
-                                        identity,
-                                        DdgiCapturePublication::Unpublished,
-                                    )
-                                {
-                                    // The capture-only query intentionally shares metadata,
-                                    // visibility, and global-sky resources with the active
-                                    // consumer volume. Until those bindings also have private
-                                    // capture adapters, only the initial active bootstrap can
-                                    // expose S0 without mixing resources from two volumes.
-                                    validate_unpublished_capture_volume(
-                                        self.ddgi_runtime.volumes().builder_is_active(),
-                                    )?;
-                                    // Previous frames can still reference this descriptor set.
-                                    // Match consumer publication's lifetime rule before rebinding.
-                                    let descriptor_generation = self.next_descriptor_generation();
-                                    let descriptor_retirement = {
-                                        let builder = self.ddgi_runtime.volumes().builder();
-                                        self.update_ddgi_capture_descriptor(
-                                            builder,
-                                            identity,
-                                            descriptor_generation,
-                                        )?
-                                    };
-                                    self.frame_retirement_sink.retire(descriptor_retirement);
-                                    let build_token = build_token
-                                        .context("validated DDGI S0 has no volume build token")?;
-                                    self.observe_ddgi_capture_checkpoint(
-                                        build_token,
-                                        identity,
-                                        atlas_stats,
-                                        DdgiCapturePublication::Unpublished,
-                                    );
-                                }
-                                None
-                            }
                             DdgiValidatedIterationOutcome::Published {
                                 work,
                                 field,
                                 consecutive_below_threshold,
                             } => {
                                 let field_key = field.field();
-                                log::info!(
-                                    "[DDGI] finite field published serial={} transport={:?} iteration={} slot={} source={:?} consecutive_below={} ready=true partial_next_never_visible=true",
+                                log::debug!(
+                                    "[DDGI] finite field published serial={} state={:?} update_epoch={} slot={} source={:?} consecutive_below={} ready=true partial_next_never_visible=true",
                                     field_key.serial(),
-                                    field_key.stage(),
-                                    field_key.iteration(),
+                                    field_key.state(),
+                                    field_key.update_epoch(),
                                     batch.destination_label(),
                                     field.source(),
                                     consecutive_below_threshold,
                                 );
                                 Some((work, field))
                             }
-                            DdgiValidatedIterationOutcome::Converged { work, field } => {
+                            DdgiValidatedIterationOutcome::Converged {
+                                work,
+                                field,
+                                reason,
+                            } => {
                                 log::info!(
-                                    "[DDGI] transport converged serial={} iteration={} slot={} source={:?} ready=true",
+                                    "[DDGI] transport converged serial={} update_epoch={} slot={} source={:?} reason={:?} ready=true",
                                     field.field().serial(),
-                                    field.field().iteration(),
+                                    field.field().update_epoch(),
                                     batch.destination_label(),
                                     field.source(),
-                                );
-                                Some((work, field))
-                            }
-                            DdgiValidatedIterationOutcome::NonConverged { work, field } => {
-                                log::warn!(
-                                    "[DDGI] transport hard max reached state=NonConverged serial={} iteration={} slot={} latest_finite_visible=true source={:?}",
-                                    field.field().serial(),
-                                    field.field().iteration(),
-                                    batch.destination_label(),
-                                    field.source(),
+                                    reason,
                                 );
                                 Some((work, field))
                             }
@@ -3221,22 +3070,22 @@ impl Tracer {
                                     .published_irradiance_label()
                                     .expect("validated DDGI field must be resident");
                                 let key = field.field();
-                                log::info!(
-                                    "[DDGI][CONSUMERS] atomically rebound published_slot={} transport={:?} iteration={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?}",
+                                log::debug!(
+                                    "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?}",
                                     slot,
-                                    key.stage(),
-                                    key.iteration(),
+                                    key.state(),
+                                    key.update_epoch(),
                                     build_token.map(DdgiBuildToken::serial),
                                     key.geometry_revision(),
                                     key.radiance_revision(),
                                     key.spacing_voxels(),
                                     field.source(),
                                 );
-                                log::info!(
-                                    "[ENV_LIGHTING] backend=ddgi ready=true geometry_revision={} transport={:?} iteration={} radiance_revision={} slot={}",
+                                log::debug!(
+                                    "[ENV_LIGHTING] backend=ddgi ready=true geometry_revision={} state={:?} update_epoch={} radiance_revision={} slot={}",
                                     key.geometry_revision(),
-                                    key.stage(),
-                                    key.iteration(),
+                                    key.state(),
+                                    key.update_epoch(),
                                     key.radiance_revision(),
                                     slot,
                                 );
@@ -3406,8 +3255,8 @@ impl Tracer {
                 "ddgi.irradiance_filter",
                 || self.record_ddgi_irradiance_filter_pass(cmdbuf, batch),
             );
-            // Visibility is geometry-owned and is written only by bootstrap S0. Radiance-only
-            // feedback retains the complete visibility atlas.
+            // Trace directions rotate once per full epoch, so irradiance and directional distance
+            // moments update together into the same ping-pong slot.
             if batch.writes_visibility() {
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
@@ -3447,8 +3296,8 @@ impl Tracer {
                 || status.filtered_probe_count == status.grid.probe_count()
                 || status.filtered_probe_count % 1_024 == 0
             {
-                log::info!(
-                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} transport={:?} iteration={} source={:?} destination={} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
+                log::debug!(
+                    "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
                     batch.first_probe_index,
                     batch.probe_count,
                     crate::ddgi::DDGI_RAYS_PER_PROBE,
@@ -3458,10 +3307,12 @@ impl Tracer {
                     status.build_token.map(DdgiBuildToken::serial),
                     batch.radiance_revision(),
                     batch.spacing_voxels(),
-                    batch.stage(),
-                    batch.iteration(),
+                    batch.state(),
+                    batch.update_epoch(),
                     batch.source(),
                     batch.destination_label(),
+                    batch.irradiance_history_retention(self.ddgi_history_retention),
+                    batch.visibility_history_retention(self.ddgi_history_retention),
                     batch.writes_visibility(),
                     iteration_will_complete,
                     status.stage,
@@ -5447,10 +5298,11 @@ impl Tracer {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
             terrain_revision: batch.geometry_revision(),
-            transport_iteration: batch.iteration(),
+            has_history: u32::from(batch.source().is_some()),
             source_slot: batch.source_slot_index(),
             far_distance_world,
             _padding: [0; 2],
+            epoch_rotation: batch.epoch_rotation(),
         };
         self.compute_pipelines.ddgi_probe_trace_ppl.record(
             cmdbuf,
@@ -5467,6 +5319,10 @@ impl Tracer {
             tile_columns: volume.status().irradiance_layout.tile_grid().x,
             terrain_revision: batch.geometry_revision(),
             destination_is_transport_source: u32::from(batch.destination_is_transport_source()),
+            source_slot: batch.source_slot_index(),
+            has_history: u32::from(batch.irradiance_history_is_valid()),
+            history_retention: batch.irradiance_history_retention(self.ddgi_history_retention),
+            epoch_rotation: batch.epoch_rotation(),
         };
         self.compute_pipelines.ddgi_irradiance_filter_ppl.record(
             cmdbuf,
@@ -5492,6 +5348,11 @@ impl Tracer {
             terrain_revision: batch.geometry_revision(),
             spacing_world: spacing_world.to_array(),
             far_distance_world,
+            destination_slot: batch.destination_slot_index(),
+            source_slot: batch.source_slot_index(),
+            has_history: u32::from(batch.visibility_history_is_valid()),
+            history_retention: batch.visibility_history_retention(self.ddgi_history_retention),
+            epoch_rotation: batch.epoch_rotation(),
         };
         self.compute_pipelines.ddgi_visibility_filter_ppl.record(
             cmdbuf,
@@ -5521,6 +5382,7 @@ impl Tracer {
         if batch.writes_visibility() {
             let visibility_push = DdgiAtlasGutterPushConstants {
                 tile_columns: volume.status().visibility_layout.tile_grid().x,
+                destination_is_transport_source: batch.destination_slot_index(),
                 ..irradiance_push
             };
             self.compute_pipelines.ddgi_visibility_gutter_ppl.record(
@@ -6128,12 +5990,6 @@ impl Tracer {
         self.geometry_preview_resources.tree.clear();
     }
 
-    pub fn upload_collision_probe_geometry(&mut self) -> Result<()> {
-        // The formal dynamic-fruit mesh is immutable and uploaded once with Tracer resources.
-        debug_assert!(self.dynamic_fruit_resources.indices_len > 0);
-        Ok(())
-    }
-
     pub fn show_dynamic_fruit_geometry(
         &mut self,
         instances: &[DynamicFruitRenderInstance],
@@ -6141,7 +5997,7 @@ impl Tracer {
         self.dynamic_fruit_resources.show(instances)
     }
 
-    pub fn clear_collision_probe_geometry(&mut self) {
+    pub fn clear_dynamic_fruit_geometry(&mut self) {
         self.dynamic_fruit_resources.clear();
     }
 

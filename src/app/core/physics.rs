@@ -1,8 +1,8 @@
 use crate::builder::{ContreeBuilder, ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport};
 use crate::gameplay::camera::{PlayerWalkMovementRequest, PlayerWalkMovementResult};
+use crate::geom::UAabb3;
 use crate::tracer::{
-    collision_probe_apple_offsets, voxel_apple_offsets, DynamicFruitRenderInstance, Tracer,
-    TREE_FRUIT_MAX_RADIUS_VOXELS,
+    voxel_apple_offsets, DynamicFruitRenderInstance, Tracer, TREE_FRUIT_MAX_RADIUS_VOXELS,
 };
 use anyhow::Context;
 use glam::{IVec3, UVec3, Vec3};
@@ -13,20 +13,19 @@ use re_flora_physics::{
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
-const STARTUP_TERRAIN_BRICK_ID: StaticVoxelBrickId = StaticVoxelBrickId(IVec3::new(8, 3, 8));
-#[cfg(test)]
-const STARTUP_TERRAIN_BRICK_MIN: UVec3 = UVec3::new(256, 96, 256);
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 const PLAYER_CAPSULE_RADIUS_VOXELS: f32 = 4.0;
 const PLAYER_CAPSULE_HALF_HEIGHT_VOXELS: f32 = 8.0;
-// Keep the probe inside the only terrain-collision brick currently imported, but place it on the
-// camera-facing side of the startup tree so the trunk does not hide the probe fruit.
-const COLLISION_PROBE_SPAWN_VOXELS: Vec3 = Vec3::new(276.0, 152.0, 280.0);
-const COLLISION_PROBE_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
+const DYNAMIC_FRUIT_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
 const APPLE_CONTACT_SKIN_VOXELS: f32 = 0.15;
-// Release measurements put one real 32-cubed Contree export plus Rapier update at about 1.2 ms.
-// Keeping this at one avoids terrain edits turning a single render frame into an unbounded scan.
-const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 1;
+const APPLE_FRICTION: f32 = 0.82;
+const APPLE_RESTITUTION: f32 = 0.12;
+const APPLE_LINEAR_DAMPING: f32 = 0.06;
+const APPLE_ANGULAR_DAMPING: f32 = 0.10;
+// Release measurements put a 32-cubed Contree export plus Rapier update below 0.75 ms. Use a time
+// budget for prompt local edits while retaining a hard cap for unusually cheap or deferred work.
+const TERRAIN_COLLIDER_UPDATE_BUDGET: Duration = Duration::from_millis(1);
+const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 8;
 const WORLD_TERRAIN_COLLIDER_IMPORT_BUDGET: Duration = Duration::from_millis(25);
 
 fn player_capsule_center_voxels(camera_position: Vec3, camera_height: f32) -> Vec3 {
@@ -103,14 +102,6 @@ struct RegisteredFruit {
     body: Option<DynamicBodyId>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum StartupTerrainBrickState {
-    #[default]
-    Pending,
-    Imported,
-    Failed,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DirtyTerrainBrickWork {
     id: StaticVoxelBrickId,
@@ -133,19 +124,34 @@ struct WorldTerrainColliderImport {
 }
 
 impl DirtyTerrainBrickQueue {
-    fn push(&mut self, id: StaticVoxelBrickId) -> u64 {
+    fn next_revision(&mut self) -> u64 {
         self.next_revision = self
             .next_revision
             .checked_add(1)
             .expect("terrain collider request revision space exhausted");
-        if self
-            .latest_revisions
-            .insert(id, self.next_revision)
-            .is_none()
-        {
+        self.next_revision
+    }
+
+    fn push(&mut self, id: StaticVoxelBrickId) -> u64 {
+        let revision = self.next_revision();
+        if self.latest_revisions.insert(id, revision).is_none() {
             self.pending.push_back(id);
         }
-        self.next_revision
+        revision
+    }
+
+    fn push_urgent(&mut self, id: StaticVoxelBrickId) -> u64 {
+        let revision = self.next_revision();
+        if self.latest_revisions.insert(id, revision).is_some() {
+            let position = self
+                .pending
+                .iter()
+                .position(|pending_id| *pending_id == id)
+                .expect("tracked terrain collider brick must be pending");
+            self.pending.remove(position);
+        }
+        self.pending.push_front(id);
+        revision
     }
 
     fn front(&self) -> Option<DirtyTerrainBrickWork> {
@@ -185,10 +191,7 @@ impl DirtyTerrainBrickQueue {
 
 pub(super) struct TerrainPhysics {
     collision_world: CollisionWorld,
-    startup_brick_state: StartupTerrainBrickState,
     dirty_terrain_bricks: DirtyTerrainBrickQueue,
-    collision_probe_body: Option<DynamicBodyId>,
-    collision_probe_mesh_uploaded: bool,
     imported_terrain_bricks: HashSet<StaticVoxelBrickId>,
     failed_terrain_bricks: HashSet<StaticVoxelBrickId>,
     world_collider_import: Option<WorldTerrainColliderImport>,
@@ -201,27 +204,18 @@ impl TerrainPhysics {
     pub(super) fn new(fruit_cycle: f32) -> Self {
         let mut collision_world = CollisionWorld::new();
         collision_world
-            .set_gravity(COLLISION_PROBE_GRAVITY_VOXELS)
-            .expect("collision probe gravity constant must be valid");
-        let mut terrain_physics = Self {
+            .set_gravity(DYNAMIC_FRUIT_GRAVITY_VOXELS)
+            .expect("dynamic fruit gravity constant must be valid");
+        Self {
             collision_world,
-            startup_brick_state: StartupTerrainBrickState::Pending,
             dirty_terrain_bricks: DirtyTerrainBrickQueue::default(),
-            collision_probe_body: None,
-            collision_probe_mesh_uploaded: false,
             imported_terrain_bricks: HashSet::new(),
             failed_terrain_bricks: HashSet::new(),
             world_collider_import: None,
             fruits_by_tree: BTreeMap::new(),
             attached_fruit_refresh_trees: HashSet::new(),
             fruit_cycle: fruit_cycle.clamp(0.0, 1.0),
-        };
-        terrain_physics.mark_terrain_brick_dirty(STARTUP_TERRAIN_BRICK_ID);
-        terrain_physics
-    }
-
-    pub(super) fn collision_probe_ready(&self) -> bool {
-        self.startup_brick_state == StartupTerrainBrickState::Imported
+        }
     }
 
     pub(super) fn move_player_capsule(
@@ -248,92 +242,6 @@ impl TerrainPhysics {
         })
     }
 
-    pub(super) fn collision_probe_active(&self) -> bool {
-        self.collision_probe_body.is_some()
-    }
-
-    pub(super) fn collision_probe_status(&self) -> String {
-        match self.startup_brick_state {
-            StartupTerrainBrickState::Pending => "Terrain collider loading...".to_owned(),
-            StartupTerrainBrickState::Failed => "Terrain collider failed to load".to_owned(),
-            StartupTerrainBrickState::Imported => {
-                let Some(id) = self.collision_probe_body else {
-                    return "Ready".to_owned();
-                };
-                let Some(state) = self.collision_world.dynamic_body_state(id) else {
-                    return "Probe body unavailable".to_owned();
-                };
-                let position = state.position / VOXELS_PER_WORLD_UNIT;
-                let speed = state.linear_velocity.length() / VOXELS_PER_WORLD_UNIT;
-                let motion = if state.sleeping { "resting" } else { "moving" };
-                format!(
-                    "{motion} at ({:.3}, {:.3}, {:.3})\nspeed {:.2} world units/s",
-                    position.x, position.y, position.z, speed
-                )
-            }
-        }
-    }
-
-    pub(super) fn drop_collision_probe(&mut self, tracer: &mut Tracer) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.collision_probe_ready(),
-            "terrain collision brick is not ready"
-        );
-
-        self.clear_collision_probe(tracer);
-        if !self.collision_probe_mesh_uploaded {
-            tracer
-                .upload_collision_probe_geometry()
-                .context("uploading collision probe geometry")?;
-            self.collision_probe_mesh_uploaded = true;
-        }
-
-        let collider_points = collision_probe_convex_points();
-        let collider_point_count = collider_points.len();
-        let mut desc = DynamicBodyDesc::sphere(COLLISION_PROBE_SPAWN_VOXELS, 4.0);
-        desc.collider = DynamicColliderShape::ConvexHull {
-            points: collider_points,
-        };
-        desc.linear_velocity = Vec3::new(7.0, 0.0, 2.0);
-        desc.angular_velocity = Vec3::new(3.2, 1.7, -4.0);
-        desc.friction = 0.85;
-        desc.restitution = 0.08;
-        desc.contact_skin = APPLE_CONTACT_SKIN_VOXELS;
-        desc.linear_damping = 0.08;
-        desc.angular_damping = 0.12;
-        desc.ccd_enabled = true;
-
-        let body = self
-            .collision_world
-            .spawn_dynamic_body(desc)
-            .context("spawning collision probe body")?;
-        self.collision_world
-            .dynamic_body_state(body)
-            .context("reading newly spawned collision probe body")?;
-        self.collision_probe_body = Some(body);
-        if let Err(err) = self.sync_dynamic_fruit_rendering(tracer) {
-            self.collision_world.remove_dynamic_body(body);
-            self.collision_probe_body = None;
-            return Err(err).context("showing collision probe geometry");
-        }
-        log::info!(
-            "[COLLISION][PROBE] dropped body={} spawn_voxels={:?} convex_points={}",
-            body.get(),
-            COLLISION_PROBE_SPAWN_VOXELS,
-            collider_point_count,
-        );
-        Ok(())
-    }
-
-    pub(super) fn clear_collision_probe(&mut self, tracer: &mut Tracer) {
-        if let Some(body) = self.collision_probe_body.take() {
-            self.collision_world.remove_dynamic_body(body);
-        }
-        if let Err(err) = self.sync_dynamic_fruit_rendering(tracer) {
-            log::error!("Failed to refresh dynamic fruit rendering after clearing probe: {err:#}");
-        }
-    }
-
     pub(super) fn advance_dynamic_bodies(
         &mut self,
         frame_delta_time: f32,
@@ -345,21 +253,15 @@ impl TerrainPhysics {
             .values()
             .flat_map(BTreeMap::values)
             .any(|fruit| fruit.body.is_some());
-        if self.collision_probe_body.is_none() && !has_fruit_bodies {
+        if !has_fruit_bodies {
             return self.sync_dynamic_fruit_rendering(tracer);
         }
         let step = self.collision_world.advance(frame_delta_time);
         if step.dropped_seconds > 0.0 {
             log::warn!(
-                "[COLLISION][PROBE] physics hitch dropped {:.3} ms",
+                "[COLLISION][FRUIT] physics hitch dropped {:.3} ms",
                 step.dropped_seconds * 1_000.0
             );
-        }
-        if let Some(body) = self.collision_probe_body {
-            if self.collision_world.dynamic_body_state(body).is_none() {
-                self.collision_probe_body = None;
-                log::error!("collision probe body disappeared from physics world");
-            }
         }
         for fruits in self.fruits_by_tree.values_mut() {
             for fruit in fruits.values_mut() {
@@ -537,18 +439,11 @@ impl TerrainPhysics {
             .collect::<Vec<_>>();
 
         for (tree_id, fruit_id, spec) in ready {
-            let mut desc = DynamicBodyDesc::sphere(spec.position_voxels.as_vec3(), 2.0);
-            desc.collider = DynamicColliderShape::ConvexHull {
-                points: apple_convex_points(),
-            };
-            desc.linear_velocity = spec.linear_velocity_voxels;
-            desc.angular_velocity = spec.angular_velocity;
-            desc.friction = 0.82;
-            desc.restitution = 0.12;
-            desc.contact_skin = APPLE_CONTACT_SKIN_VOXELS;
-            desc.linear_damping = 0.06;
-            desc.angular_damping = 0.10;
-            desc.ccd_enabled = true;
+            let desc = apple_dynamic_body_desc(
+                spec.position_voxels.as_vec3(),
+                spec.linear_velocity_voxels,
+                spec.angular_velocity,
+            );
             let body = self
                 .collision_world
                 .spawn_dynamic_body(desc)
@@ -575,15 +470,6 @@ impl TerrainPhysics {
 
     fn sync_dynamic_fruit_rendering(&self, tracer: &mut Tracer) -> anyhow::Result<()> {
         let mut instances = Vec::new();
-        if let Some(body) = self.collision_probe_body {
-            if let Some(state) = self.collision_world.dynamic_body_state(body) {
-                instances.push(DynamicFruitRenderInstance::new(
-                    state.position / VOXELS_PER_WORLD_UNIT,
-                    state.rotation,
-                    2.0,
-                ));
-            }
-        }
         for fruit in self.fruits_by_tree.values().flat_map(BTreeMap::values) {
             if let Some(state) = fruit
                 .body
@@ -597,20 +483,19 @@ impl TerrainPhysics {
             }
         }
         if instances.is_empty() {
-            tracer.clear_collision_probe_geometry();
+            tracer.clear_dynamic_fruit_geometry();
             Ok(())
         } else {
             tracer.show_dynamic_fruit_geometry(&instances)
         }
     }
 
-    pub(super) fn mark_terrain_chunks_dirty(&mut self, chunk_ids: &[UVec3], chunk_dim: UVec3) {
-        for &chunk_id in chunk_ids {
-            let min = (chunk_id * chunk_dim).as_ivec3();
-            let max = min + chunk_dim.as_ivec3();
-            for id in terrain_brick_ids_for_voxel_aabb(min, max) {
-                self.mark_terrain_brick_dirty(id);
-            }
+    pub(super) fn mark_terrain_voxels_dirty(&mut self, affected_voxels: UAabb3) {
+        for id in terrain_brick_ids_for_voxel_aabb(
+            affected_voxels.min().as_ivec3(),
+            affected_voxels.max().as_ivec3(),
+        ) {
+            self.mark_terrain_brick_dirty_urgent(id);
         }
     }
 
@@ -665,7 +550,7 @@ impl TerrainPhysics {
                 .as_ref()
                 .is_some_and(|import| import.remaining.contains(&work.id));
             attempts += 1;
-            if self.try_refresh_terrain_brick(contree_builder, work, false) {
+            if self.try_refresh_terrain_brick(contree_builder, work) {
                 consecutive_deferrals = 0;
                 if is_world_brick {
                     let failed = self.failed_terrain_bricks.contains(&work.id);
@@ -732,12 +617,24 @@ impl TerrainPhysics {
         );
     }
 
+    fn mark_terrain_brick_dirty_urgent(&mut self, id: StaticVoxelBrickId) {
+        let request_revision = self.dirty_terrain_bricks.push_urgent(id);
+        log::debug!(
+            "[COLLISION][TERRAIN_BRICK] queued urgent id={id:?} request_revision={request_revision} pending={}",
+            self.dirty_terrain_bricks.len(),
+        );
+    }
+
     pub(super) fn process_terrain_collider_updates(&mut self, contree_builder: &ContreeBuilder) {
-        for _ in 0..MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME {
+        let frame_started = Instant::now();
+        for attempt in 0..MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME {
+            if attempt > 0 && frame_started.elapsed() >= TERRAIN_COLLIDER_UPDATE_BUDGET {
+                break;
+            }
             let Some(work) = self.dirty_terrain_bricks.front() else {
                 break;
             };
-            if !self.try_refresh_terrain_brick(contree_builder, work, true) {
+            if !self.try_refresh_terrain_brick(contree_builder, work) {
                 self.dirty_terrain_bricks.defer(work.id);
             }
         }
@@ -749,7 +646,6 @@ impl TerrainPhysics {
         &mut self,
         contree_builder: &ContreeBuilder,
         work: DirtyTerrainBrickWork,
-        log_refresh_at_info: bool,
     ) -> bool {
         let total_start = Instant::now();
         let brick_min = work.id.0 * STATIC_VOXEL_BRICK_DIM as i32;
@@ -823,21 +719,11 @@ impl TerrainPhysics {
         };
 
         self.dirty_terrain_bricks.complete(work);
-        if work.id == STARTUP_TERRAIN_BRICK_ID
-            && !matches!(update, StaticVoxelBrickUpdate::Stale { .. })
-        {
-            self.startup_brick_state = StartupTerrainBrickState::Imported;
-        }
         if !matches!(update, StaticVoxelBrickUpdate::Stale { .. }) {
             self.imported_terrain_bricks.insert(work.id);
             self.failed_terrain_bricks.remove(&work.id);
         }
-        log::log!(
-            if log_refresh_at_info {
-                log::Level::Info
-            } else {
-                log::Level::Debug
-            },
+        log::debug!(
             "[COLLISION][TERRAIN_BRICK] refreshed id={:?} min={:?} request_revision={} source_revision={} dependencies={:?} solids={} changed_voxels={} update={:?} export_ms={:.3} occupancy_ms={:.3} physics_ms={:.3} total_ms={:.3} pending={}",
             work.id,
             brick_min_u,
@@ -859,9 +745,6 @@ impl TerrainPhysics {
     fn finish_failed_terrain_brick(&mut self, work: DirtyTerrainBrickWork, error: String) {
         self.dirty_terrain_bricks.complete(work);
         self.failed_terrain_bricks.insert(work.id);
-        if work.id == STARTUP_TERRAIN_BRICK_ID {
-            self.startup_brick_state = StartupTerrainBrickState::Failed;
-        }
         log::error!(
             "[COLLISION][TERRAIN_BRICK] refresh failed id={:?} request_revision={} error={} pending={}",
             work.id,
@@ -890,12 +773,28 @@ fn terrain_brick_ids_for_voxel_aabb(min: IVec3, max_exclusive: IVec3) -> Vec<Sta
     ids
 }
 
-fn collision_probe_convex_points() -> Vec<Vec3> {
-    convex_points_for_voxels(collision_probe_apple_offsets())
-}
-
 fn apple_convex_points() -> Vec<Vec3> {
     convex_points_for_voxels(voxel_apple_offsets())
+}
+
+fn apple_dynamic_body_desc(
+    position: Vec3,
+    linear_velocity: Vec3,
+    angular_velocity: Vec3,
+) -> DynamicBodyDesc {
+    let mut desc = DynamicBodyDesc::sphere(position, 2.0);
+    desc.collider = DynamicColliderShape::ConvexHull {
+        points: apple_convex_points(),
+    };
+    desc.linear_velocity = linear_velocity;
+    desc.angular_velocity = angular_velocity;
+    desc.friction = APPLE_FRICTION;
+    desc.restitution = APPLE_RESTITUTION;
+    desc.contact_skin = APPLE_CONTACT_SKIN_VOXELS;
+    desc.linear_damping = APPLE_LINEAR_DAMPING;
+    desc.angular_damping = APPLE_ANGULAR_DAMPING;
+    desc.ccd_enabled = true;
+    desc
 }
 
 fn convex_points_for_voxels(voxels: Vec<IVec3>) -> Vec<Vec3> {
@@ -948,7 +847,7 @@ mod tests {
         source_dependencies: Vec<ContreeCpuVoxelSourceDependency>,
     ) -> ContreeCpuVoxelBlock {
         ContreeCpuVoxelBlock {
-            voxel_min: STARTUP_TERRAIN_BRICK_MIN,
+            voxel_min: UVec3::ZERO,
             dim: UVec3::splat(STATIC_VOXEL_BRICK_DIM),
             voxel_dim_per_chunk: UVec3::splat(256),
             voxel_types: vec![0; STATIC_VOXEL_BRICK_DIM.pow(3) as usize],
@@ -966,6 +865,50 @@ mod tests {
             linear_velocity_voxels: Vec3::ZERO,
             angular_velocity: Vec3::ZERO,
         }
+    }
+
+    fn two_layer_flat_floor() -> BrickOccupancy {
+        BrickOccupancy::from_filled_voxels((0..2).flat_map(|y| {
+            (0..STATIC_VOXEL_BRICK_DIM)
+                .flat_map(move |z| (0..STATIC_VOXEL_BRICK_DIM).map(move |x| UVec3::new(x, y, z)))
+        }))
+    }
+
+    #[test]
+    fn dropped_apple_stops_visible_motion_on_flat_terrain_within_five_seconds() {
+        const MAX_STEPS: usize = 5 * 120;
+        let mut world = CollisionWorld::new();
+        world.set_gravity(DYNAMIC_FRUIT_GRAVITY_VOXELS).unwrap();
+        for z in 0..4 {
+            for x in 0..4 {
+                world.upsert_static_voxel_brick(
+                    StaticVoxelBrickId(IVec3::new(x, 0, z)),
+                    1,
+                    two_layer_flat_floor(),
+                );
+            }
+        }
+        let body = world
+            .spawn_dynamic_body(apple_dynamic_body_desc(
+                Vec3::new(16.0, 28.0, 16.0),
+                Vec3::new(7.0, -2.0, 7.0),
+                Vec3::new(2.5, 2.5, -2.5),
+            ))
+            .unwrap();
+
+        for _ in 0..MAX_STEPS {
+            assert_eq!(world.advance(1.0 / 120.0).steps, 1);
+        }
+
+        let state = world.dynamic_body_state(body).unwrap();
+        assert!(
+            state.linear_velocity.x.hypot(state.linear_velocity.z) < 0.01,
+            "apple still translating across the floor after five seconds: {state:?}",
+        );
+        assert!(
+            state.angular_velocity.length() < 0.01,
+            "apple still visibly rotating after five seconds: {state:?}",
+        );
     }
 
     #[test]
@@ -1049,14 +992,6 @@ mod tests {
     }
 
     #[test]
-    fn startup_brick_bounds_match_its_physics_id() {
-        assert_eq!(
-            STARTUP_TERRAIN_BRICK_ID.0.as_uvec3() * STATIC_VOXEL_BRICK_DIM,
-            STARTUP_TERRAIN_BRICK_MIN
-        );
-    }
-
-    #[test]
     fn player_capsule_bottom_stays_at_the_camera_foot_position() {
         let camera_position = Vec3::new(1.25, 0.75, 0.5);
         let camera_height = 0.08;
@@ -1118,6 +1053,49 @@ mod tests {
     }
 
     #[test]
+    fn local_terrain_edit_enqueues_only_intersecting_collider_bricks() {
+        let mut terrain_physics = TerrainPhysics::new(1.0);
+        let edit_bound = crate::geom::UAabb3::new(UVec3::splat(31), UVec3::splat(33));
+
+        terrain_physics.mark_terrain_voxels_dirty(edit_bound);
+
+        let queued = terrain_physics
+            .dirty_terrain_bricks
+            .pending
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>();
+        let expected = terrain_brick_ids_for_voxel_aabb(
+            edit_bound.min().as_ivec3(),
+            edit_bound.max().as_ivec3(),
+        )
+        .into_iter()
+        .collect::<HashSet<_>>();
+        assert_eq!(queued, expected);
+        assert_eq!(queued.len(), 8);
+    }
+
+    #[test]
+    fn newest_terrain_edit_moves_a_brick_ahead_of_background_backlog() {
+        let mut terrain_physics = TerrainPhysics::new(1.0);
+        terrain_physics
+            .begin_world_terrain_collider_import(UVec3::splat(512))
+            .unwrap();
+        assert_eq!(terrain_physics.dirty_terrain_bricks.len(), 4_096);
+
+        terrain_physics.mark_terrain_voxels_dirty(crate::geom::UAabb3::new(
+            UVec3::new(256, 0, 256),
+            UVec3::new(257, 1, 257),
+        ));
+
+        assert_eq!(terrain_physics.dirty_terrain_bricks.len(), 4_096);
+        assert_eq!(
+            terrain_physics.dirty_terrain_bricks.front().unwrap().id,
+            StaticVoxelBrickId(IVec3::new(8, 0, 8)),
+        );
+    }
+
+    #[test]
     fn voxel_aabb_to_bricks_uses_exclusive_max_and_euclidean_negative_division() {
         assert_eq!(
             terrain_brick_ids_for_voxel_aabb(IVec3::ZERO, IVec3::splat(32)),
@@ -1144,30 +1122,6 @@ mod tests {
                 StaticVoxelBrickId(IVec3::ZERO),
             ]
         );
-    }
-
-    #[test]
-    fn collision_probe_convex_points_cover_visible_apple_bounds() {
-        let points = collision_probe_convex_points();
-        let min = points.iter().copied().reduce(Vec3::min).unwrap();
-        let max = points.iter().copied().reduce(Vec3::max).unwrap();
-        let probe_radius = TREE_FRUIT_MAX_RADIUS_VOXELS as f32 * 2.0;
-
-        assert!(points.len() > collision_probe_apple_offsets().len());
-        assert_eq!(min, Vec3::splat(-probe_radius));
-        assert_eq!(max, Vec3::splat(probe_radius));
-    }
-
-    #[test]
-    fn collision_probe_spawns_inside_imported_brick_xz_bounds() {
-        let probe_radius = Vec3::splat(TREE_FRUIT_MAX_RADIUS_VOXELS as f32 * 2.0);
-        let brick_min = STARTUP_TERRAIN_BRICK_MIN.as_vec3();
-        let brick_max = brick_min + Vec3::splat(STATIC_VOXEL_BRICK_DIM as f32);
-
-        assert!((COLLISION_PROBE_SPAWN_VOXELS - probe_radius).x >= brick_min.x);
-        assert!((COLLISION_PROBE_SPAWN_VOXELS - probe_radius).z >= brick_min.z);
-        assert!((COLLISION_PROBE_SPAWN_VOXELS + probe_radius).x <= brick_max.x);
-        assert!((COLLISION_PROBE_SPAWN_VOXELS + probe_radius).z <= brick_max.z);
     }
 
     #[test]

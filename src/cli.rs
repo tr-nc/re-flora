@@ -225,6 +225,8 @@ pub struct AppOptions {
     pub ddgi_terrain_hard_origin: DdgiTerrainHardOrigin,
     /// Build a deterministic hybrid raster/terrain transparency regression scene.
     pub hybrid_transparency_test_scene: bool,
+    /// Build the authored house scene on freshly generated terrain.
+    pub house_scene: bool,
     /// Environment probe grid spacing in terrain voxels.
     pub environment_probe_spacing_voxels: u32,
     /// Rebuild the environment probe grid once at runtime with this spacing.
@@ -369,7 +371,7 @@ impl AppOptions {
             parse_required_string_after("--ddgi-spatial-weight-readback", "an output text path")?;
         let environment_irradiance_capture_target_value = parse_required_string_after(
             "--environment-irradiance-capture-target",
-            "s0, s1, sN, converged, non-converged, or published",
+            "e0, e1, eN, converged, or published",
         )?;
         if environment_irradiance_capture_target_value.is_some()
             && environment_irradiance_capture_path.is_none()
@@ -383,7 +385,7 @@ impl AppOptions {
             match environment_irradiance_capture_target_value {
                 Some(value) => DdgiCaptureTarget::from_cli_value(&value).ok_or_else(|| {
                     format!(
-                        "Invalid --environment-irradiance-capture-target '{value}'. Expected s0, s1, sN, converged, non-converged, or published."
+                        "Invalid --environment-irradiance-capture-target '{value}'. Expected e0, e1, eN, converged, or published."
                     )
                 })?,
                 None => DdgiCaptureTarget::default(),
@@ -435,14 +437,6 @@ impl AppOptions {
             })?,
             None => DdgiTerrainHardOrigin::default(),
         };
-        if environment_irradiance_capture_target.iteration() == Some(0)
-            && ddgi_debug_view != DdgiDebugView::Final
-        {
-            return Err(
-                "--environment-irradiance-capture-target s0 requires --ddgi-debug-view final"
-                    .to_owned(),
-            );
-        }
         let screenshot = parse_screenshot_request(&args)?;
         let denoiser_bench = parse_denoiser_bench_request(&args, &parse_u32_after)?;
         if screenshot.is_some() && denoiser_bench.is_some() {
@@ -478,10 +472,12 @@ impl AppOptions {
         let hybrid_transparency_test_scene = args
             .iter()
             .any(|arg| arg == "--hybrid-transparency-test-scene");
+        let house_scene = args.iter().any(|arg| arg == "--house-scene");
         let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
         if water_experience
             && (environment_lighting_test_scene.is_some()
                 || hybrid_transparency_test_scene
+                || house_scene
                 || water_edit_soak)
         {
             return Err(
@@ -492,11 +488,22 @@ impl AppOptions {
         if terrain_load_path.is_some()
             && (environment_lighting_test_scene.is_some()
                 || hybrid_transparency_test_scene
+                || house_scene
                 || water_edit_soak
                 || water_experience)
         {
             return Err(
                 "Do not combine --terrain-load with terrain-stamping test scenes or --water-edit-soak"
+                    .to_owned(),
+            );
+        }
+        if house_scene
+            && (environment_lighting_test_scene.is_some()
+                || hybrid_transparency_test_scene
+                || water_edit_soak)
+        {
+            return Err(
+                "Do not combine --house-scene with terrain-stamping test scenes or --water-edit-soak"
                     .to_owned(),
             );
         }
@@ -558,6 +565,7 @@ impl AppOptions {
             ddgi_debug_view,
             ddgi_terrain_hard_origin,
             hybrid_transparency_test_scene,
+            house_scene,
             environment_probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels,
             environment_probe_visualization: args
@@ -841,7 +849,7 @@ Options:
   --ddgi-spatial-weight-readback <path>
                               Save the fixed saved-terrain eight-probe contribution readback (requires spatial-weight-readback)
   --environment-irradiance-capture-target <target>
-                              Capture s0, s1, a specified sN, converged, or non-converged (default: s1)
+                              Capture e0, e1, a specified eN, converged, or published (default: e0)
   --ddgi-batch-order <order>  Traverse DDGI probe batches in forward or reverse order (default: forward)
   --ddgi-debug-view <view>    Select final, moment/exact visibility, error, weight, probe, relocation,
                               spatial-weight, readback, or atlas DDGI diagnostics (default: final)
@@ -850,6 +858,7 @@ Options:
                               for terrain receiver experiments (default: {})
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
+  --house-scene               Build the authored flat-roof house on freshly generated terrain
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
   --environment-probe-rebuild-spacing-voxels <N>
@@ -886,6 +895,7 @@ Examples:
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
   re-flora --hidden --mute --environment-lighting-test-scene sealed --environment-irradiance-capture target/sealed.rfirr --auto-exit 8
   re-flora --hidden --mute --windowed --hybrid-transparency-test-scene --screenshot player-default target/hybrid-transparency-test.png --screenshot-delay 2 --auto-exit 6
+  re-flora --house-scene --camera-snapshot house-overlook
   re-flora --latest-log
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#,
@@ -952,11 +962,12 @@ mod tests {
         assert!(!options.egui_texture_lifecycle_test);
         assert!(!options.resize_lifecycle_test);
         assert!(options.environment_lighting_test_scene.is_none());
+        assert!(!options.house_scene);
         assert!(options.environment_irradiance_capture_path.is_none());
         assert!(options.ddgi_spatial_weight_readback_path.is_none());
         assert_eq!(
             options.environment_irradiance_capture_target,
-            DdgiCaptureTarget::Iteration(1)
+            DdgiCaptureTarget::Epoch(0)
         );
         assert_eq!(options.ddgi_batch_order, DdgiBatchOrder::Forward);
         assert_eq!(options.ddgi_debug_view, DdgiDebugView::Final);
@@ -1075,7 +1086,7 @@ mod tests {
         );
         assert_eq!(
             options.environment_irradiance_capture_target,
-            DdgiCaptureTarget::Iteration(1)
+            DdgiCaptureTarget::Epoch(0)
         );
     }
 
@@ -1084,14 +1095,14 @@ mod tests {
         let options = parse(&[
             "re-flora",
             "--environment-irradiance-capture",
-            "target/sealed-s4.rfirr",
+            "target/sealed-e4.rfirr",
             "--environment-irradiance-capture-target",
-            "s4",
+            "e4",
         ]);
 
         assert_eq!(
             options.environment_irradiance_capture_target,
-            DdgiCaptureTarget::Iteration(4)
+            DdgiCaptureTarget::Epoch(4)
         );
     }
 
@@ -1114,7 +1125,7 @@ mod tests {
     #[test]
     fn rejects_capture_target_without_capture_path() {
         let result = AppOptions::try_from_arg_strings(
-            ["re-flora", "--environment-irradiance-capture-target", "s2"]
+            ["re-flora", "--environment-irradiance-capture-target", "e2"]
                 .iter()
                 .map(|arg| (*arg).to_owned())
                 .collect(),
@@ -1224,32 +1235,30 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unpublished_s0_capture_with_non_final_debug_view() {
-        let result = AppOptions::try_from_arg_strings(
-            [
-                "re-flora",
-                "--environment-irradiance-capture",
-                "target/sealed-s0.rfirr",
-                "--environment-irradiance-capture-target",
-                "s0",
-                "--ddgi-debug-view",
-                "exact-irradiance",
-            ]
-            .iter()
-            .map(|arg| (*arg).to_owned())
-            .collect(),
-        );
-
-        assert!(result
-            .unwrap_err()
-            .contains("s0 requires --ddgi-debug-view final"));
-    }
-
-    #[test]
     fn parses_hybrid_transparency_test_scene() {
         let options = parse(&["re-flora", "--hybrid-transparency-test-scene"]);
 
         assert!(options.hybrid_transparency_test_scene);
+    }
+
+    #[test]
+    fn parses_house_scene_and_rejects_snapshot_input() {
+        let options = parse(&["re-flora", "--house-scene"]);
+        assert!(options.house_scene);
+
+        let incompatible = AppOptions::try_from_arg_strings(
+            [
+                "re-flora",
+                "--terrain-load",
+                "target/input.rflterrain",
+                "--house-scene",
+            ]
+            .iter()
+            .map(|arg| (*arg).to_owned())
+            .collect(),
+        )
+        .unwrap_err();
+        assert!(incompatible.contains("Do not combine --terrain-load"));
     }
 
     #[test]

@@ -172,6 +172,9 @@ impl App {
             crate::builder::VOXEL_TYPE_SAND => {
                 super::voxel_backpack::BackpackVoxel::Sand.color_rgb()
             }
+            crate::builder::VOXEL_TYPE_STUCCO => {
+                super::voxel_backpack::BackpackVoxel::Stucco.color_rgb()
+            }
             crate::builder::VOXEL_TYPE_ROCK => {
                 super::voxel_backpack::BackpackVoxel::Rock.color_rgb()
             }

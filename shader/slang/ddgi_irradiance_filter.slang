@@ -1,5 +1,6 @@
 import ddgi_config;
 import ddgi_octahedral;
+import ddgi_sampling;
 import ddgi_types;
 
 static const uint DDGI_IRRADIANCE_INTERIOR_SIDE = 8u;
@@ -27,6 +28,10 @@ struct DdgiAtlasFilterPushConstants
     uint tile_columns;
     uint terrain_revision;
     uint destination_is_transport_source;
+    uint source_slot;
+    uint has_history;
+    float history_retention;
+    float4 epoch_rotation;
 };
 
 [[vk::push_constant]]
@@ -38,6 +43,13 @@ void storeIrradiance(uint2 atlasCoordinate, float4 value)
         ddgi_transport_source_irradiance_atlas[atlasCoordinate] = value;
     else
         ddgi_irradiance_atlas[atlasCoordinate] = value;
+}
+
+float4 loadIrradiance(uint slot, uint2 atlasCoordinate)
+{
+    return slot == 0u
+        ? ddgi_irradiance_atlas[atlasCoordinate]
+        : ddgi_transport_source_irradiance_atlas[atlasCoordinate];
 }
 
 [shader("compute")]
@@ -71,8 +83,8 @@ void main(uint3 groupId : SV_GroupID,
     [loop]
     for (uint rayIndex = 0u; rayIndex < DDGI_RAYS_PER_PROBE; ++rayIndex)
     {
-        float3 direction =
-            ddgiFibonacciDirection(rayIndex, DDGI_RAYS_PER_PROBE);
+        float3 direction = ddgiEpochDirection(
+            rayIndex, DDGI_RAYS_PER_PROBE, pc.epoch_rotation);
         float cosineWeight = max(0.0, dot(normal, direction));
         float3 radiance =
             ddgi_transient_ray_data
@@ -83,5 +95,12 @@ void main(uint3 groupId : SV_GroupID,
     // Uniform-sphere Monte Carlo estimate of diffuse irradiance divided by pi:
     // (1 / pi) * (4 * pi / N) * sum(L * max(0, n dot w)).
     irradiance *= DDGI_FOUR / float(DDGI_RAYS_PER_PROBE);
-    storeIrradiance(atlasCoordinate, float4(irradiance, 1.0));
+    float4 current = float4(irradiance, 1.0);
+    if (pc.has_history != 0u)
+    {
+        float4 history = loadIrradiance(pc.source_slot, atlasCoordinate);
+        current.xyz = lerp(current.xyz, history.xyz,
+                           saturate(pc.history_retention));
+    }
+    storeIrradiance(atlasCoordinate, current);
 }

@@ -18,6 +18,8 @@ LOG_TEXT = """
 [INFO] [PERF][GPU_FRAME_SCOPE] frame 1 scopes=2 dropped=0 frame.render=120us tracer.render=60us
 [INFO] [DDGI][PUBLICATION_TIMING] token_serial=8 descriptor_rebind_ms=0.100 resource_swap_ms=0.200 total_publication_ms=0.350 descriptor_generation=4
 [INFO] [PERF][GPU_FRAME_SCOPE] frame 2 scopes=2 dropped=0 frame.render=100us tracer.render=55us
+[23:59:59.980 INFO fixture] [DDGI] runtime observed visible terrain revision=2 newly_observed=true edit_voxel_bound=fixture
+[00:00:00.025 INFO fixture] [DDGI] staging promoted token_serial=2 kind=Terrain geometry_revision=2 published_state=Converging
 """
 
 
@@ -29,6 +31,10 @@ class BenchmarkDdgiPublicationTests(unittest.TestCase):
         self.assertEqual(parsed["frame_render_us"], [120, 100])
         self.assertEqual(parsed["publications"][0]["token_serial"], 7)
         self.assertAlmostEqual(parsed["publications"][1]["total_publication_ms"], 0.35)
+        self.assertEqual(
+            parsed["terrain_update_latencies"],
+            [{"geometry_revision": 2, "elapsed_ms": 45}],
+        )
 
     def test_rejects_logs_without_publication(self) -> None:
         with self.assertRaisesRegex(ValueError, "no DDGI publication"):

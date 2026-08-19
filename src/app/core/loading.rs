@@ -52,9 +52,10 @@ impl LoadingState {
 
 impl App {
     pub(super) fn process_loading_step(&mut self) {
-        let mut should_apply_debug_startup_materials = false;
         let mut should_apply_water_experience_terrain = false;
+        let mut should_apply_house_scene = false;
         let water_experience_requested = self.water_experience_scene.is_some();
+        let house_scene_requested = self.house_scene_requested;
         let loading = match &mut self.loading_state {
             Some(loading) => loading,
             None => return,
@@ -109,8 +110,8 @@ impl App {
                         });
                         self.plain_builder.mark_all_solid_workgroups_dirty();
                     } else {
-                        should_apply_debug_startup_materials = !water_experience_requested;
                         should_apply_water_experience_terrain = water_experience_requested;
+                        should_apply_house_scene = house_scene_requested;
                     }
                     loading.current = 0;
                     loading.phase = LoadingPhase::Building;
@@ -184,14 +185,13 @@ impl App {
             }
         }
 
-        if should_apply_debug_startup_materials {
-            if let Err(err) = self.apply_debug_startup_materials() {
-                log::error!("Failed to apply debug startup materials: {err}");
-            }
-        }
         if should_apply_water_experience_terrain {
             self.apply_water_experience_terrain()
                 .unwrap_or_else(|err| panic!("[WATER_EXPERIENCE] terrain setup failed: {err:#}"));
+        }
+        if should_apply_house_scene {
+            self.apply_house_scene()
+                .unwrap_or_else(|err| panic!("[HOUSE_SCENE] terrain setup failed: {err:#}"));
         }
     }
 
@@ -392,6 +392,8 @@ impl App {
             log::info!(
                 "[WATER_EXPERIENCE] procedural tuning tree suppressed for an unobstructed basin"
             );
+        } else if self.house_scene_requested {
+            log::info!("[HOUSE_SCENE] procedural tuning tree suppressed around the house");
         } else if !self.terrain_persistence.startup_load_requested() {
             if let Err(err) = self.plant_startup_tuned_tree() {
                 log::error!("Failed to plant startup tuning tree: {}", err);
