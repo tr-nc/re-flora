@@ -1,5 +1,8 @@
 # Cornell-box DDGI probe-grid artifact
 
+> Historical experiment record. The dedicated Cornell-box runtime scene and its CLI flag have
+> since been removed; commands below document the original reproduction and are no longer runnable.
+
 > **Superseded diagnosis (2026-08-19):** the receiver-bias conclusion below was
 > based on a Moment Visibility debug crop and did not predict the production
 > Final view. A fixed-camera Final A/B retained `98.69%` of the grid energy at

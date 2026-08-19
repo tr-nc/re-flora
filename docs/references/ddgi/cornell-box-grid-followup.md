@@ -1,5 +1,8 @@
 # Cornell-box DDGI grid follow-up
 
+> Historical experiment record. The dedicated Cornell-box runtime scene and its CLI flag have
+> since been removed; this note remains as provenance for the accepted DDGI visibility formula.
+
 Experiment date: 2026-08-19
 
 This follow-up supersedes the receiver-bias root-cause conclusion in
