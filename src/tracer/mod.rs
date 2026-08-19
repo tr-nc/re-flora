@@ -1213,7 +1213,7 @@ impl Tracer {
         for retirement in descriptor_retirements {
             self.frame_retirement_sink.retire(retirement);
         }
-        log::info!(
+        log::debug!(
             "[DDGI][SCHEDULER] claimed kind={:?} serial={} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?}",
             work.kind(),
             destination.serial(),
@@ -2911,7 +2911,7 @@ impl Tracer {
                     || filtered_probe_count == probe_count
                     || filtered_probe_count % 1_024 == 0
                 {
-                    log::info!(
+                    log::debug!(
                         "[DDGI] ray batch verified first_probe={} probes={} rays_per_probe={} records={} valid_probe_rays={} invalid_probe_rays={} misses={} frontface_hits={} backface_hits={} non_finite={} terrain_revision={} token_serial={:?} radiance_revision={} state={:?} update_epoch={} source={:?}",
                         batch.first_probe_index,
                         batch.probe_count,
@@ -2974,7 +2974,7 @@ impl Tracer {
                             .mark_atlas_validated(identity, atlas_stats, DDGI_CONVERGENCE_POLICY)?;
                         let status = self.ddgi_runtime.volumes().builder().status();
                         let key = identity.field();
-                        log::info!(
+                        log::debug!(
                             "[DDGI] full-atlas validated token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} source_slot={} destination_slot={} max_abs_rgb_delta={:.8} max_rel_rgb_delta={:.8} non_finite={} negative_rgb_texels={} valid_texels={} scanned_stored_texels={} abs_threshold={:.8} rel_threshold={:.8} consecutive_below={}/{} published_slot={:?} stage={:?}",
                             build_token.map(DdgiBuildToken::serial),
                             key.geometry_revision(),
@@ -3006,7 +3006,7 @@ impl Tracer {
                                 consecutive_below_threshold,
                             } => {
                                 let field_key = field.field();
-                                log::info!(
+                                log::debug!(
                                     "[DDGI] finite field published serial={} state={:?} update_epoch={} slot={} source={:?} consecutive_below={} ready=true partial_next_never_visible=true",
                                     field_key.serial(),
                                     field_key.state(),
@@ -3070,7 +3070,7 @@ impl Tracer {
                                     .published_irradiance_label()
                                     .expect("validated DDGI field must be resident");
                                 let key = field.field();
-                                log::info!(
+                                log::debug!(
                                     "[DDGI][CONSUMERS] atomically rebound published_slot={} state={:?} update_epoch={} token_serial={:?} geometry_revision={} radiance_revision={} spacing_voxels={} source={:?}",
                                     slot,
                                     key.state(),
@@ -3081,7 +3081,7 @@ impl Tracer {
                                     key.spacing_voxels(),
                                     field.source(),
                                 );
-                                log::info!(
+                                log::debug!(
                                     "[ENV_LIGHTING] backend=ddgi ready=true geometry_revision={} state={:?} update_epoch={} radiance_revision={} slot={}",
                                     key.geometry_revision(),
                                     key.state(),
@@ -3296,7 +3296,7 @@ impl Tracer {
                 || status.filtered_probe_count == status.grid.probe_count()
                 || status.filtered_probe_count % 1_024 == 0
             {
-                log::info!(
+                log::debug!(
                     "[DDGI] atlas batch complete first_probe={} probes={} rays_per_probe={} filtered={}/{} geometry_revision={} token_serial={:?} radiance_revision={} spacing_voxels={} state={:?} update_epoch={} source={:?} destination={} irradiance_history_retention={:.5} visibility_history_retention={:.5} visibility_written={} awaiting_trace_stats=true awaiting_atlas_validation={} stage={:?}",
                     batch.first_probe_index,
                     batch.probe_count,
