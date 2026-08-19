@@ -2551,7 +2551,7 @@ label = "Dirt Color"
 type = "Color"
 
 [section.param.data]
-value = "#3058B0"
+value = "#5F5F5F"
 
 [[section.param]]
 id = "voxel_sand_color"
@@ -2560,7 +2560,7 @@ label = "Sand Color"
 type = "Color"
 
 [section.param.data]
-value = "#D6A438"
+value = "#C2B073"
 
 [[section.param]]
 id = "voxel_cherry_wood_color"
@@ -2569,7 +2569,7 @@ label = "Cherry Wood Color"
 type = "Color"
 
 [section.param.data]
-value = "#B8221E"
+value = "#CAB05C"
 
 [[section.param]]
 id = "voxel_oak_wood_color"
@@ -2578,7 +2578,7 @@ label = "Oak Wood Color"
 type = "Color"
 
 [section.param.data]
-value = "#228C3E"
+value = "#A6904B"
 
 [[section.param]]
 id = "voxel_rock_color"
@@ -2587,7 +2587,7 @@ label = "Rock Color"
 type = "Color"
 
 [section.param.data]
-value = "#C6C6BE"
+value = "#7A7D80"
 
 [[section.param]]
 id = "voxel_color_variance"
