@@ -63,7 +63,7 @@ use crate::app::{DebugSettings, GuiAdjustables, WindSourceGuiValues};
 use crate::audio::{SpatialSoundManager, TreeAudioManager, TreeRustleParams};
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_FERTILITY_MAX,
-    VOXEL_MOISTURE_MAX, VOXEL_TYPE_DIRT,
+    VOXEL_MOISTURE_MAX,
 };
 use crate::ddgi::{DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS};
 use crate::environment_probes::{
@@ -71,7 +71,7 @@ use crate::environment_probes::{
 };
 use crate::flora::species;
 use crate::game_time::WorldClock;
-use crate::geom::{build_bvh, Aabb3, Cuboid, UAabb3};
+use crate::geom::UAabb3;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
     ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
@@ -577,31 +577,6 @@ fn draw_center_cross_mark(ctx: &egui::Context) {
 }
 
 impl App {
-    fn debug_startup_block_bounds() -> (Vec3, Vec3) {
-        // Temporary synthetic obstacle. Bounds are derived from the atlas dimensions so changing
-        // CHUNK_DIM does not require hand-updating debug geometry.
-        let atlas_dim = (CHUNK_DIM * VOXEL_DIM_PER_CHUNK).as_vec3();
-        let min = Vec3::new(atlas_dim.x * 0.58, 0.0, atlas_dim.z * 0.75);
-        let max = (min + Vec3::new(20.0, atlas_dim.y * 0.5, 88.0)).min(atlas_dim);
-        (min, max)
-    }
-
-    fn apply_debug_cuboid(&mut self, min: Vec3, max: Vec3, voxel_type: u32) -> Result<()> {
-        let cuboid = Cuboid::from_min_max(min, max);
-        let aabb = Aabb3::new(min, max);
-        let bvh_nodes = build_bvh(&[aabb], &[0]).map_err(anyhow::Error::msg)?;
-        self.plain_builder
-            .chunk_modify_cuboids_with_voxel_type(&bvh_nodes, &[cuboid], voxel_type)
-    }
-
-    fn apply_debug_startup_materials(&mut self) -> Result<()> {
-        let (block_min, block_max) = Self::debug_startup_block_bounds();
-        self.apply_debug_cuboid(block_min, block_max, VOXEL_TYPE_DIRT)?;
-
-        self.tracer.invalidate_local_direct_sun_shadow_histories();
-        Ok(())
-    }
-
     fn master_volume_gain_db(master_volume_db: f32, mute_audio_output: bool) -> f32 {
         if mute_audio_output {
             MUTED_AUDIO_OUTPUT_GAIN_DB
@@ -4027,12 +4002,5 @@ mod tests {
         assert_eq!(normal_default_gain_db, 0.0);
         assert!(muted_gain_db <= normal_min_gain_db);
         assert!(normal_default_gain_db < normal_max_gain_db);
-    }
-
-    #[test]
-    fn debug_startup_block_top_reaches_chunk_seam() {
-        let (min, max) = App::debug_startup_block_bounds();
-        assert!(max.y > min.y);
-        assert_eq!(max.y, super::VOXEL_DIM_PER_CHUNK.y as f32);
     }
 }

@@ -52,7 +52,6 @@ impl LoadingState {
 
 impl App {
     pub(super) fn process_loading_step(&mut self) {
-        let mut should_apply_debug_startup_materials = false;
         let mut should_apply_water_experience_terrain = false;
         let water_experience_requested = self.water_experience_scene.is_some();
         let loading = match &mut self.loading_state {
@@ -109,7 +108,6 @@ impl App {
                         });
                         self.plain_builder.mark_all_solid_workgroups_dirty();
                     } else {
-                        should_apply_debug_startup_materials = !water_experience_requested;
                         should_apply_water_experience_terrain = water_experience_requested;
                     }
                     loading.current = 0;
@@ -184,11 +182,6 @@ impl App {
             }
         }
 
-        if should_apply_debug_startup_materials {
-            if let Err(err) = self.apply_debug_startup_materials() {
-                log::error!("Failed to apply debug startup materials: {err}");
-            }
-        }
         if should_apply_water_experience_terrain {
             self.apply_water_experience_terrain()
                 .unwrap_or_else(|err| panic!("[WATER_EXPERIENCE] terrain setup failed: {err:#}"));

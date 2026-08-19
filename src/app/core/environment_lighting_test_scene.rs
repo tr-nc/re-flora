@@ -531,12 +531,10 @@ impl EnvironmentLightingTestScene {
 }
 
 struct TestSceneGeometry {
-    cleared_startup_obstacle: Vec<Cuboid>,
     cleared_test_scene: Vec<Cuboid>,
     rock: Vec<Cuboid>,
     carved_empty: Vec<Cuboid>,
     sand: Vec<Cuboid>,
-    startup_obstacle_rebuild_bound: UAabb3,
     test_rebuild_bound: UAabb3,
 }
 
@@ -551,10 +549,6 @@ fn test_rebuild_bound(case: EnvironmentLightingTestCase) -> UAabb3 {
 
 impl TestSceneGeometry {
     fn build(case: EnvironmentLightingTestCase) -> Self {
-        let (startup_obstacle_min, startup_obstacle_max) = App::debug_startup_block_bounds();
-        let startup_obstacle = Cuboid::from_min_max(startup_obstacle_min, startup_obstacle_max);
-        let startup_obstacle_aabb = startup_obstacle.aabb();
-
         let test_rebuild_bound = test_rebuild_bound(case);
         let (cleared_test_scene, rock, carved_empty, sand) = match case {
             EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => (
@@ -625,24 +619,16 @@ impl TestSceneGeometry {
         };
 
         Self {
-            cleared_startup_obstacle: vec![startup_obstacle],
             cleared_test_scene,
             rock,
             carved_empty,
             sand,
-            startup_obstacle_rebuild_bound: UAabb3::new(
-                startup_obstacle_aabb.min_uvec3(),
-                startup_obstacle_aabb.max_uvec3(),
-            ),
             test_rebuild_bound,
         }
     }
 
     fn compile(self) -> Result<WorldEditPlan> {
-        let mut voxel_edits = vec![stamp_cuboids(
-            self.cleared_startup_obstacle,
-            VOXEL_TYPE_EMPTY,
-        )?];
+        let mut voxel_edits = Vec::new();
         if !self.cleared_test_scene.is_empty() {
             voxel_edits.push(stamp_cuboids(self.cleared_test_scene, VOXEL_TYPE_EMPTY)?);
         }
@@ -653,10 +639,7 @@ impl TestSceneGeometry {
         if !self.sand.is_empty() {
             voxel_edits.push(stamp_cuboids(self.sand, VOXEL_TYPE_SAND)?);
         }
-        let build_edits = vec![
-            BuildEdit::RebuildMesh(self.startup_obstacle_rebuild_bound),
-            BuildEdit::RebuildMesh(self.test_rebuild_bound),
-        ];
+        let build_edits = vec![BuildEdit::RebuildMesh(self.test_rebuild_bound)];
         Ok(WorldEditPlan {
             voxel_edits,
             build_edits,
@@ -2066,8 +2049,8 @@ mod tests {
             EnvironmentLightingTestCase::TerrainEditsClosed,
         ] {
             let plan = TestSceneGeometry::build(case).compile().unwrap();
-            assert!(plan.voxel_edits.len() >= 2);
-            assert_eq!(plan.build_edits.len(), 2);
+            assert!(!plan.voxel_edits.is_empty());
+            assert_eq!(plan.build_edits.len(), 1);
             assert!(plan.build_edits.iter().all(|edit| match edit {
                 BuildEdit::RebuildMesh(bound) => bound.max().cmple(UVec3::splat(512)).all(),
                 _ => false,
