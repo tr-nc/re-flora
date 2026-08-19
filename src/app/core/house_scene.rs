@@ -1,8 +1,8 @@
 use super::App;
 use crate::app::world_edits::{VoxelEdit, WorldEditPlan};
 use crate::builder::{
-    voxel_type_from_atlas_byte, PlainBuilder, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT,
-    VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
+    voxel_type_from_atlas_byte, PlainBuilder, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK,
+    VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
 };
 use crate::geom::{build_bvh, Cuboid};
 use anyhow::{Context, Result};
@@ -20,7 +20,6 @@ const WALL_HEIGHT: f32 = 96.0 * HOUSE_HEIGHT_SCALE;
 const WALL_THICKNESS: f32 = 8.0;
 const ROOF_OVERHANG: f32 = 6.0;
 const ROOF_THICKNESS: f32 = 9.0 * HOUSE_HEIGHT_SCALE;
-const CHIMNEY_HEIGHT: f32 = 38.0 * HOUSE_HEIGHT_SCALE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SurfaceSampleReport {
@@ -95,7 +94,8 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
     let wall_top_y = base_y + WALL_HEIGHT;
     let roof_top_y = wall_top_y + ROOF_THICKNESS;
 
-    let outer_shell = box_at(
+    // Carving the interior from `base_y` leaves the shell's top layer as the indoor floor.
+    let wall_and_floor_shell = box_at(
         Vec3::new(HOUSE_MIN_X, wall_bottom_y, HOUSE_MIN_Z),
         Vec3::new(HOUSE_MAX_X, wall_top_y, HOUSE_MAX_Z),
     );
@@ -165,10 +165,6 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
             HOUSE_MAX_Z + ROOF_OVERHANG,
         ),
     );
-    let chimney = box_at(
-        Vec3::new(184.0, roof_top_y, 274.0),
-        Vec3::new(199.0, roof_top_y + CHIMNEY_HEIGHT, 291.0),
-    );
     let planter_top_y = base_y + scaled_height(33.0);
     let planter_bottom_y = planter_top_y - 9.0;
     let window_planter = vec![
@@ -197,13 +193,12 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
 
     Ok(WorldEditPlan {
         voxel_edits: vec![
-            stamp_cuboids(vec![outer_shell], VOXEL_TYPE_STUCCO)?,
+            stamp_cuboids(vec![wall_and_floor_shell], VOXEL_TYPE_STUCCO)?,
             stamp_cuboids(
                 std::iter::once(hollow_interior).chain(openings).collect(),
                 VOXEL_TYPE_EMPTY,
             )?,
-            stamp_cuboids(vec![flat_roof], VOXEL_TYPE_CHERRY_WOOD)?,
-            stamp_cuboids(vec![chimney], VOXEL_TYPE_ROCK)?,
+            stamp_cuboids(vec![flat_roof], VOXEL_TYPE_STUCCO)?,
             stamp_cuboids(window_planter, VOXEL_TYPE_STUCCO)?,
             stamp_cuboids(vec![planter_soil], VOXEL_TYPE_DIRT)?,
         ],
@@ -235,7 +230,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn house_uses_one_axis_aligned_flat_roof_and_no_foundation() {
+    fn house_uses_plantable_stucco_roof_and_floor_without_chimney() {
         let ground_y = 100;
         let plan = house_plan(SurfaceSampleReport {
             median_y: ground_y,
@@ -245,6 +240,7 @@ mod tests {
         .unwrap();
 
         let VoxelEdit::StampCuboids {
+            cuboids: structure,
             voxel_type: wall_type,
             ..
         } = &plan.voxel_edits[0]
@@ -252,6 +248,20 @@ mod tests {
             panic!("expected wall cuboids");
         };
         assert_eq!(*wall_type, VOXEL_TYPE_STUCCO);
+        assert_eq!(structure.len(), 1);
+
+        let VoxelEdit::StampCuboids {
+            cuboids: carved_space,
+            voxel_type: carved_type,
+            ..
+        } = &plan.voxel_edits[1]
+        else {
+            panic!("expected carved interior and openings");
+        };
+        assert_eq!(*carved_type, VOXEL_TYPE_EMPTY);
+        let floor_surface_y = ground_y as f32 + 1.0;
+        assert!(structure[0].min().y < floor_surface_y);
+        assert!((carved_space[0].min().y - floor_surface_y).abs() < 1.0e-4);
 
         let VoxelEdit::StampCuboids {
             cuboids: roofs,
@@ -261,37 +271,29 @@ mod tests {
         else {
             panic!("expected roof cuboids");
         };
-        assert_eq!(*voxel_type, VOXEL_TYPE_CHERRY_WOOD);
+        assert_eq!(*voxel_type, VOXEL_TYPE_STUCCO);
         assert_eq!(roofs.len(), 1);
         assert_eq!(roofs[0].rotation(), glam::Quat::IDENTITY);
         assert!((roofs[0].height() - ROOF_THICKNESS).abs() < 1.0e-4);
         assert_eq!(roofs[0].width(), HOUSE_MAX_X - HOUSE_MIN_X + 12.0);
         assert_eq!(roofs[0].depth(), HOUSE_MAX_Z - HOUSE_MIN_Z + 12.0);
+        let built_height = roofs[0].max().y - (ground_y as f32 + 1.0);
+        let original_wall_and_roof_height = 96.0 + 9.0;
+        assert!((built_height - original_wall_and_roof_height * HOUSE_HEIGHT_SCALE).abs() < 1.0e-4);
 
-        let VoxelEdit::StampCuboids {
-            cuboids: rock,
-            voxel_type,
-            ..
-        } = &plan.voxel_edits[3]
-        else {
-            panic!("expected chimney cuboids");
-        };
-        assert_eq!(*voxel_type, VOXEL_TYPE_ROCK);
-        assert!(rock.iter().all(|cuboid| cuboid.min().y > ground_y as f32));
-        let built_height = rock
-            .iter()
-            .map(Cuboid::max)
-            .map(|max| max.y)
-            .fold(f32::NEG_INFINITY, f32::max)
-            - (ground_y as f32 + 1.0);
-        let original_height = 96.0 + 9.0 + 38.0;
-        assert!((built_height - original_height * HOUSE_HEIGHT_SCALE).abs() < 1.0e-4);
+        assert!(plan.voxel_edits.iter().all(|edit| !matches!(
+            edit,
+            VoxelEdit::StampCuboids {
+                voxel_type: VOXEL_TYPE_ROCK,
+                ..
+            }
+        )));
 
         let VoxelEdit::StampCuboids {
             cuboids: planter,
             voxel_type: planter_type,
             ..
-        } = &plan.voxel_edits[4]
+        } = &plan.voxel_edits[3]
         else {
             panic!("expected window planter cuboids");
         };
@@ -302,7 +304,7 @@ mod tests {
             cuboids: soil,
             voxel_type: soil_type,
             ..
-        } = &plan.voxel_edits[5]
+        } = &plan.voxel_edits[4]
         else {
             panic!("expected planter soil");
         };
