@@ -62,6 +62,16 @@ def bump_patch_version(version: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
+def bump_minor_version(version: str) -> str:
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+    if not match:
+        raise ReleaseTagError(
+            f"--bump-minor requires a plain X.Y.Z Cargo.toml version; got {version!r}"
+        )
+    major, minor, _patch = (int(part) for part in match.groups())
+    return f"{major}.{minor + 1}.0"
+
+
 def update_cargo_toml_version(root: Path, *, old_version: str, new_version: str) -> None:
     path = root / "Cargo.toml"
     lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
@@ -233,6 +243,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="increment Cargo.toml/Cargo.lock patch version, commit it, then tag that commit",
     )
+    parser.add_argument(
+        "--bump-minor",
+        action="store_true",
+        help="increment Cargo.toml/Cargo.lock minor version, reset patch to zero, commit, then tag",
+    )
     parser.add_argument("-y", "--yes", action="store_true", help="skip the confirmation prompt")
     parser.add_argument("--allow-dirty", action="store_true", help="allow tagging with local changes present")
     parser.add_argument(
@@ -259,19 +274,28 @@ def main() -> int:
     root = repo_root()
 
     try:
-        if args.bump_patch and args.version:
-            raise ReleaseTagError("pass either --bump-patch or an explicit version, not both")
-        if args.bump_patch and args.allow_version_mismatch:
-            raise ReleaseTagError("--bump-patch cannot be combined with --allow-version-mismatch")
+        bump_requested = args.bump_patch or args.bump_minor
+        if args.bump_patch and args.bump_minor:
+            raise ReleaseTagError("pass either --bump-patch or --bump-minor, not both")
+        if bump_requested and args.version:
+            raise ReleaseTagError("pass a bump option or an explicit version, not both")
+        if bump_requested and args.allow_version_mismatch:
+            raise ReleaseTagError("bump options cannot be combined with --allow-version-mismatch")
 
         cargo_ver = cargo_version(root)
-        version_input = bump_patch_version(cargo_ver) if args.bump_patch else args.version or cargo_ver
+        if args.bump_patch:
+            version_input = bump_patch_version(cargo_ver)
+        elif args.bump_minor:
+            version_input = bump_minor_version(cargo_ver)
+        else:
+            version_input = args.version or cargo_ver
         tag, version = canonical_tag(version_input)
 
-        if version != cargo_ver and not args.bump_patch and not args.allow_version_mismatch:
+        if version != cargo_ver and not bump_requested and not args.allow_version_mismatch:
             raise ReleaseTagError(
                 f"tag version {version!r} does not match Cargo.toml version {cargo_ver!r}; "
-                "update Cargo.toml/Cargo.lock first, use --bump-patch, or use --allow-version-mismatch"
+                "update Cargo.toml/Cargo.lock first, use a bump option, or use "
+                "--allow-version-mismatch"
             )
 
         ensure_clean_worktree(root, allow_dirty=args.allow_dirty)
@@ -304,7 +328,7 @@ def main() -> int:
         push_tag_command = ["git", "push", args.remote, tag]
 
         if args.dry_run:
-            if args.bump_patch:
+            if bump_requested:
                 print(f"dry run: would update Cargo.toml/Cargo.lock from {cargo_ver} to {version}")
                 print("dry run: would run git add Cargo.toml Cargo.lock")
                 print(f"dry run: would run {shlex.join(bump_commit_command)}")
@@ -316,7 +340,7 @@ def main() -> int:
             return 0
 
         action = f"Create annotated tag {tag} at {commit}"
-        if args.bump_patch:
+        if bump_requested:
             action = f"Bump version from {cargo_ver} to {version}, commit it, then {action}"
         if push:
             action += f" and push it to {args.remote}"
@@ -324,7 +348,7 @@ def main() -> int:
             print("aborted")
             return 1
 
-        if args.bump_patch:
+        if bump_requested:
             update_cargo_version_files(root, new_version=version)
             run(["git", "add", "Cargo.toml", "Cargo.lock"], root)
             run(bump_commit_command, root)

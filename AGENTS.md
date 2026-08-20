@@ -17,7 +17,7 @@ Use the main worktree (`/home/terence/code/re-flora`) on a clean, up-to-date `ma
 
 - First check and update: `git status --short --branch` then `git pull --ff-only`.
 - Patch release: run `scripts/release_tag.py --bump-patch -y`. The helper bumps `Cargo.toml` and `Cargo.lock`, commits `bump version to X.Y.Z`, pushes `main`, creates annotated tag `vX.Y.Z`, and pushes the tag to trigger `.github/workflows/itch-builds.yml`.
-- Minor release: compute the next `X.(Y+1).0`, update only the root `re-flora` version in `Cargo.toml` and its matching `Cargo.lock` package block, commit `bump version to X.(Y+1).0`, push `main`, then run `scripts/release_tag.py X.(Y+1).0 -y` to create and push the release tag. Do not use `--allow-version-mismatch` for normal releases.
+- Minor release: run `scripts/release_tag.py --bump-minor -y`. The helper computes `X.(Y+1).0`, updates only the root `re-flora` version in `Cargo.toml` and its matching `Cargo.lock` package block, commits `bump version to X.(Y+1).0`, pushes `main`, creates annotated tag `vX.(Y+1).0`, and pushes the tag to trigger `.github/workflows/itch-builds.yml`.
 - After triggering a release, confirm CI with `gh run list --workflow itch-builds.yml --limit 3`; use `gh run watch <run-id>` if the user asks to wait for packages.
 
 ## Parallel Agent Workflow
