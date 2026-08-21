@@ -21,6 +21,7 @@ const SURFACE_SAMPLE_DIM: UVec3 = UVec3::new(
 );
 const WALL_THICKNESS: f32 = 16.0;
 const FACADE_MATERIAL_DEPTH: f32 = WALL_THICKNESS;
+const FACADE_OPENING_DROP: f32 = 6.0;
 const ROUND_DOOR_RADIUS: f32 = 18.0;
 const DOOR_FRAME_MAJOR_RADIUS: f32 = 21.0;
 const DOOR_FRAME_TUBE_RADIUS: f32 = 3.0;
@@ -29,6 +30,7 @@ const WINDOW_CENTER_HEIGHT: f32 = 27.0;
 const ROUND_WINDOW_RADIUS: f32 = 7.0;
 const WINDOW_FRAME_MAJOR_RADIUS: f32 = 9.0;
 const WINDOW_FRAME_TUBE_RADIUS: f32 = 2.0;
+const WINDOW_FRAME_OUTWARD_OFFSET: f32 = 1.0;
 const HILL_CENTER_Z: f32 = 220.0;
 const HILL_RADIUS_X: f32 = 165.0;
 const HILL_RADIUS_Z: f32 = 215.0;
@@ -37,7 +39,7 @@ const HILL_MAXIMUM_INFLATION: f32 = 8.0;
 const HILL_NOISE_AMPLITUDE: f32 = 5.0;
 const HILL_NOISE_FREQUENCY_WORLD: f32 = 3.0;
 const HILL_NOISE_SEED: u32 = 0x484f_4242;
-const HILL_SHELL_THICKNESS: f32 = 6.0;
+const HILL_SHELL_THICKNESS: f32 = 12.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SurfaceSampleReport {
@@ -191,21 +193,23 @@ fn door_cut_ratio(surface: SurfaceSampleReport) -> f32 {
 fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
     let base_y = house_base_y(surface);
     let center_x = (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5;
+    let opening_base_y = base_y - FACADE_OPENING_DROP;
 
     // The terrain hill owns both the dirt floor and the offset inner shell.
     // Authored geometry is limited to the facade frames and their openings.
     let frame_center_z = HOUSE_MAX_Z - 0.5;
+    let window_frame_center_z = frame_center_z + WINDOW_FRAME_OUTWARD_OFFSET;
     let frames = vec![
         Torus::new(
-            Vec3::new(center_x, base_y + ROUND_DOOR_RADIUS, frame_center_z),
+            Vec3::new(center_x, opening_base_y + ROUND_DOOR_RADIUS, frame_center_z),
             DOOR_FRAME_MAJOR_RADIUS,
             DOOR_FRAME_TUBE_RADIUS,
         ),
         Torus::new(
             Vec3::new(
                 center_x - WINDOW_CENTER_X_OFFSET,
-                base_y + WINDOW_CENTER_HEIGHT,
-                frame_center_z,
+                base_y + WINDOW_CENTER_HEIGHT - FACADE_OPENING_DROP,
+                window_frame_center_z,
             ),
             WINDOW_FRAME_MAJOR_RADIUS,
             WINDOW_FRAME_TUBE_RADIUS,
@@ -213,8 +217,8 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
         Torus::new(
             Vec3::new(
                 center_x + WINDOW_CENTER_X_OFFSET,
-                base_y + WINDOW_CENTER_HEIGHT,
-                frame_center_z,
+                base_y + WINDOW_CENTER_HEIGHT - FACADE_OPENING_DROP,
+                window_frame_center_z,
             ),
             WINDOW_FRAME_MAJOR_RADIUS,
             WINDOW_FRAME_TUBE_RADIUS,
@@ -226,7 +230,7 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
         .all(|frame| frame.inner_radius() == ROUND_WINDOW_RADIUS));
     let mut openings = round_opening(
         center_x,
-        base_y,
+        opening_base_y,
         ROUND_DOOR_RADIUS,
         HOUSE_MAX_Z - WALL_THICKNESS - 1.0,
         HOUSE_MAX_Z + 1.0,
@@ -237,7 +241,7 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
     ] {
         openings.extend(round_opening(
             window_center_x,
-            base_y + WINDOW_CENTER_HEIGHT - ROUND_WINDOW_RADIUS,
+            base_y + WINDOW_CENTER_HEIGHT - FACADE_OPENING_DROP - ROUND_WINDOW_RADIUS,
             ROUND_WINDOW_RADIUS,
             HOUSE_MAX_Z - WALL_THICKNESS - 1.0,
             HOUSE_MAX_Z + 1.0,
@@ -267,7 +271,7 @@ impl App {
         self.execute_edit_plan(house_plan(surface)?)?;
         self.plain_builder.mark_all_solid_workgroups_dirty();
         log::info!(
-            "[HOUSE_SCENE] built terrain-shell Hobbit hill with dirt roof, shallow stucco cut face, oak door frame, and two round windows base_y={} footprint_surface_y={}..{} facade_center_y={} hill_bound={:?} nominal_profile_height={:.1} nominal_visible_cut_height={:.1} door_ratio={:.3} hill_rise={} shell_thickness={} maximum_inflation={}",
+            "[HOUSE_SCENE] built terrain-shell Hobbit hill with dirt roof, shallow stucco cut face, oak door frame, and two round windows base_y={} footprint_surface_y={}..{} facade_center_y={} hill_bound={:?} nominal_profile_height={:.1} nominal_visible_cut_height={:.1} door_ratio={:.3} opening_drop={} window_frame_outward_offset={} hill_rise={} shell_thickness={} maximum_inflation={}",
             house_base_y(surface),
             surface.min_y,
             surface.max_y,
@@ -276,6 +280,8 @@ impl App {
             nominal_cut_face_height(),
             nominal_visible_cut_face_height(surface),
             door_cut_ratio(surface),
+            FACADE_OPENING_DROP,
+            WINDOW_FRAME_OUTWARD_OFFSET,
             HILL_RISE,
             HILL_SHELL_THICKNESS,
             HILL_MAXIMUM_INFLATION,
@@ -326,8 +332,8 @@ mod tests {
             inner_facade_z,
         ) - HILL_NOISE_AMPLITUDE
             - HILL_SHELL_THICKNESS;
-        assert!(door_ceiling >= ROUND_DOOR_RADIUS * 2.0);
-        assert!(window_ceiling >= WINDOW_CENTER_HEIGHT + ROUND_WINDOW_RADIUS);
+        assert!(door_ceiling >= ROUND_DOOR_RADIUS * 2.0 - FACADE_OPENING_DROP);
+        assert!(window_ceiling >= WINDOW_CENTER_HEIGHT + ROUND_WINDOW_RADIUS - FACADE_OPENING_DROP);
     }
 
     #[test]
@@ -351,6 +357,20 @@ mod tests {
         assert_eq!(frames[2].inner_radius(), ROUND_WINDOW_RADIUS);
         assert_eq!(frames[1].center().y, frames[2].center().y);
         assert_eq!(frames[0].center().z, HOUSE_MAX_Z - 0.5);
+        assert_eq!(
+            frames[1].center().z,
+            frames[0].center().z + WINDOW_FRAME_OUTWARD_OFFSET
+        );
+        assert_eq!(frames[1].center().z, frames[2].center().z);
+        assert_eq!(frames[1].aabb().max().z, frames[0].aabb().max().z);
+        assert_eq!(
+            frames[0].center().y,
+            house_base_y(test_surface()) + ROUND_DOOR_RADIUS - FACADE_OPENING_DROP
+        );
+        assert_eq!(
+            frames[1].center().y,
+            house_base_y(test_surface()) + WINDOW_CENTER_HEIGHT - FACADE_OPENING_DROP
+        );
 
         let VoxelEdit::StampCuboids {
             cuboids: opening_slices,
