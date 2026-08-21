@@ -10,6 +10,7 @@ static const uint DDGI_IRRADIANCE_STORED_SIDE = 10u;
 static const uint DDGI_VISIBILITY_INTERIOR_SIDE = 16u;
 static const uint DDGI_VISIBILITY_STORED_SIDE = 18u;
 static const float DDGI_QUERY_WEIGHT_EPSILON = 1.0e-6;
+static const float DDGI_MOMENT_VISIBILITY_MIN_CONFIDENCE = 0.10;
 
 // Spatial-weight modes shared by the production terrain query and diagnostics.
 // The low bit selects nominal versus relocation-aware position weights; the
@@ -230,15 +231,20 @@ float2 sampleDdgiDistanceMoments(uint probeIndex, float3 direction,
         probeIndex, direction, query, ddgi_visibility_atlas);
 }
 
-float ddgiChebyshevVisibility(float2 moments, float distanceToSurface)
+public float ddgiChebyshevVisibility(float2 moments, float distanceToSurface)
 {
     if (distanceToSurface <= moments.x) return 1.0;
     float variance = max(0.0, moments.y - moments.x * moments.x);
     float distancePastMean = distanceToSurface - moments.x;
     float probability = variance /
         max(variance + distancePastMean * distancePastMean, 1.0e-8);
-    // Paper-style light-bleed reduction without a positive visibility floor.
-    return probability * probability * probability;
+    // A tiny statistical visibility must not survive normalization as a fully
+    // lit probe. Reject low-confidence support instead of adding a positive
+    // visibility floor, which would guarantee light through occluders.
+    float visibility = probability * probability * probability;
+    return visibility >= DDGI_MOMENT_VISIBILITY_MIN_CONFIDENCE
+        ? visibility
+        : 0.0;
 }
 
 float ddgiRelocationAwarePositionWeight(float3 fragmentInCell,
