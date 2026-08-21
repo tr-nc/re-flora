@@ -1,8 +1,8 @@
 use super::App;
 use crate::app::world_edits::{VoxelEdit, WorldEditPlan};
 use crate::builder::{
-    voxel_type_from_atlas_byte, PlainBuilder, TerrainHillField, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMPTY,
-    VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
+    voxel_type_from_atlas_byte, PlainBuilder, TerrainGradeField, TerrainHillField, VOXEL_TYPE_DIRT,
+    VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
 };
 use crate::geom::{build_bvh, Cuboid};
 use anyhow::{Context, Result};
@@ -21,6 +21,10 @@ const FACADE_HEIGHT: f32 = 50.0;
 const INTERIOR_SIDE_INSET: f32 = 10.0;
 const INTERIOR_HEIGHT: f32 = 46.0;
 const ROUND_DOOR_RADIUS: f32 = 18.0;
+const COURTYARD_CENTER_Z: f32 = 385.0;
+const COURTYARD_HALF_WIDTH: f32 = 115.0;
+const COURTYARD_HALF_DEPTH: f32 = 110.0;
+const COURTYARD_FEATHER: f32 = 24.0;
 const HILL_CENTER_Z: f32 = 220.0;
 const HILL_RADIUS_X: f32 = 130.0;
 const HILL_RADIUS_Z: f32 = 170.0;
@@ -128,6 +132,15 @@ fn hobbit_hill(surface: SurfaceSampleReport) -> TerrainHillField {
     }
 }
 
+fn hobbit_courtyard(surface: SurfaceSampleReport) -> TerrainGradeField {
+    TerrainGradeField {
+        center_voxels: Vec2::new((HOUSE_MIN_X + HOUSE_MAX_X) * 0.5, COURTYARD_CENTER_Z),
+        half_extent_voxels: Vec2::new(COURTYARD_HALF_WIDTH, COURTYARD_HALF_DEPTH),
+        target_height_voxels: surface.median_y as f32 + 1.0,
+        feather_voxels: COURTYARD_FEATHER,
+    }
+}
+
 fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
     let base_y = surface.median_y as f32 + 1.0;
     let center_x = (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5;
@@ -189,15 +202,18 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
 impl App {
     pub(super) fn apply_house_scene(&mut self) -> Result<()> {
         let surface = sample_house_surface(&mut self.plain_builder)?;
+        let courtyard = hobbit_courtyard(surface);
+        let courtyard_bound = self.plain_builder.grade_terrain(courtyard)?;
         let hill = hobbit_hill(surface);
         let hill_bound = self.plain_builder.blend_terrain_hill(hill)?;
         self.execute_edit_plan(house_plan(surface)?)?;
         self.plain_builder.mark_all_solid_workgroups_dirty();
         log::info!(
-            "[HOUSE_SCENE] built terrain-integrated Hobbit hill with vertical front plane and round entrance ground_y={} footprint_surface_y={}..{} hill_bound={:?} hill_rise={} maximum_inflation={}",
+            "[HOUSE_SCENE] built terrain-integrated Hobbit hill with vertical front plane, round entrance, and graded courtyard ground_y={} footprint_surface_y={}..{} courtyard_bound={:?} hill_bound={:?} hill_rise={} maximum_inflation={}",
             surface.median_y,
             surface.min_y,
             surface.max_y,
+            courtyard_bound,
             hill_bound,
             HILL_RISE,
             HILL_MAXIMUM_INFLATION,
@@ -229,6 +245,21 @@ mod tests {
         assert_eq!(hill.rise_voxels, HILL_RISE);
         assert_eq!(hill.maximum_inflation_voxels, HILL_MAXIMUM_INFLATION);
         assert!(hill.rise_voxels / hill.radii_voxels.min_element() < 0.62);
+    }
+
+    #[test]
+    fn courtyard_keeps_a_wide_flat_core_and_feathers_before_the_world_edge() {
+        let courtyard = hobbit_courtyard(test_surface());
+        let inner_half_extent =
+            courtyard.half_extent_voxels - Vec2::splat(courtyard.feather_voxels);
+
+        assert_eq!(courtyard.target_height_voxels, 101.0);
+        assert!(
+            (HOUSE_MAX_Z - courtyard.center_voxels.y).abs() <= inner_half_extent.y,
+            "facade plane must meet the fully graded courtyard core"
+        );
+        assert!(inner_half_extent.x * 2.0 >= 180.0);
+        assert!(courtyard.center_voxels.y + courtyard.half_extent_voxels.y <= 496.0);
     }
 
     #[test]

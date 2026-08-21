@@ -1,6 +1,7 @@
 #![allow(clippy::items_after_test_module)]
 
 mod resources;
+mod terrain_grade;
 mod terrain_hill;
 use crate::generated::gpu_structs::{
     BvhNodes, ChunkModifyInfo, ChunkSolidSampleInfo, Cuboids, ModelVoxelizeInfo,
@@ -39,6 +40,7 @@ pub use resources::*;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::time::{Duration, Instant};
+pub use terrain_grade::*;
 pub use terrain_hill::*;
 
 pub const VOXEL_TYPE_CHERRY_WOOD: u32 = 5;
@@ -325,6 +327,7 @@ pub struct PlainBuilder {
     buffer_setup_ppl: ComputePipeline,
     #[allow(dead_code)]
     chunk_init_ppl: ComputePipeline,
+    terrain_grade_ppl: ComputePipeline,
     terrain_hill_blend_ppl: ComputePipeline,
     heightmap_ppl: ComputePipeline,
     #[allow(dead_code)]
@@ -385,6 +388,12 @@ impl PlainBuilder {
         let terrain_hill_blend_sm = ShaderModule::from_precompiled(
             device,
             "shader/builder/chunk_writer/terrain_hill_blend.comp",
+            "main",
+        )
+        .unwrap();
+        let terrain_grade_sm = ShaderModule::from_precompiled(
+            device,
+            "shader/builder/chunk_writer/terrain_grade.comp",
             "main",
         )
         .unwrap();
@@ -523,6 +532,8 @@ impl PlainBuilder {
 
         let buffer_setup_ppl = ComputePipeline::new(device, &buffer_setup_sm, &pool, &[&resources]);
         let chunk_init_ppl = ComputePipeline::new(device, &chunk_init_sm, &pool, &[&resources]);
+        let terrain_grade_ppl =
+            ComputePipeline::new(device, &terrain_grade_sm, &pool, &[&resources]);
         let terrain_hill_blend_ppl =
             ComputePipeline::new(device, &terrain_hill_blend_sm, &pool, &[&resources]);
         let heightmap_ppl = ComputePipeline::new(device, &heightmap_sm, &pool, &[&resources]);
@@ -588,6 +599,7 @@ impl PlainBuilder {
             plain_atlas_dim,
             buffer_setup_ppl,
             chunk_init_ppl,
+            terrain_grade_ppl,
             terrain_hill_blend_ppl,
             heightmap_ppl,
             terrain_smooth_heights_ppl,
