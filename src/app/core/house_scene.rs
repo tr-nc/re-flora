@@ -13,14 +13,14 @@ const HOUSE_MIN_X: f32 = 112.0;
 const HOUSE_MAX_X: f32 = 222.0;
 const HOUSE_MIN_Z: f32 = 178.0;
 const HOUSE_MAX_Z: f32 = 354.0;
-const SURFACE_SAMPLE_OFFSET: UVec3 = UVec3::new(112, 32, 178);
-const SURFACE_SAMPLE_DIM: UVec3 = UVec3::new(111, 224, 177);
+const SURFACE_SAMPLE_OFFSET: UVec3 = UVec3::new(HOUSE_MIN_X as u32, 32, HOUSE_MIN_Z as u32);
+const SURFACE_SAMPLE_DIM: UVec3 = UVec3::new(
+    (HOUSE_MAX_X - HOUSE_MIN_X) as u32 + 1,
+    224,
+    (HOUSE_MAX_Z - HOUSE_MIN_Z) as u32 + 1,
+);
 const WALL_THICKNESS: f32 = 16.0;
 const FACADE_MATERIAL_DEPTH: f32 = WALL_THICKNESS;
-const INTERIOR_SIDE_INSET: f32 = 10.0;
-const MAIN_INTERIOR_HEIGHT: f32 = 46.0;
-const FRONT_INTERIOR_HEIGHT: f32 = 38.0;
-const FRONT_INTERIOR_DEPTH: f32 = 34.0;
 const ROUND_DOOR_RADIUS: f32 = 18.0;
 const DOOR_FRAME_MAJOR_RADIUS: f32 = 21.0;
 const DOOR_FRAME_TUBE_RADIUS: f32 = 3.0;
@@ -37,6 +37,7 @@ const HILL_MAXIMUM_INFLATION: f32 = 8.0;
 const HILL_NOISE_AMPLITUDE: f32 = 5.0;
 const HILL_NOISE_FREQUENCY_WORLD: f32 = 3.0;
 const HILL_NOISE_SEED: u32 = 0x484f_4242;
+const HILL_SHELL_THICKNESS: f32 = 6.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SurfaceSampleReport {
@@ -162,6 +163,7 @@ fn hobbit_hill(surface: SurfaceSampleReport) -> TerrainHillField {
         noise_amplitude_voxels: HILL_NOISE_AMPLITUDE,
         noise_frequency_world: HILL_NOISE_FREQUENCY_WORLD,
         noise_seed: HILL_NOISE_SEED,
+        interior_shell_thickness_voxels: Some(HILL_SHELL_THICKNESS),
     }
 }
 
@@ -190,42 +192,8 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
     let base_y = house_base_y(surface);
     let center_x = (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5;
 
-    // The authored pieces stop at the facade; the canonical terrain hill is
-    // the exterior wall and roof around the carved room.
-    let floor_bottom_y = base_y - 1.0;
-    let floor = box_at(
-        Vec3::new(
-            HOUSE_MIN_X + INTERIOR_SIDE_INSET,
-            floor_bottom_y,
-            HOUSE_MIN_Z + INTERIOR_SIDE_INSET,
-        ),
-        Vec3::new(HOUSE_MAX_X - INTERIOR_SIDE_INSET, base_y, HOUSE_MAX_Z),
-    );
-    let front_interior_min_z = HOUSE_MAX_Z - FRONT_INTERIOR_DEPTH;
-    let main_interior = box_at(
-        Vec3::new(
-            HOUSE_MIN_X + INTERIOR_SIDE_INSET,
-            base_y,
-            HOUSE_MIN_Z + INTERIOR_SIDE_INSET,
-        ),
-        Vec3::new(
-            HOUSE_MAX_X - INTERIOR_SIDE_INSET,
-            base_y + MAIN_INTERIOR_HEIGHT,
-            front_interior_min_z + 1.0,
-        ),
-    );
-    let front_interior = box_at(
-        Vec3::new(
-            HOUSE_MIN_X + INTERIOR_SIDE_INSET,
-            base_y,
-            front_interior_min_z,
-        ),
-        Vec3::new(
-            HOUSE_MAX_X - INTERIOR_SIDE_INSET,
-            base_y + FRONT_INTERIOR_HEIGHT,
-            HOUSE_MAX_Z - WALL_THICKNESS + 1.0,
-        ),
-    );
+    // The terrain hill owns both the dirt floor and the offset inner shell.
+    // Authored geometry is limited to the facade frames and their openings.
     let frame_center_z = HOUSE_MAX_Z - 0.5;
     let frames = vec![
         Torus::new(
@@ -278,8 +246,6 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
 
     Ok(WorldEditPlan {
         voxel_edits: vec![
-            stamp_cuboids(vec![floor], VOXEL_TYPE_STUCCO)?,
-            stamp_cuboids(vec![main_interior, front_interior], VOXEL_TYPE_EMPTY)?,
             stamp_toruses(frames, VOXEL_TYPE_OAK_WOOD)?,
             stamp_cuboids(openings, VOXEL_TYPE_EMPTY)?,
         ],
@@ -301,7 +267,7 @@ impl App {
         self.execute_edit_plan(house_plan(surface)?)?;
         self.plain_builder.mark_all_solid_workgroups_dirty();
         log::info!(
-            "[HOUSE_SCENE] built raised terrain-integrated Hobbit hill with shallow stucco cut face, oak door frame, and two round windows base_y={} footprint_surface_y={}..{} facade_center_y={} hill_bound={:?} nominal_profile_height={:.1} nominal_visible_cut_height={:.1} door_ratio={:.3} hill_rise={} maximum_inflation={}",
+            "[HOUSE_SCENE] built terrain-shell Hobbit hill with dirt roof, shallow stucco cut face, oak door frame, and two round windows base_y={} footprint_surface_y={}..{} facade_center_y={} hill_bound={:?} nominal_profile_height={:.1} nominal_visible_cut_height={:.1} door_ratio={:.3} hill_rise={} shell_thickness={} maximum_inflation={}",
             house_base_y(surface),
             surface.min_y,
             surface.max_y,
@@ -311,6 +277,7 @@ impl App {
             nominal_visible_cut_face_height(surface),
             door_cut_ratio(surface),
             HILL_RISE,
+            HILL_SHELL_THICKNESS,
             HILL_MAXIMUM_INFLATION,
         );
         Ok(())
@@ -342,58 +309,38 @@ mod tests {
         assert_eq!(hill.radii_voxels, Vec2::new(HILL_RADIUS_X, HILL_RADIUS_Z));
         assert_eq!(hill.rise_voxels, HILL_RISE);
         assert_eq!(hill.maximum_inflation_voxels, HILL_MAXIMUM_INFLATION);
+        assert_eq!(
+            hill.interior_shell_thickness_voxels,
+            Some(HILL_SHELL_THICKNESS)
+        );
         assert!(hill.rise_voxels / hill.radii_voxels.min_element() < 0.45);
         assert!((0.6..=0.7).contains(&door_cut_ratio(test_surface())));
 
-        let interior_corner_x = HOUSE_MIN_X + INTERIOR_SIDE_INSET;
-        let main_front_profile =
-            nominal_hill_profile_height(interior_corner_x, HOUSE_MAX_Z - FRONT_INTERIOR_DEPTH);
-        let vestibule_front_profile =
-            nominal_hill_profile_height(interior_corner_x, HOUSE_MAX_Z - WALL_THICKNESS + 1.0);
-        assert!(main_front_profile - HILL_NOISE_AMPLITUDE >= MAIN_INTERIOR_HEIGHT);
-        assert!(vestibule_front_profile - HILL_NOISE_AMPLITUDE >= FRONT_INTERIOR_HEIGHT);
+        let inner_facade_z = HOUSE_MAX_Z - WALL_THICKNESS;
+        let door_ceiling =
+            nominal_hill_profile_height((HOUSE_MIN_X + HOUSE_MAX_X) * 0.5, inner_facade_z)
+                - HILL_NOISE_AMPLITUDE
+                - HILL_SHELL_THICKNESS;
+        let window_ceiling = nominal_hill_profile_height(
+            (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5 + WINDOW_CENTER_X_OFFSET,
+            inner_facade_z,
+        ) - HILL_NOISE_AMPLITUDE
+            - HILL_SHELL_THICKNESS;
+        assert!(door_ceiling >= ROUND_DOOR_RADIUS * 2.0);
+        assert!(window_ceiling >= WINDOW_CENTER_HEIGHT + ROUND_WINDOW_RADIUS);
     }
 
     #[test]
     fn house_uses_cut_hill_with_round_door_windows_and_oak_frames() {
         let plan = house_plan(test_surface()).unwrap();
 
-        assert_eq!(plan.voxel_edits.len(), 4);
-        let VoxelEdit::StampCuboids {
-            cuboids: floors,
-            voxel_type: floor_type,
-            ..
-        } = &plan.voxel_edits[0]
-        else {
-            panic!("expected floor cuboids");
-        };
-        assert_eq!(*floor_type, VOXEL_TYPE_STUCCO);
-        assert_eq!(floors.len(), 1);
-        assert_eq!(floors[0].min().y, 104.0);
-        assert_eq!(floors[0].max().y, 105.0);
-
-        let VoxelEdit::StampCuboids {
-            cuboids: interiors,
-            voxel_type: interior_type,
-            ..
-        } = &plan.voxel_edits[1]
-        else {
-            panic!("expected interior carve");
-        };
-        assert_eq!(*interior_type, VOXEL_TYPE_EMPTY);
-        assert_eq!(interiors.len(), 2);
-        assert_eq!(interiors[0].height(), MAIN_INTERIOR_HEIGHT);
-        assert_eq!(interiors[1].height(), FRONT_INTERIOR_HEIGHT);
-        assert!(interiors.iter().all(|interior| interior.width() >= 90.0));
-        assert!(interiors[0].depth() >= 130.0);
-        assert!(interiors[0].max().z > interiors[1].min().z);
-        assert!(interiors[1].max().z > HOUSE_MAX_Z - WALL_THICKNESS);
+        assert_eq!(plan.voxel_edits.len(), 2);
 
         let VoxelEdit::StampToruses {
             toruses: frames,
             voxel_type: frame_type,
             ..
-        } = &plan.voxel_edits[2]
+        } = &plan.voxel_edits[0]
         else {
             panic!("expected torus frames");
         };
@@ -409,7 +356,7 @@ mod tests {
             cuboids: opening_slices,
             voxel_type: opening_type,
             ..
-        } = &plan.voxel_edits[3]
+        } = &plan.voxel_edits[1]
         else {
             panic!("expected round opening slices");
         };

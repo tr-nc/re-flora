@@ -13,6 +13,7 @@ struct TerrainHillBlendPushConstants
     float4 center_base_blend;
     float4 radii_rise_noise;
     float4 noise_params;
+    float4 interior_params;
     uint4 options;
 };
 
@@ -78,12 +79,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     uint3 atlasPosition = pc.offset.xyz + dispatchThreadId;
-    uint oldAtlasData = chunk_atlas[atlasPosition];
-    if (voxelTypeFromAtlasData(oldAtlasData) != VOXEL_TYPE_EMPTY)
-    {
-        return;
-    }
-
     float3 voxelCenter = float3(atlasPosition) + 0.5;
     if (voxelCenter.z > pc.noise_params.z)
     {
@@ -98,13 +93,40 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         hillHeightVoxels,
         pc.center_base_blend.w);
 
+    // A hollow hill is one authored height field with an offset inner
+    // surface, not a separate box-shaped subtraction. Keep the front material
+    // depth solid so door and window openings can pierce a real facade wall.
+    bool hasInteriorShell = pc.options.z != 0u;
+    float interiorFrontPlaneVoxels = pc.noise_params.z - pc.noise_params.w;
+    float interiorCeilingVoxels =
+        hillHeightVoxels - pc.interior_params.x;
+    bool isInterior = hasInteriorShell &&
+        voxelCenter.z < interiorFrontPlaneVoxels &&
+        voxelCenter.y > pc.center_base_blend.z &&
+        voxelCenter.y <= interiorCeilingVoxels;
+    if (isInterior)
+    {
+        chunk_atlas[atlasPosition] =
+            packVoxelAtlasTypeClearState(VOXEL_TYPE_EMPTY);
+        return;
+    }
+
+    uint oldAtlasData = chunk_atlas[atlasPosition];
+    if (voxelTypeFromAtlasData(oldAtlasData) != VOXEL_TYPE_EMPTY)
+    {
+        return;
+    }
+
     if (voxelCenter.y > coveredHeightVoxels)
     {
         return;
     }
 
-    bool isFrontMaterial = voxelCenter.z >=
-        pc.noise_params.z - pc.noise_params.w;
+    // The cut is stucco, but its upward-facing cap remains the hill's dirt
+    // surface. This preserves a soil roof all the way to the facade edge.
+    bool isTopSurface = voxelCenter.y + 1.0 > coveredHeightVoxels;
+    bool isFrontMaterial = !isTopSurface &&
+        voxelCenter.z >= interiorFrontPlaneVoxels;
     uint voxelType = isFrontMaterial
         ? pc.options.y
         : VOXEL_TYPE_DIRT;

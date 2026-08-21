@@ -14,6 +14,10 @@ pub struct TerrainHillField {
     pub noise_amplitude_voxels: f32,
     pub noise_frequency_world: f32,
     pub noise_seed: u32,
+    /// When present, clears the volume between the hill base and an inner
+    /// surface that follows the authored hill at this vertical offset. The
+    /// front material depth remains solid, forming the cut facade wall.
+    pub interior_shell_thickness_voxels: Option<f32>,
 }
 
 impl TerrainHillField {
@@ -38,6 +42,9 @@ impl TerrainHillField {
             || self.noise_amplitude_voxels < 0.0
             || !self.noise_frequency_world.is_finite()
             || self.noise_frequency_world <= 0.0
+            || self
+                .interior_shell_thickness_voxels
+                .is_some_and(|thickness| !thickness.is_finite() || thickness <= 0.0)
         {
             return Err(anyhow::anyhow!("invalid terrain hill field: {self:?}"));
         }
@@ -83,6 +90,7 @@ struct TerrainHillBlendPushConstants {
     center_base_blend: [f32; 4],
     radii_rise_noise: [f32; 4],
     noise_params: [f32; 4],
+    interior_params: [f32; 4],
     options: [u32; 4],
 }
 
@@ -112,7 +120,18 @@ impl PlainBuilder {
                 hill.front_plane_z_voxels,
                 hill.front_material_depth_voxels,
             ],
-            options: [hill.noise_seed, hill.front_material_voxel_type, 0, 0],
+            interior_params: [
+                hill.interior_shell_thickness_voxels.unwrap_or(0.0),
+                0.0,
+                0.0,
+                0.0,
+            ],
+            options: [
+                hill.noise_seed,
+                hill.front_material_voxel_type,
+                u32::from(hill.interior_shell_thickness_voxels.is_some()),
+                0,
+            ],
         };
 
         execute_one_time_command(
@@ -129,7 +148,7 @@ impl PlainBuilder {
         );
 
         log::info!(
-            "[TERRAIN_HILL] blended canonical hill offset={offset:?} dim={dim:?} center={:?} front_plane_z={:.1} front_material={} front_depth={:.1} base_y={:.1} radii={:?} rise={:.1} maximum_inflation={:.1} noise_amplitude={:.1}",
+            "[TERRAIN_HILL] blended canonical hill offset={offset:?} dim={dim:?} center={:?} front_plane_z={:.1} front_material={} front_depth={:.1} base_y={:.1} radii={:?} rise={:.1} maximum_inflation={:.1} noise_amplitude={:.1} interior_shell_thickness={:?}",
             hill.center_voxels,
             hill.front_plane_z_voxels,
             hill.front_material_voxel_type,
@@ -139,6 +158,7 @@ impl PlainBuilder {
             hill.rise_voxels,
             hill.maximum_inflation_voxels,
             hill.noise_amplitude_voxels,
+            hill.interior_shell_thickness_voxels,
         );
         Ok(bound)
     }
@@ -161,6 +181,7 @@ mod tests {
             noise_amplitude_voxels: 4.0,
             noise_frequency_world: 3.0,
             noise_seed: 1,
+            interior_shell_thickness_voxels: None,
         }
     }
 
@@ -183,6 +204,10 @@ mod tests {
 
         let mut hill = test_hill();
         hill.front_material_voxel_type = VOXEL_TYPE_EMPTY;
+        assert!(hill.dispatch_bound(UVec3::splat(512)).is_err());
+
+        let mut hill = test_hill();
+        hill.interior_shell_thickness_voxels = Some(0.0);
         assert!(hill.dispatch_bound(UVec3::splat(512)).is_err());
     }
 }
