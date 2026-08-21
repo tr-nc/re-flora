@@ -13,13 +13,13 @@ fly_mode = true
 
 [[snapshots]]
 name = "house-overlook"
-description = "Overlook the authored terrain house from the southeast"
+description = "Front overlook of the terrain-integrated Hobbit hill house"
 position = [
-    1.72,
-    1.15,
-    1.92,
+    0.65234375,
+    0.82,
+    1.95,
 ]
-yaw_deg = -55.5
-pitch_deg = -21.2
+yaw_deg = 0.0
+pitch_deg = -25.0
 fov_deg = 55.0
 fly_mode = true

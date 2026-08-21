@@ -70,6 +70,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/builder/chunk_writer/terrain_hill_blend.comp",
+        source_path: "shader/slang/terrain_hill_blend.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/builder/chunk_writer/model_voxelize.comp",
         source_path: "shader/slang/model_voxelize.slang",
         module_path: "shader/slang",
