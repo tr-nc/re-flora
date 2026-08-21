@@ -19,15 +19,15 @@ const WALL_THICKNESS: f32 = 8.0;
 const FACADE_HALF_WIDTH: f32 = 26.0;
 const FACADE_HEIGHT: f32 = 50.0;
 const FACADE_REVEAL_RADIUS: f32 = 25.0;
-const INTERIOR_SIDE_INSET: f32 = 14.0;
-const INTERIOR_HEIGHT: f32 = 42.0;
+const INTERIOR_SIDE_INSET: f32 = 10.0;
+const INTERIOR_HEIGHT: f32 = 46.0;
 const ROUND_DOOR_RADIUS: f32 = 18.0;
 const ENTRANCE_REVEAL_DROP: f32 = 6.0;
 const ENTRANCE_APPROACH_EXTENSION: f32 = 20.0;
-const HILL_CENTER_Z: f32 = 294.0;
-const HILL_RADIUS_X: f32 = 110.0;
-const HILL_RADIUS_Z: f32 = 145.0;
-const HILL_RISE: f32 = 85.0;
+const HILL_CENTER_Z: f32 = 284.0;
+const HILL_RADIUS_X: f32 = 130.0;
+const HILL_RADIUS_Z: f32 = 170.0;
+const HILL_RISE: f32 = 80.0;
 const HILL_MAXIMUM_INFLATION: f32 = 8.0;
 const HILL_NOISE_AMPLITUDE: f32 = 5.0;
 const HILL_NOISE_FREQUENCY_WORLD: f32 = 3.0;
@@ -276,6 +276,7 @@ mod tests {
         assert_eq!(hill.radii_voxels, Vec2::new(HILL_RADIUS_X, HILL_RADIUS_Z));
         assert_eq!(hill.rise_voxels, HILL_RISE);
         assert_eq!(hill.maximum_inflation_voxels, HILL_MAXIMUM_INFLATION);
+        assert!(hill.rise_voxels / hill.radii_voxels.min_element() < 0.62);
     }
 
     #[test]
@@ -337,6 +338,8 @@ mod tests {
         assert_eq!(*interior_type, VOXEL_TYPE_EMPTY);
         assert_eq!(interiors.len(), 1);
         assert_eq!(interiors[0].height(), INTERIOR_HEIGHT);
+        assert!(interiors[0].width() >= 90.0);
+        assert!(interiors[0].depth() >= 117.0);
         assert!(interiors[0].max().z > HOUSE_MAX_Z - WALL_THICKNESS);
 
         let VoxelEdit::StampCuboids {
