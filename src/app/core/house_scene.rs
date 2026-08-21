@@ -22,6 +22,8 @@ const FACADE_REVEAL_RADIUS: f32 = 25.0;
 const INTERIOR_SIDE_INSET: f32 = 14.0;
 const INTERIOR_HEIGHT: f32 = 42.0;
 const ROUND_DOOR_RADIUS: f32 = 18.0;
+const ENTRANCE_REVEAL_DROP: f32 = 6.0;
+const ENTRANCE_APPROACH_EXTENSION: f32 = 20.0;
 const HILL_CENTER_Z: f32 = 294.0;
 const HILL_RADIUS_X: f32 = 110.0;
 const HILL_RADIUS_Z: f32 = 145.0;
@@ -167,8 +169,16 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
             HOUSE_MAX_Z - WALL_THICKNESS + 1.0,
         ),
     );
-    let door_tunnel_max_z = HILL_CENTER_Z + HILL_RADIUS_Z + HILL_MAXIMUM_INFLATION;
-    let facade_reveal = round_opening(base_y, FACADE_REVEAL_RADIUS, HOUSE_MAX_Z, door_tunnel_max_z);
+    let door_tunnel_max_z =
+        HILL_CENTER_Z + HILL_RADIUS_Z + HILL_MAXIMUM_INFLATION + ENTRANCE_APPROACH_EXTENSION;
+    let mut facade_reveal =
+        round_opening(base_y, FACADE_REVEAL_RADIUS, HOUSE_MAX_Z, door_tunnel_max_z);
+    facade_reveal.extend(round_opening(
+        base_y - ENTRANCE_REVEAL_DROP,
+        FACADE_REVEAL_RADIUS,
+        HOUSE_MAX_Z,
+        door_tunnel_max_z,
+    ));
     let round_door = round_opening(
         base_y,
         ROUND_DOOR_RADIUS,
@@ -221,6 +231,42 @@ mod tests {
         }
     }
 
+    fn plan_clears_point(plan: &WorldEditPlan, point: Vec3) -> bool {
+        plan.voxel_edits.iter().any(|edit| {
+            let VoxelEdit::StampCuboids {
+                cuboids,
+                voxel_type: VOXEL_TYPE_EMPTY,
+                ..
+            } = edit
+            else {
+                return false;
+            };
+            cuboids
+                .iter()
+                .any(|cuboid| point.cmpge(cuboid.min()).all() && point.cmple(cuboid.max()).all())
+        })
+    }
+
+    #[test]
+    fn entrance_grade_is_clear_at_walking_width_through_the_outer_slope() {
+        let plan = house_plan(test_surface()).unwrap();
+        let center_x = (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5;
+        let walking_half_width = ROUND_DOOR_RADIUS * 0.6;
+        let grade_y = test_surface().median_y as f32 + 2.0;
+        let outer_z = HILL_CENTER_Z + HILL_RADIUS_Z + HILL_MAXIMUM_INFLATION + 12.0;
+
+        for x in [center_x - walking_half_width, center_x + walking_half_width] {
+            assert!(
+                plan_clears_point(&plan, Vec3::new(x, grade_y, HOUSE_MAX_Z + 1.0)),
+                "round tunnel pinches below walking width at the facade"
+            );
+            assert!(
+                plan_clears_point(&plan, Vec3::new(x, grade_y, outer_z)),
+                "entrance grade stops before it meets the exterior terrain"
+            );
+        }
+    }
+
     #[test]
     fn hobbit_hill_is_centered_behind_the_round_facade() {
         let hill = hobbit_hill(test_surface());
@@ -258,7 +304,11 @@ mod tests {
             panic!("expected round facade reveal slices");
         };
         assert_eq!(*reveal_type, VOXEL_TYPE_EMPTY);
-        assert_eq!(reveal_slices.len(), (FACADE_REVEAL_RADIUS * 2.0) as usize);
+        assert_eq!(reveal_slices.len(), (FACADE_REVEAL_RADIUS * 4.0) as usize);
+        assert_eq!(
+            reveal_slices[(FACADE_REVEAL_RADIUS * 2.0) as usize].min().y,
+            101.0 - ENTRANCE_REVEAL_DROP
+        );
         assert!(reveal_slices
             .iter()
             .all(|slice| slice.min().z >= HOUSE_MAX_Z));
