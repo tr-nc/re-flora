@@ -85,6 +85,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     float3 voxelCenter = float3(atlasPosition) + 0.5;
+    if (voxelCenter.z > pc.noise_params.z)
+    {
+        return;
+    }
+
     float2 worldXZ = voxelCenter.xz * (1.0 / 256.0);
     float naturalHeightVoxels = computeSurfaceHeight2D(worldXZ) * 256.0;
     float hillHeightVoxels = computeHillHeightVoxels(voxelCenter.xz);

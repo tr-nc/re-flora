@@ -4,6 +4,7 @@ use glam::Vec2;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TerrainHillField {
     pub center_voxels: Vec2,
+    pub front_plane_z_voxels: f32,
     pub base_height_voxels: f32,
     pub radii_voxels: Vec2,
     pub rise_voxels: f32,
@@ -18,6 +19,8 @@ impl TerrainHillField {
 
     fn dispatch_bound(self, atlas_dim: UVec3) -> Result<UAabb3> {
         if !self.center_voxels.is_finite()
+            || !self.front_plane_z_voxels.is_finite()
+            || self.front_plane_z_voxels <= self.center_voxels.y
             || !self.base_height_voxels.is_finite()
             || !self.radii_voxels.is_finite()
             || self.radii_voxels.min_element() <= 0.0
@@ -45,13 +48,14 @@ impl TerrainHillField {
         )
         .floor()
         .as_ivec3();
-        let max_exclusive = Vec3::new(
+        let mut max_exclusive = Vec3::new(
             self.center_voxels.x + support_radii.x,
             maximum_height + 1.0,
             self.center_voxels.y + support_radii.y,
         )
         .ceil()
         .as_ivec3();
+        max_exclusive.z = max_exclusive.z.min(self.front_plane_z_voxels.ceil() as i32);
         let atlas_max = atlas_dim.as_ivec3();
         let clipped_min = min.clamp(IVec3::ZERO, atlas_max);
         let clipped_max = max_exclusive.clamp(IVec3::ZERO, atlas_max);
@@ -99,7 +103,7 @@ impl PlainBuilder {
             noise_params: [
                 hill.noise_frequency_world,
                 TerrainHillField::DISPATCH_RADIUS_SCALE,
-                0.0,
+                hill.front_plane_z_voxels,
                 0.0,
             ],
             options: [hill.noise_seed, 0, 0, 0],
@@ -119,8 +123,9 @@ impl PlainBuilder {
         );
 
         log::info!(
-            "[TERRAIN_HILL] blended canonical hill offset={offset:?} dim={dim:?} center={:?} base_y={:.1} radii={:?} rise={:.1} maximum_inflation={:.1} noise_amplitude={:.1}",
+            "[TERRAIN_HILL] blended canonical hill offset={offset:?} dim={dim:?} center={:?} front_plane_z={:.1} base_y={:.1} radii={:?} rise={:.1} maximum_inflation={:.1} noise_amplitude={:.1}",
             hill.center_voxels,
+            hill.front_plane_z_voxels,
             hill.base_height_voxels,
             hill.radii_voxels,
             hill.rise_voxels,
@@ -138,6 +143,7 @@ mod tests {
     fn test_hill() -> TerrainHillField {
         TerrainHillField {
             center_voxels: Vec2::new(160.0, 300.0),
+            front_plane_z_voxels: 390.0,
             base_height_voxels: 100.0,
             radii_voxels: Vec2::new(80.0, 100.0),
             rise_voxels: 90.0,
@@ -149,16 +155,20 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_bound_contains_scaled_hill_support_and_maximum_height() {
+    fn dispatch_bound_stops_at_front_plane_and_contains_maximum_height() {
         let bound = test_hill().dispatch_bound(UVec3::splat(512)).unwrap();
         assert_eq!(bound.min(), UVec3::new(40, 0, 150));
-        assert_eq!(bound.max(), UVec3::new(280, 203, 450));
+        assert_eq!(bound.max(), UVec3::new(280, 203, 390));
     }
 
     #[test]
     fn invalid_hill_dimensions_are_rejected() {
         let mut hill = test_hill();
         hill.radii_voxels.x = 0.0;
+        assert!(hill.dispatch_bound(UVec3::splat(512)).is_err());
+
+        let mut hill = test_hill();
+        hill.front_plane_z_voxels = hill.center_voxels.y;
         assert!(hill.dispatch_bound(UVec3::splat(512)).is_err());
     }
 }

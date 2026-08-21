@@ -16,8 +16,8 @@ name = "house-overlook"
 description = "Front overlook of the terrain-integrated Hobbit hill house"
 position = [
     0.65234375,
-    0.82,
-    1.95,
+    0.72,
+    1.84,
 ]
 yaw_deg = 0.0
 pitch_deg = -25.0

@@ -11,20 +11,17 @@ use glam::{UVec3, Vec2, Vec3};
 // All scene dimensions are terrain voxels. One world unit is 256 terrain voxels.
 const HOUSE_MIN_X: f32 = 112.0;
 const HOUSE_MAX_X: f32 = 222.0;
-const HOUSE_MIN_Z: f32 = 242.0;
-const HOUSE_MAX_Z: f32 = 376.0;
-const SURFACE_SAMPLE_OFFSET: UVec3 = UVec3::new(112, 32, 242);
+const HOUSE_MIN_Z: f32 = 178.0;
+const HOUSE_MAX_Z: f32 = 312.0;
+const SURFACE_SAMPLE_OFFSET: UVec3 = UVec3::new(112, 32, 178);
 const SURFACE_SAMPLE_DIM: UVec3 = UVec3::new(111, 224, 135);
 const WALL_THICKNESS: f32 = 8.0;
 const FACADE_HALF_WIDTH: f32 = 26.0;
 const FACADE_HEIGHT: f32 = 50.0;
-const FACADE_REVEAL_RADIUS: f32 = 25.0;
 const INTERIOR_SIDE_INSET: f32 = 10.0;
 const INTERIOR_HEIGHT: f32 = 46.0;
 const ROUND_DOOR_RADIUS: f32 = 18.0;
-const ENTRANCE_REVEAL_DROP: f32 = 6.0;
-const ENTRANCE_APPROACH_EXTENSION: f32 = 20.0;
-const HILL_CENTER_Z: f32 = 284.0;
+const HILL_CENTER_Z: f32 = 220.0;
 const HILL_RADIUS_X: f32 = 130.0;
 const HILL_RADIUS_Z: f32 = 170.0;
 const HILL_RISE: f32 = 80.0;
@@ -120,6 +117,7 @@ fn round_opening(base_y: f32, radius: f32, tunnel_min_z: f32, tunnel_max_z: f32)
 fn hobbit_hill(surface: SurfaceSampleReport) -> TerrainHillField {
     TerrainHillField {
         center_voxels: Vec2::new((HOUSE_MIN_X + HOUSE_MAX_X) * 0.5, HILL_CENTER_Z),
+        front_plane_z_voxels: HOUSE_MAX_Z,
         base_height_voxels: surface.median_y as f32 + 1.0,
         radii_voxels: Vec2::new(HILL_RADIUS_X, HILL_RADIUS_Z),
         rise_voxels: HILL_RISE,
@@ -169,27 +167,16 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
             HOUSE_MAX_Z - WALL_THICKNESS + 1.0,
         ),
     );
-    let door_tunnel_max_z =
-        HILL_CENTER_Z + HILL_RADIUS_Z + HILL_MAXIMUM_INFLATION + ENTRANCE_APPROACH_EXTENSION;
-    let mut facade_reveal =
-        round_opening(base_y, FACADE_REVEAL_RADIUS, HOUSE_MAX_Z, door_tunnel_max_z);
-    facade_reveal.extend(round_opening(
-        base_y - ENTRANCE_REVEAL_DROP,
-        FACADE_REVEAL_RADIUS,
-        HOUSE_MAX_Z,
-        door_tunnel_max_z,
-    ));
     let round_door = round_opening(
         base_y,
         ROUND_DOOR_RADIUS,
         HOUSE_MAX_Z - WALL_THICKNESS - 1.0,
-        door_tunnel_max_z,
+        HOUSE_MAX_Z + 1.0,
     );
 
     Ok(WorldEditPlan {
         voxel_edits: vec![
             stamp_cuboids(vec![floor], VOXEL_TYPE_STUCCO)?,
-            stamp_cuboids(facade_reveal, VOXEL_TYPE_EMPTY)?,
             stamp_cuboids(vec![facade], VOXEL_TYPE_STUCCO)?,
             stamp_cuboids(vec![interior], VOXEL_TYPE_EMPTY)?,
             stamp_cuboids(round_door, VOXEL_TYPE_EMPTY)?,
@@ -207,7 +194,7 @@ impl App {
         self.execute_edit_plan(house_plan(surface)?)?;
         self.plain_builder.mark_all_solid_workgroups_dirty();
         log::info!(
-            "[HOUSE_SCENE] built terrain-integrated Hobbit hill with round entrance ground_y={} footprint_surface_y={}..{} hill_bound={:?} hill_rise={} maximum_inflation={}",
+            "[HOUSE_SCENE] built terrain-integrated Hobbit hill with vertical front plane and round entrance ground_y={} footprint_surface_y={}..{} hill_bound={:?} hill_rise={} maximum_inflation={}",
             surface.median_y,
             surface.min_y,
             surface.max_y,
@@ -231,47 +218,12 @@ mod tests {
         }
     }
 
-    fn plan_clears_point(plan: &WorldEditPlan, point: Vec3) -> bool {
-        plan.voxel_edits.iter().any(|edit| {
-            let VoxelEdit::StampCuboids {
-                cuboids,
-                voxel_type: VOXEL_TYPE_EMPTY,
-                ..
-            } = edit
-            else {
-                return false;
-            };
-            cuboids
-                .iter()
-                .any(|cuboid| point.cmpge(cuboid.min()).all() && point.cmple(cuboid.max()).all())
-        })
-    }
-
     #[test]
-    fn entrance_grade_is_clear_at_walking_width_through_the_outer_slope() {
-        let plan = house_plan(test_surface()).unwrap();
-        let center_x = (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5;
-        let walking_half_width = ROUND_DOOR_RADIUS * 0.6;
-        let grade_y = test_surface().median_y as f32 + 2.0;
-        let outer_z = HILL_CENTER_Z + HILL_RADIUS_Z + HILL_MAXIMUM_INFLATION + 12.0;
-
-        for x in [center_x - walking_half_width, center_x + walking_half_width] {
-            assert!(
-                plan_clears_point(&plan, Vec3::new(x, grade_y, HOUSE_MAX_Z + 1.0)),
-                "round tunnel pinches below walking width at the facade"
-            );
-            assert!(
-                plan_clears_point(&plan, Vec3::new(x, grade_y, outer_z)),
-                "entrance grade stops before it meets the exterior terrain"
-            );
-        }
-    }
-
-    #[test]
-    fn hobbit_hill_is_centered_behind_the_round_facade() {
+    fn hobbit_hill_stops_at_the_vertical_facade_plane() {
         let hill = hobbit_hill(test_surface());
         assert_eq!(hill.center_voxels.x, (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5);
         assert!(hill.center_voxels.y < HOUSE_MAX_Z);
+        assert_eq!(hill.front_plane_z_voxels, HOUSE_MAX_Z);
         assert_eq!(hill.base_height_voxels, 101.0);
         assert_eq!(hill.radii_voxels, Vec2::new(HILL_RADIUS_X, HILL_RADIUS_Z));
         assert_eq!(hill.rise_voxels, HILL_RISE);
@@ -280,10 +232,10 @@ mod tests {
     }
 
     #[test]
-    fn house_uses_hill_as_roof_and_carves_a_room_with_round_entrance() {
+    fn house_uses_cut_hill_as_roof_and_round_door_stops_at_facade() {
         let plan = house_plan(test_surface()).unwrap();
 
-        assert_eq!(plan.voxel_edits.len(), 5);
+        assert_eq!(plan.voxel_edits.len(), 4);
         let VoxelEdit::StampCuboids {
             cuboids: floors,
             voxel_type: floor_type,
@@ -297,28 +249,10 @@ mod tests {
         assert_eq!(floors[0].max().y, 101.0);
 
         let VoxelEdit::StampCuboids {
-            cuboids: reveal_slices,
-            voxel_type: reveal_type,
-            ..
-        } = &plan.voxel_edits[1]
-        else {
-            panic!("expected round facade reveal slices");
-        };
-        assert_eq!(*reveal_type, VOXEL_TYPE_EMPTY);
-        assert_eq!(reveal_slices.len(), (FACADE_REVEAL_RADIUS * 4.0) as usize);
-        assert_eq!(
-            reveal_slices[(FACADE_REVEAL_RADIUS * 2.0) as usize].min().y,
-            101.0 - ENTRANCE_REVEAL_DROP
-        );
-        assert!(reveal_slices
-            .iter()
-            .all(|slice| slice.min().z >= HOUSE_MAX_Z));
-
-        let VoxelEdit::StampCuboids {
             cuboids: facades,
             voxel_type: facade_type,
             ..
-        } = &plan.voxel_edits[2]
+        } = &plan.voxel_edits[1]
         else {
             panic!("expected facade cuboid");
         };
@@ -331,7 +265,7 @@ mod tests {
             cuboids: interiors,
             voxel_type: interior_type,
             ..
-        } = &plan.voxel_edits[3]
+        } = &plan.voxel_edits[2]
         else {
             panic!("expected interior carve");
         };
@@ -346,7 +280,7 @@ mod tests {
             cuboids: door_slices,
             voxel_type: door_type,
             ..
-        } = &plan.voxel_edits[4]
+        } = &plan.voxel_edits[3]
         else {
             panic!("expected round door opening slices");
         };
@@ -359,7 +293,7 @@ mod tests {
         }));
         assert!(door_slices
             .iter()
-            .all(|slice| slice.max().z > HOUSE_MAX_Z + HILL_MAXIMUM_INFLATION));
+            .all(|slice| slice.max().z == HOUSE_MAX_Z + 1.0));
 
         assert!(plan.voxel_edits.iter().all(|edit| !matches!(
             edit,
