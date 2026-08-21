@@ -858,7 +858,7 @@ Options:
                               for terrain receiver experiments (default: {})
   --hybrid-transparency-test-scene
                               Build the deterministic raster/terrain transparency regression scene
-  --house-scene               Build the authored flat-roof house on freshly generated terrain
+  --house-scene               Build the authored A-frame house on freshly generated terrain
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
   --environment-probe-rebuild-spacing-voxels <N>
