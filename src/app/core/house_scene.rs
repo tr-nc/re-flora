@@ -100,6 +100,11 @@ fn roof_panel(start: Vec3, end: Vec3, min_z: f32, max_z: f32) -> Cuboid {
     )
 }
 
+fn extend_roof_past_eave(eave: Vec3, ridge: Vec3, outward_x: f32) -> Vec3 {
+    let slope = (ridge.y - eave.y) / (ridge.x - eave.x);
+    Vec3::new(outward_x, eave.y + slope * (outward_x - eave.x), eave.z)
+}
+
 fn gable_end_layers(eave_y: f32, ridge_y: f32, min_z: f32, max_z: f32) -> Vec<Cuboid> {
     let center_x = (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5;
     let half_width = (HOUSE_MAX_X - HOUSE_MIN_X) * 0.5;
@@ -167,16 +172,19 @@ fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditPlan> {
     ));
     let roof_min_z = HOUSE_MIN_Z - ROOF_OVERHANG;
     let roof_max_z = HOUSE_MAX_Z + ROOF_OVERHANG;
+    let ridge = Vec3::new(center_x, ridge_y, 0.0);
+    let left_eave = Vec3::new(HOUSE_MIN_X, eave_y, 0.0);
+    let right_eave = Vec3::new(HOUSE_MAX_X, eave_y, 0.0);
     let roofs = vec![
         roof_panel(
-            Vec3::new(HOUSE_MIN_X - ROOF_OVERHANG, eave_y, 0.0),
-            Vec3::new(center_x, ridge_y, 0.0),
+            extend_roof_past_eave(left_eave, ridge, HOUSE_MIN_X - ROOF_OVERHANG),
+            ridge,
             roof_min_z,
             roof_max_z,
         ),
         roof_panel(
-            Vec3::new(center_x, ridge_y, 0.0),
-            Vec3::new(HOUSE_MAX_X + ROOF_OVERHANG, eave_y, 0.0),
+            ridge,
+            extend_roof_past_eave(right_eave, ridge, HOUSE_MAX_X + ROOF_OVERHANG),
             roof_min_z,
             roof_max_z,
         ),
@@ -215,6 +223,46 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cuboid_contains_with_voxel_margin(cuboid: &Cuboid, point: Vec3) -> bool {
+        let local = cuboid.rotation().conjugate() * (point - cuboid.center());
+        local
+            .abs()
+            .cmple(cuboid.half_size() + Vec3::splat(0.5))
+            .all()
+    }
+
+    #[test]
+    fn gable_edges_overlap_roof_panels_without_a_seam() {
+        let plan = house_plan(SurfaceSampleReport {
+            median_y: 100,
+            min_y: 96,
+            max_y: 104,
+        })
+        .unwrap();
+        let VoxelEdit::StampCuboids {
+            cuboids: gables, ..
+        } = &plan.voxel_edits[1]
+        else {
+            panic!("expected stepped gable ends");
+        };
+        let VoxelEdit::StampCuboids { cuboids: roofs, .. } = &plan.voxel_edits[2] else {
+            panic!("expected roof cuboids");
+        };
+
+        for layer in &gables[..gables.len() / 2] {
+            let y = layer.center().y;
+            let z = layer.center().z;
+            assert!(
+                cuboid_contains_with_voxel_margin(&roofs[0], Vec3::new(layer.min().x, y, z)),
+                "left gable edge at y={y} does not overlap the roof"
+            );
+            assert!(
+                cuboid_contains_with_voxel_margin(&roofs[1], Vec3::new(layer.max().x, y, z)),
+                "right gable edge at y={y} does not overlap the roof"
+            );
+        }
+    }
 
     #[test]
     fn house_is_a_stucco_a_frame_with_ground_level_eaves_and_round_door() {
