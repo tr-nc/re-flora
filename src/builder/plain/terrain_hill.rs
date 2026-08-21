@@ -5,6 +5,8 @@ use glam::Vec2;
 pub struct TerrainHillField {
     pub center_voxels: Vec2,
     pub front_plane_z_voxels: f32,
+    pub front_material_depth_voxels: f32,
+    pub front_material_voxel_type: u32,
     pub base_height_voxels: f32,
     pub radii_voxels: Vec2,
     pub rise_voxels: f32,
@@ -21,6 +23,10 @@ impl TerrainHillField {
         if !self.center_voxels.is_finite()
             || !self.front_plane_z_voxels.is_finite()
             || self.front_plane_z_voxels <= self.center_voxels.y
+            || !self.front_material_depth_voxels.is_finite()
+            || self.front_material_depth_voxels <= 0.0
+            || self.front_material_voxel_type == VOXEL_TYPE_EMPTY
+            || self.front_material_voxel_type > VOXEL_TYPE_MASK as u32
             || !self.base_height_voxels.is_finite()
             || !self.radii_voxels.is_finite()
             || self.radii_voxels.min_element() <= 0.0
@@ -104,9 +110,9 @@ impl PlainBuilder {
                 hill.noise_frequency_world,
                 TerrainHillField::DISPATCH_RADIUS_SCALE,
                 hill.front_plane_z_voxels,
-                0.0,
+                hill.front_material_depth_voxels,
             ],
-            options: [hill.noise_seed, 0, 0, 0],
+            options: [hill.noise_seed, hill.front_material_voxel_type, 0, 0],
         };
 
         execute_one_time_command(
@@ -123,9 +129,11 @@ impl PlainBuilder {
         );
 
         log::info!(
-            "[TERRAIN_HILL] blended canonical hill offset={offset:?} dim={dim:?} center={:?} front_plane_z={:.1} base_y={:.1} radii={:?} rise={:.1} maximum_inflation={:.1} noise_amplitude={:.1}",
+            "[TERRAIN_HILL] blended canonical hill offset={offset:?} dim={dim:?} center={:?} front_plane_z={:.1} front_material={} front_depth={:.1} base_y={:.1} radii={:?} rise={:.1} maximum_inflation={:.1} noise_amplitude={:.1}",
             hill.center_voxels,
             hill.front_plane_z_voxels,
+            hill.front_material_voxel_type,
+            hill.front_material_depth_voxels,
             hill.base_height_voxels,
             hill.radii_voxels,
             hill.rise_voxels,
@@ -144,6 +152,8 @@ mod tests {
         TerrainHillField {
             center_voxels: Vec2::new(160.0, 300.0),
             front_plane_z_voxels: 390.0,
+            front_material_depth_voxels: 4.0,
+            front_material_voxel_type: VOXEL_TYPE_STUCCO,
             base_height_voxels: 100.0,
             radii_voxels: Vec2::new(80.0, 100.0),
             rise_voxels: 90.0,
@@ -169,6 +179,10 @@ mod tests {
 
         let mut hill = test_hill();
         hill.front_plane_z_voxels = hill.center_voxels.y;
+        assert!(hill.dispatch_bound(UVec3::splat(512)).is_err());
+
+        let mut hill = test_hill();
+        hill.front_material_voxel_type = VOXEL_TYPE_EMPTY;
         assert!(hill.dispatch_bound(UVec3::splat(512)).is_err());
     }
 }

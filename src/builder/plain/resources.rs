@@ -37,6 +37,7 @@ pub struct PlainBuilderResources {
     pub round_cones: Resource<Buffer>,
     pub cuboids: Resource<Buffer>,
     pub spheres: Resource<Buffer>,
+    pub toruses: Resource<Buffer>,
     pub model_voxelize_info: Resource<Buffer>,
     pub model_triangles: Resource<Buffer>,
     pub trunk_bvh_nodes: Resource<Buffer>,
@@ -200,6 +201,16 @@ impl PlainBuilderResources {
             MemoryLocation::CpuToGpu,
             100000,
         ); // less than 1 MB though, don't worry about the size
+
+        let toruses_layout = chunk_modify_sm.get_buffer_layout("B_Toruses").unwrap();
+        let toruses = Buffer::from_buffer_layout_arraylike(
+            device.clone(),
+            allocator.clone(),
+            toruses_layout.clone(),
+            BufferUsage::empty(),
+            MemoryLocation::CpuToGpu,
+            100000,
+        );
 
         let model_voxelize_info_layout = model_voxelize_sm
             .get_buffer_layout("U_ModelVoxelizeInfo")
@@ -374,6 +385,7 @@ impl PlainBuilderResources {
             round_cones: Resource::new(round_cones),
             cuboids: Resource::new(cuboids),
             spheres: Resource::new(spheres),
+            toruses: Resource::new(toruses),
             model_voxelize_info: Resource::new(model_voxelize_info),
             model_triangles: Resource::new(model_triangles),
             trunk_bvh_nodes: Resource::new(trunk_bvh_nodes),

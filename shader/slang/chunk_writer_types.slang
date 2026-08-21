@@ -50,6 +50,14 @@ public struct Sphere
     public float radius;
 };
 
+public struct Torus
+{
+    public float3 center;
+    public float major_radius;
+    public float4 inverse_rotation;
+    public float tube_radius;
+};
+
 public struct U_ChunkModifyInfo
 {
     public uint3 offset;
@@ -81,6 +89,11 @@ public struct B_Cuboids
 public struct B_Spheres
 {
     public Sphere data[];
+};
+
+public struct B_Toruses
+{
+    public Torus data[];
 };
 
 public struct U_ModelVoxelizeInfo

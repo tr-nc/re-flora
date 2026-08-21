@@ -7,6 +7,7 @@ import voxel_types;
 static const uint PRIMITIVE_KIND_ROUND_CONE = 0u;
 static const uint PRIMITIVE_KIND_CUBOID = 1u;
 static const uint PRIMITIVE_KIND_SPHERE = 2u;
+static const uint PRIMITIVE_KIND_TORUS = 3u;
 static const uint VOXEL_TYPE_ANY = 0xffffffffu;
 static const uint WRITE_COUNT_UNLIMITED = 0xffffffffu;
 static const uint EDIT_REMOVAL_CANDIDATE_CAPACITY = 65536u;
@@ -33,17 +34,20 @@ readonly GLSLShaderStorageBuffer<B_Cuboids, Std430DataLayout> cuboids;
 readonly GLSLShaderStorageBuffer<B_Spheres, Std430DataLayout> spheres;
 
 [[vk::binding(5, 0)]]
+readonly GLSLShaderStorageBuffer<B_Toruses, Std430DataLayout> toruses;
+
+[[vk::binding(6, 0)]]
 [[vk::image_format("r8ui")]]
 RWTexture3D<uint> chunk_atlas;
 
-[[vk::binding(6, 0)]]
+[[vk::binding(7, 0)]]
 GLSLShaderStorageBuffer<B_EditStats, Std430DataLayout> edit_stats;
 
-[[vk::binding(7, 0)]]
+[[vk::binding(8, 0)]]
 GLSLShaderStorageBuffer<B_EditRemovalCandidates, Std430DataLayout>
     edit_removal_candidates;
 
-[[vk::binding(8, 0)]]
+[[vk::binding(9, 0)]]
 GLSLShaderStorageBuffer<B_SolidWorkgroupFlags, Std430DataLayout>
     solid_workgroup_flags;
 
@@ -301,6 +305,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             {
                 Sphere primitive = spheres.data[primitiveIndex];
                 hit = length(worldVoxelCenter - primitive.center) < primitive.radius;
+            }
+            else if (chunk_modify_info.primitive_kind == PRIMITIVE_KIND_TORUS)
+            {
+                Torus primitive = toruses.data[primitiveIndex];
+                float3 localPoint = worldVoxelCenter - primitive.center;
+                float3 qCross = cross(primitive.inverse_rotation.xyz, localPoint);
+                localPoint += 2.0 * cross(
+                    primitive.inverse_rotation.xyz,
+                    qCross + primitive.inverse_rotation.w * localPoint);
+                float2 ringDistance = float2(
+                    length(localPoint.xy) - primitive.major_radius,
+                    localPoint.z);
+                hit = length(ringDistance) < primitive.tube_radius;
             }
 
             if (hit)

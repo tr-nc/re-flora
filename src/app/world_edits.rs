@@ -1,4 +1,4 @@
-use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
+use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, Torus, UAabb3};
 use crate::tree_gen::TreeDesc;
 use glam::{Quat, UVec3, Vec2, Vec3};
 
@@ -99,6 +99,11 @@ pub(crate) enum VoxelEdit {
     StampSpheres {
         bvh_nodes: Vec<BvhNode>,
         spheres: Vec<Sphere>,
+        voxel_type: u32,
+    },
+    StampToruses {
+        bvh_nodes: Vec<BvhNode>,
+        toruses: Vec<Torus>,
         voxel_type: u32,
     },
     StampSurfaceSpheres {

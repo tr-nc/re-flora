@@ -240,6 +240,16 @@ pub struct SurfaceActiveBrickIndices {
     pub data: [u32; 0],
 }
 
+/// Auto-generated from `B_Toruses` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Toruses {
+    pub center: [f32; 3],
+    pub major_radius: f32,
+    pub inverse_rotation: [f32; 4],
+    pub tube_radius: f32,
+}
+
 /// Auto-generated from `B_TreeLeafInstances` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

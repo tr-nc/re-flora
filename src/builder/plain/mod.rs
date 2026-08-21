@@ -1,15 +1,14 @@
 #![allow(clippy::items_after_test_module)]
 
 mod resources;
-mod terrain_grade;
 mod terrain_hill;
 use crate::generated::gpu_structs::{
     BvhNodes, ChunkModifyInfo, ChunkSolidSampleInfo, Cuboids, ModelVoxelizeInfo,
-    PushConstantChunkModifySample, RegionInfo, RoundCones, Spheres,
+    PushConstantChunkModifySample, RegionInfo, RoundCones, Spheres, Toruses,
     VoxelPropertySampleInfo as VoxelPropertySampleInfoGpu,
     VoxelPropertySampleResult as VoxelPropertySampleResultGpu,
 };
-use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, UAabb3};
+use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, Torus, UAabb3};
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3, Vec3};
@@ -40,7 +39,6 @@ pub use resources::*;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::time::{Duration, Instant};
-pub use terrain_grade::*;
 pub use terrain_hill::*;
 
 pub const VOXEL_TYPE_CHERRY_WOOD: u32 = 5;
@@ -64,6 +62,7 @@ pub const VOXEL_PROPERTY_SOIL_TARGET_MASK: u32 = (1 << VOXEL_TYPE_DIRT) | (1 << 
 const PRIMITIVE_KIND_ROUND_CONE: u32 = 0;
 const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
+const PRIMITIVE_KIND_TORUS: u32 = 3;
 pub const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 8;
 
 #[repr(C)]
@@ -327,7 +326,6 @@ pub struct PlainBuilder {
     buffer_setup_ppl: ComputePipeline,
     #[allow(dead_code)]
     chunk_init_ppl: ComputePipeline,
-    terrain_grade_ppl: ComputePipeline,
     terrain_hill_blend_ppl: ComputePipeline,
     heightmap_ppl: ComputePipeline,
     #[allow(dead_code)]
@@ -388,12 +386,6 @@ impl PlainBuilder {
         let terrain_hill_blend_sm = ShaderModule::from_precompiled(
             device,
             "shader/builder/chunk_writer/terrain_hill_blend.comp",
-            "main",
-        )
-        .unwrap();
-        let terrain_grade_sm = ShaderModule::from_precompiled(
-            device,
-            "shader/builder/chunk_writer/terrain_grade.comp",
             "main",
         )
         .unwrap();
@@ -532,8 +524,6 @@ impl PlainBuilder {
 
         let buffer_setup_ppl = ComputePipeline::new(device, &buffer_setup_sm, &pool, &[&resources]);
         let chunk_init_ppl = ComputePipeline::new(device, &chunk_init_sm, &pool, &[&resources]);
-        let terrain_grade_ppl =
-            ComputePipeline::new(device, &terrain_grade_sm, &pool, &[&resources]);
         let terrain_hill_blend_ppl =
             ComputePipeline::new(device, &terrain_hill_blend_sm, &pool, &[&resources]);
         let heightmap_ppl = ComputePipeline::new(device, &heightmap_sm, &pool, &[&resources]);
@@ -599,7 +589,6 @@ impl PlainBuilder {
             plain_atlas_dim,
             buffer_setup_ppl,
             chunk_init_ppl,
-            terrain_grade_ppl,
             terrain_hill_blend_ppl,
             heightmap_ppl,
             terrain_smooth_heights_ppl,
@@ -2352,6 +2341,52 @@ impl PlainBuilder {
         Ok(())
     }
 
+    pub fn chunk_modify_toruses_with_voxel_type(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        toruses: &[Torus],
+        fill_voxel_type: u32,
+    ) -> Result<()> {
+        let atlas_dim = chunk_atlas_dim(&self.resources);
+        let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
+            return Ok(());
+        };
+        update_chunk_modify_info(
+            &self.resources,
+            offset,
+            dim,
+            fill_voxel_type,
+            None,
+            PRIMITIVE_KIND_TORUS,
+            false,
+            None,
+            None,
+        )?;
+        update_toruses(&self.resources, toruses)?;
+        update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
+
+        execute_one_time_command(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
+                cmdbuf.use_buffer(&self.resources.toruses, BufferUse::HostWrite);
+                self.chunk_modify_ppl.record(
+                    cmdbuf,
+                    Extent3D {
+                        width: dim.x,
+                        height: dim.y,
+                        depth: dim.z,
+                    },
+                    None,
+                );
+            },
+        );
+        Ok(())
+    }
+
     pub fn chunk_modify_surface_spheres_with_voxel_type(
         &mut self,
         bvh_nodes: &[BvhNode],
@@ -3310,6 +3345,22 @@ fn update_spheres(resources: &PlainBuilderResources, spheres: &[Sphere]) -> Resu
         };
         resources
             .spheres
+            .fill_element_with_raw_u8(bytemuck::bytes_of(&data), i as u64)?;
+    }
+    Ok(())
+}
+
+fn update_toruses(resources: &PlainBuilderResources, toruses: &[Torus]) -> Result<()> {
+    for (i, torus) in toruses.iter().enumerate() {
+        let data = Toruses {
+            center: torus.center().to_array(),
+            major_radius: torus.major_radius(),
+            inverse_rotation: torus.rotation().conjugate().to_array(),
+            tube_radius: torus.tube_radius(),
+            ..Toruses::zeroed()
+        };
+        resources
+            .toruses
             .fill_element_with_raw_u8(bytemuck::bytes_of(&data), i as u64)?;
     }
     Ok(())

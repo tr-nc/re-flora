@@ -103,7 +103,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
-    chunk_atlas[atlasPosition] =
-        packVoxelAtlasTypeClearState(VOXEL_TYPE_DIRT);
+    bool isFrontMaterial = voxelCenter.z >=
+        pc.noise_params.z - pc.noise_params.w;
+    uint voxelType = isFrontMaterial
+        ? pc.options.y
+        : VOXEL_TYPE_DIRT;
+    chunk_atlas[atlasPosition] = packVoxelAtlasTypeClearState(voxelType);
     markSolidWorkgroup(atlasPosition);
 }
