@@ -1700,7 +1700,10 @@ impl App {
                     return;
                 }
 
-                if self.is_orbit_edit_camera_mode() && self.keyboard_tool_shortcuts_available() {
+                // Keep both movement systems synchronized with physical key state so a held key
+                // remains active after G switches camera modes. Full input resets still happen
+                // when a panel editor captures the keyboard.
+                if self.keyboard_tool_shortcuts_available() {
                     if let PhysicalKey::Code(code) = event.physical_key {
                         self.handle_orbit_keyboard_camera_input(code, event.state);
                     }
@@ -1736,7 +1739,7 @@ impl App {
                     }
                 }
 
-                if self.is_free_look_camera_mode() {
+                if self.is_free_look_camera_mode() || self.keyboard_tool_shortcuts_available() {
                     self.tracer.handle_keyboard(&event);
                 }
             }

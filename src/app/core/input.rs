@@ -123,7 +123,7 @@ impl App {
         let entered_orbit_edit = self.camera_control.cycle_mode();
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
-        self.reset_camera_movement_input();
+        self.camera_control.reset_mode_transition_motion();
         self.tracer.reset_camera_velocity();
 
         if entered_orbit_edit {

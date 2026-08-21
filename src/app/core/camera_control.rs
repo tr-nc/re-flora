@@ -358,6 +358,10 @@ impl CameraControlRuntime {
 
     pub(super) fn reset_motion(&mut self) {
         self.keyboard_pan.reset();
+        self.reset_mode_transition_motion();
+    }
+
+    pub(super) fn reset_mode_transition_motion(&mut self) {
         self.orbit_drag = None;
         self.pan_smoother.reset();
         self.rotation_smoother.reset();
@@ -685,6 +689,16 @@ mod tests {
         assert!((direction.length() - 1.0).abs() <= 0.0001);
         assert!(direction.x > 0.0);
         assert!(direction.z > 0.0);
+    }
+
+    #[test]
+    fn mode_transition_reset_preserves_held_keyboard_input() {
+        let mut runtime = CameraControlRuntime::default();
+        runtime.handle_orbit_keyboard_input(KeyCode::KeyW, ElementState::Pressed);
+
+        runtime.reset_mode_transition_motion();
+
+        assert_eq!(runtime.keyboard_pan.input_vector(), Vec3::Z);
     }
 
     #[test]
