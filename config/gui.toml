@@ -811,7 +811,7 @@ param = "audio_ray_tracing_enabled"
 equals = true
 
 [section.param.data]
-value = 50
+value = 100
 min = 0
 max = 100
 
