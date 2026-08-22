@@ -137,6 +137,12 @@ const TERRAIN_EDIT_PREVIEW_ALPHA: f32 = 0.9;
 // without producing audible output for the user.
 const MUTED_AUDIO_OUTPUT_GAIN_DB: f32 = -120.0;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GlobalKeyboardCommand {
+    Terminate,
+    ToggleConfigPanel,
+}
+
 struct EguiTextureLifecycleTest {
     handle: Option<TextureHandle>,
     step: u32,
@@ -1565,6 +1571,22 @@ impl App {
             && self.egui_renderer.context().egui_wants_keyboard_input()
     }
 
+    fn global_keyboard_command(
+        physical_key: PhysicalKey,
+        state: ElementState,
+        gui_wants_keyboard_input: bool,
+    ) -> Option<GlobalKeyboardCommand> {
+        if state != ElementState::Pressed || gui_wants_keyboard_input {
+            return None;
+        }
+
+        match physical_key {
+            PhysicalKey::Code(KeyCode::Escape) => Some(GlobalKeyboardCommand::Terminate),
+            PhysicalKey::Code(KeyCode::KeyR) => Some(GlobalKeyboardCommand::ToggleConfigPanel),
+            _ => None,
+        }
+    }
+
     pub fn on_window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -1578,15 +1600,21 @@ impl App {
         let gui_wanted_keyboard_before_event = self.gui_wants_keyboard_input();
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
-            if event.state == ElementState::Pressed && event.physical_key == KeyCode::Escape {
-                self.on_terminate(event_loop);
-                return;
-            }
-
-            if event.state == ElementState::Pressed && event.physical_key == KeyCode::KeyR {
-                self.config_panel_visible = !self.config_panel_visible;
-                self.sync_cursor_with_panels();
-                return;
+            match Self::global_keyboard_command(
+                event.physical_key,
+                event.state,
+                gui_wanted_keyboard_before_event,
+            ) {
+                Some(GlobalKeyboardCommand::Terminate) => {
+                    self.on_terminate(event_loop);
+                    return;
+                }
+                Some(GlobalKeyboardCommand::ToggleConfigPanel) => {
+                    self.config_panel_visible = !self.config_panel_visible;
+                    self.sync_cursor_with_panels();
+                    return;
+                }
+                None => {}
             }
         }
         if let WindowEvent::CursorMoved { position, .. } = &event {
@@ -3995,7 +4023,31 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::App;
+    use super::{App, GlobalKeyboardCommand};
+    use winit::{
+        event::ElementState,
+        keyboard::{KeyCode, PhysicalKey},
+    };
+
+    #[test]
+    fn focused_gui_text_input_reserves_global_keyboard_shortcuts() {
+        for key in [KeyCode::KeyR, KeyCode::Escape] {
+            assert_eq!(
+                App::global_keyboard_command(PhysicalKey::Code(key), ElementState::Pressed, true,),
+                None,
+                "{key:?} must stay with the focused GUI editor",
+            );
+        }
+
+        assert_eq!(
+            App::global_keyboard_command(
+                PhysicalKey::Code(KeyCode::KeyR),
+                ElementState::Pressed,
+                false,
+            ),
+            Some(GlobalKeyboardCommand::ToggleConfigPanel),
+        );
+    }
 
     #[test]
     fn mute_state_forces_effective_master_volume_to_silence() {
