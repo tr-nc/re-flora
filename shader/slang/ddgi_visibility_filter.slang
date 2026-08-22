@@ -34,6 +34,9 @@ struct DdgiVisibilityFilterPushConstants
     uint has_history;
     float history_retention;
     float4 epoch_rotation;
+    uint4 local_refresh_enabled;
+    float4 local_refresh_world_min;
+    float4 local_refresh_world_max;
 };
 
 [[vk::push_constant]]
@@ -54,6 +57,14 @@ void storeVisibility(uint2 coordinate, float2 value)
         ddgi_transport_source_visibility_atlas[coordinate] = value;
 }
 
+bool probeNeedsLocalRefresh(DdgiProbeMetadata metadata)
+{
+    float3 nominal = metadata.nominal_position_and_min_clearance.xyz;
+    return pc.local_refresh_enabled.x != 0u &&
+           all(nominal >= pc.local_refresh_world_min.xyz) &&
+           all(nominal <= pc.local_refresh_world_max.xyz);
+}
+
 [shader("compute")]
 [numthreads(16, 16, 1)]
 void main(uint3 groupId : SV_GroupID,
@@ -68,6 +79,14 @@ void main(uint3 groupId : SV_GroupID,
                        DDGI_VISIBILITY_STORED_SIDE) +
         localInvocationId.xy + uint2(1u);
     DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
+    bool localRecoveryProbe = probeNeedsLocalRefresh(metadata);
+    if (pc.has_history != 0u && pc.local_refresh_enabled.x != 0u &&
+        !localRecoveryProbe)
+    {
+        storeVisibility(
+            atlasCoordinate, loadVisibility(pc.source_slot, atlasCoordinate));
+        return;
+    }
     if (metadata.state_and_reserved.x != DDGI_PROBE_STATE_VALID ||
         metadata.state_and_reserved.y != pc.terrain_revision)
     {
@@ -133,9 +152,15 @@ void main(uint3 groupId : SV_GroupID,
     }
     if (pc.has_history != 0u)
     {
+        float historyRetention = saturate(pc.history_retention);
+        if (localRecoveryProbe)
+        {
+            float recoveryEpoch = float(pc.local_refresh_enabled.y);
+            historyRetention = recoveryEpoch / (recoveryEpoch + 1.0);
+        }
         current = lerp(current,
                        loadVisibility(pc.source_slot, atlasCoordinate),
-                       saturate(pc.history_retention));
+                       historyRetention);
     }
     storeVisibility(atlasCoordinate, current);
 }

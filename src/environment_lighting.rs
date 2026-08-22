@@ -700,6 +700,26 @@ mod tests {
     }
 
     #[test]
+    fn irradiance_filter_forbids_relative_rgb_history_resets() {
+        let filter = include_str!("../shader/slang/ddgi_irradiance_filter.slang");
+        let history_block = filter
+            .split_once("if (pc.has_history != 0u)")
+            .expect("irradiance history block must exist")
+            .1
+            .split_once("storeIrradiance(atlasCoordinate, current);")
+            .expect("irradiance history block must precede the atlas store")
+            .0;
+
+        assert!(history_block.contains("if (localRecoveryProbe)"));
+        assert!(history_block.contains("historyRetention = recoveryEpoch / (recoveryEpoch + 1.0);"));
+        assert!(!history_block.contains("historyRetention = 0.0;"));
+        assert!(!history_block.contains("relativeChange"));
+        assert!(!history_block.contains("relativeDarkening"));
+        assert!(!history_block.contains("DDGI_IRRADIANCE_CHANGE_THRESHOLD"));
+        assert!(!history_block.contains("DDGI_IRRADIANCE_MIN_DARKENING_STEP"));
+    }
+
+    #[test]
     fn runtime_consumers_are_moment_only_while_transport_and_reference_keep_exact_visibility() {
         let query = include_str!("../shader/slang/ddgi_query.slang");
         let types = include_str!("../shader/slang/tracer_types.slang");

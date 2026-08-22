@@ -57,6 +57,9 @@ struct DdgiProbeTracePushConstants
     float far_distance_world;
     uint2 padding;
     float4 epoch_rotation;
+    uint4 local_refresh_enabled;
+    float4 local_refresh_world_min;
+    float4 local_refresh_world_max;
 };
 
 [[vk::push_constant]]
@@ -81,7 +84,8 @@ float ddgiExactTerrainSunVisibility(MarchingResult receiver,
 }
 
 float3 ddgiTransportHitRadiance(MarchingResult result,
-                                uint localInvocationIndex)
+                                uint localInvocationIndex,
+                                bool useHistory)
 {
     float3 normal = normalize(result.normal);
     float3 sunDirection = normalize(ddgi_radiance_sun.direction);
@@ -99,13 +103,13 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
         result.center_position, normal,
         ddgi_radiance_sun.terrain_ray_origin_offset_world);
     float3 indirectIrradiance = float3(0.0);
-    if (pc.has_history != 0u && pc.source_slot == 0u)
+    if (useHistory && pc.source_slot == 0u)
     {
         indirectIrradiance = sampleDdgiTransportAtlas0(
             ddgi_transport_query_info, ddgiReceiverPosition, normal,
             ddgiHardVisibilityPosition).irradiance;
     }
-    else if (pc.has_history != 0u)
+    else if (useHistory)
     {
         indirectIrradiance = sampleDdgiTransportSource(
             ddgi_transport_query_info,
@@ -131,6 +135,14 @@ void main(uint3 groupId : SV_GroupID,
     bool probeIsValid =
         metadata.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&
         metadata.state_and_reserved.y == pc.terrain_revision;
+    float3 nominalProbePosition =
+        metadata.nominal_position_and_min_clearance.xyz;
+    bool probeNeedsLocalRefresh = pc.local_refresh_enabled.x != 0u &&
+        all(nominalProbePosition >= pc.local_refresh_world_min.xyz) &&
+        all(nominalProbePosition <= pc.local_refresh_world_max.xyz);
+    bool resetLocalHistory =
+        probeNeedsLocalRefresh && pc.local_refresh_enabled.y == 0u;
+    bool useHistory = pc.has_history != 0u && !resetLocalHistory;
 
     [unroll]
     for (uint rayInThread = 0u; rayInThread < DDGI_RAYS_PER_THREAD;
@@ -170,7 +182,7 @@ void main(uint3 groupId : SV_GroupID,
             if (!backface)
             {
                 rayRecord.xyz = ddgiTransportHitRadiance(
-                    result, localInvocationId.x);
+                    result, localInvocationId.x, useHistory);
             }
             recordTraceStat(backface ? 4u : 3u);
         }

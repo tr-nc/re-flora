@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 auto_exit="${DDGI_RUNTIME_TERRAIN_EDIT_AUTO_EXIT:-60}"
+minimum_local_recovery_epoch="${DDGI_RUNTIME_TERRAIN_EDIT_MIN_RECOVERY_EPOCH:-4}"
 output_root="${DDGI_RUNTIME_TERRAIN_EDIT_OUTPUT_DIR:-$repo_root/target/ddgi-runtime-terrain-edits}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 run_dir="$output_root/$run_id"
@@ -61,7 +62,9 @@ run_capture() {
     local view="$3"
     local label="$4"
     local flora_enabled="${5:-false}"
-    local capture_target="${6:-}"
+    # Local geometry candidates first become visible after their private recovery window. Epoch
+    # eight is the early-quality checkpoint; closed scenes separately wait for convergence.
+    local capture_target="${6:-e8}"
     local scenario
     scenario="$(scenario_for_state "$state")"
     local capture="$run_dir/${state}-spacing${spacing}-${label}.rfirr"
@@ -78,9 +81,7 @@ run_capture() {
     if [[ "$flora_enabled" != true ]]; then
         command+=(--no-flora)
     fi
-    if [[ -n "$capture_target" ]]; then
-        command+=(--environment-irradiance-capture-target "$capture_target")
-    fi
+    command+=(--environment-irradiance-capture-target "$capture_target")
     if $dry_run; then
         printf '%q ' "${command[@]}"
         printf '\n'
@@ -130,7 +131,7 @@ check_lifecycle_markers() {
         required=(
             "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision=$initial_revision"
             "[ENV_LIGHT_EDIT_CYCLE] requested edit=close-skylight source_revision=$initial_revision target_revision=$closed_revision"
-            "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))"
+            "invalidation_voxel_bound=Some((UVec3("
             "target_terrain_revision=$final_revision"
             "[DDGI] staging promoted"
             "terrain_revision=$final_revision"
@@ -165,12 +166,26 @@ check_lifecycle_markers() {
         fi
     done
     if [[ "$state" != "initial-open" ]]; then
-        if ! grep -Eq "\\[DDGI\\]\\[CONSUMERS\\] consumer_set=terrain_compute,flora_raster .*active_token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*state=Converging.*update_epoch=0([^0-9]|$)" "$console"; then
-            echo "[DDGI_RUNTIME_EDIT] missing shared consumer first-current-geometry epoch-zero publication state=$state spacing=$spacing revision=$final_revision" >&2
+        if grep -Fq "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))" "$console"; then
+            echo "[DDGI_RUNTIME_EDIT] full-domain invalidation returned state=$state spacing=$spacing" >&2
             missing=$((missing + 1))
         fi
-        if ! grep -Eq "\\[DDGI\\] staging promoted .*token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*published_state=Converging.*published_update_epoch=0([^0-9]|$)" "$console"; then
-            echo "[DDGI_RUNTIME_EDIT] missing exact active epoch-zero promotion state=$state spacing=$spacing revision=$final_revision" >&2
+        local consumer_publication consumer_epoch
+        consumer_publication="$(grep -E "\\[DDGI\\]\\[CONSUMERS\\] consumer_set=terrain_compute,flora_raster .*active_token_serial=[0-9]+.*geometry_revision=$final_revision([^0-9]|$).*state=Converging" "$console" | head -n 1 || true)"
+        consumer_epoch="$(sed -n 's/.*update_epoch=\([0-9][0-9]*\).*/\1/p' <<<"$consumer_publication")"
+        if [[ -z "$consumer_epoch" ]] || (( consumer_epoch < minimum_local_recovery_epoch )); then
+            echo "[DDGI_RUNTIME_EDIT] shared consumer exposed an insufficiently recovered geometry state=$state spacing=$spacing revision=$final_revision epoch=${consumer_epoch:-missing} minimum=$minimum_local_recovery_epoch" >&2
+            missing=$((missing + 1))
+        fi
+        local promotion promotion_epoch
+        promotion="$(grep -E "\\[DDGI\\] staging promoted .*kind=Terrain .*geometry_revision=$final_revision([^0-9]|$).*published_state=Converging" "$console" | tail -n 1 || true)"
+        promotion_epoch="$(sed -n 's/.*published_update_epoch=\([0-9][0-9]*\).*/\1/p' <<<"$promotion")"
+        if [[ -z "$promotion_epoch" ]] || (( promotion_epoch < minimum_local_recovery_epoch )); then
+            echo "[DDGI_RUNTIME_EDIT] terrain candidate promoted before local recovery state=$state spacing=$spacing revision=$final_revision epoch=${promotion_epoch:-missing} minimum=$minimum_local_recovery_epoch" >&2
+            missing=$((missing + 1))
+        fi
+        if ! grep -Eq "\\[DDGI\\] staging promoted .*geometry_revision=$final_revision([^0-9]|$).*published_source=Some\\(" "$console"; then
+            echo "[DDGI_RUNTIME_EDIT] terrain promotion did not retain resident history state=$state spacing=$spacing revision=$final_revision" >&2
             missing=$((missing + 1))
         fi
     fi
@@ -190,7 +205,7 @@ check_inflight_stale_active_markers() {
         "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision="
         "[ENV_LIGHT_EDIT_CYCLE] requested edit=reopen-skylight source_revision="
         "[DDGI] obsolete staging promotion skipped"
-        "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))"
+        "invalidation_voxel_bound=Some((UVec3("
         "coordinator=BuildingTerrain"
         "invalidation=stale-active"
         "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed active_terrain_revision=Some("
@@ -208,6 +223,10 @@ check_inflight_stale_active_markers() {
             missing=$((missing + 1))
         fi
     done
+    if grep -Fq "invalidation_voxel_bound=Some((UVec3(0, 0, 0), UVec3(512, 512, 512)))" "$console"; then
+        echo "[DDGI_RUNTIME_EDIT] transient state unexpectedly invalidated the full DDGI domain spacing=$spacing" >&2
+        missing=$((missing + 1))
+    fi
     if ! grep -Eq '\[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE\] recording .*staging_progress=[0-9]+/[1-9][0-9]* .*coordinator=BuildingTerrain' "$console"; then
         echo "[DDGI_RUNTIME_EDIT] missing GPU-visible staging progress spacing=$spacing" >&2
         missing=$((missing + 1))
@@ -251,7 +270,9 @@ check_captures() {
     local reference="$run_dir/${state}-spacing${spacing}-exact-irradiance.rfirr"
     local thresholds=(--max-reference-error-p99 0.01)
     if [[ "$state" == "closed" ]]; then
-        thresholds=(--max-luminance 0.00001 --max-reference-error-p99 0.00001)
+        # Temporal terrain refresh retains stable history; after its bounded recovery sweep the
+        # sealed-room residual remains below a visually black HDR tolerance.
+        thresholds=(--max-luminance 0.00005 --max-reference-error-p99 0.00005)
     else
         thresholds+=(--min-luminance-p99 0.10)
     fi
@@ -327,7 +348,11 @@ for spacing in "${spacings[@]}"; do
             "exact-irradiance:exact-irradiance"; do
             view="${view_and_label%%:*}"
             label="${view_and_label#*:}"
-            if ! run_capture "$spacing" "$state" "$view" "$label"; then
+            capture_target=""
+            if [[ "$state" == closed ]]; then
+                capture_target="converged"
+            fi
+            if ! run_capture "$spacing" "$state" "$view" "$label" false "$capture_target"; then
                 case_failed=true
             elif ! $dry_run && ! check_lifecycle_markers \
                 "$spacing" "$state" "$run_dir/${state}-spacing${spacing}-${label}.console.log"; then

@@ -304,6 +304,21 @@ fn assert_initial_epoch_zero(
     assert_eq!(field.source(), None);
 }
 
+fn assert_geometry_epoch_zero(
+    field: DdgiFieldIdentity,
+    source: DdgiFieldIdentity,
+    geometry_revision: u32,
+) {
+    let key = field.field();
+    let source_key = source.field();
+    assert_eq!(key.geometry_revision(), geometry_revision);
+    assert_eq!(key.radiance_revision(), source_key.radiance_revision());
+    assert_eq!(key.spacing_voxels(), source_key.spacing_voxels());
+    assert_eq!(key.state(), DdgiFieldState::Converging);
+    assert_eq!(key.update_epoch(), 0);
+    assert_eq!(field.source(), Some(source_key));
+}
+
 fn log_acceptance_field(group: &str, checkpoint: &str, field: DdgiFieldIdentity) {
     let key = field.field();
     let source = field.source();
@@ -1435,12 +1450,7 @@ impl App {
                     .active()
                     .published_field
                     .expect("terrain epoch zero must be published before promotion");
-                assert_initial_epoch_zero(
-                    geometry_field,
-                    target_revision,
-                    baseline.field().radiance_revision(),
-                    32,
-                );
+                assert_geometry_epoch_zero(geometry_field, baseline, target_revision);
                 assert!(runtime.active_consumers_are_available());
                 assert_eq!(runtime.deferred_density_spacing_voxels(), Some(16));
                 log_acceptance_field("DENSITY", "geometry-e0-published", geometry_field);

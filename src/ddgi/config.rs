@@ -8,6 +8,21 @@ pub const DDGI_RAY_BUDGET_PER_FRAME: u32 = 32_768;
 pub const DDGI_PROBE_BATCH_SIZE: u32 =
     probe_batch_size_for_ray_budget(DDGI_RAY_BUDGET_PER_FRAME, DDGI_RAYS_PER_PROBE);
 
+/// A geometry candidate remains private through at least this epoch. With four rays contributing
+/// to each irradiance texel per epoch, epoch four represents five independent sample rotations.
+pub const DDGI_LOCAL_RECOVERY_MIN_EPOCH: u32 = 4;
+
+/// Require two consecutive bounded candidate deltas before the local field can become visible.
+pub const DDGI_LOCAL_RECOVERY_STABLE_EPOCHS: u32 = 2;
+
+/// A larger atlas jump is treated as an unstable local candidate and remains off-screen.
+pub const DDGI_LOCAL_RECOVERY_MAX_ABSOLUTE_DELTA: f32 = 0.1;
+
+/// Topology changes can alter indirect transport beyond the edited voxel bound. Once the private
+/// local candidate is visible, use a bounded lower retention while the normal whole-volume sweep
+/// discovers those non-local changes, then return to the configured stable retention.
+pub const DDGI_TOPOLOGY_RECOVERY_HISTORY_RETENTION: f32 = 0.93;
+
 const fn probe_batch_size_for_ray_budget(ray_budget: u32, rays_per_probe: u32) -> u32 {
     assert!(rays_per_probe > 0);
     assert!(ray_budget >= rays_per_probe);
