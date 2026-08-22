@@ -41,6 +41,14 @@ float3 floorToScale(float3 position, int scaleExponent)
     return asfloat(asuint(position) & uint3(mask));
 }
 
+public bool3 contreeAdvanceSideMask(float3 sideDistance)
+{
+    bool advanceX = sideDistance.x <= sideDistance.y &&
+        sideDistance.x <= sideDistance.z;
+    bool advanceY = !advanceX && sideDistance.y <= sideDistance.z;
+    return bool3(advanceX, advanceY, !advanceX && !advanceY);
+}
+
 ContreeMarchingResult marchLocalContree(
     StructuredBuffer<ContreeNode> nodeData,
     float3 origin, float3 direction, bool coarse, uint nodeOffset, uint leafOffset,
@@ -126,7 +134,7 @@ ContreeMarchingResult marchLocalContree(
         float3 sideDistance = (cellMinimum - origin) * inverseDirection;
         float maximumDistance = min(min(sideDistance.x, sideDistance.y), sideDistance.z);
 
-        bool3 sideMask = maximumDistance >= sideDistance;
+        bool3 sideMask = contreeAdvanceSideMask(sideDistance);
         int3 base = asint(cellMinimum);
         int3 offset = int3((1 << advanceScaleExponent) - 1);
         int3 neighborMaximum = base + select(sideMask, int3(-1), offset);
