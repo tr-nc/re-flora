@@ -10,7 +10,7 @@ static const uint DDGI_IRRADIANCE_STORED_SIDE = 10u;
 static const uint DDGI_VISIBILITY_INTERIOR_SIDE = 16u;
 static const uint DDGI_VISIBILITY_STORED_SIDE = 18u;
 static const float DDGI_QUERY_WEIGHT_EPSILON = 1.0e-6;
-static const float DDGI_MOMENT_VISIBILITY_MIN_CONFIDENCE = 0.10;
+static const float DDGI_MOMENT_VISIBILITY_MIN_CONFIDENCE = 0.125;
 
 // Spatial-weight modes shared by the production terrain query and diagnostics.
 // The low bit selects nominal versus relocation-aware position weights; the
@@ -245,6 +245,14 @@ public float ddgiChebyshevVisibility(float2 moments, float distanceToSurface)
     return visibility >= DDGI_MOMENT_VISIBILITY_MIN_CONFIDENCE
         ? visibility
         : 0.0;
+}
+
+public float ddgiMomentNormalizationWeight(
+    float accumulatedBaseWeight, float accumulatedWeight)
+{
+    return max(
+        accumulatedWeight,
+        accumulatedBaseWeight * DDGI_MOMENT_VISIBILITY_MIN_CONFIDENCE);
 }
 
 float ddgiRelocationAwarePositionWeight(float3 fragmentInCell,
@@ -625,15 +633,16 @@ void accumulateDdgiEqualWeightContribution(
     }
 }
 
-void finalizeDdgiQueryResult(inout DdgiQueryResult result)
+void finalizeDdgiQueryResultWithWeight(
+    inout DdgiQueryResult result, float normalizationWeight)
 {
     if (result.accumulated_base_weight > DDGI_QUERY_WEIGHT_EPSILON)
     {
         result.mean_visibility /= result.accumulated_base_weight;
     }
-    if (result.accumulated_weight > DDGI_QUERY_WEIGHT_EPSILON)
+    if (normalizationWeight > DDGI_QUERY_WEIGHT_EPSILON)
     {
-        result.irradiance /= result.accumulated_weight;
+        result.irradiance /= normalizationWeight;
     }
     else
     {
@@ -642,6 +651,22 @@ void finalizeDdgiQueryResult(inout DdgiQueryResult result)
         result.irradiance = float3(0.0);
     }
     result.irradiance = max(result.irradiance, float3(0.0));
+}
+
+void finalizeDdgiQueryResult(inout DdgiQueryResult result)
+{
+    finalizeDdgiQueryResultWithWeight(result, result.accumulated_weight);
+}
+
+void finalizeDdgiMomentQueryResult(inout DdgiQueryResult result)
+{
+    // Per-probe confidence filtering is not sufficient when the only surviving
+    // probe has negligible spatial support: normalizing by that tiny weight
+    // turns a statistical outlier into full irradiance. Cap that amplification
+    // at the same confidence already required of an individual moment sample.
+    float normalizationWeight = ddgiMomentNormalizationWeight(
+        result.accumulated_base_weight, result.accumulated_weight);
+    finalizeDdgiQueryResultWithWeight(result, normalizationWeight);
 }
 
 // Semantic diagnostic queries keep cage traversal and contribution assembly beside production.
@@ -929,7 +954,7 @@ DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
             }
         }
     }
-    finalizeDdgiQueryResult(result);
+    finalizeDdgiMomentQueryResult(result);
     return result;
 }
 
@@ -975,7 +1000,7 @@ DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
             }
         }
     }
-    finalizeDdgiQueryResult(result);
+    finalizeDdgiMomentQueryResult(result);
     if (result.accumulated_weight <= DDGI_QUERY_WEIGHT_EPSILON ||
         all(result.irradiance <= float3(DDGI_QUERY_WEIGHT_EPSILON)))
     {
