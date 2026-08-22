@@ -115,7 +115,7 @@ impl DdgiTerrainRefresh {
             self.queued_density_spacing_voxels
                 .get_or_insert(candidate.spacing_voxels);
         }
-        let invalidation_voxel_bound = terrain_invalidation_bound(grid);
+        let invalidation_voxel_bound = terrain_invalidation_bound(edit_voxel_bound, grid);
         match self.request.as_mut() {
             None => {
                 self.request = Some(DdgiTerrainRefreshRequest {
@@ -129,7 +129,8 @@ impl DdgiTerrainRefresh {
                 request.terrain_revision = terrain_revision;
                 request.edited_voxel_bound =
                     request.edited_voxel_bound.union_with(&edit_voxel_bound);
-                request.invalidation_voxel_bound = invalidation_voxel_bound;
+                request.invalidation_voxel_bound =
+                    terrain_invalidation_bound(request.edited_voxel_bound, grid);
                 true
             }
         }
@@ -288,10 +289,18 @@ impl DdgiTerrainRefresh {
     }
 }
 
-fn terrain_invalidation_bound(grid: DdgiVolumeGrid) -> UAabb3 {
-    // Any probe can trace through the edited geometry, so no subset of the old probe field is
-    // generally trustworthy. Local dependency tracking is a future optimization.
-    UAabb3::new(UVec3::ZERO, grid.world_extent_voxels())
+fn terrain_invalidation_bound(edit_voxel_bound: UAabb3, grid: DdgiVolumeGrid) -> UAabb3 {
+    // Match the production DDGI wake-up rule: immediately fail closed around the edited object
+    // plus one probe cell. The retained field remains available elsewhere while the bounded
+    // full-volume sweep eventually observes non-local transport changes.
+    let margin = UVec3::splat(grid.spacing_voxels());
+    UAabb3::new(
+        edit_voxel_bound.min().saturating_sub(margin),
+        edit_voxel_bound
+            .max()
+            .saturating_add(margin)
+            .min(grid.world_extent_voxels()),
+    )
 }
 
 #[cfg(test)]
@@ -303,12 +312,16 @@ mod tests {
     }
 
     #[test]
-    fn terrain_refresh_invalidates_the_full_ddgi_world_domain() {
-        for spacing_voxels in [32, 16] {
-            let invalidation = terrain_invalidation_bound(grid(spacing_voxels));
-            assert_eq!(invalidation.min(), UVec3::ZERO);
-            assert_eq!(invalidation.max(), UVec3::splat(512));
-        }
+    fn terrain_refresh_invalidates_only_the_edit_plus_one_probe_cell() {
+        let edit = UAabb3::new(UVec3::splat(100), UVec3::splat(120));
+        let spacing_32 = terrain_invalidation_bound(edit, grid(32));
+        assert_eq!(spacing_32.min(), UVec3::splat(68));
+        assert_eq!(spacing_32.max(), UVec3::splat(152));
+
+        let edge = UAabb3::new(UVec3::splat(4), UVec3::splat(500));
+        let clamped = terrain_invalidation_bound(edge, grid(32));
+        assert_eq!(clamped.min(), UVec3::ZERO);
+        assert_eq!(clamped.max(), UVec3::splat(512));
     }
 
     #[test]
@@ -359,7 +372,7 @@ mod tests {
         assert_eq!(refresh.queued_density_spacing_voxels(), Some(16));
         assert_eq!(
             refresh.invalidation_voxel_bound(),
-            Some(UAabb3::new(UVec3::ZERO, UVec3::splat(512)))
+            Some(UAabb3::new(UVec3::splat(68), UVec3::splat(152)))
         );
     }
 
@@ -387,8 +400,8 @@ mod tests {
         assert_eq!(edited.min(), UVec3::splat(100));
         assert_eq!(edited.max(), UVec3::splat(210));
         let invalidation = refresh.invalidation_voxel_bound().unwrap();
-        assert_eq!(invalidation.min(), UVec3::ZERO);
-        assert_eq!(invalidation.max(), UVec3::splat(512));
+        assert_eq!(invalidation.min(), UVec3::splat(84));
+        assert_eq!(invalidation.max(), UVec3::splat(226));
     }
 
     #[test]

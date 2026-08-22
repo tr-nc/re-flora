@@ -32,6 +32,9 @@ struct DdgiAtlasFilterPushConstants
     uint has_history;
     float history_retention;
     float4 epoch_rotation;
+    uint4 local_refresh_enabled;
+    float4 local_refresh_world_min;
+    float4 local_refresh_world_max;
 };
 
 [[vk::push_constant]]
@@ -50,6 +53,19 @@ float4 loadIrradiance(uint slot, uint2 atlasCoordinate)
     return slot == 0u
         ? ddgi_irradiance_atlas[atlasCoordinate]
         : ddgi_transport_source_irradiance_atlas[atlasCoordinate];
+}
+
+float maxComponent(float3 value)
+{
+    return max(value.x, max(value.y, value.z));
+}
+
+bool probeNeedsLocalRefresh(DdgiProbeMetadata metadata)
+{
+    float3 nominal = metadata.nominal_position_and_min_clearance.xyz;
+    return pc.local_refresh_enabled.x != 0u &&
+           all(nominal >= pc.local_refresh_world_min.xyz) &&
+           all(nominal <= pc.local_refresh_world_max.xyz);
 }
 
 [shader("compute")]
@@ -99,8 +115,27 @@ void main(uint3 groupId : SV_GroupID,
     if (pc.has_history != 0u)
     {
         float4 history = loadIrradiance(pc.source_slot, atlasCoordinate);
+        float historyRetention = saturate(pc.history_retention);
+        // Majercik et al. 2021 production DDGI thresholds: retain stable texels, reduce
+        // hysteresis by 0.15 above a 25% change, and drop it at an 80% change. Relative
+        // normalization keeps the percentages meaningful for this linear-HDR atlas.
+        float relativeChange = maxComponent(abs(current.xyz - history.xyz)) /
+            max(maxComponent(max(abs(current.xyz), abs(history.xyz))), 1.0e-4);
+        float relativeDarkening =
+            maxComponent(max(history.xyz - current.xyz, float3(0.0))) /
+            max(maxComponent(abs(history.xyz)), 1.0e-4);
+        if (relativeChange > 0.8)
+            historyRetention = 0.0;
+        // Current RTXGI is deliberately more aggressive when cached irradiance must darken:
+        // subtracting 0.75 avoids long-lived light leaks after an occluder is added.
+        else if (relativeDarkening > 0.25)
+            historyRetention = max(0.0, historyRetention - 0.75);
+        else if (relativeChange > 0.25)
+            historyRetention = max(0.0, historyRetention - 0.15);
+        if (probeNeedsLocalRefresh(metadata))
+            historyRetention = 0.0;
         current.xyz = lerp(current.xyz, history.xyz,
-                           saturate(pc.history_retention));
+                           historyRetention);
     }
     storeIrradiance(atlasCoordinate, current);
 }

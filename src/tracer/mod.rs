@@ -80,11 +80,11 @@ use crate::builder::{
 use crate::ddgi::{
     DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
     DdgiCaptureTarget, DdgiDebugView, DdgiFieldIdentity, DdgiRayBatch, DdgiRuntime,
-    DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiValidatedIterationOutcome,
-    DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes, DdgiVoxelVisibility,
-    DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE, DDGI_IRRADIANCE_INTERIOR_SIDE,
-    DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE, DDGI_TRACE_WORKGROUP_SIZE,
-    DDGI_VISIBILITY_INTERIOR_SIDE,
+    DdgiRuntimeStatus, DdgiRuntimeVolumeTarget, DdgiScheduledWorkKind,
+    DdgiValidatedIterationOutcome, DdgiVerifiedBatchOutcome, DdgiVolume, DdgiVolumes,
+    DdgiVoxelVisibility, DDGI_CONVERGENCE_POLICY, DDGI_GUTTER_WORKGROUP_SIZE,
+    DDGI_IRRADIANCE_INTERIOR_SIDE, DDGI_IRRADIANCE_STORED_SIDE, DDGI_RELOCATION_WORKGROUP_SIZE,
+    DDGI_TRACE_WORKGROUP_SIZE, DDGI_VISIBILITY_INTERIOR_SIDE,
 };
 use crate::environment_lighting::{
     DdgiRadianceSnapshot, DdgiVoxelPaletteSnapshot, EnvironmentLightingCache,
@@ -161,6 +161,9 @@ struct DdgiProbeTracePushConstants {
     far_distance_world: f32,
     _padding: [u32; 2],
     epoch_rotation: [f32; 4],
+    local_refresh_enabled: [u32; 4],
+    local_refresh_world_min: [f32; 4],
+    local_refresh_world_max: [f32; 4],
 }
 
 #[repr(C)]
@@ -175,6 +178,9 @@ struct DdgiAtlasFilterPushConstants {
     has_history: u32,
     history_retention: f32,
     epoch_rotation: [f32; 4],
+    local_refresh_enabled: [u32; 4],
+    local_refresh_world_min: [f32; 4],
+    local_refresh_world_max: [f32; 4],
 }
 
 #[repr(C)]
@@ -191,6 +197,9 @@ struct DdgiVisibilityFilterPushConstants {
     has_history: u32,
     history_retention: f32,
     epoch_rotation: [f32; 4],
+    local_refresh_enabled: [u32; 4],
+    local_refresh_world_min: [f32; 4],
+    local_refresh_world_max: [f32; 4],
 }
 
 #[repr(C)]
@@ -1148,7 +1157,7 @@ impl Tracer {
         // the replacement reaches Ready and is explicitly promoted on a later frame.
         let descriptor_generation = self.next_descriptor_generation();
         let descriptor_retirements =
-            self.update_ddgi_builder_descriptors(&staging, descriptor_generation);
+            self.update_ddgi_builder_descriptors(&staging, None, descriptor_generation);
         for retirement in descriptor_retirements {
             self.frame_retirement_sink.retire(retirement);
         }
@@ -1204,11 +1213,16 @@ impl Tracer {
         self.ddgi_runtime
             .volumes_mut()
             .builder_mut()
-            .begin_scheduled_work(work)?;
+            .begin_scheduled_work(work, runtime_work.local_refresh_voxel_bound())?;
         let descriptor_generation = self.next_descriptor_generation();
         let descriptor_retirements = {
-            let builder = self.ddgi_runtime.volumes().builder();
-            self.update_ddgi_builder_descriptors(builder, descriptor_generation)
+            let volumes = self.ddgi_runtime.volumes();
+            let builder = volumes.builder();
+            let inherited_source = (work.kind() == DdgiScheduledWorkKind::GeometryUpdate
+                && work.transport_source().is_some()
+                && !volumes.builder_is_active())
+            .then(|| volumes.active());
+            self.update_ddgi_builder_descriptors(builder, inherited_source, descriptor_generation)
         };
         for retirement in descriptor_retirements {
             self.frame_retirement_sink.retire(retirement);
@@ -1944,6 +1958,7 @@ impl Tracer {
     fn update_ddgi_builder_descriptors(
         &self,
         ddgi_volume: &DdgiVolume,
+        inherited_source: Option<&DdgiVolume>,
         generation: u64,
     ) -> Vec<FrameRetirement> {
         let mut relocate = Vec::new();
@@ -2026,10 +2041,17 @@ impl Tracer {
             &ddgi_volume.ddgi_transport_query_info
         );
 
+        let source_irradiance = inherited_source
+            .and_then(DdgiVolume::published_irradiance_atlas)
+            .unwrap_or(&ddgi_volume.ddgi_transport_source_irradiance_atlas);
+        let source_visibility = inherited_source
+            .and_then(DdgiVolume::published_visibility_atlas)
+            .unwrap_or(&ddgi_volume.ddgi_transport_source_visibility_atlas);
+
         write_texture!(
             trace,
             "ddgi_transport_source_irradiance_atlas",
-            &ddgi_volume.ddgi_transport_source_irradiance_atlas
+            source_irradiance
         );
         write_texture!(
             trace,
@@ -2049,7 +2071,7 @@ impl Tracer {
         write_texture!(
             trace,
             "ddgi_transport_source_visibility_atlas",
-            &ddgi_volume.ddgi_transport_source_visibility_atlas
+            source_visibility
         );
         write_texture!(
             global_sky_filter,
@@ -2074,7 +2096,7 @@ impl Tracer {
             write_texture!(
                 writes,
                 "ddgi_transport_source_irradiance_atlas",
-                &ddgi_volume.ddgi_transport_source_irradiance_atlas
+                source_irradiance
             );
         }
         for writes in [&mut visibility_filter, &mut visibility_gutter] {
@@ -2086,7 +2108,7 @@ impl Tracer {
             write_texture!(
                 writes,
                 "ddgi_transport_source_visibility_atlas",
-                &ddgi_volume.ddgi_transport_source_visibility_atlas
+                source_visibility
             );
         }
 
@@ -5294,6 +5316,8 @@ impl Tracer {
 
     fn record_ddgi_probe_trace_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
         let far_distance_world = self.chunk_bound.dimensions().as_vec3().length() * 2.0;
+        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
+            self.ddgi_local_refresh_push_constants(batch);
         let push_constants = DdgiProbeTracePushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
@@ -5303,6 +5327,9 @@ impl Tracer {
             far_distance_world,
             _padding: [0; 2],
             epoch_rotation: batch.epoch_rotation(),
+            local_refresh_enabled,
+            local_refresh_world_min,
+            local_refresh_world_max,
         };
         self.compute_pipelines.ddgi_probe_trace_ppl.record(
             cmdbuf,
@@ -5311,8 +5338,27 @@ impl Tracer {
         );
     }
 
+    fn ddgi_local_refresh_push_constants(
+        &self,
+        batch: DdgiRayBatch,
+    ) -> ([u32; 4], [f32; 4], [f32; 4]) {
+        let Some(bound) = batch.local_refresh_voxel_bound() else {
+            return ([0; 4], [0.0; 4], [0.0; 4]);
+        };
+        let voxels_per_world_unit = self.desc.voxel_dim_per_chunk.as_vec3();
+        let world_min = bound.min().as_vec3() / voxels_per_world_unit;
+        let world_max = bound.max().as_vec3() / voxels_per_world_unit;
+        (
+            [1, 0, 0, 0],
+            [world_min.x, world_min.y, world_min.z, 0.0],
+            [world_max.x, world_max.y, world_max.z, 0.0],
+        )
+    }
+
     fn record_ddgi_irradiance_filter_pass(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
         let volume = self.ddgi_runtime.volumes().builder();
+        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
+            self.ddgi_local_refresh_push_constants(batch);
         let push_constants = DdgiAtlasFilterPushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
@@ -5323,6 +5369,9 @@ impl Tracer {
             has_history: u32::from(batch.irradiance_history_is_valid()),
             history_retention: batch.irradiance_history_retention(self.ddgi_history_retention),
             epoch_rotation: batch.epoch_rotation(),
+            local_refresh_enabled,
+            local_refresh_world_min,
+            local_refresh_world_max,
         };
         self.compute_pipelines.ddgi_irradiance_filter_ppl.record(
             cmdbuf,
@@ -5341,6 +5390,8 @@ impl Tracer {
         let spacing_world =
             Vec3::splat(grid.spacing_voxels() as f32) / self.desc.voxel_dim_per_chunk.as_vec3();
         let far_distance_world = self.chunk_bound.dimensions().as_vec3().length() * 2.0;
+        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
+            self.ddgi_local_refresh_push_constants(batch);
         let push_constants = DdgiVisibilityFilterPushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
@@ -5353,6 +5404,9 @@ impl Tracer {
             has_history: u32::from(batch.visibility_history_is_valid()),
             history_retention: batch.visibility_history_retention(self.ddgi_history_retention),
             epoch_rotation: batch.epoch_rotation(),
+            local_refresh_enabled,
+            local_refresh_world_min,
+            local_refresh_world_max,
         };
         self.compute_pipelines.ddgi_visibility_filter_ppl.record(
             cmdbuf,

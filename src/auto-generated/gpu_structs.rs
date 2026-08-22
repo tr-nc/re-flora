@@ -348,6 +348,9 @@ pub struct PushConstantIrradianceFilter {
     pub has_history: u32,
     pub history_retention: f32,
     pub epoch_rotation: [f32; 4],
+    pub local_refresh_enabled: [u32; 4],
+    pub local_refresh_world_min: [f32; 4],
+    pub local_refresh_world_max: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantIrradianceGutter` (native Slang source of truth).
@@ -404,6 +407,9 @@ pub struct PushConstantProbeTrace {
     pub far_distance_world: f32,
     pub padding: [u32; 2],
     pub epoch_rotation: [f32; 4],
+    pub local_refresh_enabled: [u32; 4],
+    pub local_refresh_world_min: [f32; 4],
+    pub local_refresh_world_max: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).
@@ -421,6 +427,9 @@ pub struct PushConstantVisibilityFilter {
     pub has_history: u32,
     pub history_retention: f32,
     pub epoch_rotation: [f32; 4],
+    pub local_refresh_enabled: [u32; 4],
+    pub local_refresh_world_min: [f32; 4],
+    pub local_refresh_world_max: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityGutter` (native Slang source of truth).
