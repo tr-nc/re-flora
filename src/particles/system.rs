@@ -186,6 +186,7 @@ pub enum ParticleRenderKind {
     Leaf,
     Butterfly,
     WaterDroplet,
+    TerrainVoxel,
 }
 
 /// Keeps particle data in a struct-of-arrays layout for cache-friendly updates.
@@ -332,6 +333,10 @@ impl ParticleSystem {
     #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
         self.max_particles
+    }
+
+    pub fn available_capacity(&self) -> usize {
+        self.free_list.len()
     }
 
     /// Spawns a new particle using the provided description.
@@ -586,7 +591,9 @@ impl ParticleSystem {
                         BUTTERFLY_FRAMES_PER_VARIANT,
                     );
                 }
-                ParticleRenderKind::Leaf | ParticleRenderKind::WaterDroplet => {}
+                ParticleRenderKind::Leaf
+                | ParticleRenderKind::WaterDroplet
+                | ParticleRenderKind::TerrainVoxel => {}
             }
 
             if !self.is_sinking[slot]
@@ -814,5 +821,29 @@ mod tests {
             assert_eq!(system.update_bucket_counts[slot], bucket_count);
             assert!(system.handle_bucket(handle).unwrap() < bucket_count);
         }
+    }
+
+    #[test]
+    fn terrain_voxel_particle_falls_and_expires() {
+        let mut system = ParticleSystem::new(1);
+        let handle = system
+            .spawn(ParticleSpawn {
+                position: Vec3::Y,
+                lifetime: 0.05,
+                gravity_factor: 1.0,
+                motion_mode: MotionMode::Free,
+                render_kind: ParticleRenderKind::TerrainVoxel,
+                despawn_below_ground: false,
+                update: ParticleUpdateConfig::new(0.01, 1),
+                ..ParticleSpawn::default()
+            })
+            .unwrap();
+
+        system.update(0.02, ParticleForces::default());
+        assert!(system.velocity(handle).unwrap().y < 0.0);
+        assert!(system.position(handle).unwrap().y < 1.0);
+
+        system.update(0.04, ParticleForces::default());
+        assert!(!system.is_alive_handle(handle));
     }
 }

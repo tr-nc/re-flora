@@ -22,6 +22,7 @@ mod placeables;
 mod planting;
 mod player_tools;
 mod screenshot;
+mod terrain_connectivity;
 mod terrain_persistence;
 mod tree_bench;
 mod ui_style;
@@ -49,6 +50,7 @@ use self::physics::TerrainPhysics;
 use self::placeables::{IrrigationNetwork, SprinklerRuntime};
 use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness, ScreenshotRuntime};
+use self::terrain_connectivity::TerrainConnectivityRuntime;
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
 use self::vegetation::{TreeRuntime, TreeVariationConfig};
@@ -345,6 +347,7 @@ pub struct App {
 
     terrain_moisture: TerrainMoistureRuntime,
     growing_flora_chunks: GrowingFloraQueue,
+    terrain_connectivity: TerrainConnectivityRuntime,
 
     #[allow(dead_code)]
     tree_variation_config: TreeVariationConfig,
@@ -1056,6 +1059,7 @@ impl App {
             water_particle_handoff_main_thread_ms: None,
             terrain_moisture: TerrainMoistureRuntime::default(),
             growing_flora_chunks: GrowingFloraQueue::default(),
+            terrain_connectivity: TerrainConnectivityRuntime::default(),
 
             particle_system,
             butterfly_emitters,

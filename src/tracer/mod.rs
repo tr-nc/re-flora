@@ -6101,6 +6101,9 @@ impl Tracer {
                     crate::particles::ParticleRenderKind::WaterDroplet => {
                         texture_layout.leaf_layer()
                     }
+                    crate::particles::ParticleRenderKind::TerrainVoxel => {
+                        texture_layout.leaf_layer()
+                    }
                 },
             };
             match snap.kind {
@@ -6108,7 +6111,8 @@ impl Tracer {
                     self.translucent_particle_instance_scratch.push(instance)
                 }
                 crate::particles::ParticleRenderKind::Leaf
-                | crate::particles::ParticleRenderKind::Butterfly => {
+                | crate::particles::ParticleRenderKind::Butterfly
+                | crate::particles::ParticleRenderKind::TerrainVoxel => {
                     self.particle_instance_scratch.push(instance)
                 }
             }

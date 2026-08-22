@@ -1566,6 +1566,9 @@ impl App {
                     terrain_changed,
                 },
             )?;
+            if terrain_changed {
+                self.record_player_terrain_connectivity_edit(rebuild_bound);
+            }
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
                 .lock()
@@ -1621,6 +1624,9 @@ impl App {
                 },
                 terrain_changed,
             ))?;
+            if terrain_changed {
+                self.record_player_terrain_connectivity_edit(rebuild_bound);
+            }
             let _mesh_elapsed = mesh_start.elapsed();
             let total_elapsed = total_start.elapsed();
             crate::util::BENCH
@@ -1725,6 +1731,7 @@ impl App {
             )])?
             .context("terrain smoothing requires an affected visible terrain region")?,
         )?;
+        self.record_player_terrain_connectivity_edit(rebuild_bound);
         Ok(())
     }
 

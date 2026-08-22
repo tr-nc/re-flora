@@ -22,6 +22,41 @@ const TERRAIN_HARVEST_PARTICLE_SIZE: f32 = STANDARD_PARTICLE_SIZE;
 const DEFAULT_WATER_DEBUG_PARTICLE_SIZE: f32 = 0.012;
 const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
 const BUTTERFLY_SPAWN_SOURCE_REFRESH_SECONDS: f32 = 1.0;
+const DETACHED_TERRAIN_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(1.0 / 30.0, 2);
+
+fn detached_terrain_voxel_spawn(world_voxel: glam::UVec3, color: Vec4) -> ParticleSpawn {
+    let hash = world_voxel.x.wrapping_mul(73_856_093)
+        ^ world_voxel.y.wrapping_mul(19_349_663)
+        ^ world_voxel.z.wrapping_mul(83_492_791);
+    let signed_unit = |bits: u32| -> f32 { (bits as f32 / u32::MAX as f32) * 2.0 - 1.0 };
+    let position =
+        (world_voxel.as_vec3() + Vec3::splat(0.5)) / super::VOXEL_DIM_PER_CHUNK.as_vec3();
+    ParticleSpawn {
+        position,
+        velocity: Vec3::new(
+            signed_unit(hash.wrapping_mul(0x9e37_79b9)) * 0.025,
+            0.015,
+            signed_unit(hash.rotate_left(13).wrapping_mul(0x85eb_ca6b)) * 0.025,
+        ),
+        color,
+        size: STANDARD_PARTICLE_SIZE,
+        lifetime: 4.0,
+        wind_factor: 0.0,
+        gravity_factor: 1.0,
+        drift_direction: Vec3::ZERO,
+        drift_strength: 0.0,
+        drift_frequency: 1.0,
+        speed_noise_offset: hash as f32 / u32::MAX as f32,
+        motion_mode: crate::particles::MotionMode::Free,
+        sink_on_lifetime: false,
+        sink_speed: 0.1,
+        texture_variant: 0,
+        render_kind: ParticleRenderKind::TerrainVoxel,
+        despawn_on_lifetime: true,
+        despawn_below_ground: true,
+        update: DETACHED_TERRAIN_UPDATE,
+    }
+}
 
 fn water_debug_particle_size(value: f32) -> f32 {
     if value.is_finite() {
@@ -148,8 +183,7 @@ impl App {
             })
     }
 
-    #[allow(dead_code)]
-    fn terrain_harvest_color_for_voxel(&self, voxel_type: u32) -> Vec4 {
+    pub(super) fn terrain_harvest_color_for_voxel(&self, voxel_type: u32) -> Vec4 {
         fn srgb_to_linear(channel: u8) -> f32 {
             let srgb = channel as f32 / 255.0;
             if srgb <= 0.04045 {
@@ -187,6 +221,22 @@ impl App {
             srgb_to_linear(color_rgb[2]),
             1.0,
         )
+    }
+
+    pub(super) fn spawn_detached_terrain_voxel_particles(
+        &mut self,
+        voxels: &[(glam::UVec3, u8)],
+    ) -> usize {
+        let mut spawned = 0;
+        for &(world_voxel, voxel_type) in voxels {
+            let color = self.terrain_harvest_color_for_voxel(u32::from(voxel_type));
+            let spawn = detached_terrain_voxel_spawn(world_voxel, color);
+            if self.particle_system.spawn(spawn).is_none() {
+                break;
+            }
+            spawned += 1;
+        }
+        spawned
     }
 
     #[allow(dead_code)]
@@ -802,5 +852,26 @@ mod tests {
         assert_eq!(runtime.len(), 2);
         runtime.remove(2);
         assert_eq!(runtime.len(), 0);
+    }
+
+    #[test]
+    fn detached_voxel_particle_is_one_voxel_wide_and_falls_until_it_despawns() {
+        let world_voxel = glam::UVec3::new(64, 96, 128);
+        let color = Vec4::new(0.4, 0.3, 0.2, 1.0);
+
+        let spawn = detached_terrain_voxel_spawn(world_voxel, color);
+
+        assert_eq!(
+            spawn.position,
+            (world_voxel.as_vec3() + Vec3::splat(0.5))
+                / crate::app::core::VOXEL_DIM_PER_CHUNK.as_vec3()
+        );
+        assert_eq!(spawn.size, STANDARD_PARTICLE_SIZE);
+        assert_eq!(spawn.color, color);
+        assert_eq!(spawn.motion_mode, crate::particles::MotionMode::Free);
+        assert_eq!(spawn.render_kind, ParticleRenderKind::TerrainVoxel);
+        assert!(spawn.gravity_factor > 0.0);
+        assert!(spawn.despawn_on_lifetime);
+        assert!(spawn.despawn_below_ground);
     }
 }
